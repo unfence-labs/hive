@@ -30,7 +30,7 @@ export default function WorkspaceCard({ workspace, onDelete }: WorkspaceCardProp
       <CardContent className="pb-2">
         <p className="text-sm text-muted-foreground">{workspace.branch}</p>
         <p className="text-xs text-muted-foreground">
-          {workspace.agents.length} agent{workspace.agents.length !== 1 ? "s" : ""}
+          {(workspace.agents ?? []).length} agent{(workspace.agents ?? []).length !== 1 ? "s" : ""}
         </p>
       </CardContent>
       <CardFooter className="gap-2">
