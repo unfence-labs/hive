@@ -13,6 +13,16 @@
 
 ## Core Features (functional product)
 
+### Interactive mode (priority)
+
+Currently agents run with `claude -p` (fire-and-forget: single prompt, no interaction). The terminal should be fully interactive — a real Claude session where the user can chat back and forth.
+
+- [ ] **Backend: bidirectional WebSocket** — add a `stdin` message type so the frontend can send user input. Backend writes to the PTY via `ptyProcess.write(data)`. The plumbing is already there (node-pty supports stdin), just need to wire the WS → PTY direction
+- [ ] **Backend: launch claude in interactive mode** — drop `-p` flag, launch `claude --dangerously-skip-permissions` in the workspace cwd. The prompt becomes the first message sent via stdin after the process starts, not a CLI argument
+- [ ] **Frontend: enable terminal input** — remove `disableStdin: true` from xterm.js config. Capture keystrokes and send them over the WebSocket as `{ type: "stdin", data: "..." }`
+- [ ] **Frontend: input UX** — the xterm terminal becomes the primary interaction surface. User types directly in it, just like a real terminal. No separate "prompt" text field needed once interactive mode is active
+- [ ] **Support both modes** — keep `-p` as an option for automated/batch runs (e.g. agent chaining, review agents). Add a `mode: "interactive" | "print"` field to the launch request. Default to interactive
+
 ### Backend
 
 - [ ] **GET /api/agents/:agentId/logs** — new endpoint to serve agent log file content (paginated or streamed). The frontend needs this for history replay and reconnection
@@ -73,7 +83,6 @@
 
 ## Ideas & Future
 
-- [ ] **Interactive mode** — switch from `claude -p` (fire-and-forget) to interactive mode where the user can chat with the agent mid-task via the terminal
 - [ ] **Agent chaining** — auto-launch a review agent when a code agent finishes (configurable per workspace)
 - [ ] **Multi-model support** — allow choosing the model (claude opus, sonnet, haiku) per agent launch. Pass `--model` flag
 - [ ] **Cost tracking** — parse Claude's output for token usage, track cost per agent/workspace/project
