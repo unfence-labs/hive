@@ -23,7 +23,7 @@ export default function AppLayout({
         onAddProject={onAddProject}
         onDeleteProject={onDeleteProject}
       />
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-hidden">
         <Outlet />
       </main>
     </div>

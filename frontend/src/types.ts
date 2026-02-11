@@ -48,6 +48,43 @@ export interface ChatMessage {
   cancelled?: boolean;
 }
 
+// ── Question / Plan types (for AskUserQuestion & ExitPlanMode tools) ─
+
+export interface QuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface Question {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options: QuestionOption[];
+}
+
+export interface QuestionAnswer {
+  questionIndex: number;
+  selectedOptions: number[];
+  customText?: string;
+}
+
+export function isAskUserQuestion(tool: ToolCall): boolean {
+  try {
+    const input = JSON.parse(tool.input);
+    return tool.name === "AskUserQuestion" && Array.isArray(input?.questions);
+  } catch { return false; }
+}
+
+export function isExitPlanMode(tool: ToolCall): boolean {
+  return tool.name === "ExitPlanMode";
+}
+
+export function parseQuestions(tool: ToolCall): Question[] {
+  try {
+    return JSON.parse(tool.input).questions ?? [];
+  } catch { return []; }
+}
+
 // ── WebSocket protocol ──────────────────────────────────────────────
 
 /** Frontend -> Backend */
