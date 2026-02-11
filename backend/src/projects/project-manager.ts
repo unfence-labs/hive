@@ -45,9 +45,8 @@ export async function createProject(
 
 export async function listProjects(
   dataDir = getDataDir()
-): Promise<Project[]> {
-  const states = await loadAllProjects(dataDir);
-  return states.map(({ id, name, url, createdAt }) => ({ id, name, url, createdAt }));
+): Promise<ProjectState[]> {
+  return loadAllProjects(dataDir);
 }
 
 export async function getProject(

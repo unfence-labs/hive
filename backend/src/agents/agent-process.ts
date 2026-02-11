@@ -45,7 +45,10 @@ export class AgentProcess extends EventEmitter<AgentProcessEvent> {
     this.logStream = createWriteStream(this.config.logFile, { flags: "a" });
 
     const cmd = this.config.command ?? "claude";
-    const args = this.config.args ?? ["-p", this.config.prompt];
+    const args = this.config.args ?? [
+      "-p", this.config.prompt,
+      "--dangerously-skip-permissions",
+    ];
 
     try {
       this.ptyProcess = pty.spawn(cmd, args, {

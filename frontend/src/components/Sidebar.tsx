@@ -81,7 +81,7 @@ export default function Sidebar({
                   </svg>
                 </button>
               </div>
-              {project.workspaces.map((ws) => (
+              {(project.workspaces ?? []).map((ws) => (
                 <Link
                   key={ws.id}
                   to={`/workspaces/${ws.id}`}

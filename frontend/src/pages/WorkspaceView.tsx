@@ -32,7 +32,7 @@ export default function WorkspaceView() {
     fetchWorkspace();
   }, [fetchWorkspace]);
 
-  const activeAgent = workspace?.agents.find((a) => a.status === "running");
+  const activeAgent = (workspace?.agents ?? []).find((a) => a.status === "running");
   const isBusy = workspace?.status === "running";
 
   const handleLaunchAgent = async (prompt: string) => {
@@ -112,7 +112,7 @@ export default function WorkspaceView() {
 
       <div className="mb-4">
         <h2 className="mb-2 text-lg font-semibold">History</h2>
-        <AgentHistory agents={workspace.agents} />
+        <AgentHistory agents={workspace.agents ?? []} />
       </div>
 
       <div className="mt-6">
