@@ -13,19 +13,12 @@ interface ConversationState {
   sessionId?: string;
 }
 
-type Action =
+type LocalAction =
   | { type: "add_user_message"; content: string }
-  | { type: "text_delta"; text: string }
-  | { type: "thinking"; text: string }
-  | { type: "tool_use"; id: string; name: string; input: string }
-  | { type: "tool_result"; toolUseId: string; output: string }
-  | { type: "done"; sessionId?: string }
-  | { type: "cancelled" }
-  | { type: "error"; message: string }
-  | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean }
-  | { type: "history"; messages: ChatMessage[] }
   | { type: "reset" }
   | { type: "clear_chat" };
+
+type Action = WsOutgoing | LocalAction;
 
 const initialState: ConversationState = {
   messages: [],
@@ -157,38 +150,6 @@ function reducer(state: ConversationState, action: Action): ConversationState {
   }
 }
 
-function dispatchWsMessage(dispatch: React.Dispatch<Action>, msg: WsOutgoing): void {
-  switch (msg.type) {
-    case "text_delta":
-      dispatch({ type: "text_delta", text: msg.text });
-      break;
-    case "thinking":
-      dispatch({ type: "thinking", text: msg.text });
-      break;
-    case "tool_use":
-      dispatch({ type: "tool_use", id: msg.id, name: msg.name, input: msg.input });
-      break;
-    case "tool_result":
-      dispatch({ type: "tool_result", toolUseId: msg.toolUseId, output: msg.output });
-      break;
-    case "done":
-      dispatch({ type: "done", sessionId: msg.sessionId });
-      break;
-    case "cancelled":
-      dispatch({ type: "cancelled" });
-      break;
-    case "error":
-      dispatch({ type: "error", message: msg.message });
-      break;
-    case "status":
-      dispatch({ type: "status", status: msg.status, sessionId: msg.sessionId });
-      break;
-    case "history":
-      dispatch({ type: "history", messages: msg.messages });
-      break;
-  }
-}
-
 export function useConversation(workspaceId: string | undefined) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const connectionStatus = useSyncExternalStore(wsTransport.subscribe, wsTransport.getStatus);
@@ -198,9 +159,7 @@ export function useConversation(workspaceId: string | undefined) {
     dispatch({ type: "reset" });
     wsTransport.connect(workspaceId);
 
-    const unsubMessage = wsTransport.onMessage((msg) => {
-      dispatchWsMessage(dispatch, msg);
-    });
+    const unsubMessage = wsTransport.onMessage((msg) => dispatch(msg));
 
     return () => {
       unsubMessage();

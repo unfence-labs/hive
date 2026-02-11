@@ -1,12 +1,9 @@
 import { memo } from "react";
 import type { ChatMessage as ChatMessageType, QuestionAnswer } from "@/types";
-import { isAskUserQuestion, isExitPlanMode } from "@/types";
 import { cn } from "@/lib/utils";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
-import ChatToolUse from "@/components/ChatToolUse";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
-import { AskUserQuestion } from "@/components/chat/AskUserQuestion";
-import { ExitPlanModeButton } from "@/components/chat/ExitPlanModeButton";
+import { ToolCallList } from "@/components/chat/ToolCallList";
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -43,32 +40,13 @@ const ChatMessage = memo(function ChatMessage({
             <div className="prose-sm">
               <MarkdownRenderer content={message.content} />
             </div>
-            {message.toolCalls && message.toolCalls.length > 0 && (
-              <div className="mt-2">
-                {message.toolCalls.map((tool) => {
-                  if (isAskUserQuestion(tool)) {
-                    return (
-                      <AskUserQuestion
-                        key={tool.id}
-                        tool={tool}
-                        isInteractive={isInteractive}
-                        onAnswer={onQuestionAnswer}
-                      />
-                    );
-                  }
-                  if (isExitPlanMode(tool)) {
-                    return (
-                      <ExitPlanModeButton
-                        key={tool.id}
-                        toolCallId={tool.id}
-                        isInteractive={isInteractive}
-                        onApprove={onPlanApproval}
-                      />
-                    );
-                  }
-                  return <ChatToolUse key={tool.id} tool={tool} />;
-                })}
-              </div>
+            {message.toolCalls && (
+              <ToolCallList
+                toolCalls={message.toolCalls}
+                isInteractive={isInteractive}
+                onQuestionAnswer={onQuestionAnswer}
+                onPlanApproval={onPlanApproval}
+              />
             )}
             {message.cancelled && (
               <div className="mt-2 text-xs italic text-muted-foreground">

@@ -2,11 +2,10 @@ import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
 import {
   getSession,
-  sendMessage,
-  stopStreaming,
   getOrCreateSession,
   type SessionOptions,
 } from "../agents/agent-manager.js";
+import { errorMessage } from "../utils/errors.js";
 import type { WsIncoming, WsOutgoing } from "../types.js";
 
 export interface StreamRoutesOptions {
@@ -79,7 +78,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             });
             cleanupListeners?.();
             cleanupListeners = undefined;
-            session = null;
+            session = undefined;
           }
         };
 
@@ -127,8 +126,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
                 streaming: true,
               });
             } catch (err: unknown) {
-              const msg = err instanceof Error ? err.message : "Failed to send message";
-              sendOutgoing(socket, { type: "error", message: msg });
+              sendOutgoing(socket, { type: "error", message: errorMessage(err, "Failed to send message") });
             }
             break;
           }
@@ -138,8 +136,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
                 session.stop();
               }
             } catch (err: unknown) {
-              const msg = err instanceof Error ? err.message : "Failed to stop";
-              sendOutgoing(socket, { type: "error", message: msg });
+              sendOutgoing(socket, { type: "error", message: errorMessage(err, "Failed to stop") });
             }
             break;
           }

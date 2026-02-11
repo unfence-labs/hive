@@ -5,6 +5,7 @@ import {
   endSession,
   type SessionOptions,
 } from "../agents/agent-manager.js";
+import { errorMessage } from "../utils/errors.js";
 
 export interface SessionRoutesOptions {
   dataDir?: string;
@@ -27,7 +28,7 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
         const status = created ? 201 : 200;
         return reply.status(status).send(session.metadata);
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Failed to create session";
+        const msg = errorMessage(err, "Failed to create session");
         const code = msg.includes("busy") ? 409 : msg.includes("not found") ? 404 : 500;
         return reply.status(code).send({ error: msg });
       }
@@ -68,13 +69,10 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
         await endSession(req.params.wsId, dataDir);
         return reply.status(204).send();
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Failed to end session";
+        const msg = errorMessage(err, "Failed to end session");
         const code = msg.includes("not found") ? 404 : 500;
         return reply.status(code).send({ error: msg });
       }
     },
   );
 }
-
-// Keep backward-compatible export name for index.ts (will rename there)
-export const agentRoutes = sessionRoutes;

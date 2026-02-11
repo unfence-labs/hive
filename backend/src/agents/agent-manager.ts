@@ -3,7 +3,7 @@ import { ConversationSession } from "./conversation-session.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { saveProject, getDataDir } from "../state/state.js";
-import { git } from "../utils/git.js";
+import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
 import type { SessionMetadata } from "../types.js";
 
 const activeSessions = new Map<string, ConversationSession>();
@@ -44,12 +44,10 @@ export async function getOrCreateSession(
   // Build system prompt unless explicitly disabled (e.g. in tests)
   let systemPrompt: string | undefined;
   if (options?.systemPrompt !== false) {
-    // Resolve default branch from bare repo (worktrees don't have origin)
-    const bareRepo = join(dataDir, projectState.id, "repo.git");
+    const bare = bareRepoPath(dataDir, projectState.id);
     let defaultBranch: string | undefined;
     try {
-      const { stdout: headRef } = await git(["symbolic-ref", "HEAD"], bareRepo);
-      defaultBranch = headRef.replace("refs/heads/", "");
+      defaultBranch = await resolveDefaultBranch(bare);
     } catch {
       // Falls back to detection in getGitContext
     }

@@ -2,12 +2,9 @@ import { join } from "node:path";
 import { rm, mkdir } from "node:fs/promises";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
-import { saveProject, loadProject, loadAllProjects, deleteProjectState, getDataDir } from "../state/state.js";
-import type { Project, ProjectState } from "../types.js";
-
-function repoPath(dataDir: string, projectId: string): string {
-  return join(dataDir, projectId, "repo.git");
-}
+import { bareRepoPath } from "../utils/paths.js";
+import { saveProject, loadProject, loadAllProjects, getDataDir } from "../state/state.js";
+import type { ProjectState } from "../types.js";
 
 function extractRepoName(url: string): string {
   const match = url.match(/\/([^/]+?)(?:\.git)?$/);
@@ -23,7 +20,7 @@ export async function createProject(
   }
 
   const id = `proj-${nanoid(8)}`;
-  const bare = repoPath(dataDir, id);
+  const bare = bareRepoPath(dataDir, id);
   const wsDir = join(dataDir, id, "workspaces");
   const logsDir = join(dataDir, id, "logs");
 
@@ -70,6 +67,6 @@ export async function fetchProject(
 ): Promise<void> {
   const state = await loadProject(projectId, dataDir);
   if (!state) throw new Error(`Project ${projectId} not found`);
-  const bare = repoPath(dataDir, projectId);
+  const bare = bareRepoPath(dataDir, projectId);
   await git(["fetch", "--all"], bare);
 }

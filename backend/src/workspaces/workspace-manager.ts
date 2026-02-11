@@ -1,18 +1,11 @@
 import { join } from "node:path";
-import { rm, mkdir } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
+import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/paths.js";
 import { pickCityName } from "../utils/city-names.js";
 import { loadProject, saveProject, getDataDir } from "../state/state.js";
 import type { Workspace, ProjectState } from "../types.js";
-
-function bareRepoPath(dataDir: string, projectId: string): string {
-  return join(dataDir, projectId, "repo.git");
-}
-
-function workspacesDir(dataDir: string, projectId: string): string {
-  return join(dataDir, projectId, "workspaces");
-}
 
 function findWorkspace(state: ProjectState, wsId: string): Workspace | undefined {
   return state.workspaces.find((ws) => ws.id === wsId);
@@ -42,9 +35,7 @@ export async function createWorkspace(
   const wsPath = join(workspacesDir(dataDir, projectId), cityName);
   const bare = bareRepoPath(dataDir, projectId);
 
-  // Determine default branch from bare repo
-  const { stdout: headRef } = await git(["symbolic-ref", "HEAD"], bare);
-  const defaultBranch = headRef.replace("refs/heads/", "");
+  const defaultBranch = await resolveDefaultBranch(bare);
 
   // Create worktree from the default branch
   await git(["worktree", "add", "-b", branch, wsPath, defaultBranch], bare);
@@ -124,9 +115,7 @@ export async function getWorkspaceDiff(
   const { projectState, workspace } = result;
   const bare = bareRepoPath(dataDir, projectState.id);
 
-  // Get the default branch name
-  const { stdout: headRef } = await git(["symbolic-ref", "HEAD"], bare);
-  const defaultBranch = headRef.replace("refs/heads/", "");
+  const defaultBranch = await resolveDefaultBranch(bare);
 
   try {
     const { stdout } = await git(["diff", `${defaultBranch}...${workspace.branch}`], bare);
@@ -150,9 +139,7 @@ export async function mergeWorkspace(
 
   const bare = bareRepoPath(dataDir, projectState.id);
 
-  // Get default branch name
-  const { stdout: headRef } = await git(["symbolic-ref", "HEAD"], bare);
-  const defaultBranch = headRef.replace("refs/heads/", "");
+  const defaultBranch = await resolveDefaultBranch(bare);
 
   // Create a temp worktree on the default branch to perform the merge
   const tempPath = join(dataDir, projectState.id, `_merge-${nanoid(6)}`);
