@@ -3,7 +3,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/ChatMessage";
 import ChatToolUse from "@/components/ChatToolUse";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
-import type { ChatMessage as ChatMessageType, ToolCall } from "@/types";
+import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
+import { AskUserQuestion } from "@/components/chat/AskUserQuestion";
+import { ExitPlanModeButton } from "@/components/chat/ExitPlanModeButton";
+import { isAskUserQuestion, isExitPlanMode } from "@/types";
+import type { ChatMessage as ChatMessageType, ToolCall, QuestionAnswer } from "@/types";
 
 interface ChatConversationProps {
   messages: ChatMessageType[];
@@ -11,6 +15,8 @@ interface ChatConversationProps {
   currentStreamingText: string;
   currentThinking: string;
   activeToolCalls: ToolCall[];
+  onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
+  onPlanApproval?: () => void;
 }
 
 export default function ChatConversation({
@@ -19,6 +25,8 @@ export default function ChatConversation({
   currentStreamingText,
   currentThinking,
   activeToolCalls,
+  onQuestionAnswer,
+  onPlanApproval,
 }: ChatConversationProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -27,6 +35,15 @@ export default function ChatConversation({
   }, [messages, currentStreamingText, activeToolCalls]);
 
   const hasContent = messages.length > 0 || isStreaming;
+
+  // Only the last assistant message (with no user message after it) is interactive.
+  // If we're currently streaming, the streaming section handles interactivity instead.
+  const lastAssistantIdx = isStreaming
+    ? -1
+    : messages.reduce((acc, msg, i) => (msg.role === "assistant" ? i : acc), -1);
+  const hasUserAfterLast =
+    lastAssistantIdx >= 0 &&
+    messages.slice(lastAssistantIdx + 1).some((m) => m.role === "user");
 
   return (
     <ScrollArea className="flex-1">
@@ -37,7 +54,13 @@ export default function ChatConversation({
           </div>
         )}
         {messages.map((msg, i) => (
-          <ChatMessage key={msg.id ?? `${msg.timestamp}-${i}`} message={msg} />
+          <ChatMessage
+            key={msg.id ?? `${msg.timestamp}-${i}`}
+            message={msg}
+            isInteractive={i === lastAssistantIdx && !hasUserAfterLast}
+            onQuestionAnswer={onQuestionAnswer}
+            onPlanApproval={onPlanApproval}
+          />
         ))}
 
         {/* Live streaming content */}
@@ -45,14 +68,7 @@ export default function ChatConversation({
           <div className="flex w-full justify-start">
             <div className="max-w-[85%] rounded-xl bg-muted px-4 py-3 text-sm leading-relaxed text-foreground">
               {currentThinking && (
-                <details className="mb-2" open>
-                  <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-                    Thinking...
-                  </summary>
-                  <div className="mt-1 rounded bg-muted/80 px-2 py-1 text-xs italic text-muted-foreground">
-                    {currentThinking}
-                  </div>
-                </details>
+                <ThinkingBlock content={currentThinking} defaultOpen streaming />
               )}
               {currentStreamingText && (
                 <div className="prose-sm">
@@ -62,13 +78,35 @@ export default function ChatConversation({
               )}
               {activeToolCalls.length > 0 && (
                 <div className="mt-2">
-                  {activeToolCalls.map((tool) => (
-                    <ChatToolUse
-                      key={tool.id}
-                      tool={tool}
-                      isExecuting={tool.output === undefined}
-                    />
-                  ))}
+                  {activeToolCalls.map((tool) => {
+                    if (isAskUserQuestion(tool)) {
+                      return (
+                        <AskUserQuestion
+                          key={tool.id}
+                          tool={tool}
+                          isInteractive
+                          onAnswer={onQuestionAnswer}
+                        />
+                      );
+                    }
+                    if (isExitPlanMode(tool)) {
+                      return (
+                        <ExitPlanModeButton
+                          key={tool.id}
+                          toolCallId={tool.id}
+                          isInteractive
+                          onApprove={onPlanApproval}
+                        />
+                      );
+                    }
+                    return (
+                      <ChatToolUse
+                        key={tool.id}
+                        tool={tool}
+                        isExecuting={tool.output === undefined}
+                      />
+                    );
+                  })}
                 </div>
               )}
             </div>

@@ -44,6 +44,8 @@ export default function WorkspaceView() {
     sendMessage,
     stopStreaming,
     clearChat,
+    answerQuestion,
+    approvePlan,
   } = useConversation(wsId);
 
   const { endSession } = useConversationApi(wsId);
@@ -123,6 +125,8 @@ export default function WorkspaceView() {
           currentStreamingText={currentStreamingText}
           currentThinking={currentThinking}
           activeToolCalls={activeToolCalls}
+          onQuestionAnswer={answerQuestion}
+          onPlanApproval={approvePlan}
         />
         <ChatInput
           onSend={sendMessage}

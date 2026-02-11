@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useReducer } from "react";
-import type { ChatMessage, ToolCall, WsOutgoing } from "@/types";
+import type { ChatMessage, ToolCall, WsOutgoing, QuestionAnswer } from "@/types";
 
 interface ConversationState {
   messages: ChatMessage[];
@@ -278,6 +278,18 @@ export function useConversation(workspaceId: string | undefined) {
     dispatch({ type: "clear_chat" });
   }, []);
 
+  const answerQuestion = useCallback((_toolCallId: string, answers: QuestionAnswer[]) => {
+    const formatted = answers.map((a) => {
+      if (a.customText) return `Q${a.questionIndex + 1}: "${a.customText}"`;
+      return `Q${a.questionIndex + 1}: Selected option(s) ${a.selectedOptions.map((i) => i + 1).join(", ")}`;
+    }).join("\n");
+    sendMessage(`[Response to question]\n${formatted}`);
+  }, [sendMessage]);
+
+  const approvePlan = useCallback(() => {
+    sendMessage("I approve the plan. Please proceed with implementation.");
+  }, [sendMessage]);
+
   return {
     messages: state.messages,
     isStreaming: state.isStreaming,
@@ -291,5 +303,7 @@ export function useConversation(workspaceId: string | undefined) {
     sendMessage,
     stopStreaming,
     clearChat,
+    answerQuestion,
+    approvePlan,
   };
 }
