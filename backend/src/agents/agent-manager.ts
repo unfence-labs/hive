@@ -28,7 +28,11 @@ export async function getOrCreateSession(
 
   const { projectState, workspace } = result;
   if (workspace.status === "busy") {
-    throw new Error("Workspace is busy");
+    // Sessions are in-memory only. If backend restarted, a workspace can remain
+    // persisted as busy without an active session in memory; recover it.
+    workspace.status = "idle";
+    workspace.activeSessionId = undefined;
+    await saveProject(projectState, dataDir);
   }
 
   const wsPath = join(dataDir, projectState.id, "workspaces", workspace.name);
@@ -80,21 +84,17 @@ export async function endSession(
   dataDir = getDataDir(),
 ): Promise<void> {
   const session = activeSessions.get(wsId);
-  if (!session) throw new Error(`No active session for workspace ${wsId}`);
-
-  session.stop();
-  activeSessions.delete(wsId);
-
-  try {
-    const result = await getWorkspace(wsId, dataDir);
-    if (result) {
-      result.workspace.status = "idle";
-      result.workspace.activeSessionId = undefined;
-      await saveProject(result.projectState, dataDir);
-    }
-  } catch {
-    // State dir may have been cleaned up (e.g. in tests)
+  if (session) {
+    session.stop();
+    activeSessions.delete(wsId);
   }
+
+  const result = await getWorkspace(wsId, dataDir);
+  if (!result) throw new Error(`Workspace ${wsId} not found`);
+
+  result.workspace.status = "idle";
+  result.workspace.activeSessionId = undefined;
+  await saveProject(result.projectState, dataDir);
 }
 
 /** Get session metadata (from active session or return null). */

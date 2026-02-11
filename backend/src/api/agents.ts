@@ -69,7 +69,7 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
         return reply.status(204).send();
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Failed to end session";
-        const code = msg.includes("No active session") ? 404 : 500;
+        const code = msg.includes("not found") ? 404 : 500;
         return reply.status(code).send({ error: msg });
       }
     },

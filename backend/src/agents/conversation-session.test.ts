@@ -30,6 +30,7 @@ function createMockProcess() {
   const proc = new EventEmitter() as ChildProcess & {
     _stdout: ReturnType<typeof createMockStream>;
     _stderr: ReturnType<typeof createMockStream>;
+    _stdinEnd: ReturnType<typeof vi.fn>;
     kill: ReturnType<typeof vi.fn>;
     pid: number;
     _emitClose: (code: number) => void;
@@ -38,7 +39,8 @@ function createMockProcess() {
   proc._stderr = createMockStream();
   proc.stdout = proc._stdout as unknown as ChildProcess["stdout"];
   proc.stderr = proc._stderr as unknown as ChildProcess["stderr"];
-  proc.stdin = new EventEmitter() as unknown as ChildProcess["stdin"];
+  proc._stdinEnd = vi.fn();
+  proc.stdin = { end: proc._stdinEnd } as unknown as ChildProcess["stdin"];
   proc.pid = 12345;
   proc.kill = vi.fn(() => true);
   proc._emitClose = (code: number) => proc.emit("close", code);
@@ -137,6 +139,7 @@ describe("ConversationSession", () => {
       ],
       { cwd: "/tmp/test", stdio: ["pipe", "pipe", "pipe"] },
     );
+    expect(mockProc._stdinEnd).toHaveBeenCalledTimes(1);
   });
 
   it("uses --resume after receiving claudeSessionId from result", () => {

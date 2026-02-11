@@ -50,9 +50,10 @@ export default function WorkspaceView() {
     if (!wsId) return;
     try {
       await endSession();
-      await fetchWorkspace();
     } catch {
-      // Session may already be gone
+      // Best-effort; always refresh workspace state below.
+    } finally {
+      await fetchWorkspace();
     }
   };
 
