@@ -99,7 +99,7 @@ describe("WS /ws/session/:wsId", () => {
 
     await waitForMessage(messages, (msgs) => msgs.length >= 1);
 
-    expect(messages[0]).toEqual({ type: "status", status: "idle" });
+    expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
     ws.close();
   });
 
@@ -115,6 +115,7 @@ describe("WS /ws/session/:wsId", () => {
     if (messages[0].type === "status") {
       expect(messages[0].status).toBe("busy");
       expect(messages[0].sessionId).toBeTruthy();
+      expect(messages[0].streaming).toBe(false);
     }
 
     ws.close();
@@ -141,6 +142,9 @@ describe("WS /ws/session/:wsId", () => {
       (m) => m.type === "status" && "sessionId" in m && m.sessionId,
     );
     expect(statusMsgs.length).toBeGreaterThanOrEqual(1);
+    expect(
+      statusMsgs.some((m) => m.type === "status" && m.streaming === true),
+    ).toBe(true);
 
     ws.close();
     await endSession(wsId, dataDir).catch(() => {});

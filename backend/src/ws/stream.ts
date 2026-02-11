@@ -38,6 +38,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           type: "status",
           status: "busy",
           sessionId: session.sessionId,
+          streaming: session.status === "streaming",
         });
         try {
           const messages = await session.getMessages();
@@ -48,7 +49,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           // History load failure is non-fatal
         }
       } else {
-        sendOutgoing(socket, { type: "status", status: "idle" });
+        sendOutgoing(socket, { type: "status", status: "idle", streaming: false });
       }
 
       // Pipe session events to this WS client
@@ -62,8 +63,9 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         const onExit = (_code: number) => {
           sendOutgoing(socket, {
             type: "status",
-            status: session!.status === "idle" ? "busy" : "busy",
+            status: "busy",
             sessionId: session!.sessionId,
+            streaming: false,
           });
         };
 
@@ -102,13 +104,14 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
                 const result = await getOrCreateSession(wsId, dataDir, sessionOptions);
                 session = result.session;
                 cleanupListeners = attachSessionListeners();
-                sendOutgoing(socket, {
-                  type: "status",
-                  status: "busy",
-                  sessionId: session.sessionId,
-                });
               }
               session.sendMessage(incoming.content);
+              sendOutgoing(socket, {
+                type: "status",
+                status: "busy",
+                sessionId: session.sessionId,
+                streaming: true,
+              });
             } catch (err: unknown) {
               const msg = err instanceof Error ? err.message : "Failed to send message";
               sendOutgoing(socket, { type: "error", message: msg });

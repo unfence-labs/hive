@@ -120,5 +120,5 @@ export type WsOutgoing =
   | { type: "done"; sessionId?: string; costUsd?: number }
   | { type: "error"; message: string }
   | { type: "cancelled" }
-  | { type: "status"; status: WorkspaceStatus; sessionId?: string }
+  | { type: "status"; status: WorkspaceStatus; sessionId?: string; streaming?: boolean }
   | { type: "history"; messages: ChatMessage[] };

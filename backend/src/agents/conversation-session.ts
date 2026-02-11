@@ -243,18 +243,25 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
       this._metadata.messageCount = this.messageCount;
       this._metadata.updatedAt = new Date().toISOString();
-      void this.saveMetadata();
-
-      if (wasCancelled) {
-        this.emit("message", { type: "cancelled" });
-      } else {
-        this.emit("message", {
-          type: "done",
-          sessionId: this.claudeSessionId,
+      this.persistQueue = this.persistQueue
+        .then(() => this.saveMetadata())
+        .catch(() => {
+          // Non-fatal: metadata persistence failure should not break the session.
         });
-      }
 
-      this.emit("exit", exitCode);
+      void (async () => {
+        await this.persistQueue;
+        if (wasCancelled) {
+          this.emit("message", { type: "cancelled" });
+        } else {
+          this.emit("message", {
+            type: "done",
+            sessionId: this.claudeSessionId,
+          });
+        }
+
+        this.emit("exit", exitCode);
+      })();
     });
   }
 

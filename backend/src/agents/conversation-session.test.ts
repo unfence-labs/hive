@@ -90,7 +90,17 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(tempDir, { recursive: true, force: true });
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      await rm(tempDir, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOTEMPTY" || attempt === 4) {
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
 });
 
 describe("ConversationSession", () => {

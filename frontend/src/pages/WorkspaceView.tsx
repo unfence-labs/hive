@@ -35,6 +35,7 @@ export default function WorkspaceView() {
   const {
     messages,
     isStreaming,
+    workspaceStatus,
     currentStreamingText,
     currentThinking,
     activeToolCalls,
@@ -74,7 +75,8 @@ export default function WorkspaceView() {
     );
   }
 
-  const isBusy = workspace.status === "busy";
+  const effectiveWorkspaceStatus = workspaceStatus ?? workspace.status;
+  const hasActiveSession = effectiveWorkspaceStatus === "busy";
 
   return (
     <div className="flex h-full flex-col">
@@ -84,18 +86,21 @@ export default function WorkspaceView() {
           <h1 className="text-2xl font-bold">{workspace.name}</h1>
           <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
             <span>{workspace.branch}</span>
-            <Badge variant={isBusy ? "default" : "secondary"}>
+            <Badge variant={hasActiveSession ? "default" : "secondary"}>
               <span
                 className={`mr-1.5 inline-block h-2 w-2 rounded-full ${
-                  isBusy ? "bg-blue-400" : "bg-muted-foreground/40"
+                  hasActiveSession ? "bg-blue-400" : "bg-muted-foreground/40"
                 }`}
               />
-              {workspace.status}
+              {hasActiveSession ? "session active" : "session idle"}
+            </Badge>
+            <Badge variant={isStreaming ? "default" : "outline"}>
+              {isStreaming ? "streaming" : "ready"}
             </Badge>
           </div>
         </div>
         <div className="flex gap-2">
-          {isBusy && (
+          {hasActiveSession && (
             <Button variant="destructive" size="sm" onClick={handleEndSession}>
               End Session
             </Button>
