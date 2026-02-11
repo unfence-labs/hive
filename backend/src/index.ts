@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import { projectRoutes } from "./api/projects.js";
 import { workspaceRoutes } from "./api/workspaces.js";
-import { agentRoutes } from "./api/agents.js";
+import { sessionRoutes } from "./api/agents.js";
 import { streamRoutes } from "./ws/stream.js";
 
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -17,8 +17,8 @@ export async function buildApp() {
 
   await app.register((instance: FastifyInstance) => projectRoutes(instance));
   await app.register((instance: FastifyInstance) => workspaceRoutes(instance));
-  await app.register((instance: FastifyInstance) => agentRoutes(instance));
-  await app.register(streamRoutes);
+  await app.register((instance: FastifyInstance) => sessionRoutes(instance));
+  await app.register((instance: FastifyInstance) => streamRoutes(instance));
 
   return app;
 }

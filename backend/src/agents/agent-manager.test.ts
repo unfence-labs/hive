@@ -5,33 +5,25 @@ import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { createProject } from "../projects/project-manager.js";
 import { createWorkspace } from "../workspaces/workspace-manager.js";
 import {
-  launchAgent,
-  getAgent,
-  listAgents,
-  getActiveProcess,
-  _clearActiveAgents,
+  getOrCreateSession,
+  getSession,
+  sendMessage,
+  stopStreaming,
+  endSession,
+  getSessionMetadata,
+  _clearActiveSessions,
 } from "./agent-manager.js";
-import { loadProject } from "../state/state.js";
+import { loadProject, saveProject } from "../state/state.js";
 
-const MOCK_CMD = { command: "echo", args: ["mock output"] };
-const SLOW_CMD = { command: "sleep", args: ["30"] };
+const CONV_CMD = { command: "bash" };
 
 let tempDir: string;
 let dataDir: string;
 let projectId: string;
 let wsId: string;
 
-function waitForAgent(agentId: string): Promise<void> {
-  return new Promise((resolve) => {
-    const proc = getActiveProcess(agentId);
-    if (!proc || proc.status !== "running") return resolve();
-    proc.on("exit", () => resolve());
-    proc.on("error", () => resolve());
-  });
-}
-
 beforeEach(async () => {
-  tempDir = await createTempDir("hive-agent-mgr-test-");
+  tempDir = await createTempDir("hive-session-mgr-test-");
   dataDir = join(tempDir, "data");
   const fixtureDir = join(tempDir, "fixtures");
   const { mkdir } = await import("node:fs/promises");
@@ -45,105 +37,138 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  _clearActiveAgents();
-  // Small delay to let any pending state writes settle
+  _clearActiveSessions();
   await new Promise((r) => setTimeout(r, 50));
   await rm(tempDir, { recursive: true, force: true });
 });
 
-describe("launchAgent", () => {
-  it("launches an agent and sets workspace to running", async () => {
-    const agent = await launchAgent(wsId, "test prompt", dataDir, MOCK_CMD);
+describe("getOrCreateSession", () => {
+  it("creates a session and sets workspace to busy", async () => {
+    const { session, created } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
 
-    expect(agent.id).toMatch(/^agent-/);
-    expect(agent.status).toBe("running");
-    expect(agent.prompt).toBe("test prompt");
+    expect(created).toBe(true);
+    expect(session.sessionId).toBeTruthy();
 
     const state = await loadProject(projectId, dataDir);
     const ws = state!.workspaces.find((w) => w.id === wsId);
-    expect(ws!.status).toBe("running");
-    expect(ws!.agents).toHaveLength(1);
-
-    await waitForAgent(agent.id);
+    expect(ws!.status).toBe("busy");
+    expect(ws!.activeSessionId).toBe(session.sessionId);
   });
 
-  it("rejects launching on a busy workspace", async () => {
-    const agent = await launchAgent(wsId, "first", dataDir, SLOW_CMD);
+  it("returns existing session if already active", async () => {
+    const { session: first } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const { session: second, created } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
 
-    await expect(launchAgent(wsId, "second", dataDir, MOCK_CMD)).rejects.toThrow("busy");
-
-    const proc = getActiveProcess(agent.id);
-    proc?.stop();
-    await waitForAgent(agent.id);
-  });
-});
-
-describe("getAgent", () => {
-  it("returns agent by ID", async () => {
-    const agent = await launchAgent(wsId, "find me", dataDir, MOCK_CMD);
-    await waitForAgent(agent.id);
-
-    const found = await getAgent(agent.id, dataDir);
-    expect(found).not.toBeNull();
-    expect(found!.prompt).toBe("find me");
-  });
-
-  it("returns null for non-existent agent", async () => {
-    const found = await getAgent("nonexistent", dataDir);
-    expect(found).toBeNull();
-  });
-});
-
-describe("listAgents", () => {
-  it("returns agent history for workspace", async () => {
-    const agent = await launchAgent(wsId, "history test", dataDir, MOCK_CMD);
-    await waitForAgent(agent.id);
-
-    const agents = await listAgents(wsId, dataDir);
-    expect(agents).toHaveLength(1);
-    expect(agents[0].prompt).toBe("history test");
+    expect(created).toBe(false);
+    expect(second).toBe(first);
   });
 
   it("throws for non-existent workspace", async () => {
-    await expect(listAgents("nonexistent", dataDir)).rejects.toThrow("not found");
+    await expect(getOrCreateSession("nonexistent", dataDir, CONV_CMD)).rejects.toThrow("not found");
+  });
+
+  it("recovers stale busy workspace state and creates a new session", async () => {
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId)!;
+    ws.status = "busy";
+    ws.activeSessionId = "stale-session-id";
+    await saveProject(state!, dataDir);
+
+    const { session, created } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    expect(created).toBe(true);
+    expect(session.sessionId).toBeTruthy();
+
+    const updatedState = await loadProject(projectId, dataDir);
+    const updatedWs = updatedState!.workspaces.find((w) => w.id === wsId)!;
+    expect(updatedWs.status).toBe("busy");
+    expect(updatedWs.activeSessionId).toBe(session.sessionId);
   });
 });
 
-describe("agent completion", () => {
-  it("sets workspace back to idle when agent finishes", async () => {
-    const agent = await launchAgent(wsId, "will finish", dataDir, MOCK_CMD);
-    await waitForAgent(agent.id);
-    await new Promise((r) => setTimeout(r, 100));
+describe("getSession", () => {
+  it("returns session for active workspace", async () => {
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const session = getSession(wsId);
+    expect(session).toBeDefined();
+  });
+
+  it("returns undefined for workspace without session", () => {
+    const session = getSession(wsId);
+    expect(session).toBeUndefined();
+  });
+});
+
+describe("sendMessage", () => {
+  it("auto-creates session and sends message", async () => {
+    const session = await sendMessage(wsId, "Hello", dataDir, CONV_CMD);
+    expect(session).toBeDefined();
+    expect(session.status).toBe("streaming");
+  });
+
+  it("uses existing session for subsequent messages", async () => {
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const session = await sendMessage(wsId, "Hello", dataDir, CONV_CMD);
+    expect(session.status).toBe("streaming");
+  });
+});
+
+describe("stopStreaming", () => {
+  it("stops current process but keeps session alive", async () => {
+    await sendMessage(wsId, "Hello", dataDir, CONV_CMD);
+
+    stopStreaming(wsId);
+
+    const session = getSession(wsId);
+    expect(session).toBeDefined();
+  });
+
+  it("throws when no session exists", () => {
+    expect(() => stopStreaming(wsId)).toThrow("No active session");
+  });
+});
+
+describe("endSession", () => {
+  it("terminates session and sets workspace back to idle", async () => {
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    await endSession(wsId, dataDir);
+
+    expect(getSession(wsId)).toBeUndefined();
+
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId);
+    expect(ws!.status).toBe("idle");
+    expect(ws!.activeSessionId).toBeUndefined();
+  });
+
+  it("allows creating a new session after ending one", async () => {
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    await endSession(wsId, dataDir);
+
+    const { session, created } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    expect(created).toBe(true);
+    expect(session.sessionId).toBeTruthy();
+  });
+
+  it("is idempotent when no session exists", async () => {
+    await expect(endSession(wsId, dataDir)).resolves.toBeUndefined();
 
     const state = await loadProject(projectId, dataDir);
     const ws = state!.workspaces.find((w) => w.id === wsId);
     expect(ws!.status).toBe("idle");
   });
+});
 
-  it("records exit code and finish time", async () => {
-    const agent = await launchAgent(wsId, "track exit", dataDir, MOCK_CMD);
-    await waitForAgent(agent.id);
-    await new Promise((r) => setTimeout(r, 100));
-
-    const found = await getAgent(agent.id, dataDir);
-    expect(found).not.toBeNull();
-    expect(found!.finishedAt).toBeTruthy();
-    expect(found!.exitCode).toBe(0);
-    expect(found!.status).toBe("done");
+describe("getSessionMetadata", () => {
+  it("returns metadata for active session", async () => {
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const meta = getSessionMetadata(wsId);
+    expect(meta).not.toBeNull();
+    expect(meta!.sessionId).toBeTruthy();
+    expect(meta!.workspaceId).toBe(wsId);
   });
 
-  it("can launch a new agent after previous one finishes", async () => {
-    const agent1 = await launchAgent(wsId, "first", dataDir, MOCK_CMD);
-    await waitForAgent(agent1.id);
-    await new Promise((r) => setTimeout(r, 100));
-
-    const agent2 = await launchAgent(wsId, "second", dataDir, MOCK_CMD);
-    await waitForAgent(agent2.id);
-    await new Promise((r) => setTimeout(r, 100));
-
-    const agents = await listAgents(wsId, dataDir);
-    expect(agents).toHaveLength(2);
-    expect(agents[0].prompt).toBe("first");
-    expect(agents[1].prompt).toBe("second");
+  it("returns null for workspace without session", () => {
+    const meta = getSessionMetadata(wsId);
+    expect(meta).toBeNull();
   });
 });

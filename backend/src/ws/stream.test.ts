@@ -7,15 +7,15 @@ import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { createProject } from "../projects/project-manager.js";
 import { createWorkspace } from "../workspaces/workspace-manager.js";
-import { launchAgent, _clearActiveAgents } from "../agents/agent-manager.js";
+import {
+  getOrCreateSession,
+  endSession,
+  _clearActiveSessions,
+} from "../agents/agent-manager.js";
 import { streamRoutes } from "./stream.js";
-import type { WsMessage } from "../types.js";
+import type { WsOutgoing } from "../types.js";
 
-// Slow enough for WS to connect before output starts
-const SLOW_CMD = {
-  command: "bash",
-  args: ["-c", "sleep 0.3; echo 'hello'; sleep 0.1; echo 'world'"],
-};
+const CONV_CMD = { command: "bash" };
 
 let tempDir: string;
 let dataDir: string;
@@ -40,85 +40,152 @@ beforeEach(async () => {
 
   app = Fastify();
   await app.register(websocket);
-  await app.register(streamRoutes);
+  await app.register((instance: typeof app) =>
+    streamRoutes(instance, { dataDir, sessionOptions: CONV_CMD }),
+  );
   address = await app.listen({ port: 0, host: "127.0.0.1" });
 });
 
 afterEach(async () => {
-  _clearActiveAgents();
+  _clearActiveSessions();
   await new Promise((r) => setTimeout(r, 100));
   await app.close();
   await rm(tempDir, { recursive: true, force: true });
 });
 
-function connectWs(agentId: string): Promise<WebSocket> {
+/** Connect a WebSocket and start collecting messages immediately. */
+function connectSessionWs(workspaceId: string): {
+  wsReady: Promise<WebSocket>;
+  messages: WsOutgoing[];
+} {
   const wsUrl = address.replace("http://", "ws://");
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${wsUrl}/ws/agents/${agentId}/stream`);
+  const messages: WsOutgoing[] = [];
+  const ws = new WebSocket(`${wsUrl}/ws/session/${workspaceId}`);
+  ws.on("message", (data) => {
+    messages.push(JSON.parse(data.toString()) as WsOutgoing);
+  });
+  const wsReady = new Promise<WebSocket>((resolve, reject) => {
     ws.on("open", () => resolve(ws));
     ws.on("error", reject);
   });
+  return { wsReady, messages };
 }
 
-function collectMessages(ws: WebSocket, timeoutMs = 5000): Promise<WsMessage[]> {
-  return new Promise((resolve) => {
-    const messages: WsMessage[] = [];
+/** Wait until a condition is met on the collected messages. */
+function waitForMessage(
+  messages: WsOutgoing[],
+  predicate: (msgs: WsOutgoing[]) => boolean,
+  timeoutMs = 3000,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const interval = setInterval(() => {
+      if (predicate(messages)) {
+        clearInterval(interval);
+        clearTimeout(timeout);
+        resolve();
+      }
+    }, 20);
     const timeout = setTimeout(() => {
-      ws.close();
+      clearInterval(interval);
+      reject(new Error(`Timeout waiting for message. Got: ${JSON.stringify(messages)}`));
     }, timeoutMs);
-    ws.on("message", (data) => {
-      messages.push(JSON.parse(data.toString()));
-    });
-    ws.on("close", () => {
-      clearTimeout(timeout);
-      resolve(messages);
-    });
   });
 }
 
-describe("WS /ws/agents/:agentId/stream", () => {
-  it("streams agent output and sends exit message", async () => {
-    const agent = await launchAgent(wsId, "test", dataDir, SLOW_CMD);
+describe("WS /ws/session/:wsId", () => {
+  it("sends idle status when no session exists", async () => {
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
 
-    const ws = await connectWs(agent.id);
-    const messages = await collectMessages(ws);
+    await waitForMessage(messages, (msgs) => msgs.length >= 1);
 
-    const stdoutMsgs = messages.filter((m) => m.type === "stdout");
-    const exitMsg = messages.find((m) => m.type === "exit");
-
-    expect(stdoutMsgs.length).toBeGreaterThan(0);
-    const allOutput = stdoutMsgs.map((m) => m.data).join("");
-    expect(allOutput).toContain("hello");
-    expect(allOutput).toContain("world");
-
-    expect(exitMsg).toBeDefined();
-    expect(exitMsg!.code).toBe(0);
+    expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
+    ws.close();
   });
 
-  it("closes connection for non-existent agent", async () => {
-    const ws = await connectWs("nonexistent");
-    const messages = await collectMessages(ws, 2000);
+  it("sends busy status + history when session exists", async () => {
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
 
-    // Should receive a status message or just close
-    if (messages.length > 0) {
-      expect(messages[0].type).toBe("status");
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.length >= 1);
+
+    expect(messages[0].type).toBe("status");
+    if (messages[0].type === "status") {
+      expect(messages[0].status).toBe("busy");
+      expect(messages[0].sessionId).toBeTruthy();
+      expect(messages[0].streaming).toBe(false);
     }
-    // Connection should be closed
-    expect(ws.readyState).toBe(WebSocket.CLOSED);
+
+    ws.close();
+    await endSession(wsId, dataDir);
   });
 
-  it("supports multiple clients for the same agent", async () => {
-    const agent = await launchAgent(wsId, "multi", dataDir, SLOW_CMD);
+  it("auto-creates session on user_message", async () => {
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
 
-    const ws1 = await connectWs(agent.id);
-    const ws2 = await connectWs(agent.id);
+    await waitForMessage(messages, (msgs) => msgs.length >= 1); // initial status
 
-    const [msgs1, msgs2] = await Promise.all([collectMessages(ws1), collectMessages(ws2)]);
+    // Send user message — auto-creates session
+    ws.send(JSON.stringify({ type: "user_message", content: "Hello" }));
 
-    const out1 = msgs1.filter((m) => m.type === "stdout").map((m) => m.data).join("");
-    const out2 = msgs2.filter((m) => m.type === "stdout").map((m) => m.data).join("");
+    // Should get a status update with sessionId
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.some((m) => m.type === "status" && "sessionId" in m && m.sessionId),
+    ).catch(() => {});
 
-    expect(out1).toContain("hello");
-    expect(out2).toContain("hello");
+    // Session should exist now
+    const statusMsgs = messages.filter(
+      (m) => m.type === "status" && "sessionId" in m && m.sessionId,
+    );
+    expect(statusMsgs.length).toBeGreaterThanOrEqual(1);
+    expect(
+      statusMsgs.some((m) => m.type === "status" && m.streaming === true),
+    ).toBe(true);
+
+    ws.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
+  it("handles invalid JSON from client", async () => {
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.length >= 1);
+
+    ws.send("not json at all");
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "error"));
+
+    const errorMsg = messages.find((m) => m.type === "error");
+    expect(errorMsg).toBeDefined();
+    if (errorMsg?.type === "error") {
+      expect(errorMsg.message).toContain("Invalid JSON");
+    }
+
+    ws.close();
+    await endSession(wsId, dataDir);
+  });
+
+  it("handles stop command without error", async () => {
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.length >= 1);
+
+    // Stop when not streaming — no-op, no error
+    ws.send(JSON.stringify({ type: "stop" }));
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+
+    ws.close();
+    await endSession(wsId, dataDir);
   });
 });

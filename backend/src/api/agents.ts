@@ -1,61 +1,80 @@
 import type { FastifyInstance } from "fastify";
 import {
-  launchAgent,
-  stopAgent,
-  getAgent,
-  listAgents,
-  type LaunchOptions,
+  getOrCreateSession,
+  getSessionMetadata,
+  endSession,
+  type SessionOptions,
 } from "../agents/agent-manager.js";
-import type { CreateAgentRequest } from "../types.js";
 
-export interface AgentRoutesOptions {
+export interface SessionRoutesOptions {
   dataDir?: string;
-  launchOptions?: LaunchOptions;
+  sessionOptions?: SessionOptions;
 }
 
-export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions = {}) {
-  const { dataDir, launchOptions } = opts;
+export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOptions = {}) {
+  const { dataDir, sessionOptions } = opts;
 
-  app.post<{ Params: { wsId: string }; Body: CreateAgentRequest }>(
-    "/api/workspaces/:wsId/agents",
+  // POST /api/workspaces/:wsId/session — create/resume session
+  app.post<{ Params: { wsId: string } }>(
+    "/api/workspaces/:wsId/session",
     async (req, reply) => {
-      const { prompt } = req.body ?? {};
-      if (!prompt) return reply.status(400).send({ error: "prompt is required" });
-
       try {
-        const agent = await launchAgent(req.params.wsId, prompt, dataDir, launchOptions);
-        return reply.status(201).send(agent);
+        const { session, created } = await getOrCreateSession(
+          req.params.wsId,
+          dataDir,
+          sessionOptions,
+        );
+        const status = created ? 201 : 200;
+        return reply.status(status).send(session.metadata);
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Failed to launch agent";
+        const msg = err instanceof Error ? err.message : "Failed to create session";
         const code = msg.includes("busy") ? 409 : msg.includes("not found") ? 404 : 500;
         return reply.status(code).send({ error: msg });
       }
-    }
+    },
   );
 
-  app.get<{ Params: { wsId: string } }>("/api/workspaces/:wsId/agents", async (req, reply) => {
-    try {
-      const agents = await listAgents(req.params.wsId, dataDir);
-      return reply.send(agents);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed";
-      return reply.status(404).send({ error: msg });
-    }
-  });
+  // GET /api/workspaces/:wsId/session — get session metadata
+  app.get<{ Params: { wsId: string } }>(
+    "/api/workspaces/:wsId/session",
+    async (req, reply) => {
+      const meta = getSessionMetadata(req.params.wsId);
+      if (!meta) {
+        return reply.status(404).send({ error: "No active session" });
+      }
+      return reply.send(meta);
+    },
+  );
 
-  app.get<{ Params: { agentId: string } }>("/api/agents/:agentId", async (req, reply) => {
-    const agent = await getAgent(req.params.agentId, dataDir);
-    if (!agent) return reply.status(404).send({ error: "Agent not found" });
-    return reply.send(agent);
-  });
+  // GET /api/workspaces/:wsId/session/messages — get persisted messages
+  app.get<{ Params: { wsId: string } }>(
+    "/api/workspaces/:wsId/session/messages",
+    async (req, reply) => {
+      const { getSession } = await import("../agents/agent-manager.js");
+      const session = getSession(req.params.wsId);
+      if (!session) {
+        return reply.status(404).send({ error: "No active session" });
+      }
+      const messages = await session.getMessages();
+      return reply.send(messages);
+    },
+  );
 
-  app.delete<{ Params: { agentId: string } }>("/api/agents/:agentId", async (req, reply) => {
-    try {
-      await stopAgent(req.params.agentId);
-      return reply.status(204).send();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed";
-      return reply.status(404).send({ error: msg });
-    }
-  });
+  // DELETE /api/workspaces/:wsId/session — end session
+  app.delete<{ Params: { wsId: string } }>(
+    "/api/workspaces/:wsId/session",
+    async (req, reply) => {
+      try {
+        await endSession(req.params.wsId, dataDir);
+        return reply.status(204).send();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to end session";
+        const code = msg.includes("not found") ? 404 : 500;
+        return reply.status(code).send({ error: msg });
+      }
+    },
+  );
 }
+
+// Keep backward-compatible export name for index.ts (will rename there)
+export const agentRoutes = sessionRoutes;

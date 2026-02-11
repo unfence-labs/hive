@@ -56,7 +56,6 @@ export async function createWorkspace(
     branch,
     status: "idle",
     createdAt: new Date().toISOString(),
-    agents: [],
   };
   state.workspaces.push(workspace);
   await saveProject(state, dataDir);
@@ -145,8 +144,8 @@ export async function mergeWorkspace(
   if (!result) throw new Error(`Workspace ${wsId} not found`);
 
   const { projectState, workspace } = result;
-  if (workspace.status === "running") {
-    throw new Error("Cannot merge while an agent is running");
+  if (workspace.status === "busy") {
+    throw new Error("Cannot merge while a session is active");
   }
 
   const bare = bareRepoPath(dataDir, projectState.id);

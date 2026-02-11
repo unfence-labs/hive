@@ -1,127 +1,115 @@
 import { join } from "node:path";
-import { nanoid } from "nanoid";
-import { AgentProcess } from "./agent-process.js";
+import { ConversationSession } from "./conversation-session.js";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { saveProject, getDataDir } from "../state/state.js";
-import type { Agent } from "../types.js";
+import type { SessionMetadata } from "../types.js";
 
-const activeAgents = new Map<string, AgentProcess>();
+const activeSessions = new Map<string, ConversationSession>();
 
-export interface LaunchOptions {
+export interface SessionOptions {
   command?: string;
-  args?: string[];
 }
 
-export async function launchAgent(
+/**
+ * Get or create a session for a workspace. Auto-vivifying:
+ * - If a session exists in memory, return it
+ * - Otherwise create a new one (or load from disk if sessionId provided)
+ */
+export async function getOrCreateSession(
   wsId: string,
-  prompt: string,
   dataDir = getDataDir(),
-  options?: LaunchOptions
-): Promise<Agent> {
+  options?: SessionOptions,
+): Promise<{ session: ConversationSession; created: boolean }> {
+  const existing = activeSessions.get(wsId);
+  if (existing) return { session: existing, created: false };
+
   const result = await getWorkspace(wsId, dataDir);
   if (!result) throw new Error(`Workspace ${wsId} not found`);
 
   const { projectState, workspace } = result;
-  if (workspace.status === "running") {
-    throw new Error("Workspace is busy — an agent is already running");
+  if (workspace.status === "busy") {
+    // Sessions are in-memory only. If backend restarted, a workspace can remain
+    // persisted as busy without an active session in memory; recover it.
+    workspace.status = "idle";
+    workspace.activeSessionId = undefined;
+    await saveProject(projectState, dataDir);
   }
 
-  const agentId = `agent-${nanoid(8)}`;
-  const logsDir = join(dataDir, projectState.id, "logs");
-  const logFile = join(logsDir, `${agentId}.log`);
   const wsPath = join(dataDir, projectState.id, "workspaces", workspace.name);
+  const sessionDataDir = join(dataDir, projectState.id);
 
-  const agent: Agent = {
-    id: agentId,
+  const session = new ConversationSession({
+    cwd: wsPath,
+    dataDir: sessionDataDir,
     workspaceId: wsId,
-    prompt,
-    status: "running",
-    startedAt: new Date().toISOString(),
-    outputFile: logFile,
-  };
+    command: options?.command,
+  });
 
-  // Update state: workspace is now running, add agent to history
-  workspace.status = "running";
-  workspace.agents.push(agent);
+  activeSessions.set(wsId, session);
+
+  workspace.status = "busy";
+  workspace.activeSessionId = session.sessionId;
   await saveProject(projectState, dataDir);
 
-  // Create and start the process
-  const proc = new AgentProcess({
-    cwd: wsPath,
-    prompt,
-    logFile,
-    command: options?.command,
-    args: options?.args,
-  });
-  activeAgents.set(agentId, proc);
-
-  // Handle agent completion
-  const onFinish = async (exitCode: number) => {
-    activeAgents.delete(agentId);
-
-    try {
-      // Reload state (may have changed)
-      const fresh = await getWorkspace(wsId, dataDir);
-      if (fresh) {
-        const a = fresh.workspace.agents.find((a) => a.id === agentId);
-        if (a) {
-          a.status = exitCode === 0 ? "done" : "error";
-          a.exitCode = exitCode;
-          a.finishedAt = new Date().toISOString();
-        }
-        fresh.workspace.status = "idle";
-        await saveProject(fresh.projectState, dataDir);
-      }
-    } catch {
-      // State dir may have been cleaned up (e.g. in tests)
-    }
-  };
-
-  proc.on("exit", (code) => void onFinish(code));
-  proc.on("error", () => void onFinish(1));
-
-  await proc.start();
-  return agent;
+  return { session, created: true };
 }
 
-export async function stopAgent(agentId: string): Promise<void> {
-  const proc = activeAgents.get(agentId);
-  if (!proc) throw new Error(`Agent ${agentId} is not running`);
-  proc.stop();
+/** Get active session for a workspace (if any). */
+export function getSession(wsId: string): ConversationSession | undefined {
+  return activeSessions.get(wsId);
 }
 
-export function getActiveProcess(agentId: string): AgentProcess | undefined {
-  return activeAgents.get(agentId);
-}
-
-export async function getAgent(
-  agentId: string,
-  dataDir = getDataDir()
-): Promise<Agent | null> {
-  const { loadAllProjects } = await import("../state/state.js");
-  const all = await loadAllProjects(dataDir);
-  for (const project of all) {
-    for (const ws of project.workspaces) {
-      const agent = ws.agents.find((a) => a.id === agentId);
-      if (agent) return agent;
-    }
-  }
-  return null;
-}
-
-export async function listAgents(
+/** Send a message in the workspace's active session. Auto-creates session if needed. */
+export async function sendMessage(
   wsId: string,
-  dataDir = getDataDir()
-): Promise<Agent[]> {
+  content: string,
+  dataDir = getDataDir(),
+  options?: SessionOptions,
+): Promise<ConversationSession> {
+  const { session } = await getOrCreateSession(wsId, dataDir, options);
+  session.sendMessage(content);
+  return session;
+}
+
+/** Stop the currently streaming process (but keep session alive). */
+export function stopStreaming(wsId: string): void {
+  const session = activeSessions.get(wsId);
+  if (!session) throw new Error(`No active session for workspace ${wsId}`);
+  session.stop();
+}
+
+/** End a session entirely — kill process, remove from active map, reset workspace to idle. */
+export async function endSession(
+  wsId: string,
+  dataDir = getDataDir(),
+): Promise<void> {
+  const session = activeSessions.get(wsId);
+  if (session) {
+    session.stop();
+    activeSessions.delete(wsId);
+  }
+
   const result = await getWorkspace(wsId, dataDir);
   if (!result) throw new Error(`Workspace ${wsId} not found`);
-  return result.workspace.agents;
+
+  result.workspace.status = "idle";
+  result.workspace.activeSessionId = undefined;
+  await saveProject(result.projectState, dataDir);
 }
 
-/** For testing: clear all active agent references */
-export function _clearActiveAgents(): void {
-  for (const [, proc] of activeAgents) {
-    proc.stop();
+/** Get session metadata (from active session or return null). */
+export function getSessionMetadata(wsId: string): SessionMetadata | null {
+  const session = activeSessions.get(wsId);
+  if (!session) return null;
+  return session.metadata;
+}
+
+// ── Test helpers ────────────────────────────────────────────────────
+
+/** For testing: clear all active sessions. */
+export function _clearActiveSessions(): void {
+  for (const [, session] of activeSessions) {
+    session.stop();
   }
-  activeAgents.clear();
+  activeSessions.clear();
 }

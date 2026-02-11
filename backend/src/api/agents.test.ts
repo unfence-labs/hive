@@ -5,11 +5,10 @@ import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { projectRoutes } from "./projects.js";
 import { workspaceRoutes } from "./workspaces.js";
-import { agentRoutes } from "./agents.js";
-import { _clearActiveAgents, getActiveProcess } from "../agents/agent-manager.js";
+import { sessionRoutes } from "./agents.js";
+import { _clearActiveSessions } from "../agents/agent-manager.js";
 
-const MOCK_CMD = { command: "echo", args: ["agent output"] };
-const SLOW_CMD = { command: "sleep", args: ["30"] };
+const CONV_CMD = { command: "bash" };
 
 let tempDir: string;
 let dataDir: string;
@@ -17,17 +16,8 @@ let app: ReturnType<typeof Fastify>;
 let projectId: string;
 let wsId: string;
 
-function waitForAgent(agentId: string): Promise<void> {
-  return new Promise((resolve) => {
-    const proc = getActiveProcess(agentId);
-    if (!proc || proc.status !== "running") return resolve();
-    proc.on("exit", () => resolve());
-    proc.on("error", () => resolve());
-  });
-}
-
 beforeEach(async () => {
-  tempDir = await createTempDir("hive-api-agent-test-");
+  tempDir = await createTempDir("hive-api-session-test-");
   dataDir = join(tempDir, "data");
   const fixtureDir = join(tempDir, "fixtures");
   const { mkdir } = await import("node:fs/promises");
@@ -38,7 +28,9 @@ beforeEach(async () => {
   app = Fastify();
   await app.register((instance: FastifyInstance) => projectRoutes(instance, dataDir));
   await app.register((instance: FastifyInstance) => workspaceRoutes(instance, dataDir));
-  await app.register((instance: FastifyInstance) => agentRoutes(instance, { dataDir, launchOptions: MOCK_CMD }));
+  await app.register((instance: FastifyInstance) =>
+    sessionRoutes(instance, { dataDir, sessionOptions: CONV_CMD }),
+  );
   await app.ready();
 
   const projRes = await app.inject({
@@ -56,112 +48,119 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  _clearActiveAgents();
+  _clearActiveSessions();
   await new Promise((r) => setTimeout(r, 50));
   await app.close();
   await rm(tempDir, { recursive: true, force: true });
 });
 
-describe("POST /api/workspaces/:wsId/agents", () => {
-  it("launches agent and returns 201", async () => {
+describe("POST /api/workspaces/:wsId/session", () => {
+  it("creates a session and returns 201", async () => {
     const res = await app.inject({
       method: "POST",
-      url: `/api/workspaces/${wsId}/agents`,
-      payload: { prompt: "do something" },
+      url: `/api/workspaces/${wsId}/session`,
     });
     expect(res.statusCode).toBe(201);
     const body = res.json();
-    expect(body.id).toMatch(/^agent-/);
-    expect(body.status).toBe("running");
-
-    await waitForAgent(body.id);
+    expect(body.sessionId).toBeTruthy();
+    expect(body.workspaceId).toBe(wsId);
   });
 
-  it("returns 400 for missing prompt", async () => {
+  it("returns 200 for existing session", async () => {
+    await app.inject({ method: "POST", url: `/api/workspaces/${wsId}/session` });
+
     const res = await app.inject({
       method: "POST",
-      url: `/api/workspaces/${wsId}/agents`,
-      payload: {},
+      url: `/api/workspaces/${wsId}/session`,
     });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it("returns 409 when workspace is busy", async () => {
-    // Register a separate app instance with slow command to keep agent running
-    const slowApp = Fastify();
-    await slowApp.register((instance: FastifyInstance) => projectRoutes(instance, dataDir));
-    await slowApp.register((instance: FastifyInstance) => workspaceRoutes(instance, dataDir));
-    await slowApp.register((instance: FastifyInstance) =>
-      agentRoutes(instance, { dataDir, launchOptions: SLOW_CMD })
-    );
-    await slowApp.ready();
-
-    // Launch a slow agent
-    const res1 = await slowApp.inject({
-      method: "POST",
-      url: `/api/workspaces/${wsId}/agents`,
-      payload: { prompt: "slow task" },
-    });
-    expect(res1.statusCode).toBe(201);
-
-    // Try launching another
-    const res2 = await slowApp.inject({
-      method: "POST",
-      url: `/api/workspaces/${wsId}/agents`,
-      payload: { prompt: "second task" },
-    });
-    expect(res2.statusCode).toBe(409);
-
-    _clearActiveAgents();
-    await slowApp.close();
+    expect(res.statusCode).toBe(200);
   });
 
   it("returns 404 for non-existent workspace", async () => {
     const res = await app.inject({
       method: "POST",
-      url: "/api/workspaces/nonexistent/agents",
-      payload: { prompt: "test" },
+      url: "/api/workspaces/nonexistent/session",
     });
     expect(res.statusCode).toBe(404);
   });
 });
 
-describe("GET /api/workspaces/:wsId/agents", () => {
-  it("returns agent history", async () => {
-    const launchRes = await app.inject({
-      method: "POST",
-      url: `/api/workspaces/${wsId}/agents`,
-      payload: { prompt: "history test" },
-    });
-    await waitForAgent(launchRes.json().id);
+describe("GET /api/workspaces/:wsId/session", () => {
+  it("returns session metadata when active", async () => {
+    await app.inject({ method: "POST", url: `/api/workspaces/${wsId}/session` });
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/workspaces/${wsId}/agents`,
+      url: `/api/workspaces/${wsId}/session`,
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toHaveLength(1);
-    expect(res.json()[0].prompt).toBe("history test");
+    expect(res.json().sessionId).toBeTruthy();
+  });
+
+  it("returns 404 when no session exists", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/session`,
+    });
+    expect(res.statusCode).toBe(404);
   });
 });
 
-describe("GET /api/agents/:agentId", () => {
-  it("returns agent details", async () => {
-    const launchRes = await app.inject({
-      method: "POST",
-      url: `/api/workspaces/${wsId}/agents`,
-      payload: { prompt: "detail test" },
-    });
-    const agentId = launchRes.json().id;
-    await waitForAgent(agentId);
+describe("GET /api/workspaces/:wsId/session/messages", () => {
+  it("returns empty array for fresh session", async () => {
+    await app.inject({ method: "POST", url: `/api/workspaces/${wsId}/session` });
 
-    const res = await app.inject({ method: "GET", url: `/api/agents/${agentId}` });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/session/messages`,
+    });
     expect(res.statusCode).toBe(200);
-    expect(res.json().prompt).toBe("detail test");
+    expect(res.json()).toEqual([]);
   });
 
-  it("returns 404 for non-existent agent", async () => {
-    const res = await app.inject({ method: "GET", url: "/api/agents/nonexistent" });
+  it("returns 404 when no session exists", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/session/messages`,
+    });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("DELETE /api/workspaces/:wsId/session", () => {
+  it("ends session and returns 204", async () => {
+    await app.inject({ method: "POST", url: `/api/workspaces/${wsId}/session` });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/workspaces/${wsId}/session`,
+    });
+    expect(res.statusCode).toBe(204);
+
+    // Workspace should be idle again
+    const wsRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}`,
+    });
+    expect(wsRes.json().status).toBe("idle");
+  });
+
+  it("returns 204 when no session exists", async () => {
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/workspaces/${wsId}/session`,
+    });
+    expect(res.statusCode).toBe(204);
+  });
+
+  it("allows creating a new session after ending one", async () => {
+    await app.inject({ method: "POST", url: `/api/workspaces/${wsId}/session` });
+    await app.inject({ method: "DELETE", url: `/api/workspaces/${wsId}/session` });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${wsId}/session`,
+    });
+    expect(res.statusCode).toBe(201);
   });
 });

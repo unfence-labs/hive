@@ -10,32 +10,59 @@ export interface Workspace {
   id: string;
   name: string;
   branch: string;
-  status: "running" | "idle";
+  status: "idle" | "busy";
   createdAt: string;
-  agents: Agent[];
-}
-
-export interface Agent {
-  id: string;
-  prompt: string;
-  status: "running" | "done" | "error";
-  exitCode?: number;
-  startedAt: string;
-  finishedAt?: string;
-  outputFile?: string;
+  activeSessionId?: string;
 }
 
 export interface CreateProjectRequest {
   url: string;
 }
 
-export interface CreateAgentRequest {
-  prompt: string;
+// ── Session / Chat types ────────────────────────────────────────────
+
+export interface SessionMetadata {
+  sessionId: string;
+  claudeSessionId?: string;
+  workspaceId: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
 }
 
-export interface WsMessage {
-  type: "stdout" | "stderr" | "status" | "exit";
-  data?: string;
-  code?: number;
-  ts: number;
+export interface ToolCall {
+  id: string;
+  name: string;
+  input: string;
+  output?: string;
 }
+
+export interface ChatMessage {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant";
+  content: string;
+  toolCalls?: ToolCall[];
+  thinkingContent?: string;
+  timestamp: string;
+  cancelled?: boolean;
+}
+
+// ── WebSocket protocol ──────────────────────────────────────────────
+
+/** Frontend -> Backend */
+export type WsIncoming =
+  | { type: "user_message"; content: string }
+  | { type: "stop" };
+
+/** Backend -> Frontend */
+export type WsOutgoing =
+  | { type: "text_delta"; text: string }
+  | { type: "thinking"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: string }
+  | { type: "tool_result"; toolUseId: string; output: string }
+  | { type: "done"; sessionId?: string; costUsd?: number }
+  | { type: "error"; message: string }
+  | { type: "cancelled" }
+  | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean }
+  | { type: "history"; messages: ChatMessage[] };

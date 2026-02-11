@@ -1,83 +1,136 @@
 import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
-import { getActiveProcess } from "../agents/agent-manager.js";
-import type { WsMessage } from "../types.js";
+import {
+  getSession,
+  sendMessage,
+  stopStreaming,
+  getOrCreateSession,
+  type SessionOptions,
+} from "../agents/agent-manager.js";
+import type { WsIncoming, WsOutgoing } from "../types.js";
 
-const agentClients = new Map<string, Set<WebSocket>>();
+export interface StreamRoutesOptions {
+  dataDir?: string;
+  sessionOptions?: SessionOptions;
+}
 
-function broadcast(agentId: string, message: WsMessage) {
-  const clients = agentClients.get(agentId);
-  if (!clients) return;
-  const payload = JSON.stringify(message);
-  for (const ws of clients) {
-    if (ws.readyState === ws.OPEN) {
-      ws.send(payload);
-    }
+function sendOutgoing(socket: WebSocket, msg: WsOutgoing): void {
+  if (socket.readyState === socket.OPEN) {
+    socket.send(JSON.stringify(msg));
   }
 }
 
-export async function streamRoutes(app: FastifyInstance) {
-  app.get<{ Params: { agentId: string } }>(
-    "/ws/agents/:agentId/stream",
+export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptions = {}) {
+  const { dataDir, sessionOptions } = opts;
+
+  app.get<{ Params: { wsId: string } }>(
+    "/ws/session/:wsId",
     { websocket: true },
-    (socket, req) => {
-      const { agentId } = req.params;
-      const proc = getActiveProcess(agentId);
+    async (socket, req) => {
+      const { wsId } = req.params;
 
-      if (!proc) {
-        const msg: WsMessage = { type: "status", data: "not_found", ts: Date.now() };
-        socket.send(JSON.stringify(msg));
-        socket.close();
-        return;
+      // Check if session exists already
+      let session = getSession(wsId);
+
+      if (session) {
+        // Send current status + history
+        sendOutgoing(socket, {
+          type: "status",
+          status: "busy",
+          sessionId: session.sessionId,
+          streaming: session.status === "streaming",
+        });
+        try {
+          const messages = await session.getMessages();
+          if (messages.length > 0) {
+            sendOutgoing(socket, { type: "history", messages });
+          }
+        } catch {
+          // History load failure is non-fatal
+        }
+      } else {
+        sendOutgoing(socket, { type: "status", status: "idle", streaming: false });
       }
 
-      // Register this client
-      if (!agentClients.has(agentId)) {
-        agentClients.set(agentId, new Set());
+      // Pipe session events to this WS client
+      function attachSessionListeners() {
+        if (!session) return;
+
+        const onMessage = (msg: WsOutgoing) => sendOutgoing(socket, msg);
+        const onError = (err: Error) => {
+          sendOutgoing(socket, { type: "error", message: err.message });
+        };
+        const onExit = (_code: number) => {
+          sendOutgoing(socket, {
+            type: "status",
+            status: "busy",
+            sessionId: session!.sessionId,
+            streaming: false,
+          });
+        };
+
+        session.on("message", onMessage);
+        session.on("error", onError);
+        session.on("exit", onExit);
+
+        // Return cleanup function
+        return () => {
+          session?.removeListener("message", onMessage);
+          session?.removeListener("error", onError);
+          session?.removeListener("exit", onExit);
+        };
       }
-      agentClients.get(agentId)!.add(socket);
 
-      // Pipe process output to this client
-      const onData = (chunk: string) => {
-        if (socket.readyState === socket.OPEN) {
-          const msg: WsMessage = { type: "stdout", data: chunk, ts: Date.now() };
-          socket.send(JSON.stringify(msg));
+      let cleanupListeners = attachSessionListeners();
+
+      socket.on("close", () => {
+        cleanupListeners?.();
+      });
+
+      socket.on("message", async (raw) => {
+        let incoming: WsIncoming;
+        try {
+          incoming = JSON.parse(raw.toString()) as WsIncoming;
+        } catch {
+          sendOutgoing(socket, { type: "error", message: "Invalid JSON" });
+          return;
         }
-      };
 
-      const onExit = (code: number) => {
-        if (socket.readyState === socket.OPEN) {
-          const msg: WsMessage = { type: "exit", code, ts: Date.now() };
-          socket.send(JSON.stringify(msg));
-          socket.close();
+        switch (incoming.type) {
+          case "user_message": {
+            try {
+              // Auto-create session if needed
+              if (!session) {
+                const result = await getOrCreateSession(wsId, dataDir, sessionOptions);
+                session = result.session;
+                cleanupListeners = attachSessionListeners();
+              }
+              session.sendMessage(incoming.content);
+              sendOutgoing(socket, {
+                type: "status",
+                status: "busy",
+                sessionId: session.sessionId,
+                streaming: true,
+              });
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : "Failed to send message";
+              sendOutgoing(socket, { type: "error", message: msg });
+            }
+            break;
+          }
+          case "stop": {
+            try {
+              if (session) {
+                session.stop();
+              }
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : "Failed to stop";
+              sendOutgoing(socket, { type: "error", message: msg });
+            }
+            break;
+          }
         }
-        cleanup();
-      };
-
-      const onError = (err: Error) => {
-        if (socket.readyState === socket.OPEN) {
-          const msg: WsMessage = { type: "status", data: `error: ${err.message}`, ts: Date.now() };
-          socket.send(JSON.stringify(msg));
-          socket.close();
-        }
-        cleanup();
-      };
-
-      const cleanup = () => {
-        proc.removeListener("data", onData);
-        proc.removeListener("exit", onExit);
-        proc.removeListener("error", onError);
-        agentClients.get(agentId)?.delete(socket);
-        if (agentClients.get(agentId)?.size === 0) {
-          agentClients.delete(agentId);
-        }
-      };
-
-      proc.on("data", onData);
-      proc.on("exit", onExit);
-      proc.on("error", onError);
-
-      socket.on("close", cleanup);
-    }
+      });
+    },
   );
 }

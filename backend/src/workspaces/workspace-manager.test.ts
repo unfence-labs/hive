@@ -43,7 +43,7 @@ describe("createWorkspace", () => {
     expect(ws.branch).toBe(`workspace/${ws.name}`);
     expect(ws.status).toBe("idle");
     expect(ws.projectId).toBe(projectId);
-    expect(ws.agents).toEqual([]);
+    expect(ws.activeSessionId).toBeUndefined();
 
     // Verify worktree directory exists
     const wsPath = join(dataDir, projectId, "workspaces", ws.name);
