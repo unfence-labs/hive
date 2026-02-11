@@ -1,11 +1,22 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { mkdir, readFile, appendFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { nanoid } from "nanoid";
 import { StreamParser } from "./stream-parser.js";
-import type { StreamEvent, WsOutgoing } from "../types.js";
+import type {
+  ChatMessage,
+  ToolCall,
+  SessionMetadata,
+  WsOutgoing,
+  ContentBlock,
+  CliJsonLine,
+} from "../types.js";
 
 export interface ConversationSessionConfig {
   cwd: string;
+  dataDir: string;
+  workspaceId: string;
   sessionId?: string;
   command?: string;
 }
@@ -20,22 +31,68 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   readonly sessionId: string;
   private readonly cwd: string;
   private readonly command: string;
+  private readonly sessionDir: string;
+  private readonly workspaceId: string;
   private process: ChildProcess | null = null;
   private parser: StreamParser | null = null;
   private _status: "idle" | "streaming" | "error" = "idle";
   private messageCount = 0;
-  /** Tracks tool IDs by content_block index during streaming */
-  private activeToolIds = new Map<number, string>();
+  private claudeSessionId: string | undefined;
+  private _metadata: SessionMetadata;
 
   constructor(config: ConversationSessionConfig) {
     super();
     this.sessionId = config.sessionId ?? nanoid(12);
     this.cwd = config.cwd;
     this.command = config.command ?? "claude";
+    this.workspaceId = config.workspaceId;
+    this.sessionDir = join(config.dataDir, "sessions", this.sessionId);
+
+    this._metadata = {
+      sessionId: this.sessionId,
+      workspaceId: this.workspaceId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      messageCount: 0,
+    };
   }
 
   get status() {
     return this._status;
+  }
+
+  get metadata(): SessionMetadata {
+    return { ...this._metadata };
+  }
+
+  /** Load a session from disk. Returns the session in idle state with history available. */
+  static async load(config: ConversationSessionConfig): Promise<ConversationSession> {
+    const session = new ConversationSession(config);
+    try {
+      const metaPath = join(session.sessionDir, "metadata.json");
+      const raw = await readFile(metaPath, "utf-8");
+      const meta = JSON.parse(raw) as SessionMetadata;
+      session._metadata = meta;
+      session.claudeSessionId = meta.claudeSessionId;
+      session.messageCount = meta.messageCount;
+    } catch {
+      // No persisted metadata — fresh session
+    }
+    return session;
+  }
+
+  /** Get all persisted messages for this session. */
+  async getMessages(): Promise<ChatMessage[]> {
+    try {
+      const messagesPath = join(this.sessionDir, "messages.jsonl");
+      const raw = await readFile(messagesPath, "utf-8");
+      return raw
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as ChatMessage);
+    } catch {
+      return [];
+    }
   }
 
   /** Send a user message. Spawns a new claude process for this turn. */
@@ -45,27 +102,88 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     }
 
     this._status = "streaming";
-    this.activeToolIds.clear();
 
-    const isFirst = this.messageCount === 0;
+    // Persist user message immediately
+    const userMsg: ChatMessage = {
+      id: nanoid(12),
+      sessionId: this.sessionId,
+      role: "user",
+      content,
+      timestamp: new Date().toISOString(),
+    };
+    void this.appendMessage(userMsg);
+
     this.messageCount++;
 
+    const isFirst = !this.claudeSessionId;
     const args = [
-      "-p", content,
+      "--print",
       "--output-format", "stream-json",
-      "--include-partial-messages",
       "--verbose",
       "--dangerously-skip-permissions",
-      ...(isFirst
-        ? ["--session-id", this.sessionId]
-        : ["--resume", this.sessionId]),
+      ...(isFirst ? [] : ["--resume", this.claudeSessionId!]),
+      "-p", content,
     ];
 
     this.parser = new StreamParser();
-    this.parser.on("event", (event) => this.handleStreamEvent(event));
-    this.parser.on("result", (result) => {
-      // Result signals end of this turn — session_id is tracked by CLI
+
+    // Accumulators for building the assistant ChatMessage
+    let assistantText = "";
+    let thinkingText = "";
+    const toolCalls: ToolCall[] = [];
+
+    this.parser.on("assistant", (data) => {
+      for (const block of data.message.content) {
+        switch (block.type) {
+          case "text":
+            assistantText += block.text;
+            this.emit("message", { type: "text_delta", text: block.text });
+            break;
+          case "thinking":
+            thinkingText += block.thinking;
+            this.emit("message", { type: "thinking", text: block.thinking });
+            break;
+          case "tool_use": {
+            const inputStr = typeof block.input === "string"
+              ? block.input
+              : JSON.stringify(block.input, null, 2);
+            toolCalls.push({ id: block.id, name: block.name, input: inputStr });
+            this.emit("message", { type: "tool_use", id: block.id, name: block.name, input: inputStr });
+            break;
+          }
+        }
+      }
     });
+
+    this.parser.on("user", (data) => {
+      // User messages in the stream are tool results
+      for (const block of data.message.content) {
+        if (block.type === "tool_result") {
+          // Update the matching tool call's output
+          const tc = toolCalls.find((t) => t.id === block.tool_use_id);
+          if (tc) tc.output = block.content;
+          this.emit("message", {
+            type: "tool_result",
+            toolUseId: block.tool_use_id,
+            output: block.content,
+          });
+        }
+      }
+    });
+
+    this.parser.on("result", (data) => {
+      // Capture Claude's session ID from the first result
+      if (data.session_id && !this.claudeSessionId) {
+        this.claudeSessionId = data.session_id;
+        this._metadata.claudeSessionId = data.session_id;
+      }
+      // done event is emitted on process close (after flush)
+    });
+
+    this.parser.on("system", (_data) => {
+      // System messages (compaction etc.) — no action needed
+    });
+
     this.parser.on("error", (err) => {
       this.emit("error", err);
     });
@@ -80,8 +198,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     });
 
     this.process.stderr?.on("data", (chunk: Buffer) => {
-      // stderr is informational — forward as a message, not a hard error
-      // (emitting "error" without a listener throws in Node.js)
       const text = chunk.toString("utf-8").trim();
       if (text) {
         this.emit("message", { type: "error", message: `stderr: ${text}` } as WsOutgoing);
@@ -98,10 +214,40 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.process.on("close", (code) => {
       this.parser?.flush();
       const exitCode = code ?? 1;
+      const wasCancelled = exitCode !== 0 && this._status === "streaming";
+
       this._status = exitCode === 0 ? "idle" : "error";
       this.process = null;
       this.parser = null;
-      this.activeToolIds.clear();
+
+      // Persist assistant message
+      if (assistantText || toolCalls.length > 0 || thinkingText) {
+        const assistantMsg: ChatMessage = {
+          id: nanoid(12),
+          sessionId: this.sessionId,
+          role: "assistant",
+          content: assistantText,
+          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+          thinkingContent: thinkingText || undefined,
+          timestamp: new Date().toISOString(),
+          cancelled: wasCancelled || undefined,
+        };
+        void this.appendMessage(assistantMsg);
+      }
+
+      this._metadata.messageCount = this.messageCount;
+      this._metadata.updatedAt = new Date().toISOString();
+      void this.saveMetadata();
+
+      if (wasCancelled) {
+        this.emit("message", { type: "cancelled" });
+      } else {
+        this.emit("message", {
+          type: "done",
+          sessionId: this.claudeSessionId,
+        });
+      }
+
       this.emit("exit", exitCode);
     });
   }
@@ -123,50 +269,25 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.process.on("close", () => clearTimeout(timer));
   }
 
-  private handleStreamEvent(event: StreamEvent): void {
-    switch (event.type) {
-      case "content_block_start": {
-        if (event.content_block.type === "tool_use") {
-          this.activeToolIds.set(event.index, event.content_block.id);
-          this.emit("message", {
-            type: "tool_use_start",
-            id: event.content_block.id,
-            name: event.content_block.name,
-          });
-        }
-        break;
-      }
-      case "content_block_delta": {
-        if (event.delta.type === "text_delta") {
-          this.emit("message", {
-            type: "text_delta",
-            text: event.delta.text,
-          });
-        } else if (event.delta.type === "input_json_delta") {
-          const toolId = this.activeToolIds.get(event.index);
-          if (toolId) {
-            this.emit("message", {
-              type: "tool_use_delta",
-              id: toolId,
-              input: event.delta.partial_json,
-            });
-          }
-        }
-        break;
-      }
-      case "content_block_stop": {
-        const toolId = this.activeToolIds.get(event.index);
-        if (toolId) {
-          this.emit("message", { type: "tool_use_end", id: toolId });
-          this.activeToolIds.delete(event.index);
-        }
-        break;
-      }
-      case "message_stop": {
-        this.emit("message", { type: "message_end" });
-        break;
-      }
-      // message_start, message_delta: not directly forwarded to frontend
+  /** Append a ChatMessage to the session's messages.jsonl */
+  private async appendMessage(msg: ChatMessage): Promise<void> {
+    try {
+      await mkdir(this.sessionDir, { recursive: true });
+      const messagesPath = join(this.sessionDir, "messages.jsonl");
+      await appendFile(messagesPath, JSON.stringify(msg) + "\n", "utf-8");
+    } catch {
+      // Non-fatal — messages may not persist if disk fails
+    }
+  }
+
+  /** Save session metadata to disk. */
+  private async saveMetadata(): Promise<void> {
+    try {
+      await mkdir(this.sessionDir, { recursive: true });
+      const metaPath = join(this.sessionDir, "metadata.json");
+      await writeFile(metaPath, JSON.stringify(this._metadata, null, 2), "utf-8");
+    } catch {
+      // Non-fatal
     }
   }
 }

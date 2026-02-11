@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
+import { rm, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
-import type { WsOutgoing, StreamEvent } from "../types.js";
+import type { WsOutgoing } from "../types.js";
 
 // Mock child_process.spawn before importing the module under test
 vi.mock("node:child_process", () => ({
@@ -43,65 +45,107 @@ function createMockProcess() {
   return proc;
 }
 
-function streamEventLine(event: StreamEvent): string {
-  return JSON.stringify({ type: "stream_event", event }) + "\n";
+function assistantLine(text: string, toolUse?: { id: string; name: string; input: unknown }): string {
+  const content: unknown[] = [{ type: "text", text }];
+  if (toolUse) {
+    content.push({ type: "tool_use", ...toolUse });
+  }
+  return JSON.stringify({ type: "assistant", message: { id: "msg-1", role: "assistant", content } }) + "\n";
 }
+
+function userLine(toolResults: Array<{ tool_use_id: string; content: string }>): string {
+  return JSON.stringify({
+    type: "user",
+    message: { role: "user", content: toolResults.map((r) => ({ type: "tool_result", ...r })) },
+  }) + "\n";
+}
+
+function resultLine(sessionId = "sess-123", costUsd = 0.01): string {
+  return JSON.stringify({ type: "result", session_id: sessionId, cost_usd: costUsd }) + "\n";
+}
+
+function thinkingAssistantLine(thinking: string, text: string): string {
+  return JSON.stringify({
+    type: "assistant",
+    message: {
+      id: "msg-1",
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking },
+        { type: "text", text },
+      ],
+    },
+  }) + "\n";
+}
+
+let tempDir: string;
+
+beforeEach(async () => {
+  vi.clearAllMocks();
+  const os = await import("node:os");
+  const fs = await import("node:fs/promises");
+  tempDir = await fs.mkdtemp(join(os.tmpdir(), "hive-conv-session-test-"));
+});
+
+afterEach(async () => {
+  await rm(tempDir, { recursive: true, force: true });
+});
 
 describe("ConversationSession", () => {
   let mockProc: ReturnType<typeof createMockProcess>;
 
   beforeEach(() => {
-    vi.clearAllMocks();
     mockProc = createMockProcess();
     mockSpawn.mockReturnValue(mockProc);
   });
 
+  function createSession(opts?: { sessionId?: string; command?: string }) {
+    return new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: opts?.sessionId,
+      command: opts?.command,
+    });
+  }
+
   it("creates session with a sessionId", () => {
-    const session = new ConversationSession({ cwd: "/tmp/test" });
+    const session = createSession();
     expect(session.sessionId).toBeTruthy();
     expect(typeof session.sessionId).toBe("string");
     expect(session.status).toBe("idle");
   });
 
   it("uses provided sessionId", () => {
-    const session = new ConversationSession({
-      cwd: "/tmp/test",
-      sessionId: "my-session",
-    });
+    const session = createSession({ sessionId: "my-session" });
     expect(session.sessionId).toBe("my-session");
   });
 
-  it("spawns correct CLI command for first message", () => {
-    const session = new ConversationSession({
-      cwd: "/workspace",
-      sessionId: "sess-1",
-      command: "claude",
-    });
+  it("spawns correct CLI command for first message (no --resume)", () => {
+    const session = createSession({ sessionId: "sess-1", command: "claude" });
 
     session.sendMessage("Hello");
 
     expect(mockSpawn).toHaveBeenCalledWith(
       "claude",
       [
-        "-p", "Hello",
+        "--print",
         "--output-format", "stream-json",
-        "--include-partial-messages",
         "--verbose",
         "--dangerously-skip-permissions",
-        "--session-id", "sess-1",
+        "-p", "Hello",
       ],
-      { cwd: "/workspace", stdio: ["pipe", "pipe", "pipe"] },
+      { cwd: "/tmp/test", stdio: ["pipe", "pipe", "pipe"] },
     );
   });
 
-  it("uses --resume for subsequent messages", () => {
-    const session = new ConversationSession({
-      cwd: "/workspace",
-      sessionId: "sess-2",
-    });
+  it("uses --resume after receiving claudeSessionId from result", () => {
+    const session = createSession({ sessionId: "sess-2" });
 
-    // First message
     session.sendMessage("First");
+
+    // Simulate the result with session_id
+    mockProc._stdout.push(resultLine("claude-sess-abc"));
     mockProc._emitClose(0);
 
     // Create a new mock for second call
@@ -113,144 +157,124 @@ describe("ConversationSession", () => {
     expect(mockSpawn).toHaveBeenCalledTimes(2);
     const secondArgs = mockSpawn.mock.calls[1][1] as string[];
     expect(secondArgs).toContain("--resume");
-    expect(secondArgs).not.toContain("--session-id");
+    expect(secondArgs).toContain("claude-sess-abc");
   });
 
-  it("parses streaming output into text_delta events", () => {
-    const session = new ConversationSession({
-      cwd: "/tmp/test",
-      sessionId: "sess-3",
-    });
+  it("emits text_delta for assistant text", () => {
+    const session = createSession();
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
     session.sendMessage("Hi");
+    mockProc._stdout.push(assistantLine("Hello!"));
 
-    mockProc._stdout.push(streamEventLine({
-      type: "content_block_delta",
-      index: 0,
-      delta: { type: "text_delta", text: "Hello!" },
-    }));
-
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toEqual({ type: "text_delta", text: "Hello!" });
+    const textDeltas = messages.filter((m) => m.type === "text_delta");
+    expect(textDeltas).toHaveLength(1);
+    expect(textDeltas[0]).toEqual({ type: "text_delta", text: "Hello!" });
   });
 
-  it("parses tool_use events correctly", () => {
-    const session = new ConversationSession({
-      cwd: "/tmp/test",
-      sessionId: "sess-4",
-    });
+  it("emits tool_use for assistant tool calls", () => {
+    const session = createSession();
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
     session.sendMessage("Read a file");
+    mockProc._stdout.push(
+      assistantLine("Let me read that.", { id: "toolu_abc", name: "Read", input: { file_path: "/foo" } }),
+    );
 
-    mockProc._stdout.push(streamEventLine({
-      type: "content_block_start",
-      index: 1,
-      content_block: { type: "tool_use", id: "toolu_abc", name: "Read" },
-    }));
-
-    mockProc._stdout.push(streamEventLine({
-      type: "content_block_delta",
-      index: 1,
-      delta: { type: "input_json_delta", partial_json: '{"path":"/foo"}' },
-    }));
-
-    mockProc._stdout.push(streamEventLine({
-      type: "content_block_stop",
-      index: 1,
-    }));
-
-    expect(messages).toHaveLength(3);
-    expect(messages[0]).toEqual({ type: "tool_use_start", id: "toolu_abc", name: "Read" });
-    expect(messages[1]).toEqual({ type: "tool_use_delta", id: "toolu_abc", input: '{"path":"/foo"}' });
-    expect(messages[2]).toEqual({ type: "tool_use_end", id: "toolu_abc" });
+    const toolUses = messages.filter((m) => m.type === "tool_use");
+    expect(toolUses).toHaveLength(1);
+    expect(toolUses[0]).toEqual({
+      type: "tool_use",
+      id: "toolu_abc",
+      name: "Read",
+      input: JSON.stringify({ file_path: "/foo" }, null, 2),
+    });
   });
 
-  it("emits message_end on message_stop", () => {
-    const session = new ConversationSession({
-      cwd: "/tmp/test",
-      sessionId: "sess-5",
+  it("emits tool_result for user messages", () => {
+    const session = createSession();
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Read a file");
+    mockProc._stdout.push(userLine([{ tool_use_id: "toolu_abc", content: "file contents" }]));
+
+    const toolResults = messages.filter((m) => m.type === "tool_result");
+    expect(toolResults).toHaveLength(1);
+    expect(toolResults[0]).toEqual({
+      type: "tool_result",
+      toolUseId: "toolu_abc",
+      output: "file contents",
     });
+  });
+
+  it("emits thinking events", () => {
+    const session = createSession();
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Think about this");
+    mockProc._stdout.push(thinkingAssistantLine("Hmm, let me think...", "Here's my answer."));
+
+    const thinkingMsgs = messages.filter((m) => m.type === "thinking");
+    expect(thinkingMsgs).toHaveLength(1);
+    expect(thinkingMsgs[0]).toEqual({ type: "thinking", text: "Hmm, let me think..." });
+  });
+
+  it("emits done on successful process close", async () => {
+    const session = createSession();
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
     session.sendMessage("Hi");
-    mockProc._stdout.push(streamEventLine({ type: "message_stop" }));
-
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toEqual({ type: "message_end" });
-  });
-
-  it("handles process exit with success", async () => {
-    const session = new ConversationSession({
-      cwd: "/tmp/test",
-      sessionId: "sess-6",
-    });
-
-    const exitPromise = new Promise<number>((resolve) => {
-      session.on("exit", resolve);
-    });
-
-    session.sendMessage("Hi");
-    expect(session.status).toBe("streaming");
-
+    mockProc._stdout.push(assistantLine("Hello!"));
+    mockProc._stdout.push(resultLine("claude-sess-1"));
     mockProc._emitClose(0);
-    const code = await exitPromise;
 
-    expect(code).toBe(0);
+    // Allow async persistence to settle
+    await new Promise((r) => setTimeout(r, 50));
+
+    const doneMsgs = messages.filter((m) => m.type === "done");
+    expect(doneMsgs).toHaveLength(1);
+    expect(doneMsgs[0]).toEqual({ type: "done", sessionId: "claude-sess-1" });
     expect(session.status).toBe("idle");
   });
 
-  it("handles process exit with error", async () => {
-    const session = new ConversationSession({
-      cwd: "/tmp/test",
-      sessionId: "sess-7",
-    });
-
-    const exitPromise = new Promise<number>((resolve) => {
-      session.on("exit", resolve);
-    });
+  it("emits cancelled on non-zero exit while streaming", async () => {
+    const session = createSession();
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
 
     session.sendMessage("Hi");
+    mockProc._stdout.push(assistantLine("Partial..."));
     mockProc._emitClose(1);
-    const code = await exitPromise;
 
-    expect(code).toBe(1);
-    expect(session.status).toBe("error");
+    await new Promise((r) => setTimeout(r, 50));
+
+    const cancelledMsgs = messages.filter((m) => m.type === "cancelled");
+    expect(cancelledMsgs).toHaveLength(1);
   });
 
   it("stop() kills the process", () => {
-    const session = new ConversationSession({
-      cwd: "/tmp/test",
-      sessionId: "sess-8",
-    });
-
+    const session = createSession();
     session.sendMessage("Hi");
     session.stop();
-
     expect(mockProc.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
   it("rejects concurrent messages while streaming", () => {
-    const session = new ConversationSession({
-      cwd: "/tmp/test",
-      sessionId: "sess-9",
-    });
-
+    const session = createSession();
     session.sendMessage("First");
     expect(() => session.sendMessage("Second")).toThrow("Already streaming");
   });
 
   it("allows new message after previous one completes", () => {
-    const session = new ConversationSession({
-      cwd: "/tmp/test",
-      sessionId: "sess-10",
-    });
+    const session = createSession();
 
     session.sendMessage("First");
+    mockProc._stdout.push(resultLine("sess-x"));
     mockProc._emitClose(0);
 
     const mockProc2 = createMockProcess();
@@ -261,11 +285,7 @@ describe("ConversationSession", () => {
   });
 
   it("handles spawn error", async () => {
-    const session = new ConversationSession({
-      cwd: "/tmp/test",
-      sessionId: "sess-11",
-    });
-
+    const session = createSession();
     const errorPromise = new Promise<Error>((resolve) => {
       session.on("error", resolve);
     });
@@ -279,36 +299,131 @@ describe("ConversationSession", () => {
   });
 
   it("flushes parser on process close", () => {
-    const session = new ConversationSession({
-      cwd: "/tmp/test",
-      sessionId: "sess-12",
-    });
+    const session = createSession();
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
     session.sendMessage("Hi");
 
-    // Send data without trailing newline — will be buffered in parser
+    // Send assistant data without trailing newline
     const line = JSON.stringify({
-      type: "stream_event",
-      event: { type: "message_stop" },
+      type: "assistant",
+      message: { id: "msg-1", role: "assistant", content: [{ type: "text", text: "flushed" }] },
     });
     mockProc._stdout.push(line); // no newline
 
-    expect(messages).toHaveLength(0); // buffered
+    const textDeltas = messages.filter((m) => m.type === "text_delta");
+    expect(textDeltas).toHaveLength(0); // buffered
 
     mockProc._emitClose(0); // flush happens here
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toEqual({ type: "message_end" });
+    const afterFlush = messages.filter((m) => m.type === "text_delta");
+    expect(afterFlush).toHaveLength(1);
   });
 
   it("stop() is a no-op when not streaming", () => {
-    const session = new ConversationSession({
+    const session = createSession();
+    expect(() => session.stop()).not.toThrow();
+  });
+
+  it("persists user message on send", async () => {
+    const session = createSession({ sessionId: "persist-test" });
+
+    session.sendMessage("Hello");
+    mockProc._emitClose(0);
+
+    // Wait for async persistence
+    await new Promise((r) => setTimeout(r, 100));
+
+    const messagesPath = join(tempDir, "sessions", "persist-test", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+
+    expect(lines.length).toBeGreaterThanOrEqual(1);
+    const userMsg = JSON.parse(lines[0]);
+    expect(userMsg.role).toBe("user");
+    expect(userMsg.content).toBe("Hello");
+    expect(userMsg.sessionId).toBe("persist-test");
+  });
+
+  it("persists assistant message on done", async () => {
+    const session = createSession({ sessionId: "persist-asst" });
+
+    session.sendMessage("Hi");
+    mockProc._stdout.push(assistantLine("Hello back!"));
+    mockProc._stdout.push(resultLine("claude-s1"));
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const messagesPath = join(tempDir, "sessions", "persist-asst", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+
+    expect(lines.length).toBe(2); // user + assistant
+    const assistantMsg = JSON.parse(lines[1]);
+    expect(assistantMsg.role).toBe("assistant");
+    expect(assistantMsg.content).toBe("Hello back!");
+  });
+
+  it("saves metadata with claudeSessionId after result", async () => {
+    const session = createSession({ sessionId: "meta-test" });
+
+    session.sendMessage("Hi");
+    mockProc._stdout.push(assistantLine("Hello"));
+    mockProc._stdout.push(resultLine("claude-real-id"));
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const metaPath = join(tempDir, "sessions", "meta-test", "metadata.json");
+    const raw = await readFile(metaPath, "utf-8");
+    const meta = JSON.parse(raw);
+
+    expect(meta.sessionId).toBe("meta-test");
+    expect(meta.claudeSessionId).toBe("claude-real-id");
+    expect(meta.messageCount).toBe(1);
+  });
+
+  it("getMessages() returns persisted messages", async () => {
+    const session = createSession({ sessionId: "getmsgs-test" });
+
+    session.sendMessage("Hi");
+    mockProc._stdout.push(assistantLine("Hey!"));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const messages = await session.getMessages();
+    expect(messages).toHaveLength(2);
+    expect(messages[0].role).toBe("user");
+    expect(messages[1].role).toBe("assistant");
+  });
+
+  it("getMessages() returns empty for fresh session", async () => {
+    const session = createSession();
+    const messages = await session.getMessages();
+    expect(messages).toEqual([]);
+  });
+
+  it("static load() restores metadata from disk", async () => {
+    // First session creates metadata
+    const session1 = createSession({ sessionId: "load-test" });
+    session1.sendMessage("Hi");
+    mockProc._stdout.push(assistantLine("Hey"));
+    mockProc._stdout.push(resultLine("loaded-sess"));
+    mockProc._emitClose(0);
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Load from disk
+    const session2 = await ConversationSession.load({
       cwd: "/tmp/test",
-      sessionId: "sess-13",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "load-test",
     });
 
-    // Should not throw
-    expect(() => session.stop()).not.toThrow();
+    expect(session2.metadata.claudeSessionId).toBe("loaded-sess");
+    expect(session2.metadata.messageCount).toBe(1);
   });
 });

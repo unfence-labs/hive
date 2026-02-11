@@ -1,14 +1,13 @@
-import type { ConversationMessage } from "@/types";
+import type { ChatMessage as ChatMessageType } from "@/types";
 import { cn } from "@/lib/utils";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
 import ChatToolUse from "@/components/ChatToolUse";
 
 interface ChatMessageProps {
-  message: ConversationMessage;
-  isStreaming?: boolean;
+  message: ChatMessageType;
 }
 
-export default function ChatMessage({ message, isStreaming }: ChatMessageProps) {
+export default function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === "user";
 
   return (
@@ -25,17 +24,29 @@ export default function ChatMessage({ message, isStreaming }: ChatMessageProps) 
           <p className="whitespace-pre-wrap">{message.content}</p>
         ) : (
           <>
+            {message.thinkingContent && (
+              <details className="mb-2">
+                <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                  Thinking
+                </summary>
+                <div className="mt-1 rounded bg-muted/80 px-2 py-1 text-xs italic text-muted-foreground">
+                  {message.thinkingContent}
+                </div>
+              </details>
+            )}
             <div className="prose-sm">
               <MarkdownRenderer content={message.content} />
-              {isStreaming && (
-                <span className="inline-block h-4 w-0.5 animate-pulse bg-current align-text-bottom" />
-              )}
             </div>
-            {message.toolUse && message.toolUse.length > 0 && (
+            {message.toolCalls && message.toolCalls.length > 0 && (
               <div className="mt-2">
-                {message.toolUse.map((tool) => (
+                {message.toolCalls.map((tool) => (
                   <ChatToolUse key={tool.id} tool={tool} />
                 ))}
+              </div>
+            )}
+            {message.cancelled && (
+              <div className="mt-2 text-xs italic text-muted-foreground">
+                (cancelled)
               </div>
             )}
           </>

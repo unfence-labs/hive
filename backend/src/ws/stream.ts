@@ -1,24 +1,17 @@
 import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
 import {
-  getActiveProcess,
-  getConversation,
+  getSession,
   sendMessage,
-  stopConversation,
+  stopStreaming,
+  getOrCreateSession,
+  type SessionOptions,
 } from "../agents/agent-manager.js";
-import type { WsMessage, WsIncoming, WsOutgoing } from "../types.js";
+import type { WsIncoming, WsOutgoing } from "../types.js";
 
-const agentClients = new Map<string, Set<WebSocket>>();
-
-function broadcast(agentId: string, message: WsMessage) {
-  const clients = agentClients.get(agentId);
-  if (!clients) return;
-  const payload = JSON.stringify(message);
-  for (const ws of clients) {
-    if (ws.readyState === ws.OPEN) {
-      ws.send(payload);
-    }
-  }
+export interface StreamRoutesOptions {
+  dataDir?: string;
+  sessionOptions?: SessionOptions;
 }
 
 function sendOutgoing(socket: WebSocket, msg: WsOutgoing): void {
@@ -27,113 +20,72 @@ function sendOutgoing(socket: WebSocket, msg: WsOutgoing): void {
   }
 }
 
-export async function streamRoutes(app: FastifyInstance) {
-  // ── Print mode: unidirectional stream ─────────────────────────────
-
-  app.get<{ Params: { agentId: string } }>(
-    "/ws/agents/:agentId/stream",
-    { websocket: true },
-    (socket, req) => {
-      const { agentId } = req.params;
-      const proc = getActiveProcess(agentId);
-
-      if (!proc) {
-        const msg: WsMessage = { type: "status", data: "not_found", ts: Date.now() };
-        socket.send(JSON.stringify(msg));
-        socket.close();
-        return;
-      }
-
-      // Register this client
-      if (!agentClients.has(agentId)) {
-        agentClients.set(agentId, new Set());
-      }
-      agentClients.get(agentId)!.add(socket);
-
-      // Pipe process output to this client
-      const onData = (chunk: string) => {
-        if (socket.readyState === socket.OPEN) {
-          const msg: WsMessage = { type: "stdout", data: chunk, ts: Date.now() };
-          socket.send(JSON.stringify(msg));
-        }
-      };
-
-      const onExit = (code: number) => {
-        if (socket.readyState === socket.OPEN) {
-          const msg: WsMessage = { type: "exit", code, ts: Date.now() };
-          socket.send(JSON.stringify(msg));
-          socket.close();
-        }
-        cleanup();
-      };
-
-      const onError = (err: Error) => {
-        if (socket.readyState === socket.OPEN) {
-          const msg: WsMessage = { type: "status", data: `error: ${err.message}`, ts: Date.now() };
-          socket.send(JSON.stringify(msg));
-          socket.close();
-        }
-        cleanup();
-      };
-
-      const cleanup = () => {
-        proc.removeListener("data", onData);
-        proc.removeListener("exit", onExit);
-        proc.removeListener("error", onError);
-        agentClients.get(agentId)?.delete(socket);
-        if (agentClients.get(agentId)?.size === 0) {
-          agentClients.delete(agentId);
-        }
-      };
-
-      proc.on("data", onData);
-      proc.on("exit", onExit);
-      proc.on("error", onError);
-
-      socket.on("close", cleanup);
-    }
-  );
-
-  // ── Conversation mode: bidirectional WS ───────────────────────────
+export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptions = {}) {
+  const { dataDir, sessionOptions } = opts;
 
   app.get<{ Params: { wsId: string } }>(
-    "/ws/conversation/:wsId",
+    "/ws/session/:wsId",
     { websocket: true },
-    (socket, req) => {
+    async (socket, req) => {
       const { wsId } = req.params;
-      const session = getConversation(wsId);
 
-      if (!session) {
-        sendOutgoing(socket, { type: "error", message: "No active conversation for this workspace" });
-        socket.close();
-        return;
+      // Check if session exists already
+      let session = getSession(wsId);
+
+      if (session) {
+        // Send current status + history
+        sendOutgoing(socket, {
+          type: "status",
+          status: "busy",
+          sessionId: session.sessionId,
+        });
+        try {
+          const messages = await session.getMessages();
+          if (messages.length > 0) {
+            sendOutgoing(socket, { type: "history", messages });
+          }
+        } catch {
+          // History load failure is non-fatal
+        }
+      } else {
+        sendOutgoing(socket, { type: "status", status: "idle" });
       }
 
-      // Send current status
-      sendOutgoing(socket, { type: "status", status: session.status });
-
       // Pipe session events to this WS client
-      const onMessage = (msg: WsOutgoing) => sendOutgoing(socket, msg);
-      const onError = (err: Error) => {
-        sendOutgoing(socket, { type: "error", message: err.message });
-      };
-      const onExit = (_code: number) => {
-        sendOutgoing(socket, { type: "status", status: session.status });
-      };
+      function attachSessionListeners() {
+        if (!session) return;
 
-      session.on("message", onMessage);
-      session.on("error", onError);
-      session.on("exit", onExit);
+        const onMessage = (msg: WsOutgoing) => sendOutgoing(socket, msg);
+        const onError = (err: Error) => {
+          sendOutgoing(socket, { type: "error", message: err.message });
+        };
+        const onExit = (_code: number) => {
+          sendOutgoing(socket, {
+            type: "status",
+            status: session!.status === "idle" ? "busy" : "busy",
+            sessionId: session!.sessionId,
+          });
+        };
 
-      const cleanup = () => {
-        session.removeListener("message", onMessage);
-        session.removeListener("error", onError);
-        session.removeListener("exit", onExit);
-      };
+        session.on("message", onMessage);
+        session.on("error", onError);
+        session.on("exit", onExit);
 
-      socket.on("close", cleanup);
+        // Return cleanup function
+        return () => {
+          session?.removeListener("message", onMessage);
+          session?.removeListener("error", onError);
+          session?.removeListener("exit", onExit);
+        };
+      }
 
-      socket.on("message", (raw) => {
+      let cleanupListeners = attachSessionListeners();
+
+      socket.on("close", () => {
+        cleanupListeners?.();
+      });
+
+      socket.on("message", async (raw) => {
         let incoming: WsIncoming;
         try {
           incoming = JSON.parse(raw.toString()) as WsIncoming;
@@ -145,7 +97,18 @@ export async function streamRoutes(app: FastifyInstance) {
         switch (incoming.type) {
           case "user_message": {
             try {
-              sendMessage(wsId, incoming.content);
+              // Auto-create session if needed
+              if (!session) {
+                const result = await getOrCreateSession(wsId, dataDir, sessionOptions);
+                session = result.session;
+                cleanupListeners = attachSessionListeners();
+                sendOutgoing(socket, {
+                  type: "status",
+                  status: "busy",
+                  sessionId: session.sessionId,
+                });
+              }
+              session.sendMessage(incoming.content);
             } catch (err: unknown) {
               const msg = err instanceof Error ? err.message : "Failed to send message";
               sendOutgoing(socket, { type: "error", message: msg });
@@ -154,7 +117,9 @@ export async function streamRoutes(app: FastifyInstance) {
           }
           case "stop": {
             try {
-              stopConversation(wsId);
+              if (session) {
+                session.stop();
+              }
             } catch (err: unknown) {
               const msg = err instanceof Error ? err.message : "Failed to stop";
               sendOutgoing(socket, { type: "error", message: msg });
@@ -163,6 +128,6 @@ export async function streamRoutes(app: FastifyInstance) {
           }
         }
       });
-    }
+    },
   );
 }

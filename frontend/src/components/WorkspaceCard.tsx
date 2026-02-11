@@ -11,16 +11,17 @@ interface WorkspaceCardProps {
 
 export default function WorkspaceCard({ workspace, onDelete }: WorkspaceCardProps) {
   const navigate = useNavigate();
+  const isBusy = workspace.status === "busy";
 
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">{workspace.name}</CardTitle>
-          <Badge variant={workspace.status === "running" ? "default" : "secondary"}>
+          <Badge variant={isBusy ? "default" : "secondary"}>
             <span
               className={`mr-1.5 inline-block h-2 w-2 rounded-full ${
-                workspace.status === "running" ? "bg-green-400" : "bg-muted-foreground/40"
+                isBusy ? "bg-blue-400" : "bg-muted-foreground/40"
               }`}
             />
             {workspace.status}
@@ -29,9 +30,6 @@ export default function WorkspaceCard({ workspace, onDelete }: WorkspaceCardProp
       </CardHeader>
       <CardContent className="pb-2">
         <p className="text-sm text-muted-foreground">{workspace.branch}</p>
-        <p className="text-xs text-muted-foreground">
-          {(workspace.agents ?? []).length} agent{(workspace.agents ?? []).length !== 1 ? "s" : ""}
-        </p>
       </CardContent>
       <CardFooter className="gap-2">
         <Button size="sm" onClick={() => navigate(`/workspaces/${workspace.id}`)}>

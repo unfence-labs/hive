@@ -1,15 +1,24 @@
 import { EventEmitter } from "node:events";
-import type { CliJsonLine, StreamEvent } from "../types.js";
+import type { CliJsonLine } from "../types.js";
 
 export type StreamParserEvent = {
-  event: [event: StreamEvent];
-  result: [data: { type: string; sessionId: string; costUsd?: number }];
+  assistant: [data: Extract<CliJsonLine, { type: "assistant" }>];
+  user: [data: Extract<CliJsonLine, { type: "user" }>];
+  result: [data: Extract<CliJsonLine, { type: "result" }>];
+  system: [data: Extract<CliJsonLine, { type: "system" }>];
   error: [err: Error];
 };
 
 /**
- * Parses newline-delimited JSON (NDJSON) from Claude CLI `--output-format stream-json`.
- * Feed raw stdout chunks via `write()`, receive typed events via EventEmitter.
+ * Parses newline-delimited JSON (NDJSON) from Claude CLI
+ * `--print --output-format stream-json --verbose`.
+ *
+ * Emits typed events for each message type:
+ * - `assistant` — assistant messages (text, tool_use, thinking blocks)
+ * - `user` — user messages (tool_result blocks)
+ * - `result` — session completion (session_id, cost, usage)
+ * - `system` — system messages (compaction markers, etc.)
+ * - `error` — malformed or unknown JSON lines
  */
 export class StreamParser extends EventEmitter<StreamParserEvent> {
   private buffer = "";
@@ -46,15 +55,22 @@ export class StreamParser extends EventEmitter<StreamParserEvent> {
       return;
     }
 
-    if (parsed.type === "stream_event") {
-      this.emit("event", parsed.event);
-    } else if (parsed.type === "result") {
-      this.emit("result", {
-        type: parsed.result.type,
-        sessionId: parsed.session_id,
-        costUsd: parsed.cost_usd,
-      });
+    switch (parsed.type) {
+      case "assistant":
+        this.emit("assistant", parsed);
+        break;
+      case "user":
+        this.emit("user", parsed);
+        break;
+      case "result":
+        this.emit("result", parsed);
+        break;
+      case "system":
+        this.emit("system", parsed);
+        break;
+      default:
+        this.emit("error", new Error(`Unknown message type: ${(parsed as { type: string }).type}`));
+        break;
     }
-    // "assistant_message" type is ignored — we reconstruct messages from stream events
   }
 }

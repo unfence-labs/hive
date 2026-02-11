@@ -3,7 +3,6 @@ import { useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import ProjectView from "@/pages/ProjectView";
 import WorkspaceView from "@/pages/WorkspaceView";
-import DiffPage from "@/pages/DiffPage";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import { useProjects } from "@/hooks/useProjects";
 
@@ -42,7 +41,6 @@ export default function App() {
           />
           <Route path="projects/:id" element={<ProjectView />} />
           <Route path="workspaces/:wsId" element={<WorkspaceView />} />
-          <Route path="workspaces/:wsId/diff" element={<DiffPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

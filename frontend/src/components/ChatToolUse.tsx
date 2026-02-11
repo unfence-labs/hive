@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ToolUseBlock } from "@/types";
+import type { ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
 
 const toolIcons: Record<string, string> = {
@@ -17,7 +17,6 @@ const toolIcons: Record<string, string> = {
 function ToolIcon({ name }: { name: string }) {
   const base = name.split("/").pop() ?? name;
   const icon = toolIcons[base];
-  // Simple SVG icons inline to avoid extra deps
   if (icon === "terminal") {
     return (
       <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -58,7 +57,6 @@ function ToolIcon({ name }: { name: string }) {
       </svg>
     );
   }
-  // Default: wrench
   return (
     <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
       <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z" />
@@ -66,8 +64,17 @@ function ToolIcon({ name }: { name: string }) {
   );
 }
 
+function formatInput(input: string): string {
+  try {
+    const parsed = JSON.parse(input);
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return input;
+  }
+}
+
 interface ChatToolUseProps {
-  tool: ToolUseBlock;
+  tool: ToolCall;
   isExecuting?: boolean;
 }
 
@@ -105,15 +112,15 @@ export default function ChatToolUse({ tool, isExecuting }: ChatToolUseProps) {
             <div className="mb-2">
               <div className="mb-1 font-semibold text-muted-foreground">Input</div>
               <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono">
-                {tool.input}
+                {formatInput(tool.input)}
               </pre>
             </div>
           )}
-          {tool.result !== undefined && (
+          {tool.output !== undefined && (
             <div>
               <div className="mb-1 font-semibold text-muted-foreground">Result</div>
               <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono">
-                {tool.result}
+                {tool.output}
               </pre>
             </div>
           )}

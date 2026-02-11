@@ -1,133 +1,80 @@
 import type { FastifyInstance } from "fastify";
 import {
-  launchAgent,
-  stopAgent,
-  getAgent,
-  listAgents,
-  launchConversation,
-  getConversation,
-  endConversation,
-  type LaunchOptions,
-  type ConversationOptions,
+  getOrCreateSession,
+  getSessionMetadata,
+  endSession,
+  type SessionOptions,
 } from "../agents/agent-manager.js";
-import type { CreateAgentRequest, CreateConversationRequest } from "../types.js";
 
-export interface AgentRoutesOptions {
+export interface SessionRoutesOptions {
   dataDir?: string;
-  launchOptions?: LaunchOptions;
-  conversationOptions?: ConversationOptions;
+  sessionOptions?: SessionOptions;
 }
 
-export async function agentRoutes(app: FastifyInstance, opts: AgentRoutesOptions = {}) {
-  const { dataDir, launchOptions, conversationOptions } = opts;
+export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOptions = {}) {
+  const { dataDir, sessionOptions } = opts;
 
-  // ── Print-mode agent routes (existing) ─────────────────────────────
-
-  app.post<{ Params: { wsId: string }; Body: CreateAgentRequest }>(
-    "/api/workspaces/:wsId/agents",
+  // POST /api/workspaces/:wsId/session — create/resume session
+  app.post<{ Params: { wsId: string } }>(
+    "/api/workspaces/:wsId/session",
     async (req, reply) => {
-      const { prompt } = req.body ?? {};
-      if (!prompt) return reply.status(400).send({ error: "prompt is required" });
-
       try {
-        const agent = await launchAgent(req.params.wsId, prompt, dataDir, launchOptions);
-        return reply.status(201).send(agent);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Failed to launch agent";
-        const code = msg.includes("busy") ? 409 : msg.includes("not found") ? 404 : 500;
-        return reply.status(code).send({ error: msg });
-      }
-    }
-  );
-
-  app.get<{ Params: { wsId: string } }>("/api/workspaces/:wsId/agents", async (req, reply) => {
-    try {
-      const agents = await listAgents(req.params.wsId, dataDir);
-      return reply.send(agents);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed";
-      return reply.status(404).send({ error: msg });
-    }
-  });
-
-  app.get<{ Params: { agentId: string } }>("/api/agents/:agentId", async (req, reply) => {
-    const agent = await getAgent(req.params.agentId, dataDir);
-    if (!agent) return reply.status(404).send({ error: "Agent not found" });
-    return reply.send(agent);
-  });
-
-  app.delete<{ Params: { agentId: string } }>("/api/agents/:agentId", async (req, reply) => {
-    try {
-      await stopAgent(req.params.agentId);
-      return reply.status(204).send();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed";
-      return reply.status(404).send({ error: msg });
-    }
-  });
-
-  // ── Conversation routes ────────────────────────────────────────────
-
-  app.post<{ Params: { wsId: string }; Body: CreateConversationRequest }>(
-    "/api/workspaces/:wsId/conversation",
-    async (req, reply) => {
-      const { sessionId } = req.body ?? {};
-
-      try {
-        const state = await launchConversation(
+        const { session, created } = await getOrCreateSession(
           req.params.wsId,
           dataDir,
-          conversationOptions,
-          sessionId,
+          sessionOptions,
         );
-        return reply.status(201).send(state);
+        const status = created ? 201 : 200;
+        return reply.status(status).send(session.metadata);
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Failed to start conversation";
+        const msg = err instanceof Error ? err.message : "Failed to create session";
         const code = msg.includes("busy") ? 409 : msg.includes("not found") ? 404 : 500;
         return reply.status(code).send({ error: msg });
       }
-    }
+    },
   );
 
+  // GET /api/workspaces/:wsId/session — get session metadata
   app.get<{ Params: { wsId: string } }>(
-    "/api/workspaces/:wsId/conversation",
+    "/api/workspaces/:wsId/session",
     async (req, reply) => {
-      const session = getConversation(req.params.wsId);
-      if (!session) {
-        return reply.status(404).send({ error: "No active conversation" });
+      const meta = getSessionMetadata(req.params.wsId);
+      if (!meta) {
+        return reply.status(404).send({ error: "No active session" });
       }
-      return reply.send({
-        sessionId: session.sessionId,
-        status: session.status,
-        messages: [],
-      });
-    }
+      return reply.send(meta);
+    },
   );
 
+  // GET /api/workspaces/:wsId/session/messages — get persisted messages
   app.get<{ Params: { wsId: string } }>(
-    "/api/workspaces/:wsId/conversation/messages",
+    "/api/workspaces/:wsId/session/messages",
     async (req, reply) => {
-      const session = getConversation(req.params.wsId);
+      const { getSession } = await import("../agents/agent-manager.js");
+      const session = getSession(req.params.wsId);
       if (!session) {
-        return reply.status(404).send({ error: "No active conversation" });
+        return reply.status(404).send({ error: "No active session" });
       }
-      // Messages are tracked client-side via WebSocket; REST returns empty for now.
-      // A future enhancement could persist messages in the session.
-      return reply.send([]);
-    }
+      const messages = await session.getMessages();
+      return reply.send(messages);
+    },
   );
 
+  // DELETE /api/workspaces/:wsId/session — end session
   app.delete<{ Params: { wsId: string } }>(
-    "/api/workspaces/:wsId/conversation",
+    "/api/workspaces/:wsId/session",
     async (req, reply) => {
       try {
-        await endConversation(req.params.wsId, dataDir);
+        await endSession(req.params.wsId, dataDir);
         return reply.status(204).send();
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Failed to end conversation";
-        const code = msg.includes("No conversation") ? 404 : 500;
+        const msg = err instanceof Error ? err.message : "Failed to end session";
+        const code = msg.includes("No active session") ? 404 : 500;
         return reply.status(code).send({ error: msg });
       }
-    }
+    },
   );
 }
+
+// Keep backward-compatible export name for index.ts (will rename there)
+export const agentRoutes = sessionRoutes;

@@ -1,33 +1,40 @@
 import { useEffect, useRef, useCallback, useReducer } from "react";
-import type { ConversationMessage, ToolUseBlock, WsOutgoing } from "@/types";
-import { useConversationApi } from "@/hooks/useConversationApi";
+import type { ChatMessage, ToolCall, WsOutgoing } from "@/types";
 
 interface ConversationState {
-  messages: ConversationMessage[];
+  messages: ChatMessage[];
   isStreaming: boolean;
   currentText: string;
-  currentToolUse: ToolUseBlock[];
+  currentThinking: string;
+  activeToolCalls: ToolCall[];
+  connectionStatus: "connecting" | "connected" | "disconnected";
   error?: string;
+  sessionId?: string;
 }
 
 type Action =
   | { type: "add_user_message"; content: string }
   | { type: "text_delta"; text: string }
-  | { type: "tool_use_start"; id: string; name: string }
-  | { type: "tool_use_delta"; id: string; input: string }
-  | { type: "tool_use_end"; id: string; result?: string }
-  | { type: "message_end" }
+  | { type: "thinking"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: string }
+  | { type: "tool_result"; toolUseId: string; output: string }
+  | { type: "done"; sessionId?: string }
+  | { type: "cancelled" }
   | { type: "error"; message: string }
-  | { type: "set_streaming"; value: boolean }
-  | { type: "load_messages"; messages: ConversationMessage[] }
+  | { type: "status"; status: "idle" | "busy"; sessionId?: string }
+  | { type: "history"; messages: ChatMessage[] }
+  | { type: "set_connection"; status: ConversationState["connectionStatus"] }
   | { type: "reset" };
 
 const initialState: ConversationState = {
   messages: [],
   isStreaming: false,
   currentText: "",
-  currentToolUse: [],
+  currentThinking: "",
+  activeToolCalls: [],
+  connectionStatus: "disconnected",
   error: undefined,
+  sessionId: undefined,
 };
 
 function reducer(state: ConversationState, action: Action): ConversationState {
@@ -37,45 +44,51 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         ...state,
         messages: [
           ...state.messages,
-          { role: "user", content: action.content, timestamp: new Date().toISOString() },
+          {
+            id: crypto.randomUUID(),
+            sessionId: state.sessionId ?? "",
+            role: "user",
+            content: action.content,
+            timestamp: new Date().toISOString(),
+          },
         ],
         isStreaming: true,
         currentText: "",
-        currentToolUse: [],
+        currentThinking: "",
+        activeToolCalls: [],
         error: undefined,
       };
 
     case "text_delta":
       return { ...state, currentText: state.currentText + action.text };
 
-    case "tool_use_start":
+    case "thinking":
+      return { ...state, currentThinking: state.currentThinking + action.text };
+
+    case "tool_use":
       return {
         ...state,
-        currentToolUse: [
-          ...state.currentToolUse,
-          { id: action.id, name: action.name, input: "" },
+        activeToolCalls: [
+          ...state.activeToolCalls,
+          { id: action.id, name: action.name, input: action.input },
         ],
       };
 
-    case "tool_use_delta": {
-      const tools = state.currentToolUse.map((t) =>
-        t.id === action.id ? { ...t, input: t.input + action.input } : t,
+    case "tool_result": {
+      const tools = state.activeToolCalls.map((t) =>
+        t.id === action.toolUseId ? { ...t, output: action.output } : t,
       );
-      return { ...state, currentToolUse: tools };
+      return { ...state, activeToolCalls: tools };
     }
 
-    case "tool_use_end": {
-      const tools = state.currentToolUse.map((t) =>
-        t.id === action.id ? { ...t, result: action.result } : t,
-      );
-      return { ...state, currentToolUse: tools };
-    }
-
-    case "message_end": {
-      const assistantMsg: ConversationMessage = {
+    case "done": {
+      const assistantMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        sessionId: action.sessionId ?? state.sessionId ?? "",
         role: "assistant",
         content: state.currentText,
-        toolUse: state.currentToolUse.length > 0 ? state.currentToolUse : undefined,
+        toolCalls: state.activeToolCalls.length > 0 ? state.activeToolCalls : undefined,
+        thinkingContent: state.currentThinking || undefined,
         timestamp: new Date().toISOString(),
       };
       return {
@@ -83,18 +96,46 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         messages: [...state.messages, assistantMsg],
         isStreaming: false,
         currentText: "",
-        currentToolUse: [],
+        currentThinking: "",
+        activeToolCalls: [],
+        sessionId: action.sessionId ?? state.sessionId,
+      };
+    }
+
+    case "cancelled": {
+      const cancelledMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        sessionId: state.sessionId ?? "",
+        role: "assistant",
+        content: state.currentText,
+        toolCalls: state.activeToolCalls.length > 0 ? state.activeToolCalls : undefined,
+        thinkingContent: state.currentThinking || undefined,
+        timestamp: new Date().toISOString(),
+        cancelled: true,
+      };
+      return {
+        ...state,
+        messages: state.currentText || state.activeToolCalls.length > 0
+          ? [...state.messages, cancelledMsg]
+          : state.messages,
+        isStreaming: false,
+        currentText: "",
+        currentThinking: "",
+        activeToolCalls: [],
       };
     }
 
     case "error":
       return { ...state, error: action.message, isStreaming: false };
 
-    case "set_streaming":
-      return { ...state, isStreaming: action.value };
+    case "status":
+      return { ...state, sessionId: action.sessionId ?? state.sessionId };
 
-    case "load_messages":
+    case "history":
       return { ...state, messages: action.messages };
+
+    case "set_connection":
+      return { ...state, connectionStatus: action.status };
 
     case "reset":
       return initialState;
@@ -110,19 +151,21 @@ export function useConversation(workspaceId: string | undefined) {
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
-  const { getMessages } = useConversationApi(workspaceId);
 
   const connect = useCallback(() => {
     if (!workspaceId || !mountedRef.current) return;
 
+    dispatch({ type: "set_connection", status: "connecting" });
+
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(
-      `${protocol}//${window.location.host}/ws/conversation/${workspaceId}`,
+      `${protocol}//${window.location.host}/ws/session/${workspaceId}`,
     );
     wsRef.current = ws;
 
     ws.onopen = () => {
       reconnectAttemptRef.current = 0;
+      dispatch({ type: "set_connection", status: "connected" });
     };
 
     ws.onmessage = (event) => {
@@ -132,23 +175,29 @@ export function useConversation(workspaceId: string | undefined) {
           case "text_delta":
             dispatch({ type: "text_delta", text: msg.text });
             break;
-          case "tool_use_start":
-            dispatch({ type: "tool_use_start", id: msg.id, name: msg.name });
+          case "thinking":
+            dispatch({ type: "thinking", text: msg.text });
             break;
-          case "tool_use_delta":
-            dispatch({ type: "tool_use_delta", id: msg.id, input: msg.input });
+          case "tool_use":
+            dispatch({ type: "tool_use", id: msg.id, name: msg.name, input: msg.input });
             break;
-          case "tool_use_end":
-            dispatch({ type: "tool_use_end", id: msg.id, result: msg.result });
+          case "tool_result":
+            dispatch({ type: "tool_result", toolUseId: msg.toolUseId, output: msg.output });
             break;
-          case "message_end":
-            dispatch({ type: "message_end" });
+          case "done":
+            dispatch({ type: "done", sessionId: msg.sessionId });
+            break;
+          case "cancelled":
+            dispatch({ type: "cancelled" });
             break;
           case "error":
             dispatch({ type: "error", message: msg.message });
             break;
           case "status":
-            // Could track connection status if needed
+            dispatch({ type: "status", status: msg.status, sessionId: msg.sessionId });
+            break;
+          case "history":
+            dispatch({ type: "history", messages: msg.messages });
             break;
         }
       } catch {
@@ -158,20 +207,14 @@ export function useConversation(workspaceId: string | undefined) {
 
     ws.onclose = () => {
       wsRef.current = null;
+      dispatch({ type: "set_connection", status: "disconnected" });
       if (!mountedRef.current) return;
 
       // Exponential backoff reconnect
       const attempt = reconnectAttemptRef.current++;
       const delay = Math.min(BASE_RECONNECT_DELAY * 2 ** attempt, MAX_RECONNECT_DELAY);
-      reconnectTimerRef.current = setTimeout(async () => {
+      reconnectTimerRef.current = setTimeout(() => {
         if (!mountedRef.current) return;
-        // Reload message history on reconnect
-        try {
-          const messages = await getMessages();
-          dispatch({ type: "load_messages", messages });
-        } catch {
-          // API may not be ready yet — will retry on next reconnect
-        }
         connect();
       }, delay);
     };
@@ -179,7 +222,7 @@ export function useConversation(workspaceId: string | undefined) {
     ws.onerror = () => {
       // onclose will fire after this, triggering reconnect
     };
-  }, [workspaceId, getMessages]);
+  }, [workspaceId]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -214,8 +257,11 @@ export function useConversation(workspaceId: string | undefined) {
     messages: state.messages,
     isStreaming: state.isStreaming,
     currentStreamingText: state.currentText,
-    currentToolUse: state.currentToolUse,
+    currentThinking: state.currentThinking,
+    activeToolCalls: state.activeToolCalls,
+    connectionStatus: state.connectionStatus,
     error: state.error,
+    sessionId: state.sessionId,
     sendMessage,
     stopStreaming,
   };
