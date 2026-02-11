@@ -50,6 +50,16 @@ describe("POST /api/projects", () => {
     });
     expect(res.statusCode).toBe(400);
   });
+
+  it("returns 400 for disallowed file:// url", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { url: "file:///tmp/repo.git" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("not allowed");
+  });
 });
 
 describe("GET /api/projects", () => {

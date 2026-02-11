@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import WebSocket from "ws";
 import { rm } from "node:fs/promises";
@@ -20,7 +20,7 @@ const CONV_CMD = { command: "bash" };
 
 let tempDir: string;
 let dataDir: string;
-let app: ReturnType<typeof Fastify>;
+let app: FastifyInstance;
 let address: string;
 let projectId: string;
 let wsId: string;
@@ -41,7 +41,7 @@ beforeEach(async () => {
 
   app = Fastify();
   await app.register(websocket);
-  await app.register((instance: typeof app) =>
+  await app.register((instance: FastifyInstance) =>
     streamRoutes(instance, { dataDir, sessionOptions: CONV_CMD }),
   );
   address = await app.listen({ port: 0, host: "127.0.0.1" });
@@ -55,13 +55,18 @@ afterEach(async () => {
 });
 
 /** Connect a WebSocket and start collecting messages immediately. */
-function connectSessionWs(workspaceId: string): {
+function connectSessionWs(
+  workspaceId: string,
+  opts?: { address?: string; headers?: Record<string, string> },
+): {
   wsReady: Promise<WebSocket>;
   messages: WsOutgoing[];
 } {
-  const wsUrl = address.replace("http://", "ws://");
+  const wsUrl = (opts?.address ?? address).replace("http://", "ws://");
   const messages: WsOutgoing[] = [];
-  const ws = new WebSocket(`${wsUrl}/ws/session/${workspaceId}`);
+  const ws = new WebSocket(`${wsUrl}/ws/session/${workspaceId}`, {
+    headers: opts?.headers,
+  });
   ws.on("message", (data) => {
     messages.push(JSON.parse(data.toString()) as WsOutgoing);
   });
@@ -70,6 +75,16 @@ function connectSessionWs(workspaceId: string): {
     ws.on("error", reject);
   });
   return { wsReady, messages };
+}
+
+async function startWsApp(authToken?: string): Promise<{ app: FastifyInstance; address: string }> {
+  const localApp = Fastify();
+  await localApp.register(websocket);
+  await localApp.register((instance: FastifyInstance) =>
+    streamRoutes(instance, { dataDir, sessionOptions: CONV_CMD, authToken }),
+  );
+  const localAddress = await localApp.listen({ port: 0, host: "127.0.0.1" });
+  return { app: localApp, address: localAddress };
 }
 
 /** Wait until a condition is met on the collected messages. */
@@ -217,5 +232,34 @@ describe("WS /ws/session/:wsId", () => {
     ws1.close();
     ws2.close();
     await endSession(wsId, dataDir);
+  });
+
+  it("rejects unauthorized websocket connections when auth token is configured", async () => {
+    const secure = await startWsApp("secret");
+    const wsUrl = secure.address.replace("http://", "ws://");
+    const ws = new WebSocket(`${wsUrl}/ws/session/${wsId}`);
+
+    const closeCode = await new Promise<number>((resolve, reject) => {
+      ws.on("close", (code) => resolve(code));
+      ws.on("error", reject);
+    });
+
+    expect(closeCode).toBe(1008);
+    await secure.app.close();
+  });
+
+  it("accepts websocket connections with a valid auth token", async () => {
+    const secure = await startWsApp("secret");
+    const { wsReady, messages } = connectSessionWs(wsId, {
+      address: secure.address,
+      headers: { authorization: "Bearer secret" },
+    });
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.length >= 1);
+    expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
+
+    ws.close();
+    await secure.app.close();
   });
 });

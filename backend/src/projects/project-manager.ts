@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
 import { bareRepoPath } from "../utils/paths.js";
 import { saveProject, loadProject, loadAllProjects, getDataDir } from "../state/state.js";
+import { validateRepositoryUrl } from "../utils/repo-url.js";
 import type { ProjectState } from "../types.js";
 
 function extractRepoName(url: string): string {
@@ -15,9 +16,10 @@ export async function createProject(
   url: string,
   dataDir = getDataDir()
 ): Promise<ProjectState> {
-  if (!url || typeof url !== "string") {
-    throw new Error("Invalid repository URL");
-  }
+  const validatedUrl = validateRepositoryUrl(url, {
+    // Tests use local fixture paths as clone sources.
+    allowLocalPath: process.env.NODE_ENV === "test",
+  });
 
   const id = `proj-${nanoid(8)}`;
   const bare = bareRepoPath(dataDir, id);
@@ -25,14 +27,14 @@ export async function createProject(
   const logsDir = join(dataDir, id, "logs");
 
   await mkdir(join(dataDir, id), { recursive: true });
-  await git(["clone", "--bare", url, bare]);
+  await git(["clone", "--bare", validatedUrl, bare]);
   await mkdir(wsDir, { recursive: true });
   await mkdir(logsDir, { recursive: true });
 
   const state: ProjectState = {
     id,
-    name: extractRepoName(url),
-    url,
+    name: extractRepoName(validatedUrl),
+    url: validatedUrl,
     createdAt: new Date().toISOString(),
     workspaces: [],
   };

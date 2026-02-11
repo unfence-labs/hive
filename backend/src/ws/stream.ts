@@ -6,11 +6,13 @@ import {
   type SessionOptions,
 } from "../agents/agent-manager.js";
 import { errorMessage } from "../utils/errors.js";
+import { isAuthorized } from "../utils/auth.js";
 import type { WsIncoming, WsOutgoing } from "../types.js";
 
 export interface StreamRoutesOptions {
   dataDir?: string;
   sessionOptions?: SessionOptions;
+  authToken?: string;
 }
 
 function sendOutgoing(socket: WebSocket, msg: WsOutgoing): void {
@@ -20,12 +22,18 @@ function sendOutgoing(socket: WebSocket, msg: WsOutgoing): void {
 }
 
 export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptions = {}) {
-  const { dataDir, sessionOptions } = opts;
+  const { dataDir, sessionOptions, authToken } = opts;
 
   app.get<{ Params: { wsId: string } }>(
     "/ws/session/:wsId",
     { websocket: true },
     async (socket, req) => {
+      if (!isAuthorized(req.headers, authToken)) {
+        sendOutgoing(socket, { type: "error", message: "Unauthorized" });
+        socket.close(1008, "Unauthorized");
+        return;
+      }
+
       const { wsId } = req.params;
 
       // Check if session exists already

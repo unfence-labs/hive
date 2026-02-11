@@ -93,6 +93,7 @@ npx tsc --noEmit
 | `HOST`     | `127.0.0.1`      | Backend bind address                       |
 | `PORT`     | `3000`            | Backend port                               |
 | `DATA_DIR` | `/data/projects`  | Root directory for repos, worktrees, logs  |
+| `HIVE_AUTH_TOKEN` | _(unset)_ | If set, requires `Authorization: Bearer <token>` (or `x-hive-token`) for API/WS (except `/health`) |
 
 ## API
 

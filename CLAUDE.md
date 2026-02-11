@@ -78,6 +78,7 @@ Session continuity via `--resume <claudeSessionId>` after first message.
 - `HOST` - Backend bind address (default: `127.0.0.1`)
 - `PORT` - Backend port (default: `3000`)
 - `DATA_DIR` - Where projects/worktrees/sessions live (default: `/data/projects`)
+- `HIVE_AUTH_TOKEN` - Optional API/WS bearer token (health endpoint stays public)
 
 ## Important
 

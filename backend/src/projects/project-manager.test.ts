@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -38,6 +38,15 @@ describe("createProject", () => {
 
   it("rejects empty URL", async () => {
     await expect(createProject("", dataDir)).rejects.toThrow("Invalid repository URL");
+  });
+
+  it("rejects local repository paths outside test mode", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    try {
+      await expect(createProject(fixtureRepoUrl, dataDir)).rejects.toThrow("Local repository paths are not allowed");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 
