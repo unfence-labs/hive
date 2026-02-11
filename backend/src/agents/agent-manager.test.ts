@@ -15,7 +15,7 @@ import {
 } from "./agent-manager.js";
 import { loadProject, saveProject } from "../state/state.js";
 
-const CONV_CMD = { command: "bash" };
+const CONV_CMD = { command: "bash", systemPrompt: false as const };
 
 let tempDir: string;
 let dataDir: string;

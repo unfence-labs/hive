@@ -1,13 +1,16 @@
 import { join } from "node:path";
 import { ConversationSession } from "./conversation-session.js";
+import { buildSystemPrompt } from "./system-prompt.js";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { saveProject, getDataDir } from "../state/state.js";
+import { git } from "../utils/git.js";
 import type { SessionMetadata } from "../types.js";
 
 const activeSessions = new Map<string, ConversationSession>();
 
 export interface SessionOptions {
   command?: string;
+  systemPrompt?: string | false;
 }
 
 /**
@@ -38,11 +41,34 @@ export async function getOrCreateSession(
   const wsPath = join(dataDir, projectState.id, "workspaces", workspace.name);
   const sessionDataDir = join(dataDir, projectState.id);
 
+  // Build system prompt unless explicitly disabled (e.g. in tests)
+  let systemPrompt: string | undefined;
+  if (options?.systemPrompt !== false) {
+    // Resolve default branch from bare repo (worktrees don't have origin)
+    const bareRepo = join(dataDir, projectState.id, "repo.git");
+    let defaultBranch: string | undefined;
+    try {
+      const { stdout: headRef } = await git(["symbolic-ref", "HEAD"], bareRepo);
+      defaultBranch = headRef.replace("refs/heads/", "");
+    } catch {
+      // Falls back to detection in getGitContext
+    }
+
+    systemPrompt = options?.systemPrompt ?? await buildSystemPrompt({
+      cwd: wsPath,
+      workspaceName: workspace.name,
+      projectName: projectState.name,
+      defaultBranch,
+      branchRename: {},
+    });
+  }
+
   const session = new ConversationSession({
     cwd: wsPath,
     dataDir: sessionDataDir,
     workspaceId: wsId,
     command: options?.command,
+    systemPrompt,
   });
 
   activeSessions.set(wsId, session);
