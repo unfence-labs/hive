@@ -3,8 +3,10 @@ import {
   getOrCreateSession,
   getSessionMetadata,
   endSession,
+  getSessionMessages,
   type SessionOptions,
 } from "../agents/agent-manager.js";
+import { errorMessage, errorStatus } from "../utils/errors.js";
 
 export interface SessionRoutesOptions {
   dataDir?: string;
@@ -27,8 +29,8 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
         const status = created ? 201 : 200;
         return reply.status(status).send(session.metadata);
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Failed to create session";
-        const code = msg.includes("busy") ? 409 : msg.includes("not found") ? 404 : 500;
+        const msg = errorMessage(err, "Failed to create session");
+        const code = errorStatus(err);
         return reply.status(code).send({ error: msg });
       }
     },
@@ -50,13 +52,14 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
   app.get<{ Params: { wsId: string } }>(
     "/api/workspaces/:wsId/session/messages",
     async (req, reply) => {
-      const { getSession } = await import("../agents/agent-manager.js");
-      const session = getSession(req.params.wsId);
-      if (!session) {
-        return reply.status(404).send({ error: "No active session" });
+      try {
+        const messages = await getSessionMessages(req.params.wsId, dataDir);
+        return reply.send(messages);
+      } catch (err: unknown) {
+        const msg = errorMessage(err, "Failed to load session messages");
+        const code = errorStatus(err);
+        return reply.status(code).send({ error: msg });
       }
-      const messages = await session.getMessages();
-      return reply.send(messages);
     },
   );
 
@@ -68,13 +71,10 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
         await endSession(req.params.wsId, dataDir);
         return reply.status(204).send();
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Failed to end session";
-        const code = msg.includes("not found") ? 404 : 500;
+        const msg = errorMessage(err, "Failed to end session");
+        const code = errorStatus(err);
         return reply.status(code).send({ error: msg });
       }
     },
   );
 }
-
-// Keep backward-compatible export name for index.ts (will rename there)
-export const agentRoutes = sessionRoutes;

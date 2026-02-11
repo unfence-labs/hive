@@ -1,18 +1,12 @@
 import { join } from "node:path";
-import { rm, mkdir } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
+import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/paths.js";
 import { pickCityName } from "../utils/city-names.js";
-import { loadProject, saveProject, getDataDir } from "../state/state.js";
+import { loadProject, saveProject, getDataDir, withProjectStateLock } from "../state/state.js";
+import { ConflictError, NotFoundError } from "../utils/errors.js";
 import type { Workspace, ProjectState } from "../types.js";
-
-function bareRepoPath(dataDir: string, projectId: string): string {
-  return join(dataDir, projectId, "repo.git");
-}
-
-function workspacesDir(dataDir: string, projectId: string): string {
-  return join(dataDir, projectId, "workspaces");
-}
 
 function findWorkspace(state: ProjectState, wsId: string): Workspace | undefined {
   return state.workspaces.find((ws) => ws.id === wsId);
@@ -33,33 +27,37 @@ export async function createWorkspace(
   projectId: string,
   dataDir = getDataDir()
 ): Promise<Workspace> {
-  const state = await loadProject(projectId, dataDir);
-  if (!state) throw new Error(`Project ${projectId} not found`);
-
-  const usedNames = state.workspaces.map((ws) => ws.name);
-  const cityName = pickCityName(usedNames);
-  const branch = `workspace/${cityName}`;
-  const wsPath = join(workspacesDir(dataDir, projectId), cityName);
-  const bare = bareRepoPath(dataDir, projectId);
-
-  // Determine default branch from bare repo
-  const { stdout: headRef } = await git(["symbolic-ref", "HEAD"], bare);
-  const defaultBranch = headRef.replace("refs/heads/", "");
-
-  // Create worktree from the default branch
-  await git(["worktree", "add", "-b", branch, wsPath, defaultBranch], bare);
-
-  const workspace: Workspace = {
-    id: `ws-${nanoid(8)}`,
-    name: cityName,
+  return withProjectStateLock(
     projectId,
-    branch,
-    status: "idle",
-    createdAt: new Date().toISOString(),
-  };
-  state.workspaces.push(workspace);
-  await saveProject(state, dataDir);
-  return workspace;
+    async () => {
+      const state = await loadProject(projectId, dataDir);
+      if (!state) throw new NotFoundError(`Project ${projectId} not found`);
+
+      const usedNames = state.workspaces.map((ws) => ws.name);
+      const cityName = pickCityName(usedNames);
+      const branch = `workspace/${cityName}`;
+      const wsPath = join(workspacesDir(dataDir, projectId), cityName);
+      const bare = bareRepoPath(dataDir, projectId);
+
+      const defaultBranch = await resolveDefaultBranch(bare);
+
+      // Create worktree from the default branch
+      await git(["worktree", "add", "-b", branch, wsPath, defaultBranch], bare);
+
+      const workspace: Workspace = {
+        id: `ws-${nanoid(8)}`,
+        name: cityName,
+        projectId,
+        branch,
+        status: "idle",
+        createdAt: new Date().toISOString(),
+      };
+      state.workspaces.push(workspace);
+      await saveProject(state, dataDir);
+      return workspace;
+    },
+    dataDir,
+  );
 }
 
 export async function listWorkspaces(
@@ -67,7 +65,7 @@ export async function listWorkspaces(
   dataDir = getDataDir()
 ): Promise<Workspace[]> {
   const state = await loadProject(projectId, dataDir);
-  if (!state) throw new Error(`Project ${projectId} not found`);
+  if (!state) throw new NotFoundError(`Project ${projectId} not found`);
   return state.workspaces;
 }
 
@@ -87,31 +85,42 @@ export async function deleteWorkspace(
   dataDir = getDataDir()
 ): Promise<void> {
   const result = await getWorkspace(wsId, dataDir);
-  if (!result) throw new Error(`Workspace ${wsId} not found`);
+  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
 
-  const { projectState, workspace } = result;
-  const bare = bareRepoPath(dataDir, projectState.id);
-  const wsPath = join(workspacesDir(dataDir, projectState.id), workspace.name);
+  const projectId = result.projectState.id;
+  await withProjectStateLock(
+    projectId,
+    async () => {
+      const latest = await loadProject(projectId, dataDir);
+      if (!latest) throw new NotFoundError(`Project ${projectId} not found`);
+      const workspace = latest.workspaces.find((ws) => ws.id === wsId);
+      if (!workspace) throw new NotFoundError(`Workspace ${wsId} not found`);
 
-  // Remove the worktree
-  try {
-    await git(["worktree", "remove", wsPath, "--force"], bare);
-  } catch {
-    // Fallback: just remove the directory
-    await rm(wsPath, { recursive: true, force: true });
-    await git(["worktree", "prune"], bare);
-  }
+      const bare = bareRepoPath(dataDir, projectId);
+      const wsPath = join(workspacesDir(dataDir, projectId), workspace.name);
 
-  // Remove the branch
-  try {
-    await git(["branch", "-D", workspace.branch], bare);
-  } catch {
-    // Branch may not exist
-  }
+      // Remove the worktree
+      try {
+        await git(["worktree", "remove", wsPath, "--force"], bare);
+      } catch {
+        // Fallback: just remove the directory
+        await rm(wsPath, { recursive: true, force: true });
+        await git(["worktree", "prune"], bare);
+      }
 
-  // Update state
-  projectState.workspaces = projectState.workspaces.filter((ws) => ws.id !== wsId);
-  await saveProject(projectState, dataDir);
+      // Remove the branch
+      try {
+        await git(["branch", "-D", workspace.branch], bare);
+      } catch {
+        // Branch may not exist
+      }
+
+      // Update state
+      latest.workspaces = latest.workspaces.filter((ws) => ws.id !== wsId);
+      await saveProject(latest, dataDir);
+    },
+    dataDir,
+  );
 }
 
 export async function getWorkspaceDiff(
@@ -119,14 +128,12 @@ export async function getWorkspaceDiff(
   dataDir = getDataDir()
 ): Promise<string> {
   const result = await getWorkspace(wsId, dataDir);
-  if (!result) throw new Error(`Workspace ${wsId} not found`);
+  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
 
   const { projectState, workspace } = result;
   const bare = bareRepoPath(dataDir, projectState.id);
 
-  // Get the default branch name
-  const { stdout: headRef } = await git(["symbolic-ref", "HEAD"], bare);
-  const defaultBranch = headRef.replace("refs/heads/", "");
+  const defaultBranch = await resolveDefaultBranch(bare);
 
   try {
     const { stdout } = await git(["diff", `${defaultBranch}...${workspace.branch}`], bare);
@@ -141,18 +148,16 @@ export async function mergeWorkspace(
   dataDir = getDataDir()
 ): Promise<void> {
   const result = await getWorkspace(wsId, dataDir);
-  if (!result) throw new Error(`Workspace ${wsId} not found`);
+  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
 
   const { projectState, workspace } = result;
   if (workspace.status === "busy") {
-    throw new Error("Cannot merge while a session is active");
+    throw new ConflictError("Cannot merge while a session is active");
   }
 
   const bare = bareRepoPath(dataDir, projectState.id);
 
-  // Get default branch name
-  const { stdout: headRef } = await git(["symbolic-ref", "HEAD"], bare);
-  const defaultBranch = headRef.replace("refs/heads/", "");
+  const defaultBranch = await resolveDefaultBranch(bare);
 
   // Create a temp worktree on the default branch to perform the merge
   const tempPath = join(dataDir, projectState.id, `_merge-${nanoid(6)}`);

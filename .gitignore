@@ -5,3 +5,4 @@ dist/
 .DS_Store
 .vite/
 backend/.data/
+*.tsbuildinfo

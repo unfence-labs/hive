@@ -1,45 +1,21 @@
-import { useState, useEffect, useCallback } from "react";
-import { api } from "@/hooks/useApi";
+import { useCallback } from "react";
+import { api } from "./useApi";
+import { useResource } from "./useResource";
 import type { Project } from "@/types";
 
 export function useProjects() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: projects, loading, error, refresh, setData } = useResource<Project>("/api/projects");
 
-  const fetchProjects = useCallback(async () => {
-    try {
-      setLoading(true);
-      const data = await api.get<Project[]>("/api/projects");
-      setProjects(data);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to fetch projects");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const createProject = useCallback(async (url: string) => {
+    const project = await api.post<Project>("/api/projects", { url });
+    setData((prev) => [...prev, project]);
+    return project;
+  }, [setData]);
 
-  useEffect(() => {
-    fetchProjects();
-  }, [fetchProjects]);
+  const deleteProject = useCallback(async (id: string) => {
+    await api.delete(`/api/projects/${id}`);
+    setData((prev) => prev.filter((p) => p.id !== id));
+  }, [setData]);
 
-  const createProject = useCallback(
-    async (url: string) => {
-      const project = await api.post<Project>("/api/projects", { url });
-      setProjects((prev) => [...prev, project]);
-      return project;
-    },
-    [],
-  );
-
-  const deleteProject = useCallback(
-    async (id: string) => {
-      await api.delete(`/api/projects/${id}`);
-      setProjects((prev) => prev.filter((p) => p.id !== id));
-    },
-    [],
-  );
-
-  return { projects, loading, error, fetchProjects, createProject, deleteProject };
+  return { projects, loading, error, fetchProjects: refresh, createProject, deleteProject };
 }

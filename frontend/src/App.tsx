@@ -15,9 +15,7 @@ export default function App() {
       <AddProjectDialog
         open={showAddProject}
         onOpenChange={setShowAddProject}
-        onSubmit={async (url) => {
-          await createProject(url);
-        }}
+        onSubmit={createProject}
       />
       <Routes>
         <Route

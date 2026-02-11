@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
-import { useConversationApi } from "@/hooks/useConversationApi";
 import ChatConversation from "@/components/ChatConversation";
 import ChatInput from "@/components/ChatInput";
 import { Badge } from "@/components/ui/badge";
@@ -48,12 +47,10 @@ export default function WorkspaceView() {
     approvePlan,
   } = useConversation(wsId);
 
-  const { endSession } = useConversationApi(wsId);
-
   const handleCleanSession = async () => {
     if (!wsId) return;
     try {
-      await endSession();
+      await api.delete(`/api/workspaces/${wsId}/session`);
     } catch {
       // Best-effort; always clear UI below.
     } finally {

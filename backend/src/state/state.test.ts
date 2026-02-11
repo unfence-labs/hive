@@ -2,7 +2,14 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, readFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { loadProject, saveProject, loadAllProjects, deleteProjectState } from "./state.js";
+import {
+  loadProject,
+  saveProject,
+  loadAllProjects,
+  deleteProjectState,
+  withProjectStateLock,
+  _clearProjectLocksForTests,
+} from "./state.js";
 import type { ProjectState } from "../types.js";
 
 let dataDir: string;
@@ -12,6 +19,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  _clearProjectLocksForTests();
   await rm(dataDir, { recursive: true, force: true });
 });
 
@@ -91,5 +99,49 @@ describe("deleteProjectState", () => {
 
   it("does not throw for non-existent project", async () => {
     await expect(deleteProjectState("nonexistent", dataDir)).resolves.not.toThrow();
+  });
+});
+
+describe("withProjectStateLock", () => {
+  it("serializes concurrent operations for the same project", async () => {
+    const order: string[] = [];
+    const projectId = "proj-lock";
+
+    const first = withProjectStateLock(projectId, async () => {
+      order.push("first:start");
+      await new Promise((r) => setTimeout(r, 30));
+      order.push("first:end");
+    }, dataDir);
+
+    const second = withProjectStateLock(projectId, async () => {
+      order.push("second:start");
+      order.push("second:end");
+    }, dataDir);
+
+    await Promise.all([first, second]);
+
+    expect(order).toEqual(["first:start", "first:end", "second:start", "second:end"]);
+  });
+
+  it("allows parallel operations for different projects", async () => {
+    const started: string[] = [];
+    const done: string[] = [];
+
+    const first = withProjectStateLock("proj-a", async () => {
+      started.push("a");
+      await new Promise((r) => setTimeout(r, 20));
+      done.push("a");
+    }, dataDir);
+
+    const second = withProjectStateLock("proj-b", async () => {
+      started.push("b");
+      await new Promise((r) => setTimeout(r, 20));
+      done.push("b");
+    }, dataDir);
+
+    await Promise.all([first, second]);
+
+    expect(started.sort()).toEqual(["a", "b"]);
+    expect(done.sort()).toEqual(["a", "b"]);
   });
 });

@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ProjectState } from "../types.js";
 
+const projectLocks = new Map<string, Promise<void>>();
+
 export function getDataDir(): string {
   return process.env.DATA_DIR ?? "/data/projects";
 }
@@ -54,6 +56,44 @@ export async function saveProject(
   const tmp = join(dir, `state.${randomUUID()}.tmp`);
   await writeFile(tmp, JSON.stringify(state, null, 2), "utf-8");
   await rename(tmp, target);
+}
+
+function projectLockKey(projectId: string, dataDir: string): string {
+  return `${dataDir}::${projectId}`;
+}
+
+/**
+ * Serialize state-changing operations for a given project to prevent
+ * lost updates from concurrent load-modify-save flows.
+ */
+export async function withProjectStateLock<T>(
+  projectId: string,
+  fn: () => Promise<T>,
+  dataDir = getDataDir()
+): Promise<T> {
+  const key = projectLockKey(projectId, dataDir);
+  const prev = projectLocks.get(key) ?? Promise.resolve();
+
+  let release: (() => void) | undefined;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = prev.then(() => current);
+  projectLocks.set(key, queued);
+
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release?.();
+    if (projectLocks.get(key) === queued) {
+      projectLocks.delete(key);
+    }
+  }
+}
+
+export function _clearProjectLocksForTests(): void {
+  projectLocks.clear();
 }
 
 export async function deleteProjectState(

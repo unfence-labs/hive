@@ -83,6 +83,16 @@ describe("getOrCreateSession", () => {
     expect(updatedWs.status).toBe("busy");
     expect(updatedWs.activeSessionId).toBe(session.sessionId);
   });
+
+  it("serializes concurrent creation attempts for the same workspace", async () => {
+    const [first, second] = await Promise.all([
+      getOrCreateSession(wsId, dataDir, CONV_CMD),
+      getOrCreateSession(wsId, dataDir, CONV_CMD),
+    ]);
+
+    expect(first.session.sessionId).toBe(second.session.sessionId);
+    expect([first.created, second.created].filter(Boolean)).toHaveLength(1);
+  });
 });
 
 describe("getSession", () => {
@@ -109,6 +119,27 @@ describe("sendMessage", () => {
     await getOrCreateSession(wsId, dataDir, CONV_CMD);
     const session = await sendMessage(wsId, "Hello", dataDir, CONV_CMD);
     expect(session.status).toBe("streaming");
+  });
+
+  it("handles concurrent sends by allowing only one active stream", async () => {
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
+
+    const [first, second] = await Promise.allSettled([
+      sendMessage(wsId, "first", dataDir, CONV_CMD),
+      sendMessage(wsId, "second", dataDir, CONV_CMD),
+    ]);
+
+    const rejected = [first, second].filter(
+      (r): r is PromiseRejectedResult => r.status === "rejected",
+    );
+    const fulfilled = [first, second].filter(
+      (r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof sendMessage>>> =>
+        r.status === "fulfilled",
+    );
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(String(rejected[0].reason)).toContain("Already streaming");
   });
 });
 

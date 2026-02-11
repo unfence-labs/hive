@@ -1,45 +1,23 @@
-import { useState, useEffect, useCallback } from "react";
-import { api } from "@/hooks/useApi";
+import { useCallback } from "react";
+import { api } from "./useApi";
+import { useResource } from "./useResource";
 import type { Workspace } from "@/types";
 
 export function useWorkspaces(projectId: string | undefined) {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchWorkspaces = useCallback(async () => {
-    if (!projectId) return;
-    try {
-      setLoading(true);
-      const data = await api.get<Workspace[]>(
-        `/api/projects/${projectId}/workspaces`,
-      );
-      setWorkspaces(data);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to fetch workspaces");
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    fetchWorkspaces();
-  }, [fetchWorkspaces]);
+  const url = projectId ? `/api/projects/${projectId}/workspaces` : null;
+  const { data: workspaces, loading, error, refresh, setData } = useResource<Workspace>(url);
 
   const createWorkspace = useCallback(async () => {
     if (!projectId) return;
-    const ws = await api.post<Workspace>(
-      `/api/projects/${projectId}/workspaces`,
-    );
-    setWorkspaces((prev) => [...prev, ws]);
+    const ws = await api.post<Workspace>(`/api/projects/${projectId}/workspaces`);
+    setData((prev) => [...prev, ws]);
     return ws;
-  }, [projectId]);
+  }, [projectId, setData]);
 
   const deleteWorkspace = useCallback(async (wsId: string) => {
     await api.delete(`/api/workspaces/${wsId}`);
-    setWorkspaces((prev) => prev.filter((w) => w.id !== wsId));
-  }, []);
+    setData((prev) => prev.filter((w) => w.id !== wsId));
+  }, [setData]);
 
-  return { workspaces, loading, error, fetchWorkspaces, createWorkspace, deleteWorkspace };
+  return { workspaces, loading, error, fetchWorkspaces: refresh, createWorkspace, deleteWorkspace };
 }

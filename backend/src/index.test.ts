@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi, beforeAll } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 
 // Prevent the top-level main() from actually listening on a port
 vi.mock("fastify", async (importOriginal) => {
@@ -6,8 +6,8 @@ vi.mock("fastify", async (importOriginal) => {
   const originalDefault = actual.default;
   return {
     ...actual,
-    default: (...args: Parameters<typeof originalDefault>) => {
-      const instance = originalDefault(...args);
+    default: () => {
+      const instance = originalDefault();
       const originalListen = instance.listen.bind(instance);
       instance.listen = (async (...listenArgs: unknown[]) => {
         // Only block the main() auto-listen (which uses port 3000)
@@ -15,7 +15,7 @@ vi.mock("fastify", async (importOriginal) => {
         if (opts?.port === 3000) {
           return "mocked";
         }
-        return originalListen(...listenArgs);
+        return originalListen(opts as Parameters<typeof originalListen>[0]);
       }) as typeof instance.listen;
       return instance;
     },
@@ -27,6 +27,10 @@ import { buildApp } from "./index.js";
 let app: Awaited<ReturnType<typeof buildApp>>;
 
 afterEach(async () => {
+  delete process.env.HIVE_AUTH_TOKEN;
+  delete process.env.HIVE_RATE_LIMIT_MAX;
+  delete process.env.HIVE_RATE_LIMIT_WINDOW_MS;
+  delete process.env.HIVE_CLAUDE_SKIP_PERMISSIONS;
   await app?.close();
 });
 
@@ -62,5 +66,45 @@ describe("buildApp", () => {
     const res = await app.inject({ method: "GET", url: "/api/workspaces/test-ws/session" });
     expect(res.statusCode).toBe(404);
     expect(res.json().error).toContain("No active session");
+  });
+
+  it("requires auth for API routes when token is configured", async () => {
+    process.env.HIVE_AUTH_TOKEN = "secret";
+    app = await buildApp();
+
+    const unauthorized = await app.inject({ method: "GET", url: "/api/projects" });
+    expect(unauthorized.statusCode).toBe(401);
+    expect(unauthorized.json()).toEqual({ error: "Unauthorized" });
+
+    const authorized = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: { authorization: "Bearer secret" },
+    });
+    expect(authorized.statusCode).toBe(200);
+  });
+
+  it("keeps /health public even when auth is configured", async () => {
+    process.env.HIVE_AUTH_TOKEN = "secret";
+    app = await buildApp();
+
+    const res = await app.inject({ method: "GET", url: "/health" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ status: "ok" });
+  });
+
+  it("rate-limits API requests when threshold is exceeded", async () => {
+    process.env.HIVE_RATE_LIMIT_MAX = "2";
+    process.env.HIVE_RATE_LIMIT_WINDOW_MS = "60000";
+    app = await buildApp();
+
+    const first = await app.inject({ method: "GET", url: "/api/projects" });
+    const second = await app.inject({ method: "GET", url: "/api/projects" });
+    const third = await app.inject({ method: "GET", url: "/api/projects" });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(third.statusCode).toBe(429);
+    expect(third.json().error).toContain("Rate limit exceeded");
   });
 });

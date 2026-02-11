@@ -2,13 +2,11 @@ import { useState, memo } from "react";
 import { Button } from "@/components/ui/button";
 
 interface ExitPlanModeButtonProps {
-  toolCallId: string;
   isInteractive?: boolean;
   onApprove?: () => void;
 }
 
 export const ExitPlanModeButton = memo(function ExitPlanModeButton({
-  toolCallId: _toolCallId,
   isInteractive = false,
   onApprove,
 }: ExitPlanModeButtonProps) {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, memo, type ReactNode } from "react";
 import type { ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -14,54 +14,57 @@ const toolIcons: Record<string, string> = {
   Task: "list",
 };
 
+const svgProps = { className: "size-3.5", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+
+const iconElements: Record<string, ReactNode> = {
+  terminal: (
+    <svg {...svgProps}>
+      <polyline points="4 17 10 11 4 5" />
+      <line x1="12" y1="19" x2="20" y2="19" />
+    </svg>
+  ),
+  pencil: (
+    <svg {...svgProps}>
+      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+    </svg>
+  ),
+  search: (
+    <svg {...svgProps}>
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+    </svg>
+  ),
+  globe: (
+    <svg {...svgProps}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+      <path d="M2 12h20" />
+    </svg>
+  ),
+  "file-plus": (
+    <svg {...svgProps}>
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+    </svg>
+  ),
+  "file-text": (
+    <svg {...svgProps}>
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+    </svg>
+  ),
+};
+
+const defaultIcon = (
+  <svg {...svgProps}>
+    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z" />
+  </svg>
+);
+
 function ToolIcon({ name }: { name: string }) {
   const base = name.split("/").pop() ?? name;
   const icon = toolIcons[base];
-  if (icon === "terminal") {
-    return (
-      <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="4 17 10 11 4 5" />
-        <line x1="12" y1="19" x2="20" y2="19" />
-      </svg>
-    );
-  }
-  if (icon === "pencil") {
-    return (
-      <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-      </svg>
-    );
-  }
-  if (icon === "search") {
-    return (
-      <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="11" cy="11" r="8" />
-        <path d="m21 21-4.3-4.3" />
-      </svg>
-    );
-  }
-  if (icon === "globe") {
-    return (
-      <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="10" />
-        <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
-        <path d="M2 12h20" />
-      </svg>
-    );
-  }
-  if (icon === "file-plus" || icon === "file-text") {
-    return (
-      <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-        <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-        <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-      </svg>
-    );
-  }
-  return (
-    <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z" />
-    </svg>
-  );
+  return icon ? (iconElements[icon] ?? defaultIcon) : defaultIcon;
 }
 
 function formatInput(input: string): string {
@@ -78,7 +81,7 @@ interface ChatToolUseProps {
   isExecuting?: boolean;
 }
 
-export default function ChatToolUse({ tool, isExecuting }: ChatToolUseProps) {
+const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting }: ChatToolUseProps) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -128,4 +131,6 @@ export default function ChatToolUse({ tool, isExecuting }: ChatToolUseProps) {
       )}
     </div>
   );
-}
+});
+
+export default ChatToolUse;

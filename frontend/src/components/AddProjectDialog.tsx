@@ -3,6 +3,7 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
+  DialogDescription,
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
@@ -12,7 +13,7 @@ import { Button } from "@/components/ui/button";
 interface AddProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (url: string) => Promise<void>;
+  onSubmit: (url: string) => Promise<unknown>;
 }
 
 export default function AddProjectDialog({
@@ -45,6 +46,9 @@ export default function AddProjectDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add Project</DialogTitle>
+          <DialogDescription>
+            Enter the Git repository URL to clone into Hive.
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <Input

@@ -2,12 +2,11 @@ import { join } from "node:path";
 import { rm, mkdir } from "node:fs/promises";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
-import { saveProject, loadProject, loadAllProjects, deleteProjectState, getDataDir } from "../state/state.js";
-import type { Project, ProjectState } from "../types.js";
-
-function repoPath(dataDir: string, projectId: string): string {
-  return join(dataDir, projectId, "repo.git");
-}
+import { bareRepoPath } from "../utils/paths.js";
+import { saveProject, loadProject, loadAllProjects, getDataDir } from "../state/state.js";
+import { validateRepositoryUrl } from "../utils/repo-url.js";
+import { NotFoundError } from "../utils/errors.js";
+import type { ProjectState } from "../types.js";
 
 function extractRepoName(url: string): string {
   const match = url.match(/\/([^/]+?)(?:\.git)?$/);
@@ -18,24 +17,25 @@ export async function createProject(
   url: string,
   dataDir = getDataDir()
 ): Promise<ProjectState> {
-  if (!url || typeof url !== "string") {
-    throw new Error("Invalid repository URL");
-  }
+  const validatedUrl = validateRepositoryUrl(url, {
+    // Tests use local fixture paths as clone sources.
+    allowLocalPath: process.env.NODE_ENV === "test",
+  });
 
   const id = `proj-${nanoid(8)}`;
-  const bare = repoPath(dataDir, id);
+  const bare = bareRepoPath(dataDir, id);
   const wsDir = join(dataDir, id, "workspaces");
   const logsDir = join(dataDir, id, "logs");
 
   await mkdir(join(dataDir, id), { recursive: true });
-  await git(["clone", "--bare", url, bare]);
+  await git(["clone", "--bare", validatedUrl, bare]);
   await mkdir(wsDir, { recursive: true });
   await mkdir(logsDir, { recursive: true });
 
   const state: ProjectState = {
     id,
-    name: extractRepoName(url),
-    url,
+    name: extractRepoName(validatedUrl),
+    url: validatedUrl,
     createdAt: new Date().toISOString(),
     workspaces: [],
   };
@@ -69,7 +69,7 @@ export async function fetchProject(
   dataDir = getDataDir()
 ): Promise<void> {
   const state = await loadProject(projectId, dataDir);
-  if (!state) throw new Error(`Project ${projectId} not found`);
-  const bare = repoPath(dataDir, projectId);
+  if (!state) throw new NotFoundError(`Project ${projectId} not found`);
+  const bare = bareRepoPath(dataDir, projectId);
   await git(["fetch", "--all"], bare);
 }

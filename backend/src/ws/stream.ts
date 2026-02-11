@@ -2,16 +2,18 @@ import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
 import {
   getSession,
-  sendMessage,
-  stopStreaming,
   getOrCreateSession,
+  getSessionMessages,
   type SessionOptions,
 } from "../agents/agent-manager.js";
+import { errorMessage } from "../utils/errors.js";
+import { isAuthorized } from "../utils/auth.js";
 import type { WsIncoming, WsOutgoing } from "../types.js";
 
 export interface StreamRoutesOptions {
   dataDir?: string;
   sessionOptions?: SessionOptions;
+  authToken?: string;
 }
 
 function sendOutgoing(socket: WebSocket, msg: WsOutgoing): void {
@@ -21,12 +23,19 @@ function sendOutgoing(socket: WebSocket, msg: WsOutgoing): void {
 }
 
 export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptions = {}) {
-  const { dataDir, sessionOptions } = opts;
+  const { dataDir, sessionOptions, authToken } = opts;
 
-  app.get<{ Params: { wsId: string } }>(
+  app.get<{ Params: { wsId: string }; Querystring: { token?: string } }>(
     "/ws/session/:wsId",
     { websocket: true },
     async (socket, req) => {
+      const queryToken = typeof req.query.token === "string" ? req.query.token : undefined;
+      if (!isAuthorized(req.headers, authToken, queryToken)) {
+        sendOutgoing(socket, { type: "error", message: "Unauthorized" });
+        socket.close(1008, "Unauthorized");
+        return;
+      }
+
       const { wsId } = req.params;
 
       // Check if session exists already
@@ -50,6 +59,14 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         }
       } else {
         sendOutgoing(socket, { type: "status", status: "idle", streaming: false });
+        try {
+          const messages = await getSessionMessages(wsId, dataDir);
+          if (messages.length > 0) {
+            sendOutgoing(socket, { type: "history", messages });
+          }
+        } catch {
+          // Ignore missing/corrupt persisted history.
+        }
       }
 
       // Pipe session events to this WS client
@@ -79,7 +96,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             });
             cleanupListeners?.();
             cleanupListeners = undefined;
-            session = null;
+            session = undefined;
           }
         };
 
@@ -127,8 +144,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
                 streaming: true,
               });
             } catch (err: unknown) {
-              const msg = err instanceof Error ? err.message : "Failed to send message";
-              sendOutgoing(socket, { type: "error", message: msg });
+              sendOutgoing(socket, { type: "error", message: errorMessage(err, "Failed to send message") });
             }
             break;
           }
@@ -138,8 +154,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
                 session.stop();
               }
             } catch (err: unknown) {
-              const msg = err instanceof Error ? err.message : "Failed to stop";
-              sendOutgoing(socket, { type: "error", message: msg });
+              sendOutgoing(socket, { type: "error", message: errorMessage(err, "Failed to stop") });
             }
             break;
           }

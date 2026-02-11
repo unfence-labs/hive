@@ -6,6 +6,8 @@ interface MarkdownRendererProps {
   content: string;
 }
 
+const remarkPlugins = [remarkGfm];
+
 const components: Components = {
   pre({ children }) {
     return <pre className="my-2 overflow-x-auto rounded-md bg-muted p-3 text-sm">{children}</pre>;
@@ -73,7 +75,7 @@ const components: Components = {
 
 export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+    <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
       {content}
     </ReactMarkdown>
   );

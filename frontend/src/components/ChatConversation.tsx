@@ -1,12 +1,9 @@
 import { useEffect, useRef } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/ChatMessage";
-import ChatToolUse from "@/components/ChatToolUse";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
-import { AskUserQuestion } from "@/components/chat/AskUserQuestion";
-import { ExitPlanModeButton } from "@/components/chat/ExitPlanModeButton";
-import { isAskUserQuestion, isExitPlanMode } from "@/types";
+import { ToolCallList } from "@/components/chat/ToolCallList";
 import type { ChatMessage as ChatMessageType, ToolCall, QuestionAnswer } from "@/types";
 
 interface ChatConversationProps {
@@ -75,39 +72,13 @@ export default function ChatConversation({
                   <MarkdownRenderer content={currentStreamingText} />
                 </div>
               )}
-              {activeToolCalls.length > 0 && (
-                <div className="mt-2">
-                  {activeToolCalls.map((tool) => {
-                    if (isAskUserQuestion(tool)) {
-                      return (
-                        <AskUserQuestion
-                          key={tool.id}
-                          tool={tool}
-                          isInteractive
-                          onAnswer={onQuestionAnswer}
-                        />
-                      );
-                    }
-                    if (isExitPlanMode(tool)) {
-                      return (
-                        <ExitPlanModeButton
-                          key={tool.id}
-                          toolCallId={tool.id}
-                          isInteractive
-                          onApprove={onPlanApproval}
-                        />
-                      );
-                    }
-                    return (
-                      <ChatToolUse
-                        key={tool.id}
-                        tool={tool}
-                        isExecuting={tool.output === undefined}
-                      />
-                    );
-                  })}
-                </div>
-              )}
+              <ToolCallList
+                toolCalls={activeToolCalls}
+                isInteractive
+                showExecutingState
+                onQuestionAnswer={onQuestionAnswer}
+                onPlanApproval={onPlanApproval}
+              />
             </div>
           </div>
         )}
