@@ -91,7 +91,11 @@ export default function Sidebar({
                 >
                   <span
                     className={`inline-block h-2 w-2 rounded-full ${
-                      ws.status === "running" ? "bg-green-500" : "bg-muted-foreground/40"
+                      ws.status === "in_session"
+                        ? "bg-blue-500"
+                        : ws.status === "running"
+                          ? "bg-green-500"
+                          : "bg-muted-foreground/40"
                     }`}
                   />
                   {ws.name}

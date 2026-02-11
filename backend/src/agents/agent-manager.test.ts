@@ -10,6 +10,12 @@ import {
   listAgents,
   getActiveProcess,
   _clearActiveAgents,
+  launchConversation,
+  getConversation,
+  sendMessage,
+  stopConversation,
+  endConversation,
+  _clearActiveConversations,
 } from "./agent-manager.js";
 import { loadProject } from "../state/state.js";
 
@@ -46,6 +52,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   _clearActiveAgents();
+  _clearActiveConversations();
   // Small delay to let any pending state writes settle
   await new Promise((r) => setTimeout(r, 50));
   await rm(tempDir, { recursive: true, force: true });
@@ -145,5 +152,123 @@ describe("agent completion", () => {
     expect(agents).toHaveLength(2);
     expect(agents[0].prompt).toBe("first");
     expect(agents[1].prompt).toBe("second");
+  });
+});
+
+// NDJSON output that mimics Claude CLI stream-json format
+const NDJSON_OUTPUT = [
+  '{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg-1","role":"assistant"}}}',
+  '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}}',
+  '{"type":"stream_event","event":{"type":"message_stop"}}',
+  '{"type":"result","result":{"type":"success"},"session_id":"test-sess","cost_usd":0.01}',
+].join("\n") + "\n";
+
+const CONV_CMD = { command: "bash" };
+
+function ndjsonEchoArgs(): string[] {
+  // Use printf to output NDJSON lines — avoids issues with echo escaping
+  return ["-c", `printf '%s\\n' '${NDJSON_OUTPUT.split("\n").filter(Boolean).join("' '")}'`];
+}
+
+describe("launchConversation", () => {
+  it("creates a conversation and sets workspace to in_session", async () => {
+    const conv = await launchConversation(wsId, dataDir, CONV_CMD);
+
+    expect(conv.sessionId).toBeTruthy();
+    expect(conv.status).toBe("idle");
+    expect(conv.messages).toEqual([]);
+
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId);
+    expect(ws!.status).toBe("in_session");
+  });
+
+  it("rejects launching on a busy workspace", async () => {
+    await launchConversation(wsId, dataDir, CONV_CMD);
+    await expect(launchConversation(wsId, dataDir, CONV_CMD)).rejects.toThrow("busy");
+  });
+
+  it("rejects agent launch when conversation is active", async () => {
+    await launchConversation(wsId, dataDir, CONV_CMD);
+    await expect(launchAgent(wsId, "test", dataDir, MOCK_CMD)).rejects.toThrow("busy");
+  });
+
+  it("uses provided sessionId", async () => {
+    const conv = await launchConversation(wsId, dataDir, CONV_CMD, "my-session-id");
+    expect(conv.sessionId).toBe("my-session-id");
+  });
+});
+
+describe("getConversation", () => {
+  it("returns session for active conversation", async () => {
+    await launchConversation(wsId, dataDir, CONV_CMD);
+    const session = getConversation(wsId);
+    expect(session).toBeDefined();
+  });
+
+  it("returns undefined for workspace without conversation", () => {
+    const session = getConversation(wsId);
+    expect(session).toBeUndefined();
+  });
+});
+
+describe("sendMessage", () => {
+  it("forwards message to conversation session", async () => {
+    await launchConversation(wsId, dataDir, CONV_CMD);
+
+    // Use a command that echoes NDJSON
+    const session = getConversation(wsId)!;
+
+    // sendMessage should not throw
+    const returned = sendMessage(wsId, "Hello");
+    expect(returned).toBe(session);
+    expect(session.status).toBe("streaming");
+  });
+
+  it("throws when no conversation exists", () => {
+    expect(() => sendMessage(wsId, "Hello")).toThrow("No conversation session");
+  });
+});
+
+describe("stopConversation", () => {
+  it("stops streaming but keeps session alive", async () => {
+    await launchConversation(wsId, dataDir, CONV_CMD);
+    sendMessage(wsId, "Hello");
+
+    stopConversation(wsId);
+
+    // Session should still exist
+    const session = getConversation(wsId);
+    expect(session).toBeDefined();
+  });
+
+  it("throws when no conversation exists", () => {
+    expect(() => stopConversation(wsId)).toThrow("No conversation session");
+  });
+});
+
+describe("endConversation", () => {
+  it("terminates session and sets workspace back to idle", async () => {
+    await launchConversation(wsId, dataDir, CONV_CMD);
+    await endConversation(wsId, dataDir);
+
+    expect(getConversation(wsId)).toBeUndefined();
+
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId);
+    expect(ws!.status).toBe("idle");
+  });
+
+  it("allows launching a new agent after ending conversation", async () => {
+    await launchConversation(wsId, dataDir, CONV_CMD);
+    await endConversation(wsId, dataDir);
+
+    const agent = await launchAgent(wsId, "after conv", dataDir, MOCK_CMD);
+    expect(agent.status).toBe("running");
+    await waitForAgent(agent.id);
+  });
+
+  it("throws when no conversation exists", async () => {
+    await expect(endConversation(wsId, dataDir)).rejects.toThrow("No conversation session");
   });
 });

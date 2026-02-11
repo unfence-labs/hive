@@ -1,7 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
-import { getActiveProcess } from "../agents/agent-manager.js";
-import type { WsMessage } from "../types.js";
+import {
+  getActiveProcess,
+  getConversation,
+  sendMessage,
+  stopConversation,
+} from "../agents/agent-manager.js";
+import type { WsMessage, WsIncoming, WsOutgoing } from "../types.js";
 
 const agentClients = new Map<string, Set<WebSocket>>();
 
@@ -16,7 +21,15 @@ function broadcast(agentId: string, message: WsMessage) {
   }
 }
 
+function sendOutgoing(socket: WebSocket, msg: WsOutgoing): void {
+  if (socket.readyState === socket.OPEN) {
+    socket.send(JSON.stringify(msg));
+  }
+}
+
 export async function streamRoutes(app: FastifyInstance) {
+  // ── Print mode: unidirectional stream ─────────────────────────────
+
   app.get<{ Params: { agentId: string } }>(
     "/ws/agents/:agentId/stream",
     { websocket: true },
@@ -78,6 +91,78 @@ export async function streamRoutes(app: FastifyInstance) {
       proc.on("error", onError);
 
       socket.on("close", cleanup);
+    }
+  );
+
+  // ── Conversation mode: bidirectional WS ───────────────────────────
+
+  app.get<{ Params: { wsId: string } }>(
+    "/ws/conversation/:wsId",
+    { websocket: true },
+    (socket, req) => {
+      const { wsId } = req.params;
+      const session = getConversation(wsId);
+
+      if (!session) {
+        sendOutgoing(socket, { type: "error", message: "No active conversation for this workspace" });
+        socket.close();
+        return;
+      }
+
+      // Send current status
+      sendOutgoing(socket, { type: "status", status: session.status });
+
+      // Pipe session events to this WS client
+      const onMessage = (msg: WsOutgoing) => sendOutgoing(socket, msg);
+      const onError = (err: Error) => {
+        sendOutgoing(socket, { type: "error", message: err.message });
+      };
+      const onExit = (_code: number) => {
+        sendOutgoing(socket, { type: "status", status: session.status });
+      };
+
+      session.on("message", onMessage);
+      session.on("error", onError);
+      session.on("exit", onExit);
+
+      const cleanup = () => {
+        session.removeListener("message", onMessage);
+        session.removeListener("error", onError);
+        session.removeListener("exit", onExit);
+      };
+
+      socket.on("close", cleanup);
+
+      socket.on("message", (raw) => {
+        let incoming: WsIncoming;
+        try {
+          incoming = JSON.parse(raw.toString()) as WsIncoming;
+        } catch {
+          sendOutgoing(socket, { type: "error", message: "Invalid JSON" });
+          return;
+        }
+
+        switch (incoming.type) {
+          case "user_message": {
+            try {
+              sendMessage(wsId, incoming.content);
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : "Failed to send message";
+              sendOutgoing(socket, { type: "error", message: msg });
+            }
+            break;
+          }
+          case "stop": {
+            try {
+              stopConversation(wsId);
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : "Failed to stop";
+              sendOutgoing(socket, { type: "error", message: msg });
+            }
+            break;
+          }
+        }
+      });
     }
   );
 }

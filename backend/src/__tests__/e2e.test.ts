@@ -10,8 +10,8 @@ import { projectRoutes } from "../api/projects.js";
 import { workspaceRoutes } from "../api/workspaces.js";
 import { agentRoutes } from "../api/agents.js";
 import { streamRoutes } from "../ws/stream.js";
-import { _clearActiveAgents, getActiveProcess } from "../agents/agent-manager.js";
-import type { WsMessage } from "../types.js";
+import { _clearActiveAgents, _clearActiveConversations, getActiveProcess } from "../agents/agent-manager.js";
+import type { WsMessage, WsOutgoing } from "../types.js";
 
 const MOCK_AGENT = {
   command: "bash",
@@ -38,7 +38,11 @@ beforeEach(async () => {
   await app.register((instance: FastifyInstance) => projectRoutes(instance, dataDir));
   await app.register((instance: FastifyInstance) => workspaceRoutes(instance, dataDir));
   await app.register((instance: FastifyInstance) =>
-    agentRoutes(instance, { dataDir, launchOptions: MOCK_AGENT }),
+    agentRoutes(instance, {
+      dataDir,
+      launchOptions: MOCK_AGENT,
+      conversationOptions: { command: "bash" },
+    }),
   );
   await app.register(streamRoutes);
 
@@ -48,6 +52,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   _clearActiveAgents();
+  _clearActiveConversations();
   await new Promise((r) => setTimeout(r, 100));
   await app.close();
   await rm(tempDir, { recursive: true, force: true });
@@ -260,4 +265,127 @@ describe("E2E: full lifecycle", () => {
     _clearActiveAgents();
     await slowApp.close();
   });
+
+  it("conversation mode: start → connect WS → end → workspace idle", async () => {
+    // 1. Create project
+    const projRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { url: fixtureRepoUrl },
+    });
+    expect(projRes.statusCode).toBe(201);
+    const project = projRes.json();
+
+    // 2. Create workspace
+    const wsRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/workspaces`,
+    });
+    expect(wsRes.statusCode).toBe(201);
+    const workspace = wsRes.json();
+    expect(workspace.status).toBe("idle");
+
+    // 3. Start conversation
+    const convRes = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${workspace.id}/conversation`,
+    });
+    expect(convRes.statusCode).toBe(201);
+    const convState = convRes.json();
+    expect(convState.sessionId).toBeTruthy();
+    expect(convState.status).toBe("idle");
+
+    // 4. Workspace should be in_session
+    const wsCheckRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${workspace.id}`,
+    });
+    expect(wsCheckRes.json().status).toBe("in_session");
+
+    // 5. Get conversation state
+    const convGetRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${workspace.id}/conversation`,
+    });
+    expect(convGetRes.statusCode).toBe(200);
+    expect(convGetRes.json().sessionId).toBe(convState.sessionId);
+
+    // 6. Connect WebSocket (attach message handler before open to avoid race)
+    const wsUrl = address.replace("http://", "ws://");
+    const wsClient = new WebSocket(`${wsUrl}/ws/conversation/${workspace.id}`);
+    const messages: WsOutgoing[] = [];
+
+    wsClient.on("message", (data) => {
+      messages.push(JSON.parse(data.toString()));
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      wsClient.on("open", resolve);
+      wsClient.on("error", reject);
+    });
+
+    // Wait for initial status message
+    await new Promise<void>((resolve) => {
+      const check = setInterval(() => {
+        if (messages.length >= 1) {
+          clearInterval(check);
+          resolve();
+        }
+      }, 20);
+      setTimeout(() => { clearInterval(check); resolve(); }, 2000);
+    });
+
+    expect(messages.length).toBeGreaterThanOrEqual(1);
+    expect(messages[0].type).toBe("status");
+
+    wsClient.close();
+
+    // 7. Can't launch a print-mode agent while conversation is active
+    const agentRes = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${workspace.id}/agents`,
+      payload: { prompt: "test" },
+    });
+    expect(agentRes.statusCode).toBe(409);
+
+    // 8. End conversation
+    const endRes = await app.inject({
+      method: "DELETE",
+      url: `/api/workspaces/${workspace.id}/conversation`,
+    });
+    expect(endRes.statusCode).toBe(204);
+
+    // 9. Workspace should be back to idle
+    const wsFinalRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${workspace.id}`,
+    });
+    expect(wsFinalRes.json().status).toBe("idle");
+
+    // 10. Can now launch a print-mode agent
+    const agent2Res = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${workspace.id}/agents`,
+      payload: { prompt: "after conversation" },
+    });
+    expect(agent2Res.statusCode).toBe(201);
+
+    // Wait for agent to finish
+    const agentData = agent2Res.json();
+    const proc = getActiveProcess(agentData.id);
+    if (proc?.status === "running") {
+      await new Promise<void>((resolve) => {
+        proc.on("exit", () => resolve());
+        proc.on("error", () => resolve());
+      });
+    }
+    await new Promise((r) => setTimeout(r, 100));
+
+    // 11. Conversation state should be 404 now
+    const convGoneRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${workspace.id}/conversation`,
+    });
+    expect(convGoneRes.statusCode).toBe(404);
+  }, 15000);
 });

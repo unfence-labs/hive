@@ -1,16 +1,20 @@
 import { join } from "node:path";
 import { nanoid } from "nanoid";
 import { AgentProcess } from "./agent-process.js";
+import { ConversationSession } from "./conversation-session.js";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { saveProject, getDataDir } from "../state/state.js";
-import type { Agent } from "../types.js";
+import type { Agent, ConversationState } from "../types.js";
 
 const activeAgents = new Map<string, AgentProcess>();
+const activeConversations = new Map<string, ConversationSession>();
 
 export interface LaunchOptions {
   command?: string;
   args?: string[];
 }
+
+// ── Print mode (existing) ───────────────────────────────────────────
 
 export async function launchAgent(
   wsId: string,
@@ -22,7 +26,7 @@ export async function launchAgent(
   if (!result) throw new Error(`Workspace ${wsId} not found`);
 
   const { projectState, workspace } = result;
-  if (workspace.status === "running") {
+  if (workspace.status !== "idle") {
     throw new Error("Workspace is busy — an agent is already running");
   }
 
@@ -118,10 +122,98 @@ export async function listAgents(
   return result.workspace.agents;
 }
 
+// ── Conversation mode ───────────────────────────────────────────────
+
+export interface ConversationOptions {
+  command?: string;
+}
+
+export async function launchConversation(
+  wsId: string,
+  dataDir = getDataDir(),
+  options?: ConversationOptions,
+  sessionId?: string
+): Promise<ConversationState> {
+  const result = await getWorkspace(wsId, dataDir);
+  if (!result) throw new Error(`Workspace ${wsId} not found`);
+
+  const { projectState, workspace } = result;
+  if (workspace.status !== "idle") {
+    throw new Error("Workspace is busy");
+  }
+
+  const wsPath = join(dataDir, projectState.id, "workspaces", workspace.name);
+  const session = new ConversationSession({
+    cwd: wsPath,
+    sessionId,
+    command: options?.command,
+  });
+
+  activeConversations.set(wsId, session);
+
+  workspace.status = "in_session";
+  await saveProject(projectState, dataDir);
+
+  return {
+    sessionId: session.sessionId,
+    messages: [],
+    status: "idle",
+  };
+}
+
+export function getConversation(wsId: string): ConversationSession | undefined {
+  return activeConversations.get(wsId);
+}
+
+export function sendMessage(wsId: string, content: string): ConversationSession {
+  const session = activeConversations.get(wsId);
+  if (!session) throw new Error(`No conversation session for workspace ${wsId}`);
+  session.sendMessage(content);
+  return session;
+}
+
+export function stopConversation(wsId: string): void {
+  const session = activeConversations.get(wsId);
+  if (!session) throw new Error(`No conversation session for workspace ${wsId}`);
+  session.stop();
+}
+
+export async function endConversation(
+  wsId: string,
+  dataDir = getDataDir()
+): Promise<void> {
+  const session = activeConversations.get(wsId);
+  if (!session) throw new Error(`No conversation session for workspace ${wsId}`);
+
+  // Stop any in-progress streaming
+  session.stop();
+  activeConversations.delete(wsId);
+
+  try {
+    const result = await getWorkspace(wsId, dataDir);
+    if (result) {
+      result.workspace.status = "idle";
+      await saveProject(result.projectState, dataDir);
+    }
+  } catch {
+    // State dir may have been cleaned up (e.g. in tests)
+  }
+}
+
+// ── Test helpers ────────────────────────────────────────────────────
+
 /** For testing: clear all active agent references */
 export function _clearActiveAgents(): void {
   for (const [, proc] of activeAgents) {
     proc.stop();
   }
   activeAgents.clear();
+}
+
+/** For testing: clear all active conversation sessions */
+export function _clearActiveConversations(): void {
+  for (const [, session] of activeConversations) {
+    session.stop();
+  }
+  activeConversations.clear();
 }
