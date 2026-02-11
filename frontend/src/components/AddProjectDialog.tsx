@@ -3,6 +3,7 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
+  DialogDescription,
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
@@ -45,6 +46,9 @@ export default function AddProjectDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add Project</DialogTitle>
+          <DialogDescription>
+            Enter the Git repository URL to clone into Hive.
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <Input
