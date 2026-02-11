@@ -26,11 +26,6 @@ export async function buildApp() {
 async function main() {
   const app = await buildApp();
   await app.listen({ host: HOST, port: PORT });
-
-  // Debug: check if upgrade events are reaching Node.js
-  app.server.on("upgrade", (req) => {
-    console.log("[DEBUG] upgrade event fired:", req.url, JSON.stringify(req.headers));
-  });
 }
 
 main().catch((err) => {
