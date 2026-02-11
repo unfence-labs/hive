@@ -103,6 +103,11 @@ describe("DELETE /api/projects/:id", () => {
     const getRes = await app.inject({ method: "GET", url: `/api/projects/${id}` });
     expect(getRes.statusCode).toBe(404);
   });
+
+  it("returns 404 for non-existent project", async () => {
+    const res = await app.inject({ method: "DELETE", url: "/api/projects/nonexistent" });
+    expect(res.statusCode).toBe(404);
+  });
 });
 
 describe("POST /api/projects/:id/fetch", () => {

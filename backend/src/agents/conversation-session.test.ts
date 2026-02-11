@@ -338,6 +338,67 @@ describe("ConversationSession", () => {
     expect(() => session.stop()).not.toThrow();
   });
 
+  it("emits error messages from stderr", () => {
+    const session = createSession();
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi");
+    mockProc._stderr.push("something went wrong");
+
+    const errors = messages.filter((m) => m.type === "error");
+    expect(errors).toHaveLength(1);
+    if (errors[0].type === "error") {
+      expect(errors[0].message).toContain("stderr:");
+      expect(errors[0].message).toContain("something went wrong");
+    }
+  });
+
+  it("defaults command to claude", () => {
+    const session = createSession();
+    session.sendMessage("Hi");
+    expect(mockSpawn).toHaveBeenCalledWith(
+      "claude",
+      expect.any(Array),
+      expect.any(Object),
+    );
+  });
+
+  it("uses custom command when provided", () => {
+    const session = createSession({ command: "bash" });
+    session.sendMessage("Hi");
+    expect(mockSpawn).toHaveBeenCalledWith(
+      "bash",
+      expect.any(Array),
+      expect.any(Object),
+    );
+  });
+
+  it("exposes metadata with correct workspaceId", () => {
+    const session = createSession();
+    expect(session.metadata.workspaceId).toBe("ws-test");
+    expect(session.metadata.messageCount).toBe(0);
+    expect(session.metadata.sessionId).toBe(session.sessionId);
+  });
+
+  it("persists cancelled message with cancelled flag", async () => {
+    const session = createSession({ sessionId: "cancel-persist" });
+
+    session.sendMessage("Hi");
+    mockProc._stdout.push(assistantLine("Partial response"));
+    mockProc._emitClose(1); // non-zero = cancelled
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const messagesPath = join(tempDir, "sessions", "cancel-persist", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+
+    expect(lines.length).toBe(2);
+    const assistantMsg = JSON.parse(lines[1]);
+    expect(assistantMsg.cancelled).toBe(true);
+  });
+
   it("persists user message on send", async () => {
     const session = createSession({ sessionId: "persist-test" });
 

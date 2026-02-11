@@ -6,6 +6,7 @@ import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { projectRoutes } from "./projects.js";
 import { workspaceRoutes } from "./workspaces.js";
 import { git } from "../utils/git.js";
+import { loadProject, saveProject } from "../state/state.js";
 
 let tempDir: string;
 let dataDir: string;
@@ -105,7 +106,19 @@ describe("DELETE /api/workspaces/:wsId", () => {
   });
 });
 
+describe("DELETE /api/workspaces/:wsId", () => {
+  it("returns 404 for non-existent workspace", async () => {
+    const res = await app.inject({ method: "DELETE", url: "/api/workspaces/nonexistent" });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
 describe("GET /api/workspaces/:wsId/diff", () => {
+  it("returns 404 for non-existent workspace", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/workspaces/nonexistent/diff" });
+    expect(res.statusCode).toBe(404);
+  });
+
   it("returns diff", async () => {
     const createRes = await app.inject({
       method: "POST",
@@ -150,5 +163,24 @@ describe("POST /api/workspaces/:wsId/merge", () => {
   it("returns 404 for non-existent workspace", async () => {
     const res = await app.inject({ method: "POST", url: "/api/workspaces/nonexistent/merge" });
     expect(res.statusCode).toBe(404);
+  });
+
+  it("returns 409 when workspace is busy", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+
+    // Set workspace to busy
+    const state = await loadProject(projectId, dataDir);
+    const workspace = state!.workspaces.find((w) => w.id === ws.id)!;
+    workspace.status = "busy";
+    workspace.activeSessionId = "some-session";
+    await saveProject(state!, dataDir);
+
+    const res = await app.inject({ method: "POST", url: `/api/workspaces/${ws.id}/merge` });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toContain("Cannot merge");
   });
 });

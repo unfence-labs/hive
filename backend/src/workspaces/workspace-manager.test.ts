@@ -13,6 +13,7 @@ import {
   mergeWorkspace,
 } from "./workspace-manager.js";
 import { git } from "../utils/git.js";
+import { loadProject, saveProject } from "../state/state.js";
 
 let tempDir: string;
 let dataDir: string;
@@ -74,6 +75,10 @@ describe("listWorkspaces", () => {
     const list = await listWorkspaces(projectId, dataDir);
     expect(list).toEqual([]);
   });
+
+  it("throws for non-existent project", async () => {
+    await expect(listWorkspaces("nonexistent", dataDir)).rejects.toThrow("not found");
+  });
 });
 
 describe("getWorkspace", () => {
@@ -116,6 +121,10 @@ describe("getWorkspaceDiff", () => {
     expect(diff).toBe("");
   });
 
+  it("throws for non-existent workspace", async () => {
+    await expect(getWorkspaceDiff("nonexistent", dataDir)).rejects.toThrow("not found");
+  });
+
   it("returns diff after making changes", async () => {
     const ws = await createWorkspace(projectId, dataDir);
     const wsPath = join(dataDir, projectId, "workspaces", ws.name);
@@ -134,6 +143,19 @@ describe("getWorkspaceDiff", () => {
 });
 
 describe("mergeWorkspace", () => {
+  it("throws when workspace is busy", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const state = await loadProject(projectId, dataDir);
+    const workspace = state!.workspaces.find((w) => w.id === ws.id)!;
+    workspace.status = "busy";
+    workspace.activeSessionId = "some-session";
+    await saveProject(state!, dataDir);
+
+    await expect(mergeWorkspace(ws.id, dataDir)).rejects.toThrow(
+      "Cannot merge while a session is active",
+    );
+  });
+
   it("merges changes into the default branch", async () => {
     const ws = await createWorkspace(projectId, dataDir);
     const wsPath = join(dataDir, projectId, "workspaces", ws.name);
