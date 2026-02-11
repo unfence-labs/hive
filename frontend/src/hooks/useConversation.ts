@@ -1,5 +1,6 @@
-import { useEffect, useRef, useCallback, useReducer } from "react";
+import { useEffect, useCallback, useReducer, useSyncExternalStore } from "react";
 import type { ChatMessage, ToolCall, WsOutgoing, QuestionAnswer } from "@/types";
+import { wsTransport } from "@/lib/ws-transport";
 
 interface ConversationState {
   messages: ChatMessage[];
@@ -8,7 +9,6 @@ interface ConversationState {
   currentText: string;
   currentThinking: string;
   activeToolCalls: ToolCall[];
-  connectionStatus: "connecting" | "connected" | "disconnected";
   error?: string;
   sessionId?: string;
 }
@@ -24,7 +24,6 @@ type Action =
   | { type: "error"; message: string }
   | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean }
   | { type: "history"; messages: ChatMessage[] }
-  | { type: "set_connection"; status: ConversationState["connectionStatus"] }
   | { type: "reset" }
   | { type: "clear_chat" };
 
@@ -35,7 +34,6 @@ const initialState: ConversationState = {
   currentText: "",
   currentThinking: "",
   activeToolCalls: [],
-  connectionStatus: "disconnected",
   error: undefined,
   sessionId: undefined,
 };
@@ -142,9 +140,6 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "history":
       return { ...state, messages: action.messages };
 
-    case "set_connection":
-      return { ...state, connectionStatus: action.status };
-
     case "clear_chat":
       return {
         ...state,
@@ -162,121 +157,64 @@ function reducer(state: ConversationState, action: Action): ConversationState {
   }
 }
 
-const MAX_RECONNECT_DELAY = 30_000;
-const BASE_RECONNECT_DELAY = 1_000;
+function dispatchWsMessage(dispatch: React.Dispatch<Action>, msg: WsOutgoing): void {
+  switch (msg.type) {
+    case "text_delta":
+      dispatch({ type: "text_delta", text: msg.text });
+      break;
+    case "thinking":
+      dispatch({ type: "thinking", text: msg.text });
+      break;
+    case "tool_use":
+      dispatch({ type: "tool_use", id: msg.id, name: msg.name, input: msg.input });
+      break;
+    case "tool_result":
+      dispatch({ type: "tool_result", toolUseId: msg.toolUseId, output: msg.output });
+      break;
+    case "done":
+      dispatch({ type: "done", sessionId: msg.sessionId });
+      break;
+    case "cancelled":
+      dispatch({ type: "cancelled" });
+      break;
+    case "error":
+      dispatch({ type: "error", message: msg.message });
+      break;
+    case "status":
+      dispatch({ type: "status", status: msg.status, sessionId: msg.sessionId });
+      break;
+    case "history":
+      dispatch({ type: "history", messages: msg.messages });
+      break;
+  }
+}
 
 export function useConversation(workspaceId: string | undefined) {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectAttemptRef = useRef(0);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mountedRef = useRef(true);
+  const connectionStatus = useSyncExternalStore(wsTransport.subscribe, wsTransport.getStatus);
 
-  const connect = useCallback(() => {
-    if (!workspaceId || !mountedRef.current) return;
+  useEffect(() => {
+    if (!workspaceId) return;
+    dispatch({ type: "reset" });
+    wsTransport.connect(workspaceId);
 
-    dispatch({ type: "set_connection", status: "connecting" });
+    const unsubMessage = wsTransport.onMessage((msg) => {
+      dispatchWsMessage(dispatch, msg);
+    });
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsHost = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
-    const ws = new WebSocket(
-      `${wsHost}/ws/session/${workspaceId}`,
-    );
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      if (wsRef.current !== ws) return;
-      reconnectAttemptRef.current = 0;
-      dispatch({ type: "set_connection", status: "connected" });
-    };
-
-    ws.onmessage = (event) => {
-      if (wsRef.current !== ws) return;
-      try {
-        const msg = JSON.parse(event.data) as WsOutgoing;
-        switch (msg.type) {
-          case "text_delta":
-            dispatch({ type: "text_delta", text: msg.text });
-            break;
-          case "thinking":
-            dispatch({ type: "thinking", text: msg.text });
-            break;
-          case "tool_use":
-            dispatch({ type: "tool_use", id: msg.id, name: msg.name, input: msg.input });
-            break;
-          case "tool_result":
-            dispatch({ type: "tool_result", toolUseId: msg.toolUseId, output: msg.output });
-            break;
-          case "done":
-            dispatch({ type: "done", sessionId: msg.sessionId });
-            break;
-          case "cancelled":
-            dispatch({ type: "cancelled" });
-            break;
-          case "error":
-            dispatch({ type: "error", message: msg.message });
-            break;
-          case "status":
-            dispatch({ type: "status", status: msg.status, sessionId: msg.sessionId });
-            break;
-          case "history":
-            dispatch({ type: "history", messages: msg.messages });
-            break;
-        }
-      } catch {
-        // Ignore malformed messages
-      }
-    };
-
-    ws.onclose = () => {
-      // Stale WebSocket closed (e.g. StrictMode cleanup) — ignore entirely
-      if (wsRef.current !== ws) return;
-
-      wsRef.current = null;
-      dispatch({ type: "set_connection", status: "disconnected" });
-      if (!mountedRef.current) return;
-
-      // Exponential backoff reconnect
-      const attempt = reconnectAttemptRef.current++;
-      const delay = Math.min(BASE_RECONNECT_DELAY * 2 ** attempt, MAX_RECONNECT_DELAY);
-      reconnectTimerRef.current = setTimeout(() => {
-        if (!mountedRef.current) return;
-        connect();
-      }, delay);
-    };
-
-    ws.onerror = () => {
-      // onclose will fire after this, triggering reconnect
+    return () => {
+      unsubMessage();
+      wsTransport.disconnect();
     };
   }, [workspaceId]);
 
-  useEffect(() => {
-    mountedRef.current = true;
-    dispatch({ type: "reset" });
-    connect();
-
-    return () => {
-      mountedRef.current = false;
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-    };
-  }, [connect]);
-
   const sendMessage = useCallback((content: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
     dispatch({ type: "add_user_message", content });
-    wsRef.current.send(JSON.stringify({ type: "user_message", content }));
+    wsTransport.send({ type: "user_message", content });
   }, []);
 
   const stopStreaming = useCallback(() => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    wsRef.current.send(JSON.stringify({ type: "stop" }));
+    wsTransport.send({ type: "stop" });
   }, []);
 
   const clearChat = useCallback(() => {
@@ -302,7 +240,7 @@ export function useConversation(workspaceId: string | undefined) {
     currentStreamingText: state.currentText,
     currentThinking: state.currentThinking,
     activeToolCalls: state.activeToolCalls,
-    connectionStatus: state.connectionStatus,
+    connectionStatus,
     error: state.error,
     sessionId: state.sessionId,
     sendMessage,

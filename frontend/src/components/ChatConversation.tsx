@@ -73,7 +73,6 @@ export default function ChatConversation({
               {currentStreamingText && (
                 <div className="prose-sm">
                   <MarkdownRenderer content={currentStreamingText} />
-                  <span className="inline-block h-4 w-0.5 animate-pulse bg-current align-text-bottom" />
                 </div>
               )}
               {activeToolCalls.length > 0 && (
