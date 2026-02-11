@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import WebSocket from "ws";
-import { rm } from "node:fs/promises";
+import { rm, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { createProject } from "../projects/project-manager.js";
@@ -29,7 +29,6 @@ beforeEach(async () => {
   tempDir = await createTempDir("hive-ws-stream-test-");
   dataDir = join(tempDir, "data");
   const fixtureDir = join(tempDir, "fixtures");
-  const { mkdir } = await import("node:fs/promises");
   await mkdir(dataDir, { recursive: true });
   await mkdir(fixtureDir, { recursive: true });
   const fixtureRepoUrl = await createFixtureRepo(fixtureDir);
@@ -116,6 +115,52 @@ describe("WS /ws/session/:wsId", () => {
     await waitForMessage(messages, (msgs) => msgs.length >= 1);
 
     expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
+    ws.close();
+  });
+
+  it("sends persisted history even when no active session exists", async () => {
+    const sessionId = "sess-persisted";
+    const sessionDir = join(dataDir, projectId, "sessions", sessionId);
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      join(sessionDir, "metadata.json"),
+      JSON.stringify({
+        sessionId,
+        workspaceId: wsId,
+        createdAt: "2026-02-11T00:00:00.000Z",
+        updatedAt: "2026-02-11T00:00:01.000Z",
+        messageCount: 1,
+      }),
+      "utf-8",
+    );
+    await writeFile(
+      join(sessionDir, "messages.jsonl"),
+      JSON.stringify({
+        id: "m-1",
+        sessionId,
+        role: "assistant",
+        content: "persisted response",
+        timestamp: "2026-02-11T00:00:00.000Z",
+      }) + "\n",
+      "utf-8",
+    );
+
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "history"));
+
+    const history = messages.find((m) => m.type === "history");
+    expect(history).toBeDefined();
+    if (history?.type === "history") {
+      expect(history.messages).toEqual([
+        expect.objectContaining({
+          content: "persisted response",
+          role: "assistant",
+        }),
+      ]);
+    }
+
     ws.close();
   });
 

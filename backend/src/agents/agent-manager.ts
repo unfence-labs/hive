@@ -1,11 +1,12 @@
 import { join } from "node:path";
+import { readdir, readFile } from "node:fs/promises";
 import { ConversationSession } from "./conversation-session.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { saveProject, getDataDir, loadProject, withProjectStateLock } from "../state/state.js";
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
 import { NotFoundError } from "../utils/errors.js";
-import type { SessionMetadata } from "../types.js";
+import type { ChatMessage, SessionMetadata } from "../types.js";
 
 const activeSessions = new Map<string, ConversationSession>();
 const workspaceLocks = new Map<string, Promise<void>>();
@@ -129,6 +130,87 @@ export async function getOrCreateSession(
 /** Get active session for a workspace (if any). */
 export function getSession(wsId: string): ConversationSession | undefined {
   return activeSessions.get(wsId);
+}
+
+function parseJsonlMessages(raw: string): ChatMessage[] {
+  const messages: ChatMessage[] = [];
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      messages.push(JSON.parse(line) as ChatMessage);
+    } catch {
+      // Skip malformed lines to preserve recoverability.
+    }
+  }
+  return messages;
+}
+
+/**
+ * Load messages for a workspace:
+ * - from active in-memory session if present
+ * - otherwise from the most recent persisted session on disk
+ */
+export async function getSessionMessages(
+  wsId: string,
+  dataDir = getDataDir(),
+): Promise<ChatMessage[]> {
+  const active = activeSessions.get(wsId);
+  if (active) return active.getMessages();
+
+  const result = await getWorkspace(wsId, dataDir);
+  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
+
+  const { projectState, workspace } = result;
+  const sessionsRoot = join(dataDir, projectState.id, "sessions");
+  const candidateSessionIds: string[] = [];
+
+  if (workspace.activeSessionId) {
+    candidateSessionIds.push(workspace.activeSessionId);
+  }
+
+  try {
+    const entries = await readdir(sessionsRoot, { withFileTypes: true });
+    const metas: Array<{ sessionId: string; updatedAt: string }> = [];
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const metadataPath = join(sessionsRoot, entry.name, "metadata.json");
+      try {
+        const rawMeta = await readFile(metadataPath, "utf-8");
+        const meta = JSON.parse(rawMeta) as SessionMetadata;
+        if (meta.workspaceId !== wsId) continue;
+        metas.push({ sessionId: entry.name, updatedAt: meta.updatedAt });
+      } catch {
+        // Ignore unreadable/corrupt metadata and continue scanning.
+      }
+    }
+
+    metas
+      .sort((a, b) => {
+        const aTime = new Date(a.updatedAt).getTime() || 0;
+        const bTime = new Date(b.updatedAt).getTime() || 0;
+        return bTime - aTime;
+      })
+      .forEach((meta) => {
+        if (!candidateSessionIds.includes(meta.sessionId)) {
+          candidateSessionIds.push(meta.sessionId);
+        }
+      });
+  } catch {
+    // No persisted sessions directory yet.
+  }
+
+  for (const sessionId of candidateSessionIds) {
+    const messagesPath = join(sessionsRoot, sessionId, "messages.jsonl");
+    try {
+      const raw = await readFile(messagesPath, "utf-8");
+      return parseJsonlMessages(raw);
+    } catch {
+      // Try next candidate.
+    }
+  }
+
+  return [];
 }
 
 /** Send a message in the workspace's active session. Auto-creates session if needed. */

@@ -3,6 +3,7 @@ import {
   getOrCreateSession,
   getSessionMetadata,
   endSession,
+  getSessionMessages,
   type SessionOptions,
 } from "../agents/agent-manager.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
@@ -51,13 +52,14 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
   app.get<{ Params: { wsId: string } }>(
     "/api/workspaces/:wsId/session/messages",
     async (req, reply) => {
-      const { getSession } = await import("../agents/agent-manager.js");
-      const session = getSession(req.params.wsId);
-      if (!session) {
-        return reply.status(404).send({ error: "No active session" });
+      try {
+        const messages = await getSessionMessages(req.params.wsId, dataDir);
+        return reply.send(messages);
+      } catch (err: unknown) {
+        const msg = errorMessage(err, "Failed to load session messages");
+        const code = errorStatus(err);
+        return reply.status(code).send({ error: msg });
       }
-      const messages = await session.getMessages();
-      return reply.send(messages);
     },
   );
 

@@ -3,6 +3,7 @@ import type { WebSocket } from "ws";
 import {
   getSession,
   getOrCreateSession,
+  getSessionMessages,
   type SessionOptions,
 } from "../agents/agent-manager.js";
 import { errorMessage } from "../utils/errors.js";
@@ -58,6 +59,14 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         }
       } else {
         sendOutgoing(socket, { type: "status", status: "idle", streaming: false });
+        try {
+          const messages = await getSessionMessages(wsId, dataDir);
+          if (messages.length > 0) {
+            sendOutgoing(socket, { type: "history", messages });
+          }
+        } catch {
+          // Ignore missing/corrupt persisted history.
+        }
       }
 
       // Pipe session events to this WS client

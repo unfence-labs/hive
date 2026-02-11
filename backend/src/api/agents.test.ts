@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
-import { rm } from "node:fs/promises";
+import { rm, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { projectRoutes } from "./projects.js";
@@ -148,10 +148,66 @@ describe("GET /api/workspaces/:wsId/session/messages", () => {
     expect(res.json()).toEqual([]);
   });
 
-  it("returns 404 when no session exists", async () => {
+  it("returns empty array when no session exists", async () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/workspaces/${wsId}/session/messages`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([]);
+  });
+
+  it("returns persisted messages after ending a session", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${wsId}/session`,
+    });
+    const { sessionId } = createRes.json() as { sessionId: string };
+
+    const sessionDir = join(dataDir, projectId, "sessions", sessionId);
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      join(sessionDir, "metadata.json"),
+      JSON.stringify({
+        sessionId,
+        workspaceId: wsId,
+        createdAt: "2026-02-11T00:00:00.000Z",
+        updatedAt: "2026-02-11T00:00:01.000Z",
+        messageCount: 1,
+      }),
+      "utf-8",
+    );
+    await writeFile(
+      join(sessionDir, "messages.jsonl"),
+      JSON.stringify({
+        id: "m-1",
+        sessionId,
+        role: "user",
+        content: "hello from disk",
+        timestamp: "2026-02-11T00:00:00.000Z",
+      }) + "\n",
+      "utf-8",
+    );
+
+    await app.inject({ method: "DELETE", url: `/api/workspaces/${wsId}/session` });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/session/messages`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([
+      expect.objectContaining({
+        content: "hello from disk",
+        role: "user",
+      }),
+    ]);
+  });
+
+  it("returns 404 for non-existent workspace", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/workspaces/nonexistent/session/messages",
     });
     expect(res.statusCode).toBe(404);
   });
