@@ -43,17 +43,19 @@ export default function WorkspaceView() {
     error,
     sendMessage,
     stopStreaming,
+    clearChat,
   } = useConversation(wsId);
 
   const { endSession } = useConversationApi(wsId);
 
-  const handleEndSession = async () => {
+  const handleCleanSession = async () => {
     if (!wsId) return;
     try {
       await endSession();
     } catch {
-      // Best-effort; always refresh workspace state below.
+      // Best-effort; always clear UI below.
     } finally {
+      clearChat();
       await fetchWorkspace();
     }
   };
@@ -101,8 +103,8 @@ export default function WorkspaceView() {
         </div>
         <div className="flex gap-2">
           {hasActiveSession && (
-            <Button variant="destructive" size="sm" onClick={handleEndSession}>
-              End Session
+            <Button variant="destructive" size="sm" onClick={handleCleanSession}>
+              Clean Session
             </Button>
           )}
         </div>

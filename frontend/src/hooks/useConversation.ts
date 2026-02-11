@@ -25,7 +25,8 @@ type Action =
   | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean }
   | { type: "history"; messages: ChatMessage[] }
   | { type: "set_connection"; status: ConversationState["connectionStatus"] }
-  | { type: "reset" };
+  | { type: "reset" }
+  | { type: "clear_chat" };
 
 const initialState: ConversationState = {
   messages: [],
@@ -144,6 +145,18 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "set_connection":
       return { ...state, connectionStatus: action.status };
 
+    case "clear_chat":
+      return {
+        ...state,
+        messages: [],
+        isStreaming: false,
+        currentText: "",
+        currentThinking: "",
+        activeToolCalls: [],
+        error: undefined,
+        sessionId: undefined,
+      };
+
     case "reset":
       return initialState;
   }
@@ -261,6 +274,10 @@ export function useConversation(workspaceId: string | undefined) {
     wsRef.current.send(JSON.stringify({ type: "stop" }));
   }, []);
 
+  const clearChat = useCallback(() => {
+    dispatch({ type: "clear_chat" });
+  }, []);
+
   return {
     messages: state.messages,
     isStreaming: state.isStreaming,
@@ -273,5 +290,6 @@ export function useConversation(workspaceId: string | undefined) {
     sessionId: state.sessionId,
     sendMessage,
     stopStreaming,
+    clearChat,
   };
 }
