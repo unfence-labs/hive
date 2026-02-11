@@ -9,8 +9,6 @@ import type {
   ToolCall,
   SessionMetadata,
   WsOutgoing,
-  ContentBlock,
-  CliJsonLine,
 } from "../types.js";
 
 export interface ConversationSessionConfig {

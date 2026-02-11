@@ -7,18 +7,25 @@ Claude Code chat interface. Backend (Fastify) + Frontend (React) monorepo using 
 ```bash
 # Install (from repo root)
 npm install
+npm run lint
+npm run typecheck
+npm run test
 
 # Backend
 cd backend
 npm run dev          # tsx watch src/index.ts (hot reload, port 3000)
 npm run build        # tsc
-npm test             # vitest run (121 tests, ~6s)
+npm run lint
+npm run typecheck
+npm test             # vitest run
 npm run test:watch   # vitest in watch mode
 
 # Frontend
 cd frontend
 npm run dev          # vite dev server (port 5173, proxies /api + /ws to :3000)
 npm run build        # tsc -b && vite build
+npm run lint
+npm run typecheck
 ```
 
 ## Architecture
@@ -40,13 +47,13 @@ State is persisted as JSON (`{dataDir}/{projectId}/state.json`) with atomic writ
 - `backend/src/agents/` - ConversationSession (Claude CLI), StreamParser (NDJSON), session manager
 - `backend/src/api/` - Fastify REST routes (session CRUD)
 - `backend/src/ws/` - WebSocket streaming (bidirectional chat, auto-creates sessions)
-- `frontend/src/hooks/` - API and WebSocket hooks (useConversation, useConversationApi)
+- `frontend/src/hooks/` - API and WebSocket hooks (useConversation, useProjects, useWorkspaces)
 - `frontend/src/pages/` - Route-level views
 - `frontend/src/components/` - UI components (shadcn/ui primitives in `ui/`)
 
 ### Claude CLI Integration
 
-Uses `claude --print --output-format stream-json --verbose --dangerously-skip-permissions` which outputs NDJSON with:
+Uses `claude --print --output-format stream-json --verbose` (optionally with `--dangerously-skip-permissions`) which outputs NDJSON with:
 - `type: "assistant"` — text, tool_use, thinking blocks
 - `type: "user"` — tool_result blocks (tool outputs)
 - `type: "result"` — session_id, cost, usage
@@ -79,6 +86,11 @@ Session continuity via `--resume <claudeSessionId>` after first message.
 - `PORT` - Backend port (default: `3000`)
 - `DATA_DIR` - Where projects/worktrees/sessions live (default: `/data/projects`)
 - `HIVE_AUTH_TOKEN` - Optional API/WS bearer token (health endpoint stays public)
+- `HIVE_RATE_LIMIT_MAX` - Max requests per IP per window (default: `120`)
+- `HIVE_RATE_LIMIT_WINDOW_MS` - Rate-limit window in milliseconds (default: `60000`)
+- `HIVE_CLAUDE_SKIP_PERMISSIONS` - Enables/disables Claude `--dangerously-skip-permissions` (default: `true`)
+- `VITE_HIVE_AUTH_TOKEN` - Optional frontend token used for API and WS auth
+- `VITE_WS_URL` - Optional frontend WS base URL override
 
 ## Important
 
