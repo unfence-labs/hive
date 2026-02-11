@@ -4,6 +4,7 @@ import type { ChatMessage, ToolCall, WsOutgoing } from "@/types";
 interface ConversationState {
   messages: ChatMessage[];
   isStreaming: boolean;
+  workspaceStatus?: "idle" | "busy";
   currentText: string;
   currentThinking: string;
   activeToolCalls: ToolCall[];
@@ -21,7 +22,7 @@ type Action =
   | { type: "done"; sessionId?: string }
   | { type: "cancelled" }
   | { type: "error"; message: string }
-  | { type: "status"; status: "idle" | "busy"; sessionId?: string }
+  | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean }
   | { type: "history"; messages: ChatMessage[] }
   | { type: "set_connection"; status: ConversationState["connectionStatus"] }
   | { type: "reset" };
@@ -29,6 +30,7 @@ type Action =
 const initialState: ConversationState = {
   messages: [],
   isStreaming: false,
+  workspaceStatus: undefined,
   currentText: "",
   currentThinking: "",
   activeToolCalls: [],
@@ -129,7 +131,12 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       return { ...state, error: action.message, isStreaming: false };
 
     case "status":
-      return { ...state, sessionId: action.sessionId ?? state.sessionId };
+      return {
+        ...state,
+        workspaceStatus: action.status,
+        sessionId: action.sessionId ?? state.sessionId,
+        isStreaming: action.streaming ?? (action.status === "idle" ? false : state.isStreaming),
+      };
 
     case "history":
       return { ...state, messages: action.messages };
@@ -257,6 +264,7 @@ export function useConversation(workspaceId: string | undefined) {
   return {
     messages: state.messages,
     isStreaming: state.isStreaming,
+    workspaceStatus: state.workspaceStatus,
     currentStreamingText: state.currentText,
     currentThinking: state.currentThinking,
     activeToolCalls: state.activeToolCalls,

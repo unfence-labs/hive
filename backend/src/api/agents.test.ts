@@ -145,12 +145,12 @@ describe("DELETE /api/workspaces/:wsId/session", () => {
     expect(wsRes.json().status).toBe("idle");
   });
 
-  it("returns 404 when no session exists", async () => {
+  it("returns 204 when no session exists", async () => {
     const res = await app.inject({
       method: "DELETE",
       url: `/api/workspaces/${wsId}/session`,
     });
-    expect(res.statusCode).toBe(404);
+    expect(res.statusCode).toBe(204);
   });
 
   it("allows creating a new session after ending one", async () => {

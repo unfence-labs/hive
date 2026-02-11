@@ -38,6 +38,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private _status: "idle" | "streaming" | "error" = "idle";
   private messageCount = 0;
   private claudeSessionId: string | undefined;
+  private persistQueue: Promise<void> = Promise.resolve();
   private _metadata: SessionMetadata;
 
   constructor(config: ConversationSessionConfig) {
@@ -83,6 +84,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
   /** Get all persisted messages for this session. */
   async getMessages(): Promise<ChatMessage[]> {
+    await this.persistQueue;
     try {
       const messagesPath = join(this.sessionDir, "messages.jsonl");
       const raw = await readFile(messagesPath, "utf-8");
@@ -111,7 +113,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       content,
       timestamp: new Date().toISOString(),
     };
-    void this.appendMessage(userMsg);
+    void this.enqueuePersist(userMsg);
 
     this.messageCount++;
 
@@ -193,6 +195,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       stdio: ["pipe", "pipe", "pipe"],
     });
 
+    // Claude can wait indefinitely when stdin is a pipe left open.
+    // We only send prompt via args (`-p`), so close stdin immediately.
+    this.process.stdin?.end();
+
     this.process.stdout?.on("data", (chunk: Buffer) => {
       this.parser?.write(chunk.toString("utf-8"));
     });
@@ -232,23 +238,30 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           timestamp: new Date().toISOString(),
           cancelled: wasCancelled || undefined,
         };
-        void this.appendMessage(assistantMsg);
+        void this.enqueuePersist(assistantMsg);
       }
 
       this._metadata.messageCount = this.messageCount;
       this._metadata.updatedAt = new Date().toISOString();
-      void this.saveMetadata();
-
-      if (wasCancelled) {
-        this.emit("message", { type: "cancelled" });
-      } else {
-        this.emit("message", {
-          type: "done",
-          sessionId: this.claudeSessionId,
+      this.persistQueue = this.persistQueue
+        .then(() => this.saveMetadata())
+        .catch(() => {
+          // Non-fatal: metadata persistence failure should not break the session.
         });
-      }
 
-      this.emit("exit", exitCode);
+      void (async () => {
+        await this.persistQueue;
+        if (wasCancelled) {
+          this.emit("message", { type: "cancelled" });
+        } else {
+          this.emit("message", {
+            type: "done",
+            sessionId: this.claudeSessionId,
+          });
+        }
+
+        this.emit("exit", exitCode);
+      })();
     });
   }
 
@@ -278,6 +291,16 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     } catch {
       // Non-fatal — messages may not persist if disk fails
     }
+  }
+
+  /** Serialize message persistence to preserve order under fast process exits. */
+  private enqueuePersist(msg: ChatMessage): Promise<void> {
+    this.persistQueue = this.persistQueue
+      .then(() => this.appendMessage(msg))
+      .catch(() => {
+        // Non-fatal: keep queue alive for subsequent writes.
+      });
+    return this.persistQueue;
   }
 
   /** Save session metadata to disk. */

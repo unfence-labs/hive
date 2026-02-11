@@ -13,7 +13,7 @@ import {
   getSessionMetadata,
   _clearActiveSessions,
 } from "./agent-manager.js";
-import { loadProject } from "../state/state.js";
+import { loadProject, saveProject } from "../state/state.js";
 
 const CONV_CMD = { command: "bash" };
 
@@ -65,6 +65,23 @@ describe("getOrCreateSession", () => {
 
   it("throws for non-existent workspace", async () => {
     await expect(getOrCreateSession("nonexistent", dataDir, CONV_CMD)).rejects.toThrow("not found");
+  });
+
+  it("recovers stale busy workspace state and creates a new session", async () => {
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId)!;
+    ws.status = "busy";
+    ws.activeSessionId = "stale-session-id";
+    await saveProject(state!, dataDir);
+
+    const { session, created } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    expect(created).toBe(true);
+    expect(session.sessionId).toBeTruthy();
+
+    const updatedState = await loadProject(projectId, dataDir);
+    const updatedWs = updatedState!.workspaces.find((w) => w.id === wsId)!;
+    expect(updatedWs.status).toBe("busy");
+    expect(updatedWs.activeSessionId).toBe(session.sessionId);
   });
 });
 
@@ -132,8 +149,12 @@ describe("endSession", () => {
     expect(session.sessionId).toBeTruthy();
   });
 
-  it("throws when no session exists", async () => {
-    await expect(endSession(wsId, dataDir)).rejects.toThrow("No active session");
+  it("is idempotent when no session exists", async () => {
+    await expect(endSession(wsId, dataDir)).resolves.toBeUndefined();
+
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId);
+    expect(ws!.status).toBe("idle");
   });
 });
 

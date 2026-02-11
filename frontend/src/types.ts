@@ -64,5 +64,5 @@ export type WsOutgoing =
   | { type: "done"; sessionId?: string; costUsd?: number }
   | { type: "error"; message: string }
   | { type: "cancelled" }
-  | { type: "status"; status: "idle" | "busy"; sessionId?: string }
+  | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean }
   | { type: "history"; messages: ChatMessage[] };
