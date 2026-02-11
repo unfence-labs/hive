@@ -83,6 +83,16 @@ describe("getOrCreateSession", () => {
     expect(updatedWs.status).toBe("busy");
     expect(updatedWs.activeSessionId).toBe(session.sessionId);
   });
+
+  it("serializes concurrent creation attempts for the same workspace", async () => {
+    const [first, second] = await Promise.all([
+      getOrCreateSession(wsId, dataDir, CONV_CMD),
+      getOrCreateSession(wsId, dataDir, CONV_CMD),
+    ]);
+
+    expect(first.session.sessionId).toBe(second.session.sessionId);
+    expect([first.created, second.created].filter(Boolean)).toHaveLength(1);
+  });
 });
 
 describe("getSession", () => {

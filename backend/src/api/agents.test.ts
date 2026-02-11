@@ -95,6 +95,17 @@ describe("POST /api/workspaces/:wsId/session", () => {
     expect(resB.json().sessionId).toBe(firstSessionId);
   });
 
+  it("handles concurrent create calls on a fresh workspace", async () => {
+    const [resA, resB] = await Promise.all([
+      app.inject({ method: "POST", url: `/api/workspaces/${wsId}/session` }),
+      app.inject({ method: "POST", url: `/api/workspaces/${wsId}/session` }),
+    ]);
+
+    const statuses = [resA.statusCode, resB.statusCode].sort();
+    expect(statuses).toEqual([200, 201]);
+    expect(resA.json().sessionId).toBe(resB.json().sessionId);
+  });
+
   it("returns 404 for non-existent workspace", async () => {
     const res = await app.inject({
       method: "POST",
