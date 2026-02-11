@@ -158,8 +158,9 @@ export function useConversation(workspaceId: string | undefined) {
     dispatch({ type: "set_connection", status: "connecting" });
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsHost = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
     const ws = new WebSocket(
-      `${protocol}//${window.location.host}/ws/session/${workspaceId}`,
+      `${wsHost}/ws/session/${workspaceId}`,
     );
     wsRef.current = ws;
 
