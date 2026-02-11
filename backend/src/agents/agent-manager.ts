@@ -85,8 +85,8 @@ export async function endSession(
 ): Promise<void> {
   const session = activeSessions.get(wsId);
   if (session) {
-    session.stop();
     activeSessions.delete(wsId);
+    session.stop();
   }
 
   const result = await getWorkspace(wsId, dataDir);
