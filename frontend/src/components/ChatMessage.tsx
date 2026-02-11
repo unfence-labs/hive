@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { ChatMessage as ChatMessageType, QuestionAnswer } from "@/types";
 import { isAskUserQuestion, isExitPlanMode } from "@/types";
 import { cn } from "@/lib/utils";
@@ -14,7 +15,7 @@ interface ChatMessageProps {
   onPlanApproval?: () => void;
 }
 
-export default function ChatMessage({
+const ChatMessage = memo(function ChatMessage({
   message,
   isInteractive = false,
   onQuestionAnswer,
@@ -79,4 +80,6 @@ export default function ChatMessage({
       </div>
     </div>
   );
-}
+});
+
+export default ChatMessage;

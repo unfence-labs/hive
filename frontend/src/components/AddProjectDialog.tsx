@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 interface AddProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (url: string) => Promise<void>;
+  onSubmit: (url: string) => Promise<unknown>;
 }
 
 export default function AddProjectDialog({
