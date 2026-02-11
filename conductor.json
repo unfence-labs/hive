@@ -1,0 +1,6 @@
+{
+    "scripts": {
+        "setup": "npm install",
+        "run": "cd backend && DATA_DIR=\"$PWD/.data\" PORT=3000 npm run dev"
+    }
+}
