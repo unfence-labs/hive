@@ -185,11 +185,13 @@ export function useConversation(workspaceId: string | undefined) {
     wsRef.current = ws;
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) return;
       reconnectAttemptRef.current = 0;
       dispatch({ type: "set_connection", status: "connected" });
     };
 
     ws.onmessage = (event) => {
+      if (wsRef.current !== ws) return;
       try {
         const msg = JSON.parse(event.data) as WsOutgoing;
         switch (msg.type) {
@@ -227,6 +229,9 @@ export function useConversation(workspaceId: string | undefined) {
     };
 
     ws.onclose = () => {
+      // Stale WebSocket closed (e.g. StrictMode cleanup) — ignore entirely
+      if (wsRef.current !== ws) return;
+
       wsRef.current = null;
       dispatch({ type: "set_connection", status: "disconnected" });
       if (!mountedRef.current) return;
