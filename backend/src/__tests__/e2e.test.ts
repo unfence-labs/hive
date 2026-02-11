@@ -195,7 +195,7 @@ describe("E2E: conversation-only lifecycle", () => {
       setTimeout(() => { clearInterval(check); resolve(); }, 2000);
     });
 
-    expect(messages[0]).toEqual({ type: "status", status: "idle" });
+    expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
 
     // Send a message — should auto-create session
     wsClient.send(JSON.stringify({ type: "user_message", content: "Hello" }));
@@ -225,6 +225,72 @@ describe("E2E: conversation-only lifecycle", () => {
 
     wsClient.close();
     await _clearActiveSessions();
+  }, 15000);
+
+  it("WS receives idle status after endSession via HTTP DELETE", async () => {
+    const projRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { url: fixtureRepoUrl },
+    });
+    const project = projRes.json();
+    const wsRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/workspaces`,
+    });
+    const workspace = wsRes.json();
+
+    // Create session via REST so the workspace becomes busy
+    await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${workspace.id}/session`,
+    });
+
+    // Connect WS
+    const wsUrl = address.replace("http://", "ws://");
+    const wsClient = new WebSocket(`${wsUrl}/ws/session/${workspace.id}`);
+    const messages: WsOutgoing[] = [];
+
+    wsClient.on("message", (data) => {
+      messages.push(JSON.parse(data.toString()));
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      wsClient.on("open", resolve);
+      wsClient.on("error", reject);
+    });
+
+    // Wait for initial busy status
+    await new Promise<void>((resolve) => {
+      const check = setInterval(() => {
+        if (messages.length >= 1) { clearInterval(check); resolve(); }
+      }, 20);
+      setTimeout(() => { clearInterval(check); resolve(); }, 2000);
+    });
+    expect(messages[0]).toMatchObject({ type: "status", status: "busy" });
+
+    // End session via HTTP DELETE
+    const endRes = await app.inject({
+      method: "DELETE",
+      url: `/api/workspaces/${workspace.id}/session`,
+    });
+    expect(endRes.statusCode).toBe(204);
+
+    // Wait for WS to receive idle status
+    await new Promise<void>((resolve) => {
+      const check = setInterval(() => {
+        if (messages.some((m) => m.type === "status" && m.status === "idle")) {
+          clearInterval(check);
+          resolve();
+        }
+      }, 20);
+      setTimeout(() => { clearInterval(check); resolve(); }, 3000);
+    });
+
+    const idleMsg = messages.find((m) => m.type === "status" && m.status === "idle");
+    expect(idleMsg).toEqual({ type: "status", status: "idle", streaming: false });
+
+    wsClient.close();
   }, 15000);
 
   it("diff and merge still work with conversation-only mode", async () => {

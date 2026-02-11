@@ -267,7 +267,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
   /** Stop the currently streaming process. */
   stop(): void {
-    if (!this.process) return;
+    if (!this.process) {
+      this.emit("exit", 0);
+      return;
+    }
 
     this.process.kill("SIGTERM");
 

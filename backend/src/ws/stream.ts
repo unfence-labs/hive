@@ -61,12 +61,26 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           sendOutgoing(socket, { type: "error", message: err.message });
         };
         const onExit = (_code: number) => {
-          sendOutgoing(socket, {
-            type: "status",
-            status: "busy",
-            sessionId: session!.sessionId,
-            streaming: false,
-          });
+          const stillActive = getSession(wsId) === session;
+          if (stillActive) {
+            // Session was stopped (not ended) — still alive, just not streaming
+            sendOutgoing(socket, {
+              type: "status",
+              status: "busy",
+              sessionId: session!.sessionId,
+              streaming: false,
+            });
+          } else {
+            // Session was ended — removed from activeSessions
+            sendOutgoing(socket, {
+              type: "status",
+              status: "idle",
+              streaming: false,
+            });
+            cleanupListeners?.();
+            cleanupListeners = undefined;
+            session = null;
+          }
         };
 
         session.on("message", onMessage);
