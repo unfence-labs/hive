@@ -1,0 +1,50 @@
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { useState } from "react";
+import AppLayout from "@/components/AppLayout";
+import ProjectView from "@/pages/ProjectView";
+import WorkspaceView from "@/pages/WorkspaceView";
+import DiffPage from "@/pages/DiffPage";
+import AddProjectDialog from "@/components/AddProjectDialog";
+import { useProjects } from "@/hooks/useProjects";
+
+export default function App() {
+  const { projects, loading, createProject, deleteProject } = useProjects();
+  const [showAddProject, setShowAddProject] = useState(false);
+
+  return (
+    <BrowserRouter>
+      <AddProjectDialog
+        open={showAddProject}
+        onOpenChange={setShowAddProject}
+        onSubmit={async (url) => {
+          await createProject(url);
+        }}
+      />
+      <Routes>
+        <Route
+          element={
+            <AppLayout
+              projects={projects}
+              loading={loading}
+              onAddProject={() => setShowAddProject(true)}
+              onDeleteProject={deleteProject}
+            />
+          }
+        >
+          <Route index element={<Navigate to="/projects" replace />} />
+          <Route
+            path="projects"
+            element={
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                Select a project or add one to get started.
+              </div>
+            }
+          />
+          <Route path="projects/:id" element={<ProjectView />} />
+          <Route path="workspaces/:wsId" element={<WorkspaceView />} />
+          <Route path="workspaces/:wsId/diff" element={<DiffPage />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}
