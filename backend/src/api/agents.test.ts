@@ -76,6 +76,25 @@ describe("POST /api/workspaces/:wsId/session", () => {
     expect(res.statusCode).toBe(200);
   });
 
+  it("handles concurrent create calls when session already exists", async () => {
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${wsId}/session`,
+    });
+    expect(first.statusCode).toBe(201);
+    const firstSessionId = first.json().sessionId;
+
+    const [resA, resB] = await Promise.all([
+      app.inject({ method: "POST", url: `/api/workspaces/${wsId}/session` }),
+      app.inject({ method: "POST", url: `/api/workspaces/${wsId}/session` }),
+    ]);
+
+    expect(resA.statusCode).toBe(200);
+    expect(resB.statusCode).toBe(200);
+    expect(resA.json().sessionId).toBe(firstSessionId);
+    expect(resB.json().sessionId).toBe(firstSessionId);
+  });
+
   it("returns 404 for non-existent workspace", async () => {
     const res = await app.inject({
       method: "POST",

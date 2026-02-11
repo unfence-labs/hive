@@ -9,6 +9,7 @@ import { createProject } from "../projects/project-manager.js";
 import { createWorkspace } from "../workspaces/workspace-manager.js";
 import {
   getOrCreateSession,
+  sendMessage,
   endSession,
   _clearActiveSessions,
 } from "../agents/agent-manager.js";
@@ -186,6 +187,35 @@ describe("WS /ws/session/:wsId", () => {
     expect(ws.readyState).toBe(WebSocket.OPEN);
 
     ws.close();
+    await endSession(wsId, dataDir);
+  });
+
+  it("broadcasts session events to multiple connected clients", async () => {
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
+
+    const first = connectSessionWs(wsId);
+    const second = connectSessionWs(wsId);
+    const ws1 = await first.wsReady;
+    const ws2 = await second.wsReady;
+
+    await waitForMessage(first.messages, (msgs) => msgs.length >= 1);
+    await waitForMessage(second.messages, (msgs) => msgs.length >= 1);
+
+    const firstCount = first.messages.length;
+    const secondCount = second.messages.length;
+
+    await sendMessage(wsId, "Hello from test", dataDir, CONV_CMD);
+
+    await waitForMessage(first.messages, (msgs) => msgs.length > firstCount);
+    await waitForMessage(second.messages, (msgs) => msgs.length > secondCount);
+
+    const firstNew = first.messages.slice(firstCount);
+    const secondNew = second.messages.slice(secondCount);
+    expect(firstNew.length).toBeGreaterThan(0);
+    expect(secondNew.length).toBeGreaterThan(0);
+
+    ws1.close();
+    ws2.close();
     await endSession(wsId, dataDir);
   });
 });
