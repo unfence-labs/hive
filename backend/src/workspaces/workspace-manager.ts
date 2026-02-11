@@ -5,6 +5,7 @@ import { git } from "../utils/git.js";
 import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/paths.js";
 import { pickCityName } from "../utils/city-names.js";
 import { loadProject, saveProject, getDataDir, withProjectStateLock } from "../state/state.js";
+import { ConflictError, NotFoundError } from "../utils/errors.js";
 import type { Workspace, ProjectState } from "../types.js";
 
 function findWorkspace(state: ProjectState, wsId: string): Workspace | undefined {
@@ -30,7 +31,7 @@ export async function createWorkspace(
     projectId,
     async () => {
       const state = await loadProject(projectId, dataDir);
-      if (!state) throw new Error(`Project ${projectId} not found`);
+      if (!state) throw new NotFoundError(`Project ${projectId} not found`);
 
       const usedNames = state.workspaces.map((ws) => ws.name);
       const cityName = pickCityName(usedNames);
@@ -64,7 +65,7 @@ export async function listWorkspaces(
   dataDir = getDataDir()
 ): Promise<Workspace[]> {
   const state = await loadProject(projectId, dataDir);
-  if (!state) throw new Error(`Project ${projectId} not found`);
+  if (!state) throw new NotFoundError(`Project ${projectId} not found`);
   return state.workspaces;
 }
 
@@ -84,16 +85,16 @@ export async function deleteWorkspace(
   dataDir = getDataDir()
 ): Promise<void> {
   const result = await getWorkspace(wsId, dataDir);
-  if (!result) throw new Error(`Workspace ${wsId} not found`);
+  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
 
   const projectId = result.projectState.id;
   await withProjectStateLock(
     projectId,
     async () => {
       const latest = await loadProject(projectId, dataDir);
-      if (!latest) throw new Error(`Project ${projectId} not found`);
+      if (!latest) throw new NotFoundError(`Project ${projectId} not found`);
       const workspace = latest.workspaces.find((ws) => ws.id === wsId);
-      if (!workspace) throw new Error(`Workspace ${wsId} not found`);
+      if (!workspace) throw new NotFoundError(`Workspace ${wsId} not found`);
 
       const bare = bareRepoPath(dataDir, projectId);
       const wsPath = join(workspacesDir(dataDir, projectId), workspace.name);
@@ -127,7 +128,7 @@ export async function getWorkspaceDiff(
   dataDir = getDataDir()
 ): Promise<string> {
   const result = await getWorkspace(wsId, dataDir);
-  if (!result) throw new Error(`Workspace ${wsId} not found`);
+  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
 
   const { projectState, workspace } = result;
   const bare = bareRepoPath(dataDir, projectState.id);
@@ -147,11 +148,11 @@ export async function mergeWorkspace(
   dataDir = getDataDir()
 ): Promise<void> {
   const result = await getWorkspace(wsId, dataDir);
-  if (!result) throw new Error(`Workspace ${wsId} not found`);
+  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
 
   const { projectState, workspace } = result;
   if (workspace.status === "busy") {
-    throw new Error("Cannot merge while a session is active");
+    throw new ConflictError("Cannot merge while a session is active");
   }
 
   const bare = bareRepoPath(dataDir, projectState.id);

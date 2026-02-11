@@ -7,10 +7,30 @@ export class ApiError extends Error {
   }
 }
 
+function headerRecord(headers?: HeadersInit): Record<string, string> {
+  if (!headers) return {};
+  if (headers instanceof Headers) return Object.fromEntries(headers.entries());
+  if (Array.isArray(headers)) return Object.fromEntries(headers);
+  return { ...headers };
+}
+
+function hasHeader(headers: Record<string, string>, name: string): boolean {
+  const target = name.toLowerCase();
+  return Object.keys(headers).some((k) => k.toLowerCase() === target);
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = {};
-  if (options?.body) headers["Content-Type"] = "application/json";
-  const res = await fetch(url, { headers, ...options });
+  const headers = headerRecord(options?.headers);
+  const authToken = import.meta.env.VITE_HIVE_AUTH_TOKEN?.trim();
+
+  if (options?.body && !hasHeader(headers, "Content-Type")) {
+    headers["Content-Type"] = "application/json";
+  }
+  if (authToken && !hasHeader(headers, "Authorization") && !hasHeader(headers, "x-hive-token")) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
+
+  const res = await fetch(url, { ...options, headers });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new ApiError(res.status, body || res.statusText);

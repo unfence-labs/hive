@@ -4,6 +4,7 @@ import { buildSystemPrompt } from "./system-prompt.js";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { saveProject, getDataDir, loadProject, withProjectStateLock } from "../state/state.js";
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
+import { NotFoundError } from "../utils/errors.js";
 import type { SessionMetadata } from "../types.js";
 
 const activeSessions = new Map<string, ConversationSession>();
@@ -12,6 +13,7 @@ const workspaceLocks = new Map<string, Promise<void>>();
 export interface SessionOptions {
   command?: string;
   systemPrompt?: string | false;
+  skipPermissions?: boolean;
 }
 
 async function withWorkspaceLock<T>(wsId: string, fn: () => Promise<T>): Promise<T> {
@@ -49,7 +51,7 @@ export async function getOrCreateSession(
     if (existing) return { session: existing, created: false };
 
     const result = await getWorkspace(wsId, dataDir);
-    if (!result) throw new Error(`Workspace ${wsId} not found`);
+    if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
 
     const { projectState, workspace } = result;
     const projectId = projectState.id;
@@ -58,9 +60,9 @@ export async function getOrCreateSession(
       projectId,
       async () => {
         const latest = await loadProject(projectId, dataDir);
-        if (!latest) throw new Error(`Project ${projectId} not found`);
+        if (!latest) throw new NotFoundError(`Project ${projectId} not found`);
         const latestWorkspace = latest.workspaces.find((ws) => ws.id === wsId);
-        if (!latestWorkspace) throw new Error(`Workspace ${wsId} not found`);
+        if (!latestWorkspace) throw new NotFoundError(`Workspace ${wsId} not found`);
         if (latestWorkspace.status === "busy") {
           // Sessions are in-memory only. If backend restarted, a workspace can remain
           // persisted as busy without an active session in memory; recover it.
@@ -101,6 +103,7 @@ export async function getOrCreateSession(
       workspaceId: wsId,
       command: options?.command,
       systemPrompt,
+      skipPermissions: options?.skipPermissions,
     });
 
     activeSessions.set(wsId, session);
@@ -109,9 +112,9 @@ export async function getOrCreateSession(
       projectId,
       async () => {
         const latest = await loadProject(projectId, dataDir);
-        if (!latest) throw new Error(`Project ${projectId} not found`);
+        if (!latest) throw new NotFoundError(`Project ${projectId} not found`);
         const latestWorkspace = latest.workspaces.find((ws) => ws.id === wsId);
-        if (!latestWorkspace) throw new Error(`Workspace ${wsId} not found`);
+        if (!latestWorkspace) throw new NotFoundError(`Workspace ${wsId} not found`);
         latestWorkspace.status = "busy";
         latestWorkspace.activeSessionId = session.sessionId;
         await saveProject(latest, dataDir);
@@ -160,16 +163,16 @@ export async function endSession(
     }
 
     const result = await getWorkspace(wsId, dataDir);
-    if (!result) throw new Error(`Workspace ${wsId} not found`);
+    if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
     const projectId = result.projectState.id;
 
     await withProjectStateLock(
       projectId,
       async () => {
         const latest = await loadProject(projectId, dataDir);
-        if (!latest) throw new Error(`Project ${projectId} not found`);
+        if (!latest) throw new NotFoundError(`Project ${projectId} not found`);
         const latestWorkspace = latest.workspaces.find((ws) => ws.id === wsId);
-        if (!latestWorkspace) throw new Error(`Workspace ${wsId} not found`);
+        if (!latestWorkspace) throw new NotFoundError(`Workspace ${wsId} not found`);
         latestWorkspace.status = "idle";
         latestWorkspace.activeSessionId = undefined;
         await saveProject(latest, dataDir);

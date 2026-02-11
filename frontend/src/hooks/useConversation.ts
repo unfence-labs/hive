@@ -167,9 +167,14 @@ export function useConversation(workspaceId: string | undefined) {
     };
   }, [workspaceId]);
 
-  const sendMessage = useCallback((content: string) => {
+  const sendMessage = useCallback((content: string): boolean => {
+    const sent = wsTransport.send({ type: "user_message", content });
+    if (!sent) {
+      dispatch({ type: "error", message: "Message not sent: disconnected from server." });
+      return false;
+    }
     dispatch({ type: "add_user_message", content });
-    wsTransport.send({ type: "user_message", content });
+    return true;
   }, []);
 
   const stopStreaming = useCallback(() => {

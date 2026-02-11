@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
 interface ChatInputProps {
-  onSend: (content: string) => void;
+  onSend: (content: string) => boolean;
   onStop: () => void;
   disabled: boolean;
   isStreaming: boolean;
@@ -29,8 +29,9 @@ export default function ChatInput({
   const handleSend = () => {
     const trimmed = value.trim();
     if (!trimmed || disabled) return;
-    onSend(trimmed);
-    setValue("");
+    if (onSend(trimmed)) {
+      setValue("");
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

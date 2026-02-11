@@ -24,11 +24,12 @@ function sendOutgoing(socket: WebSocket, msg: WsOutgoing): void {
 export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptions = {}) {
   const { dataDir, sessionOptions, authToken } = opts;
 
-  app.get<{ Params: { wsId: string } }>(
+  app.get<{ Params: { wsId: string }; Querystring: { token?: string } }>(
     "/ws/session/:wsId",
     { websocket: true },
     async (socket, req) => {
-      if (!isAuthorized(req.headers, authToken)) {
+      const queryToken = typeof req.query.token === "string" ? req.query.token : undefined;
+      if (!isAuthorized(req.headers, authToken, queryToken)) {
         sendOutgoing(socket, { type: "error", message: "Unauthorized" });
         socket.close(1008, "Unauthorized");
         return;

@@ -31,10 +31,12 @@ export function extractAuthToken(
 
 export function isAuthorized(
   headers: Record<string, string | string[] | undefined>,
-  expectedToken?: string
+  expectedToken?: string,
+  fallbackToken?: string
 ): boolean {
   if (!expectedToken) return true;
-  const provided = extractAuthToken(headers);
+  const headerToken = extractAuthToken(headers);
+  const provided = headerToken ?? fallbackToken?.trim();
   if (!provided) return false;
   return safeEqual(provided, expectedToken);
 }

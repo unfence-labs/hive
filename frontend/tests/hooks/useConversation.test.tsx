@@ -86,7 +86,7 @@ describe("useConversation", () => {
     expect(__wsMock.disconnectMock).toHaveBeenCalledTimes(1);
   });
 
-  it("sends user messages and updates local state immediately", async () => {
+  it("sends user messages and updates local state after transport accepts the send", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -102,6 +102,21 @@ describe("useConversation", () => {
       type: "user_message",
       content: "hello",
     });
+  });
+
+  it("does not add user message when transport send fails", async () => {
+    const { __wsMock } = await getWsMock();
+    __wsMock.sendMock.mockReturnValueOnce(false);
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      const sent = result.current.sendMessage("hello");
+      expect(sent).toBe(false);
+    });
+
+    expect(result.current.messages).toHaveLength(0);
+    expect(result.current.isStreaming).toBe(false);
+    expect(result.current.error).toContain("Message not sent");
   });
 
   it("builds assistant message from stream deltas and done event", async () => {

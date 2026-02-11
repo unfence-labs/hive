@@ -93,7 +93,11 @@ npx tsc --noEmit
 | `HOST`     | `127.0.0.1`      | Backend bind address                       |
 | `PORT`     | `3000`            | Backend port                               |
 | `DATA_DIR` | `/data/projects`  | Root directory for repos, worktrees, logs  |
-| `HIVE_AUTH_TOKEN` | _(unset)_ | If set, requires `Authorization: Bearer <token>` (or `x-hive-token`) for API/WS (except `/health`) |
+| `HIVE_AUTH_TOKEN` | _(unset)_ | If set, requires auth for API/WS (except `/health`) |
+| `HIVE_RATE_LIMIT_MAX` | `120` | Max requests per IP within `HIVE_RATE_LIMIT_WINDOW_MS` |
+| `HIVE_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window in milliseconds |
+| `HIVE_CLAUDE_SKIP_PERMISSIONS` | `true` | Controls `--dangerously-skip-permissions` in Claude CLI |
+| `VITE_HIVE_AUTH_TOKEN` | _(unset)_ | Frontend token sent as Bearer auth (HTTP) and `token` query (WS) |
 
 ## API
 

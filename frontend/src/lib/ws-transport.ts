@@ -90,8 +90,10 @@ class WsTransport {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsHost =
       import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
+    const authToken = import.meta.env.VITE_HIVE_AUTH_TOKEN?.trim();
+    const query = authToken ? `?token=${encodeURIComponent(authToken)}` : "";
     const ws = new WebSocket(
-      `${wsHost}/ws/session/${this.currentWorkspaceId}`,
+      `${wsHost}/ws/session/${this.currentWorkspaceId}${query}`,
     );
     this.ws = ws;
 

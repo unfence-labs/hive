@@ -50,6 +50,7 @@ describe("wsTransport", () => {
     vi.useFakeTimers();
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
     MockWebSocket.instances = [];
+    delete import.meta.env.VITE_HIVE_AUTH_TOKEN;
     wsTransport.disconnect();
   });
 
@@ -68,6 +69,14 @@ describe("wsTransport", () => {
 
     MockWebSocket.instances[0]?.open();
     expect(wsTransport.getStatus()).toBe("connected");
+  });
+
+  it("adds token query parameter when auth token is configured", () => {
+    import.meta.env.VITE_HIVE_AUTH_TOKEN = "secret token";
+    wsTransport.connect("ws-1");
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(MockWebSocket.instances[0]?.url).toContain("token=secret%20token");
   });
 
   it("send returns false when socket is not open", () => {

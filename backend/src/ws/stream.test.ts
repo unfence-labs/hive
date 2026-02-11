@@ -262,4 +262,25 @@ describe("WS /ws/session/:wsId", () => {
     ws.close();
     await secure.app.close();
   });
+
+  it("accepts websocket connections with a valid token query parameter", async () => {
+    const secure = await startWsApp("secret");
+    const wsUrl = secure.address.replace("http://", "ws://");
+    const messages: WsOutgoing[] = [];
+    const ws = new WebSocket(`${wsUrl}/ws/session/${wsId}?token=secret`);
+    ws.on("message", (data) => {
+      messages.push(JSON.parse(data.toString()) as WsOutgoing);
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on("open", () => resolve());
+      ws.on("error", reject);
+    });
+
+    await waitForMessage(messages, (msgs) => msgs.length >= 1);
+    expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
+
+    ws.close();
+    await secure.app.close();
+  });
 });

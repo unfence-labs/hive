@@ -111,13 +111,14 @@ describe("ConversationSession", () => {
     mockSpawn.mockReturnValue(mockProc);
   });
 
-  function createSession(opts?: { sessionId?: string; command?: string }) {
+  function createSession(opts?: { sessionId?: string; command?: string; skipPermissions?: boolean }) {
     return new ConversationSession({
       cwd: "/tmp/test",
       dataDir: tempDir,
       workspaceId: "ws-test",
       sessionId: opts?.sessionId,
       command: opts?.command,
+      skipPermissions: opts?.skipPermissions,
     });
   }
 
@@ -150,6 +151,15 @@ describe("ConversationSession", () => {
       { cwd: "/tmp/test", stdio: ["pipe", "pipe", "pipe"] },
     );
     expect(mockProc._stdinEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("omits --dangerously-skip-permissions when disabled", () => {
+    const session = createSession({ sessionId: "sess-no-skip", command: "claude", skipPermissions: false });
+
+    session.sendMessage("Hello");
+
+    const args = mockSpawn.mock.calls[0]?.[1] as string[];
+    expect(args).not.toContain("--dangerously-skip-permissions");
   });
 
   it("uses --resume after receiving claudeSessionId from result", () => {

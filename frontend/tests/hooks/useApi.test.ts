@@ -11,6 +11,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe("api", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    delete import.meta.env.VITE_HIVE_AUTH_TOKEN;
   });
 
   it("parses JSON for successful GET requests", async () => {
@@ -63,5 +64,17 @@ describe("api", () => {
     await expect(api.get("/api/fail")).rejects.toEqual(
       new ApiError(500, "Internal Server Error"),
     );
+  });
+
+  it("adds authorization header when VITE_HIVE_AUTH_TOKEN is configured", async () => {
+    import.meta.env.VITE_HIVE_AUTH_TOKEN = "secret";
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.get("/api/projects");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects", {
+      headers: { Authorization: "Bearer secret" },
+    });
   });
 });

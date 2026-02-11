@@ -5,7 +5,7 @@ import {
   endSession,
   type SessionOptions,
 } from "../agents/agent-manager.js";
-import { errorMessage } from "../utils/errors.js";
+import { errorMessage, errorStatus } from "../utils/errors.js";
 
 export interface SessionRoutesOptions {
   dataDir?: string;
@@ -29,7 +29,7 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
         return reply.status(status).send(session.metadata);
       } catch (err: unknown) {
         const msg = errorMessage(err, "Failed to create session");
-        const code = msg.includes("busy") ? 409 : msg.includes("not found") ? 404 : 500;
+        const code = errorStatus(err);
         return reply.status(code).send({ error: msg });
       }
     },
@@ -70,7 +70,7 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
         return reply.status(204).send();
       } catch (err: unknown) {
         const msg = errorMessage(err, "Failed to end session");
-        const code = msg.includes("not found") ? 404 : 500;
+        const code = errorStatus(err);
         return reply.status(code).send({ error: msg });
       }
     },

@@ -6,7 +6,7 @@ import ChatInput from "@/components/ChatInput";
 describe("ChatInput", () => {
   it("sends message on Send button click", async () => {
     const user = userEvent.setup();
-    const onSend = vi.fn();
+    const onSend = vi.fn(() => true);
 
     render(
       <ChatInput
@@ -26,7 +26,7 @@ describe("ChatInput", () => {
 
   it("sends message on Enter without Shift", async () => {
     const user = userEvent.setup();
-    const onSend = vi.fn();
+    const onSend = vi.fn(() => true);
 
     render(
       <ChatInput
@@ -45,7 +45,7 @@ describe("ChatInput", () => {
 
   it("does not send on Shift+Enter", async () => {
     const user = userEvent.setup();
-    const onSend = vi.fn();
+    const onSend = vi.fn(() => true);
 
     render(
       <ChatInput
@@ -68,7 +68,7 @@ describe("ChatInput", () => {
 
     render(
       <ChatInput
-        onSend={vi.fn()}
+        onSend={vi.fn(() => true)}
         onStop={onStop}
         disabled={false}
         isStreaming
@@ -84,7 +84,7 @@ describe("ChatInput", () => {
   it("disables input when disconnected", () => {
     render(
       <ChatInput
-        onSend={vi.fn()}
+        onSend={vi.fn(() => true)}
         onStop={vi.fn()}
         disabled={false}
         isStreaming={false}
@@ -94,5 +94,27 @@ describe("ChatInput", () => {
 
     expect(screen.getByPlaceholderText("Reconnecting...")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+
+  it("keeps input value when onSend returns false", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn(() => false);
+
+    render(
+      <ChatInput
+        onSend={onSend}
+        onStop={vi.fn()}
+        disabled={false}
+        isStreaming={false}
+        connectionStatus="connected"
+      />,
+    );
+
+    const input = screen.getByPlaceholderText("Send a message...");
+    await user.type(input, "hello");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onSend).toHaveBeenCalledWith("hello");
+    expect(input).toHaveValue("hello");
   });
 });

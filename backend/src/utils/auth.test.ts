@@ -27,6 +27,10 @@ describe("isAuthorized", () => {
   it("rejects mismatched token", () => {
     expect(isAuthorized({ authorization: "Bearer nope" }, "secret")).toBe(false);
   });
+
+  it("accepts matching fallback token", () => {
+    expect(isAuthorized({}, "secret", "secret")).toBe(true);
+  });
 });
 
 describe("createAuthHook", () => {

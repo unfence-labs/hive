@@ -5,6 +5,7 @@ import { git } from "../utils/git.js";
 import { bareRepoPath } from "../utils/paths.js";
 import { saveProject, loadProject, loadAllProjects, getDataDir } from "../state/state.js";
 import { validateRepositoryUrl } from "../utils/repo-url.js";
+import { NotFoundError } from "../utils/errors.js";
 import type { ProjectState } from "../types.js";
 
 function extractRepoName(url: string): string {
@@ -68,7 +69,7 @@ export async function fetchProject(
   dataDir = getDataDir()
 ): Promise<void> {
   const state = await loadProject(projectId, dataDir);
-  if (!state) throw new Error(`Project ${projectId} not found`);
+  if (!state) throw new NotFoundError(`Project ${projectId} not found`);
   const bare = bareRepoPath(dataDir, projectId);
   await git(["fetch", "--all"], bare);
 }

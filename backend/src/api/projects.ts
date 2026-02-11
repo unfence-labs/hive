@@ -6,7 +6,7 @@ import {
   deleteProject,
   fetchProject,
 } from "../projects/project-manager.js";
-import { errorMessage } from "../utils/errors.js";
+import { errorMessage, errorStatus } from "../utils/errors.js";
 import type { CreateProjectRequest } from "../types.js";
 
 export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
@@ -18,7 +18,9 @@ export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
       const project = await createProject(url, dataDir);
       return reply.status(201).send(project);
     } catch (err: unknown) {
-      return reply.status(400).send({ error: errorMessage(err, "Clone failed") });
+      return reply
+        .status(errorStatus(err, 400))
+        .send({ error: errorMessage(err, "Clone failed") });
     }
   });
 
@@ -45,7 +47,9 @@ export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
       await fetchProject(req.params.id, dataDir);
       return reply.send({ status: "ok" });
     } catch (err: unknown) {
-      return reply.status(404).send({ error: errorMessage(err, "Fetch failed") });
+      return reply
+        .status(errorStatus(err))
+        .send({ error: errorMessage(err, "Fetch failed") });
     }
   });
 }

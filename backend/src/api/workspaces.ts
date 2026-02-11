@@ -7,7 +7,7 @@ import {
   getWorkspaceDiff,
   mergeWorkspace,
 } from "../workspaces/workspace-manager.js";
-import { errorMessage } from "../utils/errors.js";
+import { errorMessage, errorStatus } from "../utils/errors.js";
 
 export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
   app.post<{ Params: { id: string } }>("/api/projects/:id/workspaces", async (req, reply) => {
@@ -15,7 +15,9 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
       const workspace = await createWorkspace(req.params.id, dataDir);
       return reply.status(201).send(workspace);
     } catch (err: unknown) {
-      return reply.status(404).send({ error: errorMessage(err, "Failed to create workspace") });
+      return reply
+        .status(errorStatus(err))
+        .send({ error: errorMessage(err, "Failed to create workspace") });
     }
   });
 
@@ -24,7 +26,7 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
       const workspaces = await listWorkspaces(req.params.id, dataDir);
       return reply.send(workspaces);
     } catch (err: unknown) {
-      return reply.status(404).send({ error: errorMessage(err, "Failed") });
+      return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });
     }
   });
 
@@ -39,7 +41,7 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
       await deleteWorkspace(req.params.wsId, dataDir);
       return reply.status(204).send();
     } catch (err: unknown) {
-      return reply.status(404).send({ error: errorMessage(err, "Failed") });
+      return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });
     }
   });
 
@@ -48,7 +50,7 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
       const diff = await getWorkspaceDiff(req.params.wsId, dataDir);
       return reply.send({ diff });
     } catch (err: unknown) {
-      return reply.status(404).send({ error: errorMessage(err, "Failed") });
+      return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });
     }
   });
 
@@ -57,9 +59,9 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
       await mergeWorkspace(req.params.wsId, dataDir);
       return reply.send({ status: "merged" });
     } catch (err: unknown) {
-      const msg = errorMessage(err, "Merge failed");
-      const code = msg.includes("not found") ? 404 : 409;
-      return reply.status(code).send({ error: msg });
+      return reply
+        .status(errorStatus(err))
+        .send({ error: errorMessage(err, "Merge failed") });
     }
   });
 }

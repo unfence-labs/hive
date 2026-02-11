@@ -20,6 +20,7 @@ export interface ConversationSessionConfig {
   sessionId?: string;
   command?: string;
   systemPrompt?: string;
+  skipPermissions?: boolean;
 }
 
 export type ConversationSessionEvent = {
@@ -33,6 +34,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private readonly cwd: string;
   private readonly command: string;
   private readonly systemPrompt: string | undefined;
+  private readonly skipPermissions: boolean;
   private readonly sessionDir: string;
   private readonly workspaceId: string;
   private process: ChildProcess | null = null;
@@ -49,6 +51,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.cwd = config.cwd;
     this.command = config.command ?? "claude";
     this.systemPrompt = config.systemPrompt;
+    this.skipPermissions = config.skipPermissions ?? true;
     this.workspaceId = config.workspaceId;
     this.sessionDir = join(config.dataDir, "sessions", this.sessionId);
 
@@ -125,7 +128,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       "--print",
       "--output-format", "stream-json",
       "--verbose",
-      "--dangerously-skip-permissions",
+      ...(this.skipPermissions ? ["--dangerously-skip-permissions"] : []),
       ...(isFirst && this.systemPrompt
         ? ["--append-system-prompt", this.systemPrompt]
         : []),
