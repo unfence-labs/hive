@@ -47,7 +47,7 @@ export default function ChatInput({
   };
 
   return (
-    <div className="border-t bg-background p-4">
+    <div className="bg-background p-4">
       <PromptInput onSubmit={handleSubmit}>
         <PromptInputBody>
           <PromptInputTextarea
@@ -77,22 +77,6 @@ export default function ChatInput({
           />
         </PromptInputFooter>
       </PromptInput>
-      <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-        <span
-          className={`inline-block h-1.5 w-1.5 rounded-full ${
-            connectionStatus === "connected"
-              ? "bg-green-500"
-              : connectionStatus === "connecting"
-                ? "bg-yellow-500"
-                : "bg-red-500"
-          }`}
-        />
-        {connectionStatus === "connected"
-          ? "Enter to send, Shift+Enter for new line"
-          : connectionStatus === "connecting"
-            ? "Connecting..."
-            : "Disconnected — reconnecting..."}
-      </div>
     </div>
   );
 }
