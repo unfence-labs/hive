@@ -55,7 +55,7 @@ export default function AgentActivityPreview({ size = "large" }: AgentActivityPr
   const height = (H_MAX_Y * loader.stepPx) + loader.pixelSizePx;
 
   return (
-    <div className="mb-3 flex items-center">
+    <div className="inline-flex items-center">
       <div
         role="img"
         aria-label={`Agent thinking loader ${size}`}

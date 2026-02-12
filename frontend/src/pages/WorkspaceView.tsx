@@ -171,9 +171,6 @@ export default function WorkspaceView() {
               />
               {hasActiveSession ? "session active" : "session idle"}
             </Badge>
-            <Badge variant={isStreaming ? "default" : "outline"}>
-              {isStreaming ? "streaming" : "ready"}
-            </Badge>
             <Button
               variant="ghost"
               size="icon-xs"

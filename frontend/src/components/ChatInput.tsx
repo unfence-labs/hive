@@ -49,7 +49,12 @@ export default function ChatInput({
 
   return (
     <div className="bg-background p-4">
-      <AgentActivityPreview size="large" />
+      {isStreaming ? (
+        <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <AgentActivityPreview size="small" />
+          <span>Working...</span>
+        </div>
+      ) : null}
       <PromptInput onSubmit={handleSubmit}>
         <PromptInputBody>
           <PromptInputTextarea
