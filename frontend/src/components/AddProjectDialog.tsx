@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,7 @@ export default function AddProjectDialog({
   onOpenChange,
   onSubmit,
 }: AddProjectDialogProps) {
+  const navigate = useNavigate();
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,9 +33,12 @@ export default function AddProjectDialog({
     setLoading(true);
     setError(null);
     try {
-      await onSubmit(url.trim());
+      const result = await onSubmit(url.trim());
       setUrl("");
       onOpenChange(false);
+      if (result && typeof result === "object" && "id" in result) {
+        navigate(`/workspaces/${(result as { id: string }).id}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add project");
     } finally {
