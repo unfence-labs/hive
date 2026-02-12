@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { GitBranch, MapPin } from "lucide-react";
+import { GitBranch } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -14,18 +14,18 @@ import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
 
 const AVATAR_COLORS = [
-  "bg-red-500",
-  "bg-orange-500",
-  "bg-amber-500",
-  "bg-emerald-500",
-  "bg-teal-500",
-  "bg-blue-500",
-  "bg-indigo-500",
-  "bg-purple-500",
-  "bg-pink-500",
+  { bg: "bg-red-500/20", text: "text-red-400" },
+  { bg: "bg-orange-500/20", text: "text-orange-400" },
+  { bg: "bg-amber-500/20", text: "text-amber-400" },
+  { bg: "bg-emerald-500/20", text: "text-emerald-400" },
+  { bg: "bg-teal-500/20", text: "text-teal-400" },
+  { bg: "bg-blue-500/20", text: "text-blue-400" },
+  { bg: "bg-indigo-500/20", text: "text-indigo-400" },
+  { bg: "bg-purple-500/20", text: "text-purple-400" },
+  { bg: "bg-pink-500/20", text: "text-pink-400" },
 ] as const;
 
-function getProjectColor(name: string): string {
+function getProjectColor(name: string) {
   let hash = 0;
   for (const ch of name) {
     hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
@@ -130,18 +130,6 @@ export default function Sidebar({
             </div>
           ) : (
             projects.map((project) => {
-              const workspaceStates = (project.workspaces ?? []).map((workspace) => {
-                const live = liveWorkspaceStatus[workspace.id];
-                return {
-                  id: workspace.id,
-                  status: live?.status ?? workspace.status,
-                  streaming: live?.streaming ?? false,
-                };
-              });
-              const hasActiveSession = workspaceStates.some(
-                (workspaceState) => workspaceState.status === "busy",
-              );
-
               return (
                 <div key={project.id} className="mb-1">
                   <Collapsible
@@ -161,16 +149,14 @@ export default function Sidebar({
                         >
                           <span
                             className={cn(
-                              "flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold text-white",
-                              getProjectColor(project.name),
+                              "flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold",
+                              getProjectColor(project.name).bg,
+                              getProjectColor(project.name).text,
                             )}
                           >
                             {project.name[0]?.toUpperCase() ?? "?"}
                           </span>
                           <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                          {hasActiveSession && (
-                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
-                          )}
                           <span
                             role="button"
                             tabIndex={-1}
@@ -190,9 +176,7 @@ export default function Sidebar({
                     <CollapsibleContent>
                       <div className="mt-1 space-y-0.5">
                         {(project.workspaces ?? []).map((ws) => {
-                          const live = liveWorkspaceStatus[ws.id];
-                          const wsStatus = live?.status ?? ws.status;
-                          const wsStreaming = live?.streaming ?? false;
+                          const wsStreaming = liveWorkspaceStatus[ws.id]?.streaming ?? false;
                           return (
                             <Link
                               key={ws.id}
@@ -204,22 +188,10 @@ export default function Sidebar({
                             >
                               <div className="flex items-center gap-1.5">
                                 <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                <span
-                                  className={cn(
-                                    "h-1.5 w-1.5 shrink-0 rounded-full",
-                                    wsStatus === "busy" ? "bg-blue-500" : "bg-muted-foreground/40",
-                                  )}
-                                />
                                 <span className="min-w-0 flex-1 truncate text-sm">{ws.branch}</span>
-                                {wsStreaming && (
-                                  <span className="shrink-0 text-[11px] text-muted-foreground">
-                                    Working
-                                  </span>
-                                )}
                               </div>
-                              <div className="mt-0.5 flex items-center gap-1.5 pl-5 text-[11px] text-muted-foreground">
-                                <MapPin className="h-3 w-3 shrink-0" />
-                                <span className="truncate">{ws.name}</span>
+                              <div className="mt-0.5 pl-5 text-[11px] text-muted-foreground">
+                                <span className="truncate">{wsStreaming ? "working..." : ws.name}</span>
                               </div>
                             </Link>
                           );
