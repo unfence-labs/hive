@@ -166,3 +166,26 @@
 .animate-shimmer {
   animation: shimmer 2s ease-in-out infinite;
 }
+
+@keyframes pixel-thinking-h {
+  0% {
+    opacity: 0.38;
+    transform: scale(0.88) translateY(0);
+  }
+  22% {
+    opacity: 0.62;
+    transform: scale(0.98) translateY(-0.4px);
+  }
+  56% {
+    opacity: 0.98;
+    transform: scale(1.08) translateY(-0.8px);
+  }
+  100% {
+    opacity: 0.45;
+    transform: scale(0.9) translateY(0.2px);
+  }
+}
+
+.animate-pixel-thinking-h {
+  animation: pixel-thinking-h 1.25s ease-in-out infinite;
+}
