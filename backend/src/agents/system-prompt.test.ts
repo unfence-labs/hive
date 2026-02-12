@@ -89,9 +89,13 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Workspace: geneva");
   });
 
-  it("includes default base prompt", async () => {
+  it("includes default base prompt with interpolated variables", async () => {
     const prompt = await buildSystemPrompt({ cwd: repoDir });
-    expect(prompt).toContain("AI coding assistant");
+    expect(prompt).toContain("running inside Hive");
+    expect(prompt).toContain(`take place in the ${repoDir} directory`);
+    expect(prompt).toContain("target branch for this workspace is main");
+    expect(prompt).not.toContain("{DIR}");
+    expect(prompt).not.toContain("{DEFAULT_BRANCH}");
   });
 
   it("uses custom base prompt when provided", async () => {
@@ -161,12 +165,23 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("AI coding assistant");
   });
 
+  it("interpolates {DIR} and {DEFAULT_BRANCH} in file-based prompt", async () => {
+    const promptsDir = join(tempDir, "prompts");
+    await mkdir(promptsDir, { recursive: true });
+    await writeFile(join(promptsDir, "base.md"), "Work in {DIR}, branch is {DEFAULT_BRANCH}.");
+
+    const prompt = await buildSystemPrompt({ cwd: repoDir, promptsDir, defaultBranch: "develop" });
+    expect(prompt).toContain(`Work in ${repoDir}, branch is develop.`);
+    expect(prompt).not.toContain("{DIR}");
+    expect(prompt).not.toContain("{DEFAULT_BRANCH}");
+  });
+
   it("falls back to default when promptsDir has no base.md", async () => {
     const promptsDir = join(tempDir, "empty-prompts");
     await mkdir(promptsDir, { recursive: true });
 
     const prompt = await buildSystemPrompt({ cwd: repoDir, promptsDir });
-    expect(prompt).toContain("AI coding assistant");
+    expect(prompt).toContain("running inside Hive");
   });
 
   it("explicit basePrompt takes priority over promptsDir", async () => {

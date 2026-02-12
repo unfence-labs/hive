@@ -29,7 +29,10 @@ export interface SystemPromptOptions {
   promptsDir?: string;
 }
 
-export const DEFAULT_BASE_PROMPT = `You are an AI coding assistant working inside a project workspace.
+export const DEFAULT_BASE_PROMPT = `You are an AI coding agent running inside Hive, a macOS app that helps developers ship faster by running multiple coding agents in parallel across workspaces.
+Your work should take place in the {DIR} directory (unless otherwise directed), which has been set up for you to work in.
+The target branch for this workspace is {DEFAULT_BRANCH}. Use this for actions like creating new PRs, bisecting, etc., unless you're told otherwise.
+If the user asks you to work on several unrelated tasks in parallel, suggest they start new workspaces.
 You have full access to the codebase via your tools. Read files before modifying them.
 Write clean, simple code. Follow existing patterns and conventions in the codebase.
 All code, comments, and variable names must be in English.`;
@@ -86,6 +89,8 @@ export async function getGitContext(cwd: string, defaultBranchOverride?: string)
 export async function buildSystemPrompt(opts: SystemPromptOptions): Promise<string> {
   const { cwd, workspaceName, projectName, defaultBranch, branchRename, promptsDir } = opts;
 
+  const ctx = await getGitContext(cwd, defaultBranch);
+
   let basePrompt: string;
   if (opts.basePrompt !== undefined) {
     basePrompt = opts.basePrompt;
@@ -95,7 +100,10 @@ export async function buildSystemPrompt(opts: SystemPromptOptions): Promise<stri
     basePrompt = DEFAULT_BASE_PROMPT;
   }
 
-  const ctx = await getGitContext(cwd, defaultBranch);
+  // Interpolate template variables
+  basePrompt = basePrompt
+    .replace(/\{DIR}/g, cwd)
+    .replace(/\{DEFAULT_BRANCH}/g, ctx.defaultBranch);
 
   const sections: string[] = [basePrompt];
 
