@@ -165,6 +165,21 @@ describe("useConversation", () => {
     });
   });
 
+  it("forwards per-message options through transport", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      result.current.sendMessage("hello", { planMode: true, thinkingEnabled: false });
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenCalledWith("ws-1", {
+      type: "user_message",
+      content: "hello",
+      options: { planMode: true, thinkingEnabled: false },
+    });
+  });
+
   it("appends user message when backend emits user_message event", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));
