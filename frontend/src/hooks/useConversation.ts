@@ -3,6 +3,13 @@ import type { ChatMessage, ToolCall, WsOutgoing, QuestionAnswer } from "@/types"
 import { wsTransport } from "@/lib/ws-transport";
 import { api } from "@/hooks/useApi";
 
+export interface PendingToolInput {
+  requestId: string;
+  toolName: string;
+  toolUseId: string;
+  input: unknown;
+}
+
 interface ConversationState {
   messages: ChatMessage[];
   isStreaming: boolean;
@@ -10,13 +17,15 @@ interface ConversationState {
   currentText: string;
   currentThinking: string;
   activeToolCalls: ToolCall[];
+  pendingToolInputs: PendingToolInput[];
   error?: string;
   sessionId?: string;
 }
 
 type LocalAction =
   | { type: "reset" }
-  | { type: "clear_chat" };
+  | { type: "clear_chat" }
+  | { type: "clear_pending_tool_inputs" };
 
 type Action = WsOutgoing | LocalAction;
 
@@ -27,6 +36,7 @@ const initialState: ConversationState = {
   currentText: "",
   currentThinking: "",
   activeToolCalls: [],
+  pendingToolInputs: [],
   error: undefined,
   sessionId: undefined,
 };
@@ -44,6 +54,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         currentText: "",
         currentThinking: "",
         activeToolCalls: [],
+        pendingToolInputs: [],
         error: undefined,
         sessionId: action.message.sessionId || state.sessionId,
       };
@@ -128,6 +139,20 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "history":
       return { ...state, messages: action.messages };
 
+    case "tool_input_required":
+      return {
+        ...state,
+        pendingToolInputs: [...state.pendingToolInputs, {
+          requestId: action.requestId,
+          toolName: action.toolName,
+          toolUseId: action.toolUseId,
+          input: action.input,
+        }],
+      };
+
+    case "clear_pending_tool_inputs":
+      return { ...state, pendingToolInputs: [] };
+
     case "clear_chat":
       return {
         ...state,
@@ -136,6 +161,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         currentText: "",
         currentThinking: "",
         activeToolCalls: [],
+        pendingToolInputs: [],
         error: undefined,
         sessionId: undefined,
       };
@@ -215,17 +241,44 @@ export function useConversation(workspaceId: string | undefined) {
     dispatch({ type: "clear_chat" });
   }, []);
 
-  const answerQuestion = useCallback((_toolCallId: string, answers: QuestionAnswer[]) => {
-    const formatted = answers.map((a) => {
-      if (a.customText) return `Q${a.questionIndex + 1}: "${a.customText}"`;
-      return `Q${a.questionIndex + 1}: Selected option(s) ${a.selectedOptions.map((i) => i + 1).join(", ")}`;
-    }).join("\n");
-    sendMessage(`[Response to question]\n${formatted}`);
-  }, [sendMessage]);
+  const answerQuestion = useCallback((toolCallId: string, answers: QuestionAnswer[]) => {
+    if (!workspaceId) return;
+    const pending = state.pendingToolInputs.find((p) => p.toolUseId === toolCallId);
+    wsTransport.send(workspaceId, {
+      type: "tool_input_response",
+      requestId: pending?.requestId ?? toolCallId,
+      toolName: "AskUserQuestion",
+      result: { type: "answer", answers },
+    });
+    dispatch({ type: "clear_pending_tool_inputs" });
+    historyRequestTokenRef.current += 1;
+  }, [workspaceId, state.pendingToolInputs]);
 
   const approvePlan = useCallback(() => {
-    sendMessage("I approve the plan. Please proceed with implementation.");
-  }, [sendMessage]);
+    if (!workspaceId) return;
+    const pending = state.pendingToolInputs.find((p) => p.toolName === "ExitPlanMode");
+    wsTransport.send(workspaceId, {
+      type: "tool_input_response",
+      requestId: pending?.requestId ?? "",
+      toolName: "ExitPlanMode",
+      result: { type: "approve" },
+    });
+    dispatch({ type: "clear_pending_tool_inputs" });
+    historyRequestTokenRef.current += 1;
+  }, [workspaceId, state.pendingToolInputs]);
+
+  const rejectToolInput = useCallback((message?: string) => {
+    if (!workspaceId || state.pendingToolInputs.length === 0) return;
+    const pending = state.pendingToolInputs[0];
+    wsTransport.send(workspaceId, {
+      type: "tool_input_response",
+      requestId: pending.requestId,
+      toolName: pending.toolName,
+      result: { type: "reject", message },
+    });
+    dispatch({ type: "clear_pending_tool_inputs" });
+    historyRequestTokenRef.current += 1;
+  }, [workspaceId, state.pendingToolInputs]);
 
   return {
     messages: state.messages,
@@ -234,6 +287,7 @@ export function useConversation(workspaceId: string | undefined) {
     currentStreamingText: state.currentText,
     currentThinking: state.currentThinking,
     activeToolCalls: state.activeToolCalls,
+    pendingToolInputs: state.pendingToolInputs,
     connectionStatus,
     error: state.error,
     sessionId: state.sessionId,
@@ -242,5 +296,6 @@ export function useConversation(workspaceId: string | undefined) {
     clearChat,
     answerQuestion,
     approvePlan,
+    rejectToolInput,
   };
 }

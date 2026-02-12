@@ -92,12 +92,20 @@ export function parseQuestions(tool: ToolCall): Question[] {
   } catch { return []; }
 }
 
+// ── Interactive tool input types ─────────────────────────────────────
+
+export type ToolInputResult =
+  | { type: "answer"; answers: QuestionAnswer[] }
+  | { type: "approve" }
+  | { type: "reject"; message?: string };
+
 // ── WebSocket protocol ──────────────────────────────────────────────
 
 /** Frontend -> Backend */
 export type WsIncoming =
   | { type: "user_message"; content: string }
-  | { type: "stop" };
+  | { type: "stop" }
+  | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult };
 
 /** Backend -> Frontend */
 export type WsOutgoing =
@@ -105,6 +113,7 @@ export type WsOutgoing =
   | { type: "thinking"; text: string }
   | { type: "tool_use"; id: string; name: string; input: string }
   | { type: "tool_result"; toolUseId: string; output: string }
+  | { type: "tool_input_required"; requestId: string; toolName: string; toolUseId: string; input: unknown }
   | { type: "done"; sessionId?: string; costUsd?: number }
   | { type: "error"; message: string }
   | { type: "cancelled" }

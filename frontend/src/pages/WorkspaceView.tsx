@@ -114,6 +114,7 @@ export default function WorkspaceView() {
     currentStreamingText,
     currentThinking,
     activeToolCalls,
+    pendingToolInputs,
     connectionStatus,
     error,
     sendMessage,
@@ -121,6 +122,7 @@ export default function WorkspaceView() {
     clearChat,
     answerQuestion,
     approvePlan,
+    rejectToolInput,
   } = useConversation(wsId);
 
   const handleCleanSession = async () => {
@@ -193,14 +195,17 @@ export default function WorkspaceView() {
             currentStreamingText={currentStreamingText}
             currentThinking={currentThinking}
             activeToolCalls={activeToolCalls}
+            pendingToolInputs={pendingToolInputs}
             onQuestionAnswer={answerQuestion}
             onPlanApproval={approvePlan}
+            onRejectToolInput={rejectToolInput}
           />
           <ChatInput
             onSend={sendMessage}
             onStop={stopStreaming}
             disabled={false}
             isStreaming={isStreaming}
+            isAwaitingResponse={pendingToolInputs.length > 0}
             connectionStatus={connectionStatus}
           />
         </div>

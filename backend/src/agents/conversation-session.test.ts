@@ -134,22 +134,19 @@ describe("ConversationSession", () => {
     expect(session.sessionId).toBe("my-session");
   });
 
-  it("spawns correct CLI command for first message (no --resume)", () => {
+  it("spawns correct CLI command for first message (--session-id)", () => {
     const session = createSession({ sessionId: "sess-1", command: "claude" });
 
     session.sendMessage("Hello");
 
-    expect(mockSpawn).toHaveBeenCalledWith(
-      "claude",
-      [
-        "--print",
-        "--output-format", "stream-json",
-        "--verbose",
-        "--dangerously-skip-permissions",
-        "-p", "Hello",
-      ],
-      { cwd: "/tmp/test", stdio: ["pipe", "pipe", "pipe"] },
-    );
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(args).toContain("--print");
+    expect(args).toContain("--verbose");
+    expect(args).toContain("--dangerously-skip-permissions");
+    expect(args).toContain("--session-id");
+    expect(args).not.toContain("--resume");
+    expect(args.slice(-2)).toEqual(["-p", "Hello"]);
     expect(mockProc._stdinEnd).toHaveBeenCalledTimes(1);
   });
 
@@ -162,13 +159,18 @@ describe("ConversationSession", () => {
     expect(args).not.toContain("--dangerously-skip-permissions");
   });
 
-  it("uses --resume after receiving claudeSessionId from result", () => {
+  it("uses --resume with pre-generated session ID on second message", () => {
     const session = createSession({ sessionId: "sess-2" });
 
     session.sendMessage("First");
 
-    // Simulate the result with session_id
-    mockProc._stdout.push(resultLine("claude-sess-abc"));
+    // Capture the pre-generated session ID from the first call's --session-id arg
+    const firstArgs = mockSpawn.mock.calls[0][1] as string[];
+    const sessionIdIdx = firstArgs.indexOf("--session-id");
+    const preGeneratedId = firstArgs[sessionIdIdx + 1];
+
+    mockProc._stdout.push(assistantLine("Hello"));
+    mockProc._stdout.push(resultLine(preGeneratedId));
     mockProc._emitClose(0);
 
     // Create a new mock for second call
@@ -180,7 +182,8 @@ describe("ConversationSession", () => {
     expect(mockSpawn).toHaveBeenCalledTimes(2);
     const secondArgs = mockSpawn.mock.calls[1][1] as string[];
     expect(secondArgs).toContain("--resume");
-    expect(secondArgs).toContain("claude-sess-abc");
+    expect(secondArgs).toContain(preGeneratedId);
+    expect(secondArgs).not.toContain("--session-id");
   });
 
   it("emits text_delta for assistant text", () => {
@@ -271,7 +274,7 @@ describe("ConversationSession", () => {
 
     session.sendMessage("Hi");
     mockProc._stdout.push(assistantLine("Hello!"));
-    mockProc._stdout.push(resultLine("claude-sess-1"));
+    mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);
 
     // Allow async persistence to settle
@@ -279,7 +282,9 @@ describe("ConversationSession", () => {
 
     const doneMsgs = messages.filter((m) => m.type === "done");
     expect(doneMsgs).toHaveLength(1);
-    expect(doneMsgs[0]).toEqual({ type: "done", sessionId: "claude-sess-1" });
+    // sessionId is the pre-generated UUID, not from the result event
+    expect(doneMsgs[0]).toHaveProperty("type", "done");
+    expect(doneMsgs[0]).toHaveProperty("sessionId");
     expect(session.status).toBe("idle");
   });
 
@@ -467,12 +472,17 @@ describe("ConversationSession", () => {
     expect(assistantMsg.content).toBe("Hello back!");
   });
 
-  it("saves metadata with claudeSessionId after result", async () => {
+  it("saves metadata with pre-generated claudeSessionId", async () => {
     const session = createSession({ sessionId: "meta-test" });
 
     session.sendMessage("Hi");
+
+    // Capture the pre-generated session ID
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    const preGeneratedId = args[args.indexOf("--session-id") + 1];
+
     mockProc._stdout.push(assistantLine("Hello"));
-    mockProc._stdout.push(resultLine("claude-real-id"));
+    mockProc._stdout.push(resultLine(preGeneratedId));
     mockProc._emitClose(0);
 
     await new Promise((r) => setTimeout(r, 100));
@@ -482,7 +492,7 @@ describe("ConversationSession", () => {
     const meta = JSON.parse(raw);
 
     expect(meta.sessionId).toBe("meta-test");
-    expect(meta.claudeSessionId).toBe("claude-real-id");
+    expect(meta.claudeSessionId).toBe(preGeneratedId);
     expect(meta.messageCount).toBe(1);
   });
 
@@ -512,8 +522,13 @@ describe("ConversationSession", () => {
     // First session creates metadata
     const session1 = createSession({ sessionId: "load-test" });
     session1.sendMessage("Hi");
+
+    // Capture the pre-generated session ID
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    const preGeneratedId = args[args.indexOf("--session-id") + 1];
+
     mockProc._stdout.push(assistantLine("Hey"));
-    mockProc._stdout.push(resultLine("loaded-sess"));
+    mockProc._stdout.push(resultLine(preGeneratedId));
     mockProc._emitClose(0);
     await new Promise((r) => setTimeout(r, 100));
 
@@ -525,7 +540,7 @@ describe("ConversationSession", () => {
       sessionId: "load-test",
     });
 
-    expect(session2.metadata.claudeSessionId).toBe("loaded-sess");
+    expect(session2.metadata.claudeSessionId).toBe(preGeneratedId);
     expect(session2.metadata.messageCount).toBe(1);
   });
 });

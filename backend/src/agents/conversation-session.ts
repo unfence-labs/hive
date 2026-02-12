@@ -7,6 +7,7 @@ import { StreamParser } from "./stream-parser.js";
 import type {
   ChatMessage,
   ToolCall,
+  ToolInputResult,
   SessionMetadata,
   WsOutgoing,
 } from "../types.js";
@@ -122,16 +123,26 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     this.messageCount++;
 
-    const isFirst = !this.claudeSessionId;
+    // Pre-generate a Claude session ID so --resume works even after SIGKILL.
+    // On the first message we pass --session-id to tell the CLI what ID to use;
+    // on subsequent messages we --resume that same ID.
+    const isFirstMessage = this.messageCount === 1;
+    if (!this.claudeSessionId) {
+      this.claudeSessionId = crypto.randomUUID();
+      this._metadata.claudeSessionId = this.claudeSessionId;
+    }
+
     const args = [
       "--print",
       "--output-format", "stream-json",
       "--verbose",
       ...(this.skipPermissions ? ["--dangerously-skip-permissions"] : []),
-      ...(isFirst && this.systemPrompt
+      ...(isFirstMessage && this.systemPrompt
         ? ["--append-system-prompt", this.systemPrompt]
         : []),
-      ...(isFirst ? [] : ["--resume", this.claudeSessionId!]),
+      ...(isFirstMessage
+        ? ["--session-id", this.claudeSessionId]
+        : ["--resume", this.claudeSessionId]),
       "-p", content,
     ];
 
@@ -141,6 +152,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let assistantText = "";
     let thinkingText = "";
     const toolCalls: ToolCall[] = [];
+
+    // Track blocking tools detected in the stream so the close handler can emit
+    // tool_input_required events. We kill the process immediately when we see one
+    // to prevent the CLI from auto-executing the tool.
+    const blockingToolNames = new Set(["AskUserQuestion", "ExitPlanMode"]);
+    let killedForBlockingTool = false;
 
     this.parser.on("assistant", (data) => {
       for (const block of data.message.content) {
@@ -159,6 +176,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
               : JSON.stringify(block.input, null, 2);
             toolCalls.push({ id: block.id, name: block.name, input: inputStr });
             this.emit("message", { type: "tool_use", id: block.id, name: block.name, input: inputStr });
+
+            // Kill immediately to prevent CLI from auto-executing the blocking tool
+            if (blockingToolNames.has(block.name) && this.process) {
+              killedForBlockingTool = true;
+              this.process.kill("SIGKILL");
+            }
             break;
           }
         }
@@ -228,9 +251,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.process.on("close", (code) => {
       this.parser?.flush();
       const exitCode = code ?? 1;
-      const wasCancelled = exitCode !== 0 && this._status === "streaming";
+      // SIGKILL for blocking tools is NOT a cancellation — it's an intentional pause
+      const wasCancelled = exitCode !== 0 && this._status === "streaming" && !killedForBlockingTool;
 
-      this._status = exitCode === 0 ? "idle" : "error";
+      this._status = (exitCode === 0 || killedForBlockingTool) ? "idle" : "error";
       this.process = null;
       this.parser = null;
 
@@ -257,6 +281,13 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           // Non-fatal: metadata persistence failure should not break the session.
         });
 
+      // When we killed the process for a blocking tool, those tools will have
+      // no output (we killed before the CLI could execute them). Use the flag
+      // directly instead of checking tc.output.
+      const unansweredBlockingTools = killedForBlockingTool
+        ? toolCalls.filter((tc) => blockingToolNames.has(tc.name))
+        : [];
+
       void (async () => {
         await this.persistQueue;
         if (wasCancelled) {
@@ -265,6 +296,24 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           this.emit("message", {
             type: "done",
             sessionId: this.claudeSessionId,
+          });
+        }
+
+        // Emit tool_input_required for each unanswered blocking tool
+        // so the frontend can render interactive controls
+        for (const tool of unansweredBlockingTools) {
+          let input: unknown;
+          try {
+            input = JSON.parse(tool.input);
+          } catch {
+            input = {};
+          }
+          this.emit("message", {
+            type: "tool_input_required",
+            requestId: nanoid(12),
+            toolName: tool.name,
+            toolUseId: tool.id,
+            input,
           });
         }
 
@@ -291,6 +340,22 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     }, 5000);
 
     this.process.on("close", () => clearTimeout(timer));
+  }
+
+  /** Respond to an interactive tool input (AskUserQuestion, ExitPlanMode).
+   *  Formats the response and sends it as a new --resume message. */
+  respondToToolInput(toolName: string, result: ToolInputResult): void {
+    if (toolName === "AskUserQuestion" && result.type === "answer") {
+      const formatted = result.answers.map((a) => {
+        if (a.customText) return `Question ${a.questionIndex + 1}: "${a.customText}"`;
+        return `Question ${a.questionIndex + 1}: Selected option(s) ${a.selectedOptions.map((i) => i + 1).join(", ")}`;
+      }).join("\n");
+      this.sendMessage(`Here are my answers to your questions:\n${formatted}`);
+    } else if (toolName === "ExitPlanMode" && result.type === "approve") {
+      this.sendMessage("I approve the plan. Please proceed with implementation.");
+    } else if (result.type === "reject") {
+      this.sendMessage(result.message || "I reject this. Please suggest an alternative approach.");
+    }
   }
 
   /** Append a ChatMessage to the session's messages.jsonl */

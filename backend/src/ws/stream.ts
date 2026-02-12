@@ -195,6 +195,26 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             }
             break;
           }
+          case "tool_input_response": {
+            try {
+              let activeSession = getSession(wsId);
+              if (!activeSession) {
+                const result = await getOrCreateSession(wsId, dataDir, sessionOptions);
+                activeSession = result.session;
+              }
+              attachSessionListeners(wsId, channel, activeSession);
+              activeSession.respondToToolInput(incoming.toolName, incoming.result);
+              sendToChannel(channel, {
+                type: "status",
+                status: "busy",
+                sessionId: activeSession.sessionId,
+                streaming: true,
+              });
+            } catch (err: unknown) {
+              sendOutgoing(socket, { type: "error", message: errorMessage(err, "Failed to respond to tool input") });
+            }
+            break;
+          }
         }
       });
     },
