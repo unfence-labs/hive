@@ -63,7 +63,7 @@ export default function ChatInput({
       <PromptInput onSubmit={handleSubmit}>
         <PromptInputBody>
           <PromptInputTextarea
-            className="min-h-[44px] max-h-40"
+            className="min-h-[100px] max-h-40 text-sm placeholder:text-muted-foreground/40"
             placeholder={isDisconnected ? "Reconnecting..." : "Send a message..."}
             value={value}
             onChange={(e) => setValue(e.target.value)}
@@ -72,45 +72,55 @@ export default function ChatInput({
           />
         </PromptInputBody>
         <PromptInputFooter>
-          <PromptInputTools>
-            <PromptInputButton aria-label="Add attachments" variant="ghost">
-              <PlusIcon className="size-4" />
-            </PromptInputButton>
-            <PromptInputButton aria-label={`Model ${MODEL_LABEL}`} variant="ghost">
-              <SparklesIcon className="size-4" />
+          <PromptInputTools className="gap-2">
+            <PromptInputButton aria-label={`Model ${MODEL_LABEL}`} variant="ghost" size="xs" className="h-5 text-[11px]">
+              <SparklesIcon className="size-3" />
               {MODEL_LABEL}
             </PromptInputButton>
             <PromptInputButton
               aria-label="Toggle thinking"
               variant="ghost"
+              size="xs"
               onClick={() => setThinkingEnabled((v) => !v)}
               className={cn(
-                "transition-colors",
-                thinkingEnabled && "bg-accent text-accent-foreground",
+                "h-5 text-[11px] transition-colors",
+                thinkingEnabled && "bg-primary/10 text-primary ring-1 ring-primary/15 hover:bg-primary/15 hover:text-primary dark:hover:bg-primary/15",
               )}
             >
-              <BrainIcon className="size-4" />
+              <BrainIcon className="size-3" />
               Thinking
             </PromptInputButton>
             <PromptInputButton
               aria-label="Toggle plan mode"
               variant="ghost"
+              size="xs"
               onClick={() => setPlanMode((v) => !v)}
               className={cn(
-                "transition-colors",
-                planMode && "bg-accent text-accent-foreground",
+                "h-5 text-[11px] transition-colors",
+                planMode && "bg-primary/10 text-primary ring-1 ring-primary/15 hover:bg-primary/15 hover:text-primary dark:hover:bg-primary/15",
               )}
             >
-              <BookOpenIcon className="size-4" />
+              <BookOpenIcon className="size-3" />
               Plan
             </PromptInputButton>
           </PromptInputTools>
-          <PromptInputSubmit
-            aria-label={isStreaming ? "Stop" : "Send"}
-            status={isStreaming ? "streaming" : "ready"}
-            onStop={onStop}
-            disabled={!isStreaming && !canSubmit}
-          />
+          <PromptInputTools className="gap-2">
+            <PromptInputButton aria-label="Add attachments" variant="ghost" size="icon-xs" className="size-5">
+              <PlusIcon className="size-3" />
+            </PromptInputButton>
+            <PromptInputSubmit
+              aria-label={isStreaming ? "Stop" : "Send"}
+              status={isStreaming ? "streaming" : "ready"}
+              variant="ghost"
+              onStop={onStop}
+              disabled={!isStreaming && !canSubmit}
+              size="icon-xs"
+              className={cn(
+                "size-5 border border-border/50",
+                canSubmit && "bg-white text-black hover:bg-white/90 dark:bg-white dark:text-black dark:hover:bg-white/90",
+              )}
+            />
+          </PromptInputTools>
         </PromptInputFooter>
       </PromptInput>
     </div>
