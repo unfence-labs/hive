@@ -21,8 +21,9 @@ export default function App() {
   );
 
   useEffect(() => {
+    if (loading) return;
     wsTransport.syncWorkspaces(workspaceIds);
-  }, [workspaceIds]);
+  }, [loading, workspaceIds]);
 
   useEffect(() => () => {
     wsTransport.disconnectAll();

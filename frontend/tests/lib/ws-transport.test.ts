@@ -165,4 +165,25 @@ describe("wsTransport", () => {
     expect(wsTransport.getStatus("ws-1")).toBe("disconnected");
     expect(wsTransport.getStatus("ws-2")).toBe("connecting");
   });
+
+  it("keeps active workspace connection when listeners are attached", () => {
+    wsTransport.connect("ws-1");
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+
+    const received: WsOutgoing[] = [];
+    const unsubscribe = wsTransport.onMessage("ws-1", (msg) => {
+      received.push(msg);
+    });
+
+    wsTransport.syncWorkspaces([]);
+    expect(wsTransport.getStatus("ws-1")).toBe("connected");
+
+    socket.message(JSON.stringify({ type: "status", status: "idle", streaming: false }));
+    expect(received).toEqual([{ type: "status", status: "idle", streaming: false }]);
+
+    unsubscribe();
+    wsTransport.syncWorkspaces([]);
+    expect(wsTransport.getStatus("ws-1")).toBe("disconnected");
+  });
 });

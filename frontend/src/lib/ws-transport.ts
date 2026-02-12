@@ -50,6 +50,10 @@ class WsTransport {
     }
     for (const workspaceId of Array.from(this.connections.keys())) {
       if (!wanted.has(workspaceId)) {
+        const connection = this.connections.get(workspaceId);
+        if (connection && (connection.messageHandlers.size > 0 || connection.statusListeners.size > 0)) {
+          continue;
+        }
         this.removeConnection(workspaceId);
       }
     }
