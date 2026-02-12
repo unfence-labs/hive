@@ -4,6 +4,21 @@ import userEvent from "@testing-library/user-event";
 import ChatInput from "@/components/ChatInput";
 
 describe("ChatInput", () => {
+  it("does not render working indicator when not streaming", () => {
+    render(
+      <ChatInput
+        onSend={vi.fn(() => true)}
+        onStop={vi.fn()}
+        disabled={false}
+        isStreaming={false}
+        connectionStatus="connected"
+      />,
+    );
+
+    expect(screen.queryByText("Working...")).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Agent thinking loader small" })).not.toBeInTheDocument();
+  });
+
   it("sends message on Send button click", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn(() => true);
@@ -75,6 +90,9 @@ describe("ChatInput", () => {
         connectionStatus="connected"
       />,
     );
+
+    expect(screen.getByText("Working...")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Agent thinking loader small" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Stop" }));
 

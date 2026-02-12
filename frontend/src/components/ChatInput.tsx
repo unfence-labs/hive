@@ -9,6 +9,7 @@ import {
   PromptInputTextarea,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
+import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { PlusIcon, SparklesIcon } from "lucide-react";
 
 interface ChatInputProps {
@@ -48,6 +49,12 @@ export default function ChatInput({
 
   return (
     <div className="bg-background p-4">
+      {isStreaming ? (
+        <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <AgentActivityPreview size="small" />
+          <span>Working...</span>
+        </div>
+      ) : null}
       <PromptInput onSubmit={handleSubmit}>
         <PromptInputBody>
           <PromptInputTextarea
