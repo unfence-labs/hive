@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { git } from "../utils/git.js";
 
 export interface GitContext {
@@ -23,12 +25,26 @@ export interface SystemPromptOptions {
   defaultBranch?: string;
   /** If set, instructs Claude to rename the branch based on the task. */
   branchRename?: BranchRenameDirective;
+  /** Path to prompts directory (e.g. ~/.hive/prompts). Loads base.md from disk. */
+  promptsDir?: string;
 }
 
-const DEFAULT_BASE_PROMPT = `You are an AI coding assistant working inside a project workspace.
+export const DEFAULT_BASE_PROMPT = `You are an AI coding assistant working inside a project workspace.
 You have full access to the codebase via your tools. Read files before modifying them.
 Write clean, simple code. Follow existing patterns and conventions in the codebase.
 All code, comments, and variable names must be in English.`;
+
+/**
+ * Load the base prompt from `{promptsDir}/base.md`.
+ * Returns the hardcoded default if the file can't be read.
+ */
+export async function loadBasePrompt(promptsDir: string): Promise<string> {
+  try {
+    return await readFile(join(promptsDir, "base.md"), "utf-8");
+  } catch {
+    return DEFAULT_BASE_PROMPT;
+  }
+}
 
 /**
  * Gather git context from the workspace directory.
@@ -68,7 +84,17 @@ export async function getGitContext(cwd: string, defaultBranchOverride?: string)
  * Build a system prompt by merging a base prompt with dynamic git context.
  */
 export async function buildSystemPrompt(opts: SystemPromptOptions): Promise<string> {
-  const { cwd, workspaceName, projectName, basePrompt = DEFAULT_BASE_PROMPT, defaultBranch, branchRename } = opts;
+  const { cwd, workspaceName, projectName, defaultBranch, branchRename, promptsDir } = opts;
+
+  let basePrompt: string;
+  if (opts.basePrompt !== undefined) {
+    basePrompt = opts.basePrompt;
+  } else if (promptsDir) {
+    basePrompt = await loadBasePrompt(promptsDir);
+  } else {
+    basePrompt = DEFAULT_BASE_PROMPT;
+  }
+
   const ctx = await getGitContext(cwd, defaultBranch);
 
   const sections: string[] = [basePrompt];

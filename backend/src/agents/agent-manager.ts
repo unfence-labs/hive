@@ -95,6 +95,7 @@ export async function getOrCreateSession(
         projectName: projectState.name,
         defaultBranch,
         branchRename: {},
+        promptsDir: join(dataDir, "prompts"),
       });
     }
 

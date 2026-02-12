@@ -1,12 +1,14 @@
-import { readdir, readFile, writeFile, rename, unlink, mkdir } from "node:fs/promises";
+import { readdir, readFile, writeFile, rename, unlink, mkdir, access } from "node:fs/promises";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import type { ProjectState } from "../types.js";
+import { DEFAULT_BASE_PROMPT } from "../agents/system-prompt.js";
 
 const projectLocks = new Map<string, Promise<void>>();
 
 export function getDataDir(): string {
-  return process.env.DATA_DIR ?? "/data/projects";
+  return process.env.DATA_DIR ?? join(homedir(), ".hive");
 }
 
 function stateFilePath(dataDir: string, projectId: string): string {
@@ -94,6 +96,22 @@ export async function withProjectStateLock<T>(
 
 export function _clearProjectLocksForTests(): void {
   projectLocks.clear();
+}
+
+/**
+ * Ensure the data directory structure exists and seed default files.
+ * Called once at server startup.
+ */
+export async function ensureDataDir(dataDir = getDataDir()): Promise<void> {
+  const promptsDir = join(dataDir, "prompts");
+  await mkdir(promptsDir, { recursive: true });
+
+  const basePromptPath = join(promptsDir, "base.md");
+  try {
+    await access(basePromptPath);
+  } catch {
+    await writeFile(basePromptPath, DEFAULT_BASE_PROMPT, "utf-8");
+  }
 }
 
 export async function deleteProjectState(
