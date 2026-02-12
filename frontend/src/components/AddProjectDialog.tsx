@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 interface AddProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (url: string) => Promise<unknown>;
+  onSubmit: (url: string) => Promise<{ id: string } | void>;
 }
 
 export default function AddProjectDialog({
@@ -36,8 +36,8 @@ export default function AddProjectDialog({
       const result = await onSubmit(url.trim());
       setUrl("");
       onOpenChange(false);
-      if (result && typeof result === "object" && "id" in result) {
-        navigate(`/workspaces/${(result as { id: string }).id}`);
+      if (result) {
+        navigate(`/workspaces/${result.id}`);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add project");

@@ -37,8 +37,7 @@ export default function App() {
         onOpenChange={setShowAddProject}
         onSubmit={async (url) => {
           const project = await createProject(url);
-          const workspace = await createWorkspace(project.id);
-          return workspace;
+          return createWorkspace(project.id);
         }}
       />
       <Routes>

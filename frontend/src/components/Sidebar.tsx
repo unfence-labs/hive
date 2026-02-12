@@ -129,6 +129,7 @@ export default function Sidebar({
             </div>
           ) : (
             projects.map((project) => {
+              const color = getProjectColor(project.name);
               return (
                 <div key={project.id} className="mb-1">
                   <Collapsible
@@ -149,8 +150,8 @@ export default function Sidebar({
                           <span
                             className={cn(
                               "flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold",
-                              getProjectColor(project.name).bg,
-                              getProjectColor(project.name).text,
+                              color.bg,
+                              color.text,
                             )}
                           >
                             {project.name[0]?.toUpperCase() ?? "?"}

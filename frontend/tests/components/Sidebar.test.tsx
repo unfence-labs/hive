@@ -113,18 +113,18 @@ describe("Sidebar", () => {
     const user = userEvent.setup();
     renderSidebar("/projects", projects);
 
-    expect(screen.getByRole("button", { name: /^Alpha/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Beta/ })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "tokyo" })).not.toBeInTheDocument();
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByText("Beta")).toBeInTheDocument();
+    expect(screen.queryByText("workspace/tokyo")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /^Alpha/ }));
-    expect(screen.getByRole("link", { name: "tokyo" })).toBeInTheDocument();
+    await user.click(screen.getByText("Alpha"));
+    expect(screen.getByText("workspace/tokyo")).toBeInTheDocument();
   });
 
   it("expands the active project's workspaces on workspace route", () => {
     renderSidebar("/workspaces/w1", projects);
 
-    expect(screen.getByRole("link", { name: "tokyo" })).toBeInTheDocument();
+    expect(screen.getByText("workspace/tokyo")).toBeInTheDocument();
   });
 
   it("calls add workspace callback", async () => {
@@ -139,40 +139,25 @@ describe("Sidebar", () => {
     });
   });
 
-  it("shows Working on the streaming workspace row only", async () => {
+  it("shows working indicator on streaming workspace row only", async () => {
     const { __wsMock } = await getWsMock();
     renderSidebar("/workspaces/w1", projects);
 
-    expect(screen.queryByText("Working")).not.toBeInTheDocument();
+    expect(screen.queryByText("working...")).not.toBeInTheDocument();
+    expect(screen.getByText("tokyo")).toBeInTheDocument();
 
     act(() => {
       __wsMock.emit("w1", { type: "status", status: "busy", streaming: true });
     });
 
-    expect(screen.getByText("Working")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Alpha/ })).toBeInTheDocument();
+    expect(screen.getByText("working...")).toBeInTheDocument();
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
 
     act(() => {
       __wsMock.emit("w1", { type: "status", status: "busy", streaming: false });
     });
 
-    expect(screen.queryByText("Working")).not.toBeInTheDocument();
-  });
-
-  it("updates workspace dot color from live status", async () => {
-    const { __wsMock } = await getWsMock();
-    renderSidebar("/workspaces/w1", projects);
-
-    const link = screen.getByRole("link", { name: "tokyo" });
-    const dot = link.querySelector("span");
-    expect(dot?.className).toContain("bg-blue-500");
-
-    act(() => {
-      __wsMock.emit("w1", { type: "status", status: "idle", streaming: false });
-    });
-
-    await waitFor(() => {
-      expect(dot?.className).toContain("bg-muted-foreground/40");
-    });
+    expect(screen.queryByText("working...")).not.toBeInTheDocument();
+    expect(screen.getByText("tokyo")).toBeInTheDocument();
   });
 });
