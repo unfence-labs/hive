@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useWorkspaces } from "@/hooks/useWorkspaces";
 import WorkspaceCard from "@/components/WorkspaceCard";
+import EmptyStateLogo from "@/components/EmptyStateLogo";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -46,9 +47,7 @@ export default function ProjectView() {
           ))}
         </div>
       ) : workspaces.length === 0 ? (
-        <p className="text-muted-foreground">
-          No workspaces yet. Create one to start working.
-        </p>
+        <EmptyStateLogo className="min-h-[360px]" />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {workspaces.map((ws) => (
