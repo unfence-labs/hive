@@ -159,6 +159,44 @@ describe("ConversationSession", () => {
     expect(args).not.toContain("--dangerously-skip-permissions");
   });
 
+  it("uses --permission-mode plan when plan mode is enabled", () => {
+    const session = createSession({ sessionId: "sess-plan-mode", command: "claude", skipPermissions: true });
+
+    session.sendMessage("Plan this", { planMode: true });
+
+    const args = mockSpawn.mock.calls[0]?.[1] as string[];
+    expect(args).toContain("--permission-mode");
+    expect(args).toContain("plan");
+    expect(args).not.toContain("--dangerously-skip-permissions");
+  });
+
+  it("sets MAX_THINKING_TOKENS=0 when thinking is disabled", () => {
+    const session = createSession({ sessionId: "sess-think-off", command: "claude" });
+
+    session.sendMessage("Hello", { thinkingEnabled: false });
+
+    const spawnOpts = mockSpawn.mock.calls[0]?.[2] as { env?: NodeJS.ProcessEnv };
+    expect(spawnOpts.env?.MAX_THINKING_TOKENS).toBe("0");
+  });
+
+  it("sets MAX_THINKING_TOKENS=31999 when thinking is enabled", () => {
+    const session = createSession({ sessionId: "sess-think-on", command: "claude" });
+
+    session.sendMessage("Hello", { thinkingEnabled: true });
+
+    const spawnOpts = mockSpawn.mock.calls[0]?.[2] as { env?: NodeJS.ProcessEnv };
+    expect(spawnOpts.env?.MAX_THINKING_TOKENS).toBe("31999");
+  });
+
+  it("does not override env when thinking option is omitted", () => {
+    const session = createSession({ sessionId: "sess-think-default", command: "claude" });
+
+    session.sendMessage("Hello");
+
+    const spawnOpts = mockSpawn.mock.calls[0]?.[2] as { env?: NodeJS.ProcessEnv };
+    expect(spawnOpts).not.toHaveProperty("env");
+  });
+
   it("uses --resume with pre-generated session ID on second message", () => {
     const session = createSession({ sessionId: "sess-2" });
 

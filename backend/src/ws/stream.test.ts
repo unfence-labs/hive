@@ -211,6 +211,27 @@ describe("WS /ws/session/:wsId", () => {
     await endSession(wsId, dataDir).catch(() => {});
   });
 
+  it("accepts user_message options and keeps stream status busy", async () => {
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.length >= 1);
+
+    ws.send(JSON.stringify({
+      type: "user_message",
+      content: "Hello with options",
+      options: { planMode: true, thinkingEnabled: false },
+    }));
+
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.some((m) => m.type === "status" && m.status === "busy" && m.streaming === true),
+    );
+
+    ws.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
   it("broadcasts user_message event to all connected clients", async () => {
     const first = connectSessionWs(wsId);
     const second = connectSessionWs(wsId);
