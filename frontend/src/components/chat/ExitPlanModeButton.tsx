@@ -4,26 +4,33 @@ import { Button } from "@/components/ui/button";
 interface ExitPlanModeButtonProps {
   isInteractive?: boolean;
   onApprove?: () => void;
+  onReject?: (message?: string) => void;
 }
 
 export const ExitPlanModeButton = memo(function ExitPlanModeButton({
   isInteractive = false,
   onApprove,
+  onReject,
 }: ExitPlanModeButtonProps) {
-  const [approved, setApproved] = useState(false);
+  const [responded, setResponded] = useState(false);
 
-  const isDisabled = !isInteractive || approved;
+  const isDisabled = !isInteractive || responded;
 
   const handleApprove = () => {
-    setApproved(true);
+    setResponded(true);
     onApprove?.();
+  };
+
+  const handleReject = () => {
+    setResponded(true);
+    onReject?.();
   };
 
   if (isDisabled) {
     return (
       <div className="my-2 rounded-lg border bg-card p-4">
         <div className="text-sm text-muted-foreground italic">
-          Plan approved
+          {responded ? "Response submitted" : "Plan approved"}
         </div>
       </div>
     );
@@ -37,6 +44,9 @@ export const ExitPlanModeButton = memo(function ExitPlanModeButton({
       <div className="flex gap-2">
         <Button size="sm" onClick={handleApprove}>
           Approve Plan
+        </Button>
+        <Button size="sm" variant="outline" onClick={handleReject}>
+          Reject
         </Button>
       </div>
     </div>

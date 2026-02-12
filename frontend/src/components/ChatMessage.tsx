@@ -11,6 +11,7 @@ interface ChatMessageProps {
   isInteractive?: boolean;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onPlanApproval?: () => void;
+  onRejectToolInput?: (message?: string) => void;
 }
 
 const ChatMessage = memo(function ChatMessage({
@@ -18,6 +19,7 @@ const ChatMessage = memo(function ChatMessage({
   isInteractive = false,
   onQuestionAnswer,
   onPlanApproval,
+  onRejectToolInput,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
 
@@ -46,6 +48,7 @@ const ChatMessage = memo(function ChatMessage({
                 isInteractive={isInteractive}
                 onQuestionAnswer={onQuestionAnswer}
                 onPlanApproval={onPlanApproval}
+                onRejectToolInput={onRejectToolInput}
               />
             )}
             {message.cancelled && (

@@ -10,6 +10,7 @@ interface ToolCallListProps {
   showExecutingState?: boolean;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onPlanApproval?: () => void;
+  onRejectToolInput?: (message?: string) => void;
 }
 
 export function ToolCallList({
@@ -18,6 +19,7 @@ export function ToolCallList({
   showExecutingState,
   onQuestionAnswer,
   onPlanApproval,
+  onRejectToolInput,
 }: ToolCallListProps) {
   if (toolCalls.length === 0) return null;
 
@@ -40,6 +42,7 @@ export function ToolCallList({
               key={tool.id}
               isInteractive={isInteractive}
               onApprove={onPlanApproval}
+              onReject={onRejectToolInput}
             />
           );
         }
