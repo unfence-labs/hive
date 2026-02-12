@@ -40,9 +40,6 @@ const ChatMessage = memo(function ChatMessage({
             {message.thinkingContent && (
               <ThinkingBlock content={message.thinkingContent} />
             )}
-            <div className="prose-sm">
-              <MessageResponse>{message.content}</MessageResponse>
-            </div>
             {message.toolCalls && (
               <ToolCallList
                 toolCalls={message.toolCalls}
@@ -52,6 +49,9 @@ const ChatMessage = memo(function ChatMessage({
                 onRejectToolInput={onRejectToolInput}
               />
             )}
+            <div className="prose-sm">
+              <MessageResponse>{message.content}</MessageResponse>
+            </div>
             {message.cancelled && (
               <div className="mt-2 text-xs italic text-muted-foreground">
                 (cancelled)
