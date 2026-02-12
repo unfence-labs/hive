@@ -4,49 +4,66 @@ import { useConversation } from "@/hooks/useConversation";
 import type { WsOutgoing } from "@/types";
 
 vi.mock("@/lib/ws-transport", () => {
-  let status: "connecting" | "connected" | "disconnected" = "disconnected";
-  const messageHandlers = new Set<(msg: WsOutgoing) => void>();
-  const statusListeners = new Set<() => void>();
+  type ConnectionStatus = "connecting" | "connected" | "disconnected";
+  const statuses = new Map<string, ConnectionStatus>();
+  const messageHandlers = new Map<string, Set<(msg: WsOutgoing) => void>>();
+  const statusListeners = new Map<string, Set<() => void>>();
 
-  const notifyStatus = () => {
-    for (const listener of statusListeners) listener();
+  const getSet = <T,>(source: Map<string, Set<T>>, workspaceId: string) => {
+    const existing = source.get(workspaceId);
+    if (existing) return existing;
+    const created = new Set<T>();
+    source.set(workspaceId, created);
+    return created;
+  };
+
+  const notifyStatus = (workspaceId: string) => {
+    for (const listener of statusListeners.get(workspaceId) ?? []) listener();
   };
 
   const wsTransport = {
-    connect: vi.fn((_workspaceId: string) => {
-      status = "connected";
-      notifyStatus();
+    connect: vi.fn((workspaceId: string) => {
+      statuses.set(workspaceId, "connected");
+      notifyStatus(workspaceId);
     }),
-    disconnect: vi.fn(() => {
-      status = "disconnected";
-      notifyStatus();
+    disconnect: vi.fn((workspaceId: string) => {
+      statuses.set(workspaceId, "disconnected");
+      notifyStatus(workspaceId);
     }),
-    send: vi.fn(() => true),
-    onMessage: vi.fn((handler: (msg: WsOutgoing) => void) => {
-      messageHandlers.add(handler);
+    syncWorkspaces: vi.fn(),
+    disconnectAll: vi.fn(() => {
+      statuses.clear();
+      messageHandlers.clear();
+      statusListeners.clear();
+    }),
+    send: vi.fn((_workspaceId: string, _message: unknown) => true),
+    onMessage: vi.fn((workspaceId: string, handler: (msg: WsOutgoing) => void) => {
+      getSet(messageHandlers, workspaceId).add(handler);
       return () => {
-        messageHandlers.delete(handler);
+        getSet(messageHandlers, workspaceId).delete(handler);
       };
     }),
-    subscribe: (listener: () => void) => {
-      statusListeners.add(listener);
+    subscribe: (workspaceId: string, listener: () => void) => {
+      getSet(statusListeners, workspaceId).add(listener);
       return () => {
-        statusListeners.delete(listener);
+        getSet(statusListeners, workspaceId).delete(listener);
       };
     },
-    getStatus: () => status,
+    getStatus: (workspaceId: string) => statuses.get(workspaceId) ?? "disconnected",
   };
 
   const __wsMock = {
-    emit: (msg: WsOutgoing) => {
-      for (const handler of messageHandlers) handler(msg);
+    emit: (workspaceId: string, msg: WsOutgoing) => {
+      for (const handler of messageHandlers.get(workspaceId) ?? []) handler(msg);
     },
     reset: () => {
-      status = "disconnected";
+      statuses.clear();
       messageHandlers.clear();
       statusListeners.clear();
       wsTransport.connect.mockClear();
       wsTransport.disconnect.mockClear();
+      wsTransport.syncWorkspaces.mockClear();
+      wsTransport.disconnectAll.mockClear();
       wsTransport.send.mockClear();
       wsTransport.onMessage.mockClear();
     },
@@ -61,7 +78,7 @@ vi.mock("@/lib/ws-transport", () => {
 const getWsMock = async () =>
   (await import("@/lib/ws-transport")) as unknown as {
     __wsMock: {
-      emit: (msg: WsOutgoing) => void;
+      emit: (workspaceId: string, msg: WsOutgoing) => void;
       reset: () => void;
       sendMock: ReturnType<typeof vi.fn>;
       connectMock: ReturnType<typeof vi.fn>;
@@ -75,7 +92,7 @@ describe("useConversation", () => {
     __wsMock.reset();
   });
 
-  it("connects on mount and disconnects on unmount", async () => {
+  it("connects on mount and keeps connection alive on unmount", async () => {
     const { __wsMock } = await getWsMock();
     const { unmount } = renderHook(() => useConversation("ws-1"));
 
@@ -83,7 +100,7 @@ describe("useConversation", () => {
 
     unmount();
 
-    expect(__wsMock.disconnectMock).toHaveBeenCalledTimes(1);
+    expect(__wsMock.disconnectMock).not.toHaveBeenCalled();
   });
 
   it("sends user messages and updates local state after transport accepts the send", async () => {
@@ -98,7 +115,7 @@ describe("useConversation", () => {
     expect(result.current.messages[0]?.role).toBe("user");
     expect(result.current.messages[0]?.content).toBe("hello");
     expect(result.current.isStreaming).toBe(true);
-    expect(__wsMock.sendMock).toHaveBeenCalledWith({
+    expect(__wsMock.sendMock).toHaveBeenCalledWith("ws-1", {
       type: "user_message",
       content: "hello",
     });
@@ -128,9 +145,9 @@ describe("useConversation", () => {
     });
 
     act(() => {
-      __wsMock.emit({ type: "text_delta", text: "Hi " });
-      __wsMock.emit({ type: "text_delta", text: "there" });
-      __wsMock.emit({ type: "done", sessionId: "sess-1" });
+      __wsMock.emit("ws-1", { type: "text_delta", text: "Hi " });
+      __wsMock.emit("ws-1", { type: "text_delta", text: "there" });
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
     });
 
     expect(result.current.isStreaming).toBe(false);
@@ -148,8 +165,8 @@ describe("useConversation", () => {
     });
 
     act(() => {
-      __wsMock.emit({ type: "text_delta", text: "partial" });
-      __wsMock.emit({ type: "cancelled" });
+      __wsMock.emit("ws-1", { type: "text_delta", text: "partial" });
+      __wsMock.emit("ws-1", { type: "cancelled" });
     });
 
     expect(result.current.isStreaming).toBe(false);
@@ -181,7 +198,7 @@ describe("useConversation", () => {
       ]);
     });
 
-    expect(__wsMock.sendMock).toHaveBeenLastCalledWith({
+    expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
       type: "user_message",
       content:
         "[Response to question]\nQ1: Selected option(s) 2, 3\nQ2: \"custom\"",
@@ -196,7 +213,7 @@ describe("useConversation", () => {
       result.current.approvePlan();
     });
 
-    expect(__wsMock.sendMock).toHaveBeenLastCalledWith({
+    expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
       type: "user_message",
       content: "I approve the plan. Please proceed with implementation.",
     });

@@ -152,34 +152,45 @@ function reducer(state: ConversationState, action: Action): ConversationState {
 
 export function useConversation(workspaceId: string | undefined) {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const connectionStatus = useSyncExternalStore(wsTransport.subscribe, wsTransport.getStatus);
+  const connectionStatus = useSyncExternalStore(
+    (listener) =>
+      workspaceId ? wsTransport.subscribe(workspaceId, listener) : () => {},
+    () => (workspaceId ? wsTransport.getStatus(workspaceId) : "disconnected"),
+  );
 
   useEffect(() => {
-    if (!workspaceId) return;
+    if (!workspaceId) {
+      dispatch({ type: "reset" });
+      return;
+    }
     dispatch({ type: "reset" });
     wsTransport.connect(workspaceId);
 
-    const unsubMessage = wsTransport.onMessage((msg) => dispatch(msg));
+    const unsubMessage = wsTransport.onMessage(workspaceId, (msg) => dispatch(msg));
 
     return () => {
       unsubMessage();
-      wsTransport.disconnect();
     };
   }, [workspaceId]);
 
   const sendMessage = useCallback((content: string): boolean => {
-    const sent = wsTransport.send({ type: "user_message", content });
+    if (!workspaceId) {
+      dispatch({ type: "error", message: "Message not sent: no workspace selected." });
+      return false;
+    }
+    const sent = wsTransport.send(workspaceId, { type: "user_message", content });
     if (!sent) {
       dispatch({ type: "error", message: "Message not sent: disconnected from server." });
       return false;
     }
     dispatch({ type: "add_user_message", content });
     return true;
-  }, []);
+  }, [workspaceId]);
 
   const stopStreaming = useCallback(() => {
-    wsTransport.send({ type: "stop" });
-  }, []);
+    if (!workspaceId) return;
+    wsTransport.send(workspaceId, { type: "stop" });
+  }, [workspaceId]);
 
   const clearChat = useCallback(() => {
     dispatch({ type: "clear_chat" });

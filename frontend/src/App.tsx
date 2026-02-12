@@ -1,14 +1,32 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import WorkspaceView from "@/pages/WorkspaceView";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import EmptyStateLogo from "@/components/EmptyStateLogo";
 import { useProjects } from "@/hooks/useProjects";
+import { wsTransport } from "@/lib/ws-transport";
 
 export default function App() {
   const { projects, loading, createProject, createWorkspace } = useProjects();
   const [showAddProject, setShowAddProject] = useState(false);
+  const workspaceIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          projects.flatMap((project) => (project.workspaces ?? []).map((workspace) => workspace.id)),
+        ),
+      ),
+    [projects],
+  );
+
+  useEffect(() => {
+    wsTransport.syncWorkspaces(workspaceIds);
+  }, [workspaceIds]);
+
+  useEffect(() => () => {
+    wsTransport.disconnectAll();
+  }, []);
 
   return (
     <BrowserRouter>
