@@ -2,26 +2,101 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
+import {
+  FileTree,
+  FileTreeFile,
+  FileTreeFolder,
+} from "@/components/ai-elements/file-tree";
 import ChatConversation from "@/components/ChatConversation";
 import ChatInput from "@/components/ChatInput";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Workspace } from "@/types";
+import type { Workspace, WorkspaceFileTreeNode } from "@/types";
+
+const DEFAULT_EXPANDED = new Set<string>();
+
+function findFirstFilePath(nodes: WorkspaceFileTreeNode[]): string | null {
+  for (const node of nodes) {
+    if (node.type === "file") {
+      return node.path;
+    }
+    if (node.children?.length) {
+      const nestedFile = findFirstFilePath(node.children);
+      if (nestedFile) return nestedFile;
+    }
+  }
+  return null;
+}
+
+function buildInitialExpanded(nodes: WorkspaceFileTreeNode[]): Set<string> {
+  const expanded = new Set(DEFAULT_EXPANDED);
+  const firstDirectory = nodes.find((node) => node.type === "directory");
+  if (firstDirectory) {
+    expanded.add(firstDirectory.path);
+  }
+  return expanded;
+}
+
+function renderFileTreeNodes(nodes: WorkspaceFileTreeNode[]) {
+  return nodes.map((node) => {
+    const nodePath = node.path;
+    if (node.type === "directory") {
+      return (
+        <FileTreeFolder key={nodePath} path={nodePath} name={node.name}>
+          {node.children ? renderFileTreeNodes(node.children) : null}
+        </FileTreeFolder>
+      );
+    }
+    return <FileTreeFile key={nodePath} path={nodePath} name={node.name} />;
+  });
+}
 
 export default function WorkspaceView() {
   const { wsId } = useParams();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [fileTree, setFileTree] = useState<WorkspaceFileTreeNode[]>([]);
+  const [fileTreeError, setFileTreeError] = useState<string | null>(null);
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(DEFAULT_EXPANDED);
   const [loading, setLoading] = useState(true);
+  const [selectedPath, setSelectedPath] = useState("");
 
   const fetchWorkspace = useCallback(async () => {
-    if (!wsId) return;
+    if (!wsId) {
+      setWorkspace(null);
+      setFileTree([]);
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
-      const data = await api.get<Workspace>(`/api/workspaces/${wsId}`);
-      setWorkspace(data);
+      const [workspaceResult, filesResult] = await Promise.allSettled([
+        api.get<Workspace>(`/api/workspaces/${wsId}`),
+        api.get<WorkspaceFileTreeNode[]>(`/api/workspaces/${wsId}/files`),
+      ]);
+
+      if (workspaceResult.status === "fulfilled") {
+        setWorkspace(workspaceResult.value);
+      } else {
+        setWorkspace(null);
+      }
+
+      if (filesResult.status === "fulfilled") {
+        setFileTree(filesResult.value);
+        setFileTreeError(null);
+        setExpandedPaths(buildInitialExpanded(filesResult.value));
+        const firstFilePath = findFirstFilePath(filesResult.value);
+        setSelectedPath(firstFilePath ?? "");
+      } else {
+        setFileTree([]);
+        setFileTreeError("Failed to load file tree.");
+        setExpandedPaths(new Set(DEFAULT_EXPANDED));
+        setSelectedPath("");
+      }
     } catch {
       setWorkspace(null);
+      setFileTree([]);
+      setFileTreeError("Failed to load file tree.");
     } finally {
       setLoading(false);
     }
@@ -84,7 +159,7 @@ export default function WorkspaceView() {
       {/* Header */}
       <div className="flex items-center justify-between border-b px-6 py-4">
         <div>
-          <h1 className="text-2xl font-bold">{workspace.name}</h1>
+          <h1 className="font-title text-2xl tracking-wide">{workspace.name}</h1>
           <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
             <span>{workspace.branch}</span>
             <Badge variant={hasActiveSession ? "default" : "secondary"}>
@@ -109,29 +184,57 @@ export default function WorkspaceView() {
         </div>
       </div>
 
-      {/* Chat area */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {error && (
-          <div className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
-            {error}
+      {/* Chat area + right panel */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          {error && (
+            <div className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
+              {error}
+            </div>
+          )}
+          <ChatConversation
+            messages={messages}
+            isStreaming={isStreaming}
+            currentStreamingText={currentStreamingText}
+            currentThinking={currentThinking}
+            activeToolCalls={activeToolCalls}
+            onQuestionAnswer={answerQuestion}
+            onPlanApproval={approvePlan}
+          />
+          <ChatInput
+            onSend={sendMessage}
+            onStop={stopStreaming}
+            disabled={false}
+            isStreaming={isStreaming}
+            connectionStatus={connectionStatus}
+          />
+        </div>
+
+        <aside className="hidden w-80 shrink-0 border-l bg-background lg:flex lg:flex-col">
+          <div className="border-b px-4 py-3 text-xs uppercase tracking-wide text-muted-foreground">
+            Files
           </div>
-        )}
-        <ChatConversation
-          messages={messages}
-          isStreaming={isStreaming}
-          currentStreamingText={currentStreamingText}
-          currentThinking={currentThinking}
-          activeToolCalls={activeToolCalls}
-          onQuestionAnswer={answerQuestion}
-          onPlanApproval={approvePlan}
-        />
-        <ChatInput
-          onSend={sendMessage}
-          onStop={stopStreaming}
-          disabled={false}
-          isStreaming={isStreaming}
-          connectionStatus={connectionStatus}
-        />
+          <div className="min-h-0 flex-1 overflow-auto p-3">
+            {fileTreeError ? (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                {fileTreeError}
+              </div>
+            ) : (
+              <FileTree
+                expanded={expandedPaths}
+                onExpandedChange={setExpandedPaths}
+                onPathSelect={setSelectedPath}
+                selectedPath={selectedPath}
+              >
+                {fileTree.length ? (
+                  renderFileTreeNodes(fileTree)
+                ) : (
+                  <div className="px-2 py-1 text-xs text-muted-foreground">No files found.</div>
+                )}
+              </FileTree>
+            )}
+          </div>
+        </aside>
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import {
   getWorkspace,
   deleteWorkspace,
   getWorkspaceDiff,
+  listWorkspaceFiles,
   mergeWorkspace,
 } from "../workspaces/workspace-manager.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
@@ -49,6 +50,15 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
     try {
       const diff = await getWorkspaceDiff(req.params.wsId, dataDir);
       return reply.send({ diff });
+    } catch (err: unknown) {
+      return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });
+    }
+  });
+
+  app.get<{ Params: { wsId: string } }>("/api/workspaces/:wsId/files", async (req, reply) => {
+    try {
+      const files = await listWorkspaceFiles(req.params.wsId, dataDir);
+      return reply.send(files);
     } catch (err: unknown) {
       return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });
     }

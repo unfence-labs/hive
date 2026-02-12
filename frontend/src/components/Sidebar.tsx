@@ -34,7 +34,7 @@ export default function Sidebar({
   return (
     <div className="flex h-full w-60 flex-col border-r bg-sidebar text-sidebar-foreground">
       <div className="flex items-center justify-between border-b px-4 py-3">
-        <Link to="/" className="text-lg font-bold">
+        <Link to="/" className="font-title text-lg tracking-wide">
           Hive
         </Link>
       </div>

@@ -17,6 +17,13 @@ export interface Workspace {
   activeSessionId?: string;
 }
 
+export interface WorkspaceFileTreeNode {
+  name: string;
+  path: string;
+  type: "file" | "directory";
+  children?: WorkspaceFileTreeNode[];
+}
+
 export interface ProjectState {
   id: string;
   name: string;
