@@ -218,10 +218,10 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting }: ChatToolUse
   const display = getToolDisplay(tool);
 
   return (
-    <div className="my-1.5 rounded-md border bg-muted/50">
+    <div className="my-1.5 rounded-md border border-border/50 bg-muted/30">
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/80"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-muted/50"
         onClick={() => setExpanded(!expanded)}
       >
         <span className="shrink-0 text-muted-foreground">{display.icon}</span>

@@ -50,7 +50,7 @@ export default function ChatInput({
   };
 
   return (
-    <div className="bg-background p-4">
+    <div className="border-t border-border/30 bg-background p-4">
       {(isStreaming || isAwaitingResponse) ? (
         <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
           <AgentActivityPreview size="small" />

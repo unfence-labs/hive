@@ -28,8 +28,9 @@ const ChatMessage = memo(function ChatMessage({
       <div
         className={cn(
           "max-w-[85%] text-sm leading-relaxed",
-          isUser ? "bg-primary text-primary-foreground" : "text-foreground",
-          isUser && "rounded-xl px-4 py-3",
+          isUser
+            ? "rounded-lg bg-primary/10 px-3 py-2 text-primary ring-1 ring-primary/15"
+            : "text-foreground",
         )}
       >
         {isUser ? (

@@ -67,7 +67,7 @@ export default function AgentActivityPreview({ size = "large" }: AgentActivityPr
           return (
             <span
               key={`h-${size}-${pixel.x}-${pixel.y}`}
-              className="absolute block rounded-[1px] bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.95)] animate-pixel-thinking-h"
+              className="absolute block rounded-[1px] bg-primary shadow-[0_0_8px_var(--hive-accent-glow)] animate-pixel-thinking-h"
               style={{
                 left: `${pixel.x * loader.stepPx}px`,
                 top: `${pixel.y * loader.stepPx}px`,

@@ -197,16 +197,16 @@ export default function WorkspaceView() {
       {/* Chat area + right panel */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="flex h-14 items-center gap-2 border-b px-4">
+          <div className="flex h-12 items-center gap-2 border-b border-border/50 px-4 backdrop-blur-sm">
             <span className="truncate text-sm font-semibold text-foreground">{workspace.name}</span>
-            <span className="truncate text-sm text-muted-foreground">{workspace.branch}</span>
-            <Badge variant={hasActiveSession ? "default" : "secondary"}>
+            <span className="truncate text-xs text-muted-foreground">{workspace.branch}</span>
+            <Badge variant={hasActiveSession ? "default" : "secondary"} className="text-[10px]">
               <span
-                className={`mr-1.5 inline-block h-2 w-2 rounded-full ${
-                  hasActiveSession ? "bg-blue-400" : "bg-muted-foreground/40"
+                className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${
+                  hasActiveSession ? "bg-primary-foreground" : "bg-muted-foreground/40"
                 }`}
               />
-              {hasActiveSession ? "session active" : "session idle"}
+              {hasActiveSession ? "active" : "idle"}
             </Badge>
             <Button
               variant="ghost"
@@ -270,8 +270,8 @@ export default function WorkspaceView() {
           )}
         </div>
 
-        <aside className="hidden w-80 shrink-0 border-l bg-background lg:flex lg:flex-col">
-          <div className="flex h-14 items-center gap-3 border-b px-4">
+        <aside className="hidden w-80 shrink-0 border-l border-border/50 bg-sidebar lg:flex lg:flex-col">
+          <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4">
             <button
               type="button"
               className={cn(
