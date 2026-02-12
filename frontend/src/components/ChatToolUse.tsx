@@ -213,45 +213,52 @@ interface ChatToolUseProps {
   isExecuting?: boolean;
 }
 
+function getOutputSummary(tool: ToolCall): string | undefined {
+  if (tool.output == null) return undefined;
+  const text = typeof tool.output === "string" ? tool.output : JSON.stringify(tool.output);
+  if (text.length === 0) return undefined;
+  const lines = text.split("\n").filter(Boolean);
+  if (lines.length === 1 && lines[0].length < 60) return lines[0];
+  if (lines.length > 1) return `${lines.length} lines`;
+  return undefined;
+}
+
 const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting }: ChatToolUseProps) {
   const [expanded, setExpanded] = useState(false);
   const display = getToolDisplay(tool);
+  const summary = !isExecuting && !expanded ? getOutputSummary(tool) : undefined;
 
   return (
-    <div className="my-1.5 rounded-md border border-border/50 bg-muted/30">
+    <div className="my-0.5">
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-muted/50"
+        className={cn(
+          "inline-flex w-fit items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground",
+          isExecuting && "animate-shimmer",
+        )}
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="shrink-0 text-muted-foreground">{display.icon}</span>
-        <span className="font-medium">{display.label}</span>
+        <span className="shrink-0">{display.icon}</span>
+        <span>{display.label}</span>
         {display.detail && (
-          <code className="truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+          <code className="truncate rounded bg-muted/60 px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
             {display.detail}
           </code>
         )}
         {isExecuting && (
-          <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="inline-block size-2 animate-pulse rounded-full bg-primary" />
-            Running...
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block size-1.5 animate-pulse rounded-full bg-primary" />
           </span>
         )}
-        <svg
-          className={cn("ml-auto size-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
+        {summary && (
+          <span className="text-xs font-normal text-muted-foreground/60">{summary}</span>
+        )}
       </button>
       {expanded && (
-        <div className="border-t px-3 py-2 text-xs">
-          <div className="mb-2">
+        <div className="mt-1 rounded bg-muted/40 px-2 py-1.5 text-xs">
+          <div className="mb-1">
             {typeof display.expandedContent === "string" ? (
-              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono">
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
                 {display.expandedContent}
               </pre>
             ) : (
@@ -260,8 +267,8 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting }: ChatToolUse
           </div>
           {tool.output !== undefined && !display.hideOutput && (
             <div>
-              <div className="mb-1 font-semibold text-muted-foreground">Result</div>
-              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono">
+              <div className="mb-0.5 text-[11px] font-semibold text-muted-foreground/70">Result</div>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
                 {tool.output}
               </pre>
             </div>
