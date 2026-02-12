@@ -137,7 +137,11 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       };
 
     case "history":
-      return { ...state, messages: action.messages };
+      return {
+        ...state,
+        messages: action.messages,
+        sessionId: action.messages[0]?.sessionId ?? state.sessionId,
+      };
 
     case "tool_input_required":
       return {
