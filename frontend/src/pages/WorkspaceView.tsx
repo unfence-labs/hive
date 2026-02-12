@@ -144,14 +144,14 @@ export default function WorkspaceView() {
 
   const effectiveWorkspaceStatus = workspaceStatus ?? workspace?.status;
 
-  // Refresh diff stats when workspace transitions from busy to idle
-  const prevStatusRef = useRef(effectiveWorkspaceStatus);
+  // Refresh diff stats when streaming stops (agent finished working on files)
+  const prevStreamingRef = useRef(isStreaming);
   useEffect(() => {
-    if (prevStatusRef.current === "busy" && effectiveWorkspaceStatus === "idle") {
+    if (prevStreamingRef.current && !isStreaming) {
       refreshDiffStats();
     }
-    prevStatusRef.current = effectiveWorkspaceStatus;
-  }, [effectiveWorkspaceStatus, refreshDiffStats]);
+    prevStreamingRef.current = isStreaming;
+  }, [isStreaming, refreshDiffStats]);
 
   const handleCleanSession = async () => {
     if (!wsId) return;
