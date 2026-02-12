@@ -3,16 +3,13 @@ import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import {
   PromptInput,
   PromptInputBody,
+  PromptInputButton,
   PromptInputFooter,
-  PromptInputSelect,
-  PromptInputSelectContent,
-  PromptInputSelectItem,
-  PromptInputSelectTrigger,
-  PromptInputSelectValue,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
+import { PlusIcon, SparklesIcon } from "lucide-react";
 
 interface ChatInputProps {
   onSend: (content: string) => boolean;
@@ -22,7 +19,6 @@ interface ChatInputProps {
   connectionStatus: "connecting" | "connected" | "disconnected";
 }
 
-const MODEL_ID = "opus-4-6";
 const MODEL_LABEL = "Opus 4.6";
 
 export default function ChatInput({
@@ -65,16 +61,13 @@ export default function ChatInput({
         </PromptInputBody>
         <PromptInputFooter>
           <PromptInputTools>
-            <PromptInputSelect defaultValue={MODEL_ID}>
-              <PromptInputSelectTrigger className="h-8 w-auto px-2" disabled>
-                <PromptInputSelectValue placeholder={MODEL_LABEL} />
-              </PromptInputSelectTrigger>
-              <PromptInputSelectContent>
-                <PromptInputSelectItem value={MODEL_ID}>
-                  {MODEL_LABEL}
-                </PromptInputSelectItem>
-              </PromptInputSelectContent>
-            </PromptInputSelect>
+            <PromptInputButton aria-label="Add attachments" variant="ghost">
+              <PlusIcon className="size-4" />
+            </PromptInputButton>
+            <PromptInputButton aria-label={`Model ${MODEL_LABEL}`} variant="ghost">
+              <SparklesIcon className="size-4" />
+              {MODEL_LABEL}
+            </PromptInputButton>
           </PromptInputTools>
           <PromptInputSubmit
             aria-label={isStreaming ? "Stop" : "Send"}
