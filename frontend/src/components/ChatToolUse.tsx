@@ -281,7 +281,7 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting }: ChatToolUse
             <div>
               <div className="mb-0.5 text-[11px] font-semibold text-muted-foreground/70">Result</div>
               <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
-                {tool.output}
+                {typeof tool.output === "string" ? tool.output : JSON.stringify(tool.output, null, 2)}
               </pre>
             </div>
           )}
