@@ -53,6 +53,18 @@ const icons = {
   ),
 } as const;
 
+export function getToolIcon(toolName: string): ReactNode {
+  switch (toolName) {
+    case "Read": case "Write": return icons.file;
+    case "Edit": return icons.pencil;
+    case "Bash": return icons.terminal;
+    case "Grep": case "Glob": return icons.search;
+    case "Task": return icons.bot;
+    case "WebFetch": case "WebSearch": return icons.globe;
+    default: return icons.wrench;
+  }
+}
+
 function getFilename(path: string): string {
   return path.split("/").pop() ?? path;
 }
