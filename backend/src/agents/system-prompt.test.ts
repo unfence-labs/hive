@@ -90,12 +90,14 @@ describe("buildSystemPrompt", () => {
   });
 
   it("includes default base prompt with interpolated variables", async () => {
-    const prompt = await buildSystemPrompt({ cwd: repoDir });
+    const prompt = await buildSystemPrompt({ cwd: repoDir, projectName: "my-app" });
     expect(prompt).toContain("running inside Hive");
+    expect(prompt).toContain("working on the my-app project");
     expect(prompt).toContain(`take place in the ${repoDir} directory`);
     expect(prompt).toContain("target branch for this workspace is main");
     expect(prompt).not.toContain("{DIR}");
     expect(prompt).not.toContain("{DEFAULT_BRANCH}");
+    expect(prompt).not.toContain("{PROJECT}");
   });
 
   it("uses custom base prompt when provided", async () => {
