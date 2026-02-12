@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -9,6 +9,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { wsTransport } from "@/lib/ws-transport";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
 
@@ -25,9 +26,50 @@ export default function Sidebar({
   onAddProject,
   onAddWorkspace,
 }: SidebarProps) {
+  const workspaceIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          projects.flatMap((project) => (project.workspaces ?? []).map((workspace) => workspace.id)),
+        ),
+      ),
+    [projects],
+  );
   const { wsId: activeWsId } = useParams();
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
+  const [liveWorkspaceStatus, setLiveWorkspaceStatus] = useState<
+    Record<string, { status: "idle" | "busy"; streaming: boolean }>
+  >({});
+
+  useEffect(() => {
+    const unsubscribers = workspaceIds.map((workspaceId) =>
+      wsTransport.onMessage(workspaceId, (msg) => {
+        if (msg.type !== "status") return;
+        setLiveWorkspaceStatus((prev) => {
+          const next = { status: msg.status, streaming: msg.streaming ?? false };
+          const current = prev[workspaceId];
+          if (current?.status === next.status && current.streaming === next.streaming) {
+            return prev;
+          }
+          return { ...prev, [workspaceId]: next };
+        });
+      }),
+    );
+
+    return () => {
+      for (const unsubscribe of unsubscribers) unsubscribe();
+    };
+  }, [workspaceIds]);
+
+  useEffect(() => {
+    const workspaceIdSet = new Set(workspaceIds);
+    setLiveWorkspaceStatus((prev) =>
+      Object.fromEntries(
+        Object.entries(prev).filter(([workspaceId]) => workspaceIdSet.has(workspaceId)),
+      ),
+    );
+  }, [workspaceIds]);
 
   const activeProjectId = projects.find((project) =>
     (project.workspaces ?? []).some((workspace) => workspace.id === activeWsId),
@@ -67,68 +109,102 @@ export default function Sidebar({
               <Skeleton className="h-6 w-full" />
             </div>
           ) : (
-            projects.map((project) => (
-              <div key={project.id} className="mb-1">
-                <Collapsible
-                  open={isProjectExpanded(project.id)}
-                  onOpenChange={(open) =>
-                    setExpandedProjects((prev) => ({ ...prev, [project.id]: open }))
-                  }
-                >
-                  <div className="group flex items-center gap-1">
-                    <CollapsibleTrigger asChild>
-                      <button
-                        type="button"
-                        className={cn(
-                          "flex flex-1 items-center gap-1 rounded-md px-2 py-1.5 text-left text-sm font-medium hover:bg-sidebar-accent",
-                          activeProjectId === project.id && "bg-sidebar-accent",
-                        )}
-                      >
-                        <ChevronRight
+            projects.map((project) => {
+              const workspaceStates = (project.workspaces ?? []).map((workspace) => {
+                const live = liveWorkspaceStatus[workspace.id];
+                return {
+                  id: workspace.id,
+                  status: live?.status ?? workspace.status,
+                  streaming: live?.streaming ?? false,
+                };
+              });
+              const hasActiveSession = workspaceStates.some(
+                (workspaceState) => workspaceState.status === "busy",
+              );
+
+              return (
+                <div key={project.id} className="mb-1">
+                  <Collapsible
+                    open={isProjectExpanded(project.id)}
+                    onOpenChange={(open) =>
+                      setExpandedProjects((prev) => ({ ...prev, [project.id]: open }))
+                    }
+                  >
+                    <div className="group flex items-center gap-1">
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
                           className={cn(
-                            "h-3.5 w-3.5 shrink-0 transition-transform",
-                            isProjectExpanded(project.id) && "rotate-90",
-                          )}
-                        />
-                        <span className="truncate">{project.name}</span>
-                      </button>
-                    </CollapsibleTrigger>
-                    <button
-                      type="button"
-                      className="mr-1 rounded p-0.5 text-muted-foreground transition-colors hover:text-sidebar-foreground"
-                      onClick={() => handleAddWorkspace(project.id)}
-                      aria-label={`Add workspace to ${project.name}`}
-                      title={`Add workspace to ${project.name}`}
-                      disabled={creatingProjectId !== null}
-                    >
-                      {creatingProjectId === project.id ? "..." : "+"}
-                    </button>
-                  </div>
-                  <CollapsibleContent>
-                    <div className="space-y-0.5 pl-5">
-                      {(project.workspaces ?? []).map((ws) => (
-                        <Link
-                          key={ws.id}
-                          to={`/workspaces/${ws.id}`}
-                          className={cn(
-                            "flex items-center gap-1.5 rounded-md px-2 py-1 text-sm hover:bg-sidebar-accent",
-                            activeWsId === ws.id && "bg-sidebar-accent",
+                            "flex flex-1 items-center gap-1 rounded-md px-2 py-1.5 text-left text-sm font-medium hover:bg-sidebar-accent",
+                            activeProjectId === project.id && "bg-sidebar-accent",
                           )}
                         >
-                          <span
+                          <ChevronRight
                             className={cn(
-                              "inline-block h-2 w-2 rounded-full",
-                              ws.status === "busy" ? "bg-blue-500" : "bg-muted-foreground/40",
+                              "h-3.5 w-3.5 shrink-0 transition-transform",
+                              isProjectExpanded(project.id) && "rotate-90",
                             )}
                           />
-                          {ws.name}
-                        </Link>
-                      ))}
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate">{project.name}</span>
+                            <span className="mt-0.5 flex items-center gap-1 text-[11px] font-normal text-muted-foreground">
+                              <span
+                                className={cn(
+                                  "inline-block h-1.5 w-1.5 rounded-full",
+                                  hasActiveSession ? "bg-blue-500" : "bg-muted-foreground/40",
+                                )}
+                              />
+                            </span>
+                          </span>
+                        </button>
+                      </CollapsibleTrigger>
+                      <button
+                        type="button"
+                        className="mr-1 rounded p-0.5 text-muted-foreground transition-colors hover:text-sidebar-foreground"
+                        onClick={() => handleAddWorkspace(project.id)}
+                        aria-label={`Add workspace to ${project.name}`}
+                        title={`Add workspace to ${project.name}`}
+                        disabled={creatingProjectId !== null}
+                      >
+                        {creatingProjectId === project.id ? "..." : "+"}
+                      </button>
                     </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              </div>
-            ))
+                    <CollapsibleContent>
+                      <div className="space-y-0.5 pl-5">
+                        {(project.workspaces ?? []).map((ws) => {
+                          const live = liveWorkspaceStatus[ws.id];
+                          const wsStatus = live?.status ?? ws.status;
+                          const wsStreaming = live?.streaming ?? false;
+                          return (
+                            <Link
+                              key={ws.id}
+                              to={`/workspaces/${ws.id}`}
+                              className={cn(
+                                "flex items-center gap-1.5 rounded-md px-2 py-1 text-sm hover:bg-sidebar-accent",
+                                activeWsId === ws.id && "bg-sidebar-accent",
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "inline-block h-2 w-2 rounded-full",
+                                  wsStatus === "busy" ? "bg-blue-500" : "bg-muted-foreground/40",
+                                )}
+                              />
+                              <span className="truncate">{ws.name}</span>
+                              {wsStreaming ? (
+                                <span className="ml-auto text-[11px] text-muted-foreground">
+                                  Working
+                                </span>
+                              ) : null}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
+              );
+            })
           )}
         </div>
       </ScrollArea>
