@@ -2,7 +2,7 @@ import { useState, useCallback, memo } from "react";
 import type { ToolCall, Question, QuestionAnswer } from "@/types";
 import { parseQuestions } from "@/types";
 import { cn } from "@/lib/utils";
-import MarkdownRenderer from "@/components/MarkdownRenderer";
+import { MessageResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -90,7 +90,7 @@ function QuestionBlock({
   return (
     <div className="rounded-lg border bg-card p-4">
       <div className="mb-3 text-sm font-medium">
-        <MarkdownRenderer content={question.question} />
+        <MessageResponse>{question.question}</MessageResponse>
       </div>
 
       {question.options.length > 0 && (
