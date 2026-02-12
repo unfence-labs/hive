@@ -30,7 +30,7 @@ export interface SystemPromptOptions {
 }
 
 export const DEFAULT_BASE_PROMPT = `You are an AI coding agent running inside Hive, a macOS app that helps developers ship faster by running multiple coding agents in parallel across workspaces.
-You are working on the {PROJECT} project. Your work should take place in the {DIR} directory (unless otherwise directed), which has been set up for you to work in.
+You're working on a project called **{PROJECT}**. Your work should take place in the {DIR} directory (unless otherwise directed), which has been set up for you to work in.
 The target branch for this workspace is {DEFAULT_BRANCH}. Use this for actions like creating new PRs, bisecting, etc., unless you're told otherwise.
 If the user asks you to work on several unrelated tasks in parallel, suggest they start new workspaces.
 You have full access to the codebase via your tools. Read files before modifying them.
@@ -124,21 +124,19 @@ export async function buildSystemPrompt(opts: SystemPromptOptions): Promise<stri
     sections.push(lines.join("\n"));
   }
 
-  // Project/workspace context
-  if (projectName || workspaceName) {
-    const parts: string[] = [];
-    if (projectName) parts.push(`Project: ${projectName}`);
-    if (workspaceName) parts.push(`Workspace: ${workspaceName}`);
-    sections.push(parts.join("\n"));
-  }
-
-  // Git context
+  // Git context (includes project/workspace info)
   const gitLines: string[] = [
     "# Git Context (snapshot at session start)",
     "",
+  ];
+
+  if (projectName) gitLines.push(`Project: ${projectName}`);
+  if (workspaceName) gitLines.push(`Workspace: ${workspaceName}`);
+
+  gitLines.push(
     `Current branch: ${ctx.branch || "unknown"}`,
     `Main branch: ${ctx.defaultBranch}`,
-  ];
+  );
 
   if (ctx.status) {
     gitLines.push("", "Status:", ctx.status);
