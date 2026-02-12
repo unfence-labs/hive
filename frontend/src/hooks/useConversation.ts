@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useReducer, useRef, useSyncExternalStore } from "react";
-import type { ChatMessage, ToolCall, WsOutgoing, QuestionAnswer } from "@/types";
+import type { ChatMessage, MessageOptions, ToolCall, WsOutgoing, QuestionAnswer } from "@/types";
 import { wsTransport } from "@/lib/ws-transport";
 import { api } from "@/hooks/useApi";
 
@@ -218,12 +218,12 @@ export function useConversation(workspaceId: string | undefined) {
     };
   }, [workspaceId]);
 
-  const sendMessage = useCallback((content: string): boolean => {
+  const sendMessage = useCallback((content: string, options?: MessageOptions): boolean => {
     if (!workspaceId) {
       dispatch({ type: "error", message: "Message not sent: no workspace selected." });
       return false;
     }
-    const sent = wsTransport.send(workspaceId, { type: "user_message", content });
+    const sent = wsTransport.send(workspaceId, { type: "user_message", content, options });
     if (!sent) {
       dispatch({ type: "error", message: "Message not sent: disconnected from server." });
       return false;

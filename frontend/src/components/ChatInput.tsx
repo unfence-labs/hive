@@ -10,10 +10,12 @@ import {
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
-import { PlusIcon, SparklesIcon } from "lucide-react";
+import type { MessageOptions } from "@/types";
+import { cn } from "@/lib/utils";
+import { BrainIcon, BookOpenIcon, PlusIcon, SparklesIcon } from "lucide-react";
 
 interface ChatInputProps {
-  onSend: (content: string) => boolean;
+  onSend: (content: string, options?: MessageOptions) => boolean;
   onStop: () => void;
   disabled: boolean;
   isStreaming: boolean;
@@ -32,6 +34,8 @@ export default function ChatInput({
   connectionStatus,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
+  const [thinkingEnabled, setThinkingEnabled] = useState(true);
+  const [planMode, setPlanMode] = useState(false);
   const isDisconnected = connectionStatus === "disconnected";
   const isInputDisabled = disabled || isStreaming || isDisconnected;
   const canSubmit = !isInputDisabled && value.trim().length > 0;
@@ -41,9 +45,8 @@ export default function ChatInput({
     if (!trimmed || disabled || isDisconnected) {
       return;
     }
-    const sent = onSend(trimmed);
+    const sent = onSend(trimmed, { planMode, thinkingEnabled });
     if (!sent) {
-      // Throwing lets PromptInput keep user text for retry.
       throw new Error("Message send failed");
     }
     setValue("");
@@ -76,6 +79,30 @@ export default function ChatInput({
             <PromptInputButton aria-label={`Model ${MODEL_LABEL}`} variant="ghost">
               <SparklesIcon className="size-4" />
               {MODEL_LABEL}
+            </PromptInputButton>
+            <PromptInputButton
+              aria-label="Toggle thinking"
+              variant="ghost"
+              onClick={() => setThinkingEnabled((v) => !v)}
+              className={cn(
+                "transition-colors",
+                thinkingEnabled && "bg-accent text-accent-foreground",
+              )}
+            >
+              <BrainIcon className="size-4" />
+              Thinking
+            </PromptInputButton>
+            <PromptInputButton
+              aria-label="Toggle plan mode"
+              variant="ghost"
+              onClick={() => setPlanMode((v) => !v)}
+              className={cn(
+                "transition-colors",
+                planMode && "bg-accent text-accent-foreground",
+              )}
+            >
+              <BookOpenIcon className="size-4" />
+              Plan
             </PromptInputButton>
           </PromptInputTools>
           <PromptInputSubmit
