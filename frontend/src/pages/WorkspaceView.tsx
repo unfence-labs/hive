@@ -220,16 +220,22 @@ export default function WorkspaceView() {
             </Button>
             <ButtonGroup className="ml-2">
               <Button
-                variant={view === "chatbot" ? "default" : "outline"}
+                variant="outline"
                 size="xs"
+                className={view === "chatbot"
+                  ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary dark:border-primary/40 dark:bg-primary/10"
+                  : "hover:bg-transparent hover:text-current"}
                 onClick={() => setView("chatbot")}
               >
                 <MessageSquareIcon className="mr-1.5 size-3.5" />
                 Chatbot
               </Button>
               <Button
-                variant={view === "terminal" ? "default" : "outline"}
+                variant="outline"
                 size="xs"
+                className={view === "terminal"
+                  ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary dark:border-primary/40 dark:bg-primary/10"
+                  : "hover:bg-transparent hover:text-current"}
                 onClick={() => setView("terminal")}
               >
                 <TerminalSquareIcon className="mr-1.5 size-3.5" />
