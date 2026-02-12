@@ -112,9 +112,9 @@ export default function Sidebar({
   };
 
   return (
-    <div className="flex h-full w-60 flex-col border-r bg-sidebar text-sidebar-foreground">
-      <div className="flex h-14 items-center justify-between border-b px-4">
-        <Link to="/" className="font-title text-lg tracking-wide">
+    <div className="flex h-full w-60 flex-col border-r border-border/50 bg-sidebar text-sidebar-foreground">
+      <div className="flex h-12 items-center justify-between border-b border-border/50 px-4">
+        <Link to="/" className="font-title text-lg tracking-wide text-primary">
           Hive
         </Link>
       </div>
@@ -143,8 +143,8 @@ export default function Sidebar({
                         <button
                           type="button"
                           className={cn(
-                            "flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium hover:bg-sidebar-accent",
-                            activeProjectId === project.id && "bg-sidebar-accent",
+                            "flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium transition-colors hover:bg-sidebar-accent/60",
+                            activeProjectId === project.id && "bg-sidebar-accent/60",
                           )}
                         >
                           <span
@@ -182,8 +182,8 @@ export default function Sidebar({
                               key={ws.id}
                               to={`/workspaces/${ws.id}`}
                               className={cn(
-                                "block rounded-md px-2 py-1.5 hover:bg-sidebar-accent",
-                                activeWsId === ws.id && "bg-sidebar-accent",
+                                "block rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent/60",
+                                activeWsId === ws.id && "bg-primary/8",
                               )}
                             >
                               <div className="flex items-center gap-1.5">
@@ -206,7 +206,7 @@ export default function Sidebar({
         </div>
       </ScrollArea>
 
-      <div className="flex items-center border-t px-3 py-2">
+      <div className="flex items-center border-t border-border/50 px-3 py-2">
         <button
           type="button"
           className="flex flex-1 items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-sidebar-foreground"

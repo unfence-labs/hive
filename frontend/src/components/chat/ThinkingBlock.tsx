@@ -73,7 +73,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({
         />
       </button>
       {open && (
-        <div className="mt-1 rounded bg-muted/80 px-2 py-1 text-xs text-muted-foreground">
+        <div className="mt-1 rounded bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
           <MessageResponse isAnimating={streaming}>{content}</MessageResponse>
         </div>
       )}

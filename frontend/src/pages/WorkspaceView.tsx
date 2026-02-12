@@ -66,7 +66,7 @@ export default function WorkspaceView() {
   const [fileTree, setFileTree] = useState<WorkspaceFileTreeNode[]>([]);
   const [fileTreeError, setFileTreeError] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(DEFAULT_EXPANDED);
-  const [loading, setLoading] = useState(true);
+  const [loadedWsId, setLoadedWsId] = useState<string | undefined>(undefined);
   const [selectedPath, setSelectedPath] = useState("");
 
   // Sidebar tab state
@@ -83,11 +83,10 @@ export default function WorkspaceView() {
     if (!wsId) {
       setWorkspace(null);
       setFileTree([]);
-      setLoading(false);
+      setLoadedWsId(undefined);
       return;
     }
     try {
-      setLoading(true);
       const [workspaceResult, filesResult] = await Promise.allSettled([
         api.get<Workspace>(`/api/workspaces/${wsId}`),
         api.get<WorkspaceFileTreeNode[]>(`/api/workspaces/${wsId}/files`),
@@ -116,7 +115,7 @@ export default function WorkspaceView() {
       setFileTree([]);
       setFileTreeError("Failed to load file tree.");
     } finally {
-      setLoading(false);
+      setLoadedWsId(wsId);
     }
   }, [wsId]);
 
@@ -144,14 +143,14 @@ export default function WorkspaceView() {
 
   const effectiveWorkspaceStatus = workspaceStatus ?? workspace?.status;
 
-  // Refresh diff stats when workspace transitions from busy to idle
-  const prevStatusRef = useRef(effectiveWorkspaceStatus);
+  // Refresh diff stats when streaming stops (agent finished working on files)
+  const prevStreamingRef = useRef(isStreaming);
   useEffect(() => {
-    if (prevStatusRef.current === "busy" && effectiveWorkspaceStatus === "idle") {
+    if (prevStreamingRef.current && !isStreaming) {
       refreshDiffStats();
     }
-    prevStatusRef.current = effectiveWorkspaceStatus;
-  }, [effectiveWorkspaceStatus, refreshDiffStats]);
+    prevStreamingRef.current = isStreaming;
+  }, [isStreaming, refreshDiffStats]);
 
   const handleCleanSession = async () => {
     if (!wsId) return;
@@ -173,7 +172,8 @@ export default function WorkspaceView() {
   // sendMessage is already a stable callback from useConversation
   const handleAddToPrompt = sendMessage;
 
-  if (loading) {
+  // Full skeleton only on first ever load (no data yet)
+  if (!loadedWsId) {
     return (
       <div className="space-y-4 p-6">
         <Skeleton className="h-8 w-48" />
@@ -182,7 +182,7 @@ export default function WorkspaceView() {
     );
   }
 
-  if (!workspace) {
+  if (loadedWsId === wsId && !workspace) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
         Workspace not found.
@@ -197,16 +197,16 @@ export default function WorkspaceView() {
       {/* Chat area + right panel */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="flex h-14 items-center gap-2 border-b px-4">
-            <span className="truncate text-sm font-semibold text-foreground">{workspace.name}</span>
-            <span className="truncate text-sm text-muted-foreground">{workspace.branch}</span>
-            <Badge variant={hasActiveSession ? "default" : "secondary"}>
+          <div className="flex h-12 items-center gap-2 border-b border-border/50 px-4 backdrop-blur-sm">
+            <span className="truncate text-sm font-semibold text-foreground">{workspace?.name}</span>
+            <span className="truncate text-xs text-muted-foreground">{workspace?.branch}</span>
+            <Badge variant={hasActiveSession ? "default" : "secondary"} className="text-[10px]">
               <span
-                className={`mr-1.5 inline-block h-2 w-2 rounded-full ${
-                  hasActiveSession ? "bg-blue-400" : "bg-muted-foreground/40"
+                className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${
+                  hasActiveSession ? "bg-primary-foreground" : "bg-muted-foreground/40"
                 }`}
               />
-              {hasActiveSession ? "session active" : "session idle"}
+              {hasActiveSession ? "active" : "idle"}
             </Badge>
             <Button
               variant="ghost"
@@ -220,16 +220,22 @@ export default function WorkspaceView() {
             </Button>
             <ButtonGroup className="ml-2">
               <Button
-                variant={view === "chatbot" ? "default" : "outline"}
+                variant="outline"
                 size="xs"
+                className={view === "chatbot"
+                  ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary dark:border-primary/40 dark:bg-primary/10"
+                  : "hover:bg-transparent hover:text-current"}
                 onClick={() => setView("chatbot")}
               >
                 <MessageSquareIcon className="mr-1.5 size-3.5" />
                 Chatbot
               </Button>
               <Button
-                variant={view === "terminal" ? "default" : "outline"}
+                variant="outline"
                 size="xs"
+                className={view === "terminal"
+                  ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary dark:border-primary/40 dark:bg-primary/10"
+                  : "hover:bg-transparent hover:text-current"}
                 onClick={() => setView("terminal")}
               >
                 <TerminalSquareIcon className="mr-1.5 size-3.5" />
@@ -270,8 +276,8 @@ export default function WorkspaceView() {
           )}
         </div>
 
-        <aside className="hidden w-80 shrink-0 border-l bg-background lg:flex lg:flex-col">
-          <div className="flex h-14 items-center gap-3 border-b px-4">
+        <aside className="hidden w-80 shrink-0 border-l border-border/50 bg-sidebar lg:flex lg:flex-col">
+          <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4">
             <button
               type="button"
               className={cn(
