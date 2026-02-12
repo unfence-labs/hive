@@ -101,7 +101,7 @@ describe("wsTransport", () => {
     socket.open();
 
     const received: WsOutgoing[] = [];
-    const unsub = wsTransport.onMessage("ws-1", (msg) => {
+    const { unsubscribe } = wsTransport.onMessage("ws-1", (msg) => {
       received.push(msg);
     });
 
@@ -109,7 +109,7 @@ describe("wsTransport", () => {
     socket.message("not-json");
 
     expect(received).toEqual([{ type: "status", status: "idle", streaming: false }]);
-    unsub();
+    unsubscribe();
   });
 
   it("routes messages to the correct workspace handlers", () => {
@@ -172,7 +172,7 @@ describe("wsTransport", () => {
     socket.open();
 
     const received: WsOutgoing[] = [];
-    const unsubscribe = wsTransport.onMessage("ws-1", (msg) => {
+    const { unsubscribe } = wsTransport.onMessage("ws-1", (msg) => {
       received.push(msg);
     });
 
@@ -185,5 +185,95 @@ describe("wsTransport", () => {
     unsubscribe();
     wsTransport.syncWorkspaces([]);
     expect(wsTransport.getStatus("ws-1")).toBe("disconnected");
+  });
+
+  it("replays status, history, and buffered messages to newly attached handlers", () => {
+    wsTransport.connect("ws-1");
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+
+    const firstHandler: WsOutgoing[] = [];
+    const { unsubscribe } = wsTransport.onMessage("ws-1", (msg) => {
+      firstHandler.push(msg);
+    });
+
+    socket.message(JSON.stringify({ type: "status", status: "busy", streaming: true }));
+    socket.message(JSON.stringify({
+      type: "history",
+      messages: [
+        {
+          id: "u1",
+          sessionId: "s1",
+          role: "user",
+          content: "hello",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      ],
+    }));
+    socket.message(JSON.stringify({ type: "text_delta", text: "partial" }));
+    socket.message(JSON.stringify({ type: "done", sessionId: "s1" }));
+
+    expect(firstHandler).toHaveLength(4);
+    unsubscribe();
+
+    // Messages arriving while no handler is subscribed should be buffered
+    socket.message(JSON.stringify({
+      type: "user_message",
+      message: {
+        id: "u2",
+        sessionId: "s1",
+        role: "user",
+        content: "follow-up",
+        timestamp: "2026-02-12T00:01:00.000Z",
+      },
+    }));
+    socket.message(JSON.stringify({ type: "text_delta", text: "response" }));
+    socket.message(JSON.stringify({ type: "done", sessionId: "s1" }));
+
+    const replayed: WsOutgoing[] = [];
+    const result = wsTransport.onMessage("ws-1", (msg) => {
+      replayed.push(msg);
+    });
+
+    expect(result.hadBufferedMessages).toBe(true);
+    expect(replayed).toEqual([
+      // Cached status + history
+      { type: "status", status: "busy", streaming: true },
+      {
+        type: "history",
+        messages: [
+          {
+            id: "u1",
+            sessionId: "s1",
+            role: "user",
+            content: "hello",
+            timestamp: "2026-02-12T00:00:00.000Z",
+          },
+        ],
+      },
+      // Buffered messages
+      {
+        type: "user_message",
+        message: {
+          id: "u2",
+          sessionId: "s1",
+          role: "user",
+          content: "follow-up",
+          timestamp: "2026-02-12T00:01:00.000Z",
+        },
+      },
+      { type: "text_delta", text: "response" },
+      { type: "done", sessionId: "s1" },
+    ]);
+  });
+
+  it("returns hadBufferedMessages false when no events were missed", () => {
+    wsTransport.connect("ws-1");
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+
+    // Subscribe handler BEFORE any messages arrive
+    const result = wsTransport.onMessage("ws-1", () => {});
+    expect(result.hadBufferedMessages).toBe(false);
   });
 });

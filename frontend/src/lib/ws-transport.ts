@@ -5,10 +5,10 @@ export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 type MessageHandler = (msg: WsOutgoing) => void;
 type StatusListener = () => void;
 type StatusMessage = Extract<WsOutgoing, { type: "status" }>;
+type HistoryMessage = Extract<WsOutgoing, { type: "history" }>;
 
 const MAX_RECONNECT_DELAY = 30_000;
 const BASE_RECONNECT_DELAY = 1_000;
-const MAX_REPLAY_MESSAGES = 1_000;
 
 interface WorkspaceConnection {
   ws: WebSocket | null;
@@ -19,7 +19,9 @@ interface WorkspaceConnection {
   messageHandlers: Set<MessageHandler>;
   statusListeners: Set<StatusListener>;
   lastStatus?: StatusMessage;
-  replayBuffer: WsOutgoing[];
+  lastHistory?: HistoryMessage;
+  /** Messages received while no handler was subscribed. Replayed on next onMessage(). */
+  messageBuffer: WsOutgoing[];
 }
 
 class WsTransport {
@@ -83,20 +85,31 @@ class WsTransport {
     return true;
   }
 
-  /** Register a handler for incoming messages. Returns an unsubscribe function. */
-  onMessage(workspaceId: string, handler: MessageHandler): () => void {
+  /**
+   * Register a handler for incoming messages.
+   * Replays cached status, history, and any buffered messages immediately.
+   * Returns `{ unsubscribe, hadBufferedMessages }`.
+   */
+  onMessage(workspaceId: string, handler: MessageHandler): { unsubscribe: () => void; hadBufferedMessages: boolean } {
     const connection = this.getOrCreateConnection(workspaceId);
     connection.messageHandlers.add(handler);
 
     if (connection.lastStatus) {
       handler(connection.lastStatus);
     }
-    for (const buffered of connection.replayBuffer) {
-      handler(buffered);
+    if (connection.lastHistory) {
+      handler(connection.lastHistory);
     }
 
-    return () => {
-      connection.messageHandlers.delete(handler);
+    const hadBufferedMessages = connection.messageBuffer.length > 0;
+    for (const msg of connection.messageBuffer) {
+      handler(msg);
+    }
+    connection.messageBuffer = [];
+
+    return {
+      unsubscribe: () => { connection.messageHandlers.delete(handler); },
+      hadBufferedMessages,
     };
   }
 
@@ -125,7 +138,7 @@ class WsTransport {
       reconnectTimer: null,
       messageHandlers: new Set<MessageHandler>(),
       statusListeners: new Set<StatusListener>(),
-      replayBuffer: [],
+      messageBuffer: [],
     };
     this.connections.set(workspaceId, created);
     return created;
@@ -156,8 +169,9 @@ class WsTransport {
     this.teardown(connection);
     connection.messageHandlers.clear();
     connection.statusListeners.clear();
-    connection.replayBuffer = [];
     connection.lastStatus = undefined;
+    connection.lastHistory = undefined;
+    connection.messageBuffer = [];
     this.connections.delete(workspaceId);
   }
 
@@ -185,15 +199,14 @@ class WsTransport {
         if (msg.type === "status") {
           connection.lastStatus = msg;
         } else if (msg.type === "history") {
-          connection.replayBuffer = [msg];
-        } else {
-          connection.replayBuffer.push(msg);
-          if (connection.replayBuffer.length > MAX_REPLAY_MESSAGES) {
-            connection.replayBuffer.shift();
-          }
+          connection.lastHistory = msg;
         }
 
-        for (const handler of connection.messageHandlers) handler(msg);
+        if (connection.messageHandlers.size > 0) {
+          for (const handler of connection.messageHandlers) handler(msg);
+        } else {
+          connection.messageBuffer.push(msg);
+        }
       } catch {
         // Ignore malformed messages
       }

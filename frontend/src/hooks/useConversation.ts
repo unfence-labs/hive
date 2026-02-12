@@ -1,6 +1,7 @@
-import { useEffect, useCallback, useReducer, useSyncExternalStore } from "react";
+import { useEffect, useCallback, useReducer, useRef, useSyncExternalStore } from "react";
 import type { ChatMessage, ToolCall, WsOutgoing, QuestionAnswer } from "@/types";
 import { wsTransport } from "@/lib/ws-transport";
+import { api } from "@/hooks/useApi";
 
 interface ConversationState {
   messages: ChatMessage[];
@@ -14,7 +15,6 @@ interface ConversationState {
 }
 
 type LocalAction =
-  | { type: "add_user_message"; content: string }
   | { type: "reset" }
   | { type: "clear_chat" };
 
@@ -33,24 +33,19 @@ const initialState: ConversationState = {
 
 function reducer(state: ConversationState, action: Action): ConversationState {
   switch (action.type) {
-    case "add_user_message":
+    case "user_message":
+      if (state.messages.some((message) => message.id === action.message.id)) {
+        return state;
+      }
       return {
         ...state,
-        messages: [
-          ...state.messages,
-          {
-            id: crypto.randomUUID(),
-            sessionId: state.sessionId ?? "",
-            role: "user",
-            content: action.content,
-            timestamp: new Date().toISOString(),
-          },
-        ],
+        messages: [...state.messages, action.message],
         isStreaming: true,
         currentText: "",
         currentThinking: "",
         activeToolCalls: [],
         error: undefined,
+        sessionId: action.message.sessionId || state.sessionId,
       };
 
     case "text_delta":
@@ -152,6 +147,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
 
 export function useConversation(workspaceId: string | undefined) {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const historyRequestTokenRef = useRef(0);
   const connectionStatus = useSyncExternalStore(
     (listener) =>
       workspaceId ? wsTransport.subscribe(workspaceId, listener) : () => {},
@@ -163,13 +159,36 @@ export function useConversation(workspaceId: string | undefined) {
       dispatch({ type: "reset" });
       return;
     }
+    const historyRequestToken = historyRequestTokenRef.current + 1;
+    historyRequestTokenRef.current = historyRequestToken;
+
     dispatch({ type: "reset" });
     wsTransport.connect(workspaceId);
 
-    const unsubMessage = wsTransport.onMessage(workspaceId, (msg) => dispatch(msg));
+    const { unsubscribe, hadBufferedMessages } = wsTransport.onMessage(workspaceId, (msg) => dispatch(msg));
+
+    // If the transport replayed buffered messages (events that arrived while we were
+    // on another workspace), the reducer already has the most current state. Bump the
+    // token so the async REST fetch won't overwrite it with potentially stale disk data.
+    if (hadBufferedMessages) {
+      historyRequestTokenRef.current += 1;
+    }
+
+    void (async () => {
+      try {
+        const messages = await api.get<ChatMessage[]>(`/api/workspaces/${workspaceId}/session/messages`);
+        if (historyRequestTokenRef.current !== historyRequestToken) return;
+        dispatch({ type: "history", messages });
+      } catch {
+        // History is still best-effort via websocket replay if API fetch fails.
+      }
+    })();
 
     return () => {
-      unsubMessage();
+      if (historyRequestTokenRef.current === historyRequestToken) {
+        historyRequestTokenRef.current = historyRequestToken + 1;
+      }
+      unsubscribe();
     };
   }, [workspaceId]);
 
@@ -183,7 +202,7 @@ export function useConversation(workspaceId: string | undefined) {
       dispatch({ type: "error", message: "Message not sent: disconnected from server." });
       return false;
     }
-    dispatch({ type: "add_user_message", content });
+    historyRequestTokenRef.current += 1;
     return true;
   }, [workspaceId]);
 
