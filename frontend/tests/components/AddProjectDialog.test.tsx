@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import userEvent from "@testing-library/user-event";
 import AddProjectDialog from "@/components/AddProjectDialog";
 
@@ -10,11 +11,13 @@ describe("AddProjectDialog", () => {
     const onOpenChange = vi.fn();
 
     render(
-      <AddProjectDialog
-        open
-        onOpenChange={onOpenChange}
-        onSubmit={onSubmit}
-      />,
+      <MemoryRouter>
+        <AddProjectDialog
+          open
+          onOpenChange={onOpenChange}
+          onSubmit={onSubmit}
+        />
+      </MemoryRouter>,
     );
 
     await user.type(screen.getByPlaceholderText("git@github.com:user/repo.git"), "https://github.com/acme/repo.git");
@@ -31,11 +34,13 @@ describe("AddProjectDialog", () => {
     const onSubmit = vi.fn().mockRejectedValue(new Error("Clone failed"));
 
     render(
-      <AddProjectDialog
-        open
-        onOpenChange={vi.fn()}
-        onSubmit={onSubmit}
-      />,
+      <MemoryRouter>
+        <AddProjectDialog
+          open
+          onOpenChange={vi.fn()}
+          onSubmit={onSubmit}
+        />
+      </MemoryRouter>,
     );
 
     await user.type(screen.getByPlaceholderText("git@github.com:user/repo.git"), "https://github.com/acme/repo.git");

@@ -92,4 +92,55 @@ describe("useProjects", () => {
     expect(updated[0]?.workspaces).toEqual([created]);
     expect(updated[1]?.workspaces).toEqual([]);
   });
+
+  it("creates project and workspace in one flow", async () => {
+    const createdProject = makeProject("p2");
+    const createdWorkspace = makeWorkspace("w2");
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(createdProject)
+      .mockResolvedValueOnce(createdWorkspace);
+
+    const { result } = renderHook(() => useProjects());
+    const returned = await result.current.createProjectWithWorkspace(createdProject.url);
+
+    expect(returned).toEqual(createdWorkspace);
+    expect(api.post).toHaveBeenNthCalledWith(1, "/api/projects", { url: createdProject.url });
+    expect(api.post).toHaveBeenNthCalledWith(2, "/api/projects/p2/workspaces");
+    expect(setData).toHaveBeenCalledTimes(2);
+
+    const appendProject = setData.mock.calls[0]?.[0] as (prev: Project[]) => Project[];
+    const appendWorkspace = setData.mock.calls[1]?.[0] as (prev: Project[]) => Project[];
+    const withProject = appendProject([makeProject("p1")]);
+    const withWorkspace = appendWorkspace(withProject);
+
+    expect(withProject).toEqual([makeProject("p1"), createdProject]);
+    expect(withWorkspace[1]?.workspaces).toEqual([createdWorkspace]);
+  });
+
+  it("rolls back project when workspace creation fails", async () => {
+    const createdProject = makeProject("p2");
+    const createWorkspaceError = new Error("workspace failed");
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(createdProject)
+      .mockRejectedValueOnce(createWorkspaceError);
+    vi.mocked(api.delete).mockResolvedValueOnce(undefined);
+
+    const { result } = renderHook(() => useProjects());
+
+    await expect(result.current.createProjectWithWorkspace(createdProject.url)).rejects.toThrow(
+      "workspace failed",
+    );
+    expect(api.post).toHaveBeenNthCalledWith(1, "/api/projects", { url: createdProject.url });
+    expect(api.post).toHaveBeenNthCalledWith(2, "/api/projects/p2/workspaces");
+    expect(api.delete).toHaveBeenCalledWith("/api/projects/p2");
+    expect(setData).toHaveBeenCalledTimes(2);
+
+    const appendProject = setData.mock.calls[0]?.[0] as (prev: Project[]) => Project[];
+    const rollbackProject = setData.mock.calls[1]?.[0] as (prev: Project[]) => Project[];
+    const withProject = appendProject([makeProject("p1")]);
+    const rolledBack = rollbackProject(withProject);
+
+    expect(withProject).toEqual([makeProject("p1"), createdProject]);
+    expect(rolledBack).toEqual([makeProject("p1")]);
+  });
 });
