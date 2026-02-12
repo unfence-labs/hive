@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { rm } from "node:fs/promises";
+import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { createProject } from "../projects/project-manager.js";
@@ -11,9 +11,15 @@ import {
   stopStreaming,
   endSession,
   getSessionMetadata,
+  listWorkspaceSessions,
+  createNewSession,
+  activateSession,
+  hardDeleteSession,
+  getSpecificSessionMessages,
   _clearActiveSessions,
 } from "./agent-manager.js";
 import { loadProject, saveProject } from "../state/state.js";
+import type { ChatMessage, SessionMetadata } from "../types.js";
 
 const CONV_CMD = { command: "bash", systemPrompt: false as const };
 
@@ -41,6 +47,40 @@ afterEach(async () => {
   await new Promise((r) => setTimeout(r, 50));
   await rm(tempDir, { recursive: true, force: true });
 });
+
+async function writeSessionFixture(
+  sessionId: string,
+  workspaceId: string,
+  options?: {
+    metadata?: Partial<SessionMetadata>;
+    messages?: Array<ChatMessage | string>;
+  },
+) {
+  const sessionDir = join(dataDir, projectId, "sessions", sessionId);
+  await mkdir(sessionDir, { recursive: true });
+
+  const metadata: SessionMetadata = {
+    sessionId,
+    workspaceId,
+    createdAt: "2026-02-11T00:00:00.000Z",
+    updatedAt: "2026-02-11T00:00:01.000Z",
+    messageCount: 0,
+    ...options?.metadata,
+  };
+
+  await writeFile(join(sessionDir, "metadata.json"), JSON.stringify(metadata), "utf-8");
+
+  if (options?.messages) {
+    const content = options.messages
+      .map((msg) => typeof msg === "string" ? msg : JSON.stringify(msg))
+      .join("\n");
+    await writeFile(
+      join(sessionDir, "messages.jsonl"),
+      content + (content ? "\n" : ""),
+      "utf-8",
+    );
+  }
+}
 
 describe("getOrCreateSession", () => {
   it("creates a session and sets workspace to busy", async () => {
@@ -201,5 +241,181 @@ describe("getSessionMetadata", () => {
   it("returns null for workspace without session", () => {
     const meta = getSessionMetadata(wsId);
     expect(meta).toBeNull();
+  });
+});
+
+describe("listWorkspaceSessions", () => {
+  it("lists persisted sessions sorted by updatedAt and filters other workspaces", async () => {
+    const otherWs = await createWorkspace(projectId, dataDir);
+    await writeSessionFixture("sess-old", wsId, {
+      metadata: { updatedAt: "2026-02-10T00:00:00.000Z" },
+    });
+    await writeSessionFixture("sess-new", wsId, {
+      metadata: { updatedAt: "2026-02-12T00:00:00.000Z" },
+    });
+    await writeSessionFixture("sess-other", otherWs.id, {
+      metadata: { updatedAt: "2099-01-01T00:00:00.000Z" },
+    });
+
+    const corruptDir = join(dataDir, projectId, "sessions", "sess-corrupt");
+    await mkdir(corruptDir, { recursive: true });
+    await writeFile(join(corruptDir, "metadata.json"), "{bad-json", "utf-8");
+
+    const sessions = await listWorkspaceSessions(wsId, dataDir);
+    expect(sessions.map((s) => s.sessionId)).toEqual(["sess-new", "sess-old"]);
+  });
+
+  it("enriches persisted metadata with active in-memory metadata", async () => {
+    const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    await writeSessionFixture(session.sessionId, wsId, {
+      metadata: {
+        updatedAt: "2000-01-01T00:00:00.000Z",
+        messageCount: 99,
+      },
+    });
+
+    const sessions = await listWorkspaceSessions(wsId, dataDir);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      sessionId: session.sessionId,
+      workspaceId: wsId,
+      messageCount: session.metadata.messageCount,
+      updatedAt: session.metadata.updatedAt,
+    });
+  });
+
+  it("throws for non-existent workspace", async () => {
+    await expect(listWorkspaceSessions("missing", dataDir)).rejects.toThrow("not found");
+  });
+});
+
+describe("createNewSession", () => {
+  it("parks the current session and activates a new one", async () => {
+    const { session: first } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const second = await createNewSession(wsId, dataDir, CONV_CMD);
+
+    expect(second.sessionId).not.toBe(first.sessionId);
+    expect(getSession(wsId)?.sessionId).toBe(second.sessionId);
+    expect(first.status).not.toBe("streaming");
+
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId)!;
+    expect(ws.status).toBe("busy");
+    expect(ws.activeSessionId).toBe(second.sessionId);
+  });
+
+  it("throws for non-existent workspace", async () => {
+    await expect(createNewSession("missing", dataDir, CONV_CMD)).rejects.toThrow("not found");
+  });
+});
+
+describe("activateSession", () => {
+  it("loads a persisted session and marks it active", async () => {
+    const { session: current } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    await writeSessionFixture("sess-target", wsId, {
+      metadata: { messageCount: 2, updatedAt: "2026-02-12T00:00:00.000Z" },
+    });
+
+    const activated = await activateSession(wsId, "sess-target", dataDir, CONV_CMD);
+
+    expect(activated.sessionId).toBe("sess-target");
+    expect(getSession(wsId)?.sessionId).toBe("sess-target");
+    expect(current.status).not.toBe("streaming");
+
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId)!;
+    expect(ws.status).toBe("busy");
+    expect(ws.activeSessionId).toBe("sess-target");
+  });
+
+  it("returns the same session when activating the already active session id", async () => {
+    const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const result = await activateSession(wsId, session.sessionId, dataDir, CONV_CMD);
+    expect(result).toBe(session);
+  });
+
+  it("throws when target session is missing", async () => {
+    await expect(activateSession(wsId, "missing-session", dataDir, CONV_CMD)).rejects.toThrow("not found");
+  });
+
+  it("throws when session belongs to another workspace", async () => {
+    const otherWs = await createWorkspace(projectId, dataDir);
+    await writeSessionFixture("sess-other", otherWs.id);
+    await expect(activateSession(wsId, "sess-other", dataDir, CONV_CMD)).rejects.toThrow("does not belong");
+  });
+});
+
+describe("hardDeleteSession", () => {
+  it("deletes an inactive session from disk and keeps current active session", async () => {
+    const { session: active } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    await writeSessionFixture("sess-delete", wsId);
+    const deletePath = join(dataDir, projectId, "sessions", "sess-delete");
+
+    await hardDeleteSession(wsId, "sess-delete", dataDir);
+
+    await expect(stat(deletePath)).rejects.toThrow();
+    expect(getSession(wsId)?.sessionId).toBe(active.sessionId);
+
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId)!;
+    expect(ws.status).toBe("busy");
+    expect(ws.activeSessionId).toBe(active.sessionId);
+  });
+
+  it("deletes the active session and resets workspace to idle", async () => {
+    const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    await hardDeleteSession(wsId, session.sessionId, dataDir);
+
+    expect(getSession(wsId)).toBeUndefined();
+
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId)!;
+    expect(ws.status).toBe("idle");
+    expect(ws.activeSessionId).toBeUndefined();
+  });
+});
+
+describe("getSpecificSessionMessages", () => {
+  it("returns messages from active in-memory session when session id matches", async () => {
+    const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const messages = await getSpecificSessionMessages(wsId, session.sessionId, dataDir);
+    expect(messages).toEqual([]);
+  });
+
+  it("reads and parses persisted messages for a specific session", async () => {
+    await writeSessionFixture("sess-disk", wsId, {
+      messages: [
+        {
+          id: "m-1",
+          sessionId: "sess-disk",
+          role: "user",
+          content: "from disk",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+        "not-json-line",
+        {
+          id: "m-2",
+          sessionId: "sess-disk",
+          role: "assistant",
+          content: "reply",
+          timestamp: "2026-02-12T00:00:01.000Z",
+        },
+      ],
+    });
+
+    const messages = await getSpecificSessionMessages(wsId, "sess-disk", dataDir);
+    expect(messages).toEqual([
+      expect.objectContaining({ id: "m-1", content: "from disk", role: "user" }),
+      expect.objectContaining({ id: "m-2", content: "reply", role: "assistant" }),
+    ]);
+  });
+
+  it("returns empty array when persisted messages do not exist", async () => {
+    const messages = await getSpecificSessionMessages(wsId, "missing", dataDir);
+    expect(messages).toEqual([]);
+  });
+
+  it("throws for non-existent workspace", async () => {
+    await expect(getSpecificSessionMessages("missing", "sess-1", dataDir)).rejects.toThrow("not found");
   });
 });

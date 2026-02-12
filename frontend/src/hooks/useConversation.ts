@@ -137,7 +137,11 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       };
 
     case "history":
-      return { ...state, messages: action.messages };
+      return {
+        ...state,
+        messages: action.messages,
+        sessionId: action.messages[0]?.sessionId ?? state.sessionId,
+      };
 
     case "tool_input_required":
       return {
@@ -241,6 +245,23 @@ export function useConversation(workspaceId: string | undefined) {
     dispatch({ type: "clear_chat" });
   }, []);
 
+  const switchSession = useCallback(async (sessionId: string) => {
+    if (!workspaceId) return;
+    dispatch({ type: "clear_chat" });
+    dispatch({ type: "status", status: "busy", sessionId, streaming: false });
+    historyRequestTokenRef.current += 1;
+    const token = historyRequestTokenRef.current;
+    try {
+      const messages = await api.get<ChatMessage[]>(
+        `/api/workspaces/${workspaceId}/sessions/${sessionId}/messages`,
+      );
+      if (historyRequestTokenRef.current !== token) return;
+      dispatch({ type: "history", messages });
+    } catch {
+      // Non-fatal — chat will be empty until next WS event
+    }
+  }, [workspaceId]);
+
   const answerQuestion = useCallback((toolCallId: string, answers: QuestionAnswer[]) => {
     if (!workspaceId) return;
     const pending = state.pendingToolInputs.find((p) => p.toolUseId === toolCallId);
@@ -294,6 +315,7 @@ export function useConversation(workspaceId: string | undefined) {
     sendMessage,
     stopStreaming,
     clearChat,
+    switchSession,
     answerQuestion,
     approvePlan,
     rejectToolInput,

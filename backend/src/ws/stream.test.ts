@@ -2,13 +2,14 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import WebSocket from "ws";
-import { rm, mkdir, writeFile } from "node:fs/promises";
+import { chmod, rm, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { createProject } from "../projects/project-manager.js";
 import { createWorkspace } from "../workspaces/workspace-manager.js";
 import {
   getOrCreateSession,
+  createNewSession,
   sendMessage,
   endSession,
   _clearActiveSessions,
@@ -76,11 +77,14 @@ function connectSessionWs(
   return { wsReady, messages };
 }
 
-async function startWsApp(authToken?: string): Promise<{ app: FastifyInstance; address: string }> {
+async function startWsApp(
+  authToken?: string,
+  sessionOptions = CONV_CMD,
+): Promise<{ app: FastifyInstance; address: string }> {
   const localApp = Fastify();
   await localApp.register(websocket);
   await localApp.register((instance: FastifyInstance) =>
-    streamRoutes(instance, { dataDir, sessionOptions: CONV_CMD, authToken }),
+    streamRoutes(instance, { dataDir, sessionOptions, authToken }),
   );
   const localAddress = await localApp.listen({ port: 0, host: "127.0.0.1" });
   return { app: localApp, address: localAddress };
@@ -337,6 +341,39 @@ describe("WS /ws/session/:wsId", () => {
     ws1.close();
     ws2.close();
     await endSession(wsId, dataDir);
+  });
+
+  it("does not broadcast stale idle status when a session is replaced", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+
+    const local = await startWsApp(undefined, { command: fakeClaudePath, systemPrompt: false });
+    const { wsReady, messages } = connectSessionWs(wsId, { address: local.address });
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.length >= 1);
+    const idleStatusesBefore = messages.filter(
+      (m) => m.type === "status" && m.status === "idle",
+    ).length;
+
+    ws.send(JSON.stringify({ type: "user_message", content: "replace me" }));
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.some((m) => m.type === "status" && m.status === "busy" && m.streaming === true),
+    );
+
+    await createNewSession(wsId, dataDir, { command: fakeClaudePath, systemPrompt: false });
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    const idleStatusesAfter = messages.filter(
+      (m) => m.type === "status" && m.status === "idle",
+    ).length;
+    expect(idleStatusesAfter).toBe(idleStatusesBefore);
+
+    ws.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("rejects unauthorized websocket connections when auth token is configured", async () => {

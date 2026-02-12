@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
 import { ConversationSession } from "./conversation-session.js";
 import { buildSystemPrompt } from "./system-prompt.js";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
@@ -270,6 +270,271 @@ export function getSessionMetadata(wsId: string): SessionMetadata | null {
   const session = activeSessions.get(wsId);
   if (!session) return null;
   return session.metadata;
+}
+
+// ── Multi-session management ────────────────────────────────────────
+
+/** Park the current active session: stop process, remove from in-memory map, keep files on disk. */
+function parkCurrentSession(wsId: string): void {
+  const session = activeSessions.get(wsId);
+  if (session) {
+    activeSessions.delete(wsId);
+    session.stop();
+  }
+}
+
+/** Resolve workspace info needed for session operations. */
+async function resolveWorkspaceContext(wsId: string, dataDir: string) {
+  const result = await getWorkspace(wsId, dataDir);
+  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
+  const { projectState, workspace } = result;
+  const projectId = projectState.id;
+  const wsPath = join(dataDir, projectId, "workspaces", workspace.name);
+  const sessionDataDir = join(dataDir, projectId);
+  const sessionsRoot = join(dataDir, projectId, "sessions");
+  return { projectState, workspace, projectId, wsPath, sessionDataDir, sessionsRoot };
+}
+
+/** Build a system prompt for a session (extracted from getOrCreateSession). */
+async function buildSessionPrompt(
+  wsPath: string,
+  workspace: { name: string },
+  projectState: { name: string; id: string },
+  dataDir: string,
+  options?: SessionOptions,
+): Promise<string | undefined> {
+  if (options?.systemPrompt === false) return undefined;
+  if (options?.systemPrompt) return options.systemPrompt;
+
+  const bare = bareRepoPath(dataDir, projectState.id);
+  let defaultBranch: string | undefined;
+  try {
+    defaultBranch = await resolveDefaultBranch(bare);
+  } catch {
+    // Falls back to detection in getGitContext
+  }
+
+  return buildSystemPrompt({
+    cwd: wsPath,
+    workspaceName: workspace.name,
+    projectName: projectState.name,
+    defaultBranch,
+    branchRename: {},
+    promptsDir: join(dataDir, "prompts"),
+  });
+}
+
+/** List all sessions for a workspace, sorted by updatedAt descending. */
+export async function listWorkspaceSessions(
+  wsId: string,
+  dataDir = getDataDir(),
+): Promise<SessionMetadata[]> {
+  const result = await getWorkspace(wsId, dataDir);
+  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
+
+  const sessionsRoot = join(dataDir, result.projectState.id, "sessions");
+  const sessions: SessionMetadata[] = [];
+
+  try {
+    const entries = await readdir(sessionsRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      try {
+        const raw = await readFile(join(sessionsRoot, entry.name, "metadata.json"), "utf-8");
+        const meta = JSON.parse(raw) as SessionMetadata;
+        if (meta.workspaceId !== wsId) continue;
+        sessions.push(meta);
+      } catch {
+        // Skip unreadable/corrupt metadata.
+      }
+    }
+  } catch {
+    // No sessions directory yet.
+  }
+
+  // Enrich active session with live metadata if available
+  const active = activeSessions.get(wsId);
+  if (active) {
+    const idx = sessions.findIndex((s) => s.sessionId === active.sessionId);
+    if (idx >= 0) {
+      sessions[idx] = active.metadata;
+    } else {
+      sessions.push(active.metadata);
+    }
+  }
+
+  sessions.sort((a, b) => {
+    const aTime = new Date(a.updatedAt).getTime() || 0;
+    const bTime = new Date(b.updatedAt).getTime() || 0;
+    return bTime - aTime;
+  });
+
+  return sessions;
+}
+
+/** Create a new session, parking the current active one (if any). */
+export async function createNewSession(
+  wsId: string,
+  dataDir = getDataDir(),
+  options?: SessionOptions,
+): Promise<ConversationSession> {
+  return withWorkspaceLock(wsId, async () => {
+    parkCurrentSession(wsId);
+
+    const ctx = await resolveWorkspaceContext(wsId, dataDir);
+    const systemPrompt = await buildSessionPrompt(
+      ctx.wsPath, ctx.workspace, ctx.projectState, dataDir, options,
+    );
+
+    const session = new ConversationSession({
+      cwd: ctx.wsPath,
+      dataDir: ctx.sessionDataDir,
+      workspaceId: wsId,
+      command: options?.command,
+      systemPrompt,
+      skipPermissions: options?.skipPermissions,
+    });
+
+    activeSessions.set(wsId, session);
+
+    await withProjectStateLock(
+      ctx.projectId,
+      async () => {
+        const latest = await loadProject(ctx.projectId, dataDir);
+        if (!latest) throw new NotFoundError(`Project ${ctx.projectId} not found`);
+        const ws = latest.workspaces.find((w) => w.id === wsId);
+        if (!ws) throw new NotFoundError(`Workspace ${wsId} not found`);
+        ws.status = "busy";
+        ws.activeSessionId = session.sessionId;
+        await saveProject(latest, dataDir);
+      },
+      dataDir,
+    );
+
+    return session;
+  });
+}
+
+/** Activate an existing session from disk, parking the current active one. */
+export async function activateSession(
+  wsId: string,
+  sessionId: string,
+  dataDir = getDataDir(),
+  options?: SessionOptions,
+): Promise<ConversationSession> {
+  return withWorkspaceLock(wsId, async () => {
+    // No-op if already active
+    const existing = activeSessions.get(wsId);
+    if (existing?.sessionId === sessionId) return existing;
+
+    const ctx = await resolveWorkspaceContext(wsId, dataDir);
+
+    // Verify the session exists on disk and belongs to this workspace
+    const metaPath = join(ctx.sessionsRoot, sessionId, "metadata.json");
+    let meta: SessionMetadata;
+    try {
+      const raw = await readFile(metaPath, "utf-8");
+      meta = JSON.parse(raw) as SessionMetadata;
+    } catch {
+      throw new NotFoundError(`Session ${sessionId} not found`);
+    }
+    if (meta.workspaceId !== wsId) {
+      throw new NotFoundError(`Session ${sessionId} does not belong to workspace ${wsId}`);
+    }
+
+    parkCurrentSession(wsId);
+
+    const systemPrompt = await buildSessionPrompt(
+      ctx.wsPath, ctx.workspace, ctx.projectState, dataDir, options,
+    );
+
+    const session = await ConversationSession.load({
+      sessionId,
+      cwd: ctx.wsPath,
+      dataDir: ctx.sessionDataDir,
+      workspaceId: wsId,
+      command: options?.command,
+      systemPrompt,
+      skipPermissions: options?.skipPermissions,
+    });
+
+    activeSessions.set(wsId, session);
+
+    await withProjectStateLock(
+      ctx.projectId,
+      async () => {
+        const latest = await loadProject(ctx.projectId, dataDir);
+        if (!latest) throw new NotFoundError(`Project ${ctx.projectId} not found`);
+        const ws = latest.workspaces.find((w) => w.id === wsId);
+        if (!ws) throw new NotFoundError(`Workspace ${wsId} not found`);
+        ws.status = "busy";
+        ws.activeSessionId = sessionId;
+        await saveProject(latest, dataDir);
+      },
+      dataDir,
+    );
+
+    return session;
+  });
+}
+
+/** Hard-delete a session: kill if active, remove all files from disk. */
+export async function hardDeleteSession(
+  wsId: string,
+  sessionId: string,
+  dataDir = getDataDir(),
+): Promise<void> {
+  await withWorkspaceLock(wsId, async () => {
+    const result = await getWorkspace(wsId, dataDir);
+    if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
+    const projectId = result.projectState.id;
+
+    const active = activeSessions.get(wsId);
+    const isActive = active?.sessionId === sessionId;
+
+    if (isActive) {
+      activeSessions.delete(wsId);
+      active!.stop();
+
+      await withProjectStateLock(
+        projectId,
+        async () => {
+          const latest = await loadProject(projectId, dataDir);
+          if (!latest) throw new NotFoundError(`Project ${projectId} not found`);
+          const ws = latest.workspaces.find((w) => w.id === wsId);
+          if (!ws) throw new NotFoundError(`Workspace ${wsId} not found`);
+          ws.status = "idle";
+          ws.activeSessionId = undefined;
+          await saveProject(latest, dataDir);
+        },
+        dataDir,
+      );
+    }
+
+    const sessionDir = join(dataDir, projectId, "sessions", sessionId);
+    await rm(sessionDir, { recursive: true, force: true });
+  });
+}
+
+/** Get messages for a specific session (from memory if active, otherwise from disk). */
+export async function getSpecificSessionMessages(
+  wsId: string,
+  sessionId: string,
+  dataDir = getDataDir(),
+): Promise<ChatMessage[]> {
+  const active = activeSessions.get(wsId);
+  if (active?.sessionId === sessionId) return active.getMessages();
+
+  const result = await getWorkspace(wsId, dataDir);
+  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
+
+  const messagesPath = join(dataDir, result.projectState.id, "sessions", sessionId, "messages.jsonl");
+  try {
+    const raw = await readFile(messagesPath, "utf-8");
+    return parseJsonlMessages(raw);
+  } catch {
+    return [];
+  }
 }
 
 // ── Test helpers ────────────────────────────────────────────────────
