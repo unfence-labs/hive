@@ -193,6 +193,63 @@ describe("getWorkspaceDiffStat", () => {
     expect(uncommitted[0].file).toBe("README.md");
     expect(uncommitted[0].status).toBe("modified");
   });
+
+  it("returns renamed file metadata for committed renames", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await git(["mv", "README.md", "README-renamed.md"], wsPath);
+    await git(["config", "user.email", "test@hive.dev"], wsPath);
+    await git(["config", "user.name", "Test"], wsPath);
+    await git(["commit", "-m", "rename readme"], wsPath);
+
+    const { committed, uncommitted } = await getWorkspaceDiffStat(ws.id, dataDir);
+    expect(uncommitted).toEqual([]);
+
+    const renamed = committed.find((s) => s.file === "README-renamed.md");
+    expect(renamed).toBeDefined();
+    expect(renamed!.status).toBe("renamed");
+    expect(renamed!.renamedFrom).toBe("README.md");
+    expect(renamed!.additions).toBe(0);
+    expect(renamed!.deletions).toBe(0);
+  });
+
+  it("returns renamed file metadata for uncommitted renames", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await git(["mv", "README.md", "README-renamed.md"], wsPath);
+
+    const { committed, uncommitted } = await getWorkspaceDiffStat(ws.id, dataDir);
+    expect(committed).toEqual([]);
+
+    const renamed = uncommitted.find((s) => s.file === "README-renamed.md");
+    expect(renamed).toBeDefined();
+    expect(renamed!.status).toBe("renamed");
+    expect(renamed!.renamedFrom).toBe("README.md");
+  });
+
+  it("separates committed and uncommitted stats in the same workspace", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await writeFile(join(wsPath, "committed.txt"), "committed\n");
+    await git(["add", "."], wsPath);
+    await git(["config", "user.email", "test@hive.dev"], wsPath);
+    await git(["config", "user.name", "Test"], wsPath);
+    await git(["commit", "-m", "add committed file"], wsPath);
+
+    await writeFile(join(wsPath, "README.md"), "local only change\n");
+
+    const { committed, uncommitted } = await getWorkspaceDiffStat(ws.id, dataDir);
+
+    expect(committed.some((s) => s.file === "committed.txt")).toBe(true);
+    expect(
+      uncommitted.some(
+        (s) => s.file === "README.md" && s.status === "modified",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("mergeWorkspace", () => {

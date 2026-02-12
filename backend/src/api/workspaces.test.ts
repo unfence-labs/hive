@@ -224,6 +224,30 @@ describe("GET /api/workspaces/:wsId/diff/stat", () => {
     expect(file.status).toBe("added");
     expect(body.uncommitted).toEqual([]);
   });
+
+  it("returns renamed file status and source path", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+    await git(["mv", "README.md", "README-renamed.md"], wsPath);
+    await git(["config", "user.email", "test@hive.dev"], wsPath);
+    await git(["config", "user.name", "Test"], wsPath);
+    await git(["commit", "-m", "rename readme"], wsPath);
+
+    const res = await app.inject({ method: "GET", url: `/api/workspaces/${ws.id}/diff/stat` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const renamed = body.committed.find(
+      (s: { file: string }) => s.file === "README-renamed.md",
+    );
+    expect(renamed).toBeDefined();
+    expect(renamed.status).toBe("renamed");
+    expect(renamed.renamedFrom).toBe("README.md");
+  });
 });
 
 describe("POST /api/workspaces/:wsId/merge", () => {

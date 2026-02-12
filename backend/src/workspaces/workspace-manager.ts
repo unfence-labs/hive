@@ -242,13 +242,48 @@ function parseDiffStat(
     R: "renamed",
   };
 
+  function parseRenamePath(file: string): { from: string; to: string } | null {
+    if (!file.includes(" => ")) return null;
+
+    // Plain rename: old.txt => new.txt
+    if (!file.includes("{")) {
+      const [from, to] = file.split(" => ");
+      if (from && to) return { from, to };
+      return null;
+    }
+
+    // Brace rename:
+    // - src/{old.ts => new.ts}
+    // - {old/dir => new/dir}/file.ts
+    const match = file.match(/^(.*)\{(.+?) => (.+?)\}(.*)$/);
+    if (!match) return null;
+    const [, prefix, fromPart, toPart, suffix] = match;
+    return {
+      from: `${prefix}${fromPart}${suffix}`,
+      to: `${prefix}${toPart}${suffix}`,
+    };
+  }
+
   const files: DiffFileStat[] = [];
   for (const line of numstatStdout.split("\n").filter(Boolean)) {
     const [addStr, delStr, ...rest] = line.split("\t");
-    const file = rest.join("\t");
+    const rawFile = rest.join("\t");
+    let file = rawFile;
     const additions = addStr === "-" ? 0 : parseInt(addStr, 10);
     const deletions = delStr === "-" ? 0 : parseInt(delStr, 10);
-    const info = statusMap.get(file);
+    let info = statusMap.get(file);
+
+    if (!info) {
+      const rename = parseRenamePath(rawFile);
+      if (rename) {
+        const renamedInfo = statusMap.get(rename.to);
+        if (renamedInfo) {
+          info = renamedInfo;
+          file = rename.to;
+        }
+      }
+    }
+
     const stat: DiffFileStat = {
       file,
       additions,

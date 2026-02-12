@@ -288,9 +288,16 @@ describe("useConversation", () => {
     });
 
     expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
-      type: "user_message",
-      content:
-        "[Response to question]\nQ1: Selected option(s) 2, 3\nQ2: \"custom\"",
+      type: "tool_input_response",
+      requestId: "tool-1",
+      toolName: "AskUserQuestion",
+      result: {
+        type: "answer",
+        answers: [
+          { questionIndex: 0, selectedOptions: [1, 2] },
+          { questionIndex: 1, selectedOptions: [], customText: "custom" },
+        ],
+      },
     });
   });
 
@@ -303,8 +310,10 @@ describe("useConversation", () => {
     });
 
     expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
-      type: "user_message",
-      content: "I approve the plan. Please proceed with implementation.",
+      type: "tool_input_response",
+      requestId: "",
+      toolName: "ExitPlanMode",
+      result: { type: "approve" },
     });
   });
 
