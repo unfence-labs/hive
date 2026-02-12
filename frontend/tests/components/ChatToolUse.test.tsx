@@ -70,7 +70,6 @@ describe("ChatToolUse", () => {
       />,
     );
 
-    expect(screen.getByText("Running...")).toBeInTheDocument();
     expect(
       screen.getByText(
         (text) => text.startsWith("echo 1234567890") && text.endsWith("..."),
@@ -80,5 +79,25 @@ describe("ChatToolUse", () => {
     await user.click(screen.getByRole("button", { name: /bash/i }));
     expect(screen.getByText(/\$ echo 123456789012345678901234567890123456789012345678901234/)).toBeInTheDocument();
     expect(screen.getByText(/Run diagnostics/)).toBeInTheDocument();
+  });
+
+  it("renders object output as JSON instead of crashing", async () => {
+    const user = userEvent.setup();
+    const objectOutput = { type: "text", text: "agent result" } as unknown as string;
+
+    render(
+      <ChatToolUse
+        tool={tool({
+          name: "Task",
+          input: JSON.stringify({ subagent_type: "Explore", description: "search", prompt: "find files" }),
+          output: objectOutput,
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /task/i }));
+
+    expect(screen.getByText("Result")).toBeInTheDocument();
+    expect(screen.getByText(/"agent result"/)).toBeInTheDocument();
   });
 });

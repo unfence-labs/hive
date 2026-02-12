@@ -4,9 +4,10 @@ import userEvent from "@testing-library/user-event";
 import { ToolCallList } from "@/components/chat/ToolCallList";
 import type { ToolCall } from "@/types";
 
-function tool(overrides: Partial<ToolCall>): ToolCall {
+let nextId = 0;
+function tool(overrides: Partial<ToolCall> = {}): ToolCall {
   return {
-    id: "tool-1",
+    id: `tool-${++nextId}`,
     name: "Bash",
     input: "{}",
     ...overrides,
@@ -28,7 +29,6 @@ describe("ToolCallList", () => {
     );
 
     expect(screen.getByText("Bash")).toBeInTheDocument();
-    expect(screen.getByText("Running...")).toBeInTheDocument();
   });
 
   it("renders ExitPlanMode action and calls approval callback", async () => {
@@ -86,5 +86,139 @@ describe("ToolCallList", () => {
         customText: undefined,
       },
     ]);
+  });
+
+  // ── Collapse / Expand ────────────────────────────────────────────────
+
+  it("shows tools individually when fewer than 3", () => {
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({ name: "Read", input: JSON.stringify({ file_path: "/a.ts" }) }),
+          tool({ name: "Edit", input: JSON.stringify({ file_path: "/b.ts", old_string: "x", new_string: "y" }) }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Read")).toBeInTheDocument();
+    expect(screen.getByText("Edit")).toBeInTheDocument();
+    expect(screen.queryByText(/tool call/)).not.toBeInTheDocument();
+  });
+
+  it("collapses 3+ tools into summary and expands on click", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({ name: "Read", input: JSON.stringify({ file_path: "/a.ts" }) }),
+          tool({ name: "Grep", input: JSON.stringify({ pattern: "foo" }) }),
+          tool({ name: "Edit", input: JSON.stringify({ file_path: "/b.ts", old_string: "x", new_string: "y" }) }),
+        ]}
+      />,
+    );
+
+    // Collapsed: summary visible, individual tools hidden
+    expect(screen.getByText("3 tool calls")).toBeInTheDocument();
+    expect(screen.queryByText("Read")).not.toBeInTheDocument();
+    expect(screen.queryByText("Grep")).not.toBeInTheDocument();
+    expect(screen.queryByText("Edit")).not.toBeInTheDocument();
+
+    // Expand
+    await user.click(screen.getByText("3 tool calls"));
+
+    expect(screen.getByText("Read")).toBeInTheDocument();
+    expect(screen.getByText("Grep")).toBeInTheDocument();
+    expect(screen.getByText("Edit")).toBeInTheDocument();
+
+    // Collapse again
+    await user.click(screen.getByText("3 tool calls"));
+
+    expect(screen.queryByText("Read")).not.toBeInTheDocument();
+  });
+
+  it("separates subagent count in summary label", () => {
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({ name: "Read", input: JSON.stringify({ file_path: "/a.ts" }) }),
+          tool({ name: "Task", input: JSON.stringify({ subagent_type: "Explore", description: "search", prompt: "find files" }) }),
+          tool({ name: "Task", input: JSON.stringify({ subagent_type: "Plan", description: "plan", prompt: "design" }) }),
+          tool({ name: "Edit", input: JSON.stringify({ file_path: "/b.ts", old_string: "x", new_string: "y" }) }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("2 tool calls, 2 subagents")).toBeInTheDocument();
+  });
+
+  it("shows only subagent count when all tools are Task", () => {
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({ name: "Task", input: JSON.stringify({ subagent_type: "Explore", description: "a", prompt: "a" }) }),
+          tool({ name: "Task", input: JSON.stringify({ subagent_type: "Plan", description: "b", prompt: "b" }) }),
+          tool({ name: "Task", input: JSON.stringify({ subagent_type: "Bash", description: "c", prompt: "c" }) }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("3 subagents")).toBeInTheDocument();
+  });
+
+  it("does not collapse during streaming (showExecutingState)", () => {
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({ name: "Read", output: "done" }),
+          tool({ name: "Grep", output: "done" }),
+          tool({ name: "Edit", output: undefined }),
+        ]}
+        showExecutingState
+      />,
+    );
+
+    // No summary — all tools shown individually
+    expect(screen.queryByText(/tool call/)).not.toBeInTheDocument();
+    expect(screen.getByText("Read")).toBeInTheDocument();
+    expect(screen.getByText("Grep")).toBeInTheDocument();
+    expect(screen.getByText("Edit")).toBeInTheDocument();
+  });
+
+  it("always shows interactive tools even when collapsed", () => {
+    const onPlanApproval = vi.fn();
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({ name: "Read", input: JSON.stringify({ file_path: "/a.ts" }) }),
+          tool({ name: "Grep", input: JSON.stringify({ pattern: "foo" }) }),
+          tool({ name: "Bash", input: JSON.stringify({ command: "ls" }) }),
+          tool({ name: "ExitPlanMode" }),
+        ]}
+        isInteractive
+        onPlanApproval={onPlanApproval}
+      />,
+    );
+
+    // Regular tools collapsed
+    expect(screen.getByText("3 tool calls")).toBeInTheDocument();
+    expect(screen.queryByText("Read")).not.toBeInTheDocument();
+
+    // Interactive tool always visible
+    expect(screen.getByRole("button", { name: "Approve Plan" })).toBeInTheDocument();
+  });
+
+  it("handles singular tool call label", () => {
+    // 2 Task + 1 regular = "1 tool call, 2 subagents"
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({ name: "Bash", input: JSON.stringify({ command: "ls" }) }),
+          tool({ name: "Task", input: JSON.stringify({ subagent_type: "Explore", description: "a", prompt: "a" }) }),
+          tool({ name: "Task", input: JSON.stringify({ subagent_type: "Plan", description: "b", prompt: "b" }) }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("1 tool call, 2 subagents")).toBeInTheDocument();
   });
 });
