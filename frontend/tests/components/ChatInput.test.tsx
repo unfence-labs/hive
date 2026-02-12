@@ -15,7 +15,7 @@ describe("ChatInput", () => {
       />,
     );
 
-    expect(screen.queryByText("Working...")).not.toBeInTheDocument();
+    expect(screen.queryByText("Working…")).not.toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "Agent thinking loader small" })).not.toBeInTheDocument();
   });
 
@@ -91,7 +91,7 @@ describe("ChatInput", () => {
       />,
     );
 
-    expect(screen.getByText("Working...")).toBeInTheDocument();
+    expect(screen.getByText("Working…")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Agent thinking loader small" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Stop" }));

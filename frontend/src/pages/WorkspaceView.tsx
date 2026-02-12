@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { MessageSquareIcon, RotateCcwIcon, TerminalSquareIcon } from "lucide-react";
+import { MessageSquareIcon, RefreshCwIcon, RotateCcwIcon, TerminalSquareIcon } from "lucide-react";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
+import { useDiffStat } from "@/hooks/useDiffStat";
 import {
   FileTree,
   FileTreeFile,
@@ -11,10 +12,13 @@ import {
 import ChatConversation from "@/components/ChatConversation";
 import ChatInput from "@/components/ChatInput";
 import Terminal from "@/components/Terminal";
+import { GitDiffModal } from "@/components/diff/GitDiffModal";
+import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import type { Workspace, WorkspaceFileTreeNode } from "@/types";
 
 const DEFAULT_EXPANDED = new Set<string>();
@@ -64,6 +68,16 @@ export default function WorkspaceView() {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(DEFAULT_EXPANDED);
   const [loading, setLoading] = useState(true);
   const [selectedPath, setSelectedPath] = useState("");
+
+  // Sidebar tab state
+  const [sidebarTab, setSidebarTab] = useState<"all" | "modified">("all");
+
+  // Diff modal state
+  const [diffModalOpen, setDiffModalOpen] = useState(false);
+  const [diffModalFile, setDiffModalFile] = useState<string | undefined>();
+
+  // Diff stats for the modified tab
+  const { committed: diffCommitted, uncommitted: diffUncommitted, totalCount: diffTotalCount, loading: diffStatsLoading, refresh: refreshDiffStats } = useDiffStat(wsId);
 
   const fetchWorkspace = useCallback(async () => {
     if (!wsId) {
@@ -128,6 +142,17 @@ export default function WorkspaceView() {
     rejectToolInput,
   } = useConversation(wsId);
 
+  const effectiveWorkspaceStatus = workspaceStatus ?? workspace?.status;
+
+  // Refresh diff stats when workspace transitions from busy to idle
+  const prevStatusRef = useRef(effectiveWorkspaceStatus);
+  useEffect(() => {
+    if (prevStatusRef.current === "busy" && effectiveWorkspaceStatus === "idle") {
+      refreshDiffStats();
+    }
+    prevStatusRef.current = effectiveWorkspaceStatus;
+  }, [effectiveWorkspaceStatus, refreshDiffStats]);
+
   const handleCleanSession = async () => {
     if (!wsId) return;
     try {
@@ -139,6 +164,14 @@ export default function WorkspaceView() {
       await fetchWorkspace();
     }
   };
+
+  const handleModifiedFileClick = useCallback((filePath: string) => {
+    setDiffModalFile(filePath);
+    setDiffModalOpen(true);
+  }, []);
+
+  // sendMessage is already a stable callback from useConversation
+  const handleAddToPrompt = sendMessage;
 
   if (loading) {
     return (
@@ -157,7 +190,6 @@ export default function WorkspaceView() {
     );
   }
 
-  const effectiveWorkspaceStatus = workspaceStatus ?? workspace.status;
   const hasActiveSession = effectiveWorkspaceStatus === "busy";
 
   return (
@@ -239,15 +271,63 @@ export default function WorkspaceView() {
         </div>
 
         <aside className="hidden w-80 shrink-0 border-l bg-background lg:flex lg:flex-col">
-          <div className="flex h-14 items-center border-b px-4 text-xs uppercase tracking-wide text-muted-foreground">
-            Files
+          <div className="flex h-14 items-center gap-3 border-b px-4">
+            <button
+              type="button"
+              className={cn(
+                "text-xs uppercase tracking-wide transition-colors",
+                sidebarTab === "all"
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setSidebarTab("all")}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
+                sidebarTab === "modified"
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setSidebarTab("modified")}
+            >
+              Modified
+              {diffTotalCount > 0 && (
+                <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                  {diffTotalCount}
+                </Badge>
+              )}
+            </button>
+            {sidebarTab === "modified" && (
+              <button
+                type="button"
+                className="ml-auto rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                onClick={refreshDiffStats}
+                aria-label="Refresh changes"
+                title="Refresh changes"
+              >
+                <RefreshCwIcon className={cn("size-3.5", diffStatsLoading && "animate-spin")} />
+              </button>
+            )}
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-3">
-            {fileTreeError ? (
+            {sidebarTab === "modified" && (
+              <ModifiedFileList
+                committed={diffCommitted}
+                uncommitted={diffUncommitted}
+                loading={diffStatsLoading}
+                onFileClick={handleModifiedFileClick}
+              />
+            )}
+            {sidebarTab === "all" && fileTreeError && (
               <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
                 {fileTreeError}
               </div>
-            ) : (
+            )}
+            {sidebarTab === "all" && !fileTreeError && (
               <FileTree
                 expanded={expandedPaths}
                 onExpandedChange={setExpandedPaths}
@@ -264,6 +344,17 @@ export default function WorkspaceView() {
           </div>
         </aside>
       </div>
+
+      {/* Diff modal */}
+      {wsId && (
+        <GitDiffModal
+          open={diffModalOpen}
+          onOpenChange={setDiffModalOpen}
+          wsId={wsId}
+          initialFile={diffModalFile}
+          onAddToPrompt={handleAddToPrompt}
+        />
+      )}
     </div>
   );
 }

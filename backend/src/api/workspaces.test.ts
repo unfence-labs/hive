@@ -191,6 +191,65 @@ describe("GET /api/workspaces/:wsId/diff", () => {
   });
 });
 
+describe("GET /api/workspaces/:wsId/diff/stat", () => {
+  it("returns 404 for non-existent workspace", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/workspaces/nonexistent/diff/stat" });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("returns committed and uncommitted diff stats", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+    await writeFile(join(wsPath, "stat-test.txt"), "line1\nline2\n");
+    await git(["add", "."], wsPath);
+    await git(["config", "user.email", "test@hive.dev"], wsPath);
+    await git(["config", "user.name", "Test"], wsPath);
+    await git(["commit", "-m", "stat test"], wsPath);
+
+    const res = await app.inject({ method: "GET", url: `/api/workspaces/${ws.id}/diff/stat` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toHaveProperty("committed");
+    expect(body).toHaveProperty("uncommitted");
+    expect(Array.isArray(body.committed)).toBe(true);
+    expect(body.committed.length).toBeGreaterThanOrEqual(1);
+    const file = body.committed.find((s: { file: string }) => s.file === "stat-test.txt");
+    expect(file).toBeDefined();
+    expect(file.additions).toBe(2);
+    expect(file.status).toBe("added");
+    expect(body.uncommitted).toEqual([]);
+  });
+
+  it("returns renamed file status and source path", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+    await git(["mv", "README.md", "README-renamed.md"], wsPath);
+    await git(["config", "user.email", "test@hive.dev"], wsPath);
+    await git(["config", "user.name", "Test"], wsPath);
+    await git(["commit", "-m", "rename readme"], wsPath);
+
+    const res = await app.inject({ method: "GET", url: `/api/workspaces/${ws.id}/diff/stat` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const renamed = body.committed.find(
+      (s: { file: string }) => s.file === "README-renamed.md",
+    );
+    expect(renamed).toBeDefined();
+    expect(renamed.status).toBe("renamed");
+    expect(renamed.renamedFrom).toBe("README.md");
+  });
+});
+
 describe("POST /api/workspaces/:wsId/merge", () => {
   it("merges workspace and returns success", async () => {
     const createRes = await app.inject({
