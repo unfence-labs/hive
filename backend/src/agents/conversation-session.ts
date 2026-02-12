@@ -123,16 +123,26 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     this.messageCount++;
 
-    const isFirst = !this.claudeSessionId;
+    // Pre-generate a Claude session ID so --resume works even after SIGKILL.
+    // On the first message we pass --session-id to tell the CLI what ID to use;
+    // on subsequent messages we --resume that same ID.
+    const isFirstMessage = this.messageCount === 1;
+    if (!this.claudeSessionId) {
+      this.claudeSessionId = crypto.randomUUID();
+      this._metadata.claudeSessionId = this.claudeSessionId;
+    }
+
     const args = [
       "--print",
       "--output-format", "stream-json",
       "--verbose",
       ...(this.skipPermissions ? ["--dangerously-skip-permissions"] : []),
-      ...(isFirst && this.systemPrompt
+      ...(isFirstMessage && this.systemPrompt
         ? ["--append-system-prompt", this.systemPrompt]
         : []),
-      ...(isFirst ? [] : ["--resume", this.claudeSessionId!]),
+      ...(isFirstMessage
+        ? ["--session-id", this.claudeSessionId]
+        : ["--resume", this.claudeSessionId]),
       "-p", content,
     ];
 
