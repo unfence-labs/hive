@@ -14,8 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Workspace, WorkspaceFileTreeNode } from "@/types";
 
-const ROOT_PATH = "workspace";
-const DEFAULT_EXPANDED = new Set([ROOT_PATH]);
+const DEFAULT_EXPANDED = new Set<string>();
 
 function findFirstFilePath(nodes: WorkspaceFileTreeNode[]): string | null {
   for (const node of nodes) {
@@ -34,14 +33,14 @@ function buildInitialExpanded(nodes: WorkspaceFileTreeNode[]): Set<string> {
   const expanded = new Set(DEFAULT_EXPANDED);
   const firstDirectory = nodes.find((node) => node.type === "directory");
   if (firstDirectory) {
-    expanded.add(`${ROOT_PATH}/${firstDirectory.path}`);
+    expanded.add(firstDirectory.path);
   }
   return expanded;
 }
 
 function renderFileTreeNodes(nodes: WorkspaceFileTreeNode[]) {
   return nodes.map((node) => {
-    const nodePath = `${ROOT_PATH}/${node.path}`;
+    const nodePath = node.path;
     if (node.type === "directory") {
       return (
         <FileTreeFolder key={nodePath} path={nodePath} name={node.name}>
@@ -60,7 +59,7 @@ export default function WorkspaceView() {
   const [fileTreeError, setFileTreeError] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(DEFAULT_EXPANDED);
   const [loading, setLoading] = useState(true);
-  const [selectedPath, setSelectedPath] = useState(ROOT_PATH);
+  const [selectedPath, setSelectedPath] = useState("");
 
   const fetchWorkspace = useCallback(async () => {
     if (!wsId) {
@@ -87,12 +86,12 @@ export default function WorkspaceView() {
         setFileTreeError(null);
         setExpandedPaths(buildInitialExpanded(filesResult.value));
         const firstFilePath = findFirstFilePath(filesResult.value);
-        setSelectedPath(firstFilePath ? `${ROOT_PATH}/${firstFilePath}` : ROOT_PATH);
+        setSelectedPath(firstFilePath ?? "");
       } else {
         setFileTree([]);
         setFileTreeError("Failed to load file tree.");
-        setExpandedPaths(DEFAULT_EXPANDED);
-        setSelectedPath(ROOT_PATH);
+        setExpandedPaths(new Set(DEFAULT_EXPANDED));
+        setSelectedPath("");
       }
     } catch {
       setWorkspace(null);
@@ -227,13 +226,11 @@ export default function WorkspaceView() {
                 onPathSelect={setSelectedPath}
                 selectedPath={selectedPath}
               >
-                <FileTreeFolder path={ROOT_PATH} name={workspace.name}>
-                  {fileTree.length ? (
-                    renderFileTreeNodes(fileTree)
-                  ) : (
-                    <div className="px-2 py-1 text-xs text-muted-foreground">No files found.</div>
-                  )}
-                </FileTreeFolder>
+                {fileTree.length ? (
+                  renderFileTreeNodes(fileTree)
+                ) : (
+                  <div className="px-2 py-1 text-xs text-muted-foreground">No files found.</div>
+                )}
               </FileTree>
             )}
           </div>
