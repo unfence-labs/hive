@@ -99,16 +99,6 @@ export type ToolInputResult =
   | { type: "approve" }
   | { type: "reject"; message?: string };
 
-// ── Terminal WebSocket protocol ───────────────────────────────────
-
-/** Frontend -> Backend (terminal) */
-export type TerminalIncoming = { type: "resize"; cols: number; rows: number };
-
-/** Backend -> Frontend (terminal) */
-export type TerminalOutgoing =
-  | { type: "ready" }
-  | { type: "exit"; code: number };
-
 // ── WebSocket protocol ──────────────────────────────────────────────
 
 /** Frontend -> Backend */

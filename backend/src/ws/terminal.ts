@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import * as pty from "node-pty";
 import type { IPty } from "node-pty";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { workspacesDir } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
@@ -45,7 +45,7 @@ export async function terminalRoutes(
 
       const { projectState, workspace } = result;
       const workspacePath = resolve(
-        join(workspacesDir(dataDir, projectState.id), workspace.name),
+        workspacesDir(dataDir, projectState.id), workspace.name,
       );
 
       // Kill existing PTY for this workspace if any
@@ -98,7 +98,7 @@ export async function terminalRoutes(
       // WebSocket → PTY
       socket.on("message", (raw, isBinary) => {
         if (isBinary) {
-          ptyProcess.write(Buffer.from(raw as Buffer).toString("utf8"));
+          ptyProcess.write((raw as Buffer).toString("utf8"));
         } else {
           try {
             const msg = JSON.parse((raw as Buffer).toString("utf8"));
@@ -131,8 +131,8 @@ export async function terminalRoutes(
 
 /** For test cleanup only. */
 export function _clearActivePtys(): void {
-  for (const [id, p] of activePtys) {
+  for (const p of activePtys.values()) {
     p.kill();
-    activePtys.delete(id);
   }
+  activePtys.clear();
 }
