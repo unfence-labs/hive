@@ -1,7 +1,7 @@
 import { useState, memo } from "react";
 import { FileTextIcon, ChevronDownIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import MarkdownRenderer from "@/components/MarkdownRenderer";
+import { MessageResponse } from "@/components/ai-elements/message";
 
 interface PlanDisplayProps {
   content: string;
@@ -34,7 +34,7 @@ export const PlanDisplay = memo(function PlanDisplay({
       </button>
       {open && (
         <div className="border-t px-4 py-3 text-sm">
-          <MarkdownRenderer content={content} />
+          <MessageResponse>{content}</MessageResponse>
         </div>
       )}
     </div>
