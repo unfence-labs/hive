@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { MessageSquareIcon, RefreshCwIcon, RotateCcwIcon, TerminalSquareIcon } from "lucide-react";
+import { MessageSquareIcon, RefreshCwIcon, TerminalSquareIcon } from "lucide-react";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
+import { useSessions } from "@/hooks/useSessions";
 import { useDiffStat } from "@/hooks/useDiffStat";
 import {
   FileTree,
@@ -12,6 +13,7 @@ import {
 import ChatConversation from "@/components/ChatConversation";
 import ChatInput from "@/components/ChatInput";
 import Terminal from "@/components/Terminal";
+import { SessionSelector } from "@/components/SessionSelector";
 import { GitDiffModal } from "@/components/diff/GitDiffModal";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { Badge } from "@/components/ui/badge";
@@ -133,36 +135,52 @@ export default function WorkspaceView() {
     pendingToolInputs,
     connectionStatus,
     error,
+    sessionId,
     sendMessage,
     stopStreaming,
     clearChat,
+    switchSession,
     answerQuestion,
     approvePlan,
     rejectToolInput,
   } = useConversation(wsId);
 
+  const { sessions, createSession, activateSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
+
   const effectiveWorkspaceStatus = workspaceStatus ?? workspace?.status;
 
-  // Refresh diff stats when streaming stops (agent finished working on files)
+  // Refresh diff stats and session list when streaming stops
   const prevStreamingRef = useRef(isStreaming);
   useEffect(() => {
     if (prevStreamingRef.current && !isStreaming) {
       refreshDiffStats();
+      refreshSessions();
     }
     prevStreamingRef.current = isStreaming;
-  }, [isStreaming, refreshDiffStats]);
+  }, [isStreaming, refreshDiffStats, refreshSessions]);
 
-  const handleCleanSession = async () => {
-    if (!wsId) return;
-    try {
-      await api.delete(`/api/workspaces/${wsId}/session`);
-    } catch {
-      // Best-effort; always clear UI below.
-    } finally {
+  const handleCreateSession = useCallback(async () => {
+    const meta = await createSession();
+    if (meta) {
+      await switchSession(meta.sessionId);
+    }
+  }, [createSession, switchSession]);
+
+  const handleActivateSession = useCallback(async (targetSessionId: string) => {
+    const meta = await activateSession(targetSessionId);
+    if (meta) {
+      await switchSession(meta.sessionId);
+    }
+  }, [activateSession, switchSession]);
+
+  const handleDeleteSession = useCallback(async (targetSessionId: string) => {
+    const isActive = targetSessionId === sessionId;
+    await deleteSession(targetSessionId);
+    if (isActive) {
       clearChat();
       await fetchWorkspace();
     }
-  };
+  }, [deleteSession, sessionId, clearChat, fetchWorkspace]);
 
   const handleModifiedFileClick = useCallback((filePath: string) => {
     setDiffModalFile(filePath);
@@ -208,16 +226,16 @@ export default function WorkspaceView() {
               />
               {hasActiveSession ? "active" : "idle"}
             </Badge>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="ml-auto text-muted-foreground hover:text-foreground"
-              onClick={handleCleanSession}
-              aria-label="Restart session"
-              title="Restart session"
-            >
-              <RotateCcwIcon />
-            </Button>
+            <div className="ml-auto">
+              <SessionSelector
+                sessions={sessions}
+                activeSessionId={sessionId}
+                isStreaming={isStreaming}
+                onCreateSession={handleCreateSession}
+                onActivateSession={handleActivateSession}
+                onDeleteSession={handleDeleteSession}
+              />
+            </div>
             <ButtonGroup className="ml-2">
               <Button
                 variant="outline"

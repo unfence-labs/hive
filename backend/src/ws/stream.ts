@@ -71,15 +71,21 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       sendToChannel(channel, { type: "error", message: err.message });
     };
     const onExit = (_code: number) => {
-      const stillActive = getSession(workspaceId) === session;
-      if (stillActive) {
+      const current = getSession(workspaceId);
+      if (current === session) {
+        // Natural completion — this session is still the active one
         sendToChannel(channel, {
           type: "status",
           status: "busy",
           sessionId: session.sessionId,
           streaming: false,
         });
+      } else if (current) {
+        // Session was parked/replaced — a new session is now active.
+        // Don't send stale idle status; just silently detach from old session.
+        detachSessionListeners(channel);
       } else {
+        // Session ended entirely, no replacement
         sendToChannel(channel, {
           type: "status",
           status: "idle",
