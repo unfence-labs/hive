@@ -15,7 +15,7 @@ describe("ChatInput", () => {
       />,
     );
 
-    expect(screen.getByRole("img", { name: "Agent running loader large" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Agent thinking loader large" })).toBeInTheDocument();
   });
 
   it("sends message on Send button click", async () => {

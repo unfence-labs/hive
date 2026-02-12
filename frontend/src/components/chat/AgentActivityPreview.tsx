@@ -9,7 +9,7 @@ interface LoaderConfig {
   timing: (pixel: Pixel) => { delayMs: number; durationMs?: number };
 }
 
-function pixelsFromRows(rows: string[]): Pixel[] {
+function pixelsFromRows(rows: readonly string[]): Pixel[] {
   return rows.flatMap((row, y) =>
     row
       .split("")
@@ -19,7 +19,11 @@ function pixelsFromRows(rows: string[]): Pixel[] {
   );
 }
 
-const V1_PIXELS = pixelsFromRows(["11111", "11111"]);
+const H_ROWS = ["1001", "1111", "1001"] as const;
+const H_PIXELS = pixelsFromRows(H_ROWS);
+const H_MAX_X = Math.max(...H_PIXELS.map((pixel) => pixel.x));
+const H_MAX_Y = Math.max(...H_PIXELS.map((pixel) => pixel.y));
+
 const LOADER_CONFIG: Record<AgentActivitySize, LoaderConfig> = {
   large: {
     stepPx: 5,
@@ -47,32 +51,30 @@ interface AgentActivityPreviewProps {
 
 export default function AgentActivityPreview({ size = "large" }: AgentActivityPreviewProps) {
   const loader = LOADER_CONFIG[size];
-  const maxX = Math.max(...V1_PIXELS.map((pixel) => pixel.x));
-  const maxY = Math.max(...V1_PIXELS.map((pixel) => pixel.y));
-  const width = (maxX * loader.stepPx) + loader.pixelSizePx;
-  const height = (maxY * loader.stepPx) + loader.pixelSizePx;
+  const width = (H_MAX_X * loader.stepPx) + loader.pixelSizePx;
+  const height = (H_MAX_Y * loader.stepPx) + loader.pixelSizePx;
 
   return (
     <div className="mb-3 flex items-center">
       <div
         role="img"
-        aria-label={`Agent running loader ${size}`}
+        aria-label={`Agent thinking loader ${size}`}
         className="relative"
         style={{ width: `${width}px`, height: `${height}px` }}
       >
-        {V1_PIXELS.map((pixel) => {
+        {H_PIXELS.map((pixel) => {
           const timing = loader.timing(pixel);
           return (
             <span
-              key={`rnd-${size}-${pixel.x}-${pixel.y}`}
-              className="absolute block rounded-[1px] bg-emerald-300 shadow-[0_0_6px_rgba(74,222,128,0.9)] animate-pixel-blink-random"
+              key={`h-${size}-${pixel.x}-${pixel.y}`}
+              className="absolute block rounded-[1px] bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.95)] animate-pixel-thinking-h"
               style={{
                 left: `${pixel.x * loader.stepPx}px`,
                 top: `${pixel.y * loader.stepPx}px`,
                 width: `${loader.pixelSizePx}px`,
                 height: `${loader.pixelSizePx}px`,
                 opacity: loader.baseOpacity,
-                animationDelay: `${timing.delayMs}ms`,
+                animationDelay: `${(pixel.x * 80) + (pixel.y * 130) + timing.delayMs}ms`,
                 animationDuration: timing.durationMs ? `${timing.durationMs}ms` : undefined,
               }}
             />
