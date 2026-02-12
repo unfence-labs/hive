@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { GitBranch, MapPin } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,26 @@ import {
 import { wsTransport } from "@/lib/ws-transport";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
+
+const AVATAR_COLORS = [
+  "bg-red-500",
+  "bg-orange-500",
+  "bg-amber-500",
+  "bg-emerald-500",
+  "bg-teal-500",
+  "bg-blue-500",
+  "bg-indigo-500",
+  "bg-purple-500",
+  "bg-pink-500",
+] as const;
+
+function getProjectColor(name: string): string {
+  let hash = 0;
+  for (const ch of name) {
+    hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
 
 interface SidebarProps {
   projects: Project[];
@@ -130,47 +150,45 @@ export default function Sidebar({
                       setExpandedProjects((prev) => ({ ...prev, [project.id]: open }))
                     }
                   >
-                    <div className="group flex items-center gap-1">
+                    <div className="group flex items-center">
                       <CollapsibleTrigger asChild>
                         <button
                           type="button"
                           className={cn(
-                            "flex flex-1 items-center gap-1 rounded-md px-2 py-1.5 text-left text-sm font-medium hover:bg-sidebar-accent",
+                            "flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium hover:bg-sidebar-accent",
                             activeProjectId === project.id && "bg-sidebar-accent",
                           )}
                         >
-                          <ChevronRight
+                          <span
                             className={cn(
-                              "h-3.5 w-3.5 shrink-0 transition-transform",
-                              isProjectExpanded(project.id) && "rotate-90",
+                              "flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold text-white",
+                              getProjectColor(project.name),
                             )}
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate">{project.name}</span>
-                            <span className="mt-0.5 flex items-center gap-1 text-[11px] font-normal text-muted-foreground">
-                              <span
-                                className={cn(
-                                  "inline-block h-1.5 w-1.5 rounded-full",
-                                  hasActiveSession ? "bg-blue-500" : "bg-muted-foreground/40",
-                                )}
-                              />
-                            </span>
+                          >
+                            {project.name[0]?.toUpperCase() ?? "?"}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                          {hasActiveSession && (
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" />
+                          )}
+                          <span
+                            role="button"
+                            tabIndex={-1}
+                            className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover:opacity-100"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAddWorkspace(project.id);
+                            }}
+                            aria-label={`Add workspace to ${project.name}`}
+                            title={`Add workspace to ${project.name}`}
+                          >
+                            {creatingProjectId === project.id ? "..." : "+"}
                           </span>
                         </button>
                       </CollapsibleTrigger>
-                      <button
-                        type="button"
-                        className="mr-1 rounded p-0.5 text-muted-foreground transition-colors hover:text-sidebar-foreground"
-                        onClick={() => handleAddWorkspace(project.id)}
-                        aria-label={`Add workspace to ${project.name}`}
-                        title={`Add workspace to ${project.name}`}
-                        disabled={creatingProjectId !== null}
-                      >
-                        {creatingProjectId === project.id ? "..." : "+"}
-                      </button>
                     </div>
                     <CollapsibleContent>
-                      <div className="space-y-0.5 pl-5">
+                      <div className="mt-1 space-y-0.5">
                         {(project.workspaces ?? []).map((ws) => {
                           const live = liveWorkspaceStatus[ws.id];
                           const wsStatus = live?.status ?? ws.status;
@@ -180,22 +198,29 @@ export default function Sidebar({
                               key={ws.id}
                               to={`/workspaces/${ws.id}`}
                               className={cn(
-                                "flex items-center gap-1.5 rounded-md px-2 py-1 text-sm hover:bg-sidebar-accent",
+                                "block rounded-md px-2 py-1.5 hover:bg-sidebar-accent",
                                 activeWsId === ws.id && "bg-sidebar-accent",
                               )}
                             >
-                              <span
-                                className={cn(
-                                  "inline-block h-2 w-2 rounded-full",
-                                  wsStatus === "busy" ? "bg-blue-500" : "bg-muted-foreground/40",
+                              <div className="flex items-center gap-1.5">
+                                <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                <span
+                                  className={cn(
+                                    "h-1.5 w-1.5 shrink-0 rounded-full",
+                                    wsStatus === "busy" ? "bg-blue-500" : "bg-muted-foreground/40",
+                                  )}
+                                />
+                                <span className="min-w-0 flex-1 truncate text-sm">{ws.branch}</span>
+                                {wsStreaming && (
+                                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                                    Working
+                                  </span>
                                 )}
-                              />
-                              <span className="truncate">{ws.name}</span>
-                              {wsStreaming ? (
-                                <span className="ml-auto text-[11px] text-muted-foreground">
-                                  Working
-                                </span>
-                              ) : null}
+                              </div>
+                              <div className="mt-0.5 flex items-center gap-1.5 pl-5 text-[11px] text-muted-foreground">
+                                <MapPin className="h-3 w-3 shrink-0" />
+                                <span className="truncate">{ws.name}</span>
+                              </div>
                             </Link>
                           );
                         })}
