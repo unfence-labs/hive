@@ -1,6 +1,18 @@
-import { useState, useRef, useEffect } from "react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { useState } from "react";
+import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputFooter,
+  PromptInputSelect,
+  PromptInputSelectContent,
+  PromptInputSelectItem,
+  PromptInputSelectTrigger,
+  PromptInputSelectValue,
+  PromptInputSubmit,
+  PromptInputTextarea,
+  PromptInputTools,
+} from "@/components/ai-elements/prompt-input";
 
 interface ChatInputProps {
   onSend: (content: string) => boolean;
@@ -10,6 +22,9 @@ interface ChatInputProps {
   connectionStatus: "connecting" | "connected" | "disconnected";
 }
 
+const MODEL_ID = "opus-4-6";
+const MODEL_LABEL = "Opus 4.6";
+
 export default function ChatInput({
   onSend,
   onStop,
@@ -18,64 +33,57 @@ export default function ChatInput({
   connectionStatus,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isDisconnected = connectionStatus === "disconnected";
+  const isInputDisabled = disabled || isStreaming || isDisconnected;
+  const canSubmit = !isInputDisabled && value.trim().length > 0;
 
-  useEffect(() => {
-    if (!isStreaming && !disabled) {
-      textareaRef.current?.focus();
-    }
-  }, [isStreaming, disabled]);
-
-  const handleSend = () => {
-    const trimmed = value.trim();
-    if (!trimmed || disabled) return;
-    if (onSend(trimmed)) {
-      setValue("");
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
+  const handleSubmit = ({ text }: PromptInputMessage) => {
+    const trimmed = text.trim();
+    if (!trimmed || disabled || isDisconnected) {
       return;
     }
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      handleSend();
+    const sent = onSend(trimmed);
+    if (!sent) {
+      // Throwing lets PromptInput keep user text for retry.
+      throw new Error("Message send failed");
     }
+    setValue("");
   };
-
-  const isDisconnected = connectionStatus === "disconnected";
 
   return (
     <div className="border-t bg-background p-4">
-      <div className="flex gap-2">
-        <Textarea
-          ref={textareaRef}
-          placeholder={isDisconnected ? "Reconnecting..." : "Send a message..."}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={disabled || isStreaming || isDisconnected}
-          className="min-h-[44px] max-h-40 flex-1 resize-none"
-          rows={1}
-        />
-        {isStreaming ? (
-          <Button variant="destructive" size="sm" className="self-end" onClick={onStop}>
-            Stop
-          </Button>
-        ) : (
-          <Button
-            size="sm"
-            className="self-end"
-            disabled={disabled || !value.trim() || isDisconnected}
-            onClick={handleSend}
-          >
-            Send
-          </Button>
-        )}
-      </div>
+      <PromptInput onSubmit={handleSubmit}>
+        <PromptInputBody>
+          <PromptInputTextarea
+            className="min-h-[44px] max-h-40"
+            placeholder={isDisconnected ? "Reconnecting..." : "Send a message..."}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            disabled={isInputDisabled}
+            rows={1}
+          />
+        </PromptInputBody>
+        <PromptInputFooter>
+          <PromptInputTools>
+            <PromptInputSelect defaultValue={MODEL_ID}>
+              <PromptInputSelectTrigger className="h-8 w-auto px-2" disabled>
+                <PromptInputSelectValue placeholder={MODEL_LABEL} />
+              </PromptInputSelectTrigger>
+              <PromptInputSelectContent>
+                <PromptInputSelectItem value={MODEL_ID}>
+                  {MODEL_LABEL}
+                </PromptInputSelectItem>
+              </PromptInputSelectContent>
+            </PromptInputSelect>
+          </PromptInputTools>
+          <PromptInputSubmit
+            aria-label={isStreaming ? "Stop" : "Send"}
+            status={isStreaming ? "streaming" : "ready"}
+            onStop={onStop}
+            disabled={!isStreaming && !canSubmit}
+          />
+        </PromptInputFooter>
+      </PromptInput>
       <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
         <span
           className={`inline-block h-1.5 w-1.5 rounded-full ${
