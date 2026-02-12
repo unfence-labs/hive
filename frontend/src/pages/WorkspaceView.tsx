@@ -173,9 +173,6 @@ export default function WorkspaceView() {
               />
               {hasActiveSession ? "session active" : "session idle"}
             </Badge>
-            <Badge variant={isStreaming || pendingToolInputs.length > 0 ? "default" : "outline"}>
-              {isStreaming ? "streaming" : pendingToolInputs.length > 0 ? "awaiting input" : "ready"}
-            </Badge>
             <Button
               variant="ghost"
               size="icon-xs"
@@ -208,6 +205,7 @@ export default function WorkspaceView() {
             onStop={stopStreaming}
             disabled={false}
             isStreaming={isStreaming}
+            isAwaitingResponse={pendingToolInputs.length > 0}
             connectionStatus={connectionStatus}
           />
         </div>
