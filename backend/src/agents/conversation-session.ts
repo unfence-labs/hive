@@ -118,6 +118,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       timestamp: new Date().toISOString(),
     };
     void this.enqueuePersist(userMsg);
+    this.emit("message", { type: "user_message", message: userMsg });
 
     this.messageCount++;
 

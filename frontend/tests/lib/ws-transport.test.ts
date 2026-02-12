@@ -51,11 +51,11 @@ describe("wsTransport", () => {
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
     MockWebSocket.instances = [];
     delete import.meta.env.VITE_HIVE_AUTH_TOKEN;
-    wsTransport.disconnect();
+    wsTransport.disconnectAll();
   });
 
   afterEach(() => {
-    wsTransport.disconnect();
+    wsTransport.disconnectAll();
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
@@ -65,10 +65,10 @@ describe("wsTransport", () => {
 
     expect(MockWebSocket.instances).toHaveLength(1);
     expect(MockWebSocket.instances[0]?.url).toContain("/ws/session/ws-1");
-    expect(wsTransport.getStatus()).toBe("connecting");
+    expect(wsTransport.getStatus("ws-1")).toBe("connecting");
 
     MockWebSocket.instances[0]?.open();
-    expect(wsTransport.getStatus()).toBe("connected");
+    expect(wsTransport.getStatus("ws-1")).toBe("connected");
   });
 
   it("adds token query parameter when auth token is configured", () => {
@@ -81,7 +81,7 @@ describe("wsTransport", () => {
 
   it("send returns false when socket is not open", () => {
     wsTransport.connect("ws-1");
-    expect(wsTransport.send({ type: "stop" })).toBe(false);
+    expect(wsTransport.send("ws-1", { type: "stop" })).toBe(false);
   });
 
   it("send serializes and writes messages when socket is open", () => {
@@ -89,7 +89,7 @@ describe("wsTransport", () => {
     const socket = MockWebSocket.instances[0]!;
     socket.open();
 
-    const ok = wsTransport.send({ type: "user_message", content: "hello" });
+    const ok = wsTransport.send("ws-1", { type: "user_message", content: "hello" });
 
     expect(ok).toBe(true);
     expect(socket.sent).toEqual([JSON.stringify({ type: "user_message", content: "hello" })]);
@@ -101,7 +101,7 @@ describe("wsTransport", () => {
     socket.open();
 
     const received: WsOutgoing[] = [];
-    const unsub = wsTransport.onMessage((msg) => {
+    const { unsubscribe } = wsTransport.onMessage("ws-1", (msg) => {
       received.push(msg);
     });
 
@@ -109,7 +109,27 @@ describe("wsTransport", () => {
     socket.message("not-json");
 
     expect(received).toEqual([{ type: "status", status: "idle", streaming: false }]);
-    unsub();
+    unsubscribe();
+  });
+
+  it("routes messages to the correct workspace handlers", () => {
+    wsTransport.connect("ws-1");
+    wsTransport.connect("ws-2");
+    const socket1 = MockWebSocket.instances[0]!;
+    const socket2 = MockWebSocket.instances[1]!;
+    socket1.open();
+    socket2.open();
+
+    const received1: WsOutgoing[] = [];
+    const received2: WsOutgoing[] = [];
+    wsTransport.onMessage("ws-1", (msg) => received1.push(msg));
+    wsTransport.onMessage("ws-2", (msg) => received2.push(msg));
+
+    socket1.message(JSON.stringify({ type: "status", status: "busy", streaming: true }));
+    socket2.message(JSON.stringify({ type: "status", status: "idle", streaming: false }));
+
+    expect(received1).toEqual([{ type: "status", status: "busy", streaming: true }]);
+    expect(received2).toEqual([{ type: "status", status: "idle", streaming: false }]);
   });
 
   it("reconnects with backoff after unexpected close while active", () => {
@@ -118,22 +138,142 @@ describe("wsTransport", () => {
     first.open();
     first.close();
 
-    expect(wsTransport.getStatus()).toBe("disconnected");
+    expect(wsTransport.getStatus("ws-1")).toBe("disconnected");
     expect(MockWebSocket.instances).toHaveLength(1);
 
     vi.advanceTimersByTime(1000);
     expect(MockWebSocket.instances).toHaveLength(2);
   });
 
-  it("disconnect stops reconnect attempts", () => {
+  it("disconnect stops reconnect attempts for a workspace", () => {
     wsTransport.connect("ws-1");
     const first = MockWebSocket.instances[0]!;
     first.open();
 
-    wsTransport.disconnect();
+    wsTransport.disconnect("ws-1");
     vi.advanceTimersByTime(60_000);
 
     expect(MockWebSocket.instances).toHaveLength(1);
-    expect(wsTransport.getStatus()).toBe("disconnected");
+    expect(wsTransport.getStatus("ws-1")).toBe("disconnected");
+  });
+
+  it("syncWorkspaces disconnects removed workspaces", () => {
+    wsTransport.syncWorkspaces(["ws-1", "ws-2"]);
+    expect(MockWebSocket.instances).toHaveLength(2);
+
+    wsTransport.syncWorkspaces(["ws-2"]);
+    expect(wsTransport.getStatus("ws-1")).toBe("disconnected");
+    expect(wsTransport.getStatus("ws-2")).toBe("connecting");
+  });
+
+  it("keeps active workspace connection when listeners are attached", () => {
+    wsTransport.connect("ws-1");
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+
+    const received: WsOutgoing[] = [];
+    const { unsubscribe } = wsTransport.onMessage("ws-1", (msg) => {
+      received.push(msg);
+    });
+
+    wsTransport.syncWorkspaces([]);
+    expect(wsTransport.getStatus("ws-1")).toBe("connected");
+
+    socket.message(JSON.stringify({ type: "status", status: "idle", streaming: false }));
+    expect(received).toEqual([{ type: "status", status: "idle", streaming: false }]);
+
+    unsubscribe();
+    wsTransport.syncWorkspaces([]);
+    expect(wsTransport.getStatus("ws-1")).toBe("disconnected");
+  });
+
+  it("replays status, history, and buffered messages to newly attached handlers", () => {
+    wsTransport.connect("ws-1");
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+
+    const firstHandler: WsOutgoing[] = [];
+    const { unsubscribe } = wsTransport.onMessage("ws-1", (msg) => {
+      firstHandler.push(msg);
+    });
+
+    socket.message(JSON.stringify({ type: "status", status: "busy", streaming: true }));
+    socket.message(JSON.stringify({
+      type: "history",
+      messages: [
+        {
+          id: "u1",
+          sessionId: "s1",
+          role: "user",
+          content: "hello",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      ],
+    }));
+    socket.message(JSON.stringify({ type: "text_delta", text: "partial" }));
+    socket.message(JSON.stringify({ type: "done", sessionId: "s1" }));
+
+    expect(firstHandler).toHaveLength(4);
+    unsubscribe();
+
+    // Messages arriving while no handler is subscribed should be buffered
+    socket.message(JSON.stringify({
+      type: "user_message",
+      message: {
+        id: "u2",
+        sessionId: "s1",
+        role: "user",
+        content: "follow-up",
+        timestamp: "2026-02-12T00:01:00.000Z",
+      },
+    }));
+    socket.message(JSON.stringify({ type: "text_delta", text: "response" }));
+    socket.message(JSON.stringify({ type: "done", sessionId: "s1" }));
+
+    const replayed: WsOutgoing[] = [];
+    const result = wsTransport.onMessage("ws-1", (msg) => {
+      replayed.push(msg);
+    });
+
+    expect(result.hadBufferedMessages).toBe(true);
+    expect(replayed).toEqual([
+      // Cached status + history
+      { type: "status", status: "busy", streaming: true },
+      {
+        type: "history",
+        messages: [
+          {
+            id: "u1",
+            sessionId: "s1",
+            role: "user",
+            content: "hello",
+            timestamp: "2026-02-12T00:00:00.000Z",
+          },
+        ],
+      },
+      // Buffered messages
+      {
+        type: "user_message",
+        message: {
+          id: "u2",
+          sessionId: "s1",
+          role: "user",
+          content: "follow-up",
+          timestamp: "2026-02-12T00:01:00.000Z",
+        },
+      },
+      { type: "text_delta", text: "response" },
+      { type: "done", sessionId: "s1" },
+    ]);
+  });
+
+  it("returns hadBufferedMessages false when no events were missed", () => {
+    wsTransport.connect("ws-1");
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+
+    // Subscribe handler BEFORE any messages arrive
+    const result = wsTransport.onMessage("ws-1", () => {});
+    expect(result.hadBufferedMessages).toBe(false);
   });
 });

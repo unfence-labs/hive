@@ -211,6 +211,45 @@ describe("WS /ws/session/:wsId", () => {
     await endSession(wsId, dataDir).catch(() => {});
   });
 
+  it("broadcasts user_message event to all connected clients", async () => {
+    const first = connectSessionWs(wsId);
+    const second = connectSessionWs(wsId);
+    const ws1 = await first.wsReady;
+    const ws2 = await second.wsReady;
+
+    await waitForMessage(first.messages, (msgs) => msgs.length >= 1);
+    await waitForMessage(second.messages, (msgs) => msgs.length >= 1);
+
+    ws1.send(JSON.stringify({ type: "user_message", content: "cross-client-sync" }));
+
+    await waitForMessage(
+      first.messages,
+      (msgs) => msgs.some((m) => m.type === "user_message"),
+    );
+    await waitForMessage(
+      second.messages,
+      (msgs) => msgs.some((m) => m.type === "user_message"),
+    );
+
+    const firstUserEvent = first.messages.find((m) => m.type === "user_message");
+    const secondUserEvent = second.messages.find((m) => m.type === "user_message");
+
+    expect(firstUserEvent).toBeDefined();
+    expect(secondUserEvent).toBeDefined();
+    if (firstUserEvent?.type === "user_message") {
+      expect(firstUserEvent.message.role).toBe("user");
+      expect(firstUserEvent.message.content).toBe("cross-client-sync");
+    }
+    if (secondUserEvent?.type === "user_message") {
+      expect(secondUserEvent.message.role).toBe("user");
+      expect(secondUserEvent.message.content).toBe("cross-client-sync");
+    }
+
+    ws1.close();
+    ws2.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
   it("handles invalid JSON from client", async () => {
     await getOrCreateSession(wsId, dataDir, CONV_CMD);
     const { wsReady, messages } = connectSessionWs(wsId);

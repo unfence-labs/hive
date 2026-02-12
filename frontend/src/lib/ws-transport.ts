@@ -3,121 +3,220 @@ import type { WsIncoming, WsOutgoing } from "@/types";
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
 type MessageHandler = (msg: WsOutgoing) => void;
+type StatusListener = () => void;
+type StatusMessage = Extract<WsOutgoing, { type: "status" }>;
+type HistoryMessage = Extract<WsOutgoing, { type: "history" }>;
 
 const MAX_RECONNECT_DELAY = 30_000;
 const BASE_RECONNECT_DELAY = 1_000;
 
-class WsTransport {
-  private ws: WebSocket | null = null;
-  private currentWorkspaceId: string | null = null;
-  private _status: ConnectionStatus = "disconnected";
-  private active = false;
-  private reconnectAttempt = 0;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private messageHandlers = new Set<MessageHandler>();
-  private statusListeners = new Set<() => void>();
+interface WorkspaceConnection {
+  ws: WebSocket | null;
+  status: ConnectionStatus;
+  active: boolean;
+  reconnectAttempt: number;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
+  messageHandlers: Set<MessageHandler>;
+  statusListeners: Set<StatusListener>;
+  lastStatus?: StatusMessage;
+  lastHistory?: HistoryMessage;
+  /** Messages received while no handler was subscribed. Replayed on next onMessage(). */
+  messageBuffer: WsOutgoing[];
+}
 
-  /** Connect to a workspace's WebSocket endpoint. Tears down any existing connection first. */
+class WsTransport {
+  private connections = new Map<string, WorkspaceConnection>();
+
+  /** Connect to a workspace's WebSocket endpoint. */
   connect(workspaceId: string): void {
+    const connection = this.getOrCreateConnection(workspaceId);
+    connection.active = true;
+
     if (
-      this.currentWorkspaceId === workspaceId &&
-      this.ws?.readyState === WebSocket.OPEN
+      connection.ws?.readyState === WebSocket.OPEN ||
+      connection.ws?.readyState === WebSocket.CONNECTING
     ) {
       return;
     }
 
-    this.teardown();
-    this.active = true;
-    this.currentWorkspaceId = workspaceId;
-    this.reconnectAttempt = 0;
-    this.setStatus("connecting");
-    this.openSocket();
+    connection.reconnectAttempt = 0;
+    this.setStatus(connection, "connecting");
+    this.openSocket(workspaceId, connection);
   }
 
-  /** Disconnect and stop reconnecting. */
-  disconnect(): void {
-    this.active = false;
-    this.teardown();
-    this.setStatus("disconnected");
+  /** Ensure exactly this set of workspace sockets stay connected. */
+  syncWorkspaces(workspaceIds: string[]): void {
+    const wanted = new Set(workspaceIds);
+    for (const workspaceId of wanted) {
+      this.connect(workspaceId);
+    }
+    for (const workspaceId of Array.from(this.connections.keys())) {
+      if (!wanted.has(workspaceId)) {
+        const connection = this.connections.get(workspaceId);
+        if (connection && (connection.messageHandlers.size > 0 || connection.statusListeners.size > 0)) {
+          continue;
+        }
+        this.removeConnection(workspaceId);
+      }
+    }
+  }
+
+  /** Disconnect one workspace and stop reconnecting. */
+  disconnect(workspaceId: string): void {
+    const connection = this.connections.get(workspaceId);
+    if (!connection) return;
+    connection.active = false;
+    this.teardown(connection);
+    this.setStatus(connection, "disconnected");
+  }
+
+  /** Disconnect all workspaces and clear listeners/replay state. */
+  disconnectAll(): void {
+    for (const workspaceId of Array.from(this.connections.keys())) {
+      this.removeConnection(workspaceId);
+    }
   }
 
   /** Send a message to the backend. Returns false if the socket isn't open. */
-  send(msg: WsIncoming): boolean {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
-    this.ws.send(JSON.stringify(msg));
+  send(workspaceId: string, msg: WsIncoming): boolean {
+    const connection = this.connections.get(workspaceId);
+    if (!connection?.ws || connection.ws.readyState !== WebSocket.OPEN) return false;
+    connection.ws.send(JSON.stringify(msg));
     return true;
   }
 
-  /** Register a handler for incoming messages. Returns an unsubscribe function. */
-  onMessage(handler: MessageHandler): () => void {
-    this.messageHandlers.add(handler);
-    return () => {
-      this.messageHandlers.delete(handler);
+  /**
+   * Register a handler for incoming messages.
+   * Replays cached status, history, and any buffered messages immediately.
+   * Returns `{ unsubscribe, hadBufferedMessages }`.
+   */
+  onMessage(workspaceId: string, handler: MessageHandler): { unsubscribe: () => void; hadBufferedMessages: boolean } {
+    const connection = this.getOrCreateConnection(workspaceId);
+    connection.messageHandlers.add(handler);
+
+    if (connection.lastStatus) {
+      handler(connection.lastStatus);
+    }
+    if (connection.lastHistory) {
+      handler(connection.lastHistory);
+    }
+
+    const hadBufferedMessages = connection.messageBuffer.length > 0;
+    for (const msg of connection.messageBuffer) {
+      handler(msg);
+    }
+    connection.messageBuffer = [];
+
+    return {
+      unsubscribe: () => { connection.messageHandlers.delete(handler); },
+      hadBufferedMessages,
     };
   }
 
-  /** useSyncExternalStore subscribe contract. */
-  subscribe = (listener: () => void): (() => void) => {
-    this.statusListeners.add(listener);
+  /** useSyncExternalStore subscribe contract (per workspace). */
+  subscribe = (workspaceId: string, listener: StatusListener): (() => void) => {
+    const connection = this.getOrCreateConnection(workspaceId);
+    connection.statusListeners.add(listener);
     return () => {
-      this.statusListeners.delete(listener);
+      connection.statusListeners.delete(listener);
     };
   };
 
-  /** useSyncExternalStore getSnapshot contract. */
-  getStatus = (): ConnectionStatus => this._status;
+  /** useSyncExternalStore getSnapshot contract (per workspace). */
+  getStatus = (workspaceId: string): ConnectionStatus =>
+    this.connections.get(workspaceId)?.status ?? "disconnected";
 
-  private setStatus(s: ConnectionStatus): void {
-    if (this._status === s) return;
-    this._status = s;
-    for (const listener of this.statusListeners) listener();
+  private getOrCreateConnection(workspaceId: string): WorkspaceConnection {
+    const existing = this.connections.get(workspaceId);
+    if (existing) return existing;
+
+    const created: WorkspaceConnection = {
+      ws: null,
+      status: "disconnected",
+      active: false,
+      reconnectAttempt: 0,
+      reconnectTimer: null,
+      messageHandlers: new Set<MessageHandler>(),
+      statusListeners: new Set<StatusListener>(),
+      messageBuffer: [],
+    };
+    this.connections.set(workspaceId, created);
+    return created;
   }
 
-  private teardown(): void {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
+  private setStatus(connection: WorkspaceConnection, status: ConnectionStatus): void {
+    if (connection.status === status) return;
+    connection.status = status;
+    for (const listener of connection.statusListeners) listener();
+  }
+
+  private teardown(connection: WorkspaceConnection): void {
+    if (connection.reconnectTimer) {
+      clearTimeout(connection.reconnectTimer);
+      connection.reconnectTimer = null;
     }
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
+    if (connection.ws) {
+      const ws = connection.ws;
+      connection.ws = null;
+      ws.close();
     }
   }
 
-  private openSocket(): void {
-    if (!this.currentWorkspaceId) return;
+  private removeConnection(workspaceId: string): void {
+    const connection = this.connections.get(workspaceId);
+    if (!connection) return;
+    connection.active = false;
+    this.teardown(connection);
+    connection.messageHandlers.clear();
+    connection.statusListeners.clear();
+    connection.lastStatus = undefined;
+    connection.lastHistory = undefined;
+    connection.messageBuffer = [];
+    this.connections.delete(workspaceId);
+  }
+
+  private openSocket(workspaceId: string, connection: WorkspaceConnection): void {
+    if (!connection.active) return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsHost =
       import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
     const authToken = import.meta.env.VITE_HIVE_AUTH_TOKEN?.trim();
     const query = authToken ? `?token=${encodeURIComponent(authToken)}` : "";
-    const ws = new WebSocket(
-      `${wsHost}/ws/session/${this.currentWorkspaceId}${query}`,
-    );
-    this.ws = ws;
+    const ws = new WebSocket(`${wsHost}/ws/session/${workspaceId}${query}`);
+    connection.ws = ws;
 
     ws.onopen = () => {
-      if (this.ws !== ws) return;
-      this.reconnectAttempt = 0;
-      this.setStatus("connected");
+      if (connection.ws !== ws) return;
+      connection.reconnectAttempt = 0;
+      this.setStatus(connection, "connected");
     };
 
     ws.onmessage = (event) => {
-      if (this.ws !== ws) return;
+      if (connection.ws !== ws) return;
       try {
         const msg = JSON.parse(event.data as string) as WsOutgoing;
-        for (const handler of this.messageHandlers) handler(msg);
+        if (msg.type === "status") {
+          connection.lastStatus = msg;
+        } else if (msg.type === "history") {
+          connection.lastHistory = msg;
+        }
+
+        if (connection.messageHandlers.size > 0) {
+          for (const handler of connection.messageHandlers) handler(msg);
+        } else {
+          connection.messageBuffer.push(msg);
+        }
       } catch {
         // Ignore malformed messages
       }
     };
 
     ws.onclose = () => {
-      if (this.ws !== ws) return;
-      this.ws = null;
-      this.setStatus("disconnected");
-      if (this.active) this.scheduleReconnect();
+      if (connection.ws !== ws) return;
+      connection.ws = null;
+      this.setStatus(connection, "disconnected");
+      if (connection.active) this.scheduleReconnect(workspaceId, connection);
     };
 
     ws.onerror = () => {
@@ -125,16 +224,18 @@ class WsTransport {
     };
   }
 
-  private scheduleReconnect(): void {
-    if (this.reconnectTimer) return;
+  private scheduleReconnect(workspaceId: string, connection: WorkspaceConnection): void {
+    if (connection.reconnectTimer || !connection.active) return;
     const delay = Math.min(
-      BASE_RECONNECT_DELAY * 2 ** this.reconnectAttempt,
+      BASE_RECONNECT_DELAY * 2 ** connection.reconnectAttempt,
       MAX_RECONNECT_DELAY,
     );
-    this.reconnectAttempt++;
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      if (this.active) this.openSocket();
+    connection.reconnectAttempt++;
+    connection.reconnectTimer = setTimeout(() => {
+      connection.reconnectTimer = null;
+      if (!connection.active) return;
+      this.setStatus(connection, "connecting");
+      this.openSocket(workspaceId, connection);
     }, delay);
   }
 }
