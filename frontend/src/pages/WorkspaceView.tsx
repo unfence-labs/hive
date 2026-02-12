@@ -84,7 +84,7 @@ export default function WorkspaceView() {
       {/* Header */}
       <div className="flex items-center justify-between border-b px-6 py-4">
         <div>
-          <h1 className="text-2xl font-bold">{workspace.name}</h1>
+          <h1 className="font-title text-2xl tracking-wide">{workspace.name}</h1>
           <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
             <span>{workspace.branch}</span>
             <Badge variant={hasActiveSession ? "default" : "secondary"}>

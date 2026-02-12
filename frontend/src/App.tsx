@@ -5,6 +5,7 @@ import ProjectView from "@/pages/ProjectView";
 import WorkspaceView from "@/pages/WorkspaceView";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import { useProjects } from "@/hooks/useProjects";
+import hiveLogo from "@/assets/hive-logo.png";
 
 export default function App() {
   const { projects, loading, createProject, deleteProject } = useProjects();
@@ -32,8 +33,12 @@ export default function App() {
           <Route
             path="projects"
             element={
-              <div className="flex h-full items-center justify-center text-muted-foreground">
-                Select a project or add one to get started.
+              <div className="flex h-full items-center justify-center">
+                <img
+                  src={hiveLogo}
+                  alt="Hive logo"
+                  className="h-44 w-44 object-contain md:h-56 md:w-56"
+                />
               </div>
             }
           />
