@@ -5,6 +5,7 @@ import { projectRoutes } from "./api/projects.js";
 import { workspaceRoutes } from "./api/workspaces.js";
 import { sessionRoutes } from "./api/agents.js";
 import { streamRoutes } from "./ws/stream.js";
+import { terminalRoutes } from "./ws/terminal.js";
 import { createAuthHook } from "./utils/auth.js";
 import { createRateLimitHook } from "./utils/rate-limit.js";
 import type { SessionOptions } from "./agents/agent-manager.js";
@@ -64,6 +65,9 @@ export async function buildApp() {
       authToken,
       sessionOptions,
     }),
+  );
+  await app.register((instance: FastifyInstance) =>
+    terminalRoutes(instance, { authToken }),
   );
 
   return app;
