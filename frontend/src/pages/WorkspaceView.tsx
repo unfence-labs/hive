@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { RotateCcwIcon } from "lucide-react";
+import { MessageSquareIcon, RotateCcwIcon, TerminalSquareIcon } from "lucide-react";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
 import {
@@ -10,8 +10,10 @@ import {
 } from "@/components/ai-elements/file-tree";
 import ChatConversation from "@/components/ChatConversation";
 import ChatInput from "@/components/ChatInput";
+import Terminal from "@/components/Terminal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Workspace, WorkspaceFileTreeNode } from "@/types";
 
@@ -55,6 +57,7 @@ function renderFileTreeNodes(nodes: WorkspaceFileTreeNode[]) {
 
 export default function WorkspaceView() {
   const { wsId } = useParams();
+  const [view, setView] = useState<"chatbot" | "terminal">("chatbot");
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [fileTree, setFileTree] = useState<WorkspaceFileTreeNode[]>([]);
   const [fileTreeError, setFileTreeError] = useState<string | null>(null);
@@ -183,31 +186,56 @@ export default function WorkspaceView() {
             >
               <RotateCcwIcon />
             </Button>
+            <ButtonGroup className="ml-2">
+              <Button
+                variant={view === "chatbot" ? "default" : "outline"}
+                size="xs"
+                onClick={() => setView("chatbot")}
+              >
+                <MessageSquareIcon className="mr-1.5 size-3.5" />
+                Chatbot
+              </Button>
+              <Button
+                variant={view === "terminal" ? "default" : "outline"}
+                size="xs"
+                onClick={() => setView("terminal")}
+              >
+                <TerminalSquareIcon className="mr-1.5 size-3.5" />
+                Terminal
+              </Button>
+            </ButtonGroup>
           </div>
-          {error && (
-            <div className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
-              {error}
+          <div className={view === "chatbot" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+            {error && (
+              <div className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+            <ChatConversation
+              messages={messages}
+              isStreaming={isStreaming}
+              currentStreamingText={currentStreamingText}
+              currentThinking={currentThinking}
+              activeToolCalls={activeToolCalls}
+              pendingToolInputs={pendingToolInputs}
+              onQuestionAnswer={answerQuestion}
+              onPlanApproval={approvePlan}
+              onRejectToolInput={rejectToolInput}
+            />
+            <ChatInput
+              onSend={sendMessage}
+              onStop={stopStreaming}
+              disabled={false}
+              isStreaming={isStreaming}
+              isAwaitingResponse={pendingToolInputs.length > 0}
+              connectionStatus={connectionStatus}
+            />
+          </div>
+          {view === "terminal" && wsId && (
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <Terminal workspaceId={wsId} />
             </div>
           )}
-          <ChatConversation
-            messages={messages}
-            isStreaming={isStreaming}
-            currentStreamingText={currentStreamingText}
-            currentThinking={currentThinking}
-            activeToolCalls={activeToolCalls}
-            pendingToolInputs={pendingToolInputs}
-            onQuestionAnswer={answerQuestion}
-            onPlanApproval={approvePlan}
-            onRejectToolInput={rejectToolInput}
-          />
-          <ChatInput
-            onSend={sendMessage}
-            onStop={stopStreaming}
-            disabled={false}
-            isStreaming={isStreaming}
-            isAwaitingResponse={pendingToolInputs.length > 0}
-            connectionStatus={connectionStatus}
-          />
         </div>
 
         <aside className="hidden w-80 shrink-0 border-l bg-background lg:flex lg:flex-col">

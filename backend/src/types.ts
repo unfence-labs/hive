@@ -132,6 +132,16 @@ export type WsIncoming =
   | { type: "stop" }
   | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult };
 
+// ── Terminal WebSocket protocol ───────────────────────────────────
+
+/** Frontend -> Backend (terminal) */
+export type TerminalIncoming = { type: "resize"; cols: number; rows: number };
+
+/** Backend -> Frontend (terminal) */
+export type TerminalOutgoing =
+  | { type: "ready" }
+  | { type: "exit"; code: number };
+
 /** Backend -> Frontend */
 export type WsOutgoing =
   | { type: "text_delta"; text: string }
