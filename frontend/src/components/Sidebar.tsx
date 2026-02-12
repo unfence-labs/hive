@@ -58,7 +58,7 @@ export default function Sidebar({
     );
 
     return () => {
-      for (const unsubscribe of unsubscribers) unsubscribe();
+      for (const sub of unsubscribers) sub.unsubscribe();
     };
   }, [workspaceIds]);
 

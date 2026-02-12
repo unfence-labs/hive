@@ -19,8 +19,9 @@ vi.mock("@/lib/ws-transport", () => {
   const wsTransport = {
     onMessage: vi.fn((workspaceId: string, handler: (msg: WsOutgoing) => void) => {
       getSet(workspaceId).add(handler);
-      return () => {
-        getSet(workspaceId).delete(handler);
+      return {
+        unsubscribe: () => { getSet(workspaceId).delete(handler); },
+        hadBufferedMessages: false,
       };
     }),
   };
