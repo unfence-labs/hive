@@ -5,7 +5,7 @@ import {
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import ChatMessage from "@/components/ChatMessage";
-import MarkdownRenderer from "@/components/MarkdownRenderer";
+import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { ToolCallList } from "@/components/chat/ToolCallList";
 import type { ChatMessage as ChatMessageType, ToolCall, QuestionAnswer } from "@/types";
@@ -69,7 +69,7 @@ export default function ChatConversation({
               )}
               {currentStreamingText && (
                 <div className="prose-sm">
-                  <MarkdownRenderer content={currentStreamingText} />
+                  <MessageResponse isAnimating>{currentStreamingText}</MessageResponse>
                 </div>
               )}
               <ToolCallList
