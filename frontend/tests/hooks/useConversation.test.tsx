@@ -399,4 +399,130 @@ describe("useConversation", () => {
     });
     expect(result.current.messages[0]?.content).toBe("hello");
   });
+
+  it("hydrates sessionId from initial history payload", async () => {
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock.mockResolvedValueOnce([
+      {
+        id: "u1",
+        sessionId: "sess-hydrated",
+        role: "user",
+        content: "hello",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      },
+    ]);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(1);
+    });
+    expect(result.current.sessionId).toBe("sess-hydrated");
+  });
+
+  it("switches sessions and loads specific session history", async () => {
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock.mockResolvedValueOnce([]);
+    __apiMock.getMock.mockResolvedValueOnce([
+      {
+        id: "m-1",
+        sessionId: "sess-2",
+        role: "assistant",
+        content: "loaded from target session",
+        timestamp: "2026-02-12T00:00:01.000Z",
+      },
+    ]);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    await act(async () => {
+      await result.current.switchSession("sess-2");
+    });
+
+    expect(__apiMock.getMock).toHaveBeenNthCalledWith(2, "/api/workspaces/ws-1/sessions/sess-2/messages");
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ id: "m-1", content: "loaded from target session" }),
+    ]);
+    expect(result.current.sessionId).toBe("sess-2");
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("keeps selected session id when switched session has no messages", async () => {
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock.mockResolvedValueOnce([]);
+    __apiMock.getMock.mockResolvedValueOnce([]);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    await act(async () => {
+      await result.current.switchSession("sess-empty");
+    });
+
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.sessionId).toBe("sess-empty");
+  });
+
+  it("ignores stale session history response when switching rapidly", async () => {
+    const { __apiMock } = await getApiMock();
+    let resolveFirstSwitch: ((messages: ChatMessage[]) => void) | undefined;
+
+    __apiMock.getMock
+      .mockResolvedValueOnce([])
+      .mockImplementationOnce(
+        () =>
+          new Promise<ChatMessage[]>((resolve) => {
+            resolveFirstSwitch = resolve;
+          }),
+      )
+      .mockResolvedValueOnce([
+        {
+          id: "m-new",
+          sessionId: "sess-new",
+          role: "assistant",
+          content: "new session payload",
+          timestamp: "2026-02-12T00:00:02.000Z",
+        },
+      ]);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      void result.current.switchSession("sess-old");
+    });
+
+    await act(async () => {
+      await result.current.switchSession("sess-new");
+    });
+
+    act(() => {
+      resolveFirstSwitch?.([
+        {
+          id: "m-old",
+          sessionId: "sess-old",
+          role: "assistant",
+          content: "stale payload",
+          timestamp: "2026-02-12T00:00:03.000Z",
+        },
+      ]);
+    });
+
+    await waitFor(() => {
+      expect(result.current.sessionId).toBe("sess-new");
+    });
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ id: "m-new", content: "new session payload" }),
+    ]);
+  });
+
+  it("does nothing when switchSession is called without workspace id", async () => {
+    const { __apiMock } = await getApiMock();
+    const { result } = renderHook(() => useConversation(undefined));
+
+    await act(async () => {
+      await result.current.switchSession("sess-1");
+    });
+
+    expect(__apiMock.getMock).not.toHaveBeenCalled();
+    expect(result.current.sessionId).toBeUndefined();
+  });
 });

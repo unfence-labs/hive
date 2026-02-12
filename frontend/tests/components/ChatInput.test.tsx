@@ -36,7 +36,10 @@ describe("ChatInput", () => {
     await user.type(screen.getByPlaceholderText("Send a message..."), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalledWith("hello");
+    expect(onSend).toHaveBeenCalledWith("hello", {
+      planMode: false,
+      thinkingEnabled: true,
+    });
   });
 
   it("sends message on Enter without Shift", async () => {
@@ -55,7 +58,10 @@ describe("ChatInput", () => {
 
     await user.type(screen.getByPlaceholderText("Send a message..."), "hello{enter}");
 
-    expect(onSend).toHaveBeenCalledWith("hello");
+    expect(onSend).toHaveBeenCalledWith("hello", {
+      planMode: false,
+      thinkingEnabled: true,
+    });
   });
 
   it("does not send on Shift+Enter", async () => {
@@ -132,7 +138,10 @@ describe("ChatInput", () => {
     await user.type(input, "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalledWith("hello");
+    expect(onSend).toHaveBeenCalledWith("hello", {
+      planMode: false,
+      thinkingEnabled: true,
+    });
     expect(input).toHaveValue("hello");
   });
 });

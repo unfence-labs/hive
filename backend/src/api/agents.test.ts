@@ -54,6 +54,37 @@ afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
 });
 
+async function writeSessionFixture(
+  sessionId: string,
+  workspaceId: string,
+  options?: {
+    updatedAt?: string;
+    messageCount?: number;
+    messages?: Array<Record<string, unknown> | string>;
+  },
+) {
+  const sessionDir = join(dataDir, projectId, "sessions", sessionId);
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "metadata.json"),
+    JSON.stringify({
+      sessionId,
+      workspaceId,
+      createdAt: "2026-02-11T00:00:00.000Z",
+      updatedAt: options?.updatedAt ?? "2026-02-11T00:00:01.000Z",
+      messageCount: options?.messageCount ?? 0,
+    }),
+    "utf-8",
+  );
+
+  if (options?.messages) {
+    const content = options.messages
+      .map((message) => typeof message === "string" ? message : JSON.stringify(message))
+      .join("\n");
+    await writeFile(join(sessionDir, "messages.jsonl"), content + "\n", "utf-8");
+  }
+}
+
 describe("POST /api/workspaces/:wsId/session", () => {
   it("creates a session and returns 201", async () => {
     const res = await app.inject({
@@ -248,5 +279,184 @@ describe("DELETE /api/workspaces/:wsId/session", () => {
       url: `/api/workspaces/${wsId}/session`,
     });
     expect(res.statusCode).toBe(201);
+  });
+});
+
+describe("GET /api/workspaces/:wsId/sessions", () => {
+  it("lists all sessions for a workspace", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${wsId}/session`,
+    });
+    const activeSessionId = createRes.json().sessionId as string;
+    await writeSessionFixture("persisted-1", wsId, {
+      updatedAt: "2099-02-12T00:00:00.000Z",
+      messageCount: 2,
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const sessions = res.json() as Array<{ sessionId: string }>;
+    expect(sessions.map((s) => s.sessionId)).toEqual([
+      "persisted-1",
+      activeSessionId,
+    ]);
+  });
+
+  it("returns 404 for non-existent workspace", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/workspaces/missing/sessions",
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("POST /api/workspaces/:wsId/sessions", () => {
+  it("creates a new session even when one is already active", async () => {
+    const firstRes = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${wsId}/session`,
+    });
+    const firstSessionId = firstRes.json().sessionId as string;
+
+    const secondRes = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${wsId}/sessions`,
+    });
+
+    expect(secondRes.statusCode).toBe(201);
+    const secondSessionId = secondRes.json().sessionId as string;
+    expect(secondSessionId).not.toBe(firstSessionId);
+
+    const metaRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/session`,
+    });
+    expect(metaRes.statusCode).toBe(200);
+    expect(metaRes.json().sessionId).toBe(secondSessionId);
+  });
+});
+
+describe("POST /api/workspaces/:wsId/sessions/:sessionId/activate", () => {
+  it("activates a persisted session", async () => {
+    await writeSessionFixture("sess-activate", wsId, { messageCount: 3 });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${wsId}/sessions/sess-activate/activate`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      sessionId: "sess-activate",
+      workspaceId: wsId,
+      messageCount: 3,
+    });
+
+    const wsRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}`,
+    });
+    expect(wsRes.json()).toMatchObject({
+      status: "busy",
+      activeSessionId: "sess-activate",
+    });
+  });
+
+  it("returns 404 for missing session id", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${wsId}/sessions/missing/activate`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("DELETE /api/workspaces/:wsId/sessions/:sessionId", () => {
+  it("hard deletes an inactive session", async () => {
+    await writeSessionFixture("sess-delete", wsId);
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/workspaces/${wsId}/sessions/sess-delete`,
+    });
+
+    expect(res.statusCode).toBe(204);
+
+    const listRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions`,
+    });
+    expect(listRes.json()).toEqual([]);
+  });
+
+  it("hard deletes an active session and marks workspace idle", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${wsId}/session`,
+    });
+    const sessionId = createRes.json().sessionId as string;
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/workspaces/${wsId}/sessions/${sessionId}`,
+    });
+    expect(res.statusCode).toBe(204);
+
+    const wsRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}`,
+    });
+    expect(wsRes.json().status).toBe("idle");
+    expect(wsRes.json().activeSessionId).toBeUndefined();
+  });
+});
+
+describe("GET /api/workspaces/:wsId/sessions/:sessionId/messages", () => {
+  it("returns messages from a specific persisted session", async () => {
+    await writeSessionFixture("sess-msgs", wsId, {
+      messages: [
+        {
+          id: "m-1",
+          sessionId: "sess-msgs",
+          role: "user",
+          content: "hello specific",
+          timestamp: "2026-02-11T00:00:00.000Z",
+        },
+        "not-json-line",
+        {
+          id: "m-2",
+          sessionId: "sess-msgs",
+          role: "assistant",
+          content: "response specific",
+          timestamp: "2026-02-11T00:00:01.000Z",
+        },
+      ],
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/sess-msgs/messages`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([
+      expect.objectContaining({ id: "m-1", content: "hello specific", role: "user" }),
+      expect.objectContaining({ id: "m-2", content: "response specific", role: "assistant" }),
+    ]);
+  });
+
+  it("returns empty array when specific session file is missing", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/missing/messages`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([]);
   });
 });
