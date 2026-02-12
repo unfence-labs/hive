@@ -173,7 +173,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
                 activeSession = result.session;
               }
               attachSessionListeners(wsId, channel, activeSession);
-              activeSession.sendMessage(incoming.content);
+              activeSession.sendMessage(incoming.content, incoming.options);
               sendToChannel(channel, {
                 type: "status",
                 status: "busy",

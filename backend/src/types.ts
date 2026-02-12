@@ -143,9 +143,15 @@ export interface QuestionAnswer {
 
 // ── WebSocket protocol ──────────────────────────────────────────────
 
+/** Per-message options that control Claude CLI behavior. */
+export interface MessageOptions {
+  planMode?: boolean;
+  thinkingEnabled?: boolean;
+}
+
 /** Frontend -> Backend */
 export type WsIncoming =
-  | { type: "user_message"; content: string }
+  | { type: "user_message"; content: string; options?: MessageOptions }
   | { type: "stop" }
   | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult };
 

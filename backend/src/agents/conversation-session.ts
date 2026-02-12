@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { StreamParser } from "./stream-parser.js";
 import type {
   ChatMessage,
+  MessageOptions,
   ToolCall,
   ToolInputResult,
   SessionMetadata,
@@ -103,7 +104,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   }
 
   /** Send a user message. Spawns a new claude process for this turn. */
-  sendMessage(content: string): void {
+  sendMessage(content: string, msgOptions?: MessageOptions): void {
     if (this._status === "streaming") {
       throw new Error("Already streaming — wait for current message to complete or stop it");
     }
@@ -132,11 +133,19 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       this._metadata.claudeSessionId = this.claudeSessionId;
     }
 
+    // Control thinking via MAX_THINKING_TOKENS env var (default 31999 = on, 0 = off)
+    const env = msgOptions?.thinkingEnabled !== undefined
+      ? { ...process.env, MAX_THINKING_TOKENS: msgOptions.thinkingEnabled ? "31999" : "0" }
+      : undefined;
+
     const args = [
       "--print",
       "--output-format", "stream-json",
       "--verbose",
-      ...(this.skipPermissions ? ["--dangerously-skip-permissions"] : []),
+      // Plan mode overrides skip-permissions (plan mode is read-only by design)
+      ...(msgOptions?.planMode
+        ? ["--permission-mode", "plan"]
+        : this.skipPermissions ? ["--dangerously-skip-permissions"] : []),
       ...(isFirstMessage && this.systemPrompt
         ? ["--append-system-prompt", this.systemPrompt]
         : []),
@@ -145,6 +154,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         : ["--resume", this.claudeSessionId]),
       "-p", content,
     ];
+
+    console.log("[session] spawn claude", {
+      msgOptions,
+      thinkingTokens: env?.MAX_THINKING_TOKENS ?? "default",
+      args: args.filter((a) => a !== content && !a.includes("You are")),
+    });
 
     this.parser = new StreamParser();
 
@@ -160,6 +175,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let killedForBlockingTool = false;
 
     this.parser.on("assistant", (data) => {
+      const blockTypes = data.message.content.map((b) => b.type);
+      console.log("[session] assistant blocks:", blockTypes, JSON.stringify(data.message.content).slice(0, 500));
       for (const block of data.message.content) {
         switch (block.type) {
           case "text":
@@ -224,6 +241,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.process = spawn(this.command, args, {
       cwd: this.cwd,
       stdio: ["pipe", "pipe", "pipe"],
+      ...(env && { env }),
     });
 
     // Claude can wait indefinitely when stdin is a pipe left open.
