@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
+import { RotateCcwIcon } from "lucide-react";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
 import {
@@ -156,12 +157,12 @@ export default function WorkspaceView() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b px-6 py-4">
-        <div>
-          <h1 className="font-title text-2xl tracking-wide">{workspace.name}</h1>
-          <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-            <span>{workspace.branch}</span>
+      {/* Chat area + right panel */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="flex h-14 items-center gap-2 border-b px-4">
+            <span className="truncate text-sm font-semibold text-foreground">{workspace.name}</span>
+            <span className="truncate text-sm text-muted-foreground">{workspace.branch}</span>
             <Badge variant={hasActiveSession ? "default" : "secondary"}>
               <span
                 className={`mr-1.5 inline-block h-2 w-2 rounded-full ${
@@ -173,20 +174,17 @@ export default function WorkspaceView() {
             <Badge variant={isStreaming ? "default" : "outline"}>
               {isStreaming ? "streaming" : "ready"}
             </Badge>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          {hasActiveSession && (
-            <Button variant="destructive" size="sm" onClick={handleCleanSession}>
-              Clean Session
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="ml-auto text-muted-foreground hover:text-foreground"
+              onClick={handleCleanSession}
+              aria-label="Restart session"
+              title="Restart session"
+            >
+              <RotateCcwIcon />
             </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Chat area + right panel */}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          </div>
           {error && (
             <div className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
               {error}
@@ -211,7 +209,7 @@ export default function WorkspaceView() {
         </div>
 
         <aside className="hidden w-80 shrink-0 border-l bg-background lg:flex lg:flex-col">
-          <div className="border-b px-4 py-3 text-xs uppercase tracking-wide text-muted-foreground">
+          <div className="flex h-14 items-center border-b px-4 text-xs uppercase tracking-wide text-muted-foreground">
             Files
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-3">
