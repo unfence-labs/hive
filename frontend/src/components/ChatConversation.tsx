@@ -1,5 +1,9 @@
-import { useEffect, useRef } from "react";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation";
 import ChatMessage from "@/components/ChatMessage";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
@@ -25,12 +29,6 @@ export default function ChatConversation({
   onQuestionAnswer,
   onPlanApproval,
 }: ChatConversationProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, currentStreamingText, activeToolCalls]);
-
   const hasContent = messages.length > 0 || isStreaming;
 
   // Only the last assistant message (with no user message after it) is interactive.
@@ -43,12 +41,14 @@ export default function ChatConversation({
     messages.slice(lastAssistantIdx + 1).some((m) => m.role === "user");
 
   return (
-    <ScrollArea className="flex-1">
-      <div className="flex flex-col gap-4 p-4">
+    <Conversation className="flex-1">
+      <ConversationContent className="gap-4 p-4">
         {!hasContent && (
-          <div className="flex flex-1 items-center justify-center py-20 text-sm text-muted-foreground">
-            Send a message to start a conversation.
-          </div>
+          <ConversationEmptyState
+            className="py-20 text-sm text-muted-foreground"
+            title="Send a message to start a conversation."
+            description=""
+          />
         )}
         {messages.map((msg, i) => (
           <ChatMessage
@@ -63,7 +63,7 @@ export default function ChatConversation({
         {/* Live streaming content */}
         {isStreaming && (currentStreamingText || currentThinking || activeToolCalls.length > 0) && (
           <div className="flex w-full justify-start">
-            <div className="max-w-[85%] rounded-xl bg-muted px-4 py-3 text-sm leading-relaxed text-foreground">
+            <div className="max-w-[85%] text-sm leading-relaxed text-foreground">
               {currentThinking && (
                 <ThinkingBlock content={currentThinking} defaultOpen streaming />
               )}
@@ -82,8 +82,8 @@ export default function ChatConversation({
             </div>
           </div>
         )}
-        <div ref={bottomRef} />
-      </div>
-    </ScrollArea>
+      </ConversationContent>
+      <ConversationScrollButton />
+    </Conversation>
   );
 }

@@ -24,10 +24,9 @@ const ChatMessage = memo(function ChatMessage({
     <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "max-w-[85%] rounded-xl px-4 py-3 text-sm leading-relaxed",
-          isUser
-            ? "bg-primary text-primary-foreground"
-            : "bg-muted text-foreground",
+          "max-w-[85%] text-sm leading-relaxed",
+          isUser ? "bg-primary text-primary-foreground" : "text-foreground",
+          isUser && "rounded-xl px-4 py-3",
         )}
       >
         {isUser ? (
