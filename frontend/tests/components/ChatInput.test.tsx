@@ -4,6 +4,20 @@ import userEvent from "@testing-library/user-event";
 import ChatInput from "@/components/ChatInput";
 
 describe("ChatInput", () => {
+  it("renders one loader above the input", () => {
+    render(
+      <ChatInput
+        onSend={vi.fn(() => true)}
+        onStop={vi.fn()}
+        disabled={false}
+        isStreaming={false}
+        connectionStatus="connected"
+      />,
+    );
+
+    expect(screen.getByRole("img", { name: "Agent running loader large" })).toBeInTheDocument();
+  });
+
   it("sends message on Send button click", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn(() => true);
