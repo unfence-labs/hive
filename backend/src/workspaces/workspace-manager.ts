@@ -1,12 +1,16 @@
-import { join } from "node:path";
-import { rm } from "node:fs/promises";
+import { rm, readdir } from "node:fs/promises";
+import { join, relative, sep } from "node:path";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
 import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/paths.js";
 import { pickCityName } from "../utils/city-names.js";
 import { loadProject, saveProject, getDataDir, withProjectStateLock } from "../state/state.js";
 import { ConflictError, NotFoundError } from "../utils/errors.js";
-import type { Workspace, ProjectState } from "../types.js";
+import type { Workspace, ProjectState, WorkspaceFileTreeNode } from "../types.js";
+
+const IGNORED_DIRS = new Set([".git", "node_modules"]);
+const MAX_TREE_DEPTH = 8;
+const MAX_TREE_NODES = 3000;
 
 function findWorkspace(state: ProjectState, wsId: string): Workspace | undefined {
   return state.workspaces.find((ws) => ws.id === wsId);
@@ -21,6 +25,69 @@ function findProjectByWorkspace(
     if (ws) return { state, workspace: ws };
   }
   return undefined;
+}
+
+function toUnixPath(path: string): string {
+  return path.split(sep).join("/");
+}
+
+function sortDirEntries(a: { name: string; isDirectory: () => boolean }, b: { name: string; isDirectory: () => boolean }): number {
+  if (a.isDirectory() !== b.isDirectory()) {
+    return a.isDirectory() ? -1 : 1;
+  }
+  return a.name.localeCompare(b.name);
+}
+
+async function readWorkspaceTree(
+  rootPath: string,
+  currentPath: string,
+  depth: number,
+  remaining: { count: number }
+): Promise<WorkspaceFileTreeNode[]> {
+  if (depth > MAX_TREE_DEPTH || remaining.count <= 0) {
+    return [];
+  }
+
+  const entries = await readdir(currentPath, { withFileTypes: true });
+  entries.sort(sortDirEntries);
+
+  const nodes: WorkspaceFileTreeNode[] = [];
+  for (const entry of entries) {
+    if (remaining.count <= 0) break;
+
+    const absolutePath = join(currentPath, entry.name);
+    const relativePath = toUnixPath(relative(rootPath, absolutePath));
+
+    if (entry.isDirectory()) {
+      if (IGNORED_DIRS.has(entry.name)) continue;
+
+      remaining.count -= 1;
+      const children = await readWorkspaceTree(
+        rootPath,
+        absolutePath,
+        depth + 1,
+        remaining,
+      );
+      nodes.push({
+        name: entry.name,
+        path: relativePath,
+        type: "directory",
+        ...(children.length > 0 ? { children } : {}),
+      });
+      continue;
+    }
+
+    if (!entry.isFile()) continue;
+
+    remaining.count -= 1;
+    nodes.push({
+      name: entry.name,
+      path: relativePath,
+      type: "file",
+    });
+  }
+
+  return nodes;
 }
 
 export async function createWorkspace(
@@ -141,6 +208,22 @@ export async function getWorkspaceDiff(
   } catch {
     return "";
   }
+}
+
+export async function listWorkspaceFiles(
+  wsId: string,
+  dataDir = getDataDir()
+): Promise<WorkspaceFileTreeNode[]> {
+  const result = await getWorkspace(wsId, dataDir);
+  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
+
+  const workspacePath = join(
+    workspacesDir(dataDir, result.projectState.id),
+    result.workspace.name,
+  );
+
+  const remaining = { count: MAX_TREE_NODES };
+  return readWorkspaceTree(workspacePath, workspacePath, 0, remaining);
 }
 
 export async function mergeWorkspace(

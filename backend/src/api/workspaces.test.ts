@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
-import { rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { projectRoutes } from "./projects.js";
@@ -91,6 +91,57 @@ describe("GET /api/workspaces/:wsId", () => {
   it("returns 404 for non-existent workspace", async () => {
     const res = await app.inject({ method: "GET", url: "/api/workspaces/nonexistent" });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("GET /api/workspaces/:wsId/files", () => {
+  it("returns 404 for non-existent workspace", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/workspaces/nonexistent/files" });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("returns nested file tree for workspace", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await mkdir(join(wsPath, "src", "components"), { recursive: true });
+    await writeFile(join(wsPath, "src", "components", "Panel.tsx"), "export const Panel = null;\n");
+    await writeFile(join(wsPath, "src", "index.ts"), "export * from './components/Panel';\n");
+
+    const res = await app.inject({ method: "GET", url: `/api/workspaces/${ws.id}/files` });
+    expect(res.statusCode).toBe(200);
+
+    const tree = res.json();
+    expect(Array.isArray(tree)).toBe(true);
+    expect(tree).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "README.md", type: "file", path: "README.md" }),
+        expect.objectContaining({
+          name: "src",
+          type: "directory",
+          path: "src",
+          children: expect.arrayContaining([
+            expect.objectContaining({ name: "index.ts", type: "file", path: "src/index.ts" }),
+            expect.objectContaining({
+              name: "components",
+              type: "directory",
+              path: "src/components",
+              children: expect.arrayContaining([
+                expect.objectContaining({
+                  name: "Panel.tsx",
+                  type: "file",
+                  path: "src/components/Panel.tsx",
+                }),
+              ]),
+            }),
+          ]),
+        }),
+      ]),
+    );
   });
 });
 
