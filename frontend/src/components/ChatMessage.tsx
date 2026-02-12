@@ -22,10 +22,10 @@ const ChatMessage = memo(function ChatMessage({
   const isUser = message.role === "user";
 
   return (
-    <div className={cn("group flex w-full", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn("group flex w-full items-start gap-1", isUser ? "justify-end" : "justify-start")}>
       <div
         className={cn(
-          "relative max-w-[85%] text-sm leading-relaxed",
+          "max-w-[85%] text-sm leading-relaxed",
           isUser ? "bg-primary text-primary-foreground" : "text-foreground",
           isUser && "rounded-xl px-4 py-3",
         )}
@@ -53,13 +53,12 @@ const ChatMessage = memo(function ChatMessage({
                 (cancelled)
               </div>
             )}
-            <CopyButton
-              content={message.content}
-              className="absolute right-0 top-0"
-            />
           </>
         )}
       </div>
+      {!isUser && (
+        <CopyButton content={message.content} className="mt-0.5 shrink-0" />
+      )}
     </div>
   );
 });
