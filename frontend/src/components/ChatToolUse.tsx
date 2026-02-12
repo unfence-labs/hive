@@ -1,22 +1,11 @@
 import { useState, memo, type ReactNode } from "react";
 import type { ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
-
-const toolIcons: Record<string, string> = {
-  Read: "file-text",
-  Edit: "pencil",
-  Write: "file-plus",
-  Bash: "terminal",
-  Glob: "search",
-  Grep: "search",
-  WebFetch: "globe",
-  WebSearch: "globe",
-  Task: "list",
-};
+import { DiffView } from "@/components/diff/DiffView";
 
 const svgProps = { className: "size-3.5", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
-const iconElements: Record<string, ReactNode> = {
+const icons = {
   terminal: (
     <svg {...svgProps}>
       <polyline points="4 17 10 11 4 5" />
@@ -41,38 +30,183 @@ const iconElements: Record<string, ReactNode> = {
       <path d="M2 12h20" />
     </svg>
   ),
-  "file-plus": (
+  file: (
     <svg {...svgProps}>
       <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
       <path d="M14 2v4a2 2 0 0 0 2 2h4" />
     </svg>
   ),
-  "file-text": (
+  bot: (
     <svg {...svgProps}>
-      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+      <path d="M12 8V4H8" />
+      <rect width="16" height="12" x="4" y="8" rx="2" />
+      <path d="M2 14h2" />
+      <path d="M20 14h2" />
+      <path d="M15 13v2" />
+      <path d="M9 13v2" />
     </svg>
   ),
-};
+  wrench: (
+    <svg {...svgProps}>
+      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z" />
+    </svg>
+  ),
+} as const;
 
-const defaultIcon = (
-  <svg {...svgProps}>
-    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z" />
-  </svg>
-);
-
-function ToolIcon({ name }: { name: string }) {
-  const base = name.split("/").pop() ?? name;
-  const icon = toolIcons[base];
-  return icon ? (iconElements[icon] ?? defaultIcon) : defaultIcon;
+function getFilename(path: string): string {
+  return path.split("/").pop() ?? path;
 }
 
-function formatInput(input: string): string {
+interface ToolDisplay {
+  icon: ReactNode;
+  label: string;
+  detail?: string;
+  expandedContent: ReactNode;
+  hideOutput?: boolean;
+}
+
+function getToolDisplay(tool: ToolCall): ToolDisplay {
+  let input: Record<string, unknown> = {};
   try {
-    const parsed = JSON.parse(input);
-    return JSON.stringify(parsed, null, 2);
+    input = JSON.parse(tool.input);
   } catch {
-    return input;
+    return {
+      icon: icons.wrench,
+      label: tool.name,
+      expandedContent: tool.input,
+    };
+  }
+
+  switch (tool.name) {
+    case "Read": {
+      const filePath = input.file_path as string | undefined;
+      const filename = filePath ? getFilename(filePath) : undefined;
+      const limit = input.limit as number | undefined;
+      const offset = input.offset as number | undefined;
+      const lineInfo = limit ? `${limit} lines` : "";
+      return {
+        icon: icons.file,
+        label: lineInfo ? `Read ${lineInfo}` : "Read",
+        detail: filename,
+        expandedContent: filePath
+          ? `Path: ${filePath}${offset ? `\nOffset: ${offset}` : ""}${limit ? `\nLimit: ${limit}` : ""}`
+          : "No file path specified",
+      };
+    }
+
+    case "Edit": {
+      const filePath = input.file_path as string | undefined;
+      const filename = filePath ? getFilename(filePath) : undefined;
+      const oldString = input.old_string as string | undefined;
+      const newString = input.new_string as string | undefined;
+      return {
+        icon: icons.pencil,
+        label: "Edit",
+        detail: filename,
+        hideOutput: true,
+        expandedContent: filePath ? (
+          <DiffView
+            filePath={filePath}
+            oldText={oldString ?? ""}
+            newText={newString ?? ""}
+          />
+        ) : (
+          "No file path specified"
+        ),
+      };
+    }
+
+    case "Write": {
+      const filePath = input.file_path as string | undefined;
+      const filename = filePath ? getFilename(filePath) : undefined;
+      const content = input.content as string | undefined;
+      return {
+        icon: icons.file,
+        label: "Write",
+        detail: filename,
+        expandedContent: filePath
+          ? `Path: ${filePath}\n\nContent:\n${content ?? "(empty)"}`
+          : "No file path specified",
+      };
+    }
+
+    case "Bash": {
+      const command = input.command as string | undefined;
+      const description = input.description as string | undefined;
+      const truncated =
+        command && command.length > 50
+          ? command.substring(0, 50) + "..."
+          : command;
+      return {
+        icon: icons.terminal,
+        label: "Bash",
+        detail: truncated,
+        expandedContent: description
+          ? `${description}\n\n$ ${command}`
+          : `$ ${command ?? "(no command)"}`,
+      };
+    }
+
+    case "Grep": {
+      const pattern = input.pattern as string | undefined;
+      const path = input.path as string | undefined;
+      const glob = input.glob as string | undefined;
+      return {
+        icon: icons.search,
+        label: "Grep",
+        detail: pattern
+          ? `"${pattern}"${path ? ` in ${getFilename(path)}` : ""}`
+          : undefined,
+        expandedContent: `Pattern: ${pattern ?? "(none)"}\nPath: ${path ?? "(cwd)"}${glob ? `\nGlob: ${glob}` : ""}`,
+      };
+    }
+
+    case "Glob": {
+      const pattern = input.pattern as string | undefined;
+      const path = input.path as string | undefined;
+      return {
+        icon: icons.search,
+        label: "Glob",
+        detail: pattern,
+        expandedContent: `Pattern: ${pattern ?? "(none)"}\nPath: ${path ?? "(cwd)"}`,
+      };
+    }
+
+    case "Task": {
+      const subagentType = input.subagent_type as string | undefined;
+      const description = input.description as string | undefined;
+      const prompt = input.prompt as string | undefined;
+      return {
+        icon: icons.bot,
+        label: subagentType ? `Task (${subagentType})` : "Task",
+        detail: description,
+        expandedContent: prompt ?? description ?? "No prompt specified",
+      };
+    }
+
+    case "WebFetch":
+    case "WebSearch": {
+      const url = input.url as string | undefined;
+      const query = input.query as string | undefined;
+      const prompt = input.prompt as string | undefined;
+      return {
+        icon: icons.globe,
+        label: tool.name,
+        detail: url ?? query,
+        expandedContent: url
+          ? `URL: ${url}${prompt ? `\n\nPrompt: ${prompt}` : ""}`
+          : `Query: ${query ?? "(none)"}`,
+      };
+    }
+
+    default: {
+      const isMcpTool = tool.name.startsWith("mcp__");
+      return {
+        icon: icons.wrench,
+        label: isMcpTool ? tool.name : tool.name,
+        expandedContent: JSON.stringify(input, null, 2),
+      };
+    }
   }
 }
 
@@ -83,6 +217,7 @@ interface ChatToolUseProps {
 
 const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting }: ChatToolUseProps) {
   const [expanded, setExpanded] = useState(false);
+  const display = getToolDisplay(tool);
 
   return (
     <div className="my-1.5 rounded-md border bg-muted/50">
@@ -91,8 +226,13 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting }: ChatToolUse
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted/80"
         onClick={() => setExpanded(!expanded)}
       >
-        <ToolIcon name={tool.name} />
-        <span className="font-medium">{tool.name}</span>
+        <span className="shrink-0 text-muted-foreground">{display.icon}</span>
+        <span className="font-medium">{display.label}</span>
+        {display.detail && (
+          <code className="truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+            {display.detail}
+          </code>
+        )}
         {isExecuting && (
           <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
             <span className="inline-block size-2 animate-pulse rounded-full bg-primary" />
@@ -100,7 +240,7 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting }: ChatToolUse
           </span>
         )}
         <svg
-          className={cn("ml-auto size-4 text-muted-foreground transition-transform", expanded && "rotate-180")}
+          className={cn("ml-auto size-4 shrink-0 text-muted-foreground transition-transform", expanded && "rotate-180")}
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -111,15 +251,16 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting }: ChatToolUse
       </button>
       {expanded && (
         <div className="border-t px-3 py-2 text-xs">
-          {tool.input && (
-            <div className="mb-2">
-              <div className="mb-1 font-semibold text-muted-foreground">Input</div>
+          <div className="mb-2">
+            {typeof display.expandedContent === "string" ? (
               <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono">
-                {formatInput(tool.input)}
+                {display.expandedContent}
               </pre>
-            </div>
-          )}
-          {tool.output !== undefined && (
+            ) : (
+              display.expandedContent
+            )}
+          </div>
+          {tool.output !== undefined && !display.hideOutput && (
             <div>
               <div className="mb-1 font-semibold text-muted-foreground">Result</div>
               <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono">
