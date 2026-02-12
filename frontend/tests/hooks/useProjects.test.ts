@@ -3,7 +3,7 @@ import { renderHook } from "@testing-library/react";
 import { useProjects } from "@/hooks/useProjects";
 import { api } from "@/hooks/useApi";
 import { useResource } from "@/hooks/useResource";
-import type { Project } from "@/types";
+import type { Project, Workspace } from "@/types";
 
 vi.mock("@/hooks/useApi", () => ({
   api: {
@@ -23,6 +23,16 @@ function makeProject(id: string): Project {
     url: "https://github.com/acme/repo.git",
     createdAt: "2026-02-11T00:00:00.000Z",
     workspaces: [],
+  };
+}
+
+function makeWorkspace(id: string): Workspace {
+  return {
+    id,
+    name: `ws-${id}`,
+    branch: `workspace/ws-${id}`,
+    status: "idle",
+    createdAt: "2026-02-11T00:00:00.000Z",
   };
 }
 
@@ -64,5 +74,22 @@ describe("useProjects", () => {
 
     const updater = setData.mock.calls[0]?.[0] as (prev: Project[]) => Project[];
     expect(updater([makeProject("p1"), makeProject("p2")]).map((p) => p.id)).toEqual(["p2"]);
+  });
+
+  it("creates workspace and appends it to the project state", async () => {
+    const created = makeWorkspace("w1");
+    vi.mocked(api.post).mockResolvedValueOnce(created);
+
+    const { result } = renderHook(() => useProjects());
+    const returned = await result.current.createWorkspace("p1");
+
+    expect(returned).toEqual(created);
+    expect(api.post).toHaveBeenCalledWith("/api/projects/p1/workspaces");
+    expect(setData).toHaveBeenCalledTimes(1);
+
+    const updater = setData.mock.calls[0]?.[0] as (prev: Project[]) => Project[];
+    const updated = updater([makeProject("p1"), makeProject("p2")]);
+    expect(updated[0]?.workspaces).toEqual([created]);
+    expect(updated[1]?.workspaces).toEqual([]);
   });
 });

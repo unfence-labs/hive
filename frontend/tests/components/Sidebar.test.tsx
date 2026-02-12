@@ -5,18 +5,18 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import type { Project } from "@/types";
 
-function renderSidebar(path: string, projects: Project[], onDeleteProject = vi.fn()) {
+function renderSidebar(path: string, projects: Project[], onAddWorkspace = vi.fn()) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route
-          path="/projects/:id"
+          path="/projects"
           element={
             <Sidebar
               projects={projects}
               loading={false}
               onAddProject={vi.fn()}
-              onDeleteProject={onDeleteProject}
+              onAddWorkspace={onAddWorkspace}
             />
           }
         />
@@ -27,7 +27,7 @@ function renderSidebar(path: string, projects: Project[], onDeleteProject = vi.f
               projects={projects}
               loading={false}
               onAddProject={vi.fn()}
-              onDeleteProject={onDeleteProject}
+              onAddWorkspace={onAddWorkspace}
             />
           }
         />
@@ -62,24 +62,33 @@ describe("Sidebar", () => {
     },
   ];
 
-  it("renders projects and workspace links", () => {
-    renderSidebar("/projects/p1", projects);
+  it("renders projects and toggles workspace links from collapsible", async () => {
+    const user = userEvent.setup();
+    renderSidebar("/projects", projects);
 
-    expect(screen.getByRole("link", { name: "Alpha" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Beta" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Alpha" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Beta" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "tokyo" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Alpha" }));
     expect(screen.getByRole("link", { name: "tokyo" })).toBeInTheDocument();
   });
 
-  it("calls delete callback after confirmation", async () => {
-    const user = userEvent.setup();
-    const onDeleteProject = vi.fn().mockResolvedValue(undefined);
-    renderSidebar("/projects/p1", projects, onDeleteProject);
+  it("expands the active project's workspaces on workspace route", () => {
+    renderSidebar("/workspaces/w1", projects);
 
-    await user.click(screen.getAllByTitle("Delete project")[0]!);
-    await user.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.getByRole("link", { name: "tokyo" })).toBeInTheDocument();
+  });
+
+  it("calls add workspace callback", async () => {
+    const user = userEvent.setup();
+    const onAddWorkspace = vi.fn().mockResolvedValue(undefined);
+    renderSidebar("/projects", projects, onAddWorkspace);
+
+    await user.click(screen.getByRole("button", { name: "Add workspace to Alpha" }));
 
     await waitFor(() => {
-      expect(onDeleteProject).toHaveBeenCalledWith("p1");
+      expect(onAddWorkspace).toHaveBeenCalledWith("p1");
     });
   });
 });

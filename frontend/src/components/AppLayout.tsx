@@ -6,14 +6,14 @@ interface AppLayoutProps {
   projects: Project[];
   loading: boolean;
   onAddProject: () => void;
-  onDeleteProject: (id: string) => Promise<void>;
+  onAddWorkspace: (projectId: string) => Promise<unknown>;
 }
 
 export default function AppLayout({
   projects,
   loading,
   onAddProject,
-  onDeleteProject,
+  onAddWorkspace,
 }: AppLayoutProps) {
   return (
     <div className="flex h-screen">
@@ -21,7 +21,7 @@ export default function AppLayout({
         projects={projects}
         loading={loading}
         onAddProject={onAddProject}
-        onDeleteProject={onDeleteProject}
+        onAddWorkspace={onAddWorkspace}
       />
       <main className="flex-1 overflow-hidden">
         <Outlet />

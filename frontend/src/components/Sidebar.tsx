@@ -1,35 +1,54 @@
 import { useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
 
 interface SidebarProps {
   projects: Project[];
   loading: boolean;
   onAddProject: () => void;
-  onDeleteProject: (id: string) => Promise<void>;
+  onAddWorkspace: (projectId: string) => Promise<unknown>;
 }
 
 export default function Sidebar({
   projects,
   loading,
   onAddProject,
-  onDeleteProject,
+  onAddWorkspace,
 }: SidebarProps) {
-  const { id: activeProjectId, wsId: activeWsId } = useParams();
-  const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
+  const { wsId: activeWsId } = useParams();
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
+  const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
+
+  const activeProjectId = projects.find((project) =>
+    (project.workspaces ?? []).some((workspace) => workspace.id === activeWsId),
+  )?.id;
+
+  const isProjectExpanded = (projectId: string) => {
+    const expanded = expandedProjects[projectId];
+    if (typeof expanded === "boolean") return expanded;
+    return activeProjectId === projectId;
+  };
+
+  const handleAddWorkspace = async (projectId: string) => {
+    if (creatingProjectId) return;
+    setCreatingProjectId(projectId);
+    try {
+      await onAddWorkspace(projectId);
+      setExpandedProjects((prev) => ({ ...prev, [projectId]: true }));
+    } finally {
+      setCreatingProjectId(null);
+    }
+  };
 
   return (
     <div className="flex h-full w-60 flex-col border-r bg-sidebar text-sidebar-foreground">
@@ -50,53 +69,64 @@ export default function Sidebar({
           ) : (
             projects.map((project) => (
               <div key={project.id} className="mb-1">
-                <div className="group flex items-center">
-                  <Link
-                    to={`/projects/${project.id}`}
-                    className={`flex-1 rounded-md px-2 py-1.5 text-sm font-medium hover:bg-sidebar-accent ${
-                      activeProjectId === project.id ? "bg-sidebar-accent" : ""
-                    }`}
-                  >
-                    {project.name}
-                  </Link>
-                  <button
-                    className="mr-1 hidden rounded p-0.5 text-muted-foreground hover:text-destructive group-hover:block"
-                    onClick={() => setDeleteTarget(project)}
-                    title="Delete project"
-                  >
-                    <svg
-                      className="h-3.5 w-3.5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
+                <Collapsible
+                  open={isProjectExpanded(project.id)}
+                  onOpenChange={(open) =>
+                    setExpandedProjects((prev) => ({ ...prev, [project.id]: open }))
+                  }
+                >
+                  <div className="group flex items-center gap-1">
+                    <CollapsibleTrigger asChild>
+                      <button
+                        type="button"
+                        className={cn(
+                          "flex flex-1 items-center gap-1 rounded-md px-2 py-1.5 text-left text-sm font-medium hover:bg-sidebar-accent",
+                          activeProjectId === project.id && "bg-sidebar-accent",
+                        )}
+                      >
+                        <ChevronRight
+                          className={cn(
+                            "h-3.5 w-3.5 shrink-0 transition-transform",
+                            isProjectExpanded(project.id) && "rotate-90",
+                          )}
+                        />
+                        <span className="truncate">{project.name}</span>
+                      </button>
+                    </CollapsibleTrigger>
+                    <button
+                      type="button"
+                      className="mr-1 rounded p-0.5 text-muted-foreground transition-colors hover:text-sidebar-foreground"
+                      onClick={() => handleAddWorkspace(project.id)}
+                      aria-label={`Add workspace to ${project.name}`}
+                      title={`Add workspace to ${project.name}`}
+                      disabled={creatingProjectId !== null}
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    </svg>
-                  </button>
-                </div>
-                {(project.workspaces ?? []).map((ws) => (
-                  <Link
-                    key={ws.id}
-                    to={`/workspaces/${ws.id}`}
-                    className={`flex items-center gap-1.5 rounded-md px-4 py-1 text-sm hover:bg-sidebar-accent ${
-                      activeWsId === ws.id ? "bg-sidebar-accent" : ""
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-2 w-2 rounded-full ${
-                        ws.status === "busy"
-                          ? "bg-blue-500"
-                          : "bg-muted-foreground/40"
-                      }`}
-                    />
-                    {ws.name}
-                  </Link>
-                ))}
+                      {creatingProjectId === project.id ? "..." : "+"}
+                    </button>
+                  </div>
+                  <CollapsibleContent>
+                    <div className="space-y-0.5 pl-5">
+                      {(project.workspaces ?? []).map((ws) => (
+                        <Link
+                          key={ws.id}
+                          to={`/workspaces/${ws.id}`}
+                          className={cn(
+                            "flex items-center gap-1.5 rounded-md px-2 py-1 text-sm hover:bg-sidebar-accent",
+                            activeWsId === ws.id && "bg-sidebar-accent",
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "inline-block h-2 w-2 rounded-full",
+                              ws.status === "busy" ? "bg-blue-500" : "bg-muted-foreground/40",
+                            )}
+                          />
+                          {ws.name}
+                        </Link>
+                      ))}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               </div>
             ))
           )}
@@ -108,34 +138,6 @@ export default function Sidebar({
           + Add Project
         </Button>
       </div>
-
-      <AlertDialog
-        open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete project?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete <strong>{deleteTarget?.name}</strong> and all
-              its workspaces. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={async () => {
-                if (deleteTarget) {
-                  await onDeleteProject(deleteTarget.id);
-                  setDeleteTarget(null);
-                }
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

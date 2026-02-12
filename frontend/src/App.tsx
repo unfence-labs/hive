@@ -1,14 +1,13 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useState } from "react";
 import AppLayout from "@/components/AppLayout";
-import ProjectView from "@/pages/ProjectView";
 import WorkspaceView from "@/pages/WorkspaceView";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import EmptyStateLogo from "@/components/EmptyStateLogo";
 import { useProjects } from "@/hooks/useProjects";
 
 export default function App() {
-  const { projects, loading, createProject, deleteProject } = useProjects();
+  const { projects, loading, createProject, createWorkspace } = useProjects();
   const [showAddProject, setShowAddProject] = useState(false);
 
   return (
@@ -25,7 +24,7 @@ export default function App() {
               projects={projects}
               loading={loading}
               onAddProject={() => setShowAddProject(true)}
-              onDeleteProject={deleteProject}
+              onAddWorkspace={createWorkspace}
             />
           }
         >
@@ -34,7 +33,7 @@ export default function App() {
             path="projects"
             element={<EmptyStateLogo />}
           />
-          <Route path="projects/:id" element={<ProjectView />} />
+          <Route path="projects/:id" element={<Navigate to="/projects" replace />} />
           <Route path="workspaces/:wsId" element={<WorkspaceView />} />
         </Route>
       </Routes>
