@@ -9,6 +9,12 @@ interface DiffViewProps {
   className?: string;
 }
 
+function linePrefix(part: { added?: boolean; removed?: boolean }): string {
+  if (part.added) return "+";
+  if (part.removed) return "-";
+  return " ";
+}
+
 export const DiffView = memo(function DiffView({
   oldText,
   newText,
@@ -35,7 +41,7 @@ export const DiffView = memo(function DiffView({
               )}
             >
               <span className="inline-block w-4 select-none opacity-60">
-                {part.added ? "+" : part.removed ? "-" : " "}
+                {linePrefix(part)}
               </span>
               {line}
             </div>

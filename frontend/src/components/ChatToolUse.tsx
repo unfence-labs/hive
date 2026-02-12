@@ -199,14 +199,12 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
       };
     }
 
-    default: {
-      const isMcpTool = tool.name.startsWith("mcp__");
+    default:
       return {
         icon: icons.wrench,
-        label: isMcpTool ? tool.name : tool.name,
+        label: tool.name,
         expandedContent: JSON.stringify(input, null, 2),
       };
-    }
   }
 }
 

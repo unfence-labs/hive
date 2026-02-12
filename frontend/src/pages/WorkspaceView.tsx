@@ -170,12 +170,8 @@ export default function WorkspaceView() {
     setDiffModalOpen(true);
   }, []);
 
-  const handleAddToPrompt = useCallback(
-    (text: string) => {
-      sendMessage(text);
-    },
-    [sendMessage],
-  );
+  // sendMessage is already a stable callback from useConversation
+  const handleAddToPrompt = sendMessage;
 
   if (loading) {
     return (
@@ -318,32 +314,32 @@ export default function WorkspaceView() {
             )}
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-3">
-            {sidebarTab === "all" ? (
-              fileTreeError ? (
-                <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
-                  {fileTreeError}
-                </div>
-              ) : (
-                <FileTree
-                  expanded={expandedPaths}
-                  onExpandedChange={setExpandedPaths}
-                  onPathSelect={setSelectedPath}
-                  selectedPath={selectedPath}
-                >
-                  {fileTree.length ? (
-                    renderFileTreeNodes(fileTree)
-                  ) : (
-                    <div className="px-2 py-1 text-xs text-muted-foreground">No files found.</div>
-                  )}
-                </FileTree>
-              )
-            ) : (
+            {sidebarTab === "modified" && (
               <ModifiedFileList
                 committed={diffCommitted}
                 uncommitted={diffUncommitted}
                 loading={diffStatsLoading}
                 onFileClick={handleModifiedFileClick}
               />
+            )}
+            {sidebarTab === "all" && fileTreeError && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                {fileTreeError}
+              </div>
+            )}
+            {sidebarTab === "all" && !fileTreeError && (
+              <FileTree
+                expanded={expandedPaths}
+                onExpandedChange={setExpandedPaths}
+                onPathSelect={setSelectedPath}
+                selectedPath={selectedPath}
+              >
+                {fileTree.length ? (
+                  renderFileTreeNodes(fileTree)
+                ) : (
+                  <div className="px-2 py-1 text-xs text-muted-foreground">No files found.</div>
+                )}
+              </FileTree>
             )}
           </div>
         </aside>

@@ -190,18 +190,34 @@ export async function deleteWorkspace(
   );
 }
 
-export async function getWorkspaceDiff(
+interface ResolvedWorkspacePaths {
+  bare: string;
+  wsPath: string;
+  defaultBranch: string;
+  workspace: Workspace;
+}
+
+async function resolveWorkspacePaths(
   wsId: string,
-  dataDir = getDataDir()
-): Promise<string> {
+  dataDir: string,
+): Promise<ResolvedWorkspacePaths> {
   const result = await getWorkspace(wsId, dataDir);
   if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
 
   const { projectState, workspace } = result;
   const bare = bareRepoPath(dataDir, projectState.id);
   const wsPath = join(workspacesDir(dataDir, projectState.id), workspace.name);
-
   const defaultBranch = await resolveDefaultBranch(bare);
+
+  return { bare, wsPath, defaultBranch, workspace };
+}
+
+export async function getWorkspaceDiff(
+  wsId: string,
+  dataDir = getDataDir()
+): Promise<string> {
+  const { bare, wsPath, defaultBranch, workspace } =
+    await resolveWorkspacePaths(wsId, dataDir);
 
   // Committed diff: branch vs default branch
   const committedDiff = await git(
@@ -300,13 +316,8 @@ export async function getWorkspaceDiffStat(
   wsId: string,
   dataDir = getDataDir()
 ): Promise<DiffStatResponse> {
-  const result = await getWorkspace(wsId, dataDir);
-  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
-
-  const { projectState, workspace } = result;
-  const bare = bareRepoPath(dataDir, projectState.id);
-  const wsPath = join(workspacesDir(dataDir, projectState.id), workspace.name);
-  const defaultBranch = await resolveDefaultBranch(bare);
+  const { bare, wsPath, defaultBranch, workspace } =
+    await resolveWorkspacePaths(wsId, dataDir);
   const range = `${defaultBranch}...${workspace.branch}`;
 
   // Committed changes (branch vs default)

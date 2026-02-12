@@ -51,6 +51,8 @@ export interface DiffComment {
 interface MemoizedFileDiffProps {
   fileDiff: FileDiffMetadata;
   fileName: string;
+  additions: number;
+  deletions: number;
   annotations: DiffLineAnnotation<DiffComment>[];
   selectedLines: SelectedLineRange | null;
   themeType: "dark" | "light";
@@ -77,6 +79,8 @@ const MemoizedFileDiffComponent = memo(
   function MemoizedFileDiffComponent({
     fileDiff,
     fileName,
+    additions,
+    deletions,
     annotations,
     selectedLines,
     themeType,
@@ -122,16 +126,6 @@ const MemoizedFileDiffComponent = memo(
       [onRemoveComment],
     );
 
-    const stats = useMemo(() => {
-      let additions = 0;
-      let deletions = 0;
-      for (const hunk of fileDiff.hunks) {
-        additions += hunk.additionCount;
-        deletions += hunk.deletionCount;
-      }
-      return { additions, deletions };
-    }, [fileDiff.hunks]);
-
     return (
       <div className="border border-border">
         <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-muted px-3 py-2">
@@ -148,11 +142,11 @@ const MemoizedFileDiffComponent = memo(
             </span>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            {stats.additions > 0 && (
-              <span className="text-green-500">+{stats.additions}</span>
+            {additions > 0 && (
+              <span className="text-green-500">+{additions}</span>
             )}
-            {stats.deletions > 0 && (
-              <span className="text-red-500">-{stats.deletions}</span>
+            {deletions > 0 && (
+              <span className="text-red-500">-{deletions}</span>
             )}
           </div>
         </div>
@@ -173,27 +167,18 @@ const MemoizedFileDiffComponent = memo(
       </div>
     );
   },
-  (prevProps, nextProps) => {
-    if (prevProps.selectedLines !== nextProps.selectedLines) {
-      if (
-        prevProps.selectedLines === null &&
-        nextProps.selectedLines === null
-      ) {
-        // both null, don't re-render for this
-      } else {
-        return false;
-      }
-    }
-    return (
-      prevProps.fileDiff === nextProps.fileDiff &&
-      prevProps.fileName === nextProps.fileName &&
-      prevProps.annotations === nextProps.annotations &&
-      prevProps.themeType === nextProps.themeType &&
-      prevProps.diffStyle === nextProps.diffStyle &&
-      prevProps.onLineSelected === nextProps.onLineSelected &&
-      prevProps.onRemoveComment === nextProps.onRemoveComment
-    );
-  },
+  (prevProps, nextProps) =>
+    prevProps.fileDiff === nextProps.fileDiff &&
+    prevProps.fileName === nextProps.fileName &&
+    prevProps.additions === nextProps.additions &&
+    prevProps.deletions === nextProps.deletions &&
+    prevProps.annotations === nextProps.annotations &&
+    (prevProps.selectedLines === nextProps.selectedLines ||
+      (prevProps.selectedLines === null && nextProps.selectedLines === null)) &&
+    prevProps.themeType === nextProps.themeType &&
+    prevProps.diffStyle === nextProps.diffStyle &&
+    prevProps.onLineSelected === nextProps.onLineSelected &&
+    prevProps.onRemoveComment === nextProps.onRemoveComment,
 );
 
 interface CommentInputBarProps {
@@ -486,21 +471,24 @@ export function GitDiffModal({
 
   const hasFiles = flattenedFiles.length > 0;
 
-  const handleSelectFile = useCallback((index: number) => {
-    if (switchTimeoutRef.current) clearTimeout(switchTimeoutRef.current);
-    setSelectedRange(null);
-    setShowCommentInput(false);
-    setIsSwitching(true);
-    startTransition(() => {
-      setSelectedFileIndex(index);
-    });
-    switchTimeoutRef.current = setTimeout(() => setIsSwitching(false), 150);
-  }, []);
+  const switchToFile = useCallback(
+    (indexOrUpdater: number | ((prev: number) => number)) => {
+      if (switchTimeoutRef.current) clearTimeout(switchTimeoutRef.current);
+      setSelectedRange(null);
+      setShowCommentInput(false);
+      setIsSwitching(true);
+      startTransition(() => {
+        setSelectedFileIndex(indexOrUpdater);
+      });
+      switchTimeoutRef.current = setTimeout(() => setIsSwitching(false), 150);
+    },
+    [],
+  );
 
   // Keyboard navigation
   useEffect(() => {
     if (!open || flattenedFiles.length === 0) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
+    function handleKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement;
       if (
         target.tagName === "INPUT" ||
@@ -511,37 +499,15 @@ export function GitDiffModal({
 
       if (e.key === "ArrowDown" || e.key === "j") {
         e.preventDefault();
-        if (switchTimeoutRef.current) clearTimeout(switchTimeoutRef.current);
-        setSelectedRange(null);
-        setShowCommentInput(false);
-        setIsSwitching(true);
-        startTransition(() => {
-          setSelectedFileIndex((i) =>
-            Math.min(i + 1, flattenedFiles.length - 1),
-          );
-        });
-        switchTimeoutRef.current = setTimeout(
-          () => setIsSwitching(false),
-          150,
-        );
+        switchToFile((i) => Math.min(i + 1, flattenedFiles.length - 1));
       } else if (e.key === "ArrowUp" || e.key === "k") {
         e.preventDefault();
-        if (switchTimeoutRef.current) clearTimeout(switchTimeoutRef.current);
-        setSelectedRange(null);
-        setShowCommentInput(false);
-        setIsSwitching(true);
-        startTransition(() => {
-          setSelectedFileIndex((i) => Math.max(i - 1, 0));
-        });
-        switchTimeoutRef.current = setTimeout(
-          () => setIsSwitching(false),
-          150,
-        );
+        switchToFile((i) => Math.max(i - 1, 0));
       }
-    };
+    }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, flattenedFiles.length]);
+  }, [open, flattenedFiles.length, switchToFile]);
 
   // Scroll selected file into view
   useEffect(() => {
@@ -728,7 +694,7 @@ export function GitDiffModal({
                         <button
                           type="button"
                           data-index={index}
-                          onClick={() => handleSelectFile(index)}
+                          onClick={() => switchToFile(index)}
                           className={cn(
                             "flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50",
                             isSelected && "bg-accent",
@@ -776,6 +742,8 @@ export function GitDiffModal({
                     key={selectedFile.key}
                     fileDiff={selectedFile.fileDiff}
                     fileName={selectedFile.fileName}
+                    additions={selectedFile.additions}
+                    deletions={selectedFile.deletions}
                     annotations={getAnnotationsForFile(selectedFile.fileName)}
                     selectedLines={
                       activeFileName === selectedFile.fileName
