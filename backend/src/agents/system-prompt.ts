@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { git } from "../utils/git.js";
 
 export interface GitContext {
@@ -23,12 +25,29 @@ export interface SystemPromptOptions {
   defaultBranch?: string;
   /** If set, instructs Claude to rename the branch based on the task. */
   branchRename?: BranchRenameDirective;
+  /** Path to prompts directory (e.g. ~/.hive/prompts). Loads base.md from disk. */
+  promptsDir?: string;
 }
 
-const DEFAULT_BASE_PROMPT = `You are an AI coding assistant working inside a project workspace.
+export const DEFAULT_BASE_PROMPT = `You are an AI coding agent running inside Hive, a macOS app that helps developers ship faster by running multiple coding agents in parallel across workspaces.
+You're working on a project called **{PROJECT}**. Your work should take place in the {DIR} directory (unless otherwise directed), which has been set up for you to work in.
+The target branch for this workspace is {DEFAULT_BRANCH}. Use this for actions like creating new PRs, bisecting, etc., unless you're told otherwise.
+If the user asks you to work on several unrelated tasks in parallel, suggest they start new workspaces.
 You have full access to the codebase via your tools. Read files before modifying them.
 Write clean, simple code. Follow existing patterns and conventions in the codebase.
 All code, comments, and variable names must be in English.`;
+
+/**
+ * Load the base prompt from `{promptsDir}/base.md`.
+ * Returns the hardcoded default if the file can't be read.
+ */
+export async function loadBasePrompt(promptsDir: string): Promise<string> {
+  try {
+    return await readFile(join(promptsDir, "base.md"), "utf-8");
+  } catch {
+    return DEFAULT_BASE_PROMPT;
+  }
+}
 
 /**
  * Gather git context from the workspace directory.
@@ -68,8 +87,24 @@ export async function getGitContext(cwd: string, defaultBranchOverride?: string)
  * Build a system prompt by merging a base prompt with dynamic git context.
  */
 export async function buildSystemPrompt(opts: SystemPromptOptions): Promise<string> {
-  const { cwd, workspaceName, projectName, basePrompt = DEFAULT_BASE_PROMPT, defaultBranch, branchRename } = opts;
+  const { cwd, workspaceName, projectName, defaultBranch, branchRename, promptsDir } = opts;
+
   const ctx = await getGitContext(cwd, defaultBranch);
+
+  let basePrompt: string;
+  if (opts.basePrompt !== undefined) {
+    basePrompt = opts.basePrompt;
+  } else if (promptsDir) {
+    basePrompt = await loadBasePrompt(promptsDir);
+  } else {
+    basePrompt = DEFAULT_BASE_PROMPT;
+  }
+
+  // Interpolate template variables
+  basePrompt = basePrompt
+    .replace(/\{DIR}/g, cwd)
+    .replace(/\{DEFAULT_BRANCH}/g, ctx.defaultBranch)
+    .replace(/\{PROJECT}/g, projectName ?? "unknown");
 
   const sections: string[] = [basePrompt];
 
@@ -89,21 +124,19 @@ export async function buildSystemPrompt(opts: SystemPromptOptions): Promise<stri
     sections.push(lines.join("\n"));
   }
 
-  // Project/workspace context
-  if (projectName || workspaceName) {
-    const parts: string[] = [];
-    if (projectName) parts.push(`Project: ${projectName}`);
-    if (workspaceName) parts.push(`Workspace: ${workspaceName}`);
-    sections.push(parts.join("\n"));
-  }
-
-  // Git context
+  // Git context (includes project/workspace info)
   const gitLines: string[] = [
     "# Git Context (snapshot at session start)",
     "",
+  ];
+
+  if (projectName) gitLines.push(`Project: ${projectName}`);
+  if (workspaceName) gitLines.push(`Workspace: ${workspaceName}`);
+
+  gitLines.push(
     `Current branch: ${ctx.branch || "unknown"}`,
     `Main branch: ${ctx.defaultBranch}`,
-  ];
+  );
 
   if (ctx.status) {
     gitLines.push("", "Status:", ctx.status);

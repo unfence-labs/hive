@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { join } from "node:path";
-import { rm, writeFile } from "node:fs/promises";
+import { rm, writeFile, mkdir } from "node:fs/promises";
 import { createTempDir } from "../utils/test-helpers.js";
 import { git } from "../utils/git.js";
-import { getGitContext, buildSystemPrompt } from "./system-prompt.js";
+import { getGitContext, buildSystemPrompt, loadBasePrompt, DEFAULT_BASE_PROMPT } from "./system-prompt.js";
 
 let tempDir: string;
 let repoDir: string;
@@ -89,9 +89,15 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Workspace: geneva");
   });
 
-  it("includes default base prompt", async () => {
-    const prompt = await buildSystemPrompt({ cwd: repoDir });
-    expect(prompt).toContain("AI coding assistant");
+  it("includes default base prompt with interpolated variables", async () => {
+    const prompt = await buildSystemPrompt({ cwd: repoDir, projectName: "my-app" });
+    expect(prompt).toContain("running inside Hive");
+    expect(prompt).toContain("working on the my-app project");
+    expect(prompt).toContain(`take place in the ${repoDir} directory`);
+    expect(prompt).toContain("target branch for this workspace is main");
+    expect(prompt).not.toContain("{DIR}");
+    expect(prompt).not.toContain("{DEFAULT_BRANCH}");
+    expect(prompt).not.toContain("{PROJECT}");
   });
 
   it("uses custom base prompt when provided", async () => {
@@ -149,5 +155,65 @@ describe("buildSystemPrompt", () => {
   it("omits branch rename when not configured", async () => {
     const prompt = await buildSystemPrompt({ cwd: repoDir });
     expect(prompt).not.toContain("git branch -m");
+  });
+
+  it("loads base prompt from promptsDir when provided", async () => {
+    const promptsDir = join(tempDir, "prompts");
+    await mkdir(promptsDir, { recursive: true });
+    await writeFile(join(promptsDir, "base.md"), "Custom base prompt from file.");
+
+    const prompt = await buildSystemPrompt({ cwd: repoDir, promptsDir });
+    expect(prompt).toContain("Custom base prompt from file.");
+    expect(prompt).not.toContain("AI coding assistant");
+  });
+
+  it("interpolates {DIR} and {DEFAULT_BRANCH} in file-based prompt", async () => {
+    const promptsDir = join(tempDir, "prompts");
+    await mkdir(promptsDir, { recursive: true });
+    await writeFile(join(promptsDir, "base.md"), "Work in {DIR}, branch is {DEFAULT_BRANCH}.");
+
+    const prompt = await buildSystemPrompt({ cwd: repoDir, promptsDir, defaultBranch: "develop" });
+    expect(prompt).toContain(`Work in ${repoDir}, branch is develop.`);
+    expect(prompt).not.toContain("{DIR}");
+    expect(prompt).not.toContain("{DEFAULT_BRANCH}");
+  });
+
+  it("falls back to default when promptsDir has no base.md", async () => {
+    const promptsDir = join(tempDir, "empty-prompts");
+    await mkdir(promptsDir, { recursive: true });
+
+    const prompt = await buildSystemPrompt({ cwd: repoDir, promptsDir });
+    expect(prompt).toContain("running inside Hive");
+  });
+
+  it("explicit basePrompt takes priority over promptsDir", async () => {
+    const promptsDir = join(tempDir, "prompts");
+    await mkdir(promptsDir, { recursive: true });
+    await writeFile(join(promptsDir, "base.md"), "From file.");
+
+    const prompt = await buildSystemPrompt({
+      cwd: repoDir,
+      promptsDir,
+      basePrompt: "Explicit override.",
+    });
+    expect(prompt).toContain("Explicit override.");
+    expect(prompt).not.toContain("From file.");
+  });
+});
+
+describe("loadBasePrompt", () => {
+  it("reads from file when it exists", async () => {
+    const promptsDir = join(tempDir, "prompts");
+    await mkdir(promptsDir, { recursive: true });
+    await writeFile(join(promptsDir, "base.md"), "Hello from disk.");
+
+    const result = await loadBasePrompt(promptsDir);
+    expect(result).toBe("Hello from disk.");
+  });
+
+  it("returns default when file is missing", async () => {
+    const promptsDir = join(tempDir, "no-such-dir");
+    const result = await loadBasePrompt(promptsDir);
+    expect(result).toBe(DEFAULT_BASE_PROMPT);
   });
 });

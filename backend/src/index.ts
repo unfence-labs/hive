@@ -8,6 +8,7 @@ import { streamRoutes } from "./ws/stream.js";
 import { terminalRoutes } from "./ws/terminal.js";
 import { createAuthHook } from "./utils/auth.js";
 import { createRateLimitHook } from "./utils/rate-limit.js";
+import { ensureDataDir } from "./state/state.js";
 import type { SessionOptions } from "./agents/agent-manager.js";
 
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -74,6 +75,7 @@ export async function buildApp() {
 }
 
 async function main() {
+  await ensureDataDir();
   const app = await buildApp();
   await app.listen({ host: HOST, port: PORT });
 }
