@@ -92,6 +92,23 @@ export function parseQuestions(tool: ToolCall): Question[] {
   } catch { return []; }
 }
 
+// ── Diff types ───────────────────────────────────────────────────────
+
+export type DiffFileStatus = "added" | "modified" | "deleted" | "renamed";
+
+export interface DiffFileStat {
+  file: string;
+  additions: number;
+  deletions: number;
+  status: DiffFileStatus;
+  renamedFrom?: string;
+}
+
+export interface DiffStatResponse {
+  committed: DiffFileStat[];
+  uncommitted: DiffFileStat[];
+}
+
 // ── Interactive tool input types ─────────────────────────────────────
 
 export type ToolInputResult =

@@ -6,7 +6,7 @@ import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/path
 import { pickCityName } from "../utils/city-names.js";
 import { loadProject, saveProject, getDataDir, withProjectStateLock } from "../state/state.js";
 import { ConflictError, NotFoundError } from "../utils/errors.js";
-import type { Workspace, ProjectState, WorkspaceFileTreeNode } from "../types.js";
+import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffStatResponse } from "../types.js";
 
 const IGNORED_DIRS = new Set([".git", "node_modules"]);
 const MAX_TREE_DEPTH = 8;
@@ -199,15 +199,96 @@ export async function getWorkspaceDiff(
 
   const { projectState, workspace } = result;
   const bare = bareRepoPath(dataDir, projectState.id);
+  const wsPath = join(workspacesDir(dataDir, projectState.id), workspace.name);
 
   const defaultBranch = await resolveDefaultBranch(bare);
 
-  try {
-    const { stdout } = await git(["diff", `${defaultBranch}...${workspace.branch}`], bare);
-    return stdout;
-  } catch {
-    return "";
+  // Committed diff: branch vs default branch
+  const committedDiff = await git(
+    ["diff", `${defaultBranch}...${workspace.branch}`],
+    bare,
+  ).then((r) => r.stdout).catch(() => "");
+
+  // Uncommitted diff: staged + unstaged changes in worktree
+  const uncommittedDiff = await git(["diff", "HEAD"], wsPath)
+    .then((r) => r.stdout)
+    .catch(() => "");
+
+  if (committedDiff && uncommittedDiff) {
+    return committedDiff + "\n" + uncommittedDiff;
   }
+  return committedDiff || uncommittedDiff;
+}
+
+function parseDiffStat(
+  numstatStdout: string,
+  nameStatusStdout: string,
+): DiffFileStat[] {
+  const statusMap = new Map<string, { letter: string; from?: string }>();
+  for (const line of nameStatusStdout.split("\n").filter(Boolean)) {
+    const parts = line.split("\t");
+    const letter = parts[0][0];
+    if (letter === "R" && parts.length >= 3) {
+      statusMap.set(parts[2], { letter, from: parts[1] });
+    } else if (parts[1]) {
+      statusMap.set(parts[1], { letter });
+    }
+  }
+
+  const letterToStatus: Record<string, DiffFileStatus> = {
+    A: "added",
+    M: "modified",
+    D: "deleted",
+    R: "renamed",
+  };
+
+  const files: DiffFileStat[] = [];
+  for (const line of numstatStdout.split("\n").filter(Boolean)) {
+    const [addStr, delStr, ...rest] = line.split("\t");
+    const file = rest.join("\t");
+    const additions = addStr === "-" ? 0 : parseInt(addStr, 10);
+    const deletions = delStr === "-" ? 0 : parseInt(delStr, 10);
+    const info = statusMap.get(file);
+    const stat: DiffFileStat = {
+      file,
+      additions,
+      deletions,
+      status: letterToStatus[info?.letter ?? "M"] ?? "modified",
+    };
+    if (info?.from) stat.renamedFrom = info.from;
+    files.push(stat);
+  }
+  return files;
+}
+
+export async function getWorkspaceDiffStat(
+  wsId: string,
+  dataDir = getDataDir()
+): Promise<DiffStatResponse> {
+  const result = await getWorkspace(wsId, dataDir);
+  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
+
+  const { projectState, workspace } = result;
+  const bare = bareRepoPath(dataDir, projectState.id);
+  const wsPath = join(workspacesDir(dataDir, projectState.id), workspace.name);
+  const defaultBranch = await resolveDefaultBranch(bare);
+  const range = `${defaultBranch}...${workspace.branch}`;
+
+  // Committed changes (branch vs default)
+  const [committedNumstat, committedNameStatus] = await Promise.all([
+    git(["diff", "--numstat", "--find-renames", range], bare).catch(() => ({ stdout: "" })),
+    git(["diff", "--name-status", "--find-renames", range], bare).catch(() => ({ stdout: "" })),
+  ]);
+  const committed = parseDiffStat(committedNumstat.stdout, committedNameStatus.stdout);
+
+  // Uncommitted changes (staged + unstaged in worktree)
+  const [uncommittedNumstat, uncommittedNameStatus] = await Promise.all([
+    git(["diff", "--numstat", "HEAD"], wsPath).catch(() => ({ stdout: "" })),
+    git(["diff", "--name-status", "HEAD"], wsPath).catch(() => ({ stdout: "" })),
+  ]);
+  const uncommitted = parseDiffStat(uncommittedNumstat.stdout, uncommittedNameStatus.stdout);
+
+  return { committed, uncommitted };
 }
 
 export async function listWorkspaceFiles(

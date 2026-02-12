@@ -10,6 +10,7 @@ import {
   getWorkspace,
   deleteWorkspace,
   getWorkspaceDiff,
+  getWorkspaceDiffStat,
   mergeWorkspace,
 } from "./workspace-manager.js";
 import { git } from "../utils/git.js";
@@ -139,6 +140,58 @@ describe("getWorkspaceDiff", () => {
     const diff = await getWorkspaceDiff(ws.id, dataDir);
     expect(diff).toContain("new-file.txt");
     expect(diff).toContain("hello world");
+  });
+});
+
+describe("getWorkspaceDiffStat", () => {
+  it("returns empty committed and uncommitted when no changes", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const result = await getWorkspaceDiffStat(ws.id, dataDir);
+    expect(result).toEqual({ committed: [], uncommitted: [] });
+  });
+
+  it("throws for non-existent workspace", async () => {
+    await expect(getWorkspaceDiffStat("nonexistent", dataDir)).rejects.toThrow("not found");
+  });
+
+  it("returns committed stats after committed changes", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await writeFile(join(wsPath, "new-file.txt"), "line1\nline2\nline3\n");
+    await writeFile(join(wsPath, "README.md"), "updated readme\n");
+    await git(["add", "."], wsPath);
+    await git(["config", "user.email", "test@hive.dev"], wsPath);
+    await git(["config", "user.name", "Test"], wsPath);
+    await git(["commit", "-m", "test changes"], wsPath);
+
+    const { committed, uncommitted } = await getWorkspaceDiffStat(ws.id, dataDir);
+    expect(committed.length).toBeGreaterThanOrEqual(2);
+    expect(uncommitted).toEqual([]);
+
+    const newFile = committed.find((s) => s.file === "new-file.txt");
+    expect(newFile).toBeDefined();
+    expect(newFile!.additions).toBe(3);
+    expect(newFile!.deletions).toBe(0);
+    expect(newFile!.status).toBe("added");
+
+    const readme = committed.find((s) => s.file === "README.md");
+    expect(readme).toBeDefined();
+    expect(readme!.status).toBe("modified");
+  });
+
+  it("returns uncommitted stats for unstaged changes", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    // Only modify, don't commit
+    await writeFile(join(wsPath, "README.md"), "modified but not committed\n");
+
+    const { committed, uncommitted } = await getWorkspaceDiffStat(ws.id, dataDir);
+    expect(committed).toEqual([]);
+    expect(uncommitted.length).toBe(1);
+    expect(uncommitted[0].file).toBe("README.md");
+    expect(uncommitted[0].status).toBe("modified");
   });
 });
 
