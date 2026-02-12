@@ -109,4 +109,5 @@ export type WsOutgoing =
   | { type: "error"; message: string }
   | { type: "cancelled" }
   | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean }
+  | { type: "user_message"; message: ChatMessage }
   | { type: "history"; messages: ChatMessage[] };

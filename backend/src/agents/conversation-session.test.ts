@@ -196,6 +196,24 @@ describe("ConversationSession", () => {
     expect(textDeltas[0]).toEqual({ type: "text_delta", text: "Hello!" });
   });
 
+  it("emits user_message when a turn starts", () => {
+    const session = createSession({ sessionId: "sess-user-evt" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hello from user");
+
+    const userEvents = messages.filter((m) => m.type === "user_message");
+    expect(userEvents).toHaveLength(1);
+    if (userEvents[0].type === "user_message") {
+      expect(userEvents[0].message).toMatchObject({
+        sessionId: "sess-user-evt",
+        role: "user",
+        content: "Hello from user",
+      });
+    }
+  });
+
   it("emits tool_use for assistant tool calls", () => {
     const session = createSession();
     const messages: WsOutgoing[] = [];

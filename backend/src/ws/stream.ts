@@ -22,8 +22,83 @@ function sendOutgoing(socket: WebSocket, msg: WsOutgoing): void {
   }
 }
 
+type ActiveSession = NonNullable<ReturnType<typeof getSession>>;
+
+interface WorkspaceChannel {
+  sockets: Set<WebSocket>;
+  session?: ActiveSession;
+  detachSession?: () => void;
+}
+
 export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptions = {}) {
   const { dataDir, sessionOptions, authToken } = opts;
+  const channels = new Map<string, WorkspaceChannel>();
+
+  const getOrCreateChannel = (workspaceId: string): WorkspaceChannel => {
+    const existing = channels.get(workspaceId);
+    if (existing) return existing;
+    const created: WorkspaceChannel = { sockets: new Set<WebSocket>() };
+    channels.set(workspaceId, created);
+    return created;
+  };
+
+  const sendToChannel = (channel: WorkspaceChannel, msg: WsOutgoing): void => {
+    for (const socket of channel.sockets) {
+      sendOutgoing(socket, msg);
+    }
+  };
+
+  const detachSessionListeners = (channel: WorkspaceChannel): void => {
+    channel.detachSession?.();
+    channel.detachSession = undefined;
+    channel.session = undefined;
+  };
+
+  const attachSessionListeners = (
+    workspaceId: string,
+    channel: WorkspaceChannel,
+    session: ActiveSession,
+  ): void => {
+    if (channel.session === session && channel.detachSession) {
+      return;
+    }
+
+    detachSessionListeners(channel);
+    channel.session = session;
+
+    const onMessage = (msg: WsOutgoing) => sendToChannel(channel, msg);
+    const onError = (err: Error) => {
+      sendToChannel(channel, { type: "error", message: err.message });
+    };
+    const onExit = (_code: number) => {
+      const stillActive = getSession(workspaceId) === session;
+      if (stillActive) {
+        sendToChannel(channel, {
+          type: "status",
+          status: "busy",
+          sessionId: session.sessionId,
+          streaming: false,
+        });
+      } else {
+        sendToChannel(channel, {
+          type: "status",
+          status: "idle",
+          streaming: false,
+        });
+        detachSessionListeners(channel);
+      }
+    };
+
+    session.on("message", onMessage);
+    session.on("error", onError);
+    session.on("exit", onExit);
+
+    channel.detachSession = () => {
+      session.removeListener("message", onMessage);
+      session.removeListener("error", onError);
+      session.removeListener("exit", onExit);
+    };
+  };
 
   app.get<{ Params: { wsId: string }; Querystring: { token?: string } }>(
     "/ws/session/:wsId",
@@ -37,11 +112,13 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       }
 
       const { wsId } = req.params;
+      const channel = getOrCreateChannel(wsId);
+      channel.sockets.add(socket);
 
-      // Check if session exists already
-      let session = getSession(wsId);
+      const session = getSession(wsId);
 
       if (session) {
+        attachSessionListeners(wsId, channel, session);
         // Send current status + history
         sendOutgoing(socket, {
           type: "status",
@@ -69,53 +146,12 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         }
       }
 
-      // Pipe session events to this WS client
-      function attachSessionListeners() {
-        if (!session) return;
-
-        const onMessage = (msg: WsOutgoing) => sendOutgoing(socket, msg);
-        const onError = (err: Error) => {
-          sendOutgoing(socket, { type: "error", message: err.message });
-        };
-        const onExit = (_code: number) => {
-          const stillActive = getSession(wsId) === session;
-          if (stillActive) {
-            // Session was stopped (not ended) — still alive, just not streaming
-            sendOutgoing(socket, {
-              type: "status",
-              status: "busy",
-              sessionId: session!.sessionId,
-              streaming: false,
-            });
-          } else {
-            // Session was ended — removed from activeSessions
-            sendOutgoing(socket, {
-              type: "status",
-              status: "idle",
-              streaming: false,
-            });
-            cleanupListeners?.();
-            cleanupListeners = undefined;
-            session = undefined;
-          }
-        };
-
-        session.on("message", onMessage);
-        session.on("error", onError);
-        session.on("exit", onExit);
-
-        // Return cleanup function
-        return () => {
-          session?.removeListener("message", onMessage);
-          session?.removeListener("error", onError);
-          session?.removeListener("exit", onExit);
-        };
-      }
-
-      let cleanupListeners = attachSessionListeners();
-
       socket.on("close", () => {
-        cleanupListeners?.();
+        channel.sockets.delete(socket);
+        if (channel.sockets.size === 0) {
+          detachSessionListeners(channel);
+          channels.delete(wsId);
+        }
       });
 
       socket.on("message", async (raw) => {
@@ -131,16 +167,17 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           case "user_message": {
             try {
               // Auto-create session if needed
-              if (!session) {
+              let activeSession = getSession(wsId);
+              if (!activeSession) {
                 const result = await getOrCreateSession(wsId, dataDir, sessionOptions);
-                session = result.session;
-                cleanupListeners = attachSessionListeners();
+                activeSession = result.session;
               }
-              session.sendMessage(incoming.content);
-              sendOutgoing(socket, {
+              attachSessionListeners(wsId, channel, activeSession);
+              activeSession.sendMessage(incoming.content);
+              sendToChannel(channel, {
                 type: "status",
                 status: "busy",
-                sessionId: session.sessionId,
+                sessionId: activeSession.sessionId,
                 streaming: true,
               });
             } catch (err: unknown) {
@@ -150,8 +187,8 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           }
           case "stop": {
             try {
-              if (session) {
-                session.stop();
+              if (channel.session) {
+                channel.session.stop();
               }
             } catch (err: unknown) {
               sendOutgoing(socket, { type: "error", message: errorMessage(err, "Failed to stop") });
