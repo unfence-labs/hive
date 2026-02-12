@@ -9,7 +9,7 @@ import { useProjects } from "@/hooks/useProjects";
 import { wsTransport } from "@/lib/ws-transport";
 
 export default function App() {
-  const { projects, loading, createProject, createWorkspace } = useProjects();
+  const { projects, loading, createWorkspace, createProjectWithWorkspace } = useProjects();
   const [showAddProject, setShowAddProject] = useState(false);
   const workspaceIds = useMemo(
     () =>
@@ -35,10 +35,7 @@ export default function App() {
       <AddProjectDialog
         open={showAddProject}
         onOpenChange={setShowAddProject}
-        onSubmit={async (url) => {
-          const project = await createProject(url);
-          return createWorkspace(project.id);
-        }}
+        onSubmit={createProjectWithWorkspace}
       />
       <Routes>
         <Route
