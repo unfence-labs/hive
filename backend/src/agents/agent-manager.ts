@@ -494,7 +494,13 @@ export async function hardDeleteSession(
 
     if (isActive) {
       activeSessions.delete(wsId);
-      active!.stop();
+      // Await full shutdown (including any pending persistence) before rm.
+      // The "exit" event fires after the session's persistQueue resolves,
+      // so once it fires we know all writes are flushed.
+      await new Promise<void>((resolve) => {
+        active!.once("exit", () => resolve());
+        active!.stop();
+      });
 
       await withProjectStateLock(
         projectId,

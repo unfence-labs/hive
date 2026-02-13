@@ -293,4 +293,71 @@ describe("wsTransport", () => {
     const result = wsTransport.onMessage("ws-1", () => {});
     expect(result.hadBufferedMessages).toBe(false);
   });
+
+  describe("clearCachedData", () => {
+    it("clears cached status, history, and message buffer", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+
+      // Populate caches: send status + history, then unsubscribe so buffer fills
+      const first: WsOutgoing[] = [];
+      const { unsubscribe } = wsTransport.onMessage("ws-1", (msg) => first.push(msg));
+      socket.message(JSON.stringify({ type: "status", status: "busy", streaming: true }));
+      socket.message(JSON.stringify({ type: "history", messages: [] }));
+      unsubscribe();
+
+      // Buffer a message while no handler is attached
+      socket.message(JSON.stringify({ type: "text_delta", text: "buffered" }));
+
+      // Clear everything
+      wsTransport.clearCachedData("ws-1");
+
+      // New handler should receive nothing
+      const replayed: WsOutgoing[] = [];
+      const result = wsTransport.onMessage("ws-1", (msg) => replayed.push(msg));
+      expect(replayed).toEqual([]);
+      expect(result.hadBufferedMessages).toBe(false);
+    });
+
+    it("is a no-op for unknown workspace", () => {
+      // Should not throw
+      wsTransport.clearCachedData("unknown-ws");
+    });
+
+    it("does not disconnect the socket", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+
+      wsTransport.clearCachedData("ws-1");
+
+      expect(wsTransport.getStatus("ws-1")).toBe("connected");
+      expect(socket.readyState).toBe(MockWebSocket.OPEN);
+    });
+
+    it("allows fresh data to accumulate after clearing", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+
+      // Populate and clear
+      const first: WsOutgoing[] = [];
+      const { unsubscribe: unsub1 } = wsTransport.onMessage("ws-1", (msg) => first.push(msg));
+      socket.message(JSON.stringify({ type: "status", status: "busy", streaming: true }));
+      unsub1();
+      wsTransport.clearCachedData("ws-1");
+
+      // Attach a handler, then send new status — handler receives it live
+      const live: WsOutgoing[] = [];
+      const { unsubscribe: unsub2 } = wsTransport.onMessage("ws-1", (msg) => live.push(msg));
+      socket.message(JSON.stringify({ type: "status", status: "idle", streaming: false }));
+      unsub2();
+
+      // Re-attach: should replay the fresh cached status (not the old "busy" one)
+      const replayed: WsOutgoing[] = [];
+      wsTransport.onMessage("ws-1", (msg) => replayed.push(msg));
+      expect(replayed).toEqual([{ type: "status", status: "idle", streaming: false }]);
+    });
+  });
 });

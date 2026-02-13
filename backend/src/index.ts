@@ -44,7 +44,10 @@ export async function buildApp() {
     skipPermissions: parseBoolean(process.env.HIVE_CLAUDE_SKIP_PERMISSIONS, true),
   };
   const app = Fastify({ logger: true });
-  await app.register(cors, { origin: true });
+  await app.register(cors, {
+    origin: true,
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
+  });
   await app.register(websocket);
 
   app.addHook("onRequest", createAuthHook(authToken));

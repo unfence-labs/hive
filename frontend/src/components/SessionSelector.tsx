@@ -91,16 +91,18 @@ export function SessionSelector({
                 <span className="shrink-0 text-[10px] text-muted-foreground">
                   {session.messageCount} msg · {formatRelativeTime(session.updatedAt)}
                 </span>
-                <button
-                  className="shrink-0 rounded p-0.5 text-muted-foreground/50 hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-30"
-                  disabled={isActive && isStreaming}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteTarget(session.sessionId);
-                  }}
-                >
-                  <Trash2Icon className="size-3" />
-                </button>
+                {sessions.length > 1 && (
+                  <button
+                    className="shrink-0 rounded p-0.5 text-muted-foreground/50 hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-30"
+                    disabled={isActive && isStreaming}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteTarget(session.sessionId);
+                    }}
+                  >
+                    <Trash2Icon className="size-3" />
+                  </button>
+                )}
               </DropdownMenuItem>
             );
           })}
