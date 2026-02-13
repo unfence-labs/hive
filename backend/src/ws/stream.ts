@@ -30,9 +30,23 @@ interface WorkspaceChannel {
   detachSession?: () => void;
 }
 
+const channels = new Map<string, WorkspaceChannel>();
+
+/** Send a message to all sockets connected to a workspace channel. */
+export function broadcastToWorkspace(workspaceId: string, msg: WsOutgoing): void {
+  const channel = channels.get(workspaceId);
+  if (!channel) return;
+  for (const socket of channel.sockets) {
+    sendOutgoing(socket, msg);
+  }
+}
+
+export function _getChannelsForTests(): Map<string, WorkspaceChannel> {
+  return channels;
+}
+
 export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptions = {}) {
   const { dataDir, sessionOptions, authToken } = opts;
-  const channels = new Map<string, WorkspaceChannel>();
 
   const getOrCreateChannel = (workspaceId: string): WorkspaceChannel => {
     const existing = channels.get(workspaceId);

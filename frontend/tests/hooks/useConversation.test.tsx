@@ -665,6 +665,28 @@ describe("useConversation", () => {
     ]);
   });
 
+  it("ignores unrecognized WS message types without corrupting state", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", streaming: true });
+    });
+
+    expect(result.current.workspaceStatus).toBe("busy");
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "branch_info",
+        info: { name: "feat/new", lastSyncedAt: "2026-02-13T00:00:00.000Z" },
+      } as any);
+    });
+
+    expect(result.current.workspaceStatus).toBe("busy");
+    expect(result.current.isStreaming).toBe(true);
+    expect(result.current.messages).toHaveLength(0);
+  });
+
   it("does nothing when switchSession is called without workspace id", async () => {
     const { __apiMock } = await getApiMock();
     const { result } = renderHook(() => useConversation(undefined));

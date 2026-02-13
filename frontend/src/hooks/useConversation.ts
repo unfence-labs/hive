@@ -173,6 +173,9 @@ function reducer(state: ConversationState, action: Action): ConversationState {
 
     case "reset":
       return initialState;
+
+    default:
+      return state;
   }
 }
 

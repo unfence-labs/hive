@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { MessageSquareIcon, RefreshCwIcon, TerminalSquareIcon } from "lucide-react";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
 import { useDiffStat } from "@/hooks/useDiffStat";
+import { useWorkspaceLiveData } from "@/hooks/useWorkspaceLiveData";
 import {
   FileTree,
   FileTreeFile,
@@ -14,6 +15,7 @@ import ChatConversation from "@/components/ChatConversation";
 import ChatInput from "@/components/ChatInput";
 import QuestionPanel from "@/components/chat/QuestionPanel";
 import { SessionSelector } from "@/components/SessionSelector";
+import { BranchLabel } from "@/components/BranchLabel";
 import { useTerminalContext } from "@/contexts/TerminalContext";
 import { GitDiffModal } from "@/components/diff/GitDiffModal";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
@@ -82,6 +84,11 @@ export default function WorkspaceView() {
 
   // Diff stats for the modified tab
   const { committed: diffCommitted, uncommitted: diffUncommitted, totalCount: diffTotalCount, loading: diffStatsLoading, refresh: refreshDiffStats } = useDiffStat(wsId);
+
+  // Live branch data via WebSocket
+  const liveWsIds = useMemo(() => (wsId ? [wsId] : []), [wsId]);
+  const liveData = useWorkspaceLiveData(liveWsIds);
+  const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
 
   const fetchWorkspace = useCallback(async () => {
     if (!wsId) {
@@ -241,7 +248,9 @@ export default function WorkspaceView() {
               {hasActiveSession ? "active" : "idle"}
             </Badge>
             <span className="truncate text-sm font-semibold text-foreground">{workspace?.projectName ?? workspace?.name}</span>
-            <span className="truncate text-xs text-muted-foreground">{workspace?.branch}</span>
+            {displayBranch && (
+              <BranchLabel branch={displayBranch} showIcon={false} className="text-xs text-muted-foreground" />
+            )}
             {workspace?.defaultBranch && (
               <span className="truncate text-xs text-muted-foreground/60">{"> origin/"}{workspace.defaultBranch}</span>
             )}

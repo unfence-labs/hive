@@ -9,8 +9,10 @@ import { streamRoutes } from "./ws/stream.js";
 import { terminalRoutes } from "./ws/terminal.js";
 import { createAuthHook } from "./utils/auth.js";
 import { createRateLimitHook } from "./utils/rate-limit.js";
-import { ensureDataDir } from "./state/state.js";
+import { ensureDataDir, getDataDir } from "./state/state.js";
 import type { SessionOptions } from "./agents/agent-manager.js";
+import { BranchSyncService } from "./services/branch-sync.js";
+import { broadcastToWorkspace } from "./ws/stream.js";
 
 const HOST = process.env.HOST ?? "127.0.0.1";
 const PORT = Number(process.env.PORT ?? 3000);
@@ -76,9 +78,22 @@ export async function buildApp() {
   return app;
 }
 
+const BRANCH_SYNC_INTERVAL_MS = 10_000;
+
 async function main() {
-  await ensureDataDir();
+  const dataDir = getDataDir();
+  await ensureDataDir(dataDir);
+
+  const branchSync = new BranchSyncService(dataDir);
+  branchSync.onBranchChange((wsId, info) => {
+    broadcastToWorkspace(wsId, { type: "branch_info", info });
+  });
+
   const app = await buildApp();
+
+  app.addHook("onClose", () => branchSync.stop());
+  branchSync.start(BRANCH_SYNC_INTERVAL_MS);
+
   await app.listen({ host: HOST, port: PORT });
 }
 

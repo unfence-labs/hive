@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { FolderPlus, GitBranch, Settings, TerminalSquareIcon } from "lucide-react";
+import { useMemo, useState } from "react";
+import { FolderPlus, Settings, TerminalSquareIcon } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,8 +8,9 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { wsTransport } from "@/lib/ws-transport";
 import { useTerminalContext } from "@/contexts/TerminalContext";
+import { useWorkspaceLiveData } from "@/hooks/useWorkspaceLiveData";
+import { BranchLabel } from "@/components/BranchLabel";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
 
@@ -59,38 +60,7 @@ export default function Sidebar({
   const { activeTerminals } = useTerminalContext();
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
-  const [liveWorkspaceStatus, setLiveWorkspaceStatus] = useState<
-    Record<string, { status: "idle" | "busy"; streaming: boolean }>
-  >({});
-
-  useEffect(() => {
-    const unsubscribers = workspaceIds.map((workspaceId) =>
-      wsTransport.onMessage(workspaceId, (msg) => {
-        if (msg.type !== "status") return;
-        setLiveWorkspaceStatus((prev) => {
-          const next = { status: msg.status, streaming: msg.streaming ?? false };
-          const current = prev[workspaceId];
-          if (current?.status === next.status && current.streaming === next.streaming) {
-            return prev;
-          }
-          return { ...prev, [workspaceId]: next };
-        });
-      }),
-    );
-
-    return () => {
-      for (const sub of unsubscribers) sub.unsubscribe();
-    };
-  }, [workspaceIds]);
-
-  useEffect(() => {
-    const workspaceIdSet = new Set(workspaceIds);
-    setLiveWorkspaceStatus((prev) =>
-      Object.fromEntries(
-        Object.entries(prev).filter(([workspaceId]) => workspaceIdSet.has(workspaceId)),
-      ),
-    );
-  }, [workspaceIds]);
+  const liveData = useWorkspaceLiveData(workspaceIds);
 
   const activeProjectId = projects.find((project) =>
     (project.workspaces ?? []).some((workspace) => workspace.id === activeWsId),
@@ -178,7 +148,9 @@ export default function Sidebar({
                     <CollapsibleContent>
                       <div className="mt-1 space-y-0.5">
                         {(project.workspaces ?? []).map((ws) => {
-                          const wsStreaming = liveWorkspaceStatus[ws.id]?.streaming ?? false;
+                          const wsLive = liveData[ws.id];
+                          const wsStreaming = wsLive?.streaming ?? false;
+                          const displayBranch = wsLive?.branch ?? ws.branch;
                           const hasTerminal = activeTerminals.has(ws.id);
                           return (
                             <Link
@@ -190,8 +162,7 @@ export default function Sidebar({
                               )}
                             >
                               <div className="flex items-center gap-1.5">
-                                <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                <span className="min-w-0 flex-1 truncate text-sm">{ws.branch}</span>
+                                <BranchLabel branch={displayBranch} className="min-w-0 flex-1 text-sm" />
                                 {hasTerminal && (
                                   <TerminalSquareIcon className="h-3 w-3 shrink-0 text-primary/70" />
                                 )}
