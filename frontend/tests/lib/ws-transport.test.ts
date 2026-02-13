@@ -50,6 +50,7 @@ describe("wsTransport", () => {
     vi.useFakeTimers();
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
     MockWebSocket.instances = [];
+    localStorage.removeItem("hive-server-url");
     delete import.meta.env.VITE_HIVE_AUTH_TOKEN;
     wsTransport.disconnectAll();
   });
@@ -77,6 +78,22 @@ describe("wsTransport", () => {
 
     expect(MockWebSocket.instances).toHaveLength(1);
     expect(MockWebSocket.instances[0]?.url).toContain("token=secret%20token");
+  });
+
+  it("uses configured server URL as websocket host", () => {
+    localStorage.setItem("hive-server-url", "http://127.0.0.1:9000");
+    wsTransport.connect("ws-1");
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(MockWebSocket.instances[0]?.url).toBe("ws://127.0.0.1:9000/ws/session/ws-1");
+  });
+
+  it("maps https configured server URL to wss websocket host", () => {
+    localStorage.setItem("hive-server-url", "https://api.example.com");
+    wsTransport.connect("ws-1");
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(MockWebSocket.instances[0]?.url).toBe("wss://api.example.com/ws/session/ws-1");
   });
 
   it("send returns false when socket is not open", () => {

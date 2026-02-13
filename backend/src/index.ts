@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
+import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import { projectRoutes } from "./api/projects.js";
 import { workspaceRoutes } from "./api/workspaces.js";
@@ -41,6 +42,7 @@ export async function buildApp() {
     skipPermissions: parseBoolean(process.env.HIVE_CLAUDE_SKIP_PERMISSIONS, true),
   };
   const app = Fastify({ logger: true });
+  await app.register(cors, { origin: true });
   await app.register(websocket);
 
   app.addHook("onRequest", createAuthHook(authToken));

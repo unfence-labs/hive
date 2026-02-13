@@ -1,9 +1,26 @@
+import { useState } from "react";
 import { Check } from "lucide-react";
 import { useAccentColor } from "@/hooks/useAccentColor";
+import { useServerUrl } from "@/hooks/useServerUrl";
+import { useVpsTarget } from "@/hooks/useVpsTarget";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+
+function getPortFromUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.port || (u.protocol === "https:" ? "443" : "80");
+  } catch {
+    return "3000";
+  }
+}
 
 export default function SettingsView() {
   const { accentId, setAccent, options } = useAccentColor();
+  const { serverUrl, setServerUrl } = useServerUrl();
+  const { vpsTarget, setVpsTarget } = useVpsTarget();
+  const [draft, setDraft] = useState(serverUrl || "http://localhost:3000");
+  const [vpsDraft, setVpsDraft] = useState(vpsTarget);
 
   return (
     <div className="flex h-full flex-col overflow-auto">
@@ -53,6 +70,62 @@ export default function SettingsView() {
                 </button>
               );
             })}
+          </div>
+        </section>
+
+        {/* Connection */}
+        <section>
+          <h2 className="mb-1 text-sm font-medium text-foreground">Connection</h2>
+          <p className="mb-4 text-xs text-muted-foreground">
+            Connect to a remote backend via SSH tunnel.
+          </p>
+
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                Local address
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onBlur={() => setServerUrl(draft)}
+                  onKeyDown={(e) => { if (e.key === "Enter") setServerUrl(draft); }}
+                  placeholder="http://localhost:3000"
+                  className="max-w-xs font-mono text-xs"
+                />
+                {draft !== (serverUrl || "http://localhost:3000") && (
+                  <span className="self-center text-[10px] text-muted-foreground">unsaved</span>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                VPS target
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  value={vpsDraft}
+                  onChange={(e) => setVpsDraft(e.target.value)}
+                  onBlur={() => setVpsTarget(vpsDraft)}
+                  onKeyDown={(e) => { if (e.key === "Enter") setVpsTarget(vpsDraft); }}
+                  placeholder="user@192.168.1.1"
+                  className="max-w-xs font-mono text-xs"
+                />
+                {vpsDraft !== vpsTarget && (
+                  <span className="self-center text-[10px] text-muted-foreground">unsaved</span>
+                )}
+              </div>
+              {vpsTarget && (
+                <p className="mt-1.5 text-[10px] text-muted-foreground">
+                  Run on your machine:{" "}
+                  <code className="rounded bg-muted px-1 py-0.5 font-mono text-foreground">
+                    ssh -L {getPortFromUrl(draft || "http://localhost:3000")}:localhost:{getPortFromUrl(draft || "http://localhost:3000")} {vpsTarget}
+                  </code>
+                </p>
+              )}
+            </div>
           </div>
         </section>
       </div>

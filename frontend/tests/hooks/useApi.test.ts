@@ -12,6 +12,7 @@ describe("api", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     delete import.meta.env.VITE_HIVE_AUTH_TOKEN;
+    localStorage.removeItem("hive-server-url");
   });
 
   it("parses JSON for successful GET requests", async () => {
@@ -31,6 +32,18 @@ describe("api", () => {
     const result = await api.delete<undefined>("/api/items/1");
 
     expect(result).toBeUndefined();
+  });
+
+  it("prefixes requests with configured server URL", async () => {
+    localStorage.setItem("hive-server-url", "http://127.0.0.1:9000");
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([{ id: 1 }]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.get("/api/items");
+
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:9000/api/items", {
+      headers: {},
+    });
   });
 
   it("sends JSON body and content-type on POST", async () => {

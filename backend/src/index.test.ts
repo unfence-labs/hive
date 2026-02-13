@@ -68,6 +68,34 @@ describe("buildApp", () => {
     expect(res.json().error).toContain("No active session");
   });
 
+  it("adds CORS headers for API requests with an Origin", async () => {
+    app = await buildApp();
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: { origin: "http://localhost:5173" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["access-control-allow-origin"]).toBe("http://localhost:5173");
+  });
+
+  it("responds to CORS preflight requests", async () => {
+    app = await buildApp();
+    const res = await app.inject({
+      method: "OPTIONS",
+      url: "/api/projects",
+      headers: {
+        origin: "http://localhost:5173",
+        "access-control-request-method": "GET",
+      },
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(res.headers["access-control-allow-origin"]).toBe("http://localhost:5173");
+    expect(res.headers["access-control-allow-methods"]).toContain("GET");
+  });
+
   it("requires auth for API routes when token is configured", async () => {
     process.env.HIVE_AUTH_TOKEN = "secret";
     app = await buildApp();
