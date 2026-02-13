@@ -4,8 +4,6 @@ import { cn } from "@/lib/utils";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { ToolCallList } from "@/components/chat/ToolCallList";
-import { CopyButton } from "@/components/chat/CopyButton";
-
 interface ChatMessageProps {
   message: ChatMessageType;
   isInteractive?: boolean;
@@ -24,7 +22,7 @@ const ChatMessage = memo(function ChatMessage({
   const isUser = message.role === "user";
 
   return (
-    <div className={cn("group flex w-full items-start gap-1", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn("flex w-full items-start", isUser ? "justify-end" : "justify-start")}>
       <div
         className={cn(
           "max-w-[85%] text-sm leading-relaxed",
@@ -60,9 +58,6 @@ const ChatMessage = memo(function ChatMessage({
           </>
         )}
       </div>
-      {!isUser && (
-        <CopyButton content={message.content} className="mt-0.5 shrink-0" />
-      )}
     </div>
   );
 });

@@ -292,6 +292,7 @@ export default function WorkspaceView() {
             <ChatConversation
               messages={messages}
               isStreaming={isStreaming}
+              isAwaitingResponse={pendingToolInputs.length > 0}
               currentStreamingText={currentStreamingText}
               currentThinking={currentThinking}
               activeToolCalls={activeToolCalls}
@@ -312,7 +313,6 @@ export default function WorkspaceView() {
                 onStop={stopStreaming}
                 disabled={false}
                 isStreaming={isStreaming}
-                isAwaitingResponse={pendingToolInputs.length > 0}
                 connectionStatus={connectionStatus}
               />
             )}

@@ -9,7 +9,6 @@ import {
   PromptInputTextarea,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
-import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import type { MessageOptions } from "@/types";
 import { cn } from "@/lib/utils";
 import { BrainIcon, BookOpenIcon, PlusIcon, SparklesIcon } from "lucide-react";
@@ -19,7 +18,6 @@ interface ChatInputProps {
   onStop: () => void;
   disabled: boolean;
   isStreaming: boolean;
-  isAwaitingResponse?: boolean;
   connectionStatus: "connecting" | "connected" | "disconnected";
 }
 
@@ -30,7 +28,6 @@ export default function ChatInput({
   onStop,
   disabled,
   isStreaming,
-  isAwaitingResponse = false,
   connectionStatus,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
@@ -54,12 +51,6 @@ export default function ChatInput({
 
   return (
     <div className="border-t border-border/30 bg-background p-4">
-      {(isStreaming || isAwaitingResponse) ? (
-        <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-          <AgentActivityPreview size="small" />
-          <span>{isAwaitingResponse ? "Awaiting response\u2026" : "Working\u2026"}</span>
-        </div>
-      ) : null}
       <PromptInput onSubmit={handleSubmit}>
         <PromptInputBody>
           <PromptInputTextarea

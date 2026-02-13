@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -5,15 +6,18 @@ import {
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import ChatMessage from "@/components/ChatMessage";
+import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { ToolCallList } from "@/components/chat/ToolCallList";
+import { CopyButton } from "@/components/chat/CopyButton";
 import type { ChatMessage as ChatMessageType, ToolCall, QuestionAnswer } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
 
 interface ChatConversationProps {
   messages: ChatMessageType[];
   isStreaming: boolean;
+  isAwaitingResponse?: boolean;
   currentStreamingText: string;
   currentThinking: string;
   activeToolCalls: ToolCall[];
@@ -26,6 +30,7 @@ interface ChatConversationProps {
 export default function ChatConversation({
   messages,
   isStreaming,
+  isAwaitingResponse = false,
   currentStreamingText,
   currentThinking,
   activeToolCalls,
@@ -34,6 +39,42 @@ export default function ChatConversation({
   onPlanApproval,
   onRejectToolInput,
 }: ChatConversationProps) {
+  const isActive = isStreaming || isAwaitingResponse;
+  const [elapsed, setElapsed] = useState(0);
+  const [finalElapsed, setFinalElapsed] = useState<number | null>(null);
+  const startRef = useRef(0);
+  const prevActiveRef = useRef(false);
+
+  useEffect(() => {
+    if (isActive) {
+      startRef.current = Date.now();
+      setElapsed(0);
+      setFinalElapsed(null);
+      const id = setInterval(() => setElapsed(Date.now() - startRef.current), 100);
+      return () => clearInterval(id);
+    }
+    // Just transitioned from active -> inactive: capture final time
+    if (prevActiveRef.current) {
+      setFinalElapsed(Date.now() - startRef.current);
+    }
+    prevActiveRef.current = false;
+    return;
+  }, [isActive]);
+
+  useEffect(() => {
+    prevActiveRef.current = isActive;
+  });
+
+  const formatElapsed = (ms: number) => {
+    const totalSec = ms / 1000;
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    const secStr = sec < 10 && min > 0
+      ? `0${sec.toFixed(1)}`
+      : sec.toFixed(1);
+    return min > 0 ? `${min}m ${secStr}s` : `${sec.toFixed(1)}s`;
+  };
+
   const hasContent = messages.length > 0 || isStreaming;
 
   // A message is interactive if it contains tool calls that match pending tool inputs.
@@ -97,6 +138,23 @@ export default function ChatConversation({
                 onRejectToolInput={onRejectToolInput}
               />
             </div>
+          </div>
+        )}
+
+        {/* Working status with elapsed timer */}
+        {isActive && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <AgentActivityPreview size="small" />
+            <span>{formatElapsed(elapsed)}</span>
+          </div>
+        )}
+
+        {/* Completed summary: elapsed time + copy */}
+        {!isActive && finalElapsed !== null && lastAssistantIdx >= 0 && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span>{formatElapsed(finalElapsed)}</span>
+            <span>·</span>
+            <CopyButton content={messages[lastAssistantIdx].content} />
           </div>
         )}
       </ConversationContent>
