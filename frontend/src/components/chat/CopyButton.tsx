@@ -26,8 +26,7 @@ export const CopyButton = memo(function CopyButton({
       size="icon-xs"
       onClick={handleCopy}
       className={cn(
-        "opacity-0 transition-opacity group-hover:opacity-100",
-        copied && "opacity-100",
+        "transition-opacity",
         className,
       )}
       aria-label={copied ? "Copied" : "Copy message"}

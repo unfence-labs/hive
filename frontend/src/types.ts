@@ -53,6 +53,7 @@ export interface ChatMessage {
   thinkingContent?: string;
   timestamp: string;
   cancelled?: boolean;
+  durationMs?: number;
 }
 
 // ── Question / Plan types (for AskUserQuestion & ExitPlanMode tools) ─
@@ -145,7 +146,7 @@ export type WsOutgoing =
   | { type: "tool_use"; id: string; name: string; input: string }
   | { type: "tool_result"; toolUseId: string; output: string }
   | { type: "tool_input_required"; requestId: string; toolName: string; toolUseId: string; input: unknown }
-  | { type: "done"; sessionId?: string; costUsd?: number }
+  | { type: "done"; sessionId?: string; costUsd?: number; durationMs?: number }
   | { type: "error"; message: string }
   | { type: "cancelled" }
   | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean }

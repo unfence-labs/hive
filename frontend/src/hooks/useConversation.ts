@@ -90,6 +90,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         toolCalls: state.activeToolCalls.length > 0 ? state.activeToolCalls : undefined,
         thinkingContent: state.currentThinking || undefined,
         timestamp: new Date().toISOString(),
+        durationMs: action.durationMs,
       };
       return {
         ...state,

@@ -1,6 +1,7 @@
 import { memo } from "react";
 import type { ChatMessage as ChatMessageType, QuestionAnswer } from "@/types";
 import { cn } from "@/lib/utils";
+import { formatElapsed } from "@/lib/time";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { ToolCallList } from "@/components/chat/ToolCallList";
@@ -24,7 +25,7 @@ const ChatMessage = memo(function ChatMessage({
   const isUser = message.role === "user";
 
   return (
-    <div className={cn("group flex w-full items-start gap-1", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn("flex w-full items-start", isUser ? "justify-end" : "justify-start")}>
       <div
         className={cn(
           "max-w-[85%] text-sm leading-relaxed",
@@ -57,12 +58,16 @@ const ChatMessage = memo(function ChatMessage({
                 (cancelled)
               </div>
             )}
+            {message.durationMs != null && (
+              <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span>{formatElapsed(message.durationMs)}</span>
+                <span>·</span>
+                <CopyButton content={message.content} />
+              </div>
+            )}
           </>
         )}
       </div>
-      {!isUser && (
-        <CopyButton content={message.content} className="mt-0.5 shrink-0" />
-      )}
     </div>
   );
 });

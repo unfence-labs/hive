@@ -167,6 +167,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let assistantText = "";
     let thinkingText = "";
     const toolCalls: ToolCall[] = [];
+    let resultDurationMs: number | undefined;
 
     // Track blocking tools detected in the stream so the close handler can emit
     // tool_input_required events. We kill the process immediately when we see one
@@ -226,6 +227,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       if (data.session_id && !this.claudeSessionId) {
         this.claudeSessionId = data.session_id;
         this._metadata.claudeSessionId = data.session_id;
+      }
+      if (data.duration_ms != null) {
+        resultDurationMs = data.duration_ms;
       }
       // done event is emitted on process close (after flush)
     });
@@ -287,6 +291,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           thinkingContent: thinkingText || undefined,
           timestamp: new Date().toISOString(),
           cancelled: wasCancelled || undefined,
+          durationMs: resultDurationMs,
         };
         void this.enqueuePersist(assistantMsg);
       }
@@ -314,6 +319,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           this.emit("message", {
             type: "done",
             sessionId: this.claudeSessionId,
+            durationMs: resultDurationMs,
           });
         }
 

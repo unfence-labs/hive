@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -5,15 +6,18 @@ import {
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import ChatMessage from "@/components/ChatMessage";
+import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { ToolCallList } from "@/components/chat/ToolCallList";
+import { formatElapsed } from "@/lib/time";
 import type { ChatMessage as ChatMessageType, ToolCall, QuestionAnswer } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
 
 interface ChatConversationProps {
   messages: ChatMessageType[];
   isStreaming: boolean;
+  isAwaitingResponse?: boolean;
   currentStreamingText: string;
   currentThinking: string;
   activeToolCalls: ToolCall[];
@@ -26,6 +30,7 @@ interface ChatConversationProps {
 export default function ChatConversation({
   messages,
   isStreaming,
+  isAwaitingResponse = false,
   currentStreamingText,
   currentThinking,
   activeToolCalls,
@@ -34,6 +39,21 @@ export default function ChatConversation({
   onPlanApproval,
   onRejectToolInput,
 }: ChatConversationProps) {
+  const isActive = isStreaming || isAwaitingResponse;
+  const [elapsed, setElapsed] = useState(0);
+  const startRef = useRef(0);
+
+  useEffect(() => {
+    if (!isActive) {
+      setElapsed(0);
+      return;
+    }
+    startRef.current = Date.now();
+    setElapsed(0);
+    const id = setInterval(() => setElapsed(Date.now() - startRef.current), 100);
+    return () => clearInterval(id);
+  }, [isActive]);
+
   const hasContent = messages.length > 0 || isStreaming;
 
   // A message is interactive if it contains tool calls that match pending tool inputs.
@@ -97,6 +117,14 @@ export default function ChatConversation({
                 onRejectToolInput={onRejectToolInput}
               />
             </div>
+          </div>
+        )}
+
+        {/* Live elapsed timer while streaming */}
+        {isActive && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <AgentActivityPreview size="small" />
+            <span>{formatElapsed(elapsed)}</span>
           </div>
         )}
       </ConversationContent>
