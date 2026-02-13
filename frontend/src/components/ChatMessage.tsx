@@ -1,9 +1,12 @@
 import { memo } from "react";
 import type { ChatMessage as ChatMessageType, QuestionAnswer } from "@/types";
 import { cn } from "@/lib/utils";
+import { formatElapsed } from "@/lib/time";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { ToolCallList } from "@/components/chat/ToolCallList";
+import { CopyButton } from "@/components/chat/CopyButton";
+
 interface ChatMessageProps {
   message: ChatMessageType;
   isInteractive?: boolean;
@@ -53,6 +56,13 @@ const ChatMessage = memo(function ChatMessage({
             {message.cancelled && (
               <div className="mt-2 text-xs italic text-muted-foreground">
                 (cancelled)
+              </div>
+            )}
+            {message.durationMs != null && (
+              <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span>{formatElapsed(message.durationMs)}</span>
+                <span>·</span>
+                <CopyButton content={message.content} />
               </div>
             )}
           </>
