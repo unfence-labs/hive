@@ -111,6 +111,53 @@ describe("buildApp", () => {
     expect(res.headers["access-control-allow-methods"]).toContain("DELETE");
   });
 
+  it("allows PATCH in CORS preflight", async () => {
+    app = await buildApp();
+    const res = await app.inject({
+      method: "OPTIONS",
+      url: "/api/projects",
+      headers: {
+        origin: "http://localhost:5173",
+        "access-control-request-method": "PATCH",
+      },
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(res.headers["access-control-allow-methods"]).toContain("PATCH");
+  });
+
+  it("allows PUT in CORS preflight", async () => {
+    app = await buildApp();
+    const res = await app.inject({
+      method: "OPTIONS",
+      url: "/api/projects",
+      headers: {
+        origin: "http://localhost:5173",
+        "access-control-request-method": "PUT",
+      },
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(res.headers["access-control-allow-methods"]).toContain("PUT");
+  });
+
+  it("includes all standard HTTP methods in CORS allowed methods", async () => {
+    app = await buildApp();
+    const res = await app.inject({
+      method: "OPTIONS",
+      url: "/api/projects",
+      headers: {
+        origin: "http://localhost:5173",
+        "access-control-request-method": "GET",
+      },
+    });
+
+    const allowed = res.headers["access-control-allow-methods"] as string;
+    for (const method of ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"]) {
+      expect(allowed).toContain(method);
+    }
+  });
+
   it("requires auth for API routes when token is configured", async () => {
     process.env.HIVE_AUTH_TOKEN = "secret";
     app = await buildApp();

@@ -373,6 +373,62 @@ describe("hardDeleteSession", () => {
     expect(ws.status).toBe("idle");
     expect(ws.activeSessionId).toBeUndefined();
   });
+
+  it("removes session directory from disk after deleting active session", async () => {
+    const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const sessionDir = join(dataDir, projectId, "sessions", session.sessionId);
+
+    // Write fixture files so the session dir exists on disk
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "metadata.json"), JSON.stringify({
+      sessionId: session.sessionId,
+      workspaceId: wsId,
+      createdAt: "2026-02-12T00:00:00.000Z",
+      updatedAt: "2026-02-12T00:00:01.000Z",
+      messageCount: 0,
+    }), "utf-8");
+
+    await expect(stat(sessionDir)).resolves.toBeDefined();
+
+    await hardDeleteSession(wsId, session.sessionId, dataDir);
+
+    // Directory must be gone
+    await expect(stat(sessionDir)).rejects.toThrow();
+  });
+
+  it("does not throw when deleting a session with no files on disk", async () => {
+    // Use rm with force: true — deleting a non-existent session should not throw
+    await expect(
+      hardDeleteSession(wsId, "nonexistent-session-id", dataDir),
+    ).resolves.toBeUndefined();
+  });
+
+  it("allows creating a new session after hard deleting the active one", async () => {
+    const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    await hardDeleteSession(wsId, session.sessionId, dataDir);
+
+    const { session: newSession, created } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    expect(created).toBe(true);
+    expect(newSession.sessionId).not.toBe(session.sessionId);
+
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId)!;
+    expect(ws.status).toBe("busy");
+    expect(ws.activeSessionId).toBe(newSession.sessionId);
+  });
+
+  it("serializes concurrent hard-deletes for the same workspace", async () => {
+    await writeSessionFixture("sess-a", wsId);
+    await writeSessionFixture("sess-b", wsId);
+
+    await Promise.all([
+      hardDeleteSession(wsId, "sess-a", dataDir),
+      hardDeleteSession(wsId, "sess-b", dataDir),
+    ]);
+
+    const sessions = await listWorkspaceSessions(wsId, dataDir);
+    expect(sessions).toEqual([]);
+  });
 });
 
 describe("getSpecificSessionMessages", () => {
