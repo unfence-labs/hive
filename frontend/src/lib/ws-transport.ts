@@ -62,6 +62,15 @@ class WsTransport {
     }
   }
 
+  /** Clear cached status/history for a workspace (e.g. after session deletion). */
+  clearCachedData(workspaceId: string): void {
+    const connection = this.connections.get(workspaceId);
+    if (!connection) return;
+    connection.lastStatus = undefined;
+    connection.lastHistory = undefined;
+    connection.messageBuffer = [];
+  }
+
   /** Disconnect one workspace and stop reconnecting. */
   disconnect(workspaceId: string): void {
     const connection = this.connections.get(workspaceId);

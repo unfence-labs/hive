@@ -96,6 +96,21 @@ describe("buildApp", () => {
     expect(res.headers["access-control-allow-methods"]).toContain("GET");
   });
 
+  it("allows DELETE in CORS preflight", async () => {
+    app = await buildApp();
+    const res = await app.inject({
+      method: "OPTIONS",
+      url: "/api/workspaces/test-ws/sessions/test-session",
+      headers: {
+        origin: "http://localhost:5173",
+        "access-control-request-method": "DELETE",
+      },
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(res.headers["access-control-allow-methods"]).toContain("DELETE");
+  });
+
   it("requires auth for API routes when token is configured", async () => {
     process.env.HIVE_AUTH_TOKEN = "secret";
     app = await buildApp();

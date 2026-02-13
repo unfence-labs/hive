@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { wsTransport } from "@/lib/ws-transport";
 import type { Workspace, WorkspaceFileTreeNode } from "@/types";
 
 const DEFAULT_EXPANDED = new Set<string>();
@@ -198,12 +199,15 @@ export default function WorkspaceView() {
 
   const handleDeleteSession = useCallback(async (targetSessionId: string) => {
     const isActive = targetSessionId === sessionId;
-    await deleteSession(targetSessionId);
+    const success = await deleteSession(targetSessionId);
+    if (!success) return;
+
     if (isActive) {
       clearChat();
+      if (wsId) wsTransport.clearCachedData(wsId);
       await fetchWorkspace();
     }
-  }, [deleteSession, sessionId, clearChat, fetchWorkspace]);
+  }, [deleteSession, sessionId, clearChat, fetchWorkspace, wsId]);
 
   const handleModifiedFileClick = useCallback((filePath: string) => {
     setDiffModalFile(filePath);
