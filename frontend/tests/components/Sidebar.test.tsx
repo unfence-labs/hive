@@ -1,8 +1,10 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
+import { useEffect } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
+import { TerminalProvider, useTerminalContext } from "@/contexts/TerminalContext";
 import type { Project, WsOutgoing } from "@/types";
 
 vi.mock("@/lib/ws-transport", () => {
@@ -47,34 +49,50 @@ const getWsMock = async () =>
     };
   };
 
-function renderSidebar(path: string, projects: Project[], onAddWorkspace = vi.fn()) {
+function ActivateTerminals({ workspaceIds }: { workspaceIds: string[] }) {
+  const { openTerminal } = useTerminalContext();
+  useEffect(() => {
+    for (const workspaceId of workspaceIds) openTerminal(workspaceId);
+  }, [workspaceIds, openTerminal]);
+  return null;
+}
+
+function renderSidebar(
+  path: string,
+  projects: Project[],
+  onAddWorkspace = vi.fn(),
+  activeTerminalWorkspaceIds: string[] = [],
+) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route
-          path="/projects"
-          element={
-            <Sidebar
-              projects={projects}
-              loading={false}
-              onAddProject={vi.fn()}
-              onAddWorkspace={onAddWorkspace}
-            />
-          }
-        />
-        <Route
-          path="/workspaces/:wsId"
-          element={
-            <Sidebar
-              projects={projects}
-              loading={false}
-              onAddProject={vi.fn()}
-              onAddWorkspace={onAddWorkspace}
-            />
-          }
-        />
-      </Routes>
-    </MemoryRouter>,
+    <TerminalProvider>
+      <ActivateTerminals workspaceIds={activeTerminalWorkspaceIds} />
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route
+            path="/projects"
+            element={
+              <Sidebar
+                projects={projects}
+                loading={false}
+                onAddProject={vi.fn()}
+                onAddWorkspace={onAddWorkspace}
+              />
+            }
+          />
+          <Route
+            path="/workspaces/:wsId"
+            element={
+              <Sidebar
+                projects={projects}
+                loading={false}
+                onAddProject={vi.fn()}
+                onAddWorkspace={onAddWorkspace}
+              />
+            }
+          />
+        </Routes>
+      </MemoryRouter>
+    </TerminalProvider>,
   );
 }
 
@@ -159,5 +177,17 @@ describe("Sidebar", () => {
 
     expect(screen.queryByText("working...")).not.toBeInTheDocument();
     expect(screen.getByText("tokyo")).toBeInTheDocument();
+  });
+
+  it("shows terminal badge icon for workspaces with an active terminal", () => {
+    renderSidebar("/workspaces/w1", projects, vi.fn(), ["w1"]);
+    const workspaceLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
+    expect(workspaceLink.querySelectorAll("svg")).toHaveLength(2);
+  });
+
+  it("does not show terminal badge icon when workspace has no active terminal", () => {
+    renderSidebar("/workspaces/w1", projects);
+    const workspaceLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
+    expect(workspaceLink.querySelectorAll("svg")).toHaveLength(1);
   });
 });
