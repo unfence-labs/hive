@@ -21,18 +21,18 @@ function renderChatInput(overrides?: Partial<ComponentProps<typeof ChatInput>>) 
 }
 
 describe("ChatInput", () => {
-  it("does not render working indicator when not streaming", () => {
+  it("does not render legacy status labels", () => {
     renderChatInput();
 
     expect(screen.queryByText("Working…")).not.toBeInTheDocument();
-    expect(screen.queryByRole("img", { name: "Agent thinking loader small" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Awaiting response…")).not.toBeInTheDocument();
   });
 
-  it("renders awaiting response indicator when waiting on backend", () => {
-    renderChatInput({ isAwaitingResponse: true });
+  it("keeps the submit button in send mode when idle", () => {
+    renderChatInput();
 
-    expect(screen.getByText("Awaiting response…")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Agent thinking loader small" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
   });
 
   it("sends message on Send button click", async () => {
@@ -93,8 +93,8 @@ describe("ChatInput", () => {
     const user = userEvent.setup();
     const { onStop } = renderChatInput({ isStreaming: true });
 
-    expect(screen.getByText("Working…")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Agent thinking loader small" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Send a message...")).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "Stop" }));
 

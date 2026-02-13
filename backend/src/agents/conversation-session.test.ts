@@ -55,6 +55,17 @@ function assistantLine(text: string, toolUse?: { id: string; name: string; input
   return JSON.stringify({ type: "assistant", message: { id: "msg-1", role: "assistant", content } }) + "\n";
 }
 
+function assistantToolUseLine(toolUse: { id: string; name: string; input: unknown }): string {
+  return JSON.stringify({
+    type: "assistant",
+    message: {
+      id: "msg-1",
+      role: "assistant",
+      content: [{ type: "tool_use", ...toolUse }],
+    },
+  }) + "\n";
+}
+
 function userLine(toolResults: Array<{ tool_use_id: string; content: string }>): string {
   return JSON.stringify({
     type: "user",
@@ -290,6 +301,42 @@ describe("ConversationSession", () => {
       toolUseId: "toolu_abc",
       output: "file contents",
     });
+  });
+
+  it("assigns parentToolUseId for nested Task sub-tools and clears it when tasks complete", () => {
+    const session = createSession();
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Run nested tools");
+
+    mockProc._stdout.push(
+      assistantToolUseLine({ id: "task-root", name: "Task", input: { prompt: "Root task" } }),
+    );
+    mockProc._stdout.push(
+      assistantToolUseLine({ id: "task-child", name: "Task", input: { prompt: "Child task" } }),
+    );
+    mockProc._stdout.push(
+      assistantToolUseLine({ id: "read-child", name: "Read", input: { file_path: "/tmp/a.ts" } }),
+    );
+    mockProc._stdout.push(userLine([{ tool_use_id: "read-child", content: "read done" }]));
+    mockProc._stdout.push(userLine([{ tool_use_id: "task-child", content: "child done" }]));
+    mockProc._stdout.push(
+      assistantToolUseLine({ id: "grep-root", name: "Grep", input: { pattern: "TODO" } }),
+    );
+    mockProc._stdout.push(userLine([{ tool_use_id: "grep-root", content: "grep done" }]));
+    mockProc._stdout.push(userLine([{ tool_use_id: "task-root", content: "root done" }]));
+    mockProc._stdout.push(
+      assistantToolUseLine({ id: "bash-plain", name: "Bash", input: { command: "pwd" } }),
+    );
+
+    const toolUses = messages.filter((m) => m.type === "tool_use");
+    expect(toolUses).toHaveLength(5);
+    expect(toolUses[0]).toMatchObject({ id: "task-root", parentToolUseId: undefined });
+    expect(toolUses[1]).toMatchObject({ id: "task-child", parentToolUseId: "task-root" });
+    expect(toolUses[2]).toMatchObject({ id: "read-child", parentToolUseId: "task-child" });
+    expect(toolUses[3]).toMatchObject({ id: "grep-root", parentToolUseId: "task-root" });
+    expect(toolUses[4]).toMatchObject({ id: "bash-plain", parentToolUseId: undefined });
   });
 
   it("emits thinking events", () => {

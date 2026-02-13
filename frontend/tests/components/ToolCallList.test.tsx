@@ -211,4 +211,111 @@ describe("ToolCallList", () => {
 
     expect(screen.getByText("1 tool call, 2 subagents")).toBeInTheDocument();
   });
+
+  it("counts only root tools in collapsed summary when sub-tools are nested under a Task", () => {
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "task-root",
+            name: "Task",
+            input: JSON.stringify({ subagent_type: "Explore", prompt: "Inspect the repo" }),
+          }),
+          tool({
+            id: "child-read",
+            name: "Read",
+            parentToolUseId: "task-root",
+            input: JSON.stringify({ file_path: "/a.ts" }),
+          }),
+          tool({
+            id: "child-grep",
+            name: "Grep",
+            parentToolUseId: "task-root",
+            input: JSON.stringify({ pattern: "TODO" }),
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("1 subagent")).toBeInTheDocument();
+    expect(screen.queryByText("2 tool calls, 1 subagent")).not.toBeInTheDocument();
+  });
+
+  it("keeps Task children and prompt collapsed by default, then reveals them on demand", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "task-root",
+            name: "Task",
+            input: JSON.stringify({
+              subagent_type: "Explore",
+              description: "Scan files",
+              prompt: "Look into src/lib and summarize changes.",
+            }),
+          }),
+          tool({
+            id: "child-read",
+            name: "Read",
+            parentToolUseId: "task-root",
+            input: JSON.stringify({ file_path: "/src/lib/index.ts" }),
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.queryByText("Read")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Prompt" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Task \(Explore\)/i }));
+
+    expect(screen.getByText("Read")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Prompt" })).toBeInTheDocument();
+    expect(screen.queryByText("Look into src/lib and summarize changes.")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Prompt" }));
+
+    expect(screen.getByText("Look into src/lib and summarize changes.")).toBeInTheDocument();
+  });
+
+  it("renders nested Task trees recursively", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolCallList
+        showExecutingState
+        toolCalls={[
+          tool({
+            id: "task-root",
+            name: "Task",
+            input: JSON.stringify({ subagent_type: "Explore", prompt: "Root prompt" }),
+          }),
+          tool({
+            id: "task-child",
+            name: "Task",
+            parentToolUseId: "task-root",
+            input: JSON.stringify({ subagent_type: "Plan", prompt: "Child prompt" }),
+          }),
+          tool({
+            id: "bash-grandchild",
+            name: "Bash",
+            parentToolUseId: "task-child",
+            input: JSON.stringify({ command: "ls -la" }),
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Task \(Explore\)/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Task \(Plan\)/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Task \(Explore\)/i }));
+
+    expect(screen.getByRole("button", { name: /Task \(Plan\)/i })).toBeInTheDocument();
+    expect(screen.queryByText("Bash")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Task \(Plan\)/i }));
+
+    expect(screen.getByText("Bash")).toBeInTheDocument();
+  });
 });

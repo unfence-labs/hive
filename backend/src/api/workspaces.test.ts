@@ -84,8 +84,11 @@ describe("GET /api/workspaces/:wsId", () => {
     });
     const wsId = createRes.json().id;
     const res = await app.inject({ method: "GET", url: `/api/workspaces/${wsId}` });
+    const project = await loadProject(projectId, dataDir);
     expect(res.statusCode).toBe(200);
     expect(res.json().id).toBe(wsId);
+    expect(res.json().projectName).toBe(project?.name);
+    expect(res.json().defaultBranch).toBe("main");
   });
 
   it("returns 404 for non-existent workspace", async () => {

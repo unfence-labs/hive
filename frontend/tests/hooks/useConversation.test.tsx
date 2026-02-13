@@ -250,6 +250,52 @@ describe("useConversation", () => {
     expect(result.current.sessionId).toBe("sess-1");
   });
 
+  it("preserves parentToolUseId from tool_use events in active and persisted tool calls", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "run nested task",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", {
+        type: "tool_use",
+        id: "task-1",
+        name: "Task",
+        input: JSON.stringify({ prompt: "root" }),
+      });
+      __wsMock.emit("ws-1", {
+        type: "tool_use",
+        id: "read-1",
+        name: "Read",
+        input: JSON.stringify({ file_path: "/tmp/a.ts" }),
+        parentToolUseId: "task-1",
+      });
+    });
+
+    expect(result.current.activeToolCalls).toEqual([
+      expect.objectContaining({ id: "task-1", parentToolUseId: undefined }),
+      expect.objectContaining({ id: "read-1", parentToolUseId: "task-1" }),
+    ]);
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
+    });
+
+    const assistant = result.current.messages.at(-1);
+    expect(assistant?.toolCalls).toEqual([
+      expect.objectContaining({ id: "task-1", parentToolUseId: undefined }),
+      expect.objectContaining({ id: "read-1", parentToolUseId: "task-1" }),
+    ]);
+  });
+
   it("marks assistant output as cancelled when cancelled event is received", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));
