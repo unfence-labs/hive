@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { rm } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { createProject } from "../projects/project-manager.js";
@@ -7,8 +7,8 @@ import { createWorkspace } from "../workspaces/workspace-manager.js";
 import { git } from "../utils/git.js";
 import { loadProject } from "../state/state.js";
 import { workspacesDir } from "../utils/paths.js";
-import { getBranchName, BranchSyncService } from "./branch-sync.js";
-import type { BranchInfo } from "../types.js";
+import { getBranchName, GitSyncService } from "./git-sync.js";
+import type { BranchInfo, DiffStatResponse } from "../types.js";
 
 let tempDir: string;
 let dataDir: string;
@@ -16,7 +16,7 @@ let fixtureRepoUrl: string;
 let projectId: string;
 
 beforeEach(async () => {
-  tempDir = await createTempDir("hive-branch-sync-test-");
+  tempDir = await createTempDir("hive-git-sync-test-");
   dataDir = join(tempDir, "data");
   const fixtureDir = join(tempDir, "fixtures");
   const { mkdir } = await import("node:fs/promises");
@@ -47,11 +47,11 @@ describe("getBranchName", () => {
   });
 });
 
-describe("BranchSyncService", () => {
-  let service: BranchSyncService;
+describe("GitSyncService", () => {
+  let service: GitSyncService;
 
   beforeEach(() => {
-    service = new BranchSyncService(dataDir);
+    service = new GitSyncService(dataDir);
   });
 
   afterEach(() => {
@@ -165,5 +165,64 @@ describe("BranchSyncService", () => {
 
     expect(workspace1!.branch).toBe("only-ws1-changed");
     expect(workspace2!.branch).toBe(`workspace/${ws2.name}`);
+  });
+
+  // ── Diff stats syncing ──────────────────────────────────────────────
+
+  it("emits onDiffStatsChange when uncommitted files change", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(workspacesDir(dataDir, projectId), ws.name);
+
+    let callbackStats: DiffStatResponse | undefined;
+    service.onDiffStatsChange((_wsId, stats) => {
+      callbackStats = stats;
+    });
+
+    // First poll — baseline (clean worktree, no diff)
+    await service.poll();
+
+    // Create an uncommitted change
+    callbackStats = undefined;
+    await writeFile(join(wsPath, "new-file.txt"), "hello\n");
+
+    await service.poll();
+
+    expect(callbackStats).toBeDefined();
+    expect(callbackStats!.uncommitted.length).toBeGreaterThan(0);
+    const newFile = callbackStats!.uncommitted.find((f) => f.file === "new-file.txt");
+    expect(newFile).toBeDefined();
+  });
+
+  it("does NOT emit onDiffStatsChange on second poll with no changes", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(workspacesDir(dataDir, projectId), ws.name);
+
+    // Create an uncommitted change
+    await writeFile(join(wsPath, "stable-file.txt"), "stable\n");
+
+    let callCount = 0;
+    service.onDiffStatsChange(() => {
+      callCount++;
+    });
+
+    await service.poll();
+    expect(callCount).toBe(1);
+
+    // Second poll — nothing changed
+    await service.poll();
+    expect(callCount).toBe(1);
+  });
+
+  it("handles deleted worktree for diff stats without crashing", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(workspacesDir(dataDir, projectId), ws.name);
+
+    // First poll to populate cache
+    await service.poll();
+
+    // Delete worktree
+    await rm(wsPath, { recursive: true, force: true });
+
+    await expect(service.poll()).resolves.not.toThrow();
   });
 });

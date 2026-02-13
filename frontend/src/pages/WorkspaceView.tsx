@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { MessageSquareIcon, RefreshCwIcon, TerminalSquareIcon } from "lucide-react";
+import { MessageSquareIcon, TerminalSquareIcon } from "lucide-react";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
-import { useDiffStat } from "@/hooks/useDiffStat";
 import { useWorkspaceLiveData } from "@/hooks/useWorkspaceLiveData";
 import {
   FileTree,
@@ -83,13 +82,20 @@ export default function WorkspaceView() {
   const [diffModalOpen, setDiffModalOpen] = useState(false);
   const [diffModalFile, setDiffModalFile] = useState<string | undefined>();
 
-  // Diff stats for the modified tab
-  const { committed: diffCommitted, uncommitted: diffUncommitted, totalCount: diffTotalCount, loading: diffStatsLoading, refresh: refreshDiffStats } = useDiffStat(wsId);
-
-  // Live branch data via WebSocket
+  // Live data via WebSocket (branch + diff stats)
   const liveWsIds = useMemo(() => (wsId ? [wsId] : []), [wsId]);
   const liveData = useWorkspaceLiveData(liveWsIds);
   const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
+
+  // Diff stats from WebSocket polling
+  const diffCommitted = (wsId ? liveData[wsId]?.diffStats?.committed : undefined) ?? [];
+  const diffUncommitted = (wsId ? liveData[wsId]?.diffStats?.uncommitted : undefined) ?? [];
+  const diffTotalCount = useMemo(() => {
+    const files = new Set<string>();
+    for (const f of diffCommitted) files.add(f.file);
+    for (const f of diffUncommitted) files.add(f.file);
+    return files.size;
+  }, [diffCommitted, diffUncommitted]);
 
   const fetchWorkspace = useCallback(async () => {
     if (!wsId) {
@@ -173,15 +179,14 @@ export default function WorkspaceView() {
     }
   }, [view, wsId, activeTerminals]);
 
-  // Refresh diff stats and session list when streaming stops
+  // Refresh session list when streaming stops
   const prevStreamingRef = useRef(isStreaming);
   useEffect(() => {
     if (prevStreamingRef.current && !isStreaming) {
-      refreshDiffStats();
       refreshSessions();
     }
     prevStreamingRef.current = isStreaming;
-  }, [isStreaming, refreshDiffStats, refreshSessions]);
+  }, [isStreaming, refreshSessions]);
 
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();
@@ -374,24 +379,12 @@ export default function WorkspaceView() {
                 </Badge>
               )}
             </button>
-            {sidebarTab === "modified" && (
-              <button
-                type="button"
-                className="ml-auto rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                onClick={refreshDiffStats}
-                aria-label="Refresh changes"
-                title="Refresh changes"
-              >
-                <RefreshCwIcon className={cn("size-3.5", diffStatsLoading && "animate-spin")} />
-              </button>
-            )}
           </div>
           <div className="min-h-0 flex-1 overflow-auto p-3">
             {sidebarTab === "modified" && (
               <ModifiedFileList
                 committed={diffCommitted}
                 uncommitted={diffUncommitted}
-                loading={diffStatsLoading}
                 onFileClick={handleModifiedFileClick}
               />
             )}

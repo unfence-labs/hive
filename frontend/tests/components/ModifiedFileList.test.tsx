@@ -15,25 +15,11 @@ function stat(overrides: Partial<DiffFileStat>): DiffFileStat {
 }
 
 describe("ModifiedFileList", () => {
-  it("renders loading state", () => {
-    render(
-      <ModifiedFileList
-        committed={[]}
-        uncommitted={[]}
-        loading
-        onFileClick={() => {}}
-      />,
-    );
-
-    expect(screen.getByText("Loading...")).toBeInTheDocument();
-  });
-
   it("renders empty state when there are no changes", () => {
     render(
       <ModifiedFileList
         committed={[]}
         uncommitted={[]}
-        loading={false}
         onFileClick={() => {}}
       />,
     );
@@ -67,7 +53,6 @@ describe("ModifiedFileList", () => {
             status: "deleted",
           }),
         ]}
-        loading={false}
         onFileClick={onFileClick}
       />,
     );

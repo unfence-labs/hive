@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { wsTransport } from "@/lib/ws-transport";
-import type { BranchInfo } from "@/types";
+import type { BranchInfo, DiffStatResponse } from "@/types";
 
 export interface WorkspaceLiveData {
   status?: "idle" | "busy";
   streaming?: boolean;
   branch?: string;
   branchInfo?: BranchInfo;
+  diffStats?: DiffStatResponse;
 }
 
 export function useWorkspaceLiveData(
@@ -47,6 +48,14 @@ export function useWorkspaceLiveData(
               },
             };
           });
+        } else if (msg.type === "diff_stats") {
+          setLiveData((prev) => ({
+            ...prev,
+            [wsId]: {
+              ...prev[wsId],
+              diffStats: msg.stats,
+            },
+          }));
         }
       }),
     );

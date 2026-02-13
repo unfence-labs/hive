@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   useConversation: vi.fn(),
   useSessions: vi.fn(),
-  useDiffStat: vi.fn(),
   useWorkspaceLiveData: vi.fn().mockReturnValue({}),
   sendMessage: vi.fn(),
   stopStreaming: vi.fn(),
@@ -25,7 +24,6 @@ const mocks = vi.hoisted(() => ({
   activateSession: vi.fn(),
   deleteSession: vi.fn(),
   refreshSessions: vi.fn(),
-  refreshDiffStat: vi.fn(),
   clearCachedData: vi.fn(),
 }));
 
@@ -39,10 +37,6 @@ vi.mock("@/hooks/useConversation", () => ({
 
 vi.mock("@/hooks/useSessions", () => ({
   useSessions: mocks.useSessions,
-}));
-
-vi.mock("@/hooks/useDiffStat", () => ({
-  useDiffStat: mocks.useDiffStat,
 }));
 
 vi.mock("@/hooks/useWorkspaceLiveData", () => ({
@@ -181,7 +175,6 @@ describe("WorkspaceView terminal behavior", () => {
     mocks.apiGet.mockReset();
     mocks.useConversation.mockReset();
     mocks.useSessions.mockReset();
-    mocks.useDiffStat.mockReset();
     mocks.sendMessage.mockReset();
     mocks.stopStreaming.mockReset();
     mocks.clearChat.mockReset();
@@ -194,7 +187,6 @@ describe("WorkspaceView terminal behavior", () => {
     mocks.activateSession.mockReset();
     mocks.deleteSession.mockReset();
     mocks.refreshSessions.mockReset();
-    mocks.refreshDiffStat.mockReset();
     mocks.clearCachedData.mockReset();
     mocks.useWorkspaceLiveData.mockReset();
     mocks.useWorkspaceLiveData.mockReturnValue({});
@@ -236,14 +228,6 @@ describe("WorkspaceView terminal behavior", () => {
       refresh: mocks.refreshSessions,
     });
 
-    mocks.useDiffStat.mockReturnValue({
-      committed: [],
-      uncommitted: [],
-      totalCount: 0,
-      loading: false,
-      error: null,
-      refresh: mocks.refreshDiffStat,
-    });
   });
 
   it("opens terminal for the active workspace when Terminal toggle is clicked", async () => {
@@ -420,7 +404,6 @@ describe("WorkspaceView session delete behavior", () => {
     mocks.apiGet.mockReset();
     mocks.useConversation.mockReset();
     mocks.useSessions.mockReset();
-    mocks.useDiffStat.mockReset();
     mocks.sendMessage.mockReset();
     mocks.stopStreaming.mockReset();
     mocks.clearChat.mockReset();
@@ -433,7 +416,6 @@ describe("WorkspaceView session delete behavior", () => {
     mocks.activateSession.mockReset();
     mocks.deleteSession.mockReset();
     mocks.refreshSessions.mockReset();
-    mocks.refreshDiffStat.mockReset();
     mocks.clearCachedData.mockReset();
     mocks.useWorkspaceLiveData.mockReset();
     mocks.useWorkspaceLiveData.mockReturnValue({});
@@ -467,14 +449,6 @@ describe("WorkspaceView session delete behavior", () => {
       rejectToolInput: mocks.rejectToolInput,
     });
 
-    mocks.useDiffStat.mockReturnValue({
-      committed: [],
-      uncommitted: [],
-      totalCount: 0,
-      loading: false,
-      error: null,
-      refresh: mocks.refreshDiffStat,
-    });
   });
 
   it("auto-switches to the next session when deleting the active session", async () => {

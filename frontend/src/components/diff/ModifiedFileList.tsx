@@ -5,7 +5,6 @@ import type { DiffFileStat, DiffFileStatus } from "@/types";
 interface ModifiedFileListProps {
   committed: DiffFileStat[];
   uncommitted: DiffFileStat[];
-  loading: boolean;
   onFileClick: (filePath: string) => void;
 }
 
@@ -78,14 +77,8 @@ function SectionHeader({ label, stats }: { label: string; stats: DiffFileStat[] 
 export function ModifiedFileList({
   committed,
   uncommitted,
-  loading,
   onFileClick,
 }: ModifiedFileListProps) {
-  if (loading) {
-    return (
-      <div className="px-2 py-1 text-xs text-muted-foreground">Loading...</div>
-    );
-  }
   if (committed.length === 0 && uncommitted.length === 0) {
     return (
       <div className="px-2 py-1 text-xs text-muted-foreground">

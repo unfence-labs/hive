@@ -312,13 +312,13 @@ function parseDiffStat(
   return files;
 }
 
-export async function getWorkspaceDiffStat(
-  wsId: string,
-  dataDir = getDataDir()
+export async function computeDiffStat(
+  bare: string,
+  wsPath: string,
+  defaultBranch: string,
+  workspaceBranch: string,
 ): Promise<DiffStatResponse> {
-  const { bare, wsPath, defaultBranch, workspace } =
-    await resolveWorkspacePaths(wsId, dataDir);
-  const range = `${defaultBranch}...${workspace.branch}`;
+  const range = `${defaultBranch}...${workspaceBranch}`;
 
   // Committed changes (branch vs default)
   const [committedNumstat, committedNameStatus] = await Promise.all([
@@ -335,6 +335,15 @@ export async function getWorkspaceDiffStat(
   const uncommitted = parseDiffStat(uncommittedNumstat.stdout, uncommittedNameStatus.stdout);
 
   return { committed, uncommitted };
+}
+
+export async function getWorkspaceDiffStat(
+  wsId: string,
+  dataDir = getDataDir()
+): Promise<DiffStatResponse> {
+  const { bare, wsPath, defaultBranch, workspace } =
+    await resolveWorkspacePaths(wsId, dataDir);
+  return computeDiffStat(bare, wsPath, defaultBranch, workspace.branch);
 }
 
 export async function listWorkspaceFiles(
