@@ -2,6 +2,7 @@ import { useState, memo, type ReactNode } from "react";
 import type { ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
 import { DiffView } from "@/components/diff/DiffView";
+import { MessageResponse } from "@/components/ai-elements/message";
 
 const svgProps = { className: "size-3.5", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
@@ -67,6 +68,24 @@ export function getToolIcon(toolName: string): ReactNode {
 
 function getFilename(path: string): string {
   return path.split("/").pop() ?? path;
+}
+
+/** Parse a tool output as a JSON array of content blocks and extract text. */
+function parseContentBlocks(output: string): string | null {
+  try {
+    const parsed = JSON.parse(output);
+    if (!Array.isArray(parsed)) return null;
+    const texts = parsed
+      .filter((b: unknown): b is { type: "text"; text: string } =>
+        typeof b === "object" && b !== null &&
+        (b as Record<string, unknown>).type === "text" &&
+        typeof (b as Record<string, unknown>).text === "string",
+      )
+      .map((b) => b.text);
+    return texts.length > 0 ? texts.join("\n\n") : null;
+  } catch {
+    return null;
+  }
 }
 
 interface ToolDisplay {
@@ -239,6 +258,9 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting }: ChatToolUse
   const [expanded, setExpanded] = useState(false);
   const display = getToolDisplay(tool);
   const summary = !isExecuting && !expanded ? getOutputSummary(tool) : undefined;
+  const taskOutputText = tool.name === "Task" && tool.output
+    ? parseContentBlocks(tool.output)
+    : null;
 
   return (
     <div className="my-0.5">
@@ -280,9 +302,15 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting }: ChatToolUse
           {tool.output !== undefined && !display.hideOutput && (
             <div>
               <div className="mb-0.5 text-[11px] font-semibold text-muted-foreground/70">Result</div>
-              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
-                {typeof tool.output === "string" ? tool.output : JSON.stringify(tool.output, null, 2)}
-              </pre>
+              {taskOutputText ? (
+                <div className="prose-sm max-h-96 overflow-auto text-muted-foreground">
+                  <MessageResponse>{taskOutputText}</MessageResponse>
+                </div>
+              ) : (
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
+                  {typeof tool.output === "string" ? tool.output : JSON.stringify(tool.output, null, 2)}
+                </pre>
+              )}
             </div>
           )}
         </div>

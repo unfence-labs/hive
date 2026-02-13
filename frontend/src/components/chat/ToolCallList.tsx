@@ -9,6 +9,55 @@ import { ExitPlanModeButton } from "@/components/chat/ExitPlanModeButton";
 
 const COLLAPSE_THRESHOLD = 3;
 
+/** Build a map of parentToolUseId → children for hierarchical rendering. */
+function buildChildrenMap(tools: ToolCall[]): Map<string, ToolCall[]> {
+  const map = new Map<string, ToolCall[]>();
+  for (const tool of tools) {
+    if (tool.parentToolUseId) {
+      const children = map.get(tool.parentToolUseId) ?? [];
+      children.push(tool);
+      map.set(tool.parentToolUseId, children);
+    }
+  }
+  return map;
+}
+
+/** Recursively render tool calls, nesting children under their parent Task. */
+function ToolCallTree({
+  tools,
+  childrenMap,
+  showExecutingState,
+}: {
+  tools: ToolCall[];
+  childrenMap: Map<string, ToolCall[]>;
+  showExecutingState?: boolean;
+}) {
+  return (
+    <>
+      {tools.map((tool) => {
+        const children = childrenMap.get(tool.id);
+        return (
+          <div key={tool.id}>
+            <ChatToolUse
+              tool={tool}
+              isExecuting={showExecutingState ? tool.output === undefined : undefined}
+            />
+            {children && children.length > 0 && (
+              <div className="ml-4 border-l-2 border-muted-foreground/20 pl-3">
+                <ToolCallTree
+                  tools={children}
+                  childrenMap={childrenMap}
+                  showExecutingState={showExecutingState}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 interface ToolCallListProps {
   toolCalls: ToolCall[];
   isInteractive?: boolean;
@@ -37,18 +86,21 @@ export function ToolCallList({
     (t) => !isAskUserQuestion(t) && !isExitPlanMode(t),
   );
 
+  const childrenMap = buildChildrenMap(regularTools);
+  const rootTools = regularTools.filter((t) => !t.parentToolUseId);
+
   const shouldCollapse =
     !showExecutingState && regularTools.length >= COLLAPSE_THRESHOLD;
 
   const uniqueToolNames = shouldCollapse
-    ? [...new Set(regularTools.map((t) => t.name))]
+    ? [...new Set(rootTools.map((t) => t.name))]
     : [];
 
   // Build summary label: "N tool calls, M subagents"
   const summaryLabel = (() => {
     if (!shouldCollapse) return "";
-    const subagentCount = regularTools.filter((t) => t.name === "Task").length;
-    const toolCount = regularTools.length - subagentCount;
+    const subagentCount = rootTools.filter((t) => t.name === "Task").length;
+    const toolCount = rootTools.length - subagentCount;
     const parts: string[] = [];
     if (toolCount > 0) parts.push(`${toolCount} tool call${toolCount !== 1 ? "s" : ""}`);
     if (subagentCount > 0) parts.push(`${subagentCount} subagent${subagentCount !== 1 ? "s" : ""}`);
@@ -82,16 +134,13 @@ export function ToolCallList({
         </div>
       )}
 
-      {(!shouldCollapse || expanded) &&
-        regularTools.map((tool) => (
-          <ChatToolUse
-            key={tool.id}
-            tool={tool}
-            isExecuting={
-              showExecutingState ? tool.output === undefined : undefined
-            }
-          />
-        ))}
+      {(!shouldCollapse || expanded) && (
+        <ToolCallTree
+          tools={rootTools}
+          childrenMap={childrenMap}
+          showExecutingState={showExecutingState}
+        />
+      )}
 
       {interactiveTools.map((tool) => {
         if (isAskUserQuestion(tool)) {

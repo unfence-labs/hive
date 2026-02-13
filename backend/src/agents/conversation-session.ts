@@ -169,6 +169,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     const toolCalls: ToolCall[] = [];
     let resultDurationMs: number | undefined;
 
+    // Stack of pending Task (subagent) tool IDs so we can mark child tools
+    // with parentToolUseId for hierarchical rendering in the frontend.
+    const pendingTaskStack: string[] = [];
+
     // Track blocking tools detected in the stream so the close handler can emit
     // tool_input_required events. We kill the process immediately when we see one
     // to prevent the CLI from auto-executing the tool.
@@ -192,8 +196,16 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             const inputStr = typeof block.input === "string"
               ? block.input
               : JSON.stringify(block.input, null, 2);
-            toolCalls.push({ id: block.id, name: block.name, input: inputStr });
-            this.emit("message", { type: "tool_use", id: block.id, name: block.name, input: inputStr });
+            const parentToolUseId = pendingTaskStack.length > 0
+              ? pendingTaskStack[pendingTaskStack.length - 1]
+              : undefined;
+            toolCalls.push({ id: block.id, name: block.name, input: inputStr, parentToolUseId });
+            this.emit("message", { type: "tool_use", id: block.id, name: block.name, input: inputStr, parentToolUseId });
+
+            // Push Task tools onto the stack so their sub-tools get marked as children
+            if (block.name === "Task") {
+              pendingTaskStack.push(block.id);
+            }
 
             // Kill immediately to prevent CLI from auto-executing the blocking tool
             if (blockingToolNames.has(block.name) && this.process) {
@@ -210,6 +222,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       // User messages in the stream are tool results
       for (const block of data.message.content) {
         if (block.type === "tool_result") {
+          // Pop the Task stack when a Task tool completes
+          const stackTop = pendingTaskStack[pendingTaskStack.length - 1];
+          if (stackTop && stackTop === block.tool_use_id) {
+            pendingTaskStack.pop();
+          }
+
           // Update the matching tool call's output
           const tc = toolCalls.find((t) => t.id === block.tool_use_id);
           if (tc) tc.output = block.content;
