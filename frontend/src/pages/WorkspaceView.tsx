@@ -150,8 +150,9 @@ export default function WorkspaceView() {
 
   const effectiveWorkspaceStatus = workspaceStatus ?? workspace?.status;
 
-  // Hide terminal overlay when leaving this workspace
+  // Reset to chatbot view and hide terminal overlay when switching workspaces
   useEffect(() => {
+    setView("chatbot");
     return () => setVisibleTerminal(null);
   }, [wsId, setVisibleTerminal]);
 
