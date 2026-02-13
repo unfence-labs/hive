@@ -22,6 +22,16 @@ function buildChildrenMap(tools: ToolCall[]): Map<string, ToolCall[]> {
   return map;
 }
 
+/** Extract the prompt text from a Task tool's input JSON. */
+function getTaskPrompt(tool: ToolCall): string | undefined {
+  try {
+    const input = JSON.parse(tool.input);
+    return input.prompt ?? input.description;
+  } catch {
+    return undefined;
+  }
+}
+
 /** A single Task node whose children are collapsed by default. */
 function TaskNode({
   tool,
@@ -35,6 +45,8 @@ function TaskNode({
   showExecutingState?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [promptOpen, setPromptOpen] = useState(false);
+  const prompt = open ? getTaskPrompt(tool) : undefined;
 
   return (
     <div>
@@ -45,6 +57,27 @@ function TaskNode({
       />
       {open && (
         <div className="ml-4 border-l-2 border-muted-foreground/20 pl-3">
+          {prompt && (
+            <div className="my-0.5">
+              <button
+                type="button"
+                className="inline-flex w-fit items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                onClick={() => setPromptOpen(!promptOpen)}
+              >
+                <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+                <span>Prompt</span>
+              </button>
+              {promptOpen && (
+                <div className="mt-1 rounded bg-muted/40 px-2 py-1.5 text-xs">
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
+                    {prompt}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
           <ToolCallTree tools={children} childrenMap={childrenMap} showExecutingState={showExecutingState} />
         </div>
       )}
