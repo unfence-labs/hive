@@ -17,6 +17,23 @@ export interface Workspace {
   defaultBranch?: string;
 }
 
+// ── Branch / GitHub sync types ──────────────────────────────────────
+
+export interface PullRequestInfo {
+  number: number;
+  url: string;
+  state: "open" | "draft" | "merged" | "closed";
+  mergeable: boolean | null;
+  mergeableState: "clean" | "conflict" | "unstable" | "unknown";
+  checksStatus: "pending" | "success" | "failure";
+}
+
+export interface BranchInfo {
+  name: string;
+  lastSyncedAt: string;
+  pr?: PullRequestInfo;
+}
+
 export interface WorkspaceFileTreeNode {
   name: string;
   path: string;
@@ -154,4 +171,5 @@ export type WsOutgoing =
   | { type: "cancelled" }
   | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean }
   | { type: "user_message"; message: ChatMessage }
-  | { type: "history"; messages: ChatMessage[] };
+  | { type: "history"; messages: ChatMessage[] }
+  | { type: "branch_info"; info: BranchInfo };

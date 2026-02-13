@@ -190,4 +190,21 @@ describe("Sidebar", () => {
     const workspaceLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
     expect(workspaceLink.querySelectorAll("svg")).toHaveLength(1);
   });
+
+  it("displays live branch name from branch_info WS message", async () => {
+    const { __wsMock } = await getWsMock();
+    renderSidebar("/workspaces/w1", projects);
+
+    expect(screen.getByText("workspace/tokyo")).toBeInTheDocument();
+
+    act(() => {
+      __wsMock.emit("w1", {
+        type: "branch_info",
+        info: { name: "feat/login-page", lastSyncedAt: "2026-02-13T00:00:00.000Z" },
+      });
+    });
+
+    expect(screen.getByText("feat/login-page")).toBeInTheDocument();
+    expect(screen.queryByText("workspace/tokyo")).not.toBeInTheDocument();
+  });
 });

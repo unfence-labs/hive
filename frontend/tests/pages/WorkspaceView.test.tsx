@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   useConversation: vi.fn(),
   useSessions: vi.fn(),
   useDiffStat: vi.fn(),
+  useWorkspaceLiveData: vi.fn().mockReturnValue({}),
   sendMessage: vi.fn(),
   stopStreaming: vi.fn(),
   clearChat: vi.fn(),
@@ -41,6 +42,10 @@ vi.mock("@/hooks/useSessions", () => ({
 
 vi.mock("@/hooks/useDiffStat", () => ({
   useDiffStat: mocks.useDiffStat,
+}));
+
+vi.mock("@/hooks/useWorkspaceLiveData", () => ({
+  useWorkspaceLiveData: mocks.useWorkspaceLiveData,
 }));
 
 vi.mock("@/components/ChatConversation", () => ({
@@ -162,6 +167,8 @@ describe("WorkspaceView terminal behavior", () => {
     mocks.deleteSession.mockReset();
     mocks.refreshSessions.mockReset();
     mocks.refreshDiffStat.mockReset();
+    mocks.useWorkspaceLiveData.mockReset();
+    mocks.useWorkspaceLiveData.mockReturnValue({});
 
     mocks.apiGet.mockImplementation(async (url: string) => {
       const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
@@ -341,6 +348,17 @@ describe("WorkspaceView terminal behavior", () => {
 
     await user.click(screen.getByRole("button", { name: "dismiss questions" }));
     expect(mocks.rejectToolInput).toHaveBeenCalledWith("cancel");
+  });
+
+  it("displays live branch name from useWorkspaceLiveData when available", async () => {
+    mocks.useWorkspaceLiveData.mockReturnValue({
+      "ws-1": { branch: "feature/live-branch", branchInfo: { name: "feature/live-branch", lastSyncedAt: "2026-02-13T00:00:00.000Z" } },
+    });
+
+    renderWorkspace();
+
+    await screen.findByText("feature/live-branch");
+    expect(screen.queryByText("workspace/tokyo")).not.toBeInTheDocument();
   });
 
   it("prefers projectName in header and shows origin default branch when provided", async () => {

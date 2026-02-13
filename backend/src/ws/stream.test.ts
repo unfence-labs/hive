@@ -15,7 +15,7 @@ import {
   _clearActiveSessions,
 } from "../agents/agent-manager.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
-import { streamRoutes } from "./stream.js";
+import { streamRoutes, broadcastToWorkspace, _getChannelsForTests } from "./stream.js";
 import type { WsOutgoing } from "../types.js";
 
 const CONV_CMD = { command: "bash" };
@@ -447,5 +447,45 @@ describe("WS /ws/session/:wsId", () => {
 
     ws.close();
     await secure.app.close();
+  });
+
+  it("broadcastToWorkspace sends a message to all connected sockets", async () => {
+    const first = connectSessionWs(wsId);
+    const second = connectSessionWs(wsId);
+    const ws1 = await first.wsReady;
+    const ws2 = await second.wsReady;
+
+    await waitForMessage(first.messages, (msgs) => msgs.length >= 1);
+    await waitForMessage(second.messages, (msgs) => msgs.length >= 1);
+
+    const branchInfo: WsOutgoing = {
+      type: "branch_info",
+      info: { name: "feat/new-branch", lastSyncedAt: "2026-02-13T00:00:00.000Z" },
+    };
+
+    broadcastToWorkspace(wsId, branchInfo);
+
+    await waitForMessage(first.messages, (msgs) =>
+      msgs.some((m) => m.type === "branch_info"),
+    );
+    await waitForMessage(second.messages, (msgs) =>
+      msgs.some((m) => m.type === "branch_info"),
+    );
+
+    const msg1 = first.messages.find((m) => m.type === "branch_info");
+    const msg2 = second.messages.find((m) => m.type === "branch_info");
+    expect(msg1).toEqual(branchInfo);
+    expect(msg2).toEqual(branchInfo);
+
+    ws1.close();
+    ws2.close();
+  });
+
+  it("broadcastToWorkspace is a no-op for unknown workspace", () => {
+    // Should not throw
+    broadcastToWorkspace("ws-nonexistent", {
+      type: "branch_info",
+      info: { name: "test", lastSyncedAt: "2026-02-13T00:00:00.000Z" },
+    });
   });
 });
