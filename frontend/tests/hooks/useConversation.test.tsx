@@ -316,6 +316,96 @@ describe("useConversation", () => {
     });
   });
 
+  it("uses pending requestId when answering AskUserQuestion and clears pending state", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "tool_input_required",
+        requestId: "req-123",
+        toolName: "AskUserQuestion",
+        toolUseId: "tool-1",
+        input: { questions: [{ question: "Q1", options: [{ label: "A" }] }] },
+      });
+    });
+    expect(result.current.pendingToolInputs).toHaveLength(1);
+
+    act(() => {
+      result.current.answerQuestion("tool-1", [{ questionIndex: 0, selectedOptions: [0] }]);
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
+      type: "tool_input_response",
+      requestId: "req-123",
+      toolName: "AskUserQuestion",
+      result: {
+        type: "answer",
+        answers: [{ questionIndex: 0, selectedOptions: [0] }],
+      },
+    });
+    expect(result.current.pendingToolInputs).toEqual([]);
+  });
+
+  it("batchAnswerQuestions sends one response per tool with original questions and clears pending", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "tool_input_required",
+        requestId: "req-1",
+        toolName: "AskUserQuestion",
+        toolUseId: "tool-1",
+        input: {
+          questions: [
+            { question: "Pick color", options: [{ label: "Red" }, { label: "Blue" }] },
+          ],
+        },
+      });
+      __wsMock.emit("ws-1", {
+        type: "tool_input_required",
+        requestId: "req-2",
+        toolName: "AskUserQuestion",
+        toolUseId: "tool-2",
+        input: {
+          questions: [
+            { question: "Add note", options: [] },
+          ],
+        },
+      });
+    });
+
+    act(() => {
+      result.current.batchAnswerQuestions([
+        { toolUseId: "tool-1", answers: [{ questionIndex: 0, selectedOptions: [1] }] },
+        { toolUseId: "tool-2", answers: [{ questionIndex: 0, selectedOptions: [], customText: "detail" }] },
+      ]);
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenNthCalledWith(1, "ws-1", {
+      type: "tool_input_response",
+      requestId: "req-1",
+      toolName: "AskUserQuestion",
+      result: {
+        type: "answer",
+        answers: [{ questionIndex: 0, selectedOptions: [1] }],
+        questions: [{ question: "Pick color", options: [{ label: "Red" }, { label: "Blue" }] }],
+      },
+    });
+    expect(__wsMock.sendMock).toHaveBeenNthCalledWith(2, "ws-1", {
+      type: "tool_input_response",
+      requestId: "req-2",
+      toolName: "AskUserQuestion",
+      result: {
+        type: "answer",
+        answers: [{ questionIndex: 0, selectedOptions: [], customText: "detail" }],
+        questions: [{ question: "Add note", options: [] }],
+      },
+    });
+    expect(result.current.pendingToolInputs).toEqual([]);
+  });
+
   it("sends approval shortcut message", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));

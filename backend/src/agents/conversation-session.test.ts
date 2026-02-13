@@ -581,4 +581,123 @@ describe("ConversationSession", () => {
     expect(session2.metadata.claudeSessionId).toBe(preGeneratedId);
     expect(session2.metadata.messageCount).toBe(1);
   });
+
+  it("kills blocking AskUserQuestion tool calls and emits tool_input_required", async () => {
+    const session = createSession({ sessionId: "tool-input-required" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Need your input");
+    mockProc._stdout.push(
+      assistantLine("I need info", {
+        id: "toolu_ask",
+        name: "AskUserQuestion",
+        input: { questions: [{ question: "Choose", options: [{ label: "A" }] }] },
+      }),
+    );
+
+    expect(mockProc.kill).toHaveBeenCalledWith("SIGKILL");
+
+    mockProc._emitClose(137);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const doneEvents = messages.filter((m) => m.type === "done");
+    const cancelledEvents = messages.filter((m) => m.type === "cancelled");
+    const requiredEvents = messages.filter((m) => m.type === "tool_input_required");
+
+    expect(doneEvents).toHaveLength(1);
+    expect(cancelledEvents).toHaveLength(0);
+    expect(requiredEvents).toHaveLength(1);
+    expect(requiredEvents[0]).toMatchObject({
+      type: "tool_input_required",
+      toolName: "AskUserQuestion",
+      toolUseId: "toolu_ask",
+      input: { questions: [{ question: "Choose", options: [{ label: "A" }] }] },
+    });
+    expect(session.status).toBe("idle");
+  });
+
+  it("falls back to empty object when blocking tool input is invalid JSON", async () => {
+    const session = createSession({ sessionId: "tool-input-invalid" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Need your input");
+    mockProc._stdout.push(
+      assistantLine("Broken input", {
+        id: "toolu_ask",
+        name: "AskUserQuestion",
+        input: "{bad-json",
+      }),
+    );
+
+    mockProc._emitClose(137);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const required = messages.find((m) => m.type === "tool_input_required");
+    expect(required).toBeDefined();
+    if (required?.type === "tool_input_required") {
+      expect(required.input).toEqual({});
+    }
+  });
+
+  it("formats AskUserQuestion answers with question and option labels", () => {
+    const session = createSession({ sessionId: "respond-format" });
+    const sendSpy = vi.spyOn(session, "sendMessage").mockImplementation(() => {});
+
+    session.respondToToolInput("AskUserQuestion", {
+      type: "answer",
+      questions: [
+        {
+          question: "Preferred language?",
+          options: [{ label: "TypeScript" }, { label: "Rust" }],
+        },
+        {
+          question: "Why?",
+          options: [],
+        },
+      ],
+      answers: [
+        { questionIndex: 0, selectedOptions: [1] },
+        { questionIndex: 1, selectedOptions: [], customText: "Performance and safety" },
+      ],
+    });
+
+    expect(sendSpy).toHaveBeenCalledWith(
+      "Here are my answers to your questions:\n\"Preferred language?\" → Rust\n\"Why?\" → \"Performance and safety\"",
+    );
+  });
+
+  it("falls back to numbered labels when question metadata is missing", () => {
+    const session = createSession({ sessionId: "respond-fallback" });
+    const sendSpy = vi.spyOn(session, "sendMessage").mockImplementation(() => {});
+
+    session.respondToToolInput("AskUserQuestion", {
+      type: "answer",
+      answers: [{ questionIndex: 2, selectedOptions: [4] }],
+    });
+
+    expect(sendSpy).toHaveBeenCalledWith(
+      "Here are my answers to your questions:\nQuestion 3 → Option 5",
+    );
+  });
+
+  it("maps approve and reject tool responses to follow-up messages", () => {
+    const session = createSession({ sessionId: "respond-actions" });
+    const sendSpy = vi.spyOn(session, "sendMessage").mockImplementation(() => {});
+
+    session.respondToToolInput("ExitPlanMode", { type: "approve" });
+    session.respondToToolInput("AskUserQuestion", { type: "reject", message: "Not this option" });
+    session.respondToToolInput("AskUserQuestion", { type: "reject" });
+
+    expect(sendSpy).toHaveBeenNthCalledWith(
+      1,
+      "I approve the plan. Please proceed with implementation.",
+    );
+    expect(sendSpy).toHaveBeenNthCalledWith(2, "Not this option");
+    expect(sendSpy).toHaveBeenNthCalledWith(
+      3,
+      "I reject this. Please suggest an alternative approach.",
+    );
+  });
 });

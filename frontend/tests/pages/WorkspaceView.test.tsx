@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   clearChat: vi.fn(),
   switchSession: vi.fn(),
   answerQuestion: vi.fn(),
+  batchAnswerQuestions: vi.fn(),
   approvePlan: vi.fn(),
   rejectToolInput: vi.fn(),
   createSession: vi.fn(),
@@ -48,6 +49,23 @@ vi.mock("@/components/ChatConversation", () => ({
 
 vi.mock("@/components/ChatInput", () => ({
   default: () => <div data-testid="chat-input">chat-input</div>,
+}));
+
+vi.mock("@/components/chat/QuestionPanel", () => ({
+  default: ({
+    onBatchSubmit,
+    onDismiss,
+  }: {
+    onBatchSubmit: (responses: Array<{ toolUseId: string; answers: unknown[] }>) => void;
+    onDismiss: () => void;
+  }) => (
+    <div data-testid="question-panel">
+      <button type="button" onClick={() => onBatchSubmit([{ toolUseId: "ask-1", answers: [] }])}>
+        submit questions
+      </button>
+      <button type="button" onClick={onDismiss}>dismiss questions</button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/SessionSelector", () => ({
@@ -136,6 +154,7 @@ describe("WorkspaceView terminal behavior", () => {
     mocks.clearChat.mockReset();
     mocks.switchSession.mockReset();
     mocks.answerQuestion.mockReset();
+    mocks.batchAnswerQuestions.mockReset();
     mocks.approvePlan.mockReset();
     mocks.rejectToolInput.mockReset();
     mocks.createSession.mockReset();
@@ -168,6 +187,7 @@ describe("WorkspaceView terminal behavior", () => {
       clearChat: mocks.clearChat,
       switchSession: mocks.switchSession,
       answerQuestion: mocks.answerQuestion,
+      batchAnswerQuestions: mocks.batchAnswerQuestions,
       approvePlan: mocks.approvePlan,
       rejectToolInput: mocks.rejectToolInput,
     });
@@ -245,5 +265,81 @@ describe("WorkspaceView terminal behavior", () => {
 
     await screen.findByText("kyoto");
     expect(screen.getByTestId("ctx-visible")).toHaveTextContent("none");
+  });
+
+  it("shows QuestionPanel instead of ChatInput when AskUserQuestion is pending", async () => {
+    mocks.useConversation.mockReturnValue({
+      messages: [],
+      isStreaming: false,
+      workspaceStatus: "idle",
+      currentStreamingText: "",
+      currentThinking: "",
+      activeToolCalls: [],
+      pendingToolInputs: [
+        {
+          requestId: "req-ask",
+          toolName: "AskUserQuestion",
+          toolUseId: "ask-1",
+          input: { questions: [{ question: "Pick one", options: [{ label: "A" }] }] },
+        },
+      ],
+      connectionStatus: "connected",
+      error: null,
+      sessionId: undefined,
+      sendMessage: mocks.sendMessage,
+      stopStreaming: mocks.stopStreaming,
+      clearChat: mocks.clearChat,
+      switchSession: mocks.switchSession,
+      answerQuestion: mocks.answerQuestion,
+      batchAnswerQuestions: mocks.batchAnswerQuestions,
+      approvePlan: mocks.approvePlan,
+      rejectToolInput: mocks.rejectToolInput,
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    expect(screen.getByTestId("question-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-input")).not.toBeInTheDocument();
+  });
+
+  it("wires QuestionPanel submit and dismiss actions to conversation callbacks", async () => {
+    const user = userEvent.setup();
+    mocks.useConversation.mockReturnValue({
+      messages: [],
+      isStreaming: false,
+      workspaceStatus: "idle",
+      currentStreamingText: "",
+      currentThinking: "",
+      activeToolCalls: [],
+      pendingToolInputs: [
+        {
+          requestId: "req-ask",
+          toolName: "AskUserQuestion",
+          toolUseId: "ask-1",
+          input: { questions: [{ question: "Pick one", options: [{ label: "A" }] }] },
+        },
+      ],
+      connectionStatus: "connected",
+      error: null,
+      sessionId: undefined,
+      sendMessage: mocks.sendMessage,
+      stopStreaming: mocks.stopStreaming,
+      clearChat: mocks.clearChat,
+      switchSession: mocks.switchSession,
+      answerQuestion: mocks.answerQuestion,
+      batchAnswerQuestions: mocks.batchAnswerQuestions,
+      approvePlan: mocks.approvePlan,
+      rejectToolInput: mocks.rejectToolInput,
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByRole("button", { name: "submit questions" }));
+    expect(mocks.batchAnswerQuestions).toHaveBeenCalledWith([{ toolUseId: "ask-1", answers: [] }]);
+
+    await user.click(screen.getByRole("button", { name: "dismiss questions" }));
+    expect(mocks.rejectToolInput).toHaveBeenCalledWith("cancel");
   });
 });

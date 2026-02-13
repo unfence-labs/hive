@@ -14,6 +14,7 @@ import {
   endSession,
   _clearActiveSessions,
 } from "../agents/agent-manager.js";
+import type { SessionOptions } from "../agents/agent-manager.js";
 import { streamRoutes } from "./stream.js";
 import type { WsOutgoing } from "../types.js";
 
@@ -79,7 +80,7 @@ function connectSessionWs(
 
 async function startWsApp(
   authToken?: string,
-  sessionOptions = CONV_CMD,
+  sessionOptions: SessionOptions = CONV_CMD,
 ): Promise<{ app: FastifyInstance; address: string }> {
   const localApp = Fastify();
   await localApp.register(websocket);
@@ -225,6 +226,28 @@ describe("WS /ws/session/:wsId", () => {
       type: "user_message",
       content: "Hello with options",
       options: { planMode: true, thinkingEnabled: false },
+    }));
+
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.some((m) => m.type === "status" && m.status === "busy" && m.streaming === true),
+    );
+
+    ws.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
+  it("accepts tool_input_response and keeps stream status busy", async () => {
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.length >= 1);
+
+    ws.send(JSON.stringify({
+      type: "tool_input_response",
+      requestId: "req-1",
+      toolName: "ExitPlanMode",
+      result: { type: "approve" },
     }));
 
     await waitForMessage(
