@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useReducer, useRef, useSyncExternalStore } from "react";
-import type { ChatMessage, MessageOptions, ToolCall, WsOutgoing, QuestionAnswer } from "@/types";
+import type { ChatMessage, MessageOptions, ToolCall, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
 import { wsTransport } from "@/lib/ws-transport";
 import { api } from "@/hooks/useApi";
 
@@ -275,6 +275,25 @@ export function useConversation(workspaceId: string | undefined) {
     historyRequestTokenRef.current += 1;
   }, [workspaceId, state.pendingToolInputs]);
 
+  const batchAnswerQuestions = useCallback(
+    (responses: Array<{ toolUseId: string; answers: QuestionAnswer[] }>) => {
+      if (!workspaceId) return;
+      for (const { toolUseId, answers } of responses) {
+        const pending = state.pendingToolInputs.find((p) => p.toolUseId === toolUseId);
+        const input = pending?.input as { questions?: QuestionInput[] } | undefined;
+        wsTransport.send(workspaceId, {
+          type: "tool_input_response",
+          requestId: pending?.requestId ?? toolUseId,
+          toolName: "AskUserQuestion",
+          result: { type: "answer", answers, questions: input?.questions },
+        });
+      }
+      dispatch({ type: "clear_pending_tool_inputs" });
+      historyRequestTokenRef.current += 1;
+    },
+    [workspaceId, state.pendingToolInputs],
+  );
+
   const approvePlan = useCallback(() => {
     if (!workspaceId) return;
     const pending = state.pendingToolInputs.find((p) => p.toolName === "ExitPlanMode");
@@ -317,6 +336,7 @@ export function useConversation(workspaceId: string | undefined) {
     clearChat,
     switchSession,
     answerQuestion,
+    batchAnswerQuestions,
     approvePlan,
     rejectToolInput,
   };

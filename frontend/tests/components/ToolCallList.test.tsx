@@ -48,9 +48,7 @@ describe("ToolCallList", () => {
     expect(onPlanApproval).toHaveBeenCalledTimes(1);
   });
 
-  it("renders AskUserQuestion and submits selected answer", async () => {
-    const user = userEvent.setup();
-    const onQuestionAnswer = vi.fn();
+  it("renders AskUserQuestion as awaiting-response indicator in interactive mode", () => {
     const askTool = tool({
       id: "ask-1",
       name: "AskUserQuestion",
@@ -72,20 +70,12 @@ describe("ToolCallList", () => {
       <ToolCallList
         toolCalls={[askTool]}
         isInteractive
-        onQuestionAnswer={onQuestionAnswer}
       />,
     );
 
-    await user.click(screen.getByLabelText("Option B"));
-    await user.click(screen.getByRole("button", { name: /submit/i }));
-
-    expect(onQuestionAnswer).toHaveBeenCalledWith("ask-1", [
-      {
-        questionIndex: 0,
-        selectedOptions: [1],
-        customText: undefined,
-      },
-    ]);
+    expect(screen.getByText("User input")).toBeInTheDocument();
+    expect(screen.getByText("AWAITING RESPONSE")).toBeInTheDocument();
+    expect(screen.queryByText("Choose one")).not.toBeInTheDocument();
   });
 
   // ── Collapse / Expand ────────────────────────────────────────────────

@@ -100,7 +100,6 @@ export function ToolCallList({
               key={tool.id}
               tool={tool}
               isInteractive={isInteractive}
-              onAnswer={onQuestionAnswer}
             />
           );
         }
