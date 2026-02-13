@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Kbd } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
+import { MessageSquareIcon, ClockIcon } from "lucide-react";
 
 interface AskUserQuestionProps {
   tool: ToolCall;
@@ -25,6 +26,22 @@ export const AskUserQuestion = memo(function AskUserQuestion({
 
   if (questions.length === 0) return null;
 
+  // When interactive, questions are handled by QuestionPanel at the bottom.
+  // Show a compact inline indicator instead of the full form.
+  if (isInteractive) {
+    return (
+      <div className="my-2 flex items-center gap-2 rounded-lg border border-border/50 px-3 py-2">
+        <MessageSquareIcon className="size-3.5 text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">User input</span>
+        <span className="ml-auto inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
+          <ClockIcon className="size-3" />
+          AWAITING RESPONSE
+        </span>
+      </div>
+    );
+  }
+
+  // Read-only historical rendering
   return (
     <div className="my-2 space-y-4">
       {questions.map((q, idx) => (
@@ -33,7 +50,7 @@ export const AskUserQuestion = memo(function AskUserQuestion({
           question={q}
           questionIndex={idx}
           toolCallId={tool.id}
-          readOnly={!isInteractive}
+          readOnly
           onAnswer={onAnswer}
         />
       ))}

@@ -275,6 +275,24 @@ export function useConversation(workspaceId: string | undefined) {
     historyRequestTokenRef.current += 1;
   }, [workspaceId, state.pendingToolInputs]);
 
+  const batchAnswerQuestions = useCallback(
+    (responses: Array<{ toolUseId: string; answers: QuestionAnswer[] }>) => {
+      if (!workspaceId) return;
+      for (const { toolUseId, answers } of responses) {
+        const pending = state.pendingToolInputs.find((p) => p.toolUseId === toolUseId);
+        wsTransport.send(workspaceId, {
+          type: "tool_input_response",
+          requestId: pending?.requestId ?? toolUseId,
+          toolName: "AskUserQuestion",
+          result: { type: "answer", answers },
+        });
+      }
+      dispatch({ type: "clear_pending_tool_inputs" });
+      historyRequestTokenRef.current += 1;
+    },
+    [workspaceId, state.pendingToolInputs],
+  );
+
   const approvePlan = useCallback(() => {
     if (!workspaceId) return;
     const pending = state.pendingToolInputs.find((p) => p.toolName === "ExitPlanMode");
@@ -317,6 +335,7 @@ export function useConversation(workspaceId: string | undefined) {
     clearChat,
     switchSession,
     answerQuestion,
+    batchAnswerQuestions,
     approvePlan,
     rejectToolInput,
   };

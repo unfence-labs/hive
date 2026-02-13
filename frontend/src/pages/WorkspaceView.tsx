@@ -12,6 +12,7 @@ import {
 } from "@/components/ai-elements/file-tree";
 import ChatConversation from "@/components/ChatConversation";
 import ChatInput from "@/components/ChatInput";
+import QuestionPanel from "@/components/chat/QuestionPanel";
 import { SessionSelector } from "@/components/SessionSelector";
 import { useTerminalContext } from "@/contexts/TerminalContext";
 import { GitDiffModal } from "@/components/diff/GitDiffModal";
@@ -142,6 +143,7 @@ export default function WorkspaceView() {
     clearChat,
     switchSession,
     answerQuestion,
+    batchAnswerQuestions,
     approvePlan,
     rejectToolInput,
   } = useConversation(wsId);
@@ -298,14 +300,22 @@ export default function WorkspaceView() {
               onPlanApproval={approvePlan}
               onRejectToolInput={rejectToolInput}
             />
-            <ChatInput
-              onSend={sendMessage}
-              onStop={stopStreaming}
-              disabled={false}
-              isStreaming={isStreaming}
-              isAwaitingResponse={pendingToolInputs.length > 0}
-              connectionStatus={connectionStatus}
-            />
+            {pendingToolInputs.some((p) => p.toolName === "AskUserQuestion") ? (
+              <QuestionPanel
+                pendingToolInputs={pendingToolInputs}
+                onBatchSubmit={batchAnswerQuestions}
+                onDismiss={() => rejectToolInput()}
+              />
+            ) : (
+              <ChatInput
+                onSend={sendMessage}
+                onStop={stopStreaming}
+                disabled={false}
+                isStreaming={isStreaming}
+                isAwaitingResponse={pendingToolInputs.length > 0}
+                connectionStatus={connectionStatus}
+              />
+            )}
           </div>
           {view === "terminal" && (
             <div className="min-h-0 flex-1" />
