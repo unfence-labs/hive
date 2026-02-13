@@ -64,7 +64,7 @@ function renderFileTreeNodes(nodes: WorkspaceFileTreeNode[]) {
 export default function WorkspaceView() {
   const { wsId } = useParams();
   const [view, setView] = useState<"chatbot" | "terminal">("chatbot");
-  const { openTerminal, setVisibleTerminal } = useTerminalContext();
+  const { activeTerminals, openTerminal, setVisibleTerminal } = useTerminalContext();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [fileTree, setFileTree] = useState<WorkspaceFileTreeNode[]>([]);
   const [fileTreeError, setFileTreeError] = useState<string | null>(null);
@@ -155,6 +155,13 @@ export default function WorkspaceView() {
     setView("chatbot");
     return () => setVisibleTerminal(null);
   }, [wsId, setVisibleTerminal]);
+
+  // Switch to chatbot when terminal exits (e.g. user types "exit")
+  useEffect(() => {
+    if (view === "terminal" && wsId && !activeTerminals.has(wsId)) {
+      setView("chatbot");
+    }
+  }, [view, wsId, activeTerminals]);
 
   // Refresh diff stats and session list when streaming stops
   const prevStreamingRef = useRef(isStreaming);

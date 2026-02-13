@@ -13,7 +13,7 @@ interface AppLayoutProps {
 }
 
 function TerminalLayer() {
-  const { activeTerminals, visibleTerminalWsId } = useTerminalContext();
+  const { activeTerminals, visibleTerminalWsId, closeTerminal } = useTerminalContext();
 
   return (
     <>
@@ -25,7 +25,11 @@ function TerminalLayer() {
             wsId === visibleTerminalWsId ? "" : "invisible pointer-events-none",
           )}
         >
-          <Terminal workspaceId={wsId} visible={wsId === visibleTerminalWsId} />
+          <Terminal
+            workspaceId={wsId}
+            visible={wsId === visibleTerminalWsId}
+            onExit={() => closeTerminal(wsId)}
+          />
         </div>
       ))}
     </>

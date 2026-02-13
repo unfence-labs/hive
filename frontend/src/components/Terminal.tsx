@@ -7,14 +7,17 @@ import "@xterm/xterm/css/xterm.css";
 interface TerminalProps {
   workspaceId: string;
   visible?: boolean;
+  onExit?: () => void;
 }
 
 const encoder = new TextEncoder();
 
-export default function Terminal({ workspaceId, visible = true }: TerminalProps) {
+export default function Terminal({ workspaceId, visible = true, onExit }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const termRef = useRef<XTerm | null>(null);
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
   const [overlay, setOverlay] = useState<string | null>(null);
 
   useEffect(() => {
@@ -66,7 +69,8 @@ export default function Terminal({ workspaceId, visible = true }: TerminalProps)
         try {
           const msg = JSON.parse(event.data as string);
           if (msg.type === "exit") {
-            setOverlay(`Session ended (exit code: ${msg.code})`);
+            onExitRef.current?.();
+            return;
           } else if (msg.type === "error") {
             setOverlay(msg.message ?? "Connection error");
           }

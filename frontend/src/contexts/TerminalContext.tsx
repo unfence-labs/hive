@@ -7,6 +7,8 @@ interface TerminalContextType {
   visibleTerminalWsId: string | null;
   /** Activate terminal for workspace and make it visible */
   openTerminal: (wsId: string) => void;
+  /** Remove terminal for workspace and hide if visible */
+  closeTerminal: (wsId: string) => void;
   /** Show or hide the terminal overlay (null = hide all) */
   setVisibleTerminal: (wsId: string | null) => void;
 }
@@ -27,13 +29,23 @@ export function TerminalProvider({ children }: { children: ReactNode }) {
     setVisibleTerminalWsId(wsId);
   }, []);
 
+  const closeTerminal = useCallback((wsId: string) => {
+    setActiveTerminals((prev) => {
+      if (!prev.has(wsId)) return prev;
+      const next = new Set(prev);
+      next.delete(wsId);
+      return next;
+    });
+    setVisibleTerminalWsId((prev) => (prev === wsId ? null : prev));
+  }, []);
+
   const setVisibleTerminal = useCallback((wsId: string | null) => {
     setVisibleTerminalWsId(wsId);
   }, []);
 
   return (
     <TerminalContext.Provider
-      value={{ activeTerminals, visibleTerminalWsId, openTerminal, setVisibleTerminal }}
+      value={{ activeTerminals, visibleTerminalWsId, openTerminal, closeTerminal, setVisibleTerminal }}
     >
       {children}
     </TerminalContext.Provider>
