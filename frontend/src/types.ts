@@ -13,6 +13,8 @@ export interface Workspace {
   status: "idle" | "busy";
   createdAt: string;
   activeSessionId?: string;
+  projectName?: string;
+  defaultBranch?: string;
 }
 
 export interface WorkspaceFileTreeNode {
