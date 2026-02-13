@@ -304,7 +304,7 @@ export default function WorkspaceView() {
               <QuestionPanel
                 pendingToolInputs={pendingToolInputs}
                 onBatchSubmit={batchAnswerQuestions}
-                onDismiss={() => rejectToolInput()}
+                onDismiss={() => rejectToolInput("cancel")}
               />
             ) : (
               <ChatInput

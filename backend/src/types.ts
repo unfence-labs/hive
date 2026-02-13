@@ -131,7 +131,7 @@ export interface DiffStatResponse {
 // ── Interactive tool input types ─────────────────────────────────────
 
 export type ToolInputResult =
-  | { type: "answer"; answers: QuestionAnswer[] }
+  | { type: "answer"; answers: QuestionAnswer[]; questions?: QuestionInput[] }
   | { type: "approve" }
   | { type: "reject"; message?: string };
 
@@ -139,6 +139,12 @@ export interface QuestionAnswer {
   questionIndex: number;
   selectedOptions: number[];
   customText?: string;
+}
+
+export interface QuestionInput {
+  question: string;
+  options: Array<{ label: string; description?: string }>;
+  multiSelect?: boolean;
 }
 
 // ── WebSocket protocol ──────────────────────────────────────────────

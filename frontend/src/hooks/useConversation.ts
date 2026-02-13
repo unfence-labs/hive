@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useReducer, useRef, useSyncExternalStore } from "react";
-import type { ChatMessage, MessageOptions, ToolCall, WsOutgoing, QuestionAnswer } from "@/types";
+import type { ChatMessage, MessageOptions, ToolCall, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
 import { wsTransport } from "@/lib/ws-transport";
 import { api } from "@/hooks/useApi";
 
@@ -280,11 +280,12 @@ export function useConversation(workspaceId: string | undefined) {
       if (!workspaceId) return;
       for (const { toolUseId, answers } of responses) {
         const pending = state.pendingToolInputs.find((p) => p.toolUseId === toolUseId);
+        const input = pending?.input as { questions?: QuestionInput[] } | undefined;
         wsTransport.send(workspaceId, {
           type: "tool_input_response",
           requestId: pending?.requestId ?? toolUseId,
           toolName: "AskUserQuestion",
-          result: { type: "answer", answers },
+          result: { type: "answer", answers, questions: input?.questions },
         });
       }
       dispatch({ type: "clear_pending_tool_inputs" });

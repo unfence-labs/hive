@@ -5,7 +5,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { XIcon, ChevronLeftIcon, ChevronRightIcon, SendIcon } from "lucide-react";
+import { XIcon, ChevronLeftIcon, ChevronRightIcon, SendIcon, ArrowRightIcon } from "lucide-react";
 
 interface QuestionPanelProps {
   pendingToolInputs: PendingToolInput[];
@@ -251,16 +251,27 @@ export default function QuestionPanel({
           </button>
         </div>
 
-        {/* Submit */}
-        <Button
-          size="sm"
-          onClick={handleSubmit}
-          disabled={answeredCount === 0}
-          className="gap-1.5"
-        >
-          <SendIcon className="size-3" />
-          Submit{total > 1 ? ` (${answeredCount}/${total})` : ""}
-        </Button>
+        {/* Next / Submit */}
+        {currentIndex < total - 1 ? (
+          <Button
+            size="sm"
+            onClick={() => setCurrentIndex((i) => i + 1)}
+            className="gap-1.5"
+          >
+            Next
+            <ArrowRightIcon className="size-3" />
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            onClick={handleSubmit}
+            disabled={answeredCount === 0}
+            className="gap-1.5"
+          >
+            <SendIcon className="size-3" />
+            Submit{total > 1 ? ` (${answeredCount}/${total})` : ""}
+          </Button>
+        )}
       </div>
     </div>
   );

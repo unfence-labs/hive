@@ -364,9 +364,15 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
    *  Formats the response and sends it as a new --resume message. */
   respondToToolInput(toolName: string, result: ToolInputResult): void {
     if (toolName === "AskUserQuestion" && result.type === "answer") {
+      const questions = result.questions ?? [];
       const formatted = result.answers.map((a) => {
-        if (a.customText) return `Question ${a.questionIndex + 1}: "${a.customText}"`;
-        return `Question ${a.questionIndex + 1}: Selected option(s) ${a.selectedOptions.map((i) => i + 1).join(", ")}`;
+        const q = questions[a.questionIndex];
+        const questionLabel = q ? `"${q.question}"` : `Question ${a.questionIndex + 1}`;
+        if (a.customText) return `${questionLabel} → "${a.customText}"`;
+        const optionLabels = a.selectedOptions
+          .map((i) => q?.options?.[i]?.label ?? `Option ${i + 1}`)
+          .join(", ");
+        return `${questionLabel} → ${optionLabels}`;
       }).join("\n");
       this.sendMessage(`Here are my answers to your questions:\n${formatted}`);
     } else if (toolName === "ExitPlanMode" && result.type === "approve") {
