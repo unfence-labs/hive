@@ -2,7 +2,7 @@ import { useState, memo } from "react";
 import type { ToolCall } from "@/types";
 import { parseQuestions } from "@/types";
 import { cn } from "@/lib/utils";
-import { MessageSquareIcon, ClockIcon, CheckCircle2Icon, ChevronRightIcon } from "lucide-react";
+import { MessageSquareIcon, ClockIcon, CheckCircle2Icon } from "lucide-react";
 
 interface AskUserQuestionProps {
   tool: ToolCall;
@@ -41,12 +41,6 @@ export const AskUserQuestion = memo(function AskUserQuestion({
         className="inline-flex w-fit items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
         onClick={() => setExpanded(!expanded)}
       >
-        <ChevronRightIcon
-          className={cn(
-            "size-3.5 transition-transform",
-            expanded && "rotate-90",
-          )}
-        />
         <MessageSquareIcon className="size-3.5" />
         <span>User input</span>
         <span className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
