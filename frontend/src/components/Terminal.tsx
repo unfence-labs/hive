@@ -6,12 +6,18 @@ import "@xterm/xterm/css/xterm.css";
 
 interface TerminalProps {
   workspaceId: string;
+  visible?: boolean;
+  onExit?: () => void;
 }
 
 const encoder = new TextEncoder();
 
-export default function Terminal({ workspaceId }: TerminalProps) {
+export default function Terminal({ workspaceId, visible = true, onExit }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
+  const termRef = useRef<XTerm | null>(null);
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
   const [overlay, setOverlay] = useState<string | null>(null);
 
   useEffect(() => {
@@ -29,6 +35,8 @@ export default function Terminal({ workspaceId }: TerminalProps) {
     });
 
     const fitAddon = new FitAddon();
+    fitAddonRef.current = fitAddon;
+    termRef.current = term;
     term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
     term.open(el);
@@ -61,7 +69,8 @@ export default function Terminal({ workspaceId }: TerminalProps) {
         try {
           const msg = JSON.parse(event.data as string);
           if (msg.type === "exit") {
-            setOverlay(`Session ended (exit code: ${msg.code})`);
+            onExitRef.current?.();
+            return;
           } else if (msg.type === "error") {
             setOverlay(msg.message ?? "Connection error");
           }
@@ -99,6 +108,8 @@ export default function Terminal({ workspaceId }: TerminalProps) {
 
     return () => {
       disposed = true;
+      fitAddonRef.current = null;
+      termRef.current = null;
       resizeObserver.disconnect();
       inputDisposable.dispose();
       resizeDisposable.dispose();
@@ -106,6 +117,14 @@ export default function Terminal({ workspaceId }: TerminalProps) {
       term.dispose();
     };
   }, [workspaceId]);
+
+  // Re-fit and focus when becoming visible
+  useEffect(() => {
+    if (visible) {
+      fitAddonRef.current?.fit();
+      termRef.current?.focus();
+    }
+  }, [visible]);
 
   return (
     <div className="relative h-full w-full bg-[#1e1e1e]">

@@ -12,8 +12,8 @@ import {
 } from "@/components/ai-elements/file-tree";
 import ChatConversation from "@/components/ChatConversation";
 import ChatInput from "@/components/ChatInput";
-import Terminal from "@/components/Terminal";
 import { SessionSelector } from "@/components/SessionSelector";
+import { useTerminalContext } from "@/contexts/TerminalContext";
 import { GitDiffModal } from "@/components/diff/GitDiffModal";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { Badge } from "@/components/ui/badge";
@@ -64,6 +64,7 @@ function renderFileTreeNodes(nodes: WorkspaceFileTreeNode[]) {
 export default function WorkspaceView() {
   const { wsId } = useParams();
   const [view, setView] = useState<"chatbot" | "terminal">("chatbot");
+  const { activeTerminals, openTerminal, setVisibleTerminal } = useTerminalContext();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [fileTree, setFileTree] = useState<WorkspaceFileTreeNode[]>([]);
   const [fileTreeError, setFileTreeError] = useState<string | null>(null);
@@ -149,6 +150,19 @@ export default function WorkspaceView() {
 
   const effectiveWorkspaceStatus = workspaceStatus ?? workspace?.status;
 
+  // Reset to chatbot view and hide terminal overlay when switching workspaces
+  useEffect(() => {
+    setView("chatbot");
+    return () => setVisibleTerminal(null);
+  }, [wsId, setVisibleTerminal]);
+
+  // Switch to chatbot when terminal exits (e.g. user types "exit")
+  useEffect(() => {
+    if (view === "terminal" && wsId && !activeTerminals.has(wsId)) {
+      setView("chatbot");
+    }
+  }, [view, wsId, activeTerminals]);
+
   // Refresh diff stats and session list when streaming stops
   const prevStreamingRef = useRef(isStreaming);
   useEffect(() => {
@@ -215,7 +229,7 @@ export default function WorkspaceView() {
       {/* Chat area + right panel */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="flex h-12 items-center gap-2 border-b border-border/50 px-4 backdrop-blur-sm">
+          <div className="relative z-20 flex h-12 items-center gap-2 border-b border-border/50 px-4 backdrop-blur-sm">
             <span className="truncate text-sm font-semibold text-foreground">{workspace?.name}</span>
             <span className="truncate text-xs text-muted-foreground">{workspace?.branch}</span>
             <Badge variant={hasActiveSession ? "default" : "secondary"} className="text-[10px]">
@@ -243,7 +257,10 @@ export default function WorkspaceView() {
                 className={view === "chatbot"
                   ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary dark:border-primary/40 dark:bg-primary/10"
                   : "hover:bg-transparent hover:text-current"}
-                onClick={() => setView("chatbot")}
+                onClick={() => {
+                  setView("chatbot");
+                  setVisibleTerminal(null);
+                }}
               >
                 <MessageSquareIcon className="mr-1.5 size-3.5" />
                 Chatbot
@@ -254,7 +271,10 @@ export default function WorkspaceView() {
                 className={view === "terminal"
                   ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary dark:border-primary/40 dark:bg-primary/10"
                   : "hover:bg-transparent hover:text-current"}
-                onClick={() => setView("terminal")}
+                onClick={() => {
+                  setView("terminal");
+                  if (wsId) openTerminal(wsId);
+                }}
               >
                 <TerminalSquareIcon className="mr-1.5 size-3.5" />
                 Terminal
@@ -287,10 +307,8 @@ export default function WorkspaceView() {
               connectionStatus={connectionStatus}
             />
           </div>
-          {view === "terminal" && wsId && (
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <Terminal workspaceId={wsId} />
-            </div>
+          {view === "terminal" && (
+            <div className="min-h-0 flex-1" />
           )}
         </div>
 

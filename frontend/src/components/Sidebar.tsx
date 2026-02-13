@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { FolderPlus, GitBranch, Settings } from "lucide-react";
+import { FolderPlus, GitBranch, Settings, TerminalSquareIcon } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -9,6 +9,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { wsTransport } from "@/lib/ws-transport";
+import { useTerminalContext } from "@/contexts/TerminalContext";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
 
@@ -55,6 +56,7 @@ export default function Sidebar({
     [projects],
   );
   const { wsId: activeWsId } = useParams();
+  const { activeTerminals } = useTerminalContext();
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
   const [liveWorkspaceStatus, setLiveWorkspaceStatus] = useState<
@@ -177,6 +179,7 @@ export default function Sidebar({
                       <div className="mt-1 space-y-0.5">
                         {(project.workspaces ?? []).map((ws) => {
                           const wsStreaming = liveWorkspaceStatus[ws.id]?.streaming ?? false;
+                          const hasTerminal = activeTerminals.has(ws.id);
                           return (
                             <Link
                               key={ws.id}
@@ -189,6 +192,9 @@ export default function Sidebar({
                               <div className="flex items-center gap-1.5">
                                 <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                                 <span className="min-w-0 flex-1 truncate text-sm">{ws.branch}</span>
+                                {hasTerminal && (
+                                  <TerminalSquareIcon className="h-3 w-3 shrink-0 text-primary/70" />
+                                )}
                               </div>
                               <div className="mt-0.5 pl-5 text-[11px] text-muted-foreground">
                                 <span className="truncate">{wsStreaming ? "working..." : ws.name}</span>
