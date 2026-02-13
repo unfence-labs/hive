@@ -11,7 +11,7 @@ import { createAuthHook } from "./utils/auth.js";
 import { createRateLimitHook } from "./utils/rate-limit.js";
 import { ensureDataDir, getDataDir } from "./state/state.js";
 import type { SessionOptions } from "./agents/agent-manager.js";
-import { BranchSyncService } from "./services/branch-sync.js";
+import { GitSyncService } from "./services/git-sync.js";
 import { broadcastToWorkspace } from "./ws/stream.js";
 
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -84,15 +84,18 @@ async function main() {
   const dataDir = getDataDir();
   await ensureDataDir(dataDir);
 
-  const branchSync = new BranchSyncService(dataDir);
-  branchSync.onBranchChange((wsId, info) => {
+  const gitSync = new GitSyncService(dataDir);
+  gitSync.onBranchChange((wsId, info) => {
     broadcastToWorkspace(wsId, { type: "branch_info", info });
+  });
+  gitSync.onDiffStatsChange((wsId, stats) => {
+    broadcastToWorkspace(wsId, { type: "diff_stats", stats });
   });
 
   const app = await buildApp();
 
-  app.addHook("onClose", () => branchSync.stop());
-  branchSync.start(BRANCH_SYNC_INTERVAL_MS);
+  app.addHook("onClose", () => gitSync.stop());
+  gitSync.start(BRANCH_SYNC_INTERVAL_MS);
 
   await app.listen({ host: HOST, port: PORT });
 }

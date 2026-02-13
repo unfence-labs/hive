@@ -193,4 +193,5 @@ export type WsOutgoing =
   | { type: "status"; status: WorkspaceStatus; sessionId?: string; streaming?: boolean }
   | { type: "user_message"; message: ChatMessage }
   | { type: "history"; messages: ChatMessage[] }
-  | { type: "branch_info"; info: BranchInfo };
+  | { type: "branch_info"; info: BranchInfo }
+  | { type: "diff_stats"; stats: DiffStatResponse };

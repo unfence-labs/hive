@@ -82,13 +82,24 @@ export default function WorkspaceView() {
   const [diffModalOpen, setDiffModalOpen] = useState(false);
   const [diffModalFile, setDiffModalFile] = useState<string | undefined>();
 
-  // Diff stats for the modified tab
-  const { committed: diffCommitted, uncommitted: diffUncommitted, totalCount: diffTotalCount, loading: diffStatsLoading, refresh: refreshDiffStats } = useDiffStat(wsId);
+  // Diff stats for the modified tab (REST for initial load + manual refresh)
+  const { committed: restCommitted, uncommitted: restUncommitted, loading: diffStatsLoading, refresh: refreshDiffStats } = useDiffStat(wsId);
 
-  // Live branch data via WebSocket
+  // Live data via WebSocket (branch + diff stats)
   const liveWsIds = useMemo(() => (wsId ? [wsId] : []), [wsId]);
   const liveData = useWorkspaceLiveData(liveWsIds);
   const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
+
+  // Merge live WS diff stats with REST fallback
+  const liveDiffStats = wsId ? liveData[wsId]?.diffStats : undefined;
+  const diffCommitted = liveDiffStats?.committed ?? restCommitted;
+  const diffUncommitted = liveDiffStats?.uncommitted ?? restUncommitted;
+  const diffTotalCount = useMemo(() => {
+    const files = new Set<string>();
+    for (const f of diffCommitted) files.add(f.file);
+    for (const f of diffUncommitted) files.add(f.file);
+    return files.size;
+  }, [diffCommitted, diffUncommitted]);
 
   const fetchWorkspace = useCallback(async () => {
     if (!wsId) {

@@ -7,6 +7,7 @@ type MessageHandler = (msg: WsOutgoing) => void;
 type StatusListener = () => void;
 type StatusMessage = Extract<WsOutgoing, { type: "status" }>;
 type HistoryMessage = Extract<WsOutgoing, { type: "history" }>;
+type DiffStatsMessage = Extract<WsOutgoing, { type: "diff_stats" }>;
 
 const MAX_RECONNECT_DELAY = 30_000;
 const BASE_RECONNECT_DELAY = 1_000;
@@ -21,6 +22,7 @@ interface WorkspaceConnection {
   statusListeners: Set<StatusListener>;
   lastStatus?: StatusMessage;
   lastHistory?: HistoryMessage;
+  lastDiffStats?: DiffStatsMessage;
   /** Messages received while no handler was subscribed. Replayed on next onMessage(). */
   messageBuffer: WsOutgoing[];
 }
@@ -101,6 +103,9 @@ class WsTransport {
     if (connection.lastHistory) {
       handler(connection.lastHistory);
     }
+    if (connection.lastDiffStats) {
+      handler(connection.lastDiffStats);
+    }
 
     const hadBufferedMessages = connection.messageBuffer.length > 0;
     for (const msg of connection.messageBuffer) {
@@ -172,6 +177,7 @@ class WsTransport {
     connection.statusListeners.clear();
     connection.lastStatus = undefined;
     connection.lastHistory = undefined;
+    connection.lastDiffStats = undefined;
     connection.messageBuffer = [];
     this.connections.delete(workspaceId);
   }
@@ -206,6 +212,8 @@ class WsTransport {
           connection.lastStatus = msg;
         } else if (msg.type === "history") {
           connection.lastHistory = msg;
+        } else if (msg.type === "diff_stats") {
+          connection.lastDiffStats = msg;
         }
 
         if (connection.messageHandlers.size > 0) {
