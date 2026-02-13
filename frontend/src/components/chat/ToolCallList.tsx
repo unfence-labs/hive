@@ -22,6 +22,36 @@ function buildChildrenMap(tools: ToolCall[]): Map<string, ToolCall[]> {
   return map;
 }
 
+/** A single Task node whose children are collapsed by default. */
+function TaskNode({
+  tool,
+  children,
+  childrenMap,
+  showExecutingState,
+}: {
+  tool: ToolCall;
+  children: ToolCall[];
+  childrenMap: Map<string, ToolCall[]>;
+  showExecutingState?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div>
+      <ChatToolUse
+        tool={tool}
+        isExecuting={showExecutingState ? tool.output === undefined : undefined}
+        onClick={() => setOpen(!open)}
+      />
+      {open && (
+        <div className="ml-4 border-l-2 border-muted-foreground/20 pl-3">
+          <ToolCallTree tools={children} childrenMap={childrenMap} showExecutingState={showExecutingState} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Recursively render tool calls, nesting children under their parent Task. */
 function ToolCallTree({
   tools,
@@ -36,22 +66,23 @@ function ToolCallTree({
     <>
       {tools.map((tool) => {
         const children = childrenMap.get(tool.id);
-        return (
-          <div key={tool.id}>
-            <ChatToolUse
+        if (children && children.length > 0) {
+          return (
+            <TaskNode
+              key={tool.id}
               tool={tool}
-              isExecuting={showExecutingState ? tool.output === undefined : undefined}
+              children={children}
+              childrenMap={childrenMap}
+              showExecutingState={showExecutingState}
             />
-            {children && children.length > 0 && (
-              <div className="ml-4 border-l-2 border-muted-foreground/20 pl-3">
-                <ToolCallTree
-                  tools={children}
-                  childrenMap={childrenMap}
-                  showExecutingState={showExecutingState}
-                />
-              </div>
-            )}
-          </div>
+          );
+        }
+        return (
+          <ChatToolUse
+            key={tool.id}
+            tool={tool}
+            isExecuting={showExecutingState ? tool.output === undefined : undefined}
+          />
         );
       })}
     </>

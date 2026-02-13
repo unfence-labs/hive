@@ -242,6 +242,7 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
 interface ChatToolUseProps {
   tool: ToolCall;
   isExecuting?: boolean;
+  onClick?: () => void;
 }
 
 function getOutputSummary(tool: ToolCall): string | undefined {
@@ -254,10 +255,11 @@ function getOutputSummary(tool: ToolCall): string | undefined {
   return undefined;
 }
 
-const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting }: ChatToolUseProps) {
+const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: ChatToolUseProps) {
   const [expanded, setExpanded] = useState(false);
   const display = getToolDisplay(tool);
-  const summary = !isExecuting && !expanded ? getOutputSummary(tool) : undefined;
+  const showExpanded = onClick ? false : expanded;
+  const summary = !isExecuting && !showExpanded ? getOutputSummary(tool) : undefined;
   const taskOutputText = tool.name === "Task" && tool.output
     ? parseContentBlocks(tool.output)
     : null;
@@ -270,7 +272,7 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting }: ChatToolUse
           "inline-flex w-fit items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground",
           isExecuting && "animate-shimmer",
         )}
-        onClick={() => setExpanded(!expanded)}
+        onClick={onClick ?? (() => setExpanded(!expanded))}
       >
         <span className="shrink-0">{display.icon}</span>
         <span>{display.label}</span>
@@ -288,7 +290,7 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting }: ChatToolUse
           <span className="text-xs font-normal text-muted-foreground/60">{summary}</span>
         )}
       </button>
-      {expanded && (
+      {showExpanded && (
         <div className="mt-1 rounded bg-muted/40 px-2 py-1.5 text-xs">
           <div className="mb-1">
             {typeof display.expandedContent === "string" ? (
