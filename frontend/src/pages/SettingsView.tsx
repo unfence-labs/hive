@@ -1,9 +1,14 @@
+import { useState } from "react";
 import { Check } from "lucide-react";
 import { useAccentColor } from "@/hooks/useAccentColor";
+import { useServerUrl } from "@/hooks/useServerUrl";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 export default function SettingsView() {
   const { accentId, setAccent, options } = useAccentColor();
+  const { serverUrl, setServerUrl } = useServerUrl();
+  const [draft, setDraft] = useState(serverUrl);
 
   return (
     <div className="flex h-full flex-col overflow-auto">
@@ -54,6 +59,32 @@ export default function SettingsView() {
               );
             })}
           </div>
+        </section>
+
+        {/* Server URL */}
+        <section>
+          <h2 className="mb-1 text-sm font-medium text-foreground">Server URL</h2>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Backend address for API and WebSocket connections. Leave empty to use the current host.
+          </p>
+          <div className="flex gap-2">
+            <Input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={() => setServerUrl(draft)}
+              onKeyDown={(e) => { if (e.key === "Enter") setServerUrl(draft); }}
+              placeholder="http://localhost:3000"
+              className="max-w-xs font-mono text-xs"
+            />
+            {draft !== serverUrl && (
+              <span className="self-center text-[10px] text-muted-foreground">unsaved</span>
+            )}
+          </div>
+          {serverUrl && (
+            <p className="mt-2 text-[10px] text-muted-foreground">
+              Active: <span className="font-mono text-foreground">{serverUrl}</span>
+            </p>
+          )}
         </section>
       </div>
     </div>

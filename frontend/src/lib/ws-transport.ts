@@ -1,3 +1,4 @@
+import { getServerUrl } from "@/hooks/useServerUrl";
 import type { WsIncoming, WsOutgoing } from "@/types";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
@@ -178,9 +179,14 @@ class WsTransport {
   private openSocket(workspaceId: string, connection: WorkspaceConnection): void {
     if (!connection.active) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsHost =
-      import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
+    const serverUrl = getServerUrl();
+    let wsHost: string;
+    if (serverUrl) {
+      wsHost = serverUrl.replace(/^http/, "ws");
+    } else {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      wsHost = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
+    }
     const authToken = import.meta.env.VITE_HIVE_AUTH_TOKEN?.trim();
     const query = authToken ? `?token=${encodeURIComponent(authToken)}` : "";
     const ws = new WebSocket(`${wsHost}/ws/session/${workspaceId}${query}`);

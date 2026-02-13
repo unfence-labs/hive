@@ -1,3 +1,5 @@
+import { getServerUrl } from "@/hooks/useServerUrl";
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -30,7 +32,8 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     headers.Authorization = `Bearer ${authToken}`;
   }
 
-  const res = await fetch(url, { ...options, headers });
+  const base = getServerUrl();
+  const res = await fetch(`${base}${url}`, { ...options, headers });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new ApiError(res.status, body || res.statusText);
