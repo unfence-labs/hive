@@ -55,6 +55,7 @@ describe("ChatMessage", () => {
         message={assistantMessage({
           thinkingContent: "reasoning",
           cancelled: true,
+          durationMs: 1200,
           toolCalls: [{ id: "t1", name: "Read", input: "{}" }],
         })}
       />,

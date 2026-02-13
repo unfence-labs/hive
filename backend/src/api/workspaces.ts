@@ -9,6 +9,8 @@ import {
   listWorkspaceFiles,
   mergeWorkspace,
 } from "../workspaces/workspace-manager.js";
+import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
+import { getDataDir } from "../state/state.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
 
 export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
@@ -35,7 +37,15 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
   app.get<{ Params: { wsId: string } }>("/api/workspaces/:wsId", async (req, reply) => {
     const result = await getWorkspace(req.params.wsId, dataDir);
     if (!result) return reply.status(404).send({ error: "Workspace not found" });
-    return reply.send(result.workspace);
+
+    const bare = bareRepoPath(dataDir ?? getDataDir(), result.projectState.id);
+    const defaultBranch = await resolveDefaultBranch(bare);
+
+    return reply.send({
+      ...result.workspace,
+      projectName: result.projectState.name,
+      defaultBranch,
+    });
   });
 
   app.delete<{ Params: { wsId: string } }>("/api/workspaces/:wsId", async (req, reply) => {

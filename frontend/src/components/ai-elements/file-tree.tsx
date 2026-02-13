@@ -8,12 +8,11 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { ChevronRightIcon } from "lucide-react";
 import {
-  ChevronRightIcon,
-  FileIcon,
-  FolderIcon,
-  FolderOpenIcon,
-} from "lucide-react";
+  FileIcon as SymbolFileIcon,
+  FolderIcon as SymbolFolderIcon,
+} from "@react-symbols/icons/utils";
 import {
   createContext,
   useCallback,
@@ -162,11 +161,7 @@ export const FileTreeFolder = ({
                 )}
               />
               <FileTreeIcon>
-                {isExpanded ? (
-                  <FolderOpenIcon className="size-4 text-primary" />
-                ) : (
-                  <FolderIcon className="size-4 text-primary/70" />
-                )}
+                <SymbolFolderIcon folderName={name} className="size-4" />
               </FileTreeIcon>
               <FileTreeName>{name}</FileTreeName>
             </button>
@@ -241,7 +236,7 @@ export const FileTreeFile = ({
             {/* Spacer for alignment */}
             <span className="size-4" />
             <FileTreeIcon>
-              {icon ?? <FileIcon className="size-4 text-primary/70" />}
+              {icon ?? <SymbolFileIcon fileName={name} autoAssign className="size-4" />}
             </FileTreeIcon>
             <FileTreeName>{name}</FileTreeName>
           </>

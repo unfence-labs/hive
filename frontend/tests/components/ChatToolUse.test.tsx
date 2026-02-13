@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ChatToolUse from "@/components/ChatToolUse";
@@ -99,5 +99,54 @@ describe("ChatToolUse", () => {
 
     expect(screen.getByText("Result")).toBeInTheDocument();
     expect(screen.getByText(/"agent result"/)).toBeInTheDocument();
+  });
+
+  it("renders Task content blocks as formatted text output", async () => {
+    const user = userEvent.setup();
+    render(
+      <ChatToolUse
+        tool={tool({
+          name: "Task",
+          input: JSON.stringify({
+            subagent_type: "Explore",
+            description: "Inspect code",
+            prompt: "Find issues",
+          }),
+          output: JSON.stringify([
+            { type: "text", text: "First finding" },
+            { type: "text", text: "Second finding" },
+            { type: "image", url: "https://example.com/image.png" },
+          ]),
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /task/i }));
+
+    expect(screen.getByText("Result")).toBeInTheDocument();
+    expect(screen.getByText("First finding")).toBeInTheDocument();
+    expect(screen.getByText("Second finding")).toBeInTheDocument();
+  });
+
+  it("delegates click handling when onClick is provided without toggling local expansion", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+
+    render(
+      <ChatToolUse
+        tool={tool({
+          name: "Read",
+          input: JSON.stringify({ file_path: "src/main.ts" }),
+          output: "file-content",
+        })}
+        onClick={onClick}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /read/i }));
+
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Path: src/main.ts")).not.toBeInTheDocument();
+    expect(screen.queryByText("Result")).not.toBeInTheDocument();
   });
 });

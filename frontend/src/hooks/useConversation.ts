@@ -70,7 +70,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         ...state,
         activeToolCalls: [
           ...state.activeToolCalls,
-          { id: action.id, name: action.name, input: action.input },
+          { id: action.id, name: action.name, input: action.input, parentToolUseId: action.parentToolUseId },
         ],
       };
 

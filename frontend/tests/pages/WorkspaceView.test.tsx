@@ -342,4 +342,28 @@ describe("WorkspaceView terminal behavior", () => {
     await user.click(screen.getByRole("button", { name: "dismiss questions" }));
     expect(mocks.rejectToolInput).toHaveBeenCalledWith("cancel");
   });
+
+  it("prefers projectName in header and shows origin default branch when provided", async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
+      const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
+      if (workspaceMatch) {
+        const workspace = WORKSPACES[workspaceMatch[1]];
+        if (!workspace) return null;
+        return {
+          ...workspace,
+          projectName: "hive",
+          defaultBranch: "main",
+        };
+      }
+      if (filesMatch) return FILE_TREE;
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    renderWorkspace();
+
+    await screen.findByText("hive");
+    expect(screen.getByText("workspace/tokyo")).toBeInTheDocument();
+    expect(screen.getByText("> origin/main")).toBeInTheDocument();
+  });
 });

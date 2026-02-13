@@ -52,6 +52,7 @@ export interface ToolCall {
   name: string;
   input: string;
   output?: string;
+  parentToolUseId?: string;
 }
 
 export interface ChatMessage {
@@ -166,7 +167,7 @@ export type WsIncoming =
 export type WsOutgoing =
   | { type: "text_delta"; text: string }
   | { type: "thinking"; text: string }
-  | { type: "tool_use"; id: string; name: string; input: string }
+  | { type: "tool_use"; id: string; name: string; input: string; parentToolUseId?: string }
   | { type: "tool_result"; toolUseId: string; output: string }
   | { type: "tool_input_required"; requestId: string; toolName: string; toolUseId: string; input: unknown }
   | { type: "done"; sessionId?: string; costUsd?: number; durationMs?: number }

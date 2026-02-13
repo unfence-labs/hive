@@ -232,8 +232,6 @@ export default function WorkspaceView() {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <div className="relative z-20 flex h-12 items-center gap-2 border-b border-border/50 px-4 backdrop-blur-sm">
-            <span className="truncate text-sm font-semibold text-foreground">{workspace?.name}</span>
-            <span className="truncate text-xs text-muted-foreground">{workspace?.branch}</span>
             <Badge variant={hasActiveSession ? "default" : "secondary"} className="text-[10px]">
               <span
                 className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${
@@ -242,6 +240,11 @@ export default function WorkspaceView() {
               />
               {hasActiveSession ? "active" : "idle"}
             </Badge>
+            <span className="truncate text-sm font-semibold text-foreground">{workspace?.projectName ?? workspace?.name}</span>
+            <span className="truncate text-xs text-muted-foreground">{workspace?.branch}</span>
+            {workspace?.defaultBranch && (
+              <span className="truncate text-xs text-muted-foreground/60">{"> origin/"}{workspace.defaultBranch}</span>
+            )}
             <div className="ml-auto">
               <SessionSelector
                 sessions={sessions}
