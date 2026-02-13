@@ -203,11 +203,16 @@ export default function WorkspaceView() {
     if (!success) return;
 
     if (isActive) {
-      clearChat();
-      if (wsId) wsTransport.clearCachedData(wsId);
-      await fetchWorkspace();
+      const next = sessions.find((s) => s.sessionId !== targetSessionId);
+      if (next) {
+        await handleActivateSession(next.sessionId);
+      } else {
+        clearChat();
+        if (wsId) wsTransport.clearCachedData(wsId);
+        await fetchWorkspace();
+      }
     }
-  }, [deleteSession, sessionId, clearChat, fetchWorkspace, wsId]);
+  }, [deleteSession, sessionId, sessions, handleActivateSession, clearChat, fetchWorkspace, wsId]);
 
   const handleModifiedFileClick = useCallback((filePath: string) => {
     setDiffModalFile(filePath);
