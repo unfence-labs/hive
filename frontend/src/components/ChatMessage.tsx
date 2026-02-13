@@ -41,7 +41,7 @@ const ChatMessage = memo(function ChatMessage({
             {message.thinkingContent && (
               <ThinkingBlock content={message.thinkingContent} />
             )}
-            <div className="prose-sm">
+            <div className="prose-sm pl-2.5">
               <MessageResponse>{message.content}</MessageResponse>
             </div>
             {message.toolCalls && (

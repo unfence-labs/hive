@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useRef } from "react";
-import { BrainIcon, ChevronDownIcon } from "lucide-react";
+import { BrainIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MessageResponse } from "@/components/ai-elements/message";
 
@@ -53,27 +53,28 @@ export const ThinkingBlock = memo(function ThinkingBlock({
       ? `Thought for ${duration}s`
       : "Thinking";
 
+  const preview = content.split("\n")[0].slice(0, 60);
+
   return (
-    <div className="mb-2">
+    <div className="my-0.5">
       <button
         type="button"
         className={cn(
-          "flex w-full items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground",
+          "inline-flex w-fit max-w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground",
           streaming && "animate-shimmer",
         )}
         onClick={() => setOpen(!open)}
       >
-        <BrainIcon className="size-3.5" />
-        <span>{label}</span>
-        <ChevronDownIcon
-          className={cn(
-            "ml-auto size-3.5 transition-transform",
-            open && "rotate-180",
-          )}
-        />
+        <BrainIcon className="size-3.5 shrink-0" />
+        <span className="shrink-0">{label}</span>
+        {!open && preview && (
+          <code className="truncate rounded bg-muted/60 px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+            {preview}{content.length > 60 ? "..." : ""}
+          </code>
+        )}
       </button>
       {open && (
-        <div className="mt-1 rounded bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+        <div className="mt-1 rounded bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">
           <MessageResponse isAnimating={streaming}>{content}</MessageResponse>
         </div>
       )}
