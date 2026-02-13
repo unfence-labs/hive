@@ -98,4 +98,55 @@ describe("SessionSelector", () => {
     expect(onDeleteSession).toHaveBeenCalledWith("sess-2");
     expect(onActivateSession).not.toHaveBeenCalled();
   });
+
+  it("hides delete buttons when only one session exists", async () => {
+    const user = userEvent.setup();
+    renderSessionSelector({
+      sessions: [makeSession("sess-only", "2026-02-12T00:00:01.000Z")],
+      activeSessionId: "sess-only",
+    });
+
+    await user.click(screen.getByRole("button", { name: /Session 1/i }));
+
+    const sessionRow = screen.getByRole("menuitem", { name: /Session 1/i });
+    expect(within(sessionRow).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("shows delete buttons when multiple sessions exist", async () => {
+    const user = userEvent.setup();
+    renderSessionSelector();
+
+    await user.click(screen.getByRole("button", { name: /Session 2/i }));
+
+    const session1Row = screen.getByRole("menuitem", { name: /Session 1/i });
+    const session2Row = screen.getByRole("menuitem", { name: /Session 2/i });
+    expect(within(session1Row).getByRole("button")).toBeInTheDocument();
+    expect(within(session2Row).getByRole("button")).toBeInTheDocument();
+  });
+
+  it("cancelling the delete confirmation does not call onDeleteSession", async () => {
+    const user = userEvent.setup();
+    const { onDeleteSession } = renderSessionSelector();
+
+    await user.click(screen.getByRole("button", { name: /Session 2/i }));
+    const targetRow = screen.getByRole("menuitem", { name: /Session 1/i });
+    await user.click(within(targetRow).getByRole("button"));
+
+    expect(screen.getByText("Delete session")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onDeleteSession).not.toHaveBeenCalled();
+  });
+
+  it("does not call onActivateSession when clicking the already active session", async () => {
+    const user = userEvent.setup();
+    const { onActivateSession } = renderSessionSelector({
+      activeSessionId: "sess-1",
+    });
+
+    await user.click(screen.getByRole("button", { name: /Session 2/i }));
+    await user.click(screen.getByRole("menuitem", { name: /Session 2/i }));
+
+    expect(onActivateSession).not.toHaveBeenCalled();
+  });
 });

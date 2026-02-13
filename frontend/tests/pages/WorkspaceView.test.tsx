@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   deleteSession: vi.fn(),
   refreshSessions: vi.fn(),
   refreshDiffStat: vi.fn(),
+  clearCachedData: vi.fn(),
 }));
 
 vi.mock("@/hooks/useApi", () => ({
@@ -46,6 +47,10 @@ vi.mock("@/hooks/useDiffStat", () => ({
 
 vi.mock("@/hooks/useWorkspaceLiveData", () => ({
   useWorkspaceLiveData: mocks.useWorkspaceLiveData,
+}));
+
+vi.mock("@/lib/ws-transport", () => ({
+  wsTransport: { clearCachedData: mocks.clearCachedData },
 }));
 
 vi.mock("@/components/ChatConversation", () => ({
@@ -74,7 +79,30 @@ vi.mock("@/components/chat/QuestionPanel", () => ({
 }));
 
 vi.mock("@/components/SessionSelector", () => ({
-  SessionSelector: () => <div data-testid="session-selector">session-selector</div>,
+  SessionSelector: ({
+    onDeleteSession,
+    onCreateSession,
+    onActivateSession,
+  }: {
+    onDeleteSession: (id: string) => void;
+    onCreateSession: () => void;
+    onActivateSession: (id: string) => void;
+  }) => (
+    <div data-testid="session-selector">
+      <button type="button" data-testid="delete-active-btn" onClick={() => onDeleteSession("sess-active")}>
+        delete active
+      </button>
+      <button type="button" data-testid="delete-inactive-btn" onClick={() => onDeleteSession("sess-inactive")}>
+        delete inactive
+      </button>
+      <button type="button" data-testid="create-session-btn" onClick={onCreateSession}>
+        create session
+      </button>
+      <button type="button" data-testid="activate-session-btn" onClick={() => onActivateSession("sess-2")}>
+        activate session
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/diff/GitDiffModal", () => ({
@@ -167,6 +195,7 @@ describe("WorkspaceView terminal behavior", () => {
     mocks.deleteSession.mockReset();
     mocks.refreshSessions.mockReset();
     mocks.refreshDiffStat.mockReset();
+    mocks.clearCachedData.mockReset();
     mocks.useWorkspaceLiveData.mockReset();
     mocks.useWorkspaceLiveData.mockReturnValue({});
 
@@ -383,5 +412,188 @@ describe("WorkspaceView terminal behavior", () => {
     await screen.findByText("hive");
     expect(screen.getByText("workspace/tokyo")).toBeInTheDocument();
     expect(screen.getByText("> origin/main")).toBeInTheDocument();
+  });
+});
+
+describe("WorkspaceView session delete behavior", () => {
+  beforeEach(() => {
+    mocks.apiGet.mockReset();
+    mocks.useConversation.mockReset();
+    mocks.useSessions.mockReset();
+    mocks.useDiffStat.mockReset();
+    mocks.sendMessage.mockReset();
+    mocks.stopStreaming.mockReset();
+    mocks.clearChat.mockReset();
+    mocks.switchSession.mockReset();
+    mocks.answerQuestion.mockReset();
+    mocks.batchAnswerQuestions.mockReset();
+    mocks.approvePlan.mockReset();
+    mocks.rejectToolInput.mockReset();
+    mocks.createSession.mockReset();
+    mocks.activateSession.mockReset();
+    mocks.deleteSession.mockReset();
+    mocks.refreshSessions.mockReset();
+    mocks.refreshDiffStat.mockReset();
+    mocks.clearCachedData.mockReset();
+    mocks.useWorkspaceLiveData.mockReset();
+    mocks.useWorkspaceLiveData.mockReturnValue({});
+
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
+      const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
+      if (workspaceMatch) return WORKSPACES[workspaceMatch[1]] ?? null;
+      if (filesMatch) return FILE_TREE;
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    mocks.useConversation.mockReturnValue({
+      messages: [],
+      isStreaming: false,
+      workspaceStatus: "idle",
+      currentStreamingText: "",
+      currentThinking: "",
+      activeToolCalls: [],
+      pendingToolInputs: [],
+      connectionStatus: "connected",
+      error: null,
+      sessionId: "sess-active",
+      sendMessage: mocks.sendMessage,
+      stopStreaming: mocks.stopStreaming,
+      clearChat: mocks.clearChat,
+      switchSession: mocks.switchSession,
+      answerQuestion: mocks.answerQuestion,
+      batchAnswerQuestions: mocks.batchAnswerQuestions,
+      approvePlan: mocks.approvePlan,
+      rejectToolInput: mocks.rejectToolInput,
+    });
+
+    mocks.useDiffStat.mockReturnValue({
+      committed: [],
+      uncommitted: [],
+      totalCount: 0,
+      loading: false,
+      error: null,
+      refresh: mocks.refreshDiffStat,
+    });
+  });
+
+  it("auto-switches to the next session when deleting the active session", async () => {
+    const user = userEvent.setup();
+    mocks.useSessions.mockReturnValue({
+      sessions: [
+        { sessionId: "sess-active", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:01.000Z", messageCount: 5 },
+        { sessionId: "sess-other", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:00.000Z", messageCount: 2 },
+      ],
+      createSession: mocks.createSession,
+      activateSession: mocks.activateSession.mockResolvedValue({
+        sessionId: "sess-other",
+        workspaceId: "ws-1",
+        createdAt: "2026-02-12T00:00:00.000Z",
+        updatedAt: "2026-02-12T00:00:00.000Z",
+        messageCount: 2,
+      }),
+      deleteSession: mocks.deleteSession.mockResolvedValue(true),
+      refresh: mocks.refreshSessions,
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByTestId("delete-active-btn"));
+
+    await waitFor(() => {
+      expect(mocks.deleteSession).toHaveBeenCalledWith("sess-active");
+      expect(mocks.activateSession).toHaveBeenCalledWith("sess-other");
+      expect(mocks.switchSession).toHaveBeenCalledWith("sess-other");
+    });
+
+    // Should NOT have cleared chat since we switched to another session
+    expect(mocks.clearChat).not.toHaveBeenCalled();
+    expect(mocks.clearCachedData).not.toHaveBeenCalled();
+  });
+
+  it("clears chat and cached data when deleting the last remaining session", async () => {
+    const user = userEvent.setup();
+    mocks.useSessions.mockReturnValue({
+      sessions: [
+        { sessionId: "sess-active", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:01.000Z", messageCount: 5 },
+      ],
+      createSession: mocks.createSession,
+      activateSession: mocks.activateSession,
+      deleteSession: mocks.deleteSession.mockResolvedValue(true),
+      refresh: mocks.refreshSessions,
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByTestId("delete-active-btn"));
+
+    await waitFor(() => {
+      expect(mocks.deleteSession).toHaveBeenCalledWith("sess-active");
+      expect(mocks.clearChat).toHaveBeenCalled();
+      expect(mocks.clearCachedData).toHaveBeenCalledWith("ws-1");
+    });
+
+    // Should NOT have tried to activate another session
+    expect(mocks.activateSession).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when delete fails", async () => {
+    const user = userEvent.setup();
+    mocks.useSessions.mockReturnValue({
+      sessions: [
+        { sessionId: "sess-active", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:01.000Z", messageCount: 5 },
+        { sessionId: "sess-other", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:00.000Z", messageCount: 2 },
+      ],
+      createSession: mocks.createSession,
+      activateSession: mocks.activateSession,
+      deleteSession: mocks.deleteSession.mockResolvedValue(false),
+      refresh: mocks.refreshSessions,
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByTestId("delete-active-btn"));
+
+    await waitFor(() => {
+      expect(mocks.deleteSession).toHaveBeenCalledWith("sess-active");
+    });
+
+    // Nothing else should happen
+    expect(mocks.clearChat).not.toHaveBeenCalled();
+    expect(mocks.activateSession).not.toHaveBeenCalled();
+    expect(mocks.switchSession).not.toHaveBeenCalled();
+    expect(mocks.clearCachedData).not.toHaveBeenCalled();
+  });
+
+  it("does not switch session when deleting an inactive session", async () => {
+    const user = userEvent.setup();
+    mocks.useSessions.mockReturnValue({
+      sessions: [
+        { sessionId: "sess-active", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:01.000Z", messageCount: 5 },
+        { sessionId: "sess-inactive", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:00.000Z", messageCount: 2 },
+      ],
+      createSession: mocks.createSession,
+      activateSession: mocks.activateSession,
+      deleteSession: mocks.deleteSession.mockResolvedValue(true),
+      refresh: mocks.refreshSessions,
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByTestId("delete-inactive-btn"));
+
+    await waitFor(() => {
+      expect(mocks.deleteSession).toHaveBeenCalledWith("sess-inactive");
+    });
+
+    // Should NOT switch, clear, or do anything else — inactive session delete is silent
+    expect(mocks.clearChat).not.toHaveBeenCalled();
+    expect(mocks.activateSession).not.toHaveBeenCalled();
+    expect(mocks.switchSession).not.toHaveBeenCalled();
+    expect(mocks.clearCachedData).not.toHaveBeenCalled();
   });
 });
