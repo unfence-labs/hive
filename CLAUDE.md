@@ -1,101 +1,116 @@
-# Hive
+# Hive Developer Notes
 
-Claude Code chat interface. Backend (Fastify) + Frontend (React) monorepo using npm workspaces.
+This repository is a monorepo:
+- `backend/`: Fastify API + WebSocket server
+- `frontend/`: React + Vite UI
+
+Hive runs Claude conversations in isolated Git workspaces (worktrees) created from a project's bare repo.
 
 ## Commands
 
+From repo root:
+
 ```bash
-# Install (from repo root)
 npm install
 npm run lint
 npm run typecheck
 npm run test
-
-# Backend
-cd backend
-npm run dev          # tsx watch src/index.ts (hot reload, port 3000)
-npm run build        # tsc
-npm run lint
-npm run typecheck
-npm test             # vitest run
-npm run test:watch   # vitest in watch mode
-
-# Frontend
-cd frontend
-npm run dev          # vite dev server (port 5173, proxies /api + /ws to :3000)
-npm run build        # tsc -b && vite build
-npm run lint
-npm run typecheck
 ```
 
-## Architecture
+Backend:
 
-Project -> Workspace -> Session hierarchy:
-- **Project** = bare-cloned git repo (`git clone --bare`)
-- **Workspace** = git worktree with a city name, branched from main
-- **Session** = conversation with Claude CLI (`--print --output-format stream-json --verbose`)
+```bash
+cd backend
+npm run dev
+npm run build
+npm run lint
+npm run typecheck
+npm test
+```
 
-One active session per workspace at a time. Workspace status: `idle` or `busy`. Session auto-creates on first message via WebSocket.
+Frontend:
 
-State is persisted as JSON (`{dataDir}/{projectId}/state.json`) with atomic writes (tmp + rename). Session messages are persisted to `{dataDir}/{projectId}/sessions/{sessionId}/messages.jsonl`.
+```bash
+cd frontend
+npm run dev
+npm run build
+npm run lint
+npm run typecheck
+npm test
+```
 
-### Key directories in code
+## Core Model
 
-- `backend/src/state/` - JSON persistence with atomic writes
-- `backend/src/projects/` - Bare repo clone, fetch, CRUD
-- `backend/src/workspaces/` - Git worktree lifecycle, diff, merge
-- `backend/src/agents/` - ConversationSession (Claude CLI), StreamParser (NDJSON), session manager
-- `backend/src/api/` - Fastify REST routes (session CRUD)
-- `backend/src/ws/` - WebSocket streaming (bidirectional chat, auto-creates sessions)
-- `frontend/src/hooks/` - API and WebSocket hooks (useConversation, useProjects, useWorkspaces)
-- `frontend/src/pages/` - Route-level views
-- `frontend/src/components/` - UI components (shadcn/ui primitives in `ui/`)
+Project -> Workspace -> Session
 
-### Claude CLI Integration
+- **Project**: bare-cloned Git repo (`git clone --bare`)
+- **Workspace**: Git worktree + branch (`workspace/<city>`)
+- **Session**: persisted Claude conversation for one workspace
 
-Uses `claude --print --output-format stream-json --verbose` (optionally with `--dangerously-skip-permissions`) which outputs NDJSON with:
-- `type: "assistant"` — text, tool_use, thinking blocks
-- `type: "user"` — tool_result blocks (tool outputs)
-- `type: "result"` — session_id, cost, usage
-- `type: "system"` — compaction markers
+One session is active in memory per workspace. Multiple sessions are supported on disk and can be activated/switched.
 
-Session continuity via `--resume <claudeSessionId>` after first message.
+## Backend Architecture
 
-## Code Style
+- `backend/src/api/projects.ts`: project CRUD + fetch
+- `backend/src/api/workspaces.ts`: workspace CRUD + diff/diff-stat/files + merge
+- `backend/src/api/agents.ts`: session routes (single + multi-session)
+- `backend/src/ws/stream.ts`: conversation WebSocket protocol
+- `backend/src/ws/terminal.ts`: PTY terminal WebSocket
+- `backend/src/agents/conversation-session.ts`: Claude process lifecycle per turn
+- `backend/src/agents/agent-manager.ts`: session registry, persistence, switching
+- `backend/src/state/state.ts`: JSON persistence + per-project locks
 
-- ES modules everywhere (`import`/`export`, `.js` extensions in imports)
-- Strict TypeScript (`strict: true`), no `any` unless unavoidable
-- All code, comments, variable names in English
-- Shared types in `backend/src/types.ts` and `frontend/src/types.ts`
-- Backend route plugins accept optional `dataDir` param for testability (defaults to `DATA_DIR` env or `/data/projects`)
-- Session routes accept `SessionOptions` so tests can substitute `bash` for `claude`
-- Tests co-located with source files (`*.test.ts` next to `*.ts`), except e2e in `__tests__/`
+### Important backend behavior
+
+- Conversation mode uses Claude CLI in print/stream mode per message (`--print --output-format stream-json -p`).
+- Session continuity is preserved with Claude `--session-id` / `--resume`.
+- Blocking tools (`AskUserQuestion`, `ExitPlanMode`) are intercepted and surfaced to UI as `tool_input_required`.
+- `getOrCreateSession()` auto-recovers stale `busy` workspaces after backend restart.
+- Merges happen in a **temporary worktree** on the default branch, then refs are updated in the bare repo.
+
+## Frontend Architecture
+
+- `frontend/src/pages/WorkspaceView.tsx`: chat + terminal toggle + file tree + diff UI
+- `frontend/src/hooks/useConversation.ts`: reducer for WS messages + session switching
+- `frontend/src/hooks/useSessions.ts`: list/create/activate/delete sessions
+- `frontend/src/lib/ws-transport.ts`: reconnecting WS transport with replay buffer
+- `frontend/src/components/Terminal.tsx`: xterm + `/ws/terminal/:wsId`
+
+### Important frontend behavior
+
+- App keeps WS session channels synced for all known workspace IDs (`wsTransport.syncWorkspaces`).
+- `useConversation` resets state on workspace switch, then hydrates from REST history.
+- Session selector supports create/switch/delete with confirmation dialog.
+- Diff UI uses `@pierre/diffs` and supports line annotations to send context back into chat.
+
+## Coding Rules
+
+- TypeScript strict mode, ES modules.
+- Use English for code/comments/UI copy.
+- Keep backend routes testable by preserving optional `dataDir` injection.
+- Keep session creation/switching serialized with workspace locks.
+
+## Critical Guardrails
+
+- **Do not execute raw shell git strings**. Use `git(args, cwd)` from `backend/src/utils/git.ts`.
+- Validate repository URLs with `validateRepositoryUrl()` before cloning.
+- Keep WebSocket protocol types in sync between:
+  - `backend/src/types.ts`
+  - `frontend/src/types.ts`
+- When adding WS message types, update:
+  - backend stream route dispatch,
+  - frontend reducer in `useConversation`,
+  - corresponding tests.
 
 ## Testing
 
-- Framework: vitest
-- ALWAYS run `npm test` from `backend/` after changes to verify no regressions
-- Run a single test file: `npx vitest run src/path/to/file.test.ts`
-- Tests create temp dirs and fixture git repos via `test-helpers.ts` — cleanup is in `afterEach`
-- Session manager tests use `SessionOptions` with `bash` to avoid requiring actual `claude` CLI
-- ConversationSession tests mock `child_process.spawn` for unit isolation
+- Backend tests live next to source (`backend/src/**/*.test.ts`).
+- Frontend tests live in `frontend/tests/**`.
+- Use `SessionOptions.command = "bash"` in backend tests to avoid depending on local Claude CLI.
 
-## Environment Variables
+## Known Gaps (Current)
 
-- `HOST` - Backend bind address (default: `127.0.0.1`)
-- `PORT` - Backend port (default: `3000`)
-- `DATA_DIR` - Where projects/worktrees/sessions live (default: `/data/projects`)
-- `HIVE_AUTH_TOKEN` - Optional API/WS bearer token (health endpoint stays public)
-- `HIVE_RATE_LIMIT_MAX` - Max requests per IP per window (default: `120`)
-- `HIVE_RATE_LIMIT_WINDOW_MS` - Rate-limit window in milliseconds (default: `60000`)
-- `HIVE_CLAUDE_SKIP_PERMISSIONS` - Enables/disables Claude `--dangerously-skip-permissions` (default: `true`)
-- `VITE_HIVE_AUTH_TOKEN` - Optional frontend token used for API and WS auth
-- `VITE_WS_URL` - Optional frontend WS base URL override
-
-## Important
-
-- NEVER shell-execute git commands — use the `git()` wrapper in `utils/git.ts` (uses `execFile`, no shell injection)
-- The merge strategy uses a temp worktree: checkout main in temp dir, merge branch, update bare repo HEAD, cleanup. Do not try to merge directly in a bare repo
-- `_clearActiveSessions()` in agent-manager is for test cleanup only
-- Frontend proxies `/api` and `/ws` to the backend in dev mode via `vite.config.ts`
-- WebSocket at `/ws/session/:wsId` auto-creates sessions on first `user_message` — no need to POST first
+- No global error boundary in frontend yet.
+- No toast/notification system yet.
+- No dedicated terminal log replay endpoint yet.
+- Merge conflict UX is still generic (server returns an error, no structured conflict payload).
