@@ -294,6 +294,91 @@ describe("wsTransport", () => {
     expect(result.hadBufferedMessages).toBe(false);
   });
 
+  describe("branch_info caching", () => {
+    it("caches the latest branch_info message", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+
+      const handler: WsOutgoing[] = [];
+      const { unsubscribe } = wsTransport.onMessage("ws-1", (msg) => handler.push(msg));
+
+      const branchInfoMsg = JSON.stringify({
+        type: "branch_info",
+        info: { name: "workspace/tokyo", lastSyncedAt: "2026-02-15T00:00:00.000Z" },
+      });
+      socket.message(branchInfoMsg);
+      unsubscribe();
+
+      // New handler should receive the cached branch_info
+      const replayed: WsOutgoing[] = [];
+      wsTransport.onMessage("ws-1", (msg) => replayed.push(msg));
+
+      const branchInfoReplayed = replayed.find((m) => m.type === "branch_info");
+      expect(branchInfoReplayed).toEqual({
+        type: "branch_info",
+        info: { name: "workspace/tokyo", lastSyncedAt: "2026-02-15T00:00:00.000Z" },
+      });
+    });
+
+    it("replays branch_info together with status and history", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+
+      const first: WsOutgoing[] = [];
+      const { unsubscribe } = wsTransport.onMessage("ws-1", (msg) => first.push(msg));
+
+      socket.message(JSON.stringify({ type: "status", status: "idle", streaming: false }));
+      socket.message(JSON.stringify({ type: "history", messages: [] }));
+      socket.message(JSON.stringify({
+        type: "diff_stats",
+        stats: { committed: [], uncommitted: [] },
+      }));
+      socket.message(JSON.stringify({
+        type: "branch_info",
+        info: { name: "feat/pr-sync", lastSyncedAt: "2026-02-15T01:00:00.000Z" },
+      }));
+      unsubscribe();
+
+      const replayed: WsOutgoing[] = [];
+      wsTransport.onMessage("ws-1", (msg) => replayed.push(msg));
+
+      // Should replay all 4 cached message types
+      const types = replayed.map((m) => m.type);
+      expect(types).toContain("status");
+      expect(types).toContain("history");
+      expect(types).toContain("diff_stats");
+      expect(types).toContain("branch_info");
+    });
+
+    it("updates cached branch_info when a newer one arrives", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+
+      const handler: WsOutgoing[] = [];
+      const { unsubscribe } = wsTransport.onMessage("ws-1", (msg) => handler.push(msg));
+
+      socket.message(JSON.stringify({
+        type: "branch_info",
+        info: { name: "old-branch", lastSyncedAt: "2026-02-15T00:00:00.000Z" },
+      }));
+      socket.message(JSON.stringify({
+        type: "branch_info",
+        info: { name: "new-branch", lastSyncedAt: "2026-02-15T01:00:00.000Z" },
+      }));
+      unsubscribe();
+
+      const replayed: WsOutgoing[] = [];
+      wsTransport.onMessage("ws-1", (msg) => replayed.push(msg));
+
+      const branchMsgs = replayed.filter((m) => m.type === "branch_info");
+      expect(branchMsgs).toHaveLength(1);
+      expect((branchMsgs[0] as Extract<WsOutgoing, { type: "branch_info" }>).info.name).toBe("new-branch");
+    });
+  });
+
   describe("clearCachedData", () => {
     it("clears cached status, history, and message buffer", () => {
       wsTransport.connect("ws-1");
@@ -334,6 +419,26 @@ describe("wsTransport", () => {
 
       expect(wsTransport.getStatus("ws-1")).toBe("connected");
       expect(socket.readyState).toBe(MockWebSocket.OPEN);
+    });
+
+    it("clears cached branch_info along with other cached data", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+
+      const first: WsOutgoing[] = [];
+      const { unsubscribe } = wsTransport.onMessage("ws-1", (msg) => first.push(msg));
+      socket.message(JSON.stringify({
+        type: "branch_info",
+        info: { name: "workspace/tokyo", lastSyncedAt: "2026-02-15T00:00:00.000Z" },
+      }));
+      unsubscribe();
+
+      wsTransport.clearCachedData("ws-1");
+
+      const replayed: WsOutgoing[] = [];
+      wsTransport.onMessage("ws-1", (msg) => replayed.push(msg));
+      expect(replayed.find((m) => m.type === "branch_info")).toBeUndefined();
     });
 
     it("allows fresh data to accumulate after clearing", () => {

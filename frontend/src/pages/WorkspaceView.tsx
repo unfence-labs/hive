@@ -18,6 +18,7 @@ import { BranchLabel } from "@/components/BranchLabel";
 import { useTerminalContext } from "@/contexts/TerminalContext";
 import { GitDiffModal } from "@/components/diff/GitDiffModal";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
+import { PrStatusSection } from "@/components/PrStatusSection";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
@@ -86,6 +87,7 @@ export default function WorkspaceView() {
   const liveWsIds = useMemo(() => (wsId ? [wsId] : []), [wsId]);
   const liveData = useWorkspaceLiveData(liveWsIds);
   const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
+  const branchInfo = wsId ? liveData[wsId]?.branchInfo : undefined;
 
   // Diff stats from WebSocket polling
   const diffCommitted = (wsId ? liveData[wsId]?.diffStats?.committed : undefined) ?? [];
@@ -96,6 +98,18 @@ export default function WorkspaceView() {
     for (const f of diffUncommitted) files.add(f.file);
     return files.size;
   }, [diffCommitted, diffUncommitted]);
+
+  // Lightweight file tree refresh — preserves expanded/selected state
+  const refreshFileTree = useCallback(async () => {
+    if (!wsId) return;
+    try {
+      const tree = await api.get<WorkspaceFileTreeNode[]>(`/api/workspaces/${wsId}/files`);
+      setFileTree(tree);
+      setFileTreeError(null);
+    } catch {
+      // Silently ignore — stale tree is better than error flash
+    }
+  }, [wsId]);
 
   const fetchWorkspace = useCallback(async () => {
     if (!wsId) {
@@ -165,6 +179,16 @@ export default function WorkspaceView() {
   const { sessions, createSession, activateSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
 
   const effectiveWorkspaceStatus = workspaceStatus ?? workspace?.status;
+
+  // Refresh file tree when diff stats change (files created/modified/deleted)
+  const diffStatsRef = useRef(liveData[wsId ?? ""]?.diffStats);
+  useEffect(() => {
+    const current = liveData[wsId ?? ""]?.diffStats;
+    if (diffStatsRef.current && current && current !== diffStatsRef.current) {
+      refreshFileTree();
+    }
+    diffStatsRef.current = current;
+  }, [liveData, wsId, refreshFileTree]);
 
   // Reset to chatbot view and hide terminal overlay when switching workspaces
   useEffect(() => {
@@ -408,6 +432,7 @@ export default function WorkspaceView() {
               </FileTree>
             )}
           </div>
+          <PrStatusSection branchInfo={branchInfo} />
         </aside>
       </div>
 

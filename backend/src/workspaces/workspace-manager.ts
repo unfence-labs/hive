@@ -1,4 +1,4 @@
-import { rm, readdir } from "node:fs/promises";
+import { rm, readdir, readFile } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
@@ -226,14 +226,34 @@ export async function getWorkspaceDiff(
   ).then((r) => r.stdout).catch(() => "");
 
   // Uncommitted diff: staged + unstaged changes in worktree
-  const uncommittedDiff = await git(["diff", "HEAD"], wsPath)
-    .then((r) => r.stdout)
-    .catch(() => "");
+  const [uncommittedDiff, untrackedResult] = await Promise.all([
+    git(["diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
+    git(["ls-files", "--others", "--exclude-standard"], wsPath)
+      .then((r) => r.stdout)
+      .catch(() => ""),
+  ]);
 
-  if (committedDiff && uncommittedDiff) {
-    return committedDiff + "\n" + uncommittedDiff;
+  // Generate synthetic diffs for untracked files
+  const untrackedFiles = untrackedResult.split("\n").filter(Boolean);
+  const untrackedPatches: string[] = [];
+  for (const file of untrackedFiles.slice(0, 100)) {
+    try {
+      const content = await readFile(join(wsPath, file), "utf-8");
+      // Skip binary files (contains null bytes)
+      if (content.includes("\0")) continue;
+      const lines = content.endsWith("\n") ? content.slice(0, -1).split("\n") : content.split("\n");
+      const lineCount = lines.length;
+      const hunkBody = lines.map((l) => `+${l}`).join("\n");
+      untrackedPatches.push(
+        `diff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n@@ -0,0 +1,${lineCount} @@\n${hunkBody}`,
+      );
+    } catch {
+      // Skip unreadable files
+    }
   }
-  return committedDiff || uncommittedDiff;
+  const untrackedDiff = untrackedPatches.join("\n");
+
+  return [committedDiff, uncommittedDiff, untrackedDiff].filter(Boolean).join("\n");
 }
 
 function parseDiffStat(
@@ -328,11 +348,20 @@ export async function computeDiffStat(
   const committed = parseDiffStat(committedNumstat.stdout, committedNameStatus.stdout);
 
   // Uncommitted changes (staged + unstaged in worktree)
-  const [uncommittedNumstat, uncommittedNameStatus] = await Promise.all([
+  const [uncommittedNumstat, uncommittedNameStatus, untrackedResult] = await Promise.all([
     git(["diff", "--numstat", "HEAD"], wsPath).catch(() => ({ stdout: "" })),
     git(["diff", "--name-status", "HEAD"], wsPath).catch(() => ({ stdout: "" })),
+    git(["ls-files", "--others", "--exclude-standard"], wsPath).catch(() => ({ stdout: "" })),
   ]);
   const uncommitted = parseDiffStat(uncommittedNumstat.stdout, uncommittedNameStatus.stdout);
+
+  // Append untracked files as "added" (not captured by git diff)
+  const trackedFiles = new Set(uncommitted.map((f) => f.file));
+  for (const file of untrackedResult.stdout.split("\n").filter(Boolean)) {
+    if (!trackedFiles.has(file)) {
+      uncommitted.push({ file, additions: 0, deletions: 0, status: "added" });
+    }
+  }
 
   return { committed, uncommitted };
 }

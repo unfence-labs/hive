@@ -31,7 +31,8 @@ export interface PullRequestInfo {
 export interface BranchInfo {
   name: string;
   lastSyncedAt: string;
-  pr?: PullRequestInfo;
+  pr?: PullRequestInfo | null;
+  prSyncError?: string;
 }
 
 export interface WorkspaceFileTreeNode {
