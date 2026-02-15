@@ -1,11 +1,11 @@
-import { rm, readdir, readFile } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
+import { rm, readdir, readFile, stat } from "node:fs/promises";
+import { join, relative, resolve, sep } from "node:path";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
 import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/paths.js";
 import { pickCityName } from "../utils/city-names.js";
 import { loadProject, saveProject, getDataDir, withProjectStateLock } from "../state/state.js";
-import { ConflictError, NotFoundError } from "../utils/errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "../utils/errors.js";
 import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffStatResponse } from "../types.js";
 
 const IGNORED_DIRS = new Set([".git", "node_modules"]);
@@ -402,6 +402,47 @@ export async function listWorkspaceFiles(
 
   const remaining = { count: MAX_TREE_NODES };
   return readWorkspaceTree(workspacePath, workspacePath, 0, remaining);
+}
+
+const MAX_FILE_SIZE = 1024 * 1024; // 1 MB
+
+export async function getWorkspaceFileContent(
+  wsId: string,
+  filePath: string,
+  dataDir = getDataDir()
+): Promise<{ content: string; path: string }> {
+  if (!filePath) throw new BadRequestError("Missing file path");
+
+  const result = await getWorkspace(wsId, dataDir);
+  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
+
+  const workspacePath = join(
+    workspacesDir(dataDir, result.projectState.id),
+    result.workspace.name,
+  );
+
+  const resolved = resolve(workspacePath, filePath);
+  if (!resolved.startsWith(workspacePath + sep) && resolved !== workspacePath) {
+    throw new BadRequestError("Invalid file path");
+  }
+
+  let fileStat;
+  try {
+    fileStat = await stat(resolved);
+  } catch {
+    throw new NotFoundError(`File not found: ${filePath}`);
+  }
+
+  if (!fileStat.isFile()) {
+    throw new BadRequestError("Path is not a file");
+  }
+
+  if (fileStat.size > MAX_FILE_SIZE) {
+    throw new BadRequestError(`File too large (${Math.round(fileStat.size / 1024)}KB, max 1MB)`);
+  }
+
+  const content = await readFile(resolved, "utf-8");
+  return { content, path: filePath };
 }
 
 export async function mergeWorkspace(

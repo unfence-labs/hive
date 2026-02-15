@@ -75,13 +75,13 @@ describe("ConversationTabs", () => {
     expect(onActivateSession).toHaveBeenCalledWith("sess-2");
   });
 
-  it("does not call onActivateSession when clicking the already active tab", async () => {
+  it("calls onActivateSession even when clicking the already active tab (supports switching from file view)", async () => {
     const user = userEvent.setup();
     const { onActivateSession } = renderTabs();
 
     await user.click(screen.getByText("First conversation"));
 
-    expect(onActivateSession).not.toHaveBeenCalled();
+    expect(onActivateSession).toHaveBeenCalledWith("sess-1");
   });
 
   it("shows delete confirmation and deletes on confirm", async () => {
@@ -234,5 +234,79 @@ describe("ConversationTabs", () => {
 
     expect(screen.getByText("Named one")).toBeInTheDocument();
     expect(screen.getByText("Conversation 1")).toBeInTheDocument();
+  });
+});
+
+describe("ConversationTabs — file tab", () => {
+  it("does not render file tab when openFile is null", () => {
+    renderTabs({ openFile: null });
+    expect(screen.queryByText(/\..*$/)).not.toBeInTheDocument();
+  });
+
+  it("renders file tab with filename when openFile is set", () => {
+    renderTabs({ openFile: "src/components/App.tsx" });
+    expect(screen.getByText("App.tsx")).toBeInTheDocument();
+  });
+
+  it("applies active styling to file tab when isFileActive is true", () => {
+    renderTabs({ openFile: "src/index.ts", isFileActive: true });
+    const fileTab = screen.getByText("index.ts").closest("button")!;
+    expect(fileTab.className).toContain("bg-accent");
+    expect(fileTab.className).toContain("text-accent-foreground");
+  });
+
+  it("applies inactive styling to file tab when isFileActive is false", () => {
+    renderTabs({ openFile: "src/index.ts", isFileActive: false });
+    const fileTab = screen.getByText("index.ts").closest("button")!;
+    expect(fileTab.className).toContain("text-muted-foreground");
+    expect(fileTab.className).not.toContain("text-accent-foreground");
+  });
+
+  it("dims conversation tab styling when file tab is active", () => {
+    renderTabs({ openFile: "src/index.ts", isFileActive: true });
+    const convTab = screen.getByText("First conversation").closest("button")!;
+    expect(convTab.className).toContain("text-muted-foreground");
+    expect(convTab.className).not.toContain("text-accent-foreground");
+  });
+
+  it("calls onFileTabClick when clicking the file tab", async () => {
+    const user = userEvent.setup();
+    const onFileTabClick = vi.fn();
+    renderTabs({ openFile: "README.md", isFileActive: false, onFileTabClick });
+
+    await user.click(screen.getByText("README.md"));
+
+    expect(onFileTabClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onFileTabClose when clicking X on the file tab", async () => {
+    const user = userEvent.setup();
+    const onFileTabClose = vi.fn();
+    renderTabs({ openFile: "README.md", isFileActive: true, onFileTabClose });
+
+    const fileTab = screen.getByText("README.md").closest("button")!;
+    await user.hover(fileTab);
+    const closeBtn = fileTab.querySelector("[role='button']") as HTMLElement;
+    await user.click(closeBtn);
+
+    expect(onFileTabClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders file tab to the left of conversation tabs", () => {
+    renderTabs({ openFile: "src/app.ts", isFileActive: true });
+    const fileTab = screen.getByText("app.ts").closest("button")!;
+    const convTab = screen.getByText("First conversation").closest("button")!;
+
+    // file tab should appear before conversation tab in DOM order
+    expect(
+      fileTab.compareDocumentPosition(convTab) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("renders a File icon in the file tab", () => {
+    renderTabs({ openFile: "package.json" });
+    const fileTab = screen.getByText("package.json").closest("button")!;
+    const svg = fileTab.querySelector("svg");
+    expect(svg).toBeInTheDocument();
   });
 });

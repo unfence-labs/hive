@@ -297,3 +297,110 @@ describe("POST /api/workspaces/:wsId/merge", () => {
     expect(res.json().error).toContain("Cannot merge");
   });
 });
+
+describe("GET /api/workspaces/:wsId/file", () => {
+  it("returns 404 for non-existent workspace", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/workspaces/nonexistent/file?path=README.md",
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("returns 400 when path query param is missing", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${ws.id}/file`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("path");
+  });
+
+  it("returns file content for existing file", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${ws.id}/file?path=README.md`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.content).toBe("# Test Repo\n");
+    expect(body.path).toBe("README.md");
+  });
+
+  it("returns content for a newly created file", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await mkdir(join(wsPath, "src"), { recursive: true });
+    await writeFile(join(wsPath, "src", "app.ts"), "const x = 1;\n");
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${ws.id}/file?path=src/app.ts`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().content).toBe("const x = 1;\n");
+    expect(res.json().path).toBe("src/app.ts");
+  });
+
+  it("returns 404 for non-existent file", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${ws.id}/file?path=does-not-exist.txt`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("returns 400 for directory traversal attempt", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${ws.id}/file?path=../../etc/passwd`,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("returns 400 when path points to a directory", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await mkdir(join(wsPath, "src"), { recursive: true });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${ws.id}/file?path=src`,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});
