@@ -48,6 +48,14 @@ export function useProjects() {
     setData((prev) => prev.filter((p) => p.id !== id));
   }, [setData]);
 
+  const archiveWorkspace = useCallback(async (wsId: string) => {
+    await api.post(`/api/workspaces/${wsId}/archive`);
+    setData((prev) => prev.map((project) => ({
+      ...project,
+      workspaces: project.workspaces.filter((ws) => ws.id !== wsId),
+    })));
+  }, [setData]);
+
   return {
     projects,
     loading,
@@ -57,5 +65,6 @@ export function useProjects() {
     createWorkspace,
     createProjectWithWorkspace,
     deleteProject,
+    archiveWorkspace,
   };
 }

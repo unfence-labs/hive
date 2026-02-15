@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { FolderPlus, Settings, TerminalSquareIcon } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { ArchiveIcon, FolderPlus, Settings, TerminalSquareIcon } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -8,11 +8,22 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useTerminalContext } from "@/contexts/TerminalContext";
 import { useWorkspaceLiveData } from "@/hooks/useWorkspaceLiveData";
 import { BranchLabel } from "@/components/BranchLabel";
+import { api } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
-import type { Project } from "@/types";
+import type { DiffStatResponse, Project } from "@/types";
 
 const AVATAR_COLORS = [
   { bg: "bg-red-500/20", text: "text-red-400" },
@@ -39,6 +50,7 @@ interface SidebarProps {
   loading: boolean;
   onAddProject: () => void;
   onAddWorkspace: (projectId: string) => Promise<unknown>;
+  onArchiveWorkspace: (wsId: string) => Promise<void>;
 }
 
 export default function Sidebar({
@@ -46,6 +58,7 @@ export default function Sidebar({
   loading,
   onAddProject,
   onAddWorkspace,
+  onArchiveWorkspace,
 }: SidebarProps) {
   const workspaceIds = useMemo(
     () =>
@@ -57,9 +70,11 @@ export default function Sidebar({
     [projects],
   );
   const { wsId: activeWsId } = useParams();
+  const navigate = useNavigate();
   const { activeTerminals } = useTerminalContext();
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
   const liveData = useWorkspaceLiveData(workspaceIds);
 
   const activeProjectId = projects.find((project) =>
@@ -81,6 +96,29 @@ export default function Sidebar({
     } finally {
       setCreatingProjectId(null);
     }
+  };
+
+  const handleArchiveClick = async (wsId: string) => {
+    let uncommittedCount = liveData[wsId]?.diffStats?.uncommitted?.length;
+    if (uncommittedCount === undefined) {
+      try {
+        const stats = await api.get<DiffStatResponse>(`/api/workspaces/${wsId}/diff/stat`);
+        uncommittedCount = stats.uncommitted.length;
+      } catch {
+        uncommittedCount = 0;
+      }
+    }
+    if (uncommittedCount > 0) {
+      setArchiveTarget(wsId);
+    } else {
+      await doArchive(wsId);
+    }
+  };
+
+  const doArchive = async (wsId: string) => {
+    const wasActive = activeWsId === wsId;
+    await onArchiveWorkspace(wsId);
+    if (wasActive) navigate("/projects");
   };
 
   return (
@@ -153,24 +191,38 @@ export default function Sidebar({
                           const displayBranch = wsLive?.branch ?? ws.branch;
                           const hasTerminal = activeTerminals.has(ws.id);
                           return (
-                            <Link
-                              key={ws.id}
-                              to={`/workspaces/${ws.id}`}
-                              className={cn(
-                                "block rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent/60",
-                                activeWsId === ws.id && "bg-primary/8",
-                              )}
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <BranchLabel branch={displayBranch} className="min-w-0 flex-1 text-sm" />
-                                {hasTerminal && (
-                                  <TerminalSquareIcon className="h-3 w-3 shrink-0 text-primary/70" />
+                            <div key={ws.id} className="group/ws relative">
+                              <Link
+                                to={`/workspaces/${ws.id}`}
+                                className={cn(
+                                  "block rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent/60",
+                                  activeWsId === ws.id && "bg-primary/8",
                                 )}
-                              </div>
-                              <div className="mt-0.5 pl-5 text-[11px] text-muted-foreground">
-                                <span className="truncate">{wsStreaming ? "working..." : ws.name}</span>
-                              </div>
-                            </Link>
+                              >
+                                <div className="flex items-center gap-1.5">
+                                  <BranchLabel branch={displayBranch} className="min-w-0 flex-1 text-sm" />
+                                  {hasTerminal && (
+                                    <TerminalSquareIcon className="h-3 w-3 shrink-0 text-primary/70 transition-opacity group-hover/ws:opacity-0" />
+                                  )}
+                                </div>
+                                <div className="mt-0.5 pl-5 text-[11px] text-muted-foreground">
+                                  <span className="truncate">{wsStreaming ? "working..." : ws.name}</span>
+                                </div>
+                              </Link>
+                              <button
+                                type="button"
+                                className="absolute right-1.5 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  void handleArchiveClick(ws.id);
+                                }}
+                                aria-label={`Archive workspace ${ws.name}`}
+                                title="Archive workspace"
+                              >
+                                <ArchiveIcon className="h-3 w-3" />
+                              </button>
+                            </div>
                           );
                         })}
                       </div>
@@ -201,6 +253,31 @@ export default function Sidebar({
           <Settings className="h-4 w-4" />
         </Link>
       </div>
+
+      <AlertDialog
+        open={archiveTarget !== null}
+        onOpenChange={(open) => !open && setArchiveTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive workspace</AlertDialogTitle>
+            <AlertDialogDescription>
+              This workspace has uncommitted changes that will be lost. Are you sure you want to archive it?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (archiveTarget) void doArchive(archiveTarget);
+                setArchiveTarget(null);
+              }}
+            >
+              Archive
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -10,6 +10,7 @@ interface AppLayoutProps {
   loading: boolean;
   onAddProject: () => void;
   onAddWorkspace: (projectId: string) => Promise<unknown>;
+  onArchiveWorkspace: (wsId: string) => Promise<void>;
 }
 
 function TerminalLayer() {
@@ -41,6 +42,7 @@ export default function AppLayout({
   loading,
   onAddProject,
   onAddWorkspace,
+  onArchiveWorkspace,
 }: AppLayoutProps) {
   return (
     <TerminalProvider>
@@ -50,6 +52,7 @@ export default function AppLayout({
           loading={loading}
           onAddProject={onAddProject}
           onAddWorkspace={onAddWorkspace}
+          onArchiveWorkspace={onArchiveWorkspace}
         />
         <main className="relative flex-1 overflow-hidden">
           <Outlet />

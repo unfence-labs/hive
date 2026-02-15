@@ -9,7 +9,7 @@ import { useProjects } from "@/hooks/useProjects";
 import { wsTransport } from "@/lib/ws-transport";
 
 export default function App() {
-  const { projects, loading, createWorkspace, createProjectWithWorkspace } = useProjects();
+  const { projects, loading, createWorkspace, createProjectWithWorkspace, archiveWorkspace } = useProjects();
   const [showAddProject, setShowAddProject] = useState(false);
   const workspaceIds = useMemo(
     () =>
@@ -45,6 +45,7 @@ export default function App() {
               loading={loading}
               onAddProject={() => setShowAddProject(true)}
               onAddWorkspace={createWorkspace}
+              onArchiveWorkspace={archiveWorkspace}
             />
           }
         >
