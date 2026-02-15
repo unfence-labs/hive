@@ -13,7 +13,7 @@ import {
 import ChatConversation from "@/components/ChatConversation";
 import ChatInput from "@/components/ChatInput";
 import QuestionPanel from "@/components/chat/QuestionPanel";
-import { SessionSelector } from "@/components/SessionSelector";
+import { ConversationTabs } from "@/components/ConversationTabs";
 import { BranchLabel } from "@/components/BranchLabel";
 import { useTerminalContext } from "@/contexts/TerminalContext";
 import { GitDiffModal } from "@/components/diff/GitDiffModal";
@@ -315,17 +315,7 @@ export default function WorkspaceView() {
             {workspace?.defaultBranch && (
               <span className="truncate text-xs text-muted-foreground/60">{"> origin/"}{workspace.defaultBranch}</span>
             )}
-            <div className="ml-auto">
-              <SessionSelector
-                sessions={sessions}
-                activeSessionId={sessionId}
-                isStreaming={isStreaming}
-                onCreateSession={handleCreateSession}
-                onActivateSession={handleActivateSession}
-                onDeleteSession={handleDeleteSession}
-              />
-            </div>
-            <ButtonGroup className="ml-2">
+            <ButtonGroup className="ml-auto">
               <Button
                 variant="outline"
                 size="xs"
@@ -356,6 +346,14 @@ export default function WorkspaceView() {
               </Button>
             </ButtonGroup>
           </div>
+          <ConversationTabs
+            sessions={sessions}
+            activeSessionId={sessionId}
+            isStreaming={isStreaming}
+            onCreateSession={handleCreateSession}
+            onActivateSession={handleActivateSession}
+            onDeleteSession={handleDeleteSession}
+          />
           <div className={view === "chatbot" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
             {error && (
               <div className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
