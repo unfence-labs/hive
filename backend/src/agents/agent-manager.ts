@@ -57,6 +57,11 @@ export async function getOrCreateSession(
     const { projectState, workspace } = result;
     const projectId = projectState.id;
 
+    // Capture the previous active session ID before recovery clears it.
+    // After a server restart the workspace is still persisted as "busy" with
+    // an activeSessionId pointing to valid session files on disk.
+    const previousActiveSessionId = workspace.activeSessionId;
+
     await withProjectStateLock(
       projectId,
       async () => {
@@ -97,6 +102,48 @@ export async function getOrCreateSession(
         branchRename: {},
         promptsDir: join(dataDir, "prompts"),
       });
+    }
+
+    // After a server restart, try to resume the previous session from disk
+    // instead of creating a brand new one. This preserves the Claude
+    // --resume session ID so the conversation continues seamlessly.
+    if (previousActiveSessionId) {
+      const metaPath = join(sessionDataDir, "sessions", previousActiveSessionId, "metadata.json");
+      try {
+        const raw = await readFile(metaPath, "utf-8");
+        const meta = JSON.parse(raw) as SessionMetadata;
+        if (meta.workspaceId === wsId) {
+          const session = await ConversationSession.load({
+            sessionId: previousActiveSessionId,
+            cwd: wsPath,
+            dataDir: sessionDataDir,
+            workspaceId: wsId,
+            command: options?.command,
+            systemPrompt,
+            skipPermissions: options?.skipPermissions,
+          });
+
+          activeSessions.set(wsId, session);
+
+          await withProjectStateLock(
+            projectId,
+            async () => {
+              const latest = await loadProject(projectId, dataDir);
+              if (!latest) throw new NotFoundError(`Project ${projectId} not found`);
+              const latestWorkspace = latest.workspaces.find((ws) => ws.id === wsId);
+              if (!latestWorkspace) throw new NotFoundError(`Workspace ${wsId} not found`);
+              latestWorkspace.status = "busy";
+              latestWorkspace.activeSessionId = session.sessionId;
+              await saveProject(latest, dataDir);
+            },
+            dataDir,
+          );
+
+          return { session, created: false };
+        }
+      } catch {
+        // Session files missing or corrupt — fall through to create new session.
+      }
     }
 
     const session = new ConversationSession({

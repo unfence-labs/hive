@@ -124,6 +124,56 @@ describe("getOrCreateSession", () => {
     expect(updatedWs.activeSessionId).toBe(session.sessionId);
   });
 
+  it("resumes previous session from disk after server restart", async () => {
+    // Simulate a session that was active before server restart:
+    // session files exist on disk, workspace is persisted as busy.
+    const claudeSessionId = "claude-uuid-for-resume";
+    await writeSessionFixture("prev-session", wsId, {
+      metadata: {
+        claudeSessionId,
+        messageCount: 5,
+        updatedAt: "2026-02-12T00:00:00.000Z",
+      },
+    });
+
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId)!;
+    ws.status = "busy";
+    ws.activeSessionId = "prev-session";
+    await saveProject(state!, dataDir);
+
+    // No in-memory session (simulates server restart)
+    const { session, created } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+
+    expect(created).toBe(false);
+    expect(session.sessionId).toBe("prev-session");
+    expect(session.metadata.claudeSessionId).toBe(claudeSessionId);
+    expect(session.metadata.messageCount).toBe(5);
+
+    const updatedState = await loadProject(projectId, dataDir);
+    const updatedWs = updatedState!.workspaces.find((w) => w.id === wsId)!;
+    expect(updatedWs.status).toBe("busy");
+    expect(updatedWs.activeSessionId).toBe("prev-session");
+  });
+
+  it("falls back to new session when previous session belongs to different workspace", async () => {
+    const otherWs = await createWorkspace(projectId, dataDir);
+    await writeSessionFixture("other-ws-session", otherWs.id, {
+      metadata: { updatedAt: "2026-02-12T00:00:00.000Z" },
+    });
+
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId)!;
+    ws.status = "busy";
+    ws.activeSessionId = "other-ws-session";
+    await saveProject(state!, dataDir);
+
+    const { session, created } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+
+    expect(created).toBe(true);
+    expect(session.sessionId).not.toBe("other-ws-session");
+  });
+
   it("serializes concurrent creation attempts for the same workspace", async () => {
     const [first, second] = await Promise.all([
       getOrCreateSession(wsId, dataDir, CONV_CMD),
