@@ -698,4 +698,351 @@ describe("useConversation", () => {
     expect(__apiMock.getMock).not.toHaveBeenCalled();
     expect(result.current.sessionId).toBeUndefined();
   });
+
+  // ── Image attachment tests ──────────────────────────────────────────
+
+  it("forwards images through transport in sendMessage", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    const images = [
+      { name: "screenshot.png", mediaType: "image/png", dataUrl: "data:image/png;base64,abc" },
+    ];
+
+    act(() => {
+      result.current.sendMessage("Look at this", images);
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenCalledWith("ws-1", {
+      type: "user_message",
+      content: "Look at this",
+      images,
+    });
+  });
+
+  it("omits images field when images array is empty", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      result.current.sendMessage("No images", []);
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenCalledWith("ws-1", {
+      type: "user_message",
+      content: "No images",
+    });
+  });
+
+  it("preserves images field from backend user_message event", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    const images = [
+      { name: "test.png", mediaType: "image/png", dataUrl: "data:image/png;base64,xyz" },
+    ];
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u-img",
+          sessionId: "sess-1",
+          role: "user",
+          content: "With image",
+          images,
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0]?.images).toEqual(images);
+  });
+
+  it("de-duplicates user_message events with images", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    const msg = {
+      type: "user_message" as const,
+      message: {
+        id: "u-dup",
+        sessionId: "sess-1",
+        role: "user" as const,
+        content: "Dup",
+        images: [{ name: "x.png", mediaType: "image/png", dataUrl: "data:image/png;base64,a" }],
+        timestamp: "2026-02-12T00:00:00.000Z",
+      },
+    };
+
+    act(() => {
+      __wsMock.emit("ws-1", msg);
+      __wsMock.emit("ws-1", msg);
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+  });
+
+  // ── Additional coverage tests ───────────────────────────────────────
+
+  it("accumulates thinking content from multiple thinking events", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "think",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+    });
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "thinking", text: "First " });
+      __wsMock.emit("ws-1", { type: "thinking", text: "second" });
+    });
+
+    expect(result.current.currentThinking).toBe("First second");
+  });
+
+  it("persists thinking content in finalized assistant message on done", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "think",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+    });
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "thinking", text: "Deep thought" });
+      __wsMock.emit("ws-1", { type: "text_delta", text: "Answer" });
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
+    });
+
+    const assistant = result.current.messages.at(-1);
+    expect(assistant?.thinkingContent).toBe("Deep thought");
+    expect(assistant?.content).toBe("Answer");
+  });
+
+  it("updates tool call output via tool_result event", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "read file",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", {
+        type: "tool_use",
+        id: "tool-1",
+        name: "Read",
+        input: '{ "file_path": "/foo" }',
+      });
+    });
+
+    expect(result.current.activeToolCalls[0]?.output).toBeUndefined();
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "tool_result", toolUseId: "tool-1", output: "file contents" });
+    });
+
+    expect(result.current.activeToolCalls[0]?.output).toBe("file contents");
+  });
+
+  it("does not create cancelled message when no content was produced", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "cancel immediately",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+    });
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "cancelled" });
+    });
+
+    // Only the user message should be there, no empty cancelled assistant message
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0]?.role).toBe("user");
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("preserves durationMs from done event in finalized assistant message", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "start",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+    });
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "text_delta", text: "Hello" });
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", durationMs: 4500 });
+    });
+
+    const assistant = result.current.messages.at(-1);
+    expect(assistant?.durationMs).toBe(4500);
+  });
+
+  it("sends reject tool input response", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "tool_input_required",
+        requestId: "req-rej",
+        toolName: "AskUserQuestion",
+        toolUseId: "tool-rej",
+        input: {},
+      });
+    });
+
+    act(() => {
+      result.current.rejectToolInput("I disagree");
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
+      type: "tool_input_response",
+      requestId: "req-rej",
+      toolName: "AskUserQuestion",
+      result: { type: "reject", message: "I disagree" },
+    });
+    expect(result.current.pendingToolInputs).toEqual([]);
+  });
+
+  it("does nothing when rejectToolInput is called with no pending inputs", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      result.current.rejectToolInput("no pending");
+    });
+
+    // No tool_input_response should be sent
+    expect(__wsMock.sendMock).not.toHaveBeenCalled();
+  });
+
+  it("sendMessage returns false and sets error when no workspace", () => {
+    const { result } = renderHook(() => useConversation(undefined));
+
+    act(() => {
+      const sent = result.current.sendMessage("hello");
+      expect(sent).toBe(false);
+    });
+
+    expect(result.current.error).toContain("no workspace");
+  });
+
+  it("stopStreaming sends stop message through transport", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      result.current.stopStreaming();
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenCalledWith("ws-1", { type: "stop" });
+  });
+
+  it("resets state on workspace change", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result, rerender } = renderHook(
+      ({ wsId }) => useConversation(wsId),
+      { initialProps: { wsId: "ws-1" } },
+    );
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "old workspace",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+
+    rerender({ wsId: "ws-2" });
+
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.sessionId).toBeUndefined();
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("status event updates workspace status and streaming flag", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", streaming: true, sessionId: "sess-x" });
+    });
+
+    expect(result.current.workspaceStatus).toBe("busy");
+    expect(result.current.isStreaming).toBe(true);
+    expect(result.current.sessionId).toBe("sess-x");
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "idle", streaming: false });
+    });
+
+    expect(result.current.workspaceStatus).toBe("idle");
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("error event sets error message and stops streaming", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "error", message: "Connection lost" });
+    });
+
+    expect(result.current.error).toBe("Connection lost");
+    expect(result.current.isStreaming).toBe(false);
+  });
 });

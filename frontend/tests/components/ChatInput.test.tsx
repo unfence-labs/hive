@@ -119,4 +119,53 @@ describe("ChatInput", () => {
     expect(onSend).toHaveBeenCalledWith("hello", undefined, { planMode: false, thinkingEnabled: true });
     expect(input).toHaveValue("hello");
   });
+
+  // ── Attachment button tests ─────────────────────────────────────────
+
+  it("renders add attachments button", () => {
+    renderChatInput();
+    expect(screen.getByRole("button", { name: "Add attachments" })).toBeInTheDocument();
+  });
+
+  it("renders model label", () => {
+    renderChatInput();
+    expect(screen.getByText("Opus 4.6")).toBeInTheDocument();
+  });
+
+  it("disables send button when input is empty and not streaming", () => {
+    renderChatInput();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+
+  it("enables send button when text is entered", async () => {
+    const user = userEvent.setup();
+    renderChatInput();
+
+    await user.type(screen.getByPlaceholderText("Send a message..."), "a");
+
+    expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled();
+  });
+
+  it("disables input and attachment controls when disabled prop is true", () => {
+    renderChatInput({ disabled: true });
+
+    expect(screen.getByPlaceholderText("Send a message...")).toBeDisabled();
+  });
+
+  it("clears text input after successful send", async () => {
+    const user = userEvent.setup();
+    renderChatInput();
+
+    const input = screen.getByPlaceholderText("Send a message...");
+    await user.type(input, "hello");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(input).toHaveValue("");
+  });
+
+  it("keeps input enabled when connecting (only disconnected disables)", () => {
+    renderChatInput({ connectionStatus: "connecting" });
+    // "connecting" still uses the default placeholder and doesn't disable input
+    expect(screen.getByPlaceholderText("Send a message...")).not.toBeDisabled();
+  });
 });

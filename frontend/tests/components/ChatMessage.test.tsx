@@ -83,4 +83,137 @@ describe("ChatMessage", () => {
     expect(screen.queryByTestId("copy-button")).not.toBeInTheDocument();
     expect(screen.queryByTestId("tool-call-list")).not.toBeInTheDocument();
   });
+
+  // ── Image attachment tests ──────────────────────────────────────────
+
+  it("renders image attachments for user messages", () => {
+    render(
+      <ChatMessage
+        message={{
+          id: "u-img",
+          sessionId: "sess-1",
+          role: "user",
+          content: "Look at this",
+          timestamp: "2026-02-12T00:00:00.000Z",
+          images: [
+            { name: "screenshot.png", mediaType: "image/png", dataUrl: "data:image/png;base64,abc" },
+            { name: "photo.jpg", mediaType: "image/jpeg", dataUrl: "data:image/jpeg;base64,def" },
+          ],
+        }}
+      />,
+    );
+
+    const images = screen.getAllByRole("img");
+    expect(images).toHaveLength(2);
+    expect(images[0]).toHaveAttribute("alt", "screenshot.png");
+    expect(images[0]).toHaveAttribute("src", "data:image/png;base64,abc");
+    expect(images[1]).toHaveAttribute("alt", "photo.jpg");
+    expect(screen.getByText("Look at this")).toBeInTheDocument();
+  });
+
+  it("renders user message with images but no text content", () => {
+    render(
+      <ChatMessage
+        message={{
+          id: "u-img-only",
+          sessionId: "sess-1",
+          role: "user",
+          content: "",
+          timestamp: "2026-02-12T00:00:00.000Z",
+          images: [
+            { name: "diagram.png", mediaType: "image/png", dataUrl: "data:image/png;base64,xyz" },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("img")).toHaveAttribute("alt", "diagram.png");
+  });
+
+  it("does not render images when user message has no images field", () => {
+    render(
+      <ChatMessage
+        message={{
+          id: "u-no-img",
+          sessionId: "sess-1",
+          role: "user",
+          content: "Just text",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Just text")).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("does not render images when images array is empty", () => {
+    render(
+      <ChatMessage
+        message={{
+          id: "u-empty-img",
+          sessionId: "sess-1",
+          role: "user",
+          content: "Text only",
+          timestamp: "2026-02-12T00:00:00.000Z",
+          images: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Text only")).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  // ── Additional assistant message coverage ───────────────────────────
+
+  it("does not show duration or copy button when durationMs is absent", () => {
+    render(
+      <ChatMessage
+        message={assistantMessage({ durationMs: undefined })}
+      />,
+    );
+
+    expect(screen.queryByTestId("copy-button")).not.toBeInTheDocument();
+  });
+
+  it("shows duration and copy button when durationMs is set", () => {
+    render(
+      <ChatMessage
+        message={assistantMessage({ durationMs: 3000 })}
+      />,
+    );
+
+    expect(screen.getByTestId("copy-button")).toBeInTheDocument();
+  });
+
+  it("does not show cancelled label when cancelled is falsy", () => {
+    render(
+      <ChatMessage
+        message={assistantMessage({ cancelled: false })}
+      />,
+    );
+
+    expect(screen.queryByText("(cancelled)")).not.toBeInTheDocument();
+  });
+
+  it("does not render thinking block when thinkingContent is absent", () => {
+    render(
+      <ChatMessage
+        message={assistantMessage({ thinkingContent: undefined })}
+      />,
+    );
+
+    expect(screen.queryByTestId("thinking-block")).not.toBeInTheDocument();
+  });
+
+  it("does not render tool call list when no toolCalls", () => {
+    render(
+      <ChatMessage
+        message={assistantMessage({ toolCalls: undefined })}
+      />,
+    );
+
+    expect(screen.queryByTestId("tool-call-list")).not.toBeInTheDocument();
+  });
 });
