@@ -66,7 +66,7 @@ export function AutocompletePopup({
   return (
     <div
       ref={listRef}
-      className="absolute bottom-full left-0 right-0 z-50 mb-1 max-h-[240px] overflow-y-auto rounded-lg border border-border/50 bg-popover shadow-lg"
+      className="absolute bottom-full left-0 right-0 z-50 max-h-[240px] overflow-y-auto rounded-t-md border border-b-0 border-ring/40 bg-popover shadow-lg"
     >
       {grouped.map(({ source, items: groupItems }) => (
         <div key={source}>
