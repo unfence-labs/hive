@@ -17,6 +17,30 @@ export interface Workspace {
   activeSessionId?: string;
 }
 
+// ── Completion / autocomplete types ─────────────────────────────────
+
+export type CompletionItemType = "slash_command" | "agent";
+export type CompletionSource =
+  | "builtin"
+  | "user_skill"
+  | "project_skill"
+  | "plugin"
+  | "user_agent"
+  | "project_agent";
+
+export interface CompletionItem {
+  type: CompletionItemType;
+  name: string;
+  label: string;
+  description?: string;
+  argumentHint?: string;
+  source: CompletionSource;
+}
+
+export interface CompletionsResponse {
+  items: CompletionItem[];
+}
+
 // ── Branch / GitHub sync types ──────────────────────────────────────
 
 export interface PullRequestInfo {
