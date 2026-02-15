@@ -8,7 +8,7 @@ interface ContentPanelProps {
 
 export function ContentPanel({ children, className }: ContentPanelProps) {
   return (
-    <div className={cn("mt-1.5 overflow-hidden rounded-lg border border-border/60 bg-muted/20 dark:bg-input/30 text-xs", className)}>
+    <div className={cn("mt-1.5 mb-3 overflow-hidden rounded-lg border border-border/60 bg-muted/20 dark:bg-input/30 text-xs", className)}>
       {children}
     </div>
   );
