@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { rm, writeFile } from "node:fs/promises";
+import { rm, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
@@ -141,6 +141,87 @@ describe("getWorkspaceDiff", () => {
     expect(diff).toContain("new-file.txt");
     expect(diff).toContain("hello world");
   });
+
+  it("includes untracked files as synthetic diff patches", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    // Create an untracked file (not git-added)
+    await writeFile(join(wsPath, "untracked.txt"), "line1\nline2\n");
+
+    const diff = await getWorkspaceDiff(ws.id, dataDir);
+
+    expect(diff).toContain("diff --git a/untracked.txt b/untracked.txt");
+    expect(diff).toContain("new file mode 100644");
+    expect(diff).toContain("--- /dev/null");
+    expect(diff).toContain("+++ b/untracked.txt");
+    expect(diff).toContain("+line1");
+    expect(diff).toContain("+line2");
+  });
+
+  it("skips binary untracked files (containing null bytes)", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    // Create a binary file (has null byte)
+    await writeFile(join(wsPath, "binary.bin"), Buffer.from([0x48, 0x00, 0x49]));
+    // Also create a text file to verify partial inclusion
+    await writeFile(join(wsPath, "text.txt"), "visible\n");
+
+    const diff = await getWorkspaceDiff(ws.id, dataDir);
+
+    expect(diff).not.toContain("binary.bin");
+    expect(diff).toContain("text.txt");
+  });
+
+  it("includes untracked files in subdirectories", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await mkdir(join(wsPath, "subdir"), { recursive: true });
+    await writeFile(join(wsPath, "subdir", "nested.txt"), "nested content\n");
+
+    const diff = await getWorkspaceDiff(ws.id, dataDir);
+
+    expect(diff).toContain("subdir/nested.txt");
+    expect(diff).toContain("+nested content");
+  });
+
+  it("combines committed, uncommitted, and untracked diffs", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    // Committed change
+    await writeFile(join(wsPath, "committed.txt"), "committed\n");
+    await git(["add", "."], wsPath);
+    await git(["config", "user.email", "test@hive.dev"], wsPath);
+    await git(["config", "user.name", "Test"], wsPath);
+    await git(["commit", "-m", "committed file"], wsPath);
+
+    // Uncommitted (tracked) change
+    await writeFile(join(wsPath, "README.md"), "modified readme\n");
+
+    // Untracked file
+    await writeFile(join(wsPath, "brand-new.txt"), "untracked\n");
+
+    const diff = await getWorkspaceDiff(ws.id, dataDir);
+
+    expect(diff).toContain("committed.txt");
+    expect(diff).toContain("README.md");
+    expect(diff).toContain("brand-new.txt");
+  });
+
+  it("handles file without trailing newline in synthetic diff", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await writeFile(join(wsPath, "no-newline.txt"), "no trailing newline");
+
+    const diff = await getWorkspaceDiff(ws.id, dataDir);
+
+    expect(diff).toContain("+no trailing newline");
+    expect(diff).toContain("@@ -0,0 +1,1 @@");
+  });
 });
 
 describe("getWorkspaceDiffStat", () => {
@@ -249,6 +330,59 @@ describe("getWorkspaceDiffStat", () => {
         (s) => s.file === "README.md" && s.status === "modified",
       ),
     ).toBe(true);
+  });
+
+  it("includes untracked files as 'added' in uncommitted stats", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await writeFile(join(wsPath, "untracked.txt"), "hello\n");
+
+    const { committed, uncommitted } = await getWorkspaceDiffStat(ws.id, dataDir);
+
+    expect(committed).toEqual([]);
+    const untracked = uncommitted.find((s) => s.file === "untracked.txt");
+    expect(untracked).toBeDefined();
+    expect(untracked!.status).toBe("added");
+    expect(untracked!.additions).toBe(0);
+    expect(untracked!.deletions).toBe(0);
+  });
+
+  it("does not duplicate files that are both tracked and untracked in diff stat", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    // Modify a tracked file (shows up in git diff) and create untracked
+    await writeFile(join(wsPath, "README.md"), "modified\n");
+    await writeFile(join(wsPath, "brand-new.txt"), "new\n");
+
+    const { uncommitted } = await getWorkspaceDiffStat(ws.id, dataDir);
+
+    const readmeEntries = uncommitted.filter((s) => s.file === "README.md");
+    expect(readmeEntries).toHaveLength(1);
+
+    const newFileEntries = uncommitted.filter((s) => s.file === "brand-new.txt");
+    expect(newFileEntries).toHaveLength(1);
+    expect(newFileEntries[0].status).toBe("added");
+  });
+
+  it("includes multiple untracked files in subdirectories", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await mkdir(join(wsPath, "subdir"), { recursive: true });
+    await writeFile(join(wsPath, "top-level.txt"), "top\n");
+    await writeFile(join(wsPath, "subdir", "nested.txt"), "nested\n");
+
+    const { uncommitted } = await getWorkspaceDiffStat(ws.id, dataDir);
+
+    const topLevel = uncommitted.find((s) => s.file === "top-level.txt");
+    expect(topLevel).toBeDefined();
+    expect(topLevel!.status).toBe("added");
+
+    const nested = uncommitted.find((s) => s.file === "subdir/nested.txt");
+    expect(nested).toBeDefined();
+    expect(nested!.status).toBe("added");
   });
 });
 

@@ -149,6 +149,270 @@ describe("useWorkspaceLiveData", () => {
     expect(__wsMock.handlerCount("ws-1")).toBe(0);
   });
 
+  it("updates state when branch_info includes PR data", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    const branchInfo = {
+      name: "workspace/tokyo",
+      lastSyncedAt: "2026-02-15T00:00:00.000Z",
+      pr: {
+        number: 42,
+        url: "https://github.com/acme/widget/pull/42",
+        state: "open" as const,
+        mergeable: true,
+        mergeableState: "clean" as const,
+        checksStatus: "success" as const,
+      },
+    };
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "branch_info", info: branchInfo });
+    });
+
+    expect(result.current["ws-1"]?.branch).toBe("workspace/tokyo");
+    expect(result.current["ws-1"]?.branchInfo?.pr?.number).toBe(42);
+    expect(result.current["ws-1"]?.branchInfo?.pr?.state).toBe("open");
+    expect(result.current["ws-1"]?.branchInfo?.pr?.mergeable).toBe(true);
+  });
+
+  it("updates state when PR number changes", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "branch_info",
+        info: {
+          name: "workspace/tokyo",
+          lastSyncedAt: "2026-02-15T00:00:00.000Z",
+          pr: {
+            number: 42,
+            url: "https://github.com/acme/widget/pull/42",
+            state: "open" as const,
+            mergeable: null,
+            mergeableState: "unknown" as const,
+            checksStatus: "pending" as const,
+          },
+        },
+      });
+    });
+
+    const firstRef = result.current;
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "branch_info",
+        info: {
+          name: "workspace/tokyo",
+          lastSyncedAt: "2026-02-15T01:00:00.000Z",
+          pr: {
+            number: 43,
+            url: "https://github.com/acme/widget/pull/43",
+            state: "open" as const,
+            mergeable: null,
+            mergeableState: "unknown" as const,
+            checksStatus: "pending" as const,
+          },
+        },
+      });
+    });
+
+    // Should have updated because PR number changed
+    expect(result.current).not.toBe(firstRef);
+    expect(result.current["ws-1"]?.branchInfo?.pr?.number).toBe(43);
+  });
+
+  it("updates state when PR state changes (open -> merged)", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "branch_info",
+        info: {
+          name: "workspace/tokyo",
+          lastSyncedAt: "2026-02-15T00:00:00.000Z",
+          pr: {
+            number: 42,
+            url: "https://github.com/acme/widget/pull/42",
+            state: "open" as const,
+            mergeable: true,
+            mergeableState: "clean" as const,
+            checksStatus: "success" as const,
+          },
+        },
+      });
+    });
+
+    const firstRef = result.current;
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "branch_info",
+        info: {
+          name: "workspace/tokyo",
+          lastSyncedAt: "2026-02-15T02:00:00.000Z",
+          pr: {
+            number: 42,
+            url: "https://github.com/acme/widget/pull/42",
+            state: "merged" as const,
+            mergeable: true,
+            mergeableState: "clean" as const,
+            checksStatus: "success" as const,
+          },
+        },
+      });
+    });
+
+    expect(result.current).not.toBe(firstRef);
+    expect(result.current["ws-1"]?.branchInfo?.pr?.state).toBe("merged");
+  });
+
+  it("updates state when checksStatus changes", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "branch_info",
+        info: {
+          name: "workspace/tokyo",
+          lastSyncedAt: "2026-02-15T00:00:00.000Z",
+          pr: {
+            number: 42,
+            url: "https://github.com/acme/widget/pull/42",
+            state: "open" as const,
+            mergeable: null,
+            mergeableState: "unknown" as const,
+            checksStatus: "pending" as const,
+          },
+        },
+      });
+    });
+
+    const firstRef = result.current;
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "branch_info",
+        info: {
+          name: "workspace/tokyo",
+          lastSyncedAt: "2026-02-15T01:00:00.000Z",
+          pr: {
+            number: 42,
+            url: "https://github.com/acme/widget/pull/42",
+            state: "open" as const,
+            mergeable: null,
+            mergeableState: "unknown" as const,
+            checksStatus: "failure" as const,
+          },
+        },
+      });
+    });
+
+    expect(result.current).not.toBe(firstRef);
+    expect(result.current["ws-1"]?.branchInfo?.pr?.checksStatus).toBe("failure");
+  });
+
+  it("does NOT update when all PR fields are identical (only lastSyncedAt differs)", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    const prData = {
+      number: 42,
+      url: "https://github.com/acme/widget/pull/42",
+      state: "open" as const,
+      mergeable: true,
+      mergeableState: "clean" as const,
+      checksStatus: "success" as const,
+    };
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "branch_info",
+        info: { name: "workspace/tokyo", lastSyncedAt: "2026-02-15T00:00:00.000Z", pr: prData },
+      });
+    });
+
+    const firstRef = result.current;
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "branch_info",
+        info: { name: "workspace/tokyo", lastSyncedAt: "2026-02-15T01:00:00.000Z", pr: prData },
+      });
+    });
+
+    // Should be the same reference — no re-render
+    expect(result.current).toBe(firstRef);
+  });
+
+  it("updates state when prSyncError appears", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "branch_info",
+        info: { name: "workspace/tokyo", lastSyncedAt: "2026-02-15T00:00:00.000Z" },
+      });
+    });
+
+    const firstRef = result.current;
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "branch_info",
+        info: {
+          name: "workspace/tokyo",
+          lastSyncedAt: "2026-02-15T01:00:00.000Z",
+          prSyncError: "gh CLI not installed",
+        },
+      });
+    });
+
+    expect(result.current).not.toBe(firstRef);
+    expect(result.current["ws-1"]?.branchInfo?.prSyncError).toBe("gh CLI not installed");
+  });
+
+  it("updates state when PR transitions from null to present", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    // Initially no PR
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "branch_info",
+        info: { name: "workspace/tokyo", lastSyncedAt: "2026-02-15T00:00:00.000Z", pr: null },
+      });
+    });
+
+    const firstRef = result.current;
+
+    // PR appears
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "branch_info",
+        info: {
+          name: "workspace/tokyo",
+          lastSyncedAt: "2026-02-15T01:00:00.000Z",
+          pr: {
+            number: 42,
+            url: "https://github.com/acme/widget/pull/42",
+            state: "open" as const,
+            mergeable: null,
+            mergeableState: "unknown" as const,
+            checksStatus: "pending" as const,
+          },
+        },
+      });
+    });
+
+    expect(result.current).not.toBe(firstRef);
+    expect(result.current["ws-1"]?.branchInfo?.pr?.number).toBe(42);
+  });
+
   it("handles multiple workspaces independently", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useWorkspaceLiveData(["ws-1", "ws-2"]));
