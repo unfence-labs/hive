@@ -30,6 +30,8 @@ import {
   useState,
 } from "react";
 import { Streamdown } from "streamdown";
+import type { LinkSafetyModalProps } from "streamdown";
+import { ExternalLinkDialog } from "@/components/ExternalLinkDialog";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -324,6 +326,17 @@ export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 const streamdownPlugins = { cjk, code, math, mermaid };
 
+const renderLinkModal = (props: LinkSafetyModalProps) => (
+  <ExternalLinkDialog
+    url={props.url}
+    open={props.isOpen}
+    onClose={props.onClose}
+    onConfirm={props.onConfirm}
+  />
+);
+
+const streamdownLinkSafety = { enabled: true, renderModal: renderLinkModal };
+
 export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (
     <Streamdown
@@ -332,6 +345,7 @@ export const MessageResponse = memo(
         className
       )}
       plugins={streamdownPlugins}
+      linkSafety={streamdownLinkSafety}
       {...props}
     />
   ),

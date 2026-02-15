@@ -166,6 +166,13 @@
   #root {
     height: 100%;
   }
+
+  [data-streamdown="link"] {
+    @apply !text-blue-400 !underline-offset-2;
+  }
+  [data-streamdown="link"]:hover {
+    @apply !text-blue-300;
+  }
 }
 
 @keyframes shimmer {
