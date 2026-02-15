@@ -231,4 +231,22 @@ describe("GitSyncService", () => {
 
     await expect(service.poll()).resolves.not.toThrow();
   });
+
+  it("keeps latest branch and diff stats snapshots for bootstrap", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(workspacesDir(dataDir, projectId), ws.name);
+
+    await service.poll();
+
+    const initialBranch = service.getCachedBranchInfo(ws.id);
+    const initialDiff = service.getCachedDiffStats(ws.id);
+    expect(initialBranch?.name).toBe(`workspace/${ws.name}`);
+    expect(initialDiff).toEqual({ committed: [], uncommitted: [] });
+
+    await writeFile(join(wsPath, "bootstrap.txt"), "hello\n");
+    await service.poll();
+
+    const updatedDiff = service.getCachedDiffStats(ws.id);
+    expect(updatedDiff?.uncommitted.some((f) => f.file === "bootstrap.txt")).toBe(true);
+  });
 });

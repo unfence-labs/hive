@@ -144,6 +144,8 @@ const FILE_TREE: WorkspaceFileTreeNode[] = [
   },
 ];
 
+const DIFF_STATS = { committed: [], uncommitted: [] };
+
 function TestControls() {
   const { activeTerminals, visibleTerminalWsId, closeTerminal } = useTerminalContext();
   const navigate = useNavigate();
@@ -194,8 +196,10 @@ describe("WorkspaceView terminal behavior", () => {
     mocks.apiGet.mockImplementation(async (url: string) => {
       const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
       const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
+      const diffStatsMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
       if (workspaceMatch) return WORKSPACES[workspaceMatch[1]] ?? null;
       if (filesMatch) return FILE_TREE;
+      if (diffStatsMatch) return DIFF_STATS;
       throw new Error(`Unexpected URL: ${url}`);
     });
 
@@ -378,6 +382,7 @@ describe("WorkspaceView terminal behavior", () => {
     mocks.apiGet.mockImplementation(async (url: string) => {
       const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
       const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
+      const diffStatsMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
       if (workspaceMatch) {
         const workspace = WORKSPACES[workspaceMatch[1]];
         if (!workspace) return null;
@@ -388,6 +393,7 @@ describe("WorkspaceView terminal behavior", () => {
         };
       }
       if (filesMatch) return FILE_TREE;
+      if (diffStatsMatch) return DIFF_STATS;
       throw new Error(`Unexpected URL: ${url}`);
     });
 
@@ -396,6 +402,13 @@ describe("WorkspaceView terminal behavior", () => {
     await screen.findByText("hive");
     expect(screen.getByText("workspace/tokyo")).toBeInTheDocument();
     expect(screen.getByText("> origin/main")).toBeInTheDocument();
+  });
+
+  it("fetches diff stats on workspace bootstrap", async () => {
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    expect(mocks.apiGet).toHaveBeenCalledWith("/api/workspaces/ws-1/diff/stat");
   });
 });
 
@@ -423,8 +436,10 @@ describe("WorkspaceView session delete behavior", () => {
     mocks.apiGet.mockImplementation(async (url: string) => {
       const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
       const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
+      const diffStatsMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
       if (workspaceMatch) return WORKSPACES[workspaceMatch[1]] ?? null;
       if (filesMatch) return FILE_TREE;
+      if (diffStatsMatch) return DIFF_STATS;
       throw new Error(`Unexpected URL: ${url}`);
     });
 

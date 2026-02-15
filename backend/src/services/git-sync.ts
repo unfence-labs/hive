@@ -25,6 +25,8 @@ export class GitSyncService {
   private diffStatsCallbacks: DiffStatsChangeCallback[] = [];
   private branchInfoCache = new Map<string, string>();
   private diffStatsCache = new Map<string, string>();
+  private latestBranchInfo = new Map<string, BranchInfo>();
+  private latestDiffStats = new Map<string, DiffStatResponse>();
   private syncing = false;
 
   constructor(private readonly dataDir: string) {}
@@ -35,6 +37,14 @@ export class GitSyncService {
 
   onDiffStatsChange(callback: DiffStatsChangeCallback): void {
     this.diffStatsCallbacks.push(callback);
+  }
+
+  getCachedBranchInfo(workspaceId: string): BranchInfo | undefined {
+    return this.latestBranchInfo.get(workspaceId);
+  }
+
+  getCachedDiffStats(workspaceId: string): DiffStatResponse | undefined {
+    return this.latestDiffStats.get(workspaceId);
   }
 
   start(intervalMs: number): void {
@@ -133,6 +143,7 @@ export class GitSyncService {
         info.prSyncError = result.error;
       }
     }
+    this.latestBranchInfo.set(workspace.id, info);
 
     // Emit only when branch name or PR state changed (exclude lastSyncedAt)
     const cacheKey = JSON.stringify({
@@ -150,6 +161,7 @@ export class GitSyncService {
     // Diff stats change detection
     try {
       const stats = await computeDiffStat(bare, wsPath, defaultBranch, currentBranch);
+      this.latestDiffStats.set(workspace.id, stats);
       const serialized = JSON.stringify(stats);
       if (serialized !== this.diffStatsCache.get(workspace.id)) {
         this.diffStatsCache.set(workspace.id, serialized);
@@ -168,6 +180,8 @@ export class GitSyncService {
     this.diffStatsCallbacks = [];
     this.branchInfoCache.clear();
     this.diffStatsCache.clear();
+    this.latestBranchInfo.clear();
+    this.latestDiffStats.clear();
     this.syncing = false;
   }
 }
