@@ -46,15 +46,14 @@ describe("ConversationTabs", () => {
     expect(screen.getByText("Second conversation")).toBeInTheDocument();
   });
 
-  it("falls back to 'Conversation N' when no title is set", () => {
+  it("falls back to 'Untitled' when no title is set", () => {
     renderTabs({
       sessions: [
         makeSession("sess-1", "2026-02-12T00:00:01.000Z"),
         makeSession("sess-2", "2026-02-12T00:00:00.000Z"),
       ],
     });
-    expect(screen.getByText("Conversation 2")).toBeInTheDocument();
-    expect(screen.getByText("Conversation 1")).toBeInTheDocument();
+    expect(screen.getAllByText("Untitled")).toHaveLength(2);
   });
 
   it("creates a new conversation via the + button", async () => {
@@ -145,10 +144,22 @@ describe("ConversationTabs", () => {
   it("renders correctly with empty sessions list", () => {
     renderTabs({ sessions: [], activeSessionId: undefined });
 
-    // Only the + button should exist, no conversation tabs
+    // Empty state still shows an active Untitled tab
+    expect(screen.getByText("Untitled")).toBeInTheDocument();
     expect(screen.getByTitle("New conversation")).toBeInTheDocument();
-    // No tab text should be rendered (no session title or fallback)
-    expect(screen.queryByText(/^Conversation \d+$/)).not.toBeInTheDocument();
+  });
+
+  it("dims the empty Untitled tab when file tab is active", () => {
+    renderTabs({
+      sessions: [],
+      activeSessionId: undefined,
+      openFile: "src/index.ts",
+      isFileActive: true,
+    });
+
+    const untitledTab = screen.getByText("Untitled").parentElement as HTMLElement;
+    expect(untitledTab.className).toContain("text-muted-foreground");
+    expect(untitledTab.className).not.toContain("text-accent-foreground");
   });
 
   it("renders three or more tabs", () => {
@@ -233,7 +244,7 @@ describe("ConversationTabs", () => {
     });
 
     expect(screen.getByText("Named one")).toBeInTheDocument();
-    expect(screen.getByText("Conversation 1")).toBeInTheDocument();
+    expect(screen.getByText("Untitled")).toBeInTheDocument();
   });
 });
 
