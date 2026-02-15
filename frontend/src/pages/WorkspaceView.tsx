@@ -25,7 +25,7 @@ import { ButtonGroup } from "@/components/ui/button-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
-import type { Workspace, WorkspaceFileTreeNode } from "@/types";
+import type { DiffStatResponse, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 const DEFAULT_EXPANDED = new Set<string>();
 
@@ -75,6 +75,7 @@ export default function WorkspaceView() {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(DEFAULT_EXPANDED);
   const [loadedWsId, setLoadedWsId] = useState<string | undefined>(undefined);
   const [selectedPath, setSelectedPath] = useState("");
+  const [initialDiffStats, setInitialDiffStats] = useState<DiffStatResponse | null>(null);
 
   // Sidebar tab state
   const [sidebarTab, setSidebarTab] = useState<"all" | "modified">("all");
@@ -90,8 +91,20 @@ export default function WorkspaceView() {
   const branchInfo = wsId ? liveData[wsId]?.branchInfo : undefined;
 
   // Diff stats from WebSocket polling
-  const diffCommitted = (wsId ? liveData[wsId]?.diffStats?.committed : undefined) ?? [];
-  const diffUncommitted = (wsId ? liveData[wsId]?.diffStats?.uncommitted : undefined) ?? [];
+  const diffCommitted = useMemo(
+    () =>
+      (wsId ? liveData[wsId]?.diffStats?.committed : undefined) ??
+      initialDiffStats?.committed ??
+      [],
+    [wsId, liveData, initialDiffStats],
+  );
+  const diffUncommitted = useMemo(
+    () =>
+      (wsId ? liveData[wsId]?.diffStats?.uncommitted : undefined) ??
+      initialDiffStats?.uncommitted ??
+      [],
+    [wsId, liveData, initialDiffStats],
+  );
   const diffTotalCount = useMemo(() => {
     const files = new Set<string>();
     for (const f of diffCommitted) files.add(f.file);
@@ -115,13 +128,16 @@ export default function WorkspaceView() {
     if (!wsId) {
       setWorkspace(null);
       setFileTree([]);
+      setInitialDiffStats(null);
       setLoadedWsId(undefined);
       return;
     }
     try {
-      const [workspaceResult, filesResult] = await Promise.allSettled([
+      setInitialDiffStats(null);
+      const [workspaceResult, filesResult, diffStatsResult] = await Promise.allSettled([
         api.get<Workspace>(`/api/workspaces/${wsId}`),
         api.get<WorkspaceFileTreeNode[]>(`/api/workspaces/${wsId}/files`),
+        api.get<DiffStatResponse>(`/api/workspaces/${wsId}/diff/stat`),
       ]);
 
       if (workspaceResult.status === "fulfilled") {
@@ -142,9 +158,16 @@ export default function WorkspaceView() {
         setExpandedPaths(new Set(DEFAULT_EXPANDED));
         setSelectedPath("");
       }
+
+      if (diffStatsResult.status === "fulfilled") {
+        setInitialDiffStats(diffStatsResult.value);
+      } else {
+        setInitialDiffStats(null);
+      }
     } catch {
       setWorkspace(null);
       setFileTree([]);
+      setInitialDiffStats(null);
       setFileTreeError("Failed to load file tree.");
     } finally {
       setLoadedWsId(wsId);

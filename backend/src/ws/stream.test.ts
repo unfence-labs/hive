@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import WebSocket from "ws";
@@ -81,11 +81,24 @@ function connectSessionWs(
 async function startWsApp(
   authToken?: string,
   sessionOptions: SessionOptions = CONV_CMD,
+  gitSyncSnapshotProvider?: {
+    getCachedBranchInfo: (
+      workspaceId: string,
+    ) => Extract<WsOutgoing, { type: "branch_info" }>["info"] | undefined;
+    getCachedDiffStats: (
+      workspaceId: string,
+    ) => Extract<WsOutgoing, { type: "diff_stats" }>["stats"] | undefined;
+  },
 ): Promise<{ app: FastifyInstance; address: string }> {
   const localApp = Fastify();
   await localApp.register(websocket, { options: { maxPayload: 10 * 1024 * 1024 } });
   await localApp.register((instance: FastifyInstance) =>
-    streamRoutes(instance, { dataDir, sessionOptions, authToken }),
+    streamRoutes(instance, {
+      dataDir,
+      sessionOptions,
+      authToken,
+      gitSyncSnapshotProvider,
+    }),
   );
   const localAddress = await localApp.listen({ port: 0, host: "127.0.0.1" });
   return { app: localApp, address: localAddress };
@@ -487,5 +500,46 @@ describe("WS /ws/session/:wsId", () => {
       type: "branch_info",
       info: { name: "test", lastSyncedAt: "2026-02-13T00:00:00.000Z" },
     });
+  });
+
+  it("sends cached branch_info and diff_stats on connect", async () => {
+    const branchInfo = { name: "workspace/tokyo", lastSyncedAt: "2026-02-15T10:00:00.000Z" };
+    const diffStats = {
+      committed: [{ file: "a.ts", additions: 1, deletions: 0, status: "added" as const }],
+      uncommitted: [{ file: "b.ts", additions: 0, deletions: 1, status: "modified" as const }],
+    };
+    const provider = {
+      getCachedBranchInfo: vi.fn((workspaceId: string) =>
+        workspaceId === wsId ? branchInfo : undefined,
+      ),
+      getCachedDiffStats: vi.fn((workspaceId: string) =>
+        workspaceId === wsId ? diffStats : undefined,
+      ),
+    };
+    const local = await startWsApp(undefined, CONV_CMD, provider);
+    const localWsUrl = local.address.replace("http://", "ws://");
+    const messages: WsOutgoing[] = [];
+    const ws = new WebSocket(`${localWsUrl}/ws/session/${wsId}`);
+    ws.on("message", (data) => {
+      messages.push(JSON.parse(data.toString()) as WsOutgoing);
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      ws.on("open", () => resolve());
+      ws.on("error", reject);
+    });
+
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.some((m) => m.type === "branch_info") && msgs.some((m) => m.type === "diff_stats"),
+    );
+    expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
+    expect(messages).toContainEqual({ type: "branch_info", info: branchInfo });
+    expect(messages).toContainEqual({ type: "diff_stats", stats: diffStats });
+    expect(provider.getCachedBranchInfo).toHaveBeenCalledWith(wsId);
+    expect(provider.getCachedDiffStats).toHaveBeenCalledWith(wsId);
+
+    ws.close();
+    await local.app.close();
   });
 });

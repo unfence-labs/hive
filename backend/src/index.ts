@@ -13,6 +13,7 @@ import { ensureDataDir, getDataDir } from "./state/state.js";
 import type { SessionOptions } from "./agents/agent-manager.js";
 import { GitSyncService } from "./services/git-sync.js";
 import { broadcastToWorkspace } from "./ws/stream.js";
+import type { StreamRoutesOptions } from "./ws/stream.js";
 
 const HOST = process.env.HOST ?? "127.0.0.1";
 const PORT = Number(process.env.PORT ?? 3000);
@@ -33,7 +34,11 @@ function parsePositiveNumber(value: string | undefined, fallback: number): numbe
   return parsed;
 }
 
-export async function buildApp() {
+interface BuildAppOptions {
+  gitSyncSnapshotProvider?: StreamRoutesOptions["gitSyncSnapshotProvider"];
+}
+
+export async function buildApp(opts: BuildAppOptions = {}) {
   const authToken = process.env.HIVE_AUTH_TOKEN?.trim();
   const rateLimitMax = parsePositiveNumber(process.env.HIVE_RATE_LIMIT_MAX, DEFAULT_RATE_LIMIT_MAX);
   const rateLimitWindowMs = parsePositiveNumber(
@@ -72,6 +77,7 @@ export async function buildApp() {
     streamRoutes(instance, {
       authToken,
       sessionOptions,
+      gitSyncSnapshotProvider: opts.gitSyncSnapshotProvider,
     }),
   );
   await app.register((instance: FastifyInstance) =>
@@ -95,7 +101,13 @@ async function main() {
     broadcastToWorkspace(wsId, { type: "diff_stats", stats });
   });
 
-  const app = await buildApp();
+  const app = await buildApp({ gitSyncSnapshotProvider: gitSync });
+
+  try {
+    await gitSync.poll();
+  } catch {
+    app.log.warn("Initial git sync poll failed");
+  }
 
   app.addHook("onClose", () => gitSync.stop());
   gitSync.start(BRANCH_SYNC_INTERVAL_MS);

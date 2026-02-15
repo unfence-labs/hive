@@ -10,10 +10,16 @@ import { errorMessage } from "../utils/errors.js";
 import { isAuthorized } from "../utils/auth.js";
 import type { WsIncoming, WsOutgoing } from "../types.js";
 
+interface GitSyncSnapshotProvider {
+  getCachedBranchInfo: (workspaceId: string) => Extract<WsOutgoing, { type: "branch_info" }>["info"] | undefined;
+  getCachedDiffStats: (workspaceId: string) => Extract<WsOutgoing, { type: "diff_stats" }>["stats"] | undefined;
+}
+
 export interface StreamRoutesOptions {
   dataDir?: string;
   sessionOptions?: SessionOptions;
   authToken?: string;
+  gitSyncSnapshotProvider?: GitSyncSnapshotProvider;
 }
 
 function sendOutgoing(socket: WebSocket, msg: WsOutgoing): void {
@@ -46,7 +52,12 @@ export function _getChannelsForTests(): Map<string, WorkspaceChannel> {
 }
 
 export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptions = {}) {
-  const { dataDir, sessionOptions, authToken } = opts;
+  const {
+    dataDir,
+    sessionOptions,
+    authToken,
+    gitSyncSnapshotProvider,
+  } = opts;
 
   const getOrCreateChannel = (workspaceId: string): WorkspaceChannel => {
     const existing = channels.get(workspaceId);
@@ -164,6 +175,16 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         } catch {
           // Ignore missing/corrupt persisted history.
         }
+      }
+
+      const branchInfo = gitSyncSnapshotProvider?.getCachedBranchInfo(wsId);
+      if (branchInfo) {
+        sendOutgoing(socket, { type: "branch_info", info: branchInfo });
+      }
+
+      const diffStats = gitSyncSnapshotProvider?.getCachedDiffStats(wsId);
+      if (diffStats) {
+        sendOutgoing(socket, { type: "diff_stats", stats: diffStats });
       }
 
       socket.on("close", () => {
