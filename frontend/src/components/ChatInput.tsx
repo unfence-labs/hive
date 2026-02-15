@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type MutableRefObject } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, type MutableRefObject, type KeyboardEvent, type ChangeEvent } from "react";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import {
   PromptInput,
@@ -11,17 +11,26 @@ import {
   usePromptInputAttachments,
   type AttachmentsContext,
 } from "@/components/ai-elements/prompt-input";
-import type { ImageAttachment, MessageOptions } from "@/types";
+import type { CompletionItem, ImageAttachment, MessageOptions } from "@/types";
 import { cn } from "@/lib/utils";
 import { BrainIcon, BookOpenIcon, PlusIcon, SparklesIcon } from "lucide-react";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
+import { AutocompletePopup } from "@/components/chat/AutocompletePopup";
+import { useCompletions } from "@/hooks/useCompletions";
 
 interface ChatInputProps {
+  wsId?: string;
   onSend: (content: string, images?: ImageAttachment[], options?: MessageOptions) => boolean;
   onStop: () => void;
   disabled: boolean;
   isStreaming: boolean;
   connectionStatus: "connecting" | "connected" | "disconnected";
+}
+
+interface AutocompleteState {
+  trigger: "/" | "@";
+  query: string;
+  triggerIndex: number;
 }
 
 const MODEL_LABEL = "Opus 4.6";
@@ -46,6 +55,7 @@ function ChatInputAttachments({
 }
 
 export default function ChatInput({
+  wsId,
   onSend,
   onStop,
   disabled,
@@ -56,10 +66,83 @@ export default function ChatInput({
   const [thinkingEnabled, setThinkingEnabled] = useState(true);
   const [planMode, setPlanMode] = useState(false);
   const [fileCount, setFileCount] = useState(0);
+  const [autocomplete, setAutocomplete] = useState<AutocompleteState | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const attachmentsRef = useRef<AttachmentsContext | null>(null);
   const isDisconnected = connectionStatus === "disconnected";
   const isInputDisabled = disabled || isStreaming || isDisconnected;
   const canSubmit = !isInputDisabled && (value.trim().length > 0 || fileCount > 0);
+
+  const completionItems = useCompletions(wsId);
+
+  const filteredItems = useMemo(() => {
+    if (!autocomplete) return [];
+    const type = autocomplete.trigger === "/" ? "slash_command" : "agent";
+    return completionItems
+      .filter((item) => item.type === type)
+      .filter(
+        (item) =>
+          autocomplete.query === "" ||
+          item.name.toLowerCase().startsWith(autocomplete.query.toLowerCase()),
+      );
+  }, [autocomplete, completionItems]);
+
+  const handleChange = useCallback(
+    (e: ChangeEvent<HTMLTextAreaElement>) => {
+      const text = e.target.value;
+      setValue(text);
+
+      const cursor = e.target.selectionStart ?? text.length;
+      const beforeCursor = text.slice(0, cursor);
+      const match = beforeCursor.match(/(^|[\s])([/@])(\S*)$/);
+
+      if (match) {
+        const trigger = match[2] as "/" | "@";
+        const query = match[3];
+        const triggerIndex = beforeCursor.length - match[2].length - match[3].length;
+        setAutocomplete({ trigger, query, triggerIndex });
+        setSelectedIndex(0);
+      } else {
+        setAutocomplete(null);
+      }
+    },
+    [],
+  );
+
+  const selectItem = useCallback(
+    (item: CompletionItem) => {
+      if (!autocomplete) return;
+      const before = value.slice(0, autocomplete.triggerIndex);
+      const after = value.slice(
+        autocomplete.triggerIndex + 1 + autocomplete.query.length,
+      );
+      const insertion = item.label + " ";
+      setValue(before + insertion + after);
+      setAutocomplete(null);
+    },
+    [autocomplete, value],
+  );
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (!autocomplete || filteredItems.length === 0) return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSelectedIndex((i) => (i + 1) % filteredItems.length);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSelectedIndex((i) => (i - 1 + filteredItems.length) % filteredItems.length);
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        selectItem(filteredItems[selectedIndex]);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setAutocomplete(null);
+      }
+    },
+    [autocomplete, filteredItems, selectedIndex, selectItem],
+  );
 
   const handleSubmit = ({ text, files }: PromptInputMessage) => {
     const trimmed = text.trim();
@@ -77,18 +160,34 @@ export default function ChatInput({
     const sent = onSend(trimmed, images, { planMode, thinkingEnabled });
     if (!sent) throw new Error("Message send failed");
     setValue("");
+    setAutocomplete(null);
   };
 
+  const showPopup = autocomplete !== null && filteredItems.length > 0;
+
   return (
-    <div className="border-t border-border/30 bg-background p-4">
-      <PromptInput onSubmit={handleSubmit} accept="image/*" multiple>
+    <div className="relative z-50 border-t border-border/30 bg-background p-4">
+      <div className={cn(
+        "relative [&_[data-slot=input-group]]:!border-border/30",
+        showPopup && "[&_[data-slot=input-group]]:rounded-t-none [&_[data-slot=input-group]]:!border-t-transparent",
+      )}>
+        {showPopup && (
+          <AutocompletePopup
+            items={filteredItems}
+            selectedIndex={selectedIndex}
+            onSelect={selectItem}
+            onHover={setSelectedIndex}
+          />
+        )}
+        <PromptInput onSubmit={handleSubmit} accept="image/*" multiple>
         <PromptInputBody>
           <ChatInputAttachments onFileCountChange={setFileCount} attachmentsRef={attachmentsRef} />
           <PromptInputTextarea
             className="min-h-[100px] max-h-40 text-sm placeholder:text-muted-foreground/40"
             placeholder={isDisconnected ? "Reconnecting..." : "Send a message..."}
             value={value}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
             disabled={isInputDisabled}
             rows={1}
           />
@@ -150,7 +249,8 @@ export default function ChatInput({
             />
           </PromptInputTools>
         </PromptInputFooter>
-      </PromptInput>
+        </PromptInput>
+      </div>
     </div>
   );
 }

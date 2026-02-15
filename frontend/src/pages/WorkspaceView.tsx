@@ -402,6 +402,7 @@ export default function WorkspaceView() {
               />
             ) : (
               <ChatInput
+                wsId={wsId}
                 onSend={sendMessage}
                 onStop={stopStreaming}
                 disabled={false}
