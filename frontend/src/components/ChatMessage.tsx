@@ -35,7 +35,21 @@ const ChatMessage = memo(function ChatMessage({
         )}
       >
         {isUser ? (
-          <p className="whitespace-pre-wrap">{message.content}</p>
+          <>
+            {message.images && message.images.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {message.images.map((img, i) => (
+                  <img
+                    key={`${message.id}-img-${i}`}
+                    src={img.dataUrl}
+                    alt={img.name}
+                    className="max-h-48 max-w-xs rounded-md border border-border/30 object-contain"
+                  />
+                ))}
+              </div>
+            )}
+            {message.content && <p className="whitespace-pre-wrap">{message.content}</p>}
+          </>
         ) : (
           <>
             {message.thinkingContent && (

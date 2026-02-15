@@ -747,4 +747,273 @@ describe("ConversationSession", () => {
       "I reject this. Please suggest an alternative approach.",
     );
   });
+
+  // ── Image attachment tests ──────────────────────────────────────────
+
+  it("emits user_message with images field when images are provided", () => {
+    const session = createSession({ sessionId: "img-user-msg" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    const images = [
+      { name: "screenshot.png", mediaType: "image/png", dataUrl: "data:image/png;base64,iVBOR" },
+    ];
+    session.sendMessage("Analyze this", undefined, images);
+
+    const userEvents = messages.filter((m) => m.type === "user_message");
+    expect(userEvents).toHaveLength(1);
+    if (userEvents[0].type === "user_message") {
+      expect(userEvents[0].message.content).toBe("Analyze this");
+      expect(userEvents[0].message.images).toEqual(images);
+    }
+  });
+
+  it("does not include images field when no images are provided", () => {
+    const session = createSession({ sessionId: "no-img" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hello");
+
+    const userEvents = messages.filter((m) => m.type === "user_message");
+    expect(userEvents).toHaveLength(1);
+    if (userEvents[0].type === "user_message") {
+      expect(userEvents[0].message.images).toBeUndefined();
+    }
+  });
+
+  it("does not include images field when images array is empty", () => {
+    const session = createSession({ sessionId: "empty-img" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hello", undefined, []);
+
+    const userEvents = messages.filter((m) => m.type === "user_message");
+    expect(userEvents).toHaveLength(1);
+    if (userEvents[0].type === "user_message") {
+      expect(userEvents[0].message.images).toBeUndefined();
+    }
+  });
+
+  it("saves images to disk and builds augmented prompt", async () => {
+    const session = createSession({ sessionId: "img-save" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    // Small valid base64 PNG pixel
+    const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const images = [
+      { name: "pixel.png", mediaType: "image/png", dataUrl: `data:image/png;base64,${pngBase64}` },
+    ];
+
+    session.sendMessage("Look at this", undefined, images);
+
+    // Wait for async image save + spawnCli
+    await new Promise((r) => setTimeout(r, 200));
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    const promptArg = args[args.length - 1];
+    expect(promptArg).toContain("Look at this");
+    expect(promptArg).toContain("image(s)");
+    expect(promptArg).toContain("Read tool");
+    expect(promptArg).toContain(".png");
+  });
+
+  it("uses fallback prompt when images are sent without text", async () => {
+    const session = createSession({ sessionId: "img-no-text" });
+
+    const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const images = [
+      { name: "pixel.png", mediaType: "image/png", dataUrl: `data:image/png;base64,${pngBase64}` },
+    ];
+
+    session.sendMessage("", undefined, images);
+    await new Promise((r) => setTimeout(r, 200));
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    const promptArg = args[args.length - 1];
+    expect(promptArg).toContain("Please analyze the attached image(s)");
+    expect(promptArg).toContain("Read tool");
+  });
+
+  it("skips images with invalid data URL format", async () => {
+    const session = createSession({ sessionId: "img-invalid" });
+
+    const images = [
+      { name: "bad.png", mediaType: "image/png", dataUrl: "not-a-data-url" },
+    ];
+
+    session.sendMessage("Check this", undefined, images);
+    await new Promise((r) => setTimeout(r, 200));
+
+    // spawnCli still called but no file paths in the prompt since image was skipped
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    const promptArg = args[args.length - 1];
+    // The prompt should still indicate 0 images were attached effectively
+    expect(promptArg).toContain("0 image(s)");
+  });
+
+  it("extracts file extension from mediaType", async () => {
+    const session = createSession({ sessionId: "img-ext" });
+    const { readdir } = await import("node:fs/promises");
+
+    const jpgBase64 = "/9j/4AAQSkZJRg=="; // minimal JPEG header
+    const images = [
+      { name: "photo.jpg", mediaType: "image/jpeg", dataUrl: `data:image/jpeg;base64,${jpgBase64}` },
+    ];
+
+    session.sendMessage("Photo", undefined, images);
+    await new Promise((r) => setTimeout(r, 200));
+
+    const attachmentsDir = join(tempDir, "sessions", "img-ext", "attachments");
+    const files = await readdir(attachmentsDir);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatch(/\.jpeg$/);
+  });
+
+  it("creates attachments directory for multiple images", async () => {
+    const session = createSession({ sessionId: "img-multi" });
+    const { readdir } = await import("node:fs/promises");
+
+    const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const images = [
+      { name: "a.png", mediaType: "image/png", dataUrl: `data:image/png;base64,${base64}` },
+      { name: "b.png", mediaType: "image/png", dataUrl: `data:image/png;base64,${base64}` },
+    ];
+
+    session.sendMessage("Two images", undefined, images);
+    await new Promise((r) => setTimeout(r, 200));
+
+    const attachmentsDir = join(tempDir, "sessions", "img-multi", "attachments");
+    const files = await readdir(attachmentsDir);
+    expect(files).toHaveLength(2);
+  });
+
+  it("persists user message with images to disk", async () => {
+    const session = createSession({ sessionId: "img-persist" });
+
+    const images = [
+      { name: "test.png", mediaType: "image/png", dataUrl: "data:image/png;base64,abc123" },
+    ];
+
+    session.sendMessage("With image", undefined, images);
+    await new Promise((r) => setTimeout(r, 200));
+
+    const messagesPath = join(tempDir, "sessions", "img-persist", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+    expect(lines.length).toBeGreaterThanOrEqual(1);
+    const userMsg = JSON.parse(lines[0]);
+    expect(userMsg.role).toBe("user");
+    expect(userMsg.content).toBe("With image");
+    expect(userMsg.images).toEqual(images);
+  });
+
+  it("persists durationMs from result event in assistant message", async () => {
+    const session = createSession({ sessionId: "duration-persist" });
+
+    session.sendMessage("Hi");
+    mockProc._stdout.push(assistantLine("Reply"));
+    mockProc._stdout.push(
+      JSON.stringify({ type: "result", session_id: "s1", duration_ms: 2500 }) + "\n",
+    );
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const messagesPath = join(tempDir, "sessions", "duration-persist", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+    expect(lines.length).toBe(2);
+    const assistantMsg = JSON.parse(lines[1]);
+    expect(assistantMsg.durationMs).toBe(2500);
+  });
+
+  it("persists thinking content in assistant message", async () => {
+    const session = createSession({ sessionId: "thinking-persist" });
+
+    session.sendMessage("Think");
+    mockProc._stdout.push(thinkingAssistantLine("Deep thought", "The answer"));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const messagesPath = join(tempDir, "sessions", "thinking-persist", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+    const assistantMsg = JSON.parse(lines[1]);
+    expect(assistantMsg.thinkingContent).toBe("Deep thought");
+    expect(assistantMsg.content).toBe("The answer");
+  });
+
+  it("persists tool calls in assistant message", async () => {
+    const session = createSession({ sessionId: "toolcall-persist" });
+
+    session.sendMessage("Do something");
+    mockProc._stdout.push(
+      assistantLine("Let me read.", { id: "toolu_1", name: "Read", input: { file_path: "/a" } }),
+    );
+    mockProc._stdout.push(userLine([{ tool_use_id: "toolu_1", content: "file data" }]));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const messagesPath = join(tempDir, "sessions", "toolcall-persist", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+    const assistantMsg = JSON.parse(lines[1]);
+    expect(assistantMsg.toolCalls).toHaveLength(1);
+    expect(assistantMsg.toolCalls[0].name).toBe("Read");
+    expect(assistantMsg.toolCalls[0].output).toBe("file data");
+  });
+
+  it("kills blocking ExitPlanMode tool and emits tool_input_required", async () => {
+    const session = createSession({ sessionId: "exit-plan-block" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Plan this");
+    mockProc._stdout.push(
+      assistantToolUseLine({ id: "toolu_plan", name: "ExitPlanMode", input: { planFile: "plan.md" } }),
+    );
+
+    expect(mockProc.kill).toHaveBeenCalledWith("SIGKILL");
+
+    mockProc._emitClose(137);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const requiredEvents = messages.filter((m) => m.type === "tool_input_required");
+    expect(requiredEvents).toHaveLength(1);
+    expect(requiredEvents[0]).toMatchObject({
+      type: "tool_input_required",
+      toolName: "ExitPlanMode",
+      toolUseId: "toolu_plan",
+    });
+    expect(session.status).toBe("idle");
+  });
+
+  it("SIGKILL timeout fires after SIGTERM on stop()", async () => {
+    vi.useFakeTimers();
+    const session = createSession();
+    session.sendMessage("Hi");
+
+    // Override kill to not actually close the process
+    mockProc.kill.mockReturnValue(true);
+    session.stop();
+
+    expect(mockProc.kill).toHaveBeenCalledWith("SIGTERM");
+
+    vi.advanceTimersByTime(5000);
+
+    // After 5s, SIGKILL should be attempted
+    expect(mockProc.kill).toHaveBeenCalledWith("SIGKILL");
+
+    vi.useRealTimers();
+  });
 });

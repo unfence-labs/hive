@@ -41,7 +41,7 @@ beforeEach(async () => {
   wsId = workspace.id;
 
   app = Fastify();
-  await app.register(websocket);
+  await app.register(websocket, { options: { maxPayload: 10 * 1024 * 1024 } });
   await app.register((instance: FastifyInstance) =>
     streamRoutes(instance, { dataDir, sessionOptions: CONV_CMD }),
   );
@@ -83,7 +83,7 @@ async function startWsApp(
   sessionOptions: SessionOptions = CONV_CMD,
 ): Promise<{ app: FastifyInstance; address: string }> {
   const localApp = Fastify();
-  await localApp.register(websocket);
+  await localApp.register(websocket, { options: { maxPayload: 10 * 1024 * 1024 } });
   await localApp.register((instance: FastifyInstance) =>
     streamRoutes(instance, { dataDir, sessionOptions, authToken }),
   );

@@ -31,7 +31,7 @@ beforeEach(async () => {
   fixtureRepoUrl = await createFixtureRepo(fixtureDir);
 
   app = Fastify();
-  await app.register(websocket);
+  await app.register(websocket, { options: { maxPayload: 10 * 1024 * 1024 } });
   await app.register((instance: FastifyInstance) => projectRoutes(instance, dataDir));
   await app.register((instance: FastifyInstance) => workspaceRoutes(instance, dataDir));
   await app.register((instance: FastifyInstance) =>
