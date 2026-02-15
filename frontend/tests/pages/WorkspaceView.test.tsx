@@ -72,8 +72,8 @@ vi.mock("@/components/chat/QuestionPanel", () => ({
   ),
 }));
 
-vi.mock("@/components/SessionSelector", () => ({
-  SessionSelector: ({
+vi.mock("@/components/ConversationTabs", () => ({
+  ConversationTabs: ({
     onDeleteSession,
     onCreateSession,
     onActivateSession,
@@ -82,7 +82,7 @@ vi.mock("@/components/SessionSelector", () => ({
     onCreateSession: () => void;
     onActivateSession: (id: string) => void;
   }) => (
-    <div data-testid="session-selector">
+    <div data-testid="conversation-tabs">
       <button type="button" data-testid="delete-active-btn" onClick={() => onDeleteSession("sess-active")}>
         delete active
       </button>

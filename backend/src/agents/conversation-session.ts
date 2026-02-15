@@ -121,6 +121,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       images: images?.length ? images : undefined,
       timestamp: new Date().toISOString(),
     };
+    // Set conversation title from first user message
+    if (!this._metadata.title) {
+      const firstLine = content.trim().replace(/\n.*/s, "");
+      this._metadata.title = firstLine.length > 50
+        ? firstLine.slice(0, 47).trimEnd() + "..."
+        : firstLine;
+    }
+
     void this.enqueuePersist(userMsg);
     this.emit("message", { type: "user_message", message: userMsg });
 

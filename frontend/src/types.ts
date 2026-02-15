@@ -60,6 +60,7 @@ export interface SessionMetadata {
   sessionId: string;
   claudeSessionId?: string;
   workspaceId: string;
+  title?: string;
   createdAt: string;
   updatedAt: string;
   messageCount: number;

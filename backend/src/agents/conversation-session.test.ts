@@ -998,6 +998,65 @@ describe("ConversationSession", () => {
     expect(session.status).toBe("idle");
   });
 
+  // ── Conversation title tests ──────────────────────────────────────
+
+  it("sets title from first user message", () => {
+    const session = createSession({ sessionId: "title-set" });
+    session.sendMessage("Fix the login bug");
+    expect(session.metadata.title).toBe("Fix the login bug");
+  });
+
+  it("truncates title at 50 characters with ellipsis", () => {
+    const session = createSession({ sessionId: "title-truncate" });
+    const longMsg = "This is a very long message that definitely exceeds the fifty character limit by a lot";
+    session.sendMessage(longMsg);
+    expect(session.metadata.title).toBe("This is a very long message that definitely exce...");
+    expect(session.metadata.title!.length).toBeLessThanOrEqual(50);
+  });
+
+  it("uses only the first line for title on multiline messages", () => {
+    const session = createSession({ sessionId: "title-multiline" });
+    session.sendMessage("First line\nSecond line\nThird line");
+    expect(session.metadata.title).toBe("First line");
+  });
+
+  it("does not overwrite title on subsequent messages", () => {
+    const session = createSession({ sessionId: "title-keep" });
+    session.sendMessage("Original title");
+
+    mockProc._stdout.push(assistantLine("OK"));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    const mockProc2 = createMockProcess();
+    mockSpawn.mockReturnValue(mockProc2);
+
+    session.sendMessage("Second message");
+    expect(session.metadata.title).toBe("Original title");
+  });
+
+  it("persists title in metadata.json", async () => {
+    const session = createSession({ sessionId: "title-persist" });
+    session.sendMessage("Persist this title");
+
+    mockProc._stdout.push(assistantLine("Done"));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const metaPath = join(tempDir, "sessions", "title-persist", "metadata.json");
+    const raw = await readFile(metaPath, "utf-8");
+    const meta = JSON.parse(raw);
+    expect(meta.title).toBe("Persist this title");
+  });
+
+  it("trims whitespace before setting title", () => {
+    const session = createSession({ sessionId: "title-trim" });
+    session.sendMessage("  padded message  \n  more lines  ");
+    expect(session.metadata.title).toBe("padded message");
+  });
+
   it("SIGKILL timeout fires after SIGTERM on stop()", async () => {
     vi.useFakeTimers();
     const session = createSession();
