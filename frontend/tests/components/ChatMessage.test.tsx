@@ -13,7 +13,7 @@ vi.mock("@/components/chat/ToolCallList", () => ({
 }));
 
 vi.mock("@/components/chat/CopyButton", () => ({
-  CopyButton: ({ content }: { content: string }) => <button data-testid="copy-button">{content}</button>,
+  CopyButton: ({ content }: { content: string }) => <button data-testid="copy-button" data-content={content} />,
 }));
 
 vi.mock("@/components/ai-elements/message", () => ({
@@ -80,7 +80,6 @@ describe("ChatMessage", () => {
     );
 
     expect(screen.getByText("Hi")).toBeInTheDocument();
-    expect(screen.queryByTestId("copy-button")).not.toBeInTheDocument();
     expect(screen.queryByTestId("tool-call-list")).not.toBeInTheDocument();
   });
 

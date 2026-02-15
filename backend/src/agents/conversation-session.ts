@@ -123,7 +123,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     };
     // Set conversation title from first user message
     if (!this._metadata.title) {
-      const firstLine = content.trim().replace(/\n.*/s, "");
+      const firstLine = content.trim().replace(/\n.*/s, "").trimEnd();
       this._metadata.title = firstLine.length > 50
         ? firstLine.slice(0, 47).trimEnd() + "..."
         : firstLine;

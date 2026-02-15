@@ -22,7 +22,7 @@ describe("ChatToolUse", () => {
     await user.click(screen.getByRole("button", { name: /bash/i }));
 
     expect(screen.getByText("{not-json")).toBeInTheDocument();
-    expect(screen.getByText("Result")).toBeInTheDocument();
+    expect(screen.getByText("Output")).toBeInTheDocument();
     expect(screen.getByText("result")).toBeInTheDocument();
   });
 
@@ -47,7 +47,7 @@ describe("ChatToolUse", () => {
     expect(screen.getByText("Path: src/app.ts")).toBeInTheDocument();
     expect(screen.getByText("before")).toBeInTheDocument();
     expect(screen.getByText("after")).toBeInTheDocument();
-    expect(screen.queryByText("Result")).not.toBeInTheDocument();
+    expect(screen.queryByText("Output")).not.toBeInTheDocument();
     expect(
       screen.queryByText("this output must stay hidden"),
     ).not.toBeInTheDocument();
@@ -97,7 +97,7 @@ describe("ChatToolUse", () => {
 
     await user.click(screen.getByRole("button", { name: /task/i }));
 
-    expect(screen.getByText("Result")).toBeInTheDocument();
+    expect(screen.getByText("Output")).toBeInTheDocument();
     expect(screen.getByText(/"agent result"/)).toBeInTheDocument();
   });
 
@@ -123,7 +123,7 @@ describe("ChatToolUse", () => {
 
     await user.click(screen.getByRole("button", { name: /task/i }));
 
-    expect(screen.getByText("Result")).toBeInTheDocument();
+    expect(screen.getByText("Output")).toBeInTheDocument();
     expect(screen.getByText("First finding")).toBeInTheDocument();
     expect(screen.getByText("Second finding")).toBeInTheDocument();
   });
@@ -147,6 +147,6 @@ describe("ChatToolUse", () => {
 
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Path: src/main.ts")).not.toBeInTheDocument();
-    expect(screen.queryByText("Result")).not.toBeInTheDocument();
+    expect(screen.queryByText("Output")).not.toBeInTheDocument();
   });
 });
