@@ -8,6 +8,7 @@ type StatusListener = () => void;
 type StatusMessage = Extract<WsOutgoing, { type: "status" }>;
 type HistoryMessage = Extract<WsOutgoing, { type: "history" }>;
 type DiffStatsMessage = Extract<WsOutgoing, { type: "diff_stats" }>;
+type BranchInfoMessage = Extract<WsOutgoing, { type: "branch_info" }>;
 
 const MAX_RECONNECT_DELAY = 30_000;
 const BASE_RECONNECT_DELAY = 1_000;
@@ -23,6 +24,7 @@ interface WorkspaceConnection {
   lastStatus?: StatusMessage;
   lastHistory?: HistoryMessage;
   lastDiffStats?: DiffStatsMessage;
+  lastBranchInfo?: BranchInfoMessage;
   /** Messages received while no handler was subscribed. Replayed on next onMessage(). */
   messageBuffer: WsOutgoing[];
 }
@@ -70,6 +72,7 @@ class WsTransport {
     if (!connection) return;
     connection.lastStatus = undefined;
     connection.lastHistory = undefined;
+    connection.lastBranchInfo = undefined;
     connection.messageBuffer = [];
   }
 
@@ -114,6 +117,9 @@ class WsTransport {
     }
     if (connection.lastDiffStats) {
       handler(connection.lastDiffStats);
+    }
+    if (connection.lastBranchInfo) {
+      handler(connection.lastBranchInfo);
     }
 
     const hadBufferedMessages = connection.messageBuffer.length > 0;
@@ -187,6 +193,7 @@ class WsTransport {
     connection.lastStatus = undefined;
     connection.lastHistory = undefined;
     connection.lastDiffStats = undefined;
+    connection.lastBranchInfo = undefined;
     connection.messageBuffer = [];
     this.connections.delete(workspaceId);
   }
@@ -223,6 +230,8 @@ class WsTransport {
           connection.lastHistory = msg;
         } else if (msg.type === "diff_stats") {
           connection.lastDiffStats = msg;
+        } else if (msg.type === "branch_info") {
+          connection.lastBranchInfo = msg;
         }
 
         if (connection.messageHandlers.size > 0) {

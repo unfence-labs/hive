@@ -18,6 +18,7 @@ import { BranchLabel } from "@/components/BranchLabel";
 import { useTerminalContext } from "@/contexts/TerminalContext";
 import { GitDiffModal } from "@/components/diff/GitDiffModal";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
+import { PrStatusSection } from "@/components/PrStatusSection";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
@@ -86,6 +87,7 @@ export default function WorkspaceView() {
   const liveWsIds = useMemo(() => (wsId ? [wsId] : []), [wsId]);
   const liveData = useWorkspaceLiveData(liveWsIds);
   const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
+  const branchInfo = wsId ? liveData[wsId]?.branchInfo : undefined;
 
   // Diff stats from WebSocket polling
   const diffCommitted = (wsId ? liveData[wsId]?.diffStats?.committed : undefined) ?? [];
@@ -408,6 +410,7 @@ export default function WorkspaceView() {
               </FileTree>
             )}
           </div>
+          <PrStatusSection branchInfo={branchInfo} />
         </aside>
       </div>
 

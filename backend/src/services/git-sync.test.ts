@@ -103,10 +103,13 @@ describe("GitSyncService", () => {
       callCount++;
     });
 
+    // First poll fills the cache and emits once
     await service.poll();
-    await service.poll();
+    expect(callCount).toBe(1);
 
-    expect(callCount).toBe(0);
+    // Second poll — nothing changed, no emission
+    await service.poll();
+    expect(callCount).toBe(1);
   });
 
   it("handles deleted worktree without crashing", async () => {
@@ -147,6 +150,9 @@ describe("GitSyncService", () => {
     const ws2 = await createWorkspace(projectId, dataDir);
     const ws1Path = join(workspacesDir(dataDir, projectId), ws1.name);
 
+    // Baseline poll to fill caches
+    await service.poll();
+
     const changedWorkspaces: string[] = [];
     service.onBranchChange((wsId) => {
       changedWorkspaces.push(wsId);
@@ -181,9 +187,10 @@ describe("GitSyncService", () => {
     // First poll — baseline (clean worktree, no diff)
     await service.poll();
 
-    // Create an uncommitted change
+    // Create an uncommitted (staged) change — git diff HEAD only tracks staged/modified files
     callbackStats = undefined;
     await writeFile(join(wsPath, "new-file.txt"), "hello\n");
+    await git(["add", "new-file.txt"], wsPath);
 
     await service.poll();
 
