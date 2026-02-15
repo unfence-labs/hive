@@ -410,6 +410,39 @@ describe("WorkspaceView terminal behavior", () => {
 
     expect(mocks.apiGet).toHaveBeenCalledWith("/api/workspaces/ws-1/diff/stat");
   });
+
+  it("fetches diff stats again after switching workspace", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await screen.findByText("tokyo");
+    expect(mocks.apiGet).toHaveBeenCalledWith("/api/workspaces/ws-1/diff/stat");
+
+    mocks.apiGet.mockClear();
+
+    await user.click(screen.getByRole("button", { name: "go ws-2" }));
+    await screen.findByText("kyoto");
+
+    expect(mocks.apiGet).toHaveBeenCalledWith("/api/workspaces/ws-2/diff/stat");
+  });
+
+  it("handles diff stats fetch failure gracefully", async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
+      const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
+      const diffStatsMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
+      if (workspaceMatch) return WORKSPACES[workspaceMatch[1]] ?? null;
+      if (filesMatch) return FILE_TREE;
+      if (diffStatsMatch) throw new Error("diff stat unavailable");
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    renderWorkspace();
+
+    // Page should still load normally despite diff stats failure
+    await screen.findByText("tokyo");
+    expect(screen.getByTestId("chat-conversation")).toBeInTheDocument();
+  });
 });
 
 describe("WorkspaceView session delete behavior", () => {

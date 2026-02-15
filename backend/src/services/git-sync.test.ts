@@ -249,4 +249,51 @@ describe("GitSyncService", () => {
     const updatedDiff = service.getCachedDiffStats(ws.id);
     expect(updatedDiff?.uncommitted.some((f) => f.file === "bootstrap.txt")).toBe(true);
   });
+
+  it("returns undefined from getCachedBranchInfo/getCachedDiffStats for unknown workspace", async () => {
+    await createWorkspace(projectId, dataDir);
+    await service.poll();
+
+    expect(service.getCachedBranchInfo("nonexistent-id")).toBeUndefined();
+    expect(service.getCachedDiffStats("nonexistent-id")).toBeUndefined();
+  });
+
+  it("_clearForTests removes cached branch info and diff stats", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    await service.poll();
+
+    expect(service.getCachedBranchInfo(ws.id)).toBeDefined();
+    expect(service.getCachedDiffStats(ws.id)).toBeDefined();
+
+    service._clearForTests();
+
+    expect(service.getCachedBranchInfo(ws.id)).toBeUndefined();
+    expect(service.getCachedDiffStats(ws.id)).toBeUndefined();
+  });
+
+  it("maintains independent caches per workspace", async () => {
+    const ws1 = await createWorkspace(projectId, dataDir);
+    const ws2 = await createWorkspace(projectId, dataDir);
+    const ws2Path = join(workspacesDir(dataDir, projectId), ws2.name);
+
+    await service.poll();
+
+    // Both have clean diff stats initially
+    expect(service.getCachedDiffStats(ws1.id)).toEqual({ committed: [], uncommitted: [] });
+    expect(service.getCachedDiffStats(ws2.id)).toEqual({ committed: [], uncommitted: [] });
+
+    // Only modify ws2
+    await writeFile(join(ws2Path, "ws2-only.txt"), "change\n");
+    await service.poll();
+
+    // ws1 unchanged, ws2 has the new file
+    const ws1Diff = service.getCachedDiffStats(ws1.id);
+    const ws2Diff = service.getCachedDiffStats(ws2.id);
+    expect(ws1Diff?.uncommitted).toEqual([]);
+    expect(ws2Diff?.uncommitted.some((f) => f.file === "ws2-only.txt")).toBe(true);
+
+    // Both have their own branch info
+    expect(service.getCachedBranchInfo(ws1.id)?.name).toBe(`workspace/${ws1.name}`);
+    expect(service.getCachedBranchInfo(ws2.id)?.name).toBe(`workspace/${ws2.name}`);
+  });
 });
