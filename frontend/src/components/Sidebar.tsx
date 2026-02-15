@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArchiveIcon, FolderPlus, Settings, TerminalSquareIcon } from "lucide-react";
+import { ArchiveIcon, FolderPlus, Plus, Settings, TerminalSquareIcon, Trash2 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -50,6 +50,7 @@ interface SidebarProps {
   loading: boolean;
   onAddProject: () => void;
   onAddWorkspace: (projectId: string) => Promise<unknown>;
+  onDeleteProject: (id: string) => Promise<void>;
   onArchiveWorkspace: (wsId: string) => Promise<void>;
 }
 
@@ -58,6 +59,7 @@ export default function Sidebar({
   loading,
   onAddProject,
   onAddWorkspace,
+  onDeleteProject,
   onArchiveWorkspace,
 }: SidebarProps) {
   const workspaceIds = useMemo(
@@ -75,6 +77,7 @@ export default function Sidebar({
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const liveData = useWorkspaceLiveData(workspaceIds);
 
   const activeProjectId = projects.find((project) =>
@@ -129,7 +132,7 @@ export default function Sidebar({
         </Link>
       </div>
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full">
         <div className="p-2">
           {loading ? (
             <div className="space-y-2 px-2">
@@ -148,12 +151,12 @@ export default function Sidebar({
                       setExpandedProjects((prev) => ({ ...prev, [project.id]: open }))
                     }
                   >
-                    <div className="group flex items-center">
+                    <div className="group relative flex w-full items-center">
                       <CollapsibleTrigger asChild>
                         <button
                           type="button"
                           className={cn(
-                            "flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium transition-colors hover:bg-sidebar-accent/60",
+                            "flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left text-sm font-medium transition-colors hover:bg-sidebar-accent/60",
                             activeProjectId === project.id && "bg-sidebar-accent/60",
                           )}
                         >
@@ -166,22 +169,35 @@ export default function Sidebar({
                           >
                             {project.name[0]?.toUpperCase() ?? "?"}
                           </span>
-                          <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                          <span
-                            role="button"
-                            tabIndex={-1}
-                            className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover:opacity-100"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAddWorkspace(project.id);
-                            }}
-                            aria-label={`Add workspace to ${project.name}`}
-                            title={`Add workspace to ${project.name}`}
-                          >
-                            {creatingProjectId === project.id ? "..." : "+"}
+                          <span className="min-w-0 flex-1 truncate pr-0 transition-[padding] group-hover:pr-12">
+                            {project.name}
                           </span>
                         </button>
                       </CollapsibleTrigger>
+                      <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
+                        {(project.workspaces ?? []).length === 0 && (
+                          <button
+                            type="button"
+                            className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-destructive"
+                            onClick={() => setDeleteTarget(project.id)}
+                            aria-label={`Delete project ${project.name}`}
+                            title="Delete project"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="shrink-0 rounded px-1 py-0.5 text-xs text-muted-foreground transition-colors hover:text-sidebar-foreground"
+                          onClick={() => {
+                            void handleAddWorkspace(project.id);
+                          }}
+                          aria-label={`Add workspace to ${project.name}`}
+                          title={`Add workspace to ${project.name}`}
+                        >
+                          {creatingProjectId === project.id ? "..." : <Plus className="h-3 w-3" />}
+                        </button>
+                      </div>
                     </div>
                     <CollapsibleContent>
                       <div className="mt-1 space-y-0.5">
@@ -276,6 +292,31 @@ export default function Sidebar({
               }}
             >
               Archive
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete project</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the repository and all its data. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleteTarget) void onDeleteProject(deleteTarget);
+                setDeleteTarget(null);
+              }}
+            >
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

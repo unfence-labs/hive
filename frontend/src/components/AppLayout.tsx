@@ -10,6 +10,7 @@ interface AppLayoutProps {
   loading: boolean;
   onAddProject: () => void;
   onAddWorkspace: (projectId: string) => Promise<unknown>;
+  onDeleteProject: (id: string) => Promise<void>;
   onArchiveWorkspace: (wsId: string) => Promise<void>;
 }
 
@@ -42,6 +43,7 @@ export default function AppLayout({
   loading,
   onAddProject,
   onAddWorkspace,
+  onDeleteProject,
   onArchiveWorkspace,
 }: AppLayoutProps) {
   return (
@@ -52,6 +54,7 @@ export default function AppLayout({
           loading={loading}
           onAddProject={onAddProject}
           onAddWorkspace={onAddWorkspace}
+          onDeleteProject={onDeleteProject}
           onArchiveWorkspace={onArchiveWorkspace}
         />
         <main className="relative flex-1 overflow-hidden">

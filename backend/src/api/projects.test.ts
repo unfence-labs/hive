@@ -4,6 +4,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { projectRoutes } from "./projects.js";
+import { workspaceRoutes } from "./workspaces.js";
 
 let tempDir: string;
 let dataDir: string;
@@ -21,6 +22,7 @@ beforeEach(async () => {
 
   app = Fastify();
   await app.register((instance: FastifyInstance) => projectRoutes(instance, dataDir));
+  await app.register((instance: FastifyInstance) => workspaceRoutes(instance, dataDir));
   await app.ready();
 });
 
@@ -117,6 +119,19 @@ describe("DELETE /api/projects/:id", () => {
   it("returns 404 for non-existent project", async () => {
     const res = await app.inject({ method: "DELETE", url: "/api/projects/nonexistent" });
     expect(res.statusCode).toBe(404);
+  });
+
+  it("returns 409 when project has active workspaces", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { url: fixtureRepoUrl },
+    });
+    const { id } = createRes.json();
+    await app.inject({ method: "POST", url: `/api/projects/${id}/workspaces` });
+    const res = await app.inject({ method: "DELETE", url: `/api/projects/${id}` });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toContain("active workspaces");
   });
 });
 

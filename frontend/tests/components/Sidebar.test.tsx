@@ -72,6 +72,7 @@ function renderSidebar(
   onAddWorkspace = vi.fn(),
   activeTerminalWorkspaceIds: string[] = [],
   onArchiveWorkspace = vi.fn(),
+  onDeleteProject = vi.fn(),
 ) {
   return render(
     <TerminalProvider>
@@ -86,6 +87,7 @@ function renderSidebar(
                 loading={false}
                 onAddProject={vi.fn()}
                 onAddWorkspace={onAddWorkspace}
+                onDeleteProject={onDeleteProject}
                 onArchiveWorkspace={onArchiveWorkspace}
               />
             }
@@ -98,6 +100,7 @@ function renderSidebar(
                 loading={false}
                 onAddProject={vi.fn()}
                 onAddWorkspace={onAddWorkspace}
+                onDeleteProject={onDeleteProject}
                 onArchiveWorkspace={onArchiveWorkspace}
               />
             }
@@ -365,5 +368,66 @@ describe("Sidebar", () => {
     await waitFor(() => {
       expect(onArchive).toHaveBeenCalledWith("w1");
     });
+  });
+
+  it("shows delete button for projects with no workspaces", () => {
+    renderSidebar("/projects", projects);
+
+    expect(screen.getByRole("button", { name: /delete project beta/i })).toBeInTheDocument();
+  });
+
+  it("does not show delete button for projects with workspaces", () => {
+    renderSidebar("/projects", projects);
+
+    expect(screen.queryByRole("button", { name: /delete project alpha/i })).not.toBeInTheDocument();
+  });
+
+  it("shows confirmation dialog when clicking delete project", async () => {
+    const user = userEvent.setup();
+    renderSidebar("/projects", projects);
+
+    await user.click(screen.getByRole("button", { name: /delete project beta/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Delete project")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/permanently delete/i)).toBeInTheDocument();
+  });
+
+  it("calls onDeleteProject after confirming deletion", async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    renderSidebar("/projects", projects, vi.fn(), [], vi.fn(), onDelete);
+
+    await user.click(screen.getByRole("button", { name: /delete project beta/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Delete project")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(onDelete).toHaveBeenCalledWith("p2");
+    });
+  });
+
+  it("does not call onDeleteProject when cancelling deletion", async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    renderSidebar("/projects", projects, vi.fn(), [], vi.fn(), onDelete);
+
+    await user.click(screen.getByRole("button", { name: /delete project beta/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Delete project")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Delete project")).not.toBeInTheDocument();
+    });
+    expect(onDelete).not.toHaveBeenCalled();
   });
 });
