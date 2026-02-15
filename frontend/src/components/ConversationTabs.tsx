@@ -99,7 +99,7 @@ export function ConversationTabs({
             <button
               type="button"
               className={cn(
-                "group flex h-7 max-w-48 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
+                "group relative flex h-7 max-w-48 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
                 isFileActive
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -141,15 +141,13 @@ export function ConversationTabs({
                 key={session.sessionId}
                 type="button"
                 className={cn(
-                  "group flex h-7 max-w-48 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
-                  isActive
+                  "group relative flex h-7 max-w-48 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
+                  isActive && !isFileActive
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                   !isVisible && "hidden",
                 )}
-                onClick={() => {
-                  if (!isActive) onActivateSession(session.sessionId);
-                }}
+                onClick={() => onActivateSession(session.sessionId)}
               >
                 <MessageSquareIcon className="size-3 shrink-0" />
                 <span className="truncate">{title}</span>
@@ -207,9 +205,7 @@ export function ConversationTabs({
                   <DropdownMenuItem
                     key={session.sessionId}
                     className="flex items-center gap-2"
-                    onSelect={() => {
-                      if (!isActive) onActivateSession(session.sessionId);
-                    }}
+                    onSelect={() => onActivateSession(session.sessionId)}
                   >
                     <MessageSquareIcon className="size-3 shrink-0" />
                     <span className="flex-1 truncate text-xs">{title}</span>
