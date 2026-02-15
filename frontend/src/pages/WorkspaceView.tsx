@@ -99,6 +99,18 @@ export default function WorkspaceView() {
     return files.size;
   }, [diffCommitted, diffUncommitted]);
 
+  // Lightweight file tree refresh — preserves expanded/selected state
+  const refreshFileTree = useCallback(async () => {
+    if (!wsId) return;
+    try {
+      const tree = await api.get<WorkspaceFileTreeNode[]>(`/api/workspaces/${wsId}/files`);
+      setFileTree(tree);
+      setFileTreeError(null);
+    } catch {
+      // Silently ignore — stale tree is better than error flash
+    }
+  }, [wsId]);
+
   const fetchWorkspace = useCallback(async () => {
     if (!wsId) {
       setWorkspace(null);
@@ -167,6 +179,16 @@ export default function WorkspaceView() {
   const { sessions, createSession, activateSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
 
   const effectiveWorkspaceStatus = workspaceStatus ?? workspace?.status;
+
+  // Refresh file tree when diff stats change (files created/modified/deleted)
+  const diffStatsRef = useRef(liveData[wsId ?? ""]?.diffStats);
+  useEffect(() => {
+    const current = liveData[wsId ?? ""]?.diffStats;
+    if (diffStatsRef.current && current && current !== diffStatsRef.current) {
+      refreshFileTree();
+    }
+    diffStatsRef.current = current;
+  }, [liveData, wsId, refreshFileTree]);
 
   // Reset to chatbot view and hide terminal overlay when switching workspaces
   useEffect(() => {

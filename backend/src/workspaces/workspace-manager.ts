@@ -328,11 +328,20 @@ export async function computeDiffStat(
   const committed = parseDiffStat(committedNumstat.stdout, committedNameStatus.stdout);
 
   // Uncommitted changes (staged + unstaged in worktree)
-  const [uncommittedNumstat, uncommittedNameStatus] = await Promise.all([
+  const [uncommittedNumstat, uncommittedNameStatus, untrackedResult] = await Promise.all([
     git(["diff", "--numstat", "HEAD"], wsPath).catch(() => ({ stdout: "" })),
     git(["diff", "--name-status", "HEAD"], wsPath).catch(() => ({ stdout: "" })),
+    git(["ls-files", "--others", "--exclude-standard"], wsPath).catch(() => ({ stdout: "" })),
   ]);
   const uncommitted = parseDiffStat(uncommittedNumstat.stdout, uncommittedNameStatus.stdout);
+
+  // Append untracked files as "added" (not captured by git diff)
+  const trackedFiles = new Set(uncommitted.map((f) => f.file));
+  for (const file of untrackedResult.stdout.split("\n").filter(Boolean)) {
+    if (!trackedFiles.has(file)) {
+      uncommitted.push({ file, additions: 0, deletions: 0, status: "added" });
+    }
+  }
 
   return { committed, uncommitted };
 }

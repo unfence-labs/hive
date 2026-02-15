@@ -187,10 +187,9 @@ describe("GitSyncService", () => {
     // First poll — baseline (clean worktree, no diff)
     await service.poll();
 
-    // Create an uncommitted (staged) change — git diff HEAD only tracks staged/modified files
+    // Create an untracked file — should be detected without `git add`
     callbackStats = undefined;
     await writeFile(join(wsPath, "new-file.txt"), "hello\n");
-    await git(["add", "new-file.txt"], wsPath);
 
     await service.poll();
 
