@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { rm, writeFile, mkdir } from "node:fs/promises";
+import { rm, writeFile, mkdir, readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
@@ -9,6 +9,7 @@ import {
   listWorkspaces,
   getWorkspace,
   deleteWorkspace,
+  archiveWorkspace,
   getWorkspaceDiff,
   getWorkspaceDiffStat,
   mergeWorkspace,
@@ -112,6 +113,125 @@ describe("deleteWorkspace", () => {
 
   it("throws for non-existent workspace", async () => {
     await expect(deleteWorkspace("nonexistent", dataDir)).rejects.toThrow("not found");
+  });
+});
+
+describe("archiveWorkspace", () => {
+  it("removes workspace from state and worktree from disk", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+    expect(existsSync(wsPath)).toBe(true);
+
+    await archiveWorkspace(ws.id, dataDir);
+
+    expect(existsSync(wsPath)).toBe(false);
+    const list = await listWorkspaces(projectId, dataDir);
+    expect(list).toHaveLength(0);
+  });
+
+  it("creates archive directory with workspace metadata", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+
+    await archiveWorkspace(ws.id, dataDir);
+
+    const archiveDir = join(dataDir, projectId, "archive", ws.id);
+    expect(existsSync(archiveDir)).toBe(true);
+
+    const metaRaw = await readFile(join(archiveDir, "workspace.json"), "utf-8");
+    const meta = JSON.parse(metaRaw);
+    expect(meta.id).toBe(ws.id);
+    expect(meta.name).toBe(ws.name);
+    expect(meta.branch).toBe(ws.branch);
+  });
+
+  it("moves session directories belonging to the workspace", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+
+    // Create a session fixture for this workspace
+    const sessionId = "test-session-123";
+    const sessionsRoot = join(dataDir, projectId, "sessions");
+    const sessionDir = join(sessionsRoot, sessionId);
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      join(sessionDir, "metadata.json"),
+      JSON.stringify({ sessionId, workspaceId: ws.id }),
+      "utf-8",
+    );
+    await writeFile(join(sessionDir, "messages.jsonl"), '{"role":"user"}\n', "utf-8");
+
+    await archiveWorkspace(ws.id, dataDir);
+
+    // Session should have moved to archive
+    expect(existsSync(join(sessionsRoot, sessionId))).toBe(false);
+    const archivedSessionDir = join(dataDir, projectId, "archive", ws.id, "sessions", sessionId);
+    expect(existsSync(archivedSessionDir)).toBe(true);
+    expect(existsSync(join(archivedSessionDir, "metadata.json"))).toBe(true);
+    expect(existsSync(join(archivedSessionDir, "messages.jsonl"))).toBe(true);
+  });
+
+  it("does not move sessions belonging to other workspaces", async () => {
+    const ws1 = await createWorkspace(projectId, dataDir);
+    const ws2 = await createWorkspace(projectId, dataDir);
+
+    // Create sessions for both workspaces
+    const sessionsRoot = join(dataDir, projectId, "sessions");
+    for (const [id, wsId] of [["s1", ws1.id], ["s2", ws2.id]] as const) {
+      const dir = join(sessionsRoot, id);
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        join(dir, "metadata.json"),
+        JSON.stringify({ sessionId: id, workspaceId: wsId }),
+        "utf-8",
+      );
+    }
+
+    await archiveWorkspace(ws1.id, dataDir);
+
+    // ws1's session should be archived, ws2's should stay
+    expect(existsSync(join(sessionsRoot, "s1"))).toBe(false);
+    expect(existsSync(join(sessionsRoot, "s2"))).toBe(true);
+  });
+
+  it("keeps the git branch in bare repo", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const bare = join(dataDir, projectId, "repo.git");
+
+    await archiveWorkspace(ws.id, dataDir);
+
+    // Branch should still exist in bare repo
+    const { stdout } = await git(["branch", "--list", ws.branch], bare);
+    expect(stdout.trim()).toContain(ws.branch);
+  });
+
+  it("throws for non-existent workspace", async () => {
+    await expect(archiveWorkspace("nonexistent", dataDir)).rejects.toThrow("not found");
+  });
+
+  it("works when workspace has no sessions", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+
+    await archiveWorkspace(ws.id, dataDir);
+
+    const archiveDir = join(dataDir, projectId, "archive", ws.id);
+    expect(existsSync(archiveDir)).toBe(true);
+    expect(existsSync(join(archiveDir, "workspace.json"))).toBe(true);
+    // No sessions directory in archive
+    expect(existsSync(join(archiveDir, "sessions"))).toBe(false);
+  });
+
+  it("does not affect other workspaces in the same project", async () => {
+    const ws1 = await createWorkspace(projectId, dataDir);
+    const ws2 = await createWorkspace(projectId, dataDir);
+
+    await archiveWorkspace(ws1.id, dataDir);
+
+    const list = await listWorkspaces(projectId, dataDir);
+    expect(list).toHaveLength(1);
+    expect(list[0].id).toBe(ws2.id);
+
+    // ws2's worktree should still exist
+    const ws2Path = join(dataDir, projectId, "workspaces", ws2.name);
+    expect(existsSync(ws2Path)).toBe(true);
   });
 });
 

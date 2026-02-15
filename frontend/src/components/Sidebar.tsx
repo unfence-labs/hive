@@ -202,26 +202,28 @@ export default function Sidebar({
                                 <div className="flex items-center gap-1.5">
                                   <BranchLabel branch={displayBranch} className="min-w-0 flex-1 text-sm" />
                                   {hasTerminal && (
-                                    <TerminalSquareIcon className="h-3 w-3 shrink-0 text-primary/70 transition-opacity group-hover/ws:opacity-0" />
+                                    <TerminalSquareIcon className="h-3 w-3 shrink-0 text-primary/70" />
                                   )}
                                 </div>
                                 <div className="mt-0.5 pl-5 text-[11px] text-muted-foreground">
                                   <span className="truncate">{wsStreaming ? "working..." : ws.name}</span>
                                 </div>
                               </Link>
-                              <button
-                                type="button"
-                                className="absolute right-1.5 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  void handleArchiveClick(ws.id);
-                                }}
-                                aria-label={`Archive workspace ${ws.name}`}
-                                title="Archive workspace"
-                              >
-                                <ArchiveIcon className="h-3 w-3" />
-                              </button>
+                              {!hasTerminal && (
+                                <button
+                                  type="button"
+                                  className="absolute right-1.5 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    void handleArchiveClick(ws.id);
+                                  }}
+                                  aria-label={`Archive workspace ${ws.name}`}
+                                  title="Archive workspace"
+                                >
+                                  <ArchiveIcon className="h-3 w-3" />
+                                </button>
+                              )}
                             </div>
                           );
                         })}

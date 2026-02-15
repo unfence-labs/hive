@@ -117,6 +117,48 @@ describe("useProjects", () => {
     expect(withWorkspace[1]?.workspaces).toEqual([createdWorkspace]);
   });
 
+  it("archives workspace and removes it from project state", async () => {
+    vi.mocked(api.post).mockResolvedValueOnce(undefined);
+
+    const project = makeProject("p1");
+    project.workspaces = [makeWorkspace("w1"), makeWorkspace("w2")];
+    vi.mocked(useResource).mockReturnValue({
+      data: [project],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+      setData,
+    });
+
+    const { result } = renderHook(() => useProjects());
+    await result.current.archiveWorkspace("w1");
+
+    expect(api.post).toHaveBeenCalledWith("/api/workspaces/w1/archive");
+    expect(setData).toHaveBeenCalledTimes(1);
+
+    const updater = setData.mock.calls[0]?.[0] as (prev: Project[]) => Project[];
+    const updated = updater([project]);
+    expect(updated[0]?.workspaces).toHaveLength(1);
+    expect(updated[0]?.workspaces[0]?.id).toBe("w2");
+  });
+
+  it("archive only removes workspace from its parent project", async () => {
+    vi.mocked(api.post).mockResolvedValueOnce(undefined);
+
+    const p1 = makeProject("p1");
+    p1.workspaces = [makeWorkspace("w1")];
+    const p2 = makeProject("p2");
+    p2.workspaces = [makeWorkspace("w2")];
+
+    const { result } = renderHook(() => useProjects());
+    await result.current.archiveWorkspace("w1");
+
+    const updater = setData.mock.calls[0]?.[0] as (prev: Project[]) => Project[];
+    const updated = updater([p1, p2]);
+    expect(updated[0]?.workspaces).toHaveLength(0);
+    expect(updated[1]?.workspaces).toHaveLength(1);
+  });
+
   it("rolls back project when workspace creation fails", async () => {
     const createdProject = makeProject("p2");
     const createWorkspaceError = new Error("workspace failed");
