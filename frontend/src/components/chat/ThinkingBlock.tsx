@@ -2,6 +2,7 @@ import { memo, useState, useEffect, useRef } from "react";
 import { BrainIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MessageResponse } from "@/components/ai-elements/message";
+import { ContentPanel, ContentPanelBody } from "@/components/chat/ContentPanel";
 
 interface ThinkingBlockProps {
   content: string;
@@ -74,9 +75,11 @@ export const ThinkingBlock = memo(function ThinkingBlock({
         )}
       </button>
       {open && (
-        <div className="mt-1 rounded bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">
-          <MessageResponse isAnimating={streaming}>{content}</MessageResponse>
-        </div>
+        <ContentPanel>
+          <ContentPanelBody className="text-muted-foreground">
+            <MessageResponse isAnimating={streaming}>{content}</MessageResponse>
+          </ContentPanelBody>
+        </ContentPanel>
       )}
     </div>
   );

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import ChatToolUse, { getToolIcon } from "@/components/ChatToolUse";
 import { AskUserQuestion } from "@/components/chat/AskUserQuestion";
 import { ExitPlanModeButton } from "@/components/chat/ExitPlanModeButton";
+import { ContentPanel, ContentPanelBody } from "@/components/chat/ContentPanel";
 
 const COLLAPSE_THRESHOLD = 3;
 
@@ -70,11 +71,13 @@ function TaskNode({
                 <span>Prompt</span>
               </button>
               {promptOpen && (
-                <div className="mt-1 rounded bg-muted/40 px-2 py-1.5 text-xs">
-                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
-                    {prompt}
-                  </pre>
-                </div>
+                <ContentPanel>
+                  <ContentPanelBody>
+                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
+                      {prompt}
+                    </pre>
+                  </ContentPanelBody>
+                </ContentPanel>
               )}
             </div>
           )}
