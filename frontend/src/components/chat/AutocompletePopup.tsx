@@ -66,12 +66,13 @@ export function AutocompletePopup({
   return (
     <div
       ref={listRef}
-      className="absolute bottom-full left-0 right-0 z-50 max-h-[240px] overflow-y-auto rounded-t-md border border-b-0 border-ring/40 bg-popover shadow-lg"
+      className="absolute bottom-full left-0 right-0 z-50 max-h-[240px] overflow-y-auto rounded-t-md border border-b-0 border-border/30 bg-background dark:bg-[var(--input-group-bg)] shadow-lg"
+      style={{ "--input-group-bg": "color-mix(in srgb, var(--background), white 3%)" } as React.CSSProperties}
     >
       {grouped.map(({ source, items: groupItems }) => (
         <div key={source}>
           {grouped.length > 1 && (
-            <div className="sticky top-0 bg-popover/95 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground backdrop-blur-sm">
+            <div className="sticky top-0 bg-muted px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
               {SOURCE_LABELS[source] ?? source}
             </div>
           )}
