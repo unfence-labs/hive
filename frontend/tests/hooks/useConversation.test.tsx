@@ -170,7 +170,7 @@ describe("useConversation", () => {
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
-      result.current.sendMessage("hello", { planMode: true, thinkingEnabled: false });
+      result.current.sendMessage("hello", undefined, { planMode: true, thinkingEnabled: false });
     });
 
     expect(__wsMock.sendMock).toHaveBeenCalledWith("ws-1", {

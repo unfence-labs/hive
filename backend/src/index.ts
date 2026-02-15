@@ -48,7 +48,7 @@ export async function buildApp() {
     origin: true,
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
   });
-  await app.register(websocket);
+  await app.register(websocket, { options: { maxPayload: 10 * 1024 * 1024 } });
 
   app.addHook("onRequest", createAuthHook(authToken));
   app.addHook(

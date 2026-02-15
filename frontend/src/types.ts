@@ -46,6 +46,14 @@ export interface CreateProjectRequest {
   url: string;
 }
 
+// ── Image attachment type ────────────────────────────────────────────
+
+export interface ImageAttachment {
+  name: string;
+  mediaType: string;
+  dataUrl: string;
+}
+
 // ── Session / Chat types ────────────────────────────────────────────
 
 export interface SessionMetadata {
@@ -70,6 +78,7 @@ export interface ChatMessage {
   sessionId: string;
   role: "user" | "assistant";
   content: string;
+  images?: ImageAttachment[];
   toolCalls?: ToolCall[];
   thinkingContent?: string;
   timestamp: string;
@@ -156,7 +165,7 @@ export interface MessageOptions {
 
 /** Frontend -> Backend */
 export type WsIncoming =
-  | { type: "user_message"; content: string; options?: MessageOptions }
+  | { type: "user_message"; content: string; images?: ImageAttachment[]; options?: MessageOptions }
   | { type: "stop" }
   | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult };
 

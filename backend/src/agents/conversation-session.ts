@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { StreamParser } from "./stream-parser.js";
 import type {
   ChatMessage,
+  ImageAttachment,
   MessageOptions,
   ToolCall,
   ToolInputResult,
@@ -104,19 +105,20 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   }
 
   /** Send a user message. Spawns a new claude process for this turn. */
-  sendMessage(content: string, msgOptions?: MessageOptions): void {
+  sendMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[]): void {
     if (this._status === "streaming") {
       throw new Error("Already streaming — wait for current message to complete or stop it");
     }
 
     this._status = "streaming";
 
-    // Persist user message immediately
+    // Persist user message immediately (include images for history display)
     const userMsg: ChatMessage = {
       id: nanoid(12),
       sessionId: this.sessionId,
       role: "user",
       content,
+      images: images?.length ? images : undefined,
       timestamp: new Date().toISOString(),
     };
     void this.enqueuePersist(userMsg);
@@ -124,6 +126,48 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     this.messageCount++;
 
+    if (images?.length) {
+      void this.saveImagesToDisk(images).then((paths) => {
+        this.spawnCli(this.buildPromptWithImages(content, paths), msgOptions);
+      }).catch((err) => {
+        this._status = "error";
+        this.emit("error", err instanceof Error ? err : new Error(String(err)));
+      });
+    } else {
+      this.spawnCli(content, msgOptions);
+    }
+  }
+
+  /** Save base64 image data to disk so Claude can read them. */
+  private async saveImagesToDisk(images: ImageAttachment[]): Promise<string[]> {
+    const attachmentsDir = join(this.sessionDir, "attachments");
+    await mkdir(attachmentsDir, { recursive: true });
+
+    const paths: string[] = [];
+    for (const img of images) {
+      const base64Match = img.dataUrl.match(/^data:[^;]+;base64,(.+)$/);
+      if (!base64Match) continue;
+      const buffer = Buffer.from(base64Match[1], "base64");
+      const ext = img.mediaType.split("/")[1] || "png";
+      const filename = `${nanoid(8)}.${ext}`;
+      const filepath = join(attachmentsDir, filename);
+      await writeFile(filepath, buffer);
+      paths.push(filepath);
+    }
+    return paths;
+  }
+
+  /** Build a prompt that includes image file paths for Claude to read. */
+  private buildPromptWithImages(userText: string, imagePaths: string[]): string {
+    const pathList = imagePaths.map((p) => `- ${p}`).join("\n");
+    const instruction = `\n\nThe user has attached ${imagePaths.length} image(s). Use the Read tool to view them:\n${pathList}`;
+    return userText.trim()
+      ? `${userText}${instruction}`
+      : `Please analyze the attached image(s). Use the Read tool to view them:\n${pathList}`;
+  }
+
+  /** Spawn a Claude CLI process for a single turn. */
+  private spawnCli(content: string, msgOptions?: MessageOptions): void {
     // Pre-generate a Claude session ID so --resume works even after SIGKILL.
     // On the first message we pass --session-id to tell the CLI what ID to use;
     // on subsequent messages we --resume that same ID.
