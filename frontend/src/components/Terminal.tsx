@@ -29,9 +29,10 @@ export default function Terminal({ workspaceId, visible = true, onExit }: Termin
 
     const term = new XTerm({
       cursorBlink: true,
-      fontSize: 14,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      theme: { background: "#1e1e1e" },
+      fontSize: 12,
+      fontFamily: '"Geist Mono", Menlo, Monaco, "Courier New", monospace',
+      lineHeight: 1.3,
+      theme: { background: "#09090f" },
     });
 
     const fitAddon = new FitAddon();
@@ -127,7 +128,7 @@ export default function Terminal({ workspaceId, visible = true, onExit }: Termin
   }, [visible]);
 
   return (
-    <div className="relative h-full w-full bg-[#1e1e1e]">
+    <div className="relative h-full w-full bg-[#09090f]">
       <div ref={containerRef} className="h-full w-full" />
       {overlay && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/80">
