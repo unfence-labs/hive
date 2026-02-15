@@ -30,12 +30,18 @@ const ChatMessage = memo(function ChatMessage({
         className={cn(
           "max-w-[85%] text-sm leading-relaxed",
           isUser
-            ? "rounded-lg bg-primary/10 px-3 py-2 text-primary ring-1 ring-primary/15"
+            ? "group/user-msg relative rounded-lg bg-primary/10 px-3 py-2 text-primary ring-1 ring-primary/15"
             : "text-foreground",
         )}
       >
         {isUser ? (
           <>
+            {message.content && (
+              <CopyButton
+                content={message.content}
+                className="absolute -top-2 -right-2 opacity-0 transition-opacity group-hover/user-msg:opacity-100"
+              />
+            )}
             {message.images && message.images.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-2">
                 {message.images.map((img, i) => (

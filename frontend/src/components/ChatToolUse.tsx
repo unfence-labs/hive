@@ -3,6 +3,7 @@ import type { ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
 import { DiffView } from "@/components/diff/DiffView";
 import { MessageResponse } from "@/components/ai-elements/message";
+import { ContentPanel, ContentPanelBody, ContentPanelFooter } from "@/components/chat/ContentPanel";
 
 const svgProps = { className: "size-3.5", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
@@ -291,8 +292,8 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
         )}
       </button>
       {showExpanded && (
-        <div className="mt-1 rounded bg-muted/40 px-2 py-1.5 text-xs">
-          <div className="mb-1">
+        <ContentPanel>
+          <ContentPanelBody>
             {typeof display.expandedContent === "string" ? (
               <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
                 {display.expandedContent}
@@ -300,10 +301,10 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
             ) : (
               display.expandedContent
             )}
-          </div>
+          </ContentPanelBody>
           {tool.output !== undefined && !display.hideOutput && (
-            <div>
-              <div className="mb-0.5 text-[11px] font-semibold text-muted-foreground/70">Result</div>
+            <ContentPanelFooter>
+              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Output</div>
               {taskOutputText ? (
                 <div className="prose-sm max-h-96 overflow-auto text-muted-foreground">
                   <MessageResponse>{taskOutputText}</MessageResponse>
@@ -313,9 +314,9 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
                   {typeof tool.output === "string" ? tool.output : JSON.stringify(tool.output, null, 2)}
                 </pre>
               )}
-            </div>
+            </ContentPanelFooter>
           )}
-        </div>
+        </ContentPanel>
       )}
     </div>
   );
