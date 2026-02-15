@@ -170,7 +170,20 @@ export default function ChatInput({
       <div className={cn(
         "relative [&_[data-slot=input-group]]:!border-border/30",
         showPopup && "[&_[data-slot=input-group]]:rounded-t-none [&_[data-slot=input-group]]:!border-t-transparent",
+        planMode && "[&_[data-slot=input-group]]:!border-transparent",
       )}>
+        {planMode && (
+          <svg className="pointer-events-none absolute inset-0 z-10 size-full" aria-hidden="true">
+            <rect
+              x="1" y="1" rx="7" ry="7"
+              fill="none"
+              className="stroke-primary/25"
+              strokeWidth="1"
+              strokeDasharray="10 8"
+              style={{ width: 'calc(100% - 2px)', height: 'calc(100% - 2px)' }}
+            />
+          </svg>
+        )}
         {showPopup && (
           <AutocompletePopup
             items={filteredItems}
