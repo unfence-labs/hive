@@ -10,6 +10,7 @@ import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { ToolCallList } from "@/components/chat/ToolCallList";
+import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
 import type { ChatMessage as ChatMessageType, ToolCall, QuestionAnswer } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
@@ -25,6 +26,11 @@ interface ChatConversationProps {
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onPlanApproval?: () => void;
   onRejectToolInput?: (message?: string) => void;
+  workspaceName?: string;
+  projectName?: string;
+  branch?: string;
+  defaultBranch?: string;
+  fileCount?: number;
 }
 
 export default function ChatConversation({
@@ -38,6 +44,11 @@ export default function ChatConversation({
   onQuestionAnswer,
   onPlanApproval,
   onRejectToolInput,
+  workspaceName,
+  projectName,
+  branch,
+  defaultBranch,
+  fileCount,
 }: ChatConversationProps) {
   const isActive = isStreaming || isAwaitingResponse;
   const [elapsed, setElapsed] = useState(0);
@@ -78,13 +89,24 @@ export default function ChatConversation({
   return (
     <Conversation className="flex-1">
       <ConversationContent className="gap-4 p-4">
-        {!hasContent && (
-          <ConversationEmptyState
-            className="py-20 text-sm text-muted-foreground"
-            title="Send a message to start a conversation."
-            description=""
-          />
-        )}
+        {!hasContent &&
+          (workspaceName && projectName && branch && defaultBranch ? (
+            <ConversationEmptyState className="py-20">
+              <WorkspaceWelcome
+                projectName={projectName}
+                workspaceName={workspaceName}
+                branch={branch}
+                defaultBranch={defaultBranch}
+                fileCount={fileCount ?? 0}
+              />
+            </ConversationEmptyState>
+          ) : (
+            <ConversationEmptyState
+              className="py-20 text-sm text-muted-foreground"
+              title="Send a message to start a conversation."
+              description=""
+            />
+          ))}
         {messages.map((msg, i) => (
           <ChatMessage
             key={msg.id ?? `${msg.timestamp}-${i}`}
