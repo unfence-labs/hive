@@ -42,28 +42,29 @@ export function ConversationTabs({
 }: ConversationTabsProps) {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(sessions.length);
-  const containerRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
 
   const measureTabs = useCallback(() => {
-    const container = containerRef.current;
     const tabsEl = tabsRef.current;
-    if (!container || !tabsEl) return;
+    if (!tabsEl) return;
 
-    // Available width = container - plus button (32px) - overflow button (32px) - gap (8px)
-    const available = container.clientWidth - 72;
+    // Temporarily make all tabs visible for accurate measurement
     const tabs = Array.from(tabsEl.children) as HTMLElement[];
+    for (const tab of tabs) tab.classList.remove("hidden");
+
+    const containerWidth = tabsEl.clientWidth;
     let usedWidth = 0;
     let count = 0;
 
     for (const tab of tabs) {
-      // Temporarily show all tabs for measurement
-      tab.style.display = "";
-      const w = tab.offsetWidth + 4; // 4px gap
-      if (usedWidth + w > available && count > 0) break;
+      const w = tab.scrollWidth + 4; // 4px gap
+      if (usedWidth + w > containerWidth && count > 0) break;
       usedWidth += w;
       count++;
     }
+
+    // Re-hide overflow tabs immediately to avoid flash
+    for (let i = count; i < tabs.length; i++) tabs[i].classList.add("hidden");
 
     setVisibleCount(Math.max(1, count));
   }, []);
@@ -73,10 +74,10 @@ export function ConversationTabs({
   }, [sessions.length, measureTabs]);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    const el = tabsRef.current;
+    if (!el) return;
     const observer = new ResizeObserver(measureTabs);
-    observer.observe(container);
+    observer.observe(el);
     return () => observer.disconnect();
   }, [measureTabs]);
 
@@ -84,11 +85,8 @@ export function ConversationTabs({
 
   return (
     <>
-      <div
-        ref={containerRef}
-        className="flex h-9 items-center gap-1 border-b border-border/50 px-2"
-      >
-        <div ref={tabsRef} className="flex min-w-0 items-center gap-1">
+      <div className="flex h-9 items-center gap-1 border-b border-border/50 px-2">
+        <div ref={tabsRef} className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
           {sessions.map((session, i) => {
             const isActive = session.sessionId === activeSessionId;
             const reverseIndex = sessions.length - i;
