@@ -216,18 +216,21 @@ export async function getWorkspaceDiff(
   wsId: string,
   dataDir = getDataDir()
 ): Promise<string> {
-  const { bare, wsPath, defaultBranch, workspace } =
+  const { wsPath, defaultBranch, workspace } =
     await resolveWorkspacePaths(wsId, dataDir);
 
-  // Committed diff: branch vs default branch
-  const committedDiff = await git(
-    ["diff", `${defaultBranch}...${workspace.branch}`],
-    bare,
-  ).then((r) => r.stdout).catch(() => "");
+  // Find merge-base so we can compute a single combined diff
+  // (committed + uncommitted) without duplicating files that appear in both.
+  const mergeBase = await git(
+    ["merge-base", defaultBranch, workspace.branch],
+    wsPath,
+  ).then((r) => r.stdout.trim()).catch(() => "");
 
-  // Uncommitted diff: staged + unstaged changes in worktree
-  const [uncommittedDiff, untrackedResult] = await Promise.all([
-    git(["diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
+  // Single diff from merge-base to working directory
+  const [combinedDiff, untrackedResult] = await Promise.all([
+    mergeBase
+      ? git(["diff", mergeBase], wsPath).then((r) => r.stdout).catch(() => "")
+      : git(["diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
     git(["ls-files", "--others", "--exclude-standard"], wsPath)
       .then((r) => r.stdout)
       .catch(() => ""),
@@ -253,7 +256,7 @@ export async function getWorkspaceDiff(
   }
   const untrackedDiff = untrackedPatches.join("\n");
 
-  return [committedDiff, uncommittedDiff, untrackedDiff].filter(Boolean).join("\n");
+  return [combinedDiff, untrackedDiff].filter(Boolean).join("\n");
 }
 
 function parseDiffStat(
@@ -359,7 +362,17 @@ export async function computeDiffStat(
   const trackedFiles = new Set(uncommitted.map((f) => f.file));
   for (const file of untrackedResult.stdout.split("\n").filter(Boolean)) {
     if (!trackedFiles.has(file)) {
-      uncommitted.push({ file, additions: 0, deletions: 0, status: "added" });
+      let additions = 0;
+      try {
+        const content = await readFile(join(wsPath, file), "utf-8");
+        if (!content.includes("\0")) {
+          const lines = content.endsWith("\n") ? content.slice(0, -1).split("\n") : content.split("\n");
+          additions = lines.length;
+        }
+      } catch {
+        // Skip unreadable files
+      }
+      uncommitted.push({ file, additions, deletions: 0, status: "added" });
     }
   }
 

@@ -52,9 +52,11 @@ function makeParsedPatch(files: string[]) {
         type: "modified",
         hunks: [
           {
-            additionCount: 2,
-            deletionCount: 1,
-            hunkContent: ["@@ -1 +1 @@"],
+            additionCount: 7,
+            additionLines: 2,
+            deletionCount: 5,
+            deletionLines: 0,
+            hunkContent: ["@@ -1,5 +1,7 @@"],
           },
         ],
       })),
@@ -115,6 +117,155 @@ describe("GitDiffModal", () => {
     await waitFor(() => {
       expect(screen.getByText("No changes to display")).toBeInTheDocument();
     });
+  });
+
+  it("displays stats from additionLines/deletionLines, not hunk span counts", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ diff: "diff-text" });
+    vi.mocked(parsePatchFiles).mockReturnValueOnce(
+      makeParsedPatch(["src/a.ts"]),
+    );
+
+    render(<GitDiffModal open onOpenChange={() => {}} wsId="ws-1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("a.ts")).toBeInTheDocument();
+    });
+
+    // Should show +2 (additionLines), NOT +7 (additionCount/hunk span)
+    const additionElements = screen.getAllByText("+2");
+    expect(additionElements.length).toBeGreaterThanOrEqual(1);
+    // deletionLines is 0, so no deletion stat should be rendered
+    expect(screen.queryByText("-5")).not.toBeInTheDocument();
+    expect(screen.queryByText("+7")).not.toBeInTheDocument();
+  });
+
+  it("sums stats across multiple hunks in a single file", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ diff: "diff-text" });
+    vi.mocked(parsePatchFiles).mockReturnValueOnce([
+      {
+        files: [
+          {
+            name: "src/big.ts",
+            type: "modified",
+            hunks: [
+              {
+                additionCount: 10,
+                additionLines: 3,
+                deletionCount: 5,
+                deletionLines: 1,
+                hunkContent: ["@@ -1,5 +1,10 @@"],
+              },
+              {
+                additionCount: 8,
+                additionLines: 4,
+                deletionCount: 6,
+                deletionLines: 2,
+                hunkContent: ["@@ -20,6 +25,8 @@"],
+              },
+            ],
+          },
+        ],
+      },
+    ] as never[]);
+
+    render(<GitDiffModal open onOpenChange={() => {}} wsId="ws-1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("big.ts")).toBeInTheDocument();
+    });
+
+    // Should show +7 (3+4 additionLines), -3 (1+2 deletionLines)
+    const additions = screen.getAllByText("+7");
+    expect(additions.length).toBeGreaterThanOrEqual(1);
+    const deletions = screen.getAllByText("-3");
+    expect(deletions.length).toBeGreaterThanOrEqual(1);
+
+    // Must NOT show the span-based counts
+    expect(screen.queryByText("+18")).not.toBeInTheDocument();
+    expect(screen.queryByText("-11")).not.toBeInTheDocument();
+  });
+
+  it("shows deletion-only stats correctly", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ diff: "diff-text" });
+    vi.mocked(parsePatchFiles).mockReturnValueOnce([
+      {
+        files: [
+          {
+            name: "src/removed.ts",
+            type: "modified",
+            hunks: [
+              {
+                additionCount: 3,
+                additionLines: 0,
+                deletionCount: 8,
+                deletionLines: 5,
+                hunkContent: ["@@ -1,8 +1,3 @@"],
+              },
+            ],
+          },
+        ],
+      },
+    ] as never[]);
+
+    render(<GitDiffModal open onOpenChange={() => {}} wsId="ws-1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("removed.ts")).toBeInTheDocument();
+    });
+
+    // Should show -5 (deletionLines), no addition stat rendered
+    const deletions = screen.getAllByText("-5");
+    expect(deletions.length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText("+0")).not.toBeInTheDocument();
+    expect(screen.queryByText("-8")).not.toBeInTheDocument();
+  });
+
+  it("computes correct totals across multiple files", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ diff: "diff-text" });
+    vi.mocked(parsePatchFiles).mockReturnValueOnce([
+      {
+        files: [
+          {
+            name: "src/a.ts",
+            type: "modified",
+            hunks: [
+              {
+                additionCount: 10,
+                additionLines: 3,
+                deletionCount: 5,
+                deletionLines: 1,
+                hunkContent: ["@@ -1,5 +1,10 @@"],
+              },
+            ],
+          },
+          {
+            name: "src/b.ts",
+            type: "new",
+            hunks: [
+              {
+                additionCount: 20,
+                additionLines: 10,
+                deletionCount: 0,
+                deletionLines: 0,
+                hunkContent: ["@@ -0,0 +1,20 @@"],
+              },
+            ],
+          },
+        ],
+      },
+    ] as never[]);
+
+    render(<GitDiffModal open onOpenChange={() => {}} wsId="ws-1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("2 files changed")).toBeInTheDocument();
+    });
+
+    // Total: +13 (3+10), -1
+    const totalAdditions = screen.getAllByText("+13");
+    expect(totalAdditions.length).toBeGreaterThanOrEqual(1);
+    const totalDeletions = screen.getAllByText("-1");
+    expect(totalDeletions.length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows error state when loading diff fails", async () => {

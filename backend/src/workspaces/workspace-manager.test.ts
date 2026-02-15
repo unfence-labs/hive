@@ -211,6 +211,31 @@ describe("getWorkspaceDiff", () => {
     expect(diff).toContain("brand-new.txt");
   });
 
+  it("does not duplicate a file modified in both committed and uncommitted changes", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    // Committed change to README.md
+    await writeFile(join(wsPath, "README.md"), "committed change\n");
+    await git(["add", "."], wsPath);
+    await git(["config", "user.email", "test@hive.dev"], wsPath);
+    await git(["config", "user.name", "Test"], wsPath);
+    await git(["commit", "-m", "modify readme"], wsPath);
+
+    // Further uncommitted change to same file
+    await writeFile(join(wsPath, "README.md"), "committed change\nuncommitted extra\n");
+
+    const diff = await getWorkspaceDiff(ws.id, dataDir);
+
+    // README.md should appear exactly once as a diff block
+    const matches = diff.match(/diff --git a\/README\.md b\/README\.md/g);
+    expect(matches).toHaveLength(1);
+
+    // Both changes should be visible in the single diff
+    expect(diff).toContain("+committed change");
+    expect(diff).toContain("+uncommitted extra");
+  });
+
   it("handles file without trailing newline in synthetic diff", async () => {
     const ws = await createWorkspace(projectId, dataDir);
     const wsPath = join(dataDir, projectId, "workspaces", ws.name);
@@ -344,7 +369,7 @@ describe("getWorkspaceDiffStat", () => {
     const untracked = uncommitted.find((s) => s.file === "untracked.txt");
     expect(untracked).toBeDefined();
     expect(untracked!.status).toBe("added");
-    expect(untracked!.additions).toBe(0);
+    expect(untracked!.additions).toBe(1);
     expect(untracked!.deletions).toBe(0);
   });
 
@@ -364,6 +389,48 @@ describe("getWorkspaceDiffStat", () => {
     const newFileEntries = uncommitted.filter((s) => s.file === "brand-new.txt");
     expect(newFileEntries).toHaveLength(1);
     expect(newFileEntries[0].status).toBe("added");
+  });
+
+  it("counts lines for multi-line untracked files", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await writeFile(join(wsPath, "multi.txt"), "line1\nline2\nline3\nline4\nline5\n");
+
+    const { uncommitted } = await getWorkspaceDiffStat(ws.id, dataDir);
+
+    const entry = uncommitted.find((s) => s.file === "multi.txt");
+    expect(entry).toBeDefined();
+    expect(entry!.additions).toBe(5);
+    expect(entry!.deletions).toBe(0);
+    expect(entry!.status).toBe("added");
+  });
+
+  it("reports additions: 0 for binary untracked files", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await writeFile(join(wsPath, "binary.bin"), Buffer.from([0x48, 0x00, 0x49]));
+
+    const { uncommitted } = await getWorkspaceDiffStat(ws.id, dataDir);
+
+    const entry = uncommitted.find((s) => s.file === "binary.bin");
+    expect(entry).toBeDefined();
+    expect(entry!.additions).toBe(0);
+    expect(entry!.status).toBe("added");
+  });
+
+  it("counts lines correctly for untracked files without trailing newline", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await writeFile(join(wsPath, "no-nl.txt"), "single line without newline");
+
+    const { uncommitted } = await getWorkspaceDiffStat(ws.id, dataDir);
+
+    const entry = uncommitted.find((s) => s.file === "no-nl.txt");
+    expect(entry).toBeDefined();
+    expect(entry!.additions).toBe(1);
   });
 
   it("includes multiple untracked files in subdirectories", async () => {

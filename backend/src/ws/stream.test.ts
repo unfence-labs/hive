@@ -542,4 +542,60 @@ describe("WS /ws/session/:wsId", () => {
     ws.close();
     await local.app.close();
   });
+
+  it("does not send snapshots when provider returns undefined for workspace", async () => {
+    const provider = {
+      getCachedBranchInfo: vi.fn(() => undefined),
+      getCachedDiffStats: vi.fn(() => undefined),
+    };
+    const local = await startWsApp(undefined, CONV_CMD, provider);
+    const { wsReady, messages } = connectSessionWs(wsId, { address: local.address });
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+    // Give a small window for any extra messages to arrive
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
+    expect(messages.some((m) => m.type === "branch_info")).toBe(false);
+    expect(messages.some((m) => m.type === "diff_stats")).toBe(false);
+
+    ws.close();
+    await local.app.close();
+  });
+
+  it("sends snapshots after busy status when session exists", async () => {
+    const branchInfo = { name: "workspace/tokyo", lastSyncedAt: "2026-02-15T10:00:00.000Z" };
+    const diffStats = { committed: [], uncommitted: [] };
+    const provider = {
+      getCachedBranchInfo: vi.fn((id: string) => (id === wsId ? branchInfo : undefined)),
+      getCachedDiffStats: vi.fn((id: string) => (id === wsId ? diffStats : undefined)),
+    };
+    const local = await startWsApp(undefined, CONV_CMD, provider);
+
+    // Create a session first so the WS connect path hits the "busy" branch
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
+
+    const { wsReady, messages } = connectSessionWs(wsId, { address: local.address });
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some((m) => m.type === "status" && m.status === "busy") &&
+        msgs.some((m) => m.type === "branch_info") &&
+        msgs.some((m) => m.type === "diff_stats"),
+    );
+
+    expect(messages[0]).toEqual(
+      expect.objectContaining({ type: "status", status: "busy" }),
+    );
+    expect(messages).toContainEqual({ type: "branch_info", info: branchInfo });
+    expect(messages).toContainEqual({ type: "diff_stats", stats: diffStats });
+
+    ws.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
 });

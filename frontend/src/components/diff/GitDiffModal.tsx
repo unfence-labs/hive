@@ -439,8 +439,8 @@ export function GitDiffModal({
         let additions = 0;
         let deletions = 0;
         for (const hunk of fileDiff.hunks) {
-          additions += hunk.additionCount;
-          deletions += hunk.deletionCount;
+          additions += hunk.additionLines;
+          deletions += hunk.deletionLines;
         }
         return {
           fileDiff,
