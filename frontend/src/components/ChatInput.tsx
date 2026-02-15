@@ -166,19 +166,20 @@ export default function ChatInput({
   const showPopup = autocomplete !== null && filteredItems.length > 0;
 
   return (
-    <div className={cn(
-      "relative border-t border-border/30 bg-background p-4",
-      showPopup && "[&_[data-slot=input-group]]:rounded-t-none [&_[data-slot=input-group]]:!border-t-transparent",
-    )}>
-      {showPopup && (
-        <AutocompletePopup
-          items={filteredItems}
-          selectedIndex={selectedIndex}
-          onSelect={selectItem}
-          onHover={setSelectedIndex}
-        />
-      )}
-      <PromptInput onSubmit={handleSubmit} accept="image/*" multiple>
+    <div className="border-t border-border/30 bg-background p-4">
+      <div className={cn(
+        "relative",
+        showPopup && "[&_[data-slot=input-group]]:rounded-t-none [&_[data-slot=input-group]]:!border-t-transparent",
+      )}>
+        {showPopup && (
+          <AutocompletePopup
+            items={filteredItems}
+            selectedIndex={selectedIndex}
+            onSelect={selectItem}
+            onHover={setSelectedIndex}
+          />
+        )}
+        <PromptInput onSubmit={handleSubmit} accept="image/*" multiple>
         <PromptInputBody>
           <ChatInputAttachments onFileCountChange={setFileCount} attachmentsRef={attachmentsRef} />
           <PromptInputTextarea
@@ -248,7 +249,8 @@ export default function ChatInput({
             />
           </PromptInputTools>
         </PromptInputFooter>
-      </PromptInput>
+        </PromptInput>
+      </div>
     </div>
   );
 }
