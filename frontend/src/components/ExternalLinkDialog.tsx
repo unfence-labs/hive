@@ -1,15 +1,15 @@
 import { useCallback, useState } from "react";
 import { Copy, Check, ExternalLink } from "lucide-react";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 interface ExternalLinkDialogProps {
   url: string;
@@ -32,28 +32,32 @@ export function ExternalLinkDialog({ url, open, onClose, onConfirm }: ExternalLi
   }, [url]);
 
   return (
-    <AlertDialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Open external link?</AlertDialogTitle>
-          <AlertDialogDescription>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent showCloseButton={false}>
+        <DialogHeader>
+          <DialogTitle>Open external link?</DialogTitle>
+          <DialogDescription>
             You're about to visit an external website.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
+          </DialogDescription>
+        </DialogHeader>
         <div className="break-all rounded-md bg-muted p-3 font-mono text-sm">
           {url}
         </div>
-        <AlertDialogFooter>
-          <AlertDialogCancel onClick={handleCopy}>
-            {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-            {copied ? "Copied" : "Copy link"}
-          </AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>
-            <ExternalLink className="size-3.5" />
-            Open link
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline" onClick={handleCopy}>
+              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+              {copied ? "Copied" : "Copy link"}
+            </Button>
+          </DialogClose>
+          <DialogClose asChild>
+            <Button onClick={onConfirm}>
+              <ExternalLink className="size-3.5" />
+              Open link
+            </Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
