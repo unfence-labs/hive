@@ -304,7 +304,7 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
           </ContentPanelBody>
           {tool.output !== undefined && !display.hideOutput && (
             <ContentPanelFooter>
-              <div className="mb-1 text-[11px] font-medium text-muted-foreground/60">Result</div>
+              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Output</div>
               {taskOutputText ? (
                 <div className="prose-sm max-h-96 overflow-auto text-muted-foreground">
                   <MessageResponse>{taskOutputText}</MessageResponse>
