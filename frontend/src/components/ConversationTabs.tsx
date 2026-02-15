@@ -32,8 +32,8 @@ interface ConversationTabsProps {
   onFileTabClose?: () => void;
 }
 
-function getTabTitle(session: SessionMetadata, reverseIndex: number): string {
-  return session.title || `Conversation ${reverseIndex}`;
+function getTabTitle(session: SessionMetadata): string {
+  return session.title || "Untitled";
 }
 
 export function ConversationTabs({
@@ -130,11 +130,23 @@ export function ConversationTabs({
               </span>
             </button>
           )}
+          {sessions.length === 0 && (
+            <span
+              className={cn(
+                "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs",
+                !isFileActive
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground",
+              )}
+            >
+              <MessageSquareIcon className="size-3 shrink-0" />
+              <span className="truncate">Untitled</span>
+            </span>
+          )}
           {sessions.map((session, i) => {
             const isActive = session.sessionId === activeSessionId;
-            const reverseIndex = sessions.length - i;
             const isVisible = i < visibleCount;
-            const title = getTabTitle(session, reverseIndex);
+            const title = getTabTitle(session);
 
             return (
               <button
@@ -195,11 +207,9 @@ export function ConversationTabs({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
-              {overflowSessions.map((session, i) => {
-                const globalIndex = visibleCount + i;
-                const reverseIndex = sessions.length - globalIndex;
+              {overflowSessions.map((session) => {
                 const isActive = session.sessionId === activeSessionId;
-                const title = getTabTitle(session, reverseIndex);
+                const title = getTabTitle(session);
 
                 return (
                   <DropdownMenuItem

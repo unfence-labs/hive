@@ -117,6 +117,16 @@ export default function WorkspaceView() {
     return files.size;
   }, [diffCommitted, diffUncommitted]);
 
+  const fileCount = useMemo(() => {
+    function count(nodes: WorkspaceFileTreeNode[]): number {
+      return nodes.reduce((acc, node) => {
+        if (node.type === "file") return acc + 1;
+        return acc + (node.children ? count(node.children) : 0);
+      }, 0);
+    }
+    return count(fileTree);
+  }, [fileTree]);
+
   // Lightweight file tree refresh — preserves expanded/selected state
   const refreshFileTree = useCallback(async () => {
     if (!wsId) return;
@@ -393,6 +403,11 @@ export default function WorkspaceView() {
               onQuestionAnswer={answerQuestion}
               onPlanApproval={approvePlan}
               onRejectToolInput={rejectToolInput}
+              workspaceName={workspace?.name}
+              projectName={workspace?.projectName}
+              branch={displayBranch}
+              defaultBranch={workspace?.defaultBranch}
+              fileCount={fileCount}
             />
             {pendingToolInputs.some((p) => p.toolName === "AskUserQuestion") ? (
               <QuestionPanel
