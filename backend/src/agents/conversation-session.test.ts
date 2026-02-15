@@ -101,6 +101,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // Let pending fire-and-forget async work (e.g. saveImagesToDisk) settle
+  await new Promise((r) => setTimeout(r, 250));
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       await rm(tempDir, { recursive: true, force: true });
@@ -1010,7 +1012,7 @@ describe("ConversationSession", () => {
     const session = createSession({ sessionId: "title-truncate" });
     const longMsg = "This is a very long message that definitely exceeds the fifty character limit by a lot";
     session.sendMessage(longMsg);
-    expect(session.metadata.title).toBe("This is a very long message that definitely exce...");
+    expect(session.metadata.title).toBe("This is a very long message that definitely exc...");
     expect(session.metadata.title!.length).toBeLessThanOrEqual(50);
   });
 

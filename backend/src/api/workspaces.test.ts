@@ -298,6 +298,59 @@ describe("POST /api/workspaces/:wsId/merge", () => {
   });
 });
 
+describe("POST /api/workspaces/:wsId/archive", () => {
+  it("archives workspace and returns 204", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const wsId = createRes.json().id;
+
+    const res = await app.inject({ method: "POST", url: `/api/workspaces/${wsId}/archive` });
+    expect(res.statusCode).toBe(204);
+
+    // Workspace should no longer appear in list
+    const listRes = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    expect(listRes.json()).toHaveLength(0);
+  });
+
+  it("returns 404 for non-existent workspace", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/workspaces/nonexistent/archive" });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("archived workspace is no longer accessible via GET", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const wsId = createRes.json().id;
+
+    await app.inject({ method: "POST", url: `/api/workspaces/${wsId}/archive` });
+
+    const getRes = await app.inject({ method: "GET", url: `/api/workspaces/${wsId}` });
+    expect(getRes.statusCode).toBe(404);
+  });
+
+  it("preserves archive data on disk", async () => {
+    const { existsSync } = await import("node:fs");
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+
+    await app.inject({ method: "POST", url: `/api/workspaces/${ws.id}/archive` });
+
+    const archiveDir = join(dataDir, projectId, "archive", ws.id);
+    expect(existsSync(archiveDir)).toBe(true);
+    expect(existsSync(join(archiveDir, "workspace.json"))).toBe(true);
+  });
+});
+
 describe("GET /api/workspaces/:wsId/file", () => {
   it("returns 404 for non-existent workspace", async () => {
     const res = await app.inject({

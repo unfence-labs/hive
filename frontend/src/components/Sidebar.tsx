@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { FolderPlus, Settings, TerminalSquareIcon } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { ArchiveIcon, FolderPlus, Plus, Settings, TerminalSquareIcon, Trash2 } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -8,11 +8,22 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useTerminalContext } from "@/contexts/TerminalContext";
 import { useWorkspaceLiveData } from "@/hooks/useWorkspaceLiveData";
 import { BranchLabel } from "@/components/BranchLabel";
+import { api } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
-import type { Project } from "@/types";
+import type { DiffStatResponse, Project } from "@/types";
 
 const AVATAR_COLORS = [
   { bg: "bg-red-500/20", text: "text-red-400" },
@@ -39,6 +50,8 @@ interface SidebarProps {
   loading: boolean;
   onAddProject: () => void;
   onAddWorkspace: (projectId: string) => Promise<unknown>;
+  onDeleteProject: (id: string) => Promise<void>;
+  onArchiveWorkspace: (wsId: string) => Promise<void>;
 }
 
 export default function Sidebar({
@@ -46,6 +59,8 @@ export default function Sidebar({
   loading,
   onAddProject,
   onAddWorkspace,
+  onDeleteProject,
+  onArchiveWorkspace,
 }: SidebarProps) {
   const workspaceIds = useMemo(
     () =>
@@ -57,9 +72,12 @@ export default function Sidebar({
     [projects],
   );
   const { wsId: activeWsId } = useParams();
+  const navigate = useNavigate();
   const { activeTerminals } = useTerminalContext();
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const liveData = useWorkspaceLiveData(workspaceIds);
 
   const activeProjectId = projects.find((project) =>
@@ -83,6 +101,29 @@ export default function Sidebar({
     }
   };
 
+  const handleArchiveClick = async (wsId: string) => {
+    let uncommittedCount = liveData[wsId]?.diffStats?.uncommitted?.length;
+    if (uncommittedCount === undefined) {
+      try {
+        const stats = await api.get<DiffStatResponse>(`/api/workspaces/${wsId}/diff/stat`);
+        uncommittedCount = stats.uncommitted.length;
+      } catch {
+        uncommittedCount = 0;
+      }
+    }
+    if (uncommittedCount > 0) {
+      setArchiveTarget(wsId);
+    } else {
+      await doArchive(wsId);
+    }
+  };
+
+  const doArchive = async (wsId: string) => {
+    const wasActive = activeWsId === wsId;
+    await onArchiveWorkspace(wsId);
+    if (wasActive) navigate("/projects");
+  };
+
   return (
     <div className="flex h-full w-60 flex-col border-r border-border/50 bg-sidebar text-sidebar-foreground">
       <div className="flex h-12 items-center justify-between border-b border-border/50 px-4">
@@ -91,7 +132,7 @@ export default function Sidebar({
         </Link>
       </div>
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full">
         <div className="p-2">
           {loading ? (
             <div className="space-y-2 px-2">
@@ -110,12 +151,12 @@ export default function Sidebar({
                       setExpandedProjects((prev) => ({ ...prev, [project.id]: open }))
                     }
                   >
-                    <div className="group flex items-center">
+                    <div className="group relative flex w-full items-center">
                       <CollapsibleTrigger asChild>
                         <button
                           type="button"
                           className={cn(
-                            "flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium transition-colors hover:bg-sidebar-accent/60",
+                            "flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left text-sm font-medium transition-colors hover:bg-sidebar-accent/60",
                             activeProjectId === project.id && "bg-sidebar-accent/60",
                           )}
                         >
@@ -128,22 +169,35 @@ export default function Sidebar({
                           >
                             {project.name[0]?.toUpperCase() ?? "?"}
                           </span>
-                          <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                          <span
-                            role="button"
-                            tabIndex={-1}
-                            className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover:opacity-100"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAddWorkspace(project.id);
-                            }}
-                            aria-label={`Add workspace to ${project.name}`}
-                            title={`Add workspace to ${project.name}`}
-                          >
-                            {creatingProjectId === project.id ? "..." : "+"}
+                          <span className="min-w-0 flex-1 truncate pr-0 transition-[padding] group-hover:pr-12">
+                            {project.name}
                           </span>
                         </button>
                       </CollapsibleTrigger>
+                      <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
+                        {(project.workspaces ?? []).length === 0 && (
+                          <button
+                            type="button"
+                            className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-destructive"
+                            onClick={() => setDeleteTarget(project.id)}
+                            aria-label={`Delete project ${project.name}`}
+                            title="Delete project"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="shrink-0 rounded px-1 py-0.5 text-xs text-muted-foreground transition-colors hover:text-sidebar-foreground"
+                          onClick={() => {
+                            void handleAddWorkspace(project.id);
+                          }}
+                          aria-label={`Add workspace to ${project.name}`}
+                          title={`Add workspace to ${project.name}`}
+                        >
+                          {creatingProjectId === project.id ? "..." : <Plus className="h-3 w-3" />}
+                        </button>
+                      </div>
                     </div>
                     <CollapsibleContent>
                       <div className="mt-1 space-y-0.5">
@@ -153,24 +207,40 @@ export default function Sidebar({
                           const displayBranch = wsLive?.branch ?? ws.branch;
                           const hasTerminal = activeTerminals.has(ws.id);
                           return (
-                            <Link
-                              key={ws.id}
-                              to={`/workspaces/${ws.id}`}
-                              className={cn(
-                                "block rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent/60",
-                                activeWsId === ws.id && "bg-primary/8",
-                              )}
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <BranchLabel branch={displayBranch} className="min-w-0 flex-1 text-sm" />
-                                {hasTerminal && (
-                                  <TerminalSquareIcon className="h-3 w-3 shrink-0 text-primary/70" />
+                            <div key={ws.id} className="group/ws relative">
+                              <Link
+                                to={`/workspaces/${ws.id}`}
+                                className={cn(
+                                  "block rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent/60",
+                                  activeWsId === ws.id && "bg-primary/8",
                                 )}
-                              </div>
-                              <div className="mt-0.5 pl-5 text-[11px] text-muted-foreground">
-                                <span className="truncate">{wsStreaming ? "working..." : ws.name}</span>
-                              </div>
-                            </Link>
+                              >
+                                <div className="flex items-center gap-1.5">
+                                  <BranchLabel branch={displayBranch} className="min-w-0 flex-1 text-sm" />
+                                  {hasTerminal && (
+                                    <TerminalSquareIcon className="h-3 w-3 shrink-0 text-primary/70" />
+                                  )}
+                                </div>
+                                <div className="mt-0.5 pl-5 text-[11px] text-muted-foreground">
+                                  <span className="truncate">{wsStreaming ? "working..." : ws.name}</span>
+                                </div>
+                              </Link>
+                              {!hasTerminal && (
+                                <button
+                                  type="button"
+                                  className="absolute right-1.5 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    void handleArchiveClick(ws.id);
+                                  }}
+                                  aria-label={`Archive workspace ${ws.name}`}
+                                  title="Archive workspace"
+                                >
+                                  <ArchiveIcon className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
                           );
                         })}
                       </div>
@@ -201,6 +271,56 @@ export default function Sidebar({
           <Settings className="h-4 w-4" />
         </Link>
       </div>
+
+      <AlertDialog
+        open={archiveTarget !== null}
+        onOpenChange={(open) => !open && setArchiveTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive workspace</AlertDialogTitle>
+            <AlertDialogDescription>
+              This workspace has uncommitted changes that will be lost. Are you sure you want to archive it?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (archiveTarget) void doArchive(archiveTarget);
+                setArchiveTarget(null);
+              }}
+            >
+              Archive
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete project</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the repository and all its data. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleteTarget) void onDeleteProject(deleteTarget);
+                setDeleteTarget(null);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

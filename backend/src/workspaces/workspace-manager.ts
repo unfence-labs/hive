@@ -1,4 +1,4 @@
-import { rm, readdir, readFile, stat } from "node:fs/promises";
+import { rm, readdir, readFile, stat, mkdir, writeFile, rename } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
@@ -183,6 +183,77 @@ export async function deleteWorkspace(
       }
 
       // Update state
+      latest.workspaces = latest.workspaces.filter((ws) => ws.id !== wsId);
+      await saveProject(latest, dataDir);
+    },
+    dataDir,
+  );
+}
+
+export async function archiveWorkspace(
+  wsId: string,
+  dataDir = getDataDir()
+): Promise<void> {
+  const result = await getWorkspace(wsId, dataDir);
+  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
+
+  const projectId = result.projectState.id;
+  await withProjectStateLock(
+    projectId,
+    async () => {
+      const latest = await loadProject(projectId, dataDir);
+      if (!latest) throw new NotFoundError(`Project ${projectId} not found`);
+      const workspace = latest.workspaces.find((ws) => ws.id === wsId);
+      if (!workspace) throw new NotFoundError(`Workspace ${wsId} not found`);
+
+      const bare = bareRepoPath(dataDir, projectId);
+      const wsPath = join(workspacesDir(dataDir, projectId), workspace.name);
+      const archiveDir = join(dataDir, projectId, "archive", wsId);
+
+      // Create archive directory
+      await mkdir(archiveDir, { recursive: true });
+
+      // Save workspace metadata
+      await writeFile(
+        join(archiveDir, "workspace.json"),
+        JSON.stringify(workspace, null, 2),
+        "utf-8",
+      );
+
+      // Move session directories belonging to this workspace
+      const sessionsRoot = join(dataDir, projectId, "sessions");
+      try {
+        const entries = await readdir(sessionsRoot, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          const metaPath = join(sessionsRoot, entry.name, "metadata.json");
+          try {
+            const raw = await readFile(metaPath, "utf-8");
+            const meta = JSON.parse(raw) as { workspaceId?: string };
+            if (meta.workspaceId !== wsId) continue;
+            const archiveSessionsDir = join(archiveDir, "sessions");
+            await mkdir(archiveSessionsDir, { recursive: true });
+            await rename(
+              join(sessionsRoot, entry.name),
+              join(archiveSessionsDir, entry.name),
+            );
+          } catch {
+            // Skip unreadable session metadata
+          }
+        }
+      } catch {
+        // No sessions directory yet
+      }
+
+      // Remove the worktree (keep the branch for potential restore)
+      try {
+        await git(["worktree", "remove", wsPath, "--force"], bare);
+      } catch {
+        await rm(wsPath, { recursive: true, force: true });
+        await git(["worktree", "prune"], bare);
+      }
+
+      // Update state — remove workspace from project
       latest.workspaces = latest.workspaces.filter((ws) => ws.id !== wsId);
       await saveProject(latest, dataDir);
     },

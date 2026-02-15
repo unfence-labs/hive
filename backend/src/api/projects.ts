@@ -38,6 +38,9 @@ export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
   app.delete<{ Params: { id: string } }>("/api/projects/:id", async (req, reply) => {
     const project = await getProject(req.params.id, dataDir);
     if (!project) return reply.status(404).send({ error: "Project not found" });
+    if (project.workspaces.length > 0) {
+      return reply.status(409).send({ error: "Cannot delete project with active workspaces" });
+    }
     await deleteProject(req.params.id, dataDir);
     return reply.status(204).send();
   });

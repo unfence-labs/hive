@@ -5,7 +5,16 @@ import { useEffect } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import { TerminalProvider, useTerminalContext } from "@/contexts/TerminalContext";
+import { api } from "@/hooks/useApi";
 import type { Project, WsOutgoing } from "@/types";
+
+vi.mock("@/hooks/useApi", () => ({
+  api: {
+    get: vi.fn(),
+    post: vi.fn(),
+    delete: vi.fn(),
+  },
+}));
 
 vi.mock("@/lib/ws-transport", () => {
   const messageHandlers = new Map<string, Set<(msg: WsOutgoing) => void>>();
@@ -62,6 +71,8 @@ function renderSidebar(
   projects: Project[],
   onAddWorkspace = vi.fn(),
   activeTerminalWorkspaceIds: string[] = [],
+  onArchiveWorkspace = vi.fn(),
+  onDeleteProject = vi.fn(),
 ) {
   return render(
     <TerminalProvider>
@@ -76,6 +87,8 @@ function renderSidebar(
                 loading={false}
                 onAddProject={vi.fn()}
                 onAddWorkspace={onAddWorkspace}
+                onDeleteProject={onDeleteProject}
+                onArchiveWorkspace={onArchiveWorkspace}
               />
             }
           />
@@ -87,6 +100,8 @@ function renderSidebar(
                 loading={false}
                 onAddProject={vi.fn()}
                 onAddWorkspace={onAddWorkspace}
+                onDeleteProject={onDeleteProject}
+                onArchiveWorkspace={onArchiveWorkspace}
               />
             }
           />
@@ -206,5 +221,213 @@ describe("Sidebar", () => {
 
     expect(screen.getByText("feat/login-page")).toBeInTheDocument();
     expect(screen.queryByText("workspace/tokyo")).not.toBeInTheDocument();
+  });
+
+  it("shows archive button on workspace hover", () => {
+    renderSidebar("/workspaces/w1", projects);
+
+    const archiveBtn = screen.getByRole("button", { name: /archive workspace/i });
+    expect(archiveBtn).toBeInTheDocument();
+  });
+
+  it("hides archive button when terminal is active", () => {
+    renderSidebar("/workspaces/w1", projects, vi.fn(), ["w1"]);
+
+    expect(screen.queryByRole("button", { name: /archive workspace/i })).not.toBeInTheDocument();
+  });
+
+  it("archives clean workspace directly without confirmation", async () => {
+    const user = userEvent.setup();
+    const onArchive = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api.get).mockResolvedValueOnce({ committed: [], uncommitted: [] });
+
+    renderSidebar("/workspaces/w1", projects, vi.fn(), [], onArchive);
+
+    const archiveBtn = screen.getByRole("button", { name: /archive workspace/i });
+    await user.click(archiveBtn);
+
+    await waitFor(() => {
+      expect(onArchive).toHaveBeenCalledWith("w1");
+    });
+
+    // No confirmation dialog should appear
+    expect(screen.queryByText("Archive workspace")).not.toBeInTheDocument();
+  });
+
+  it("shows confirmation dialog for dirty workspace", async () => {
+    const user = userEvent.setup();
+    const onArchive = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api.get).mockResolvedValueOnce({
+      committed: [],
+      uncommitted: [{ file: "dirty.txt", additions: 1, deletions: 0, status: "added" }],
+    });
+
+    renderSidebar("/workspaces/w1", projects, vi.fn(), [], onArchive);
+
+    const archiveBtn = screen.getByRole("button", { name: /archive workspace/i });
+    await user.click(archiveBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("Archive workspace")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/uncommitted changes/i)).toBeInTheDocument();
+    expect(onArchive).not.toHaveBeenCalled();
+  });
+
+  it("confirms archive of dirty workspace via dialog", async () => {
+    const user = userEvent.setup();
+    const onArchive = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api.get).mockResolvedValueOnce({
+      committed: [],
+      uncommitted: [{ file: "dirty.txt", additions: 1, deletions: 0, status: "added" }],
+    });
+
+    renderSidebar("/workspaces/w1", projects, vi.fn(), [], onArchive);
+
+    const archiveBtn = screen.getByRole("button", { name: /archive workspace/i });
+    await user.click(archiveBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("Archive workspace")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Archive" }));
+
+    await waitFor(() => {
+      expect(onArchive).toHaveBeenCalledWith("w1");
+    });
+  });
+
+  it("cancels archive of dirty workspace via dialog", async () => {
+    const user = userEvent.setup();
+    const onArchive = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api.get).mockResolvedValueOnce({
+      committed: [],
+      uncommitted: [{ file: "dirty.txt", additions: 1, deletions: 0, status: "added" }],
+    });
+
+    renderSidebar("/workspaces/w1", projects, vi.fn(), [], onArchive);
+
+    const archiveBtn = screen.getByRole("button", { name: /archive workspace/i });
+    await user.click(archiveBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("Archive workspace")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Archive workspace")).not.toBeInTheDocument();
+    });
+
+    expect(onArchive).not.toHaveBeenCalled();
+  });
+
+  it("uses cached diffStats from live data when available", async () => {
+    const { __wsMock } = await getWsMock();
+    const user = userEvent.setup();
+    const onArchive = vi.fn().mockResolvedValue(undefined);
+
+    renderSidebar("/workspaces/w1", projects, vi.fn(), [], onArchive);
+
+    // Emit diff_stats via WS so liveData has cached stats (clean workspace)
+    act(() => {
+      __wsMock.emit("w1", {
+        type: "diff_stats",
+        stats: { committed: [], uncommitted: [] },
+      });
+    });
+
+    // Clear any API calls made during setup/subscription
+    vi.mocked(api.get).mockClear();
+
+    const archiveBtn = screen.getByRole("button", { name: /archive workspace/i });
+    await user.click(archiveBtn);
+
+    await waitFor(() => {
+      expect(onArchive).toHaveBeenCalledWith("w1");
+    });
+
+    // Should NOT have called the API since cached data was available
+    expect(api.get).not.toHaveBeenCalled();
+  });
+
+  it("falls back to direct API call when diffStats not cached and API fails", async () => {
+    const user = userEvent.setup();
+    const onArchive = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api.get).mockRejectedValueOnce(new Error("network error"));
+
+    renderSidebar("/workspaces/w1", projects, vi.fn(), [], onArchive);
+
+    const archiveBtn = screen.getByRole("button", { name: /archive workspace/i });
+    await user.click(archiveBtn);
+
+    // When API fails, uncommittedCount falls back to 0 → archives directly
+    await waitFor(() => {
+      expect(onArchive).toHaveBeenCalledWith("w1");
+    });
+  });
+
+  it("shows delete button for projects with no workspaces", () => {
+    renderSidebar("/projects", projects);
+
+    expect(screen.getByRole("button", { name: /delete project beta/i })).toBeInTheDocument();
+  });
+
+  it("does not show delete button for projects with workspaces", () => {
+    renderSidebar("/projects", projects);
+
+    expect(screen.queryByRole("button", { name: /delete project alpha/i })).not.toBeInTheDocument();
+  });
+
+  it("shows confirmation dialog when clicking delete project", async () => {
+    const user = userEvent.setup();
+    renderSidebar("/projects", projects);
+
+    await user.click(screen.getByRole("button", { name: /delete project beta/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Delete project")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/permanently delete/i)).toBeInTheDocument();
+  });
+
+  it("calls onDeleteProject after confirming deletion", async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    renderSidebar("/projects", projects, vi.fn(), [], vi.fn(), onDelete);
+
+    await user.click(screen.getByRole("button", { name: /delete project beta/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Delete project")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(onDelete).toHaveBeenCalledWith("p2");
+    });
+  });
+
+  it("does not call onDeleteProject when cancelling deletion", async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    renderSidebar("/projects", projects, vi.fn(), [], vi.fn(), onDelete);
+
+    await user.click(screen.getByRole("button", { name: /delete project beta/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Delete project")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Delete project")).not.toBeInTheDocument();
+    });
+    expect(onDelete).not.toHaveBeenCalled();
   });
 });

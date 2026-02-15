@@ -9,7 +9,9 @@ import {
   listWorkspaceFiles,
   getWorkspaceFileContent,
   mergeWorkspace,
+  archiveWorkspace,
 } from "../workspaces/workspace-manager.js";
+import { endSession } from "../agents/agent-manager.js";
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
@@ -109,6 +111,23 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
       return reply
         .status(errorStatus(err))
         .send({ error: errorMessage(err, "Merge failed") });
+    }
+  });
+
+  app.post<{ Params: { wsId: string } }>("/api/workspaces/:wsId/archive", async (req, reply) => {
+    try {
+      // End any active session before archiving
+      try {
+        await endSession(req.params.wsId, dataDir);
+      } catch {
+        // No active session — fine
+      }
+      await archiveWorkspace(req.params.wsId, dataDir);
+      return reply.status(204).send();
+    } catch (err: unknown) {
+      return reply
+        .status(errorStatus(err))
+        .send({ error: errorMessage(err, "Archive failed") });
     }
   });
 }
