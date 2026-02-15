@@ -7,6 +7,7 @@ import {
   getWorkspaceDiff,
   getWorkspaceDiffStat,
   listWorkspaceFiles,
+  getWorkspaceFileContent,
   mergeWorkspace,
 } from "../workspaces/workspace-manager.js";
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
@@ -83,6 +84,22 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
       return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });
     }
   });
+
+  app.get<{ Params: { wsId: string }; Querystring: { path?: string } }>(
+    "/api/workspaces/:wsId/file",
+    async (req, reply) => {
+      try {
+        const filePath = req.query.path;
+        if (!filePath) {
+          return reply.status(400).send({ error: "Missing 'path' query parameter" });
+        }
+        const result = await getWorkspaceFileContent(req.params.wsId, filePath, dataDir);
+        return reply.send(result);
+      } catch (err: unknown) {
+        return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });
+      }
+    },
+  );
 
   app.post<{ Params: { wsId: string } }>("/api/workspaces/:wsId/merge", async (req, reply) => {
     try {

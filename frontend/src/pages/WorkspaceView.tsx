@@ -14,6 +14,7 @@ import ChatConversation from "@/components/ChatConversation";
 import ChatInput from "@/components/ChatInput";
 import QuestionPanel from "@/components/chat/QuestionPanel";
 import { ConversationTabs } from "@/components/ConversationTabs";
+import { FileViewer } from "@/components/FileViewer";
 import { BranchLabel } from "@/components/BranchLabel";
 import { useTerminalContext } from "@/contexts/TerminalContext";
 import { GitDiffModal } from "@/components/diff/GitDiffModal";
@@ -76,6 +77,10 @@ export default function WorkspaceView() {
   const [loadedWsId, setLoadedWsId] = useState<string | undefined>(undefined);
   const [selectedPath, setSelectedPath] = useState("");
   const [initialDiffStats, setInitialDiffStats] = useState<DiffStatResponse | null>(null);
+
+  // File viewer state
+  const [openFile, setOpenFile] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"conversation" | "file">("conversation");
 
   // Sidebar tab state
   const [sidebarTab, setSidebarTab] = useState<"all" | "modified">("all");
@@ -216,6 +221,8 @@ export default function WorkspaceView() {
   // Reset to chatbot view and hide terminal overlay when switching workspaces
   useEffect(() => {
     setView("chatbot");
+    setOpenFile(null);
+    setActiveTab("conversation");
     return () => setVisibleTerminal(null);
   }, [wsId, setVisibleTerminal]);
 
@@ -243,6 +250,7 @@ export default function WorkspaceView() {
   }, [createSession, switchSession]);
 
   const handleActivateSession = useCallback(async (targetSessionId: string) => {
+    setActiveTab("conversation");
     const meta = await activateSession(targetSessionId);
     if (meta) {
       await switchSession(meta.sessionId);
@@ -265,6 +273,13 @@ export default function WorkspaceView() {
       }
     }
   }, [deleteSession, sessionId, sessions, handleActivateSession, clearChat, fetchWorkspace, wsId]);
+
+  const handleFileTreeSelect = useCallback((path: string) => {
+    setSelectedPath(path);
+    setOpenFile(path);
+    setActiveTab("file");
+    setView("chatbot");
+  }, []);
 
   const handleModifiedFileClick = useCallback((filePath: string) => {
     setDiffModalFile(filePath);
@@ -353,8 +368,15 @@ export default function WorkspaceView() {
             onCreateSession={handleCreateSession}
             onActivateSession={handleActivateSession}
             onDeleteSession={handleDeleteSession}
+            openFile={openFile}
+            isFileActive={activeTab === "file"}
+            onFileTabClick={() => setActiveTab("file")}
+            onFileTabClose={() => {
+              setOpenFile(null);
+              setActiveTab("conversation");
+            }}
           />
-          <div className={view === "chatbot" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+          <div className={view === "chatbot" && activeTab === "conversation" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
             {error && (
               <div className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
                 {error}
@@ -388,6 +410,11 @@ export default function WorkspaceView() {
               />
             )}
           </div>
+          {view === "chatbot" && activeTab === "file" && openFile && wsId && (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <FileViewer wsId={wsId} filePath={openFile} />
+            </div>
+          )}
           {view === "terminal" && (
             <div className="min-h-0 flex-1" />
           )}
@@ -442,7 +469,7 @@ export default function WorkspaceView() {
               <FileTree
                 expanded={expandedPaths}
                 onExpandedChange={setExpandedPaths}
-                onPathSelect={setSelectedPath}
+                onPathSelect={handleFileTreeSelect}
                 selectedPath={selectedPath}
               >
                 {fileTree.length ? (

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { MessageSquareIcon, PlusIcon, XIcon, MoreHorizontalIcon } from "lucide-react";
+import { MessageSquareIcon, PlusIcon, XIcon, MoreHorizontalIcon, FileIcon } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -26,6 +26,10 @@ interface ConversationTabsProps {
   onCreateSession: () => void;
   onActivateSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
+  openFile?: string | null;
+  isFileActive?: boolean;
+  onFileTabClick?: () => void;
+  onFileTabClose?: () => void;
 }
 
 function getTabTitle(session: SessionMetadata, reverseIndex: number): string {
@@ -39,6 +43,10 @@ export function ConversationTabs({
   onCreateSession,
   onActivateSession,
   onDeleteSession,
+  openFile,
+  isFileActive,
+  onFileTabClick,
+  onFileTabClose,
 }: ConversationTabsProps) {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(sessions.length);
@@ -87,6 +95,41 @@ export function ConversationTabs({
     <>
       <div className="flex h-9 items-center gap-1 border-b border-border/50 px-2">
         <div ref={tabsRef} className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+          {openFile && (
+            <button
+              type="button"
+              className={cn(
+                "group flex h-7 max-w-48 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
+                isFileActive
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+              )}
+              onClick={onFileTabClick}
+            >
+              <FileIcon className="size-3 shrink-0" />
+              <span className="truncate">{openFile.split("/").pop()}</span>
+              <span
+                role="button"
+                tabIndex={0}
+                className={cn(
+                  "ml-auto shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100",
+                  "hover:bg-destructive/10 hover:text-destructive",
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onFileTabClose?.();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.stopPropagation();
+                    onFileTabClose?.();
+                  }
+                }}
+              >
+                <XIcon className="size-3" />
+              </span>
+            </button>
+          )}
           {sessions.map((session, i) => {
             const isActive = session.sessionId === activeSessionId;
             const reverseIndex = sessions.length - i;
