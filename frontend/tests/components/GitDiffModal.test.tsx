@@ -52,9 +52,11 @@ function makeParsedPatch(files: string[]) {
         type: "modified",
         hunks: [
           {
-            additionCount: 2,
-            deletionCount: 1,
-            hunkContent: ["@@ -1 +1 @@"],
+            additionCount: 7,
+            additionLines: 2,
+            deletionCount: 5,
+            deletionLines: 0,
+            hunkContent: ["@@ -1,5 +1,7 @@"],
           },
         ],
       })),
@@ -115,6 +117,26 @@ describe("GitDiffModal", () => {
     await waitFor(() => {
       expect(screen.getByText("No changes to display")).toBeInTheDocument();
     });
+  });
+
+  it("displays stats from additionLines/deletionLines, not hunk span counts", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ diff: "diff-text" });
+    vi.mocked(parsePatchFiles).mockReturnValueOnce(
+      makeParsedPatch(["src/a.ts"]),
+    );
+
+    render(<GitDiffModal open onOpenChange={() => {}} wsId="ws-1" />);
+
+    await waitFor(() => {
+      expect(screen.getByText("a.ts")).toBeInTheDocument();
+    });
+
+    // Should show +2 (additionLines), NOT +7 (additionCount/hunk span)
+    const additionElements = screen.getAllByText("+2");
+    expect(additionElements.length).toBeGreaterThanOrEqual(1);
+    // deletionLines is 0, so no deletion stat should be rendered
+    expect(screen.queryByText("-5")).not.toBeInTheDocument();
+    expect(screen.queryByText("+7")).not.toBeInTheDocument();
   });
 
   it("shows error state when loading diff fails", async () => {

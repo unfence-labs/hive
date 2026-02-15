@@ -344,7 +344,7 @@ describe("getWorkspaceDiffStat", () => {
     const untracked = uncommitted.find((s) => s.file === "untracked.txt");
     expect(untracked).toBeDefined();
     expect(untracked!.status).toBe("added");
-    expect(untracked!.additions).toBe(0);
+    expect(untracked!.additions).toBe(1);
     expect(untracked!.deletions).toBe(0);
   });
 
