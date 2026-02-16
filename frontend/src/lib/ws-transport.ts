@@ -22,6 +22,7 @@ interface WorkspaceConnection {
   messageHandlers: Set<MessageHandler>;
   statusListeners: Set<StatusListener>;
   lastStatus?: StatusMessage;
+  lastStatusBySession: Map<string, StatusMessage>;
   lastHistory?: HistoryMessage;
   lastDiffStats?: DiffStatsMessage;
   lastBranchInfo?: BranchInfoMessage;
@@ -93,6 +94,7 @@ class WsTransport {
     const connection = this.connections.get(workspaceId);
     if (!connection) return;
     connection.lastStatus = undefined;
+    connection.lastStatusBySession.clear();
     connection.lastHistory = undefined;
     connection.lastBranchInfo = undefined;
     connection.replaySessionId = undefined;
@@ -132,7 +134,11 @@ class WsTransport {
     const connection = this.getOrCreateConnection(workspaceId);
     connection.messageHandlers.add(handler);
 
-    if (connection.lastStatus) {
+    if (connection.lastStatusBySession.size > 0) {
+      for (const statusMsg of connection.lastStatusBySession.values()) {
+        handler(statusMsg);
+      }
+    } else if (connection.lastStatus) {
       handler(connection.lastStatus);
     }
     if (connection.lastHistory) {
@@ -193,6 +199,7 @@ class WsTransport {
       reconnectTimer: null,
       messageHandlers: new Set<MessageHandler>(),
       statusListeners: new Set<StatusListener>(),
+      lastStatusBySession: new Map(),
       replaySessionId: undefined,
       messageBuffer: [],
     };
@@ -226,6 +233,7 @@ class WsTransport {
     connection.messageHandlers.clear();
     connection.statusListeners.clear();
     connection.lastStatus = undefined;
+    connection.lastStatusBySession.clear();
     connection.lastHistory = undefined;
     connection.lastDiffStats = undefined;
     connection.lastBranchInfo = undefined;
@@ -253,6 +261,7 @@ class WsTransport {
     ws.onopen = () => {
       if (connection.ws !== ws) return;
       connection.reconnectAttempt = 0;
+      connection.lastStatusBySession.clear();
       this.setStatus(connection, "connected");
     };
 
@@ -263,8 +272,10 @@ class WsTransport {
         if (msg.type === "status") {
           connection.lastStatus = msg;
           if (msg.sessionId) {
+            connection.lastStatusBySession.set(msg.sessionId, msg);
             connection.replaySessionId = msg.sessionId;
           } else if (msg.status === "idle") {
+            connection.lastStatusBySession.clear();
             connection.replaySessionId = undefined;
           }
         } else if (msg.type === "history") {

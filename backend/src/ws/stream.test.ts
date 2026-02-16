@@ -629,7 +629,7 @@ describe("WS /ws/session/:wsId", () => {
     await endSession(wsId, dataDir);
   });
 
-  it("routes session-scoped status updates only to sockets focused on that session", async () => {
+  it("broadcasts session status to all sockets but keeps content scoped to focused session", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-focus.sh");
     await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 6\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);
@@ -699,13 +699,15 @@ describe("WS /ws/session/:wsId", () => {
     );
     await new Promise((resolve) => setTimeout(resolve, 120));
 
-    const leakedToFirstSocket = first.messages.slice(firstMarker).some(
+    // Status messages are now broadcast to ALL sockets so every client
+    // can track per-session streaming state (e.g. tab loaders, sidebar).
+    const statusReachedFirstSocket = first.messages.slice(firstMarker).some(
       (m) =>
         m.type === "status" &&
         m.status === "busy" &&
         m.sessionId === secondSession.sessionId,
     );
-    expect(leakedToFirstSocket).toBe(false);
+    expect(statusReachedFirstSocket).toBe(true);
     expect(getSessionById(wsId, firstSessionId)?.status).toBe("streaming");
     expect(getSessionById(wsId, secondSession.sessionId)?.status).toBe("streaming");
 

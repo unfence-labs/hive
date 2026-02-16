@@ -596,6 +596,13 @@ export async function getSpecificSessionMessages(
   }
 }
 
+/** Return session IDs currently streaming in a workspace. */
+export function getStreamingSessionIds(wsId: string): string[] {
+  return getLoadedSessions(wsId)
+    .filter((s) => s.status === "streaming")
+    .map((s) => s.sessionId);
+}
+
 // ── Test helpers ────────────────────────────────────────────────────
 
 /** For testing: clear all active sessions. */

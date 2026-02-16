@@ -24,6 +24,7 @@ interface ConversationTabsProps {
   sessions: SessionMetadata[];
   activeSessionId?: string;
   isStreaming: boolean;
+  streamingSessions?: Record<string, boolean>;
   onCreateSession: () => void;
   onActivateSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
@@ -41,6 +42,7 @@ export function ConversationTabs({
   sessions,
   activeSessionId,
   isStreaming,
+  streamingSessions,
   onCreateSession,
   onActivateSession,
   onDeleteSession,
@@ -148,6 +150,7 @@ export function ConversationTabs({
             const isActive = session.sessionId === activeSessionId;
             const isVisible = i < visibleCount;
             const title = getTabTitle(session);
+            const isSessionStreaming = streamingSessions?.[session.sessionId] ?? (isActive && isStreaming);
 
             return (
               <button
@@ -162,7 +165,7 @@ export function ConversationTabs({
                 )}
                 onClick={() => onActivateSession(session.sessionId)}
               >
-                {isActive && isStreaming ? (
+                {isSessionStreaming ? (
                   <div className="flex size-3 shrink-0 items-center justify-center overflow-visible">
                     <AgentActivityPreview size="small" />
                   </div>
@@ -178,18 +181,18 @@ export function ConversationTabs({
                       "ml-auto shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100",
                       "hover:bg-destructive/10 hover:text-destructive",
                       "disabled:pointer-events-none disabled:opacity-30",
-                      isActive && isStreaming && "pointer-events-none opacity-30",
+                      isSessionStreaming && "pointer-events-none opacity-30",
                     )}
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (!(isActive && isStreaming)) {
+                      if (!isSessionStreaming) {
                         setDeleteTarget(session.sessionId);
                       }
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.stopPropagation();
-                        if (!(isActive && isStreaming)) {
+                        if (!isSessionStreaming) {
                           setDeleteTarget(session.sessionId);
                         }
                       }
@@ -217,6 +220,7 @@ export function ConversationTabs({
               {overflowSessions.map((session) => {
                 const isActive = session.sessionId === activeSessionId;
                 const title = getTabTitle(session);
+                const isOverflowStreaming = streamingSessions?.[session.sessionId] ?? (isActive && isStreaming);
 
                 return (
                   <DropdownMenuItem
@@ -224,7 +228,13 @@ export function ConversationTabs({
                     className="flex items-center gap-2"
                     onSelect={() => onActivateSession(session.sessionId)}
                   >
-                    <MessageSquareIcon className="size-3 shrink-0" />
+                    {isOverflowStreaming ? (
+                      <div className="flex size-3 shrink-0 items-center justify-center overflow-visible">
+                        <AgentActivityPreview size="small" />
+                      </div>
+                    ) : (
+                      <MessageSquareIcon className="size-3 shrink-0" />
+                    )}
                     <span className="flex-1 truncate text-xs">{title}</span>
                     {isActive && (
                       <span className="size-1.5 shrink-0 rounded-full bg-primary" />

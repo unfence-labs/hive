@@ -69,13 +69,13 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "status", status: "busy", streaming: true });
     });
 
-    expect(result.current["ws-1"]).toEqual({ status: "busy", streaming: true });
+    expect(result.current["ws-1"]).toEqual({ status: "busy", streaming: true, streamingSessions: {} });
 
     act(() => {
       __wsMock.emit("ws-1", { type: "status", status: "idle", streaming: false });
     });
 
-    expect(result.current["ws-1"]).toEqual({ status: "idle", streaming: false });
+    expect(result.current["ws-1"]).toEqual({ status: "idle", streaming: false, streamingSessions: {} });
   });
 
   it("updates branch on WS branch_info message", async () => {
@@ -421,7 +421,7 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "status", status: "busy", streaming: true });
     });
 
-    expect(result.current["ws-1"]).toEqual({ status: "busy", streaming: true });
+    expect(result.current["ws-1"]).toEqual({ status: "busy", streaming: true, streamingSessions: {} });
     expect(result.current["ws-2"]).toBeUndefined();
 
     act(() => {
@@ -431,7 +431,7 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current["ws-1"]).toEqual({ status: "busy", streaming: true });
+    expect(result.current["ws-1"]).toEqual({ status: "busy", streaming: true, streamingSessions: {} });
     expect(result.current["ws-2"]).toEqual({
       branch: "workspace/kyoto",
       branchInfo: { name: "workspace/kyoto", lastSyncedAt: "2026-02-13T00:00:00.000Z" },

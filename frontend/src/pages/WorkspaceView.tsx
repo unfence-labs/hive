@@ -409,6 +409,7 @@ export default function WorkspaceView() {
             sessions={sessions}
             activeSessionId={sessionId}
             isStreaming={isStreaming}
+            streamingSessions={wsId ? liveData[wsId]?.streamingSessions : undefined}
             onCreateSession={handleCreateSession}
             onActivateSession={handleActivateSession}
             onDeleteSession={handleDeleteSession}
