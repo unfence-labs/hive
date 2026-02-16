@@ -25,6 +25,7 @@ export function useWorkspaceLiveData(
           setLiveData((prev) => {
             const current = prev[wsId] ?? {};
             const prevSessions = { ...(current.streamingSessions ?? {}) };
+            const currentSessions = current.streamingSessions ?? {};
 
             if (msg.sessionId) {
               if (msg.streaming) {
@@ -49,9 +50,16 @@ export function useWorkspaceLiveData(
               streamingSessions: prevSessions,
             };
 
+            const currentKeys = Object.keys(currentSessions);
+            const nextKeys = Object.keys(prevSessions);
+            const sessionsUnchanged =
+              currentKeys.length === nextKeys.length &&
+              nextKeys.every((key) => currentSessions[key] === prevSessions[key]);
+
             if (
               current.status === next.status &&
-              current.streaming === next.streaming
+              current.streaming === next.streaming &&
+              sessionsUnchanged
             ) {
               return prev;
             }

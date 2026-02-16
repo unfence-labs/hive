@@ -78,6 +78,76 @@ describe("useWorkspaceLiveData", () => {
     expect(result.current["ws-1"]).toEqual({ status: "idle", streaming: false, streamingSessions: {} });
   });
 
+  it("tracks multiple streaming sessions even when workspace status stays busy", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-a",
+        streaming: true,
+      });
+    });
+
+    expect(result.current["ws-1"]).toEqual({
+      status: "busy",
+      streaming: true,
+      streamingSessions: { "sess-a": true },
+    });
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-b",
+        streaming: true,
+      });
+    });
+
+    expect(result.current["ws-1"]).toEqual({
+      status: "busy",
+      streaming: true,
+      streamingSessions: { "sess-a": true, "sess-b": true },
+    });
+  });
+
+  it("removes one session from streaming map without clearing other active sessions", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-a",
+        streaming: true,
+      });
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-b",
+        streaming: true,
+      });
+    });
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-a",
+        streaming: false,
+      });
+    });
+
+    expect(result.current["ws-1"]).toEqual({
+      status: "busy",
+      streaming: true,
+      streamingSessions: { "sess-b": true },
+    });
+  });
+
   it("updates branch on WS branch_info message", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
