@@ -25,6 +25,7 @@ interface AutocompletePopupProps {
   selectedIndex: number;
   onSelect: (item: CompletionItem) => void;
   onHover: (index: number) => void;
+  planMode?: boolean;
 }
 
 export function AutocompletePopup({
@@ -32,6 +33,7 @@ export function AutocompletePopup({
   selectedIndex,
   onSelect,
   onHover,
+  planMode,
 }: AutocompletePopupProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<HTMLButtonElement>(null);
@@ -66,7 +68,10 @@ export function AutocompletePopup({
   return (
     <div
       ref={listRef}
-      className="absolute bottom-full left-0 right-0 z-50 max-h-[240px] overflow-y-auto rounded-t-md border border-b-0 border-border/30 bg-background dark:bg-[var(--input-group-bg)] shadow-lg"
+      className={cn(
+        "absolute bottom-full -left-px -right-px z-50 max-h-[240px] overflow-y-auto rounded-t-md border border-b-0 bg-background dark:bg-[var(--input-group-bg)] shadow-lg",
+        planMode ? "border-dashed border-primary" : "border-border/30",
+      )}
       style={{
         "--input-group-bg": "color-mix(in srgb, var(--background), white 3%)",
         "--header-bg": "color-mix(in srgb, var(--background), white 6%)",
