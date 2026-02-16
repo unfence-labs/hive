@@ -26,6 +26,7 @@ interface ChatConversationProps {
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onPlanApproval?: () => void;
   onRejectToolInput?: (message?: string) => void;
+  onHandOff?: (planContent: string) => void;
   workspaceName?: string;
   projectName?: string;
   branch?: string;
@@ -44,6 +45,7 @@ export default function ChatConversation({
   onQuestionAnswer,
   onPlanApproval,
   onRejectToolInput,
+  onHandOff,
   workspaceName,
   projectName,
   branch,
@@ -115,6 +117,7 @@ export default function ChatConversation({
             onQuestionAnswer={onQuestionAnswer}
             onPlanApproval={onPlanApproval}
             onRejectToolInput={onRejectToolInput}
+            onHandOff={onHandOff}
           />
         ))}
 
@@ -137,6 +140,7 @@ export default function ChatConversation({
                 onQuestionAnswer={onQuestionAnswer}
                 onPlanApproval={onPlanApproval}
                 onRejectToolInput={onRejectToolInput}
+                onHandOff={onHandOff}
               />
             </div>
           </div>

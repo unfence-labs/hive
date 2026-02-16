@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import ChatToolUse, { getToolIcon } from "@/components/ChatToolUse";
 import { AskUserQuestion } from "@/components/chat/AskUserQuestion";
 import { ExitPlanModeButton } from "@/components/chat/ExitPlanModeButton";
+import { PlanProposal } from "@/components/chat/PlanProposal";
 import { ContentPanel, ContentPanelBody } from "@/components/chat/ContentPanel";
 
 const COLLAPSE_THRESHOLD = 3;
@@ -30,6 +31,26 @@ function getTaskPrompt(tool: ToolCall): string | undefined {
     return input.prompt ?? input.description;
   } catch {
     return undefined;
+  }
+}
+
+/** Check if a tool call is a Write to the .claude/plans/ directory. */
+function isPlanWriteTool(tool: ToolCall): boolean {
+  if (tool.name !== "Write") return false;
+  try {
+    const input = JSON.parse(tool.input);
+    return typeof input.file_path === "string" && input.file_path.includes(".claude/plans/");
+  } catch {
+    return false;
+  }
+}
+
+/** Extract the markdown content from a plan Write tool. */
+function getPlanContent(tool: ToolCall): string {
+  try {
+    return (JSON.parse(tool.input).content as string) ?? "";
+  } catch {
+    return "";
   }
 }
 
@@ -132,6 +153,7 @@ interface ToolCallListProps {
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onPlanApproval?: () => void;
   onRejectToolInput?: (message?: string) => void;
+  onHandOff?: (planContent: string) => void;
 }
 
 export function ToolCallList({
@@ -141,6 +163,7 @@ export function ToolCallList({
   onQuestionAnswer: _onQuestionAnswer,
   onPlanApproval,
   onRejectToolInput,
+  onHandOff,
 }: ToolCallListProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -149,8 +172,19 @@ export function ToolCallList({
   const interactiveTools = toolCalls.filter(
     (t) => isAskUserQuestion(t) || isExitPlanMode(t),
   );
+
+  // Detect plan Write tool when ExitPlanMode is present
+  const hasExitPlanMode = toolCalls.some(isExitPlanMode);
+  const planWriteTool = hasExitPlanMode
+    ? toolCalls.filter(isPlanWriteTool).pop()
+    : undefined;
+  const planContent = planWriteTool ? getPlanContent(planWriteTool) : undefined;
+
   const regularTools = toolCalls.filter(
-    (t) => !isAskUserQuestion(t) && !isExitPlanMode(t),
+    (t) =>
+      !isAskUserQuestion(t) &&
+      !isExitPlanMode(t) &&
+      !(planWriteTool && t.id === planWriteTool.id),
   );
 
   const childrenMap = buildChildrenMap(regularTools);
@@ -220,6 +254,17 @@ export function ToolCallList({
           );
         }
         if (isExitPlanMode(tool)) {
+          if (planContent) {
+            return (
+              <PlanProposal
+                key={tool.id}
+                planContent={planContent}
+                isInteractive={isInteractive}
+                onApprove={onPlanApproval}
+                onHandOff={onHandOff}
+              />
+            );
+          }
           return (
             <ExitPlanModeButton
               key={tool.id}

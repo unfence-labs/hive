@@ -26,7 +26,7 @@ import { ButtonGroup } from "@/components/ui/button-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
-import type { DiffStatResponse, Workspace, WorkspaceFileTreeNode } from "@/types";
+import type { DiffStatResponse, ImageAttachment, MessageOptions, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 const DEFAULT_EXPANDED = new Set<string>();
 
@@ -296,6 +296,29 @@ export default function WorkspaceView() {
     setDiffModalOpen(true);
   }, []);
 
+  const handleHandOff = useCallback(async (planContent: string) => {
+    rejectToolInput("Plan handed off to a new session.");
+    const meta = await createSession();
+    if (!meta) return;
+    await switchSession(meta.sessionId);
+    sendMessage(`Here is the implementation plan to execute:\n\n${planContent}`);
+  }, [rejectToolInput, createSession, switchSession, sendMessage]);
+
+  const hasPendingPlan = pendingToolInputs.some(
+    (p) => p.toolName === "ExitPlanMode",
+  );
+
+  const handleSend = useCallback(
+    (content: string, images?: ImageAttachment[], options?: MessageOptions): boolean => {
+      if (hasPendingPlan) {
+        rejectToolInput(content);
+        return true;
+      }
+      return sendMessage(content, images, options);
+    },
+    [hasPendingPlan, rejectToolInput, sendMessage],
+  );
+
   // sendMessage is already a stable callback from useConversation
   const handleAddToPrompt = sendMessage;
 
@@ -403,6 +426,7 @@ export default function WorkspaceView() {
               onQuestionAnswer={answerQuestion}
               onPlanApproval={approvePlan}
               onRejectToolInput={rejectToolInput}
+              onHandOff={handleHandOff}
               workspaceName={workspace?.name}
               projectName={workspace?.projectName}
               branch={displayBranch}
@@ -418,11 +442,12 @@ export default function WorkspaceView() {
             ) : (
               <ChatInput
                 wsId={wsId}
-                onSend={sendMessage}
+                onSend={handleSend}
                 onStop={stopStreaming}
                 disabled={false}
                 isStreaming={isStreaming}
                 connectionStatus={connectionStatus}
+                placeholder={hasPendingPlan ? "Enter your plan adjustments here..." : undefined}
               />
             )}
           </div>
