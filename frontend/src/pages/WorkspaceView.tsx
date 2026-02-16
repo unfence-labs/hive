@@ -304,19 +304,30 @@ export default function WorkspaceView() {
     sendMessage(`Here is the implementation plan to execute:\n\n${planContent}`);
   }, [rejectToolInput, createSession, switchSession, sendMessage]);
 
-  const hasPendingPlan = pendingToolInputs.some(
-    (p) => p.toolName === "ExitPlanMode",
-  );
+  // Detect pending plan from explicit pending tool inputs OR from the last
+  // assistant message having an ExitPlanMode tool (fallback matching the
+  // isMessageInteractive heuristic in ChatConversation).
+  const lastMsg = messages[messages.length - 1];
+  const hasPendingPlan =
+    pendingToolInputs.some((p) => p.toolName === "ExitPlanMode") ||
+    (!isStreaming &&
+      lastMsg?.role === "assistant" &&
+      lastMsg?.toolCalls?.some((tc) => tc.name === "ExitPlanMode") === true);
 
   const handleSend = useCallback(
     (content: string, images?: ImageAttachment[], options?: MessageOptions): boolean => {
       if (hasPendingPlan) {
-        rejectToolInput(content);
-        return true;
+        // Try to reject via pending tool input first; if none exists (fallback
+        // heuristic), send as a regular message which continues the conversation.
+        if (pendingToolInputs.some((p) => p.toolName === "ExitPlanMode")) {
+          rejectToolInput(content);
+          return true;
+        }
+        return sendMessage(content, images, options);
       }
       return sendMessage(content, images, options);
     },
-    [hasPendingPlan, rejectToolInput, sendMessage],
+    [hasPendingPlan, pendingToolInputs, rejectToolInput, sendMessage],
   );
 
   // sendMessage is already a stable callback from useConversation
