@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import ChatConversation from "@/components/ChatConversation";
@@ -41,14 +41,19 @@ vi.mock("@/components/chat/ToolCallList", () => ({
   ToolCallList: () => <div data-testid="tool-call-list">tool-call-list</div>,
 }));
 
+const baseConversationProps: ComponentProps<typeof ChatConversation> = {
+  messages: [],
+  isStreaming: false,
+  streamingStartedAt: null,
+  currentStreamingText: "",
+  currentThinking: "",
+  activeToolCalls: [],
+};
+
 function renderConversation(props?: Partial<ComponentProps<typeof ChatConversation>>) {
-  render(
+  return render(
     <ChatConversation
-      messages={[]}
-      isStreaming={false}
-      currentStreamingText=""
-      currentThinking=""
-      activeToolCalls={[]}
+      {...baseConversationProps}
       {...props}
     />,
   );
@@ -113,5 +118,64 @@ describe("ChatConversation empty states", () => {
     expect(screen.queryByText(/You're in a new copy of/i)).not.toBeInTheDocument();
     expect(screen.queryByText("Send a message to start a conversation.")).not.toBeInTheDocument();
     expect(screen.getByTestId("msg-u1")).toHaveTextContent("hello");
+  });
+});
+
+describe("ChatConversation streaming timer", () => {
+  it("computes elapsed time from streamingStartedAt and updates over time", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-16T12:00:10.000Z"));
+
+    renderConversation({
+      isStreaming: true,
+      streamingStartedAt: new Date("2026-02-16T12:00:05.000Z").getTime(),
+    });
+
+    expect(screen.getByText("5.0s")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(screen.getByText("5.5s")).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("resets timer to 0 when streaming stops", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-16T12:00:10.000Z"));
+
+    const { rerender } = renderConversation({
+      isStreaming: true,
+      streamingStartedAt: new Date("2026-02-16T12:00:08.000Z").getTime(),
+    });
+
+    expect(screen.getByText("2.0s")).toBeInTheDocument();
+
+    rerender(
+      <ChatConversation
+        {...baseConversationProps}
+        isStreaming={false}
+      />,
+    );
+
+    expect(screen.queryByText("2.0s")).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("stays at 0 when streamingStartedAt is missing", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-16T12:00:10.000Z"));
+
+    renderConversation({
+      isStreaming: true,
+      streamingStartedAt: null,
+    });
+    expect(screen.getByText("0.0s")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1500);
+    });
+    expect(screen.getByText("0.0s")).toBeInTheDocument();
+    vi.useRealTimers();
   });
 });

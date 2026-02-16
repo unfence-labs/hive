@@ -223,6 +223,50 @@ describe("WS /ws/session/:wsId", () => {
     await endSession(wsId, dataDir);
   });
 
+  it("includes streamingStartedAt in bootstrap status when session is already streaming", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-bootstrap.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+    const local = await startWsApp(undefined, slowCmd);
+
+    const { session } = await getOrCreateSession(wsId, dataDir, slowCmd);
+    session.sendMessage("bootstrap busy");
+
+    const { wsReady, messages } = connectSessionWs(wsId, { address: local.address });
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) =>
+            m.type === "status" &&
+            m.status === "busy" &&
+            m.streaming === true &&
+            m.sessionId === session.sessionId,
+        ),
+    );
+
+    const busy = messages.find(
+      (m) =>
+        m.type === "status" &&
+        m.status === "busy" &&
+        m.streaming === true &&
+        m.sessionId === session.sessionId,
+    );
+    expect(busy?.type).toBe("status");
+    if (!busy || busy.type !== "status") {
+      throw new Error("Expected a busy status for bootstrap");
+    }
+    expect(typeof busy.streamingStartedAt).toBe("number");
+    expect(busy.streamingStartedAt).toBe(session.streamingStartedAt ?? undefined);
+
+    ws.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
   it("auto-creates session on user_message", async () => {
     const { wsReady, messages } = connectSessionWs(wsId);
     const ws = await wsReady;
@@ -366,6 +410,15 @@ describe("WS /ws/session/:wsId", () => {
       (msgs) => msgs.some((m) => m.type === "status" && m.status === "busy" && m.streaming === true),
     );
 
+    const busy = [...messages].reverse().find(
+      (m) => m.type === "status" && m.status === "busy" && m.streaming === true,
+    );
+    expect(busy?.type).toBe("status");
+    if (!busy || busy.type !== "status") {
+      throw new Error("Expected busy status after user_message with options");
+    }
+    expect(typeof busy.streamingStartedAt).toBe("number");
+
     ws.close();
     await endSession(wsId, dataDir).catch(() => {});
   });
@@ -462,6 +515,15 @@ describe("WS /ws/session/:wsId", () => {
       messages,
       (msgs) => msgs.some((m) => m.type === "status" && m.status === "busy" && m.streaming === true),
     );
+
+    const busy = [...messages].reverse().find(
+      (m) => m.type === "status" && m.status === "busy" && m.streaming === true,
+    );
+    expect(busy?.type).toBe("status");
+    if (!busy || busy.type !== "status") {
+      throw new Error("Expected busy status after tool input response");
+    }
+    expect(typeof busy.streamingStartedAt).toBe("number");
 
     ws.close();
     await endSession(wsId, dataDir).catch(() => {});

@@ -202,7 +202,7 @@ export type WsOutgoing =
   | { type: "done"; sessionId: string; costUsd?: number; durationMs?: number }
   | { type: "error"; message: string }
   | { type: "cancelled"; sessionId: string }
-  | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean }
+  | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean; streamingStartedAt?: number }
   | { type: "user_message"; message: ChatMessage }
   | { type: "history"; messages: ChatMessage[]; sessionId?: string }
   | { type: "branch_info"; info: BranchInfo }

@@ -196,6 +196,7 @@ export default function WorkspaceView() {
   const {
     messages,
     isStreaming,
+    streamingStartedAt,
     currentStreamingText,
     currentThinking,
     activeToolCalls,
@@ -418,6 +419,7 @@ export default function WorkspaceView() {
             <ChatConversation
               messages={messages}
               isStreaming={isStreaming}
+              streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
               currentThinking={currentThinking}
               activeToolCalls={activeToolCalls}

@@ -177,17 +177,14 @@ describe("ConversationTabs", () => {
     expect(screen.getByText("Gamma")).toBeInTheDocument();
   });
 
-  it("disables X button on active tab while streaming", async () => {
-    const user = userEvent.setup();
+  it("hides X button on active tab while streaming", () => {
     const { onDeleteSession } = renderTabs({ isStreaming: true });
 
-    // Active tab X should have pointer-events-none
+    // Active streaming tab should not render a close action.
     const activeTab = screen.getByText("First conversation").closest("button")!;
-    const activeX = activeTab.querySelector("[role='button']") as HTMLElement;
-    expect(activeX.className).toContain("pointer-events-none");
+    const activeX = activeTab.querySelector("[role='button']");
+    expect(activeX).toBeNull();
 
-    // Clicking should not trigger delete dialog
-    await user.click(activeX);
     expect(screen.queryByText("Delete conversation")).not.toBeInTheDocument();
     expect(onDeleteSession).not.toHaveBeenCalled();
   });
