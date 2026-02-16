@@ -21,6 +21,7 @@ import {
 import { useTerminalContext } from "@/contexts/TerminalContext";
 import { useWorkspaceLiveData } from "@/hooks/useWorkspaceLiveData";
 import { BranchLabel } from "@/components/BranchLabel";
+import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { api } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import type { DiffStatResponse, Project } from "@/types";
@@ -125,7 +126,7 @@ export default function Sidebar({
   };
 
   return (
-    <div className="flex h-full w-60 flex-col border-r border-border/50 bg-sidebar text-sidebar-foreground">
+    <div className="flex h-full w-72 flex-col border-r border-border/50 bg-sidebar text-sidebar-foreground">
       <div className="flex h-12 items-center justify-between border-b border-border/50 px-4">
         <Link to="/" className="font-title text-lg tracking-wide text-primary">
           Hive
@@ -216,13 +217,18 @@ export default function Sidebar({
                                 )}
                               >
                                 <div className="flex items-center gap-1.5">
-                                  <BranchLabel branch={displayBranch} className="min-w-0 flex-1 text-sm" />
+                                  {wsStreaming && (
+                                    <div className="flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-visible">
+                                      <AgentActivityPreview size="small" />
+                                    </div>
+                                  )}
+                                  <BranchLabel branch={displayBranch} showIcon={!wsStreaming} className="min-w-0 flex-1 text-sm" />
                                   {hasTerminal && (
                                     <TerminalSquareIcon className="h-3 w-3 shrink-0 text-primary/70" />
                                   )}
                                 </div>
                                 <div className="mt-0.5 pl-5 text-[11px] text-muted-foreground">
-                                  <span className="truncate">{wsStreaming ? "working..." : ws.name}</span>
+                                  <span className="truncate">{ws.name}</span>
                                 </div>
                               </Link>
                               {!hasTerminal && (

@@ -172,26 +172,91 @@ describe("Sidebar", () => {
     });
   });
 
-  it("shows working indicator on streaming workspace row only", async () => {
+  it("shows orbit loader on streaming workspace and hides it when idle", async () => {
     const { __wsMock } = await getWsMock();
     renderSidebar("/workspaces/w1", projects);
 
-    expect(screen.queryByText("working...")).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Agent thinking" })).not.toBeInTheDocument();
     expect(screen.getByText("tokyo")).toBeInTheDocument();
 
     act(() => {
       __wsMock.emit("w1", { type: "status", status: "busy", streaming: true });
     });
 
-    expect(screen.getByText("working...")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Agent thinking" })).toBeInTheDocument();
     expect(screen.getByText("Alpha")).toBeInTheDocument();
 
     act(() => {
       __wsMock.emit("w1", { type: "status", status: "busy", streaming: false });
     });
 
-    expect(screen.queryByText("working...")).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Agent thinking" })).not.toBeInTheDocument();
     expect(screen.getByText("tokyo")).toBeInTheDocument();
+  });
+
+  it("hides GitBranch icon when streaming and restores it when idle", async () => {
+    const { __wsMock } = await getWsMock();
+    renderSidebar("/workspaces/w1", projects);
+
+    // Before streaming: BranchLabel renders its GitBranch SVG icon
+    const workspaceLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
+    const svgsBefore = workspaceLink.querySelectorAll("svg");
+    expect(svgsBefore.length).toBe(1);
+    // The single SVG is the GitBranch icon (class includes "lucide")
+    expect(svgsBefore[0].classList.toString()).toContain("lucide");
+
+    act(() => {
+      __wsMock.emit("w1", { type: "status", status: "busy", streaming: true });
+    });
+
+    // While streaming: orbit loader SVG replaces the GitBranch icon
+    const svgsStreaming = workspaceLink.querySelectorAll("svg");
+    const orbitSvg = Array.from(svgsStreaming).find(
+      (svg) => svg.getAttribute("aria-label") === "Agent thinking",
+    );
+    expect(orbitSvg).toBeTruthy();
+    // GitBranch icon should be gone (showIcon=false on BranchLabel)
+    const lucideSvg = Array.from(svgsStreaming).find((svg) =>
+      svg.classList.toString().includes("lucide-git-branch"),
+    );
+    expect(lucideSvg).toBeFalsy();
+
+    act(() => {
+      __wsMock.emit("w1", { type: "status", status: "busy", streaming: false });
+    });
+
+    // After streaming stops: back to GitBranch, no orbit loader
+    expect(screen.queryByRole("img", { name: "Agent thinking" })).not.toBeInTheDocument();
+    const svgsAfter = workspaceLink.querySelectorAll("svg");
+    expect(svgsAfter.length).toBe(1);
+    expect(svgsAfter[0].classList.toString()).toContain("lucide");
+  });
+
+  it("does not show orbit loader on non-streaming workspaces", async () => {
+    const multiWsProjects: Project[] = [
+      {
+        id: "p1",
+        name: "Alpha",
+        url: "https://github.com/acme/alpha.git",
+        createdAt: "2026-02-11T00:00:00.000Z",
+        workspaces: [
+          { id: "w1", name: "tokyo", branch: "workspace/tokyo", status: "busy", createdAt: "2026-02-11T00:00:00.000Z" },
+          { id: "w2", name: "paris", branch: "workspace/paris", status: "idle", createdAt: "2026-02-11T00:00:00.000Z" },
+        ],
+      },
+    ];
+
+    const { __wsMock } = await getWsMock();
+    renderSidebar("/workspaces/w1", multiWsProjects);
+
+    // Stream only w1
+    act(() => {
+      __wsMock.emit("w1", { type: "status", status: "busy", streaming: true });
+    });
+
+    // Orbit loader should appear only once (for w1)
+    const orbitLoaders = screen.getAllByRole("img", { name: "Agent thinking" });
+    expect(orbitLoaders).toHaveLength(1);
   });
 
   it("shows terminal badge icon for workspaces with an active terminal", () => {

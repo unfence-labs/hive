@@ -270,7 +270,7 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
       <button
         type="button"
         className={cn(
-          "inline-flex w-fit items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground",
+          "inline-flex w-fit items-center gap-2 rounded-md py-1.5 pr-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground",
           isExecuting && "animate-shimmer",
         )}
         onClick={onClick ?? (() => setExpanded(!expanded))}

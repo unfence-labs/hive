@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { MessageSquareIcon, PlusIcon, XIcon, MoreHorizontalIcon, FileIcon } from "lucide-react";
+import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -161,7 +162,13 @@ export function ConversationTabs({
                 )}
                 onClick={() => onActivateSession(session.sessionId)}
               >
-                <MessageSquareIcon className="size-3 shrink-0" />
+                {isActive && isStreaming ? (
+                  <div className="flex size-3 shrink-0 items-center justify-center overflow-visible">
+                    <AgentActivityPreview size="small" />
+                  </div>
+                ) : (
+                  <MessageSquareIcon className="size-3 shrink-0" />
+                )}
                 <span className="truncate">{title}</span>
                 {sessions.length > 1 && (
                   <span

@@ -126,7 +126,7 @@ export default function ChatConversation({
                 <ThinkingBlock content={currentThinking} defaultOpen streaming />
               )}
               {currentStreamingText && (
-                <div className="prose-sm pl-2.5">
+                <div className="prose-sm">
                   <MessageResponse isAnimating>{currentStreamingText}</MessageResponse>
                 </div>
               )}

@@ -223,6 +223,30 @@ describe("ConversationTabs", () => {
     expect(screen.queryByText(/session/i)).not.toBeInTheDocument();
   });
 
+  it("shows orbit loader on active tab when streaming", () => {
+    renderTabs({ isStreaming: true });
+    const activeTab = screen.getByText("First conversation").closest("button")!;
+    const orbitSvg = activeTab.querySelector("[aria-label='Agent thinking']");
+    expect(orbitSvg).toBeInTheDocument();
+  });
+
+  it("shows MessageSquare icon on inactive tab even when streaming", () => {
+    renderTabs({ isStreaming: true });
+    const inactiveTab = screen.getByText("Second conversation").closest("button")!;
+    const orbitSvg = inactiveTab.querySelector("[aria-label='Agent thinking']");
+    expect(orbitSvg).not.toBeInTheDocument();
+    // Should still have the MessageSquare icon
+    expect(inactiveTab.querySelector("svg")).toBeInTheDocument();
+  });
+
+  it("shows MessageSquare icon on active tab when not streaming", () => {
+    renderTabs({ isStreaming: false });
+    const activeTab = screen.getByText("First conversation").closest("button")!;
+    const orbitSvg = activeTab.querySelector("[aria-label='Agent thinking']");
+    expect(orbitSvg).not.toBeInTheDocument();
+    expect(activeTab.querySelector("svg")).toBeInTheDocument();
+  });
+
   it("renders a MessageSquare icon in each tab", () => {
     renderTabs({
       sessions: [makeSession("s1", "2026-02-12T00:00:01.000Z", "My Tab")],

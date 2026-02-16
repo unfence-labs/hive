@@ -168,28 +168,18 @@ export default function ChatInput({
   return (
     <div className="relative z-50 border-t border-border/30 bg-background p-4">
       <div className={cn(
-        "relative [&_[data-slot=input-group]]:!border-border/30",
+        "relative rounded-lg border border-transparent [&_[data-slot=input-group]]:!border-border/30",
         showPopup && "[&_[data-slot=input-group]]:rounded-t-none [&_[data-slot=input-group]]:!border-t-transparent",
-        planMode && "[&_[data-slot=input-group]]:!border-transparent",
+        planMode && "[&_[data-slot=input-group]]:!border-transparent border-dashed border-primary",
+        planMode && showPopup && "rounded-t-none border-t-0",
       )}>
-        {planMode && (
-          <svg className="pointer-events-none absolute inset-0 z-10 size-full" aria-hidden="true">
-            <rect
-              x="1" y="1" rx="7" ry="7"
-              fill="none"
-              className="stroke-primary/25"
-              strokeWidth="1"
-              strokeDasharray="10 8"
-              style={{ width: 'calc(100% - 2px)', height: 'calc(100% - 2px)' }}
-            />
-          </svg>
-        )}
         {showPopup && (
           <AutocompletePopup
             items={filteredItems}
             selectedIndex={selectedIndex}
             onSelect={selectItem}
             onHover={setSelectedIndex}
+            planMode={planMode}
           />
         )}
         <PromptInput onSubmit={handleSubmit} accept="image/*" multiple>

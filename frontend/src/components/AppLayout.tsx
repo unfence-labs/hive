@@ -23,7 +23,7 @@ function TerminalLayer() {
         <div
           key={wsId}
           className={cn(
-            "absolute inset-x-0 bottom-0 top-12 z-10",
+            "absolute bottom-0 left-0 right-0 top-12 z-10 lg:right-80",
             wsId === visibleTerminalWsId ? "" : "invisible pointer-events-none",
           )}
         >

@@ -61,7 +61,7 @@ const ChatMessage = memo(function ChatMessage({
             {message.thinkingContent && (
               <ThinkingBlock content={message.thinkingContent} />
             )}
-            <div className="prose-sm pl-2.5">
+            <div className="prose-sm">
               <MessageResponse>{message.content}</MessageResponse>
             </div>
             {message.toolCalls && (
@@ -79,7 +79,7 @@ const ChatMessage = memo(function ChatMessage({
               </div>
             )}
             {message.durationMs != null && (
-              <div className="mt-2 flex items-center gap-1.5 pl-2.5 text-xs text-muted-foreground">
+              <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <span>{formatElapsed(message.durationMs)}</span>
                 <span>·</span>
                 <CopyButton content={message.content} />
