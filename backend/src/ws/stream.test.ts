@@ -12,6 +12,7 @@ import {
   getSessionById,
   createNewSession,
   sendMessage,
+  hardDeleteSession,
   endSession,
   _clearActiveSessions,
 } from "../agents/agent-manager.js";
@@ -248,6 +249,104 @@ describe("WS /ws/session/:wsId", () => {
 
     ws.close();
     await endSession(wsId, dataDir).catch(() => {});
+  });
+
+  it("returns an error when user_message targets a deleted session id", async () => {
+    const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const deletedSessionId = session.sessionId;
+
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) => m.type === "status" && m.sessionId === deletedSessionId,
+        ),
+    );
+
+    await hardDeleteSession(wsId, deletedSessionId, dataDir);
+
+    const marker = messages.length;
+    ws.send(JSON.stringify({
+      type: "user_message",
+      content: "should fail",
+      sessionId: deletedSessionId,
+    }));
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) =>
+            m.type === "error" &&
+            m.message.includes(`Session ${deletedSessionId} not found`),
+        ),
+    );
+
+    expect(getSessionById(wsId, deletedSessionId)).toBeUndefined();
+    const busyForDeleted = messages
+      .slice(marker)
+      .some(
+        (m) =>
+          m.type === "status" &&
+          m.status === "busy" &&
+          m.sessionId === deletedSessionId,
+      );
+    expect(busyForDeleted).toBe(false);
+
+    ws.close();
+  });
+
+  it("returns an error when tool_input_response targets a deleted session id", async () => {
+    const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const deletedSessionId = session.sessionId;
+
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) => m.type === "status" && m.sessionId === deletedSessionId,
+        ),
+    );
+
+    await hardDeleteSession(wsId, deletedSessionId, dataDir);
+
+    const marker = messages.length;
+    ws.send(JSON.stringify({
+      type: "tool_input_response",
+      requestId: "req-missing-session",
+      toolName: "ExitPlanMode",
+      result: { type: "dismiss", message: "dismiss should fail" },
+      sessionId: deletedSessionId,
+    }));
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) =>
+            m.type === "error" &&
+            m.message.includes(`Session ${deletedSessionId} not found`),
+        ),
+    );
+
+    expect(getSessionById(wsId, deletedSessionId)).toBeUndefined();
+    const busyForDeleted = messages
+      .slice(marker)
+      .some(
+        (m) =>
+          m.type === "status" &&
+          m.status === "busy" &&
+          m.sessionId === deletedSessionId,
+      );
+    expect(busyForDeleted).toBe(false);
+
+    ws.close();
   });
 
   it("accepts user_message options and keeps stream status busy", async () => {

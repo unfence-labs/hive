@@ -41,8 +41,7 @@ interface WorkspaceChannel {
   sockets: Set<WebSocket>;
   socketStates: Map<WebSocket, SocketState>;
   detachBySessionId: Map<string, () => void>;
-  pendingToolRequests: Map<string, ActiveSession>;
-  sessionsById: Map<string, ActiveSession>;
+  pendingToolRequests: Map<string, string>;
 }
 
 const channels = new Map<string, WorkspaceChannel>();
@@ -75,8 +74,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       sockets: new Set<WebSocket>(),
       socketStates: new Map<WebSocket, SocketState>(),
       detachBySessionId: new Map<string, () => void>(),
-      pendingToolRequests: new Map<string, ActiveSession>(),
-      sessionsById: new Map<string, ActiveSession>(),
+      pendingToolRequests: new Map<string, string>(),
     };
     channels.set(workspaceId, created);
     return created;
@@ -110,16 +108,34 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     }
   };
 
+  const detachSessionTracking = (channel: WorkspaceChannel, sessionId: string): void => {
+    const detach = channel.detachBySessionId.get(sessionId);
+    if (detach) {
+      detach();
+      channel.detachBySessionId.delete(sessionId);
+    }
+    for (const [requestId, pendingSessionId] of channel.pendingToolRequests) {
+      if (pendingSessionId === sessionId) {
+        channel.pendingToolRequests.delete(requestId);
+      }
+    }
+    for (const state of channel.socketStates.values()) {
+      if (state.focusedSessionId === sessionId) {
+        state.focusedSessionId = undefined;
+      }
+    }
+  };
+
   const detachAllSessionListeners = (channel: WorkspaceChannel): void => {
     for (const detach of channel.detachBySessionId.values()) {
       detach();
     }
     channel.detachBySessionId.clear();
-    channel.sessionsById.clear();
     channel.pendingToolRequests.clear();
   };
 
   const attachSessionListeners = (
+    workspaceId: string,
     channel: WorkspaceChannel,
     session: ActiveSession,
   ): void => {
@@ -127,11 +143,9 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       return;
     }
 
-    channel.sessionsById.set(session.sessionId, session);
-
     const onMessage = (msg: WsOutgoing) => {
       if (msg.type === "tool_input_required") {
-        channel.pendingToolRequests.set(msg.requestId, session);
+        channel.pendingToolRequests.set(msg.requestId, session.sessionId);
       }
       sendToSession(channel, session.sessionId, msg);
     };
@@ -139,6 +153,11 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       sendToSession(channel, session.sessionId, { type: "error", message: err.message });
     };
     const onExit = (_code: number) => {
+      const live = getSessionById(workspaceId, session.sessionId);
+      if (!live) {
+        detachSessionTracking(channel, session.sessionId);
+        return;
+      }
       sendToSession(channel, session.sessionId, {
         type: "status",
         status: "idle",
@@ -156,6 +175,28 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       session.removeListener("error", onError);
       session.removeListener("exit", onExit);
     });
+  };
+
+  const resolveSessionById = async (
+    workspaceId: string,
+    channel: WorkspaceChannel,
+    sessionId: string,
+  ): Promise<ActiveSession | undefined> => {
+    const loaded = getSessionById(workspaceId, sessionId);
+    if (loaded) return loaded;
+    detachSessionTracking(channel, sessionId);
+    try {
+      const activated = await activateSession(
+        workspaceId,
+        sessionId,
+        dataDir,
+        sessionOptions,
+      );
+      attachSessionListeners(workspaceId, channel, activated);
+      return activated;
+    } catch {
+      return undefined;
+    }
   };
 
   app.get<{ Params: { wsId: string }; Querystring: { token?: string } }>(
@@ -177,7 +218,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       const session = getSession(wsId);
 
       if (session) {
-        attachSessionListeners(channel, session);
+        attachSessionListeners(wsId, channel, session);
         setSocketFocus(channel, socket, session.sessionId);
         await sendSessionBootstrap(socket, session);
       } else {
@@ -239,7 +280,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
                 dataDir,
                 sessionOptions,
               );
-              attachSessionListeners(channel, session);
+              attachSessionListeners(wsId, channel, session);
               setSocketFocus(channel, socket, session.sessionId);
               await sendSessionBootstrap(socket, session);
             } catch (err: unknown) {
@@ -253,19 +294,14 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           case "user_message": {
             try {
               const state = channel.socketStates.get(socket);
+              const explicitSessionRequested = typeof incoming.sessionId === "string";
               const requestedSessionId = incoming.sessionId ?? state?.focusedSessionId;
 
               let targetSession: ActiveSession | undefined;
               if (requestedSessionId) {
-                targetSession = channel.sessionsById.get(requestedSessionId)
-                  ?? getSessionById(wsId, requestedSessionId);
-                if (!targetSession) {
-                  targetSession = await activateSession(
-                    wsId,
-                    requestedSessionId,
-                    dataDir,
-                    sessionOptions,
-                  );
+                targetSession = await resolveSessionById(wsId, channel, requestedSessionId);
+                if (!targetSession && explicitSessionRequested) {
+                  throw new Error(`Session ${requestedSessionId} not found`);
                 }
               }
 
@@ -279,7 +315,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
                 }
               }
 
-              attachSessionListeners(channel, targetSession);
+              attachSessionListeners(wsId, channel, targetSession);
               setSocketFocus(channel, socket, targetSession.sessionId);
               for (const state of channel.socketStates.values()) {
                 if (!state.focusedSessionId) {
@@ -319,14 +355,21 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             try {
               // Prefer routing dismiss responses back to the originating session.
               // This avoids races where active/focused session changed meanwhile.
-              const requestSession = channel.pendingToolRequests.get(incoming.requestId);
-              if (requestSession) {
+              const requestSessionId = channel.pendingToolRequests.get(incoming.requestId);
+              if (requestSessionId) {
                 channel.pendingToolRequests.delete(incoming.requestId);
               }
 
               const sessionById = incoming.sessionId
-                ? channel.sessionsById.get(incoming.sessionId) ?? getSessionById(wsId, incoming.sessionId)
+                ? await resolveSessionById(wsId, channel, incoming.sessionId)
                 : undefined;
+              const requestSession = requestSessionId
+                ? await resolveSessionById(wsId, channel, requestSessionId)
+                : undefined;
+
+              if (incoming.sessionId && !sessionById && !requestSession) {
+                throw new Error(`Session ${incoming.sessionId} not found`);
+              }
 
               let targetSession: ActiveSession | undefined;
               if (incoming.result.type === "dismiss") {
@@ -339,19 +382,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
                 const state = channel.socketStates.get(socket);
                 const focusedId = state?.focusedSessionId;
                 if (focusedId) {
-                  targetSession = channel.sessionsById.get(focusedId) ?? getSessionById(wsId, focusedId);
-                  if (!targetSession) {
-                    try {
-                      targetSession = await activateSession(
-                        wsId,
-                        focusedId,
-                        dataDir,
-                        sessionOptions,
-                      );
-                    } catch {
-                      // Fall through to active/create fallback.
-                    }
-                  }
+                  targetSession = await resolveSessionById(wsId, channel, focusedId);
                 }
               }
 
@@ -364,7 +395,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
                 targetSession = activeSession;
               }
 
-              attachSessionListeners(channel, targetSession);
+              attachSessionListeners(wsId, channel, targetSession);
               setSocketFocus(channel, socket, targetSession.sessionId);
               targetSession.respondToToolInput(incoming.toolName, incoming.result);
               // Dismiss persists a message without spawning a CLI — no streaming.
