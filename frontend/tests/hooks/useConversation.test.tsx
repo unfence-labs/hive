@@ -180,6 +180,21 @@ describe("useConversation", () => {
     });
   });
 
+  it("can target an explicit session id when sending a message", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      result.current.sendMessage("run in target", undefined, undefined, "sess-target");
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenCalledWith("ws-1", {
+      type: "user_message",
+      content: "run in target",
+      sessionId: "sess-target",
+    });
+  });
+
   it("appends user message when backend emits user_message event", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));

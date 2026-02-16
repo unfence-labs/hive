@@ -26,7 +26,7 @@ interface ChatConversationProps {
   pendingToolInputs?: PendingToolInput[];
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onPlanApproval?: () => void;
-  onHandOff?: (planContent: string) => void;
+  onHandOff?: (planContent: string, planPath?: string) => void;
   workspaceName?: string;
   projectName?: string;
   branch?: string;

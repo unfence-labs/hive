@@ -789,7 +789,7 @@ describe("ConversationSession", () => {
 
     expect(sendSpy).toHaveBeenNthCalledWith(
       1,
-      "I approve the plan. Please proceed with implementation.",
+      "approved",
     );
     expect(sendSpy).toHaveBeenNthCalledWith(2, "Not this option");
     expect(sendSpy).toHaveBeenNthCalledWith(

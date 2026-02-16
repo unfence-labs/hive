@@ -61,13 +61,14 @@ function stripLineNumbers(text: string): string {
  */
 function findPlanContent(
   toolCalls: ToolCall[],
-): { content: string; writeToolId?: string } | undefined {
+): { content: string; writeToolId?: string; planPath?: string } | undefined {
   // 1. Write tool → full content available directly
   const writeTool = toolCalls.filter((t) => isPlanFileTool(t, "Write")).pop();
   if (writeTool) {
     try {
-      const content = (JSON.parse(writeTool.input).content as string) ?? "";
-      return { content, writeToolId: writeTool.id };
+      const input = JSON.parse(writeTool.input) as { content?: string; file_path?: string };
+      const content = input.content ?? "";
+      return { content, writeToolId: writeTool.id, planPath: input.file_path };
     } catch {
       /* fall through */
     }
@@ -111,7 +112,7 @@ function findPlanContent(
             /* skip */
           }
         }
-        return { content };
+        return { content, planPath };
       }
     }
   }
@@ -122,7 +123,8 @@ function findPlanContent(
     try {
       const input = JSON.parse(exitTool.input);
       if (typeof input.plan === "string" && input.plan.trim()) {
-        return { content: input.plan };
+        const planPath = typeof input.file_path === "string" ? input.file_path : undefined;
+        return { content: input.plan, planPath };
       }
     } catch {
       /* fall through */
@@ -231,7 +233,7 @@ interface ToolCallListProps {
   planStatus?: PlanStatus;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onPlanApproval?: () => void;
-  onHandOff?: (planContent: string) => void;
+  onHandOff?: (planContent: string, planPath?: string) => void;
 }
 
 export function ToolCallList({
@@ -335,6 +337,7 @@ export function ToolCallList({
             <PlanProposal
               key={tool.id}
               planContent={planContent}
+              planPath={planData?.planPath}
               status={effectiveStatus}
               onApprove={onPlanApproval}
               onHandOff={onHandOff}

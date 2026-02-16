@@ -14,7 +14,7 @@ interface ChatMessageProps {
   planStatus?: PlanStatus;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onPlanApproval?: () => void;
-  onHandOff?: (planContent: string) => void;
+  onHandOff?: (planContent: string, planPath?: string) => void;
 }
 
 const ChatMessage = memo(function ChatMessage({

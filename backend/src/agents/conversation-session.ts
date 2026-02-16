@@ -481,7 +481,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         this.sendMessage(msg);
       }
     } else if (toolName === "ExitPlanMode" && result.type === "approve") {
-      this.sendMessage("I approve the plan. Please proceed with implementation.");
+      this.sendMessage("approved");
     } else if (toolName === "ExitPlanMode" && result.type === "dismiss") {
       // Persist a user message without spawning a new CLI turn or emitting WS events.
       // Used by "hand off" to record plan acknowledgment in the old session

@@ -346,17 +346,23 @@ export function useConversation(workspaceId: string | undefined) {
     };
   }, [workspaceId, syncSessionHistory]);
 
-  const sendMessage = useCallback((content: string, images?: ImageAttachment[], options?: MessageOptions): boolean => {
+  const sendMessage = useCallback((
+    content: string,
+    images?: ImageAttachment[],
+    options?: MessageOptions,
+    sessionId?: string,
+  ): boolean => {
     if (!workspaceId) {
       dispatch({ type: "error", message: "Message not sent: no workspace selected." });
       return false;
     }
+    const targetSessionId = sessionId ?? state.sessionId;
     const sent = wsTransport.send(workspaceId, {
       type: "user_message",
       content,
       images: images?.length ? images : undefined,
       options,
-      ...(state.sessionId ? { sessionId: state.sessionId } : {}),
+      ...(targetSessionId ? { sessionId: targetSessionId } : {}),
     });
     if (!sent) {
       dispatch({ type: "error", message: "Message not sent: disconnected from server." });

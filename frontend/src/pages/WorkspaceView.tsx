@@ -297,13 +297,16 @@ export default function WorkspaceView() {
     setDiffModalOpen(true);
   }, []);
 
-  const handleHandOff = useCallback(async (planContent: string) => {
+  const handleHandOff = useCallback(async (planContent: string, planPath?: string) => {
     dismissPlan("Plan handed off to a new session.");
     const meta = await createSession();
     if (!meta) return;
     await switchSession(meta.sessionId);
     await refreshSessions();
-    sendMessage(`Here is the implementation plan to execute:\n\n${planContent}`);
+    const handoffPrompt = planPath
+      ? `Execute the approved plan from \`${planPath}\`. Read that file and implement it end-to-end.`
+      : `Here is the implementation plan to execute:\n\n${planContent}`;
+    sendMessage(handoffPrompt, undefined, undefined, meta.sessionId);
   }, [dismissPlan, createSession, switchSession, refreshSessions, sendMessage]);
 
   // Detect pending plan from explicit pending tool inputs OR from the last

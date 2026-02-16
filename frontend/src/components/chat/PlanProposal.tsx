@@ -10,13 +10,15 @@ export type PlanStatus = "interactive" | "approved" | "revised";
 
 interface PlanProposalProps {
   planContent?: string;
+  planPath?: string;
   status: PlanStatus;
   onApprove?: () => void;
-  onHandOff?: (content: string) => void;
+  onHandOff?: (content: string, planPath?: string) => void;
 }
 
 export const PlanProposal = memo(function PlanProposal({
   planContent,
+  planPath,
   status,
   onApprove,
   onHandOff,
@@ -38,7 +40,7 @@ export const PlanProposal = memo(function PlanProposal({
 
   const handleHandOff = () => {
     setResponded(true);
-    onHandOff?.(planContent);
+    onHandOff?.(planContent, planPath);
   };
 
   const statusBadge =

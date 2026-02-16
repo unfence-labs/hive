@@ -49,11 +49,18 @@ vi.mock("@/lib/ws-transport", () => ({
 }));
 
 vi.mock("@/components/ChatConversation", () => ({
-  default: ({ onHandOff }: { onHandOff: (planContent: string) => void }) => (
+  default: ({ onHandOff }: { onHandOff: (planContent: string, planPath?: string) => void }) => (
     <div data-testid="chat-conversation">
       chat-conversation
       <button type="button" data-testid="handoff-plan-btn" onClick={() => onHandOff("PLAN-CONTENT")}>
         handoff plan
+      </button>
+      <button
+        type="button"
+        data-testid="handoff-plan-path-btn"
+        onClick={() => onHandOff("PLAN-CONTENT", ".claude/plans/background.md")}
+      >
+        handoff plan path
       </button>
     </div>
   ),
@@ -480,6 +487,36 @@ describe("WorkspaceView terminal behavior", () => {
       expect(mocks.refreshSessions).toHaveBeenCalled();
       expect(mocks.sendMessage).toHaveBeenCalledWith(
         "Here is the implementation plan to execute:\n\nPLAN-CONTENT",
+        undefined,
+        undefined,
+        "sess-new",
+      );
+    });
+  });
+
+  it("uses plan file path in handoff prompt when available", async () => {
+    const user = userEvent.setup();
+    mocks.createSession.mockResolvedValue({
+      sessionId: "sess-new",
+      workspaceId: "ws-1",
+      createdAt: "2026-02-12T00:00:00.000Z",
+      updatedAt: "2026-02-12T00:00:00.000Z",
+      messageCount: 0,
+    });
+    mocks.switchSession.mockResolvedValue(undefined);
+    mocks.refreshSessions.mockResolvedValue(undefined);
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByTestId("handoff-plan-path-btn"));
+
+    await waitFor(() => {
+      expect(mocks.sendMessage).toHaveBeenCalledWith(
+        "Execute the approved plan from `.claude/plans/background.md`. Read that file and implement it end-to-end.",
+        undefined,
+        undefined,
+        "sess-new",
       );
     });
   });
