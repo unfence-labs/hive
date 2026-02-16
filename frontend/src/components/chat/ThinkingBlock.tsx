@@ -61,7 +61,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({
       <button
         type="button"
         className={cn(
-          "inline-flex w-fit max-w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground",
+          "inline-flex w-fit max-w-full items-center gap-2 rounded-md py-1.5 pr-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground",
           streaming && "animate-shimmer",
         )}
         onClick={() => setOpen(!open)}

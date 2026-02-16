@@ -126,7 +126,7 @@ export default function ChatConversation({
                 <ThinkingBlock content={currentThinking} defaultOpen streaming />
               )}
               {currentStreamingText && (
-                <div className="prose-sm pl-2.5">
+                <div className="prose-sm">
                   <MessageResponse isAnimating>{currentStreamingText}</MessageResponse>
                 </div>
               )}
@@ -144,7 +144,7 @@ export default function ChatConversation({
 
         {/* Live elapsed timer while streaming */}
         {isActive && (
-          <div className="flex items-center gap-2 pl-2.5 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <AgentActivityPreview size="small" />
             <span>{formatElapsed(elapsed)}</span>
           </div>
