@@ -44,6 +44,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private process: ChildProcess | null = null;
   private parser: StreamParser | null = null;
   private _status: "idle" | "streaming" | "error" = "idle";
+  private _streamingStartedAt: number | null = null;
   private messageCount = 0;
   private claudeSessionId: string | undefined;
   private persistQueue: Promise<void> = Promise.resolve();
@@ -72,6 +73,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
   get status() {
     return this._status;
+  }
+
+  get streamingStartedAt(): number | null {
+    return this._streamingStartedAt;
   }
 
   get metadata(): SessionMetadata {
@@ -118,6 +123,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     }
 
     this._status = "streaming";
+    this._streamingStartedAt = Date.now();
     this.stopReason = null;
     this._lastPlanMode = msgOptions?.planMode ?? false;
 
@@ -149,6 +155,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         this.spawnCli(this.buildPromptWithImages(promptContent, paths), msgOptions);
       }).catch((err) => {
         this._status = "error";
+        this._streamingStartedAt = null;
         this.emit("error", err instanceof Error ? err : new Error(String(err)));
       });
     } else {
@@ -353,6 +360,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     this.process.on("error", (err) => {
       this._status = "error";
+      this._streamingStartedAt = null;
       this.process = null;
       this.parser = null;
       this.emit("error", err);
@@ -367,6 +375,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       const shouldSurfaceCancelled = wasCancelled && !cancelledByPark;
 
       this._status = (exitCode === 0 || killedForBlockingTool) ? "idle" : "error";
+      this._streamingStartedAt = null;
       this.stopReason = null;
       this.process = null;
       this.parser = null;

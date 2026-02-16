@@ -49,9 +49,19 @@ vi.mock("@/lib/ws-transport", () => ({
 }));
 
 vi.mock("@/components/ChatConversation", () => ({
-  default: ({ onHandOff }: { onHandOff: (planContent: string, planPath?: string) => void }) => (
+  default: ({
+    onHandOff,
+    isStreaming,
+    streamingStartedAt,
+  }: {
+    onHandOff: (planContent: string, planPath?: string) => void;
+    isStreaming?: boolean;
+    streamingStartedAt?: number | null;
+  }) => (
     <div data-testid="chat-conversation">
       chat-conversation
+      <div data-testid="chat-is-streaming">{String(Boolean(isStreaming))}</div>
+      <div data-testid="chat-streaming-started-at">{streamingStartedAt ?? "none"}</div>
       <button type="button" data-testid="handoff-plan-btn" onClick={() => onHandOff("PLAN-CONTENT")}>
         handoff plan
       </button>
@@ -222,6 +232,7 @@ describe("WorkspaceView terminal behavior", () => {
     mocks.useConversation.mockReturnValue({
       messages: [],
       isStreaming: false,
+      streamingStartedAt: null,
       workspaceStatus: "idle",
       currentStreamingText: "",
       currentThinking: "",
@@ -312,6 +323,7 @@ describe("WorkspaceView terminal behavior", () => {
     mocks.useConversation.mockReturnValue({
       messages: [],
       isStreaming: false,
+      streamingStartedAt: null,
       workspaceStatus: "idle",
       currentStreamingText: "",
       currentThinking: "",
@@ -395,6 +407,37 @@ describe("WorkspaceView terminal behavior", () => {
 
     await screen.findByText("feature/live-branch");
     expect(screen.queryByText("workspace/tokyo")).not.toBeInTheDocument();
+  });
+
+  it("passes streamingStartedAt to ChatConversation", async () => {
+    mocks.useConversation.mockReturnValue({
+      messages: [],
+      isStreaming: true,
+      streamingStartedAt: 1_700_000_123_456,
+      workspaceStatus: "busy",
+      currentStreamingText: "hello",
+      currentThinking: "",
+      activeToolCalls: [],
+      pendingToolInputs: [],
+      connectionStatus: "connected",
+      error: null,
+      sessionId: "sess-stream",
+      sendMessage: mocks.sendMessage,
+      stopStreaming: mocks.stopStreaming,
+      clearChat: mocks.clearChat,
+      switchSession: mocks.switchSession,
+      answerQuestion: mocks.answerQuestion,
+      batchAnswerQuestions: mocks.batchAnswerQuestions,
+      approvePlan: mocks.approvePlan,
+      rejectToolInput: mocks.rejectToolInput,
+      dismissPlan: mocks.dismissPlan,
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    expect(screen.getByTestId("chat-is-streaming")).toHaveTextContent("true");
+    expect(screen.getByTestId("chat-streaming-started-at")).toHaveTextContent("1700000123456");
   });
 
   it("prefers projectName in header and shows origin default branch when provided", async () => {
@@ -557,6 +600,7 @@ describe("WorkspaceView session delete behavior", () => {
     mocks.useConversation.mockReturnValue({
       messages: [],
       isStreaming: false,
+      streamingStartedAt: null,
       workspaceStatus: "idle",
       currentStreamingText: "",
       currentThinking: "",

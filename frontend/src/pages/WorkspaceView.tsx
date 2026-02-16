@@ -196,7 +196,7 @@ export default function WorkspaceView() {
   const {
     messages,
     isStreaming,
-    workspaceStatus,
+    streamingStartedAt,
     currentStreamingText,
     currentThinking,
     activeToolCalls,
@@ -216,8 +216,6 @@ export default function WorkspaceView() {
   } = useConversation(wsId);
 
   const { sessions, createSession, activateSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
-
-  const effectiveWorkspaceStatus = workspaceStatus ?? workspace?.status;
 
   // Refresh file tree when diff stats change (files created/modified/deleted)
   const diffStatsRef = useRef(liveData[wsId ?? ""]?.diffStats);
@@ -351,7 +349,6 @@ export default function WorkspaceView() {
     );
   }
 
-  const hasActiveSession = effectiveWorkspaceStatus === "busy";
 
   return (
     <div className="flex h-full flex-col">
@@ -359,14 +356,6 @@ export default function WorkspaceView() {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <div className="relative z-20 flex h-12 items-center gap-2 border-b border-border/50 px-4 backdrop-blur-sm">
-            <Badge variant={hasActiveSession ? "default" : "secondary"} className="text-[10px]">
-              <span
-                className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${
-                  hasActiveSession ? "bg-primary-foreground" : "bg-muted-foreground/40"
-                }`}
-              />
-              {hasActiveSession ? "active" : "idle"}
-            </Badge>
             <span className="truncate text-sm font-semibold text-foreground">{workspace?.projectName ?? workspace?.name}</span>
             {displayBranch && (
               <BranchLabel branch={displayBranch} showIcon={false} className="text-xs text-muted-foreground" />
@@ -430,6 +419,7 @@ export default function WorkspaceView() {
             <ChatConversation
               messages={messages}
               isStreaming={isStreaming}
+              streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
               currentThinking={currentThinking}
               activeToolCalls={activeToolCalls}

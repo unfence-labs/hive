@@ -378,6 +378,25 @@ describe("ConversationSession", () => {
     expect(session.status).toBe("idle");
   });
 
+  it("tracks streamingStartedAt while streaming and resets it on close", async () => {
+    const session = createSession();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+
+    expect(session.streamingStartedAt).toBeNull();
+
+    session.sendMessage("Hi");
+    expect(session.status).toBe("streaming");
+    expect(session.streamingStartedAt).toBe(1_700_000_000_000);
+
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(session.status).toBe("idle");
+    expect(session.streamingStartedAt).toBeNull();
+    nowSpy.mockRestore();
+  });
+
   it("emits cancelled on non-zero exit while streaming", async () => {
     const session = createSession();
     const messages: WsOutgoing[] = [];
@@ -450,11 +469,13 @@ describe("ConversationSession", () => {
     });
 
     session.sendMessage("Hi");
+    expect(session.streamingStartedAt).not.toBeNull();
     mockProc.emit("error", new Error("spawn failed"));
 
     const err = await errorPromise;
     expect(err.message).toBe("spawn failed");
     expect(session.status).toBe("error");
+    expect(session.streamingStartedAt).toBeNull();
   });
 
   it("flushes parser on process close", () => {

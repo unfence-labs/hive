@@ -13,6 +13,7 @@ export interface PendingToolInput {
 interface ConversationState {
   messages: ChatMessage[];
   isStreaming: boolean;
+  streamingStartedAt: number | null;
   workspaceStatus?: "idle" | "busy";
   currentText: string;
   currentThinking: string;
@@ -35,6 +36,7 @@ type Action = WsOutgoing | LocalAction;
 const initialState: ConversationState = {
   messages: [],
   isStreaming: false,
+  streamingStartedAt: null,
   workspaceStatus: undefined,
   currentText: "",
   currentThinking: "",
@@ -120,6 +122,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         ...state,
         messages: [...state.messages, action.message],
         isStreaming: true,
+        streamingStartedAt: Date.now(),
         currentText: "",
         currentThinking: "",
         activeToolCalls: [],
@@ -165,6 +168,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         ...state,
         messages: [...state.messages, assistantMsg],
         isStreaming: false,
+        streamingStartedAt: null,
         currentText: "",
         currentThinking: "",
         activeToolCalls: [],
@@ -193,6 +197,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         ...state,
         messages: [...state.messages, cancelledMsg],
         isStreaming: false,
+        streamingStartedAt: null,
         currentText: "",
         currentThinking: "",
         activeToolCalls: [],
@@ -200,15 +205,20 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     }
 
     case "error":
-      return { ...state, error: action.message, isStreaming: false };
+      return { ...state, error: action.message, isStreaming: false, streamingStartedAt: null };
 
-    case "status":
+    case "status": {
+      const newIsStreaming = action.streaming ?? (action.status === "idle" ? false : state.isStreaming);
       return {
         ...state,
         workspaceStatus: action.status,
         sessionId: action.sessionId ?? (action.status === "idle" ? undefined : state.sessionId),
-        isStreaming: action.streaming ?? (action.status === "idle" ? false : state.isStreaming),
+        isStreaming: newIsStreaming,
+        streamingStartedAt: newIsStreaming
+          ? (state.streamingStartedAt ?? action.streamingStartedAt ?? Date.now())
+          : null,
       };
+    }
 
     case "history": {
       const historySessionId = action.sessionId ?? action.messages[0]?.sessionId ?? state.sessionId;
@@ -224,6 +234,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         ...state,
         messages: action.messages,
         isStreaming: preserveTransient ? state.isStreaming : false,
+        streamingStartedAt: preserveTransient ? state.streamingStartedAt : null,
         currentText: preserveTransient ? state.currentText : "",
         currentThinking: preserveTransient ? state.currentThinking : "",
         activeToolCalls: preserveTransient ? state.activeToolCalls : [],
@@ -252,6 +263,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         ...state,
         sessionId: action.sessionId,
         isStreaming: false,
+        streamingStartedAt: null,
         currentText: "",
         currentThinking: "",
         activeToolCalls: [],
@@ -264,6 +276,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         ...state,
         messages: [],
         isStreaming: false,
+        streamingStartedAt: null,
         currentText: "",
         currentThinking: "",
         activeToolCalls: [],
@@ -480,6 +493,7 @@ export function useConversation(workspaceId: string | undefined) {
   return {
     messages: state.messages,
     isStreaming: state.isStreaming,
+    streamingStartedAt: state.streamingStartedAt,
     workspaceStatus: state.workspaceStatus,
     currentStreamingText: state.currentText,
     currentThinking: state.currentThinking,

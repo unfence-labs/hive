@@ -203,6 +203,7 @@ describe("useConversation", () => {
 
   it("appends user message when backend emits user_message event", async () => {
     const { __wsMock } = await getWsMock();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_001_111);
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
@@ -223,6 +224,8 @@ describe("useConversation", () => {
     expect(result.current.messages[0]?.content).toBe("hello");
     expect(result.current.isStreaming).toBe(true);
     expect(result.current.sessionId).toBe("sess-1");
+    expect(result.current.streamingStartedAt).toBe(1_700_000_001_111);
+    nowSpy.mockRestore();
   });
 
   it("does not add user message when transport send fails", async () => {
@@ -269,6 +272,7 @@ describe("useConversation", () => {
     expect(result.current.messages.at(-1)?.role).toBe("assistant");
     expect(result.current.messages.at(-1)?.content).toBe("Hi there");
     expect(result.current.sessionId).toBe("sess-1");
+    expect(result.current.streamingStartedAt).toBeNull();
   });
 
   it("resyncs persisted session history on done to recover missed deltas", async () => {
@@ -388,19 +392,37 @@ describe("useConversation", () => {
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.messages.at(-1)?.cancelled).toBe(true);
     expect(result.current.messages.at(-1)?.content).toBe("partial");
+    expect(result.current.streamingStartedAt).toBeNull();
   });
 
-  it("clears local chat state", () => {
+  it("clears local chat state", async () => {
+    const { __wsMock } = await getWsMock();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_001_222);
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
-      result.current.sendMessage("hello");
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u-clear",
+          sessionId: "sess-clear",
+          role: "user",
+          content: "hello",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+    });
+    expect(result.current.streamingStartedAt).toBe(1_700_000_001_222);
+
+    act(() => {
       result.current.clearChat();
     });
 
     expect(result.current.messages).toEqual([]);
     expect(result.current.sessionId).toBeUndefined();
     expect(result.current.isStreaming).toBe(false);
+    expect(result.current.streamingStartedAt).toBeNull();
+    nowSpy.mockRestore();
   });
 
   it("formats AskUserQuestion answers and sends a response", async () => {
@@ -1137,6 +1159,7 @@ describe("useConversation", () => {
       content: "Generation interrupted before any output.",
     }));
     expect(result.current.isStreaming).toBe(false);
+    expect(result.current.streamingStartedAt).toBeNull();
   });
 
   it("ignores stale cancelled events when no stream is active", async () => {
@@ -1292,6 +1315,7 @@ describe("useConversation", () => {
 
   it("resets state on workspace change", async () => {
     const { __wsMock } = await getWsMock();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_001_333);
     const { result, rerender } = renderHook(
       ({ wsId }) => useConversation(wsId),
       { initialProps: { wsId: "ws-1" } },
@@ -1311,25 +1335,58 @@ describe("useConversation", () => {
     });
 
     expect(result.current.messages).toHaveLength(1);
+    expect(result.current.streamingStartedAt).toBe(1_700_000_001_333);
 
     rerender({ wsId: "ws-2" });
 
     expect(result.current.messages).toEqual([]);
     expect(result.current.sessionId).toBeUndefined();
     expect(result.current.isStreaming).toBe(false);
+    expect(result.current.streamingStartedAt).toBeNull();
+    nowSpy.mockRestore();
   });
 
-  it("status event updates workspace status and streaming flag", async () => {
+  it("status event updates workspace status, streaming flag, and streamingStartedAt", async () => {
     const { __wsMock } = await getWsMock();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_001_444);
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
-      __wsMock.emit("ws-1", { type: "status", status: "busy", streaming: true, sessionId: "sess-x" });
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        streaming: true,
+        sessionId: "sess-x",
+        streamingStartedAt: 1_700_000_009_999,
+      });
     });
 
     expect(result.current.workspaceStatus).toBe("busy");
     expect(result.current.isStreaming).toBe(true);
     expect(result.current.sessionId).toBe("sess-x");
+    expect(result.current.streamingStartedAt).toBe(1_700_000_009_999);
+
+    act(() => {
+      // Existing timestamp should be preserved if already set.
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        streaming: true,
+        sessionId: "sess-x",
+        streamingStartedAt: 1_700_000_010_000,
+      });
+    });
+
+    expect(result.current.streamingStartedAt).toBe(1_700_000_009_999);
+
+    act(() => {
+      // Fallback to Date.now when backend does not provide a timestamp.
+      __wsMock.emit("ws-1", { type: "status", status: "busy", streaming: true, sessionId: "sess-y" });
+    });
+
+    // Different session status is ignored while sess-x is focused.
+    expect(result.current.sessionId).toBe("sess-x");
+    expect(result.current.streamingStartedAt).toBe(1_700_000_009_999);
 
     act(() => {
       __wsMock.emit("ws-1", { type: "status", status: "idle", streaming: false });
@@ -1337,6 +1394,59 @@ describe("useConversation", () => {
 
     expect(result.current.workspaceStatus).toBe("idle");
     expect(result.current.isStreaming).toBe(false);
+    expect(result.current.streamingStartedAt).toBeNull();
+    nowSpy.mockRestore();
+  });
+
+  it("uses Date.now as fallback streamingStartedAt for busy status without backend timestamp", async () => {
+    const { __wsMock } = await getWsMock();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_001_555);
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", streaming: true, sessionId: "sess-fallback" });
+    });
+
+    expect(result.current.isStreaming).toBe(true);
+    expect(result.current.streamingStartedAt).toBe(1_700_000_001_555);
+    nowSpy.mockRestore();
+  });
+
+  it("preserves streamingStartedAt on same-session history while streaming", async () => {
+    const { __wsMock } = await getWsMock();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_001_666);
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "hello",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", { type: "text_delta", text: "partial" });
+      __wsMock.emit("ws-1", {
+        type: "history",
+        sessionId: "sess-1",
+        messages: [
+          {
+            id: "u1",
+            sessionId: "sess-1",
+            role: "user",
+            content: "hello",
+            timestamp: "2026-02-12T00:00:00.000Z",
+          },
+        ],
+      });
+    });
+
+    expect(result.current.isStreaming).toBe(true);
+    expect(result.current.streamingStartedAt).toBe(1_700_000_001_666);
+    nowSpy.mockRestore();
   });
 
   it("error event sets error message and stops streaming", async () => {
@@ -1349,5 +1459,6 @@ describe("useConversation", () => {
 
     expect(result.current.error).toBe("Connection lost");
     expect(result.current.isStreaming).toBe(false);
+    expect(result.current.streamingStartedAt).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -19,6 +19,7 @@ import type { PlanStatus } from "@/components/chat/PlanProposal";
 interface ChatConversationProps {
   messages: ChatMessageType[];
   isStreaming: boolean;
+  streamingStartedAt?: number | null;
   currentStreamingText: string;
   currentThinking: string;
   activeToolCalls: ToolCall[];
@@ -36,6 +37,7 @@ interface ChatConversationProps {
 export default function ChatConversation({
   messages,
   isStreaming,
+  streamingStartedAt,
   currentStreamingText,
   currentThinking,
   activeToolCalls,
@@ -50,18 +52,16 @@ export default function ChatConversation({
   fileCount,
 }: ChatConversationProps) {
   const [elapsed, setElapsed] = useState(0);
-  const startRef = useRef(0);
 
   useEffect(() => {
-    if (!isStreaming) {
+    if (!isStreaming || !streamingStartedAt) {
       setElapsed(0);
       return;
     }
-    startRef.current = Date.now();
-    setElapsed(0);
-    const id = setInterval(() => setElapsed(Date.now() - startRef.current), 100);
+    setElapsed(Date.now() - streamingStartedAt);
+    const id = setInterval(() => setElapsed(Date.now() - streamingStartedAt), 100);
     return () => clearInterval(id);
-  }, [isStreaming]);
+  }, [isStreaming, streamingStartedAt]);
 
   const hasContent = messages.length > 0 || isStreaming;
 
@@ -97,7 +97,7 @@ export default function ChatConversation({
 
   return (
     <Conversation className="flex-1">
-      <ConversationContent className="gap-4 p-4">
+      <ConversationContent className="gap-4 px-8 py-4">
         {!hasContent &&
           (workspaceName && projectName && branch && defaultBranch ? (
             <ConversationEmptyState className="py-20">

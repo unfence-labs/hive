@@ -100,6 +100,9 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       status: session.status === "streaming" ? "busy" : "idle",
       sessionId: session.sessionId,
       streaming: session.status === "streaming",
+      ...(session.status === "streaming" && session.streamingStartedAt
+        ? { streamingStartedAt: session.streamingStartedAt }
+        : {}),
     });
     try {
       const messages = await session.getMessages();
@@ -245,11 +248,15 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         // Send status for other sessions that are currently streaming
         for (const streamingId of getStreamingSessionIds(wsId)) {
           if (streamingId !== session.sessionId) {
+            const streamingSession = getSessionById(wsId, streamingId);
             sendOutgoing(socket, {
               type: "status",
               status: "busy",
               sessionId: streamingId,
               streaming: true,
+              ...(streamingSession?.streamingStartedAt
+                ? { streamingStartedAt: streamingSession.streamingStartedAt }
+                : {}),
             });
           }
         }
@@ -361,6 +368,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
                 status: "busy",
                 sessionId: targetSession.sessionId,
                 streaming: true,
+                streamingStartedAt: targetSession.streamingStartedAt ?? undefined,
               });
             } catch (err: unknown) {
               sendOutgoing(socket, { type: "error", message: errorMessage(err, "Failed to send message") });
@@ -437,6 +445,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
                   status: "busy",
                   sessionId: targetSession.sessionId,
                   streaming: true,
+                  streamingStartedAt: targetSession.streamingStartedAt ?? undefined,
                 });
               }
             } catch (err: unknown) {
