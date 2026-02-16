@@ -44,6 +44,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private messageCount = 0;
   private claudeSessionId: string | undefined;
   private persistQueue: Promise<void> = Promise.resolve();
+  private _lastPlanMode = false;
   private _metadata: SessionMetadata;
 
   constructor(config: ConversationSessionConfig) {
@@ -104,13 +105,16 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     }
   }
 
-  /** Send a user message. Spawns a new claude process for this turn. */
-  sendMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[]): void {
+  /** Send a user message. Spawns a new claude process for this turn.
+   *  When `cliContent` is provided, it is sent to the CLI instead of `content`
+   *  while the displayed/persisted message remains `content`. */
+  sendMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[], cliContent?: string): void {
     if (this._status === "streaming") {
       throw new Error("Already streaming — wait for current message to complete or stop it");
     }
 
     this._status = "streaming";
+    this._lastPlanMode = msgOptions?.planMode ?? false;
 
     // Persist user message immediately (include images for history display)
     const userMsg: ChatMessage = {
@@ -134,15 +138,16 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     this.messageCount++;
 
+    const promptContent = cliContent ?? content;
     if (images?.length) {
       void this.saveImagesToDisk(images).then((paths) => {
-        this.spawnCli(this.buildPromptWithImages(content, paths), msgOptions);
+        this.spawnCli(this.buildPromptWithImages(promptContent, paths), msgOptions);
       }).catch((err) => {
         this._status = "error";
         this.emit("error", err instanceof Error ? err : new Error(String(err)));
       });
     } else {
-      this.spawnCli(content, msgOptions);
+      this.spawnCli(promptContent, msgOptions);
     }
   }
 
@@ -450,9 +455,18 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           .join(", ");
         return `${questionLabel} → ${optionLabels}`;
       }).join("\n");
-      this.sendMessage(`Here are my answers to your questions:\n${formatted}`);
+      const msg = `Here are my answers to your questions:\n${formatted}`;
+      if (this._lastPlanMode) {
+        this.sendMessage(msg, { planMode: true });
+      } else {
+        this.sendMessage(msg);
+      }
     } else if (toolName === "ExitPlanMode" && result.type === "approve") {
       this.sendMessage("I approve the plan. Please proceed with implementation.");
+    } else if (toolName === "ExitPlanMode" && result.type === "reject") {
+      const feedback = result.message || "Please suggest an alternative approach.";
+      const cliPrompt = `${feedback}\n\nIMPORTANT: You are still in plan mode. Update the plan file in .claude/plans/ with these adjustments, then call ExitPlanMode to submit the updated plan for review. Do NOT modify any source code files directly.`;
+      this.sendMessage(feedback, { planMode: true }, undefined, cliPrompt);
     } else if (result.type === "reject") {
       this.sendMessage(result.message || "I reject this. Please suggest an alternative approach.");
     }

@@ -14,6 +14,7 @@ import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
 import type { ChatMessage as ChatMessageType, ToolCall, QuestionAnswer } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
+import type { PlanStatus } from "@/components/chat/PlanProposal";
 
 interface ChatConversationProps {
   messages: ChatMessageType[];
@@ -25,7 +26,6 @@ interface ChatConversationProps {
   pendingToolInputs?: PendingToolInput[];
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onPlanApproval?: () => void;
-  onRejectToolInput?: (message?: string) => void;
   onHandOff?: (planContent: string) => void;
   workspaceName?: string;
   projectName?: string;
@@ -44,7 +44,6 @@ export default function ChatConversation({
   pendingToolInputs = [],
   onQuestionAnswer,
   onPlanApproval,
-  onRejectToolInput,
   onHandOff,
   workspaceName,
   projectName,
@@ -88,6 +87,16 @@ export default function ChatConversation({
     return idx === lastAssistantIdx && !hasUserAfterLast;
   };
 
+  const getPlanStatus = (msg: ChatMessageType, idx: number): PlanStatus | undefined => {
+    const hasExitPlanMode = msg.toolCalls?.some((tc) => tc.name === "ExitPlanMode");
+    if (!hasExitPlanMode) return undefined;
+    if (isMessageInteractive(msg, idx)) return "interactive";
+    // If a user message follows, the plan was revised (user sent refinement feedback)
+    const nextMsg = messages[idx + 1];
+    if (nextMsg?.role === "user") return "revised";
+    return "approved";
+  };
+
   return (
     <Conversation className="flex-1">
       <ConversationContent className="gap-4 p-4">
@@ -114,9 +123,9 @@ export default function ChatConversation({
             key={msg.id ?? `${msg.timestamp}-${i}`}
             message={msg}
             isInteractive={isMessageInteractive(msg, i)}
+            planStatus={getPlanStatus(msg, i)}
             onQuestionAnswer={onQuestionAnswer}
             onPlanApproval={onPlanApproval}
-            onRejectToolInput={onRejectToolInput}
             onHandOff={onHandOff}
           />
         ))}
@@ -139,7 +148,6 @@ export default function ChatConversation({
                 showExecutingState
                 onQuestionAnswer={onQuestionAnswer}
                 onPlanApproval={onPlanApproval}
-                onRejectToolInput={onRejectToolInput}
                 onHandOff={onHandOff}
               />
             </div>

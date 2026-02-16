@@ -436,7 +436,6 @@ export default function WorkspaceView() {
               pendingToolInputs={pendingToolInputs}
               onQuestionAnswer={answerQuestion}
               onPlanApproval={approvePlan}
-              onRejectToolInput={rejectToolInput}
               onHandOff={handleHandOff}
               workspaceName={workspace?.name}
               projectName={workspace?.projectName}

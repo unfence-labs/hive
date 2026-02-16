@@ -6,21 +6,25 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CopyButton } from "@/components/chat/CopyButton";
 
+export type PlanStatus = "interactive" | "approved" | "revised";
+
 interface PlanProposalProps {
-  planContent: string;
-  isInteractive?: boolean;
+  planContent?: string;
+  status: PlanStatus;
   onApprove?: () => void;
   onHandOff?: (content: string) => void;
 }
 
 export const PlanProposal = memo(function PlanProposal({
   planContent,
-  isInteractive = false,
+  status,
   onApprove,
   onHandOff,
 }: PlanProposalProps) {
-  const [open, setOpen] = useState(isInteractive);
+  const [open, setOpen] = useState(status === "interactive");
   const [responded, setResponded] = useState(false);
+
+  if (!planContent) return null;
 
   const handleApprove = () => {
     setResponded(true);
@@ -32,6 +36,17 @@ export const PlanProposal = memo(function PlanProposal({
     onHandOff?.(planContent);
   };
 
+  const statusBadge =
+    status === "approved" ? (
+      <Badge variant="outline" className="text-[10px]">
+        Approved
+      </Badge>
+    ) : status === "revised" ? (
+      <Badge variant="outline" className="text-[10px] text-muted-foreground">
+        Revised
+      </Badge>
+    ) : null;
+
   return (
     <div className="my-2 rounded-lg border bg-card">
       <button
@@ -40,12 +55,8 @@ export const PlanProposal = memo(function PlanProposal({
         onClick={() => setOpen(!open)}
       >
         <FileTextIcon className="size-4 text-muted-foreground" />
-        <span>Propose plan</span>
-        {!isInteractive && (
-          <Badge variant="outline" className="text-[10px]">
-            Approved
-          </Badge>
-        )}
+        <span>Proposed plan</span>
+        {statusBadge}
         <ChevronDownIcon
           className={cn(
             "ml-auto size-4 text-muted-foreground transition-transform",
@@ -60,7 +71,7 @@ export const PlanProposal = memo(function PlanProposal({
         </div>
       )}
 
-      {isInteractive && !responded && (
+      {status === "interactive" && !responded && (
         <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
           <CopyButton content={planContent} />
           <Button size="sm" variant="outline" onClick={handleHandOff}>
@@ -73,7 +84,7 @@ export const PlanProposal = memo(function PlanProposal({
         </div>
       )}
 
-      {isInteractive && responded && (
+      {status === "interactive" && responded && (
         <div className="border-t px-4 py-3 text-sm italic text-muted-foreground">
           Response submitted
         </div>
