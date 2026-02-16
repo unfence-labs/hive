@@ -1,15 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { FolderGit2, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface EmptyStateLogoProps {
   className?: string;
   onAddProject?: () => void;
+  enableAnimation?: boolean;
 }
 
 const CELL_SIZE = 8;
-const MORPH_START = 80;
-const MORPH_END = 220;
 const BG = "#09090f";
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -30,8 +29,6 @@ function buildPalette(accent: string) {
   const [r, g, b] = hexToRgb(accent);
   return {
     bg: BG,
-    dim: rgbToHex(r * 0.2, g * 0.2, b * 0.2),
-    mid: rgbToHex(r * 0.45, g * 0.45, b * 0.45),
     bright: rgbToHex(r * 0.8, g * 0.8, b * 0.8),
     hot: rgbToHex(
       r + (255 - r) * 0.45,
@@ -48,236 +45,125 @@ function getAccentHex(): string {
   return raw || "#7c3aed";
 }
 
-function startAnimation(
+function renderStaticLogo(
   canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
-  onDone: () => void,
 ) {
   ctx.imageSmoothingEnabled = false;
-
-  const accent = getAccentHex();
-  const palette = buildPalette(accent);
-  const [acR, acG, acB] = hexToRgb(accent);
-
-  const prefersReducedMotion = window.matchMedia(
-    "(prefers-reduced-motion: reduce)",
-  ).matches;
-
-  let W: number, H: number, cols: number, rows: number;
-  let targetGrid: number[][];
-  let grid: number[][];
-  let age: number[][];
-  let frame = 0;
-  let animId = 0;
-  let doneFired = false;
-
-  function buildMask() {
-    const off = document.createElement("canvas");
-    off.width = W;
-    off.height = H;
-    const octx = off.getContext("2d")!;
-    octx.fillStyle = "#fff";
-    octx.font = `bold ${Math.min(W * 0.18, 160)}px monospace`;
-    octx.textAlign = "center";
-    octx.textBaseline = "middle";
-    octx.fillText("HIVE", W / 2, H / 2);
-    const data = octx.getImageData(0, 0, W, H).data;
-
-    return Array.from({ length: rows }, (_, r) =>
-      Array.from({ length: cols }, (_, c) => {
-        const px = c * CELL_SIZE + CELL_SIZE / 2;
-        const py = r * CELL_SIZE + CELL_SIZE / 2;
-        return data[(Math.floor(py) * W + Math.floor(px)) * 4 + 3] > 128
-          ? 1
-          : 0;
-      }),
-    );
-  }
-
-  function countNeighbors(g: number[][], r: number, c: number) {
-    let count = 0;
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        if (dr === 0 && dc === 0) continue;
-        count += g[(r + dr + rows) % rows][(c + dc + cols) % cols];
-      }
-    }
-    return count;
-  }
-
-  function step() {
-    const next = Array.from({ length: rows }, () =>
-      new Array<number>(cols).fill(0),
-    );
-    const nextAge = Array.from({ length: rows }, () =>
-      new Array<number>(cols).fill(0),
-    );
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const n = countNeighbors(grid, r, c);
-        if (grid[r][c]) {
-          next[r][c] = n === 2 || n === 3 ? 1 : 0;
-          if (next[r][c]) nextAge[r][c] = age[r][c] + 1;
-        } else {
-          next[r][c] = n === 3 ? 1 : 0;
-        }
-      }
-    }
-    age = nextAge;
-    return next;
-  }
-
-  function drawStatic() {
-    ctx.fillStyle = palette.bg;
-    ctx.fillRect(0, 0, W, H);
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (!targetGrid[r][c]) continue;
-        ctx.fillStyle = palette.bright;
-        ctx.fillRect(
-          c * CELL_SIZE,
-          r * CELL_SIZE,
-          CELL_SIZE - 1,
-          CELL_SIZE - 1,
-        );
-        ctx.fillStyle = palette.hot;
-        ctx.fillRect(c * CELL_SIZE, r * CELL_SIZE, 2, 2);
-      }
-    }
-  }
+  let resizeRafId = 0;
 
   function draw() {
+    const parent = canvas.parentElement;
+    if (!parent) return;
+
+    const rect = parent.getBoundingClientRect();
+    const width = Math.max(1, Math.floor(rect.width));
+    const height = Math.max(1, Math.floor(rect.height));
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const cols = Math.max(1, Math.floor(width / CELL_SIZE));
+    const rows = Math.max(1, Math.floor(height / CELL_SIZE));
+
+    const accent = getAccentHex();
+    const palette = buildPalette(accent);
+    const [acR, acG, acB] = hexToRgb(accent);
+
+    const off = document.createElement("canvas");
+    off.width = width;
+    off.height = height;
+    const octx = off.getContext("2d");
+    if (!octx) return;
+
+    octx.fillStyle = "#fff";
+    octx.font = `bold ${Math.min(width * 0.18, 160)}px monospace`;
+    octx.textAlign = "center";
+    octx.textBaseline = "middle";
+    octx.fillText("HIVE", width / 2, height / 2);
+    const data = octx.getImageData(0, 0, width, height).data;
+
     ctx.fillStyle = palette.bg;
-    ctx.fillRect(0, 0, W, H);
-    frame++;
-
-    if (frame < MORPH_START) {
-      grid = step();
-      if (frame % 8 === 0) {
-        for (let i = 0; i < 60; i++) {
-          grid[(Math.random() * rows) | 0][(Math.random() * cols) | 0] = 1;
-        }
-      }
-    } else {
-      const progress = Math.min(
-        (frame - MORPH_START) / (MORPH_END - MORPH_START),
-        1,
-      );
-      grid = step();
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          if (Math.random() < progress * 0.12) {
-            grid[r][c] = targetGrid[r][c];
-          }
-        }
-      }
-    }
-
-    const morphProgress = Math.min(
-      Math.max((frame - MORPH_START) / (MORPH_END - MORPH_START), 0),
-      1,
-    );
+    ctx.fillRect(0, 0, width, height);
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        if (!grid[r][c]) continue;
+        const px = Math.min(width - 1, (c * CELL_SIZE + CELL_SIZE / 2) | 0);
+        const py = Math.min(height - 1, (r * CELL_SIZE + CELL_SIZE / 2) | 0);
+        const isTarget = data[(py * width + px) * 4 + 3] > 128;
+        if (!isTarget) continue;
 
-        const isTarget = targetGrid[r][c];
         const x = c * CELL_SIZE;
         const y = r * CELL_SIZE;
-        const a = age[r][c];
-
-        if (isTarget && morphProgress > 0.4) {
-          const intensity = Math.min(a, 10) / 10;
-          ctx.fillStyle = intensity > 0.5 ? palette.hot : palette.bright;
-          ctx.fillRect(x, y, CELL_SIZE - 1, CELL_SIZE - 1);
-          ctx.fillStyle = palette.hot;
-          ctx.fillRect(x, y, 2, 2);
-        } else {
-          ctx.fillStyle = a > 3 ? palette.mid : palette.dim;
-          ctx.fillRect(x, y, CELL_SIZE - 1, CELL_SIZE - 1);
-        }
+        ctx.fillStyle = palette.bright;
+        ctx.fillRect(x, y, CELL_SIZE - 1, CELL_SIZE - 1);
+        ctx.fillStyle = palette.hot;
+        ctx.fillRect(x, y, 2, 2);
       }
     }
 
-    if (morphProgress >= 1 && !doneFired) {
-      doneFired = true;
-      onDone();
+    ctx.strokeStyle = `rgba(${acR}, ${acG}, ${acB}, 0.04)`;
+    ctx.lineWidth = 0.5;
+    for (let x = 0; x < width; x += CELL_SIZE) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
     }
-
-    if (morphProgress > 0.8) {
-      ctx.strokeStyle = `rgba(${acR}, ${acG}, ${acB}, 0.04)`;
-      ctx.lineWidth = 0.5;
-      for (let x = 0; x < W; x += CELL_SIZE) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, H);
-        ctx.stroke();
-      }
-      for (let y = 0; y < H; y += CELL_SIZE) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(W, y);
-        ctx.stroke();
-      }
+    for (let y = 0; y < height; y += CELL_SIZE) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
     }
-
-    animId = requestAnimationFrame(draw);
   }
 
-  function init() {
-    const parent = canvas.parentElement;
-    if (!parent) return;
-    const rect = parent.getBoundingClientRect();
-    W = canvas.width = rect.width;
-    H = canvas.height = rect.height;
-    cols = Math.floor(W / CELL_SIZE);
-    rows = Math.floor(H / CELL_SIZE);
-    targetGrid = buildMask();
-    grid = Array.from({ length: rows }, () =>
-      Array.from({ length: cols }, () => (Math.random() < 0.18 ? 1 : 0)),
-    );
-    age = Array.from({ length: rows }, () =>
-      new Array<number>(cols).fill(0),
-    );
-    frame = 0;
-
-    doneFired = false;
-
-    if (prefersReducedMotion) {
-      drawStatic();
-      onDone();
-    } else {
-      cancelAnimationFrame(animId);
+  function scheduleDraw() {
+    if (resizeRafId) return;
+    resizeRafId = requestAnimationFrame(() => {
+      resizeRafId = 0;
       draw();
-    }
+    });
   }
 
-  init();
+  draw();
 
-  const ro = new ResizeObserver(() => init());
+  const ro = new ResizeObserver(scheduleDraw);
   if (canvas.parentElement) ro.observe(canvas.parentElement);
 
   return () => {
-    cancelAnimationFrame(animId);
+    cancelAnimationFrame(resizeRafId);
     ro.disconnect();
   };
+}
+
+function renderLogo(
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+  enableAnimation: boolean,
+) {
+  if (enableAnimation) {
+    // Animation path intentionally disabled for now due to perf concerns.
+    return renderStaticLogo(canvas, ctx);
+  }
+
+  return renderStaticLogo(canvas, ctx);
 }
 
 export default function EmptyStateLogo({
   className,
   onAddProject,
+  enableAnimation = false,
 }: EmptyStateLogoProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [showButtons, setShowButtons] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    return startAnimation(canvas, ctx, () => setShowButtons(true));
-  }, []);
+    return renderLogo(canvas, ctx, enableAnimation);
+  }, [enableAnimation]);
 
   return (
     <div
@@ -289,12 +175,7 @@ export default function EmptyStateLogo({
         className="block h-full w-full"
         style={{ imageRendering: "pixelated" }}
       />
-      <div
-        className={cn(
-          "absolute inset-x-0 bottom-[28%] flex items-center justify-center gap-3 transition-opacity duration-700",
-          showButtons ? "opacity-100" : "pointer-events-none opacity-0",
-        )}
-      >
+      <div className="absolute inset-x-0 bottom-[28%] flex items-center justify-center gap-3">
         <button
           type="button"
           onClick={onAddProject}
