@@ -9,6 +9,7 @@ import { createProject } from "../projects/project-manager.js";
 import { createWorkspace } from "../workspaces/workspace-manager.js";
 import {
   getOrCreateSession,
+  getSessionById,
   createNewSession,
   sendMessage,
   endSession,
@@ -247,6 +248,81 @@ describe("WS /ws/session/:wsId", () => {
     );
 
     ws.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
+  it("switches sessions without interrupting an already streaming session", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-sleep.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+
+    const local = await startWsApp(undefined, slowCmd);
+    const { wsReady, messages } = connectSessionWs(wsId, { address: local.address });
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.length >= 1);
+
+    ws.send(JSON.stringify({ type: "user_message", content: "first in session A" }));
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.some(
+        (m) =>
+          m.type === "status" &&
+          m.status === "busy" &&
+          m.streaming === true &&
+          typeof m.sessionId === "string",
+      ),
+    );
+
+    const firstBusy = [...messages].reverse().find(
+      (m) =>
+        m.type === "status" &&
+        m.status === "busy" &&
+        m.streaming === true &&
+        typeof m.sessionId === "string",
+    );
+    expect(firstBusy?.type).toBe("status");
+    if (!firstBusy || firstBusy.type !== "status" || !firstBusy.sessionId) {
+      throw new Error("Expected first streaming status with session id");
+    }
+    const firstSessionId = firstBusy.sessionId;
+
+    const secondSession = await createNewSession(wsId, dataDir, slowCmd);
+    ws.send(JSON.stringify({ type: "switch_session", sessionId: secondSession.sessionId }));
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) =>
+            m.type === "status" &&
+            m.status === "busy" &&
+            m.sessionId === secondSession.sessionId,
+        ),
+    );
+
+    ws.send(JSON.stringify({
+      type: "user_message",
+      content: "second in session B",
+      sessionId: secondSession.sessionId,
+    }));
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) =>
+            m.type === "status" &&
+            m.status === "busy" &&
+            m.sessionId === secondSession.sessionId &&
+            m.streaming === true,
+        ),
+    );
+
+    expect(getSessionById(wsId, firstSessionId)?.status).toBe("streaming");
+    expect(getSessionById(wsId, secondSession.sessionId)?.status).toBe("streaming");
+
+    ws.close();
+    await local.app.close();
     await endSession(wsId, dataDir).catch(() => {});
   });
 

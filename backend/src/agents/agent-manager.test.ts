@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { createProject } from "../projects/project-manager.js";
@@ -7,6 +7,7 @@ import { createWorkspace } from "../workspaces/workspace-manager.js";
 import {
   getOrCreateSession,
   getSession,
+  getSessionById,
   sendMessage,
   stopStreaming,
   endSession,
@@ -340,13 +341,13 @@ describe("listWorkspaceSessions", () => {
 });
 
 describe("createNewSession", () => {
-  it("parks the current session and activates a new one", async () => {
+  it("keeps existing sessions loaded and activates the new one", async () => {
     const { session: first } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
     const second = await createNewSession(wsId, dataDir, CONV_CMD);
 
     expect(second.sessionId).not.toBe(first.sessionId);
     expect(getSession(wsId)?.sessionId).toBe(second.sessionId);
-    expect(first.status).not.toBe("streaming");
+    expect(getSessionById(wsId, first.sessionId)).toBeDefined();
 
     const state = await loadProject(projectId, dataDir);
     const ws = state!.workspaces.find((w) => w.id === wsId)!;
@@ -357,10 +358,28 @@ describe("createNewSession", () => {
   it("throws for non-existent workspace", async () => {
     await expect(createNewSession("missing", dataDir, CONV_CMD)).rejects.toThrow("not found");
   });
+
+  it("supports concurrent streaming across two sessions in the same workspace", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-sleep.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+
+    const { session: first } = await getOrCreateSession(wsId, dataDir, slowCmd);
+    await sendMessage(wsId, "first", dataDir, slowCmd);
+    expect(getSessionById(wsId, first.sessionId)?.status).toBe("streaming");
+
+    const second = await createNewSession(wsId, dataDir, slowCmd);
+    await sendMessage(wsId, "second", dataDir, slowCmd);
+
+    expect(getSession(wsId)?.sessionId).toBe(second.sessionId);
+    expect(getSessionById(wsId, first.sessionId)?.status).toBe("streaming");
+    expect(getSessionById(wsId, second.sessionId)?.status).toBe("streaming");
+  });
 });
 
 describe("activateSession", () => {
-  it("loads a persisted session and marks it active", async () => {
+  it("loads a persisted session, marks it active, and keeps current loaded", async () => {
     const { session: current } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
     await writeSessionFixture("sess-target", wsId, {
       metadata: { messageCount: 2, updatedAt: "2026-02-12T00:00:00.000Z" },
@@ -370,7 +389,7 @@ describe("activateSession", () => {
 
     expect(activated.sessionId).toBe("sess-target");
     expect(getSession(wsId)?.sessionId).toBe("sess-target");
-    expect(current.status).not.toBe("streaming");
+    expect(getSessionById(wsId, current.sessionId)).toBeDefined();
 
     const state = await loadProject(projectId, dataDir);
     const ws = state!.workspaces.find((w) => w.id === wsId)!;

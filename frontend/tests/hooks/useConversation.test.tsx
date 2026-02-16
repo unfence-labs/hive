@@ -904,7 +904,7 @@ describe("useConversation", () => {
     expect(result.current.activeToolCalls[0]?.output).toBe("file contents");
   });
 
-  it("does not create cancelled message when no content was produced", async () => {
+  it("creates an explicit cancelled message when no content was produced", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -925,9 +925,25 @@ describe("useConversation", () => {
       __wsMock.emit("ws-1", { type: "cancelled" });
     });
 
-    // Only the user message should be there, no empty cancelled assistant message
-    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages).toHaveLength(2);
     expect(result.current.messages[0]?.role).toBe("user");
+    expect(result.current.messages[1]).toEqual(expect.objectContaining({
+      role: "assistant",
+      cancelled: true,
+      content: "Generation interrupted before any output.",
+    }));
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("ignores stale cancelled events when no stream is active", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "cancelled" });
+    });
+
+    expect(result.current.messages).toEqual([]);
     expect(result.current.isStreaming).toBe(false);
   });
 

@@ -22,6 +22,8 @@ interface ConversationState {
   sessionId?: string;
 }
 
+const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
+
 type LocalAction =
   | { type: "reset" }
   | { type: "clear_chat" }
@@ -104,11 +106,17 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     }
 
     case "cancelled": {
+      const hasOutput = state.currentText.length > 0 || state.activeToolCalls.length > 0;
+      const hasThinking = state.currentThinking.length > 0;
+      // Ignore stale cancelled events from a previous session after a fast switch.
+      if (!state.isStreaming && !hasOutput && !hasThinking) {
+        return state;
+      }
       const cancelledMsg: ChatMessage = {
         id: crypto.randomUUID(),
         sessionId: state.sessionId ?? "",
         role: "assistant",
-        content: state.currentText,
+        content: hasOutput ? state.currentText : CANCELLED_NO_OUTPUT_MESSAGE,
         toolCalls: state.activeToolCalls.length > 0 ? state.activeToolCalls : undefined,
         thinkingContent: state.currentThinking || undefined,
         timestamp: new Date().toISOString(),
@@ -116,9 +124,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       };
       return {
         ...state,
-        messages: state.currentText || state.activeToolCalls.length > 0
-          ? [...state.messages, cancelledMsg]
-          : state.messages,
+        messages: [...state.messages, cancelledMsg],
         isStreaming: false,
         currentText: "",
         currentThinking: "",
@@ -236,6 +242,7 @@ export function useConversation(workspaceId: string | undefined) {
       content,
       images: images?.length ? images : undefined,
       options,
+      ...(state.sessionId ? { sessionId: state.sessionId } : {}),
     });
     if (!sent) {
       dispatch({ type: "error", message: "Message not sent: disconnected from server." });
@@ -243,12 +250,15 @@ export function useConversation(workspaceId: string | undefined) {
     }
     historyRequestTokenRef.current += 1;
     return true;
-  }, [workspaceId]);
+  }, [workspaceId, state.sessionId]);
 
   const stopStreaming = useCallback(() => {
     if (!workspaceId) return;
-    wsTransport.send(workspaceId, { type: "stop" });
-  }, [workspaceId]);
+    wsTransport.send(workspaceId, {
+      type: "stop",
+      ...(state.sessionId ? { sessionId: state.sessionId } : {}),
+    });
+  }, [workspaceId, state.sessionId]);
 
   const clearChat = useCallback(() => {
     dispatch({ type: "clear_chat" });
@@ -258,6 +268,7 @@ export function useConversation(workspaceId: string | undefined) {
     if (!workspaceId) return;
     dispatch({ type: "clear_chat" });
     dispatch({ type: "status", status: "busy", sessionId, streaming: false });
+    wsTransport.send(workspaceId, { type: "switch_session", sessionId });
     historyRequestTokenRef.current += 1;
     const token = historyRequestTokenRef.current;
     try {

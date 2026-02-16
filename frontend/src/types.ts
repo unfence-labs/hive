@@ -187,8 +187,9 @@ export interface MessageOptions {
 
 /** Frontend -> Backend */
 export type WsIncoming =
-  | { type: "user_message"; content: string; images?: ImageAttachment[]; options?: MessageOptions }
-  | { type: "stop" }
+  | { type: "switch_session"; sessionId: string }
+  | { type: "user_message"; content: string; images?: ImageAttachment[]; options?: MessageOptions; sessionId?: string }
+  | { type: "stop"; sessionId?: string }
   | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult; sessionId?: string };
 
 /** Backend -> Frontend */

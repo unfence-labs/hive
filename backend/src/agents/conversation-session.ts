@@ -14,6 +14,9 @@ import type {
   WsOutgoing,
 } from "../types.js";
 
+const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
+type StopReason = "user" | "park";
+
 export interface ConversationSessionConfig {
   cwd: string;
   dataDir: string;
@@ -46,6 +49,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private persistQueue: Promise<void> = Promise.resolve();
   private _lastPlanMode = false;
   private _metadata: SessionMetadata;
+  private stopReason: StopReason | null = null;
 
   constructor(config: ConversationSessionConfig) {
     super();
@@ -114,6 +118,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     }
 
     this._status = "streaming";
+    this.stopReason = null;
     this._lastPlanMode = msgOptions?.planMode ?? false;
 
     // Persist user message immediately (include images for history display)
@@ -350,22 +355,26 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       const exitCode = code ?? 1;
       // SIGKILL for blocking tools is NOT a cancellation — it's an intentional pause
       const wasCancelled = exitCode !== 0 && this._status === "streaming" && !killedForBlockingTool;
+      const cancelledByPark = wasCancelled && this.stopReason === "park";
+      const shouldSurfaceCancelled = wasCancelled && !cancelledByPark;
 
       this._status = (exitCode === 0 || killedForBlockingTool) ? "idle" : "error";
+      this.stopReason = null;
       this.process = null;
       this.parser = null;
 
-      // Persist assistant message
-      if (assistantText || toolCalls.length > 0 || thinkingText) {
+      // Persist assistant message. For cancelled turns without any output,
+      // persist a synthetic message so session history still explains what happened.
+      if (assistantText || toolCalls.length > 0 || thinkingText || shouldSurfaceCancelled) {
         const assistantMsg: ChatMessage = {
           id: nanoid(12),
           sessionId: this.sessionId,
           role: "assistant",
-          content: assistantText,
+          content: assistantText || (shouldSurfaceCancelled ? CANCELLED_NO_OUTPUT_MESSAGE : ""),
           toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
           thinkingContent: thinkingText || undefined,
           timestamp: new Date().toISOString(),
-          cancelled: wasCancelled || undefined,
+          cancelled: shouldSurfaceCancelled || undefined,
           durationMs: resultDurationMs,
         };
         void this.enqueuePersist(assistantMsg);
@@ -388,9 +397,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
       void (async () => {
         await this.persistQueue;
-        if (wasCancelled) {
+        if (shouldSurfaceCancelled) {
           this.emit("message", { type: "cancelled" });
-        } else {
+        } else if (!cancelledByPark) {
           this.emit("message", {
             type: "done",
             sessionId: this.claudeSessionId,
@@ -422,11 +431,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   }
 
   /** Stop the currently streaming process. */
-  stop(): void {
+  stop(reason: StopReason = "user"): void {
     if (!this.process) {
       this.emit("exit", 0);
       return;
     }
+    this.stopReason = reason;
 
     this.process.kill("SIGTERM");
 
@@ -503,6 +513,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         // Non-fatal: keep queue alive for subsequent writes.
       });
     return this.persistQueue;
+  }
+
+  /** Persist metadata to disk immediately (e.g. right after creation). */
+  async persistMetadata(): Promise<void> {
+    await this.saveMetadata();
   }
 
   /** Save session metadata to disk. */
