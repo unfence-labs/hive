@@ -53,7 +53,7 @@ export default function App() {
           <Route index element={<Navigate to="/projects" replace />} />
           <Route
             path="projects"
-            element={<EmptyStateLogo />}
+            element={<EmptyStateLogo onAddProject={() => setShowAddProject(true)} />}
           />
           <Route path="projects/:id" element={<Navigate to="/projects" replace />} />
           <Route path="workspaces/:wsId" element={<WorkspaceView />} />

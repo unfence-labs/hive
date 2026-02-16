@@ -1,26 +1,63 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { FolderGit2, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface EmptyStateLogoProps {
   className?: string;
+  onAddProject?: () => void;
 }
 
 const CELL_SIZE = 8;
 const MORPH_START = 80;
 const MORPH_END = 220;
-const PALETTE = {
-  bg: "#09090f",
-  dim: "#1a472a",
-  mid: "#2d8b46",
-  bright: "#5ce65c",
-  hot: "#aaffaa",
-};
+const BG = "#09090f";
+
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  return [
+    parseInt(h.slice(0, 2), 16),
+    parseInt(h.slice(2, 4), 16),
+    parseInt(h.slice(4, 6), 16),
+  ];
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  return `#${[clamp(r), clamp(g), clamp(b)].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function buildPalette(accent: string) {
+  const [r, g, b] = hexToRgb(accent);
+  return {
+    bg: BG,
+    dim: rgbToHex(r * 0.2, g * 0.2, b * 0.2),
+    mid: rgbToHex(r * 0.45, g * 0.45, b * 0.45),
+    bright: rgbToHex(r * 0.8, g * 0.8, b * 0.8),
+    hot: rgbToHex(
+      r + (255 - r) * 0.45,
+      g + (255 - g) * 0.45,
+      b + (255 - b) * 0.45,
+    ),
+  };
+}
+
+function getAccentHex(): string {
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue("--hive-accent")
+    .trim();
+  return raw || "#7c3aed";
+}
 
 function startAnimation(
   canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
+  onDone: () => void,
 ) {
   ctx.imageSmoothingEnabled = false;
+
+  const accent = getAccentHex();
+  const palette = buildPalette(accent);
+  const [acR, acG, acB] = hexToRgb(accent);
 
   const prefersReducedMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
@@ -32,6 +69,7 @@ function startAnimation(
   let age: number[][];
   let frame = 0;
   let animId = 0;
+  let doneFired = false;
 
   function buildMask() {
     const off = document.createElement("canvas");
@@ -90,26 +128,26 @@ function startAnimation(
   }
 
   function drawStatic() {
-    ctx.fillStyle = PALETTE.bg;
+    ctx.fillStyle = palette.bg;
     ctx.fillRect(0, 0, W, H);
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (!targetGrid[r][c]) continue;
-        ctx.fillStyle = PALETTE.bright;
+        ctx.fillStyle = palette.bright;
         ctx.fillRect(
           c * CELL_SIZE,
           r * CELL_SIZE,
           CELL_SIZE - 1,
           CELL_SIZE - 1,
         );
-        ctx.fillStyle = PALETTE.hot;
+        ctx.fillStyle = palette.hot;
         ctx.fillRect(c * CELL_SIZE, r * CELL_SIZE, 2, 2);
       }
     }
   }
 
   function draw() {
-    ctx.fillStyle = PALETTE.bg;
+    ctx.fillStyle = palette.bg;
     ctx.fillRect(0, 0, W, H);
     frame++;
 
@@ -151,19 +189,24 @@ function startAnimation(
 
         if (isTarget && morphProgress > 0.4) {
           const intensity = Math.min(a, 10) / 10;
-          ctx.fillStyle = intensity > 0.5 ? PALETTE.hot : PALETTE.bright;
+          ctx.fillStyle = intensity > 0.5 ? palette.hot : palette.bright;
           ctx.fillRect(x, y, CELL_SIZE - 1, CELL_SIZE - 1);
-          ctx.fillStyle = PALETTE.hot;
+          ctx.fillStyle = palette.hot;
           ctx.fillRect(x, y, 2, 2);
         } else {
-          ctx.fillStyle = a > 3 ? PALETTE.mid : PALETTE.dim;
+          ctx.fillStyle = a > 3 ? palette.mid : palette.dim;
           ctx.fillRect(x, y, CELL_SIZE - 1, CELL_SIZE - 1);
         }
       }
     }
 
+    if (morphProgress >= 1 && !doneFired) {
+      doneFired = true;
+      onDone();
+    }
+
     if (morphProgress > 0.8) {
-      ctx.strokeStyle = "rgba(90, 230, 90, 0.04)";
+      ctx.strokeStyle = `rgba(${acR}, ${acG}, ${acB}, 0.04)`;
       ctx.lineWidth = 0.5;
       for (let x = 0; x < W; x += CELL_SIZE) {
         ctx.beginPath();
@@ -199,8 +242,11 @@ function startAnimation(
     );
     frame = 0;
 
+    doneFired = false;
+
     if (prefersReducedMotion) {
       drawStatic();
+      onDone();
     } else {
       cancelAnimationFrame(animId);
       draw();
@@ -218,27 +264,55 @@ function startAnimation(
   };
 }
 
-export default function EmptyStateLogo({ className }: EmptyStateLogoProps) {
+export default function EmptyStateLogo({
+  className,
+  onAddProject,
+}: EmptyStateLogoProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [showButtons, setShowButtons] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    return startAnimation(canvas, ctx);
+    return startAnimation(canvas, ctx, () => setShowButtons(true));
   }, []);
 
   return (
     <div
-      className={cn("h-full w-full", className)}
-      style={{ background: PALETTE.bg }}
+      className={cn("relative h-full w-full", className)}
+      style={{ background: BG }}
     >
       <canvas
         ref={canvasRef}
         className="block h-full w-full"
         style={{ imageRendering: "pixelated" }}
       />
+      <div
+        className={cn(
+          "absolute inset-x-0 bottom-[28%] flex items-center justify-center gap-3 transition-opacity duration-700",
+          showButtons ? "opacity-100" : "pointer-events-none opacity-0",
+        )}
+      >
+        <button
+          type="button"
+          onClick={onAddProject}
+          className="flex cursor-pointer items-center gap-2 rounded border border-primary/30 bg-background px-5 py-2.5 font-mono text-sm text-primary transition-colors duration-200 hover:border-primary/60 hover:bg-primary/5 focus:outline-none focus:ring-1 focus:ring-primary/50"
+        >
+          <FolderGit2 size={16} />
+          Add repository
+        </button>
+        <a
+          href="https://docs.hive.dev"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex cursor-pointer items-center gap-2 rounded border border-border bg-background px-5 py-2.5 font-mono text-sm text-muted-foreground transition-colors duration-200 hover:border-border/80 hover:bg-muted/10 hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring/30"
+        >
+          <BookOpen size={16} />
+          Documentation
+        </a>
+      </div>
     </div>
   );
 }
