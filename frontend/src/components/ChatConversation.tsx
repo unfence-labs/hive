@@ -91,10 +91,11 @@ export default function ChatConversation({
     const hasExitPlanMode = msg.toolCalls?.some((tc) => tc.name === "ExitPlanMode");
     if (!hasExitPlanMode) return undefined;
     if (isMessageInteractive(msg, idx)) return "interactive";
-    // If a user message follows, the plan was revised (user sent refinement feedback)
-    const nextMsg = messages[idx + 1];
-    if (nextMsg?.role === "user") return "revised";
-    return "approved";
+    // "Revised" only if a later assistant message also proposes a plan
+    const hasLaterPlan = messages.slice(idx + 1).some(
+      (m) => m.role === "assistant" && m.toolCalls?.some((tc) => tc.name === "ExitPlanMode"),
+    );
+    return hasLaterPlan ? "revised" : "approved";
   };
 
   return (

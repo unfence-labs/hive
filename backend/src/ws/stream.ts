@@ -245,12 +245,15 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
               }
               attachSessionListeners(wsId, channel, activeSession);
               activeSession.respondToToolInput(incoming.toolName, incoming.result);
-              sendToChannel(channel, {
-                type: "status",
-                status: "busy",
-                sessionId: activeSession.sessionId,
-                streaming: true,
-              });
+              // Dismiss persists a message without spawning a CLI — no streaming.
+              if (incoming.result.type !== "dismiss") {
+                sendToChannel(channel, {
+                  type: "status",
+                  status: "busy",
+                  sessionId: activeSession.sessionId,
+                  streaming: true,
+                });
+              }
             } catch (err: unknown) {
               sendOutgoing(socket, { type: "error", message: errorMessage(err, "Failed to respond to tool input") });
             }

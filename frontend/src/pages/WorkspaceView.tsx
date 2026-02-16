@@ -212,6 +212,7 @@ export default function WorkspaceView() {
     batchAnswerQuestions,
     approvePlan,
     rejectToolInput,
+    dismissPlan,
   } = useConversation(wsId);
 
   const { sessions, createSession, activateSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
@@ -297,12 +298,12 @@ export default function WorkspaceView() {
   }, []);
 
   const handleHandOff = useCallback(async (planContent: string) => {
-    rejectToolInput("Plan handed off to a new session.");
+    dismissPlan("Plan handed off to a new session.");
     const meta = await createSession();
     if (!meta) return;
     await switchSession(meta.sessionId);
     sendMessage(`Here is the implementation plan to execute:\n\n${planContent}`);
-  }, [rejectToolInput, createSession, switchSession, sendMessage]);
+  }, [dismissPlan, createSession, switchSession, sendMessage]);
 
   // Detect pending plan from explicit pending tool inputs OR from the last
   // assistant message having an ExitPlanMode tool (fallback matching the

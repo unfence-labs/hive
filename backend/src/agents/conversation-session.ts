@@ -463,6 +463,18 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       }
     } else if (toolName === "ExitPlanMode" && result.type === "approve") {
       this.sendMessage("I approve the plan. Please proceed with implementation.");
+    } else if (toolName === "ExitPlanMode" && result.type === "dismiss") {
+      // Persist a user message without spawning a new CLI turn or emitting WS events.
+      // Used by "hand off" to record plan acknowledgment in the old session
+      // so the plan shows "approved" when the session is loaded later.
+      const userMsg: ChatMessage = {
+        id: nanoid(12),
+        sessionId: this.sessionId,
+        role: "user",
+        content: result.message || "Plan acknowledged.",
+        timestamp: new Date().toISOString(),
+      };
+      void this.enqueuePersist(userMsg);
     } else if (toolName === "ExitPlanMode" && result.type === "reject") {
       const feedback = result.message || "Please suggest an alternative approach.";
       const cliPrompt = `${feedback}\n\nIMPORTANT: You are still in plan mode. Update the plan file in .claude/plans/ with these adjustments, then call ExitPlanMode to submit the updated plan for review. Do NOT modify any source code files directly.`;

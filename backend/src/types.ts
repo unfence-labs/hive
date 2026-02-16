@@ -187,7 +187,8 @@ export interface DiffStatResponse {
 export type ToolInputResult =
   | { type: "answer"; answers: QuestionAnswer[]; questions?: QuestionInput[] }
   | { type: "approve" }
-  | { type: "reject"; message?: string };
+  | { type: "reject"; message?: string }
+  | { type: "dismiss"; message?: string };
 
 export interface QuestionAnswer {
   questionIndex: number;

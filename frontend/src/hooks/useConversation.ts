@@ -329,6 +329,20 @@ export function useConversation(workspaceId: string | undefined) {
     historyRequestTokenRef.current += 1;
   }, [workspaceId, state.pendingToolInputs]);
 
+  const dismissPlan = useCallback((message?: string) => {
+    if (!workspaceId) return;
+    const pending = state.pendingToolInputs.find((p) => p.toolName === "ExitPlanMode");
+    if (!pending) return;
+    wsTransport.send(workspaceId, {
+      type: "tool_input_response",
+      requestId: pending.requestId,
+      toolName: "ExitPlanMode",
+      result: { type: "dismiss", message },
+    });
+    dispatch({ type: "clear_pending_tool_inputs" });
+    historyRequestTokenRef.current += 1;
+  }, [workspaceId, state.pendingToolInputs]);
+
   return {
     messages: state.messages,
     isStreaming: state.isStreaming,
@@ -348,5 +362,6 @@ export function useConversation(workspaceId: string | undefined) {
     batchAnswerQuestions,
     approvePlan,
     rejectToolInput,
+    dismissPlan,
   };
 }
