@@ -279,10 +279,11 @@ export function useConversation(workspaceId: string | undefined) {
       requestId: pending?.requestId ?? toolCallId,
       toolName: "AskUserQuestion",
       result: { type: "answer", answers },
+      ...(state.sessionId ? { sessionId: state.sessionId } : {}),
     });
     dispatch({ type: "clear_pending_tool_inputs" });
     historyRequestTokenRef.current += 1;
-  }, [workspaceId, state.pendingToolInputs]);
+  }, [workspaceId, state.pendingToolInputs, state.sessionId]);
 
   const batchAnswerQuestions = useCallback(
     (responses: Array<{ toolUseId: string; answers: QuestionAnswer[] }>) => {
@@ -295,12 +296,13 @@ export function useConversation(workspaceId: string | undefined) {
           requestId: pending?.requestId ?? toolUseId,
           toolName: "AskUserQuestion",
           result: { type: "answer", answers, questions: input?.questions },
+          ...(state.sessionId ? { sessionId: state.sessionId } : {}),
         });
       }
       dispatch({ type: "clear_pending_tool_inputs" });
       historyRequestTokenRef.current += 1;
     },
-    [workspaceId, state.pendingToolInputs],
+    [workspaceId, state.pendingToolInputs, state.sessionId],
   );
 
   const approvePlan = useCallback(() => {
@@ -311,10 +313,11 @@ export function useConversation(workspaceId: string | undefined) {
       requestId: pending?.requestId ?? "",
       toolName: "ExitPlanMode",
       result: { type: "approve" },
+      ...(state.sessionId ? { sessionId: state.sessionId } : {}),
     });
     dispatch({ type: "clear_pending_tool_inputs" });
     historyRequestTokenRef.current += 1;
-  }, [workspaceId, state.pendingToolInputs]);
+  }, [workspaceId, state.pendingToolInputs, state.sessionId]);
 
   const rejectToolInput = useCallback((message?: string) => {
     if (!workspaceId || state.pendingToolInputs.length === 0) return;
@@ -324,24 +327,27 @@ export function useConversation(workspaceId: string | undefined) {
       requestId: pending.requestId,
       toolName: pending.toolName,
       result: { type: "reject", message },
+      ...(state.sessionId ? { sessionId: state.sessionId } : {}),
     });
     dispatch({ type: "clear_pending_tool_inputs" });
     historyRequestTokenRef.current += 1;
-  }, [workspaceId, state.pendingToolInputs]);
+  }, [workspaceId, state.pendingToolInputs, state.sessionId]);
 
   const dismissPlan = useCallback((message?: string) => {
     if (!workspaceId) return;
     const pending = state.pendingToolInputs.find((p) => p.toolName === "ExitPlanMode");
-    if (!pending) return;
     wsTransport.send(workspaceId, {
       type: "tool_input_response",
-      requestId: pending.requestId,
+      requestId: pending?.requestId ?? "",
       toolName: "ExitPlanMode",
       result: { type: "dismiss", message },
+      ...(state.sessionId ? { sessionId: state.sessionId } : {}),
     });
-    dispatch({ type: "clear_pending_tool_inputs" });
+    if (pending) {
+      dispatch({ type: "clear_pending_tool_inputs" });
+    }
     historyRequestTokenRef.current += 1;
-  }, [workspaceId, state.pendingToolInputs]);
+  }, [workspaceId, state.pendingToolInputs, state.sessionId]);
 
   return {
     messages: state.messages,

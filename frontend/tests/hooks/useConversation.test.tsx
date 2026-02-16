@@ -468,6 +468,39 @@ describe("useConversation", () => {
     });
   });
 
+  it("includes current sessionId in tool input responses when available", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-42",
+        streaming: false,
+      });
+      __wsMock.emit("ws-1", {
+        type: "tool_input_required",
+        requestId: "req-42",
+        toolName: "ExitPlanMode",
+        toolUseId: "tool-42",
+        input: {},
+      });
+    });
+
+    act(() => {
+      result.current.approvePlan();
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
+      type: "tool_input_response",
+      requestId: "req-42",
+      toolName: "ExitPlanMode",
+      result: { type: "approve" },
+      sessionId: "sess-42",
+    });
+  });
+
   it("hydrates persisted history after mount even when websocket replays stale history", async () => {
     const { __wsMock } = await getWsMock();
     const { __apiMock } = await getApiMock();
@@ -961,6 +994,58 @@ describe("useConversation", () => {
 
     // No tool_input_response should be sent
     expect(__wsMock.sendMock).not.toHaveBeenCalled();
+  });
+
+  it("sends dismiss plan response using pending ExitPlanMode request id", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "tool_input_required",
+        requestId: "req-dismiss",
+        toolName: "ExitPlanMode",
+        toolUseId: "tool-dismiss",
+        input: {},
+      });
+    });
+
+    act(() => {
+      result.current.dismissPlan("Plan handed off to a new session.");
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
+      type: "tool_input_response",
+      requestId: "req-dismiss",
+      toolName: "ExitPlanMode",
+      result: { type: "dismiss", message: "Plan handed off to a new session." },
+    });
+  });
+
+  it("sends dismiss plan response even without pending inputs (fallback interactive state)", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-fallback",
+        streaming: false,
+      });
+    });
+
+    act(() => {
+      result.current.dismissPlan("Plan handed off to a new session.");
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
+      type: "tool_input_response",
+      requestId: "",
+      toolName: "ExitPlanMode",
+      result: { type: "dismiss", message: "Plan handed off to a new session." },
+      sessionId: "sess-fallback",
+    });
   });
 
   it("sendMessage returns false and sets error when no workspace", () => {

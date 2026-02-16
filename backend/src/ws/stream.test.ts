@@ -272,6 +272,60 @@ describe("WS /ws/session/:wsId", () => {
     await endSession(wsId, dataDir).catch(() => {});
   });
 
+  it("routes dismiss responses to the originating session after handoff", async () => {
+    const { session: oldSession } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const oldRespondSpy = vi.spyOn(oldSession, "respondToToolInput");
+
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.some((m) => m.type === "status" && m.status === "busy"),
+    );
+
+    oldSession.emit("message", {
+      type: "tool_input_required",
+      requestId: "req-dismiss",
+      toolName: "ExitPlanMode",
+      toolUseId: "toolu-plan",
+      input: { plan: "Plan A" },
+    });
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) =>
+            m.type === "tool_input_required" &&
+            m.requestId === "req-dismiss" &&
+            m.toolName === "ExitPlanMode",
+        ),
+    );
+
+    const newSession = await createNewSession(wsId, dataDir, CONV_CMD);
+    const newRespondSpy = vi.spyOn(newSession, "respondToToolInput");
+
+    ws.send(JSON.stringify({
+      type: "tool_input_response",
+      requestId: "req-dismiss",
+      toolName: "ExitPlanMode",
+      result: { type: "dismiss", message: "Plan handed off to a new session." },
+      sessionId: oldSession.sessionId,
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(oldRespondSpy).toHaveBeenCalledWith(
+      "ExitPlanMode",
+      { type: "dismiss", message: "Plan handed off to a new session." },
+    );
+    expect(newRespondSpy).not.toHaveBeenCalled();
+
+    ws.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
   it("broadcasts user_message event to all connected clients", async () => {
     const first = connectSessionWs(wsId);
     const second = connectSessionWs(wsId);

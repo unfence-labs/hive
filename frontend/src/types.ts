@@ -189,7 +189,7 @@ export interface MessageOptions {
 export type WsIncoming =
   | { type: "user_message"; content: string; images?: ImageAttachment[]; options?: MessageOptions }
   | { type: "stop" }
-  | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult };
+  | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult; sessionId?: string };
 
 /** Backend -> Frontend */
 export type WsOutgoing =

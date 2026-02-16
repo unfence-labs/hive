@@ -302,8 +302,9 @@ export default function WorkspaceView() {
     const meta = await createSession();
     if (!meta) return;
     await switchSession(meta.sessionId);
+    await refreshSessions();
     sendMessage(`Here is the implementation plan to execute:\n\n${planContent}`);
-  }, [dismissPlan, createSession, switchSession, sendMessage]);
+  }, [dismissPlan, createSession, switchSession, refreshSessions, sendMessage]);
 
   // Detect pending plan from explicit pending tool inputs OR from the last
   // assistant message having an ExitPlanMode tool (fallback matching the

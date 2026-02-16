@@ -34,6 +34,8 @@ interface WorkspaceChannel {
   sockets: Set<WebSocket>;
   session?: ActiveSession;
   detachSession?: () => void;
+  pendingToolRequests: Map<string, ActiveSession>;
+  sessionsById: Map<string, ActiveSession>;
 }
 
 const channels = new Map<string, WorkspaceChannel>();
@@ -62,7 +64,11 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
   const getOrCreateChannel = (workspaceId: string): WorkspaceChannel => {
     const existing = channels.get(workspaceId);
     if (existing) return existing;
-    const created: WorkspaceChannel = { sockets: new Set<WebSocket>() };
+    const created: WorkspaceChannel = {
+      sockets: new Set<WebSocket>(),
+      pendingToolRequests: new Map<string, ActiveSession>(),
+      sessionsById: new Map<string, ActiveSession>(),
+    };
     channels.set(workspaceId, created);
     return created;
   };
@@ -90,8 +96,14 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
     detachSessionListeners(channel);
     channel.session = session;
+    channel.sessionsById.set(session.sessionId, session);
 
-    const onMessage = (msg: WsOutgoing) => sendToChannel(channel, msg);
+    const onMessage = (msg: WsOutgoing) => {
+      if (msg.type === "tool_input_required") {
+        channel.pendingToolRequests.set(msg.requestId, session);
+      }
+      sendToChannel(channel, msg);
+    };
     const onError = (err: Error) => {
       sendToChannel(channel, { type: "error", message: err.message });
     };
@@ -238,19 +250,40 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           }
           case "tool_input_response": {
             try {
-              let activeSession = getSession(wsId);
-              if (!activeSession) {
-                const result = await getOrCreateSession(wsId, dataDir, sessionOptions);
-                activeSession = result.session;
+              // Prefer routing dismiss responses back to the originating session.
+              // This avoids races with session handoff where the active session may
+              // have changed between tool_input_required and tool_input_response.
+              const requestSession = channel.pendingToolRequests.get(incoming.requestId);
+              if (requestSession) {
+                channel.pendingToolRequests.delete(incoming.requestId);
               }
-              attachSessionListeners(wsId, channel, activeSession);
-              activeSession.respondToToolInput(incoming.toolName, incoming.result);
+
+              const sessionById = incoming.sessionId
+                ? channel.sessionsById.get(incoming.sessionId)
+                : undefined;
+
+              let targetSession: ActiveSession | undefined;
+              if (incoming.result.type === "dismiss") {
+                targetSession = requestSession ?? sessionById;
+              }
+
+              if (!targetSession) {
+                let activeSession = getSession(wsId);
+                if (!activeSession) {
+                  const result = await getOrCreateSession(wsId, dataDir, sessionOptions);
+                  activeSession = result.session;
+                }
+                attachSessionListeners(wsId, channel, activeSession);
+                targetSession = activeSession;
+              }
+
+              targetSession.respondToToolInput(incoming.toolName, incoming.result);
               // Dismiss persists a message without spawning a CLI — no streaming.
               if (incoming.result.type !== "dismiss") {
                 sendToChannel(channel, {
                   type: "status",
                   status: "busy",
-                  sessionId: activeSession.sessionId,
+                  sessionId: targetSession.sessionId,
                   streaming: true,
                 });
               }
