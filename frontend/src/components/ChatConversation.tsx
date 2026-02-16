@@ -37,7 +37,7 @@ interface ChatConversationProps {
 export default function ChatConversation({
   messages,
   isStreaming,
-  isAwaitingResponse = false,
+  isAwaitingResponse: _isAwaitingResponse = false,
   currentStreamingText,
   currentThinking,
   activeToolCalls,
@@ -51,7 +51,7 @@ export default function ChatConversation({
   defaultBranch,
   fileCount,
 }: ChatConversationProps) {
-  const isActive = isStreaming || isAwaitingResponse;
+  const isActive = isStreaming;
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef(0);
 
@@ -154,8 +154,8 @@ export default function ChatConversation({
           </div>
         )}
 
-        {/* Live elapsed timer while streaming */}
-        {isActive && (
+        {/* Live elapsed timer while streaming (not while awaiting user input) */}
+        {isStreaming && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <AgentActivityPreview size="small" />
             <span>{formatElapsed(elapsed)}</span>

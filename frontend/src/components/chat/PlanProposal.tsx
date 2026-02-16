@@ -1,4 +1,4 @@
-import { useState, memo } from "react";
+import { useState, useEffect, memo } from "react";
 import { FileTextIcon, ChevronDownIcon, ArrowRightLeftIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MessageResponse } from "@/components/ai-elements/message";
@@ -23,6 +23,11 @@ export const PlanProposal = memo(function PlanProposal({
 }: PlanProposalProps) {
   const [open, setOpen] = useState(status === "interactive");
   const [responded, setResponded] = useState(false);
+
+  // Auto-collapse when status transitions to "revised" (new refinement arrived)
+  useEffect(() => {
+    if (status === "revised") setOpen(false);
+  }, [status]);
 
   if (!planContent) return null;
 
