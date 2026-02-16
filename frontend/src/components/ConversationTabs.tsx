@@ -173,28 +173,22 @@ export function ConversationTabs({
                   <MessageSquareIcon className="size-3 shrink-0" />
                 )}
                 <span className="truncate">{title}</span>
-                {sessions.length > 1 && (
+                {sessions.length > 1 && !isSessionStreaming && (
                   <span
                     role="button"
                     tabIndex={0}
                     className={cn(
                       "ml-auto shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100",
                       "hover:bg-destructive/10 hover:text-destructive",
-                      "disabled:pointer-events-none disabled:opacity-30",
-                      isSessionStreaming && "pointer-events-none opacity-30",
                     )}
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (!isSessionStreaming) {
-                        setDeleteTarget(session.sessionId);
-                      }
+                      setDeleteTarget(session.sessionId);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.stopPropagation();
-                        if (!isSessionStreaming) {
-                          setDeleteTarget(session.sessionId);
-                        }
+                        setDeleteTarget(session.sessionId);
                       }
                     }}
                   >

@@ -97,7 +97,7 @@ export default function ChatConversation({
 
   return (
     <Conversation className="flex-1">
-      <ConversationContent className="gap-4 p-4">
+      <ConversationContent className="gap-4 px-8 py-4">
         {!hasContent &&
           (workspaceName && projectName && branch && defaultBranch ? (
             <ConversationEmptyState className="py-20">
