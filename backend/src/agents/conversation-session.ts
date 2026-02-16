@@ -14,6 +14,9 @@ import type {
   WsOutgoing,
 } from "../types.js";
 
+const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
+type StopReason = "user" | "park";
+
 export interface ConversationSessionConfig {
   cwd: string;
   dataDir: string;
@@ -44,7 +47,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private messageCount = 0;
   private claudeSessionId: string | undefined;
   private persistQueue: Promise<void> = Promise.resolve();
+  private _lastPlanMode = false;
   private _metadata: SessionMetadata;
+  private stopReason: StopReason | null = null;
 
   constructor(config: ConversationSessionConfig) {
     super();
@@ -104,13 +109,17 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     }
   }
 
-  /** Send a user message. Spawns a new claude process for this turn. */
-  sendMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[]): void {
+  /** Send a user message. Spawns a new claude process for this turn.
+   *  When `cliContent` is provided, it is sent to the CLI instead of `content`
+   *  while the displayed/persisted message remains `content`. */
+  sendMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[], cliContent?: string): void {
     if (this._status === "streaming") {
       throw new Error("Already streaming — wait for current message to complete or stop it");
     }
 
     this._status = "streaming";
+    this.stopReason = null;
+    this._lastPlanMode = msgOptions?.planMode ?? false;
 
     // Persist user message immediately (include images for history display)
     const userMsg: ChatMessage = {
@@ -134,15 +143,16 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     this.messageCount++;
 
+    const promptContent = cliContent ?? content;
     if (images?.length) {
       void this.saveImagesToDisk(images).then((paths) => {
-        this.spawnCli(this.buildPromptWithImages(content, paths), msgOptions);
+        this.spawnCli(this.buildPromptWithImages(promptContent, paths), msgOptions);
       }).catch((err) => {
         this._status = "error";
         this.emit("error", err instanceof Error ? err : new Error(String(err)));
       });
     } else {
-      this.spawnCli(content, msgOptions);
+      this.spawnCli(promptContent, msgOptions);
     }
   }
 
@@ -238,11 +248,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         switch (block.type) {
           case "text":
             assistantText += block.text;
-            this.emit("message", { type: "text_delta", text: block.text });
+            this.emit("message", { type: "text_delta", sessionId: this.sessionId, text: block.text });
             break;
           case "thinking":
             thinkingText += block.thinking;
-            this.emit("message", { type: "thinking", text: block.thinking });
+            this.emit("message", { type: "thinking", sessionId: this.sessionId, text: block.thinking });
             break;
           case "tool_use": {
             const inputStr = typeof block.input === "string"
@@ -252,7 +262,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
               ? pendingTaskStack[pendingTaskStack.length - 1]
               : undefined;
             toolCalls.push({ id: block.id, name: block.name, input: inputStr, parentToolUseId });
-            this.emit("message", { type: "tool_use", id: block.id, name: block.name, input: inputStr, parentToolUseId });
+            this.emit("message", {
+              type: "tool_use",
+              sessionId: this.sessionId,
+              id: block.id,
+              name: block.name,
+              input: inputStr,
+              parentToolUseId,
+            });
 
             // Push Task tools onto the stack so their sub-tools get marked as children
             if (block.name === "Task") {
@@ -285,6 +302,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           if (tc) tc.output = block.content;
           this.emit("message", {
             type: "tool_result",
+            sessionId: this.sessionId,
             toolUseId: block.tool_use_id,
             output: block.content,
           });
@@ -345,22 +363,26 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       const exitCode = code ?? 1;
       // SIGKILL for blocking tools is NOT a cancellation — it's an intentional pause
       const wasCancelled = exitCode !== 0 && this._status === "streaming" && !killedForBlockingTool;
+      const cancelledByPark = wasCancelled && this.stopReason === "park";
+      const shouldSurfaceCancelled = wasCancelled && !cancelledByPark;
 
       this._status = (exitCode === 0 || killedForBlockingTool) ? "idle" : "error";
+      this.stopReason = null;
       this.process = null;
       this.parser = null;
 
-      // Persist assistant message
-      if (assistantText || toolCalls.length > 0 || thinkingText) {
+      // Persist assistant message. For cancelled turns without any output,
+      // persist a synthetic message so session history still explains what happened.
+      if (assistantText || toolCalls.length > 0 || thinkingText || shouldSurfaceCancelled) {
         const assistantMsg: ChatMessage = {
           id: nanoid(12),
           sessionId: this.sessionId,
           role: "assistant",
-          content: assistantText,
+          content: assistantText || (shouldSurfaceCancelled ? CANCELLED_NO_OUTPUT_MESSAGE : ""),
           toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
           thinkingContent: thinkingText || undefined,
           timestamp: new Date().toISOString(),
-          cancelled: wasCancelled || undefined,
+          cancelled: shouldSurfaceCancelled || undefined,
           durationMs: resultDurationMs,
         };
         void this.enqueuePersist(assistantMsg);
@@ -383,12 +405,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
       void (async () => {
         await this.persistQueue;
-        if (wasCancelled) {
-          this.emit("message", { type: "cancelled" });
-        } else {
+        if (shouldSurfaceCancelled) {
+          this.emit("message", { type: "cancelled", sessionId: this.sessionId });
+        } else if (!cancelledByPark) {
           this.emit("message", {
             type: "done",
-            sessionId: this.claudeSessionId,
+            sessionId: this.sessionId,
             durationMs: resultDurationMs,
           });
         }
@@ -404,6 +426,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           }
           this.emit("message", {
             type: "tool_input_required",
+            sessionId: this.sessionId,
             requestId: nanoid(12),
             toolName: tool.name,
             toolUseId: tool.id,
@@ -417,11 +440,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   }
 
   /** Stop the currently streaming process. */
-  stop(): void {
+  stop(reason: StopReason = "user"): void {
     if (!this.process) {
       this.emit("exit", 0);
       return;
     }
+    this.stopReason = reason;
 
     this.process.kill("SIGTERM");
 
@@ -450,9 +474,30 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           .join(", ");
         return `${questionLabel} → ${optionLabels}`;
       }).join("\n");
-      this.sendMessage(`Here are my answers to your questions:\n${formatted}`);
+      const msg = `Here are my answers to your questions:\n${formatted}`;
+      if (this._lastPlanMode) {
+        this.sendMessage(msg, { planMode: true });
+      } else {
+        this.sendMessage(msg);
+      }
     } else if (toolName === "ExitPlanMode" && result.type === "approve") {
-      this.sendMessage("I approve the plan. Please proceed with implementation.");
+      this.sendMessage("approved");
+    } else if (toolName === "ExitPlanMode" && result.type === "dismiss") {
+      // Persist a user message without spawning a new CLI turn or emitting WS events.
+      // Used by "hand off" to record plan acknowledgment in the old session
+      // so the plan shows "approved" when the session is loaded later.
+      const userMsg: ChatMessage = {
+        id: nanoid(12),
+        sessionId: this.sessionId,
+        role: "user",
+        content: result.message || "Plan acknowledged.",
+        timestamp: new Date().toISOString(),
+      };
+      void this.enqueuePersist(userMsg);
+    } else if (toolName === "ExitPlanMode" && result.type === "reject") {
+      const feedback = result.message || "Please suggest an alternative approach.";
+      const cliPrompt = `${feedback}\n\nIMPORTANT: You are still in plan mode. Update the plan file in .claude/plans/ with these adjustments, then call ExitPlanMode to submit the updated plan for review. Do NOT modify any source code files directly.`;
+      this.sendMessage(feedback, { planMode: true }, undefined, cliPrompt);
     } else if (result.type === "reject") {
       this.sendMessage(result.message || "I reject this. Please suggest an alternative approach.");
     }
@@ -477,6 +522,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         // Non-fatal: keep queue alive for subsequent writes.
       });
     return this.persistQueue;
+  }
+
+  /** Persist metadata to disk immediately (e.g. right after creation). */
+  async persistMetadata(): Promise<void> {
+    await this.saveMetadata();
   }
 
   /** Save session metadata to disk. */

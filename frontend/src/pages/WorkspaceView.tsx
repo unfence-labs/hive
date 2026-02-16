@@ -26,7 +26,7 @@ import { ButtonGroup } from "@/components/ui/button-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
-import type { DiffStatResponse, Workspace, WorkspaceFileTreeNode } from "@/types";
+import type { DiffStatResponse, ImageAttachment, MessageOptions, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 const DEFAULT_EXPANDED = new Set<string>();
 
@@ -212,6 +212,7 @@ export default function WorkspaceView() {
     batchAnswerQuestions,
     approvePlan,
     rejectToolInput,
+    dismissPlan,
   } = useConversation(wsId);
 
   const { sessions, createSession, activateSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
@@ -295,6 +296,39 @@ export default function WorkspaceView() {
     setDiffModalFile(filePath);
     setDiffModalOpen(true);
   }, []);
+
+  const handleHandOff = useCallback(async (planContent: string, planPath?: string) => {
+    dismissPlan("Plan handed off to a new session.");
+    const meta = await createSession();
+    if (!meta) return;
+    await switchSession(meta.sessionId);
+    await refreshSessions();
+    const handoffPrompt = planPath
+      ? `Execute the approved plan from \`${planPath}\`. Read that file and implement it end-to-end.`
+      : `Here is the implementation plan to execute:\n\n${planContent}`;
+    sendMessage(handoffPrompt, undefined, undefined, meta.sessionId);
+  }, [dismissPlan, createSession, switchSession, refreshSessions, sendMessage]);
+
+  // Detect pending plan from explicit pending tool inputs OR from the last
+  // assistant message having an ExitPlanMode tool (fallback matching the
+  // isMessageInteractive heuristic in ChatConversation).
+  const lastMsg = messages[messages.length - 1];
+  const hasPendingPlan =
+    pendingToolInputs.some((p) => p.toolName === "ExitPlanMode") ||
+    (!isStreaming &&
+      lastMsg?.role === "assistant" &&
+      lastMsg?.toolCalls?.some((tc) => tc.name === "ExitPlanMode") === true);
+
+  const handleSend = useCallback(
+    (content: string, images?: ImageAttachment[], options?: MessageOptions): boolean => {
+      if (hasPendingPlan && pendingToolInputs.some((p) => p.toolName === "ExitPlanMode")) {
+        rejectToolInput(content);
+        return true;
+      }
+      return sendMessage(content, images, options);
+    },
+    [hasPendingPlan, pendingToolInputs, rejectToolInput, sendMessage],
+  );
 
   // sendMessage is already a stable callback from useConversation
   const handleAddToPrompt = sendMessage;
@@ -395,14 +429,13 @@ export default function WorkspaceView() {
             <ChatConversation
               messages={messages}
               isStreaming={isStreaming}
-              isAwaitingResponse={pendingToolInputs.length > 0}
               currentStreamingText={currentStreamingText}
               currentThinking={currentThinking}
               activeToolCalls={activeToolCalls}
               pendingToolInputs={pendingToolInputs}
               onQuestionAnswer={answerQuestion}
               onPlanApproval={approvePlan}
-              onRejectToolInput={rejectToolInput}
+              onHandOff={handleHandOff}
               workspaceName={workspace?.name}
               projectName={workspace?.projectName}
               branch={displayBranch}
@@ -418,11 +451,12 @@ export default function WorkspaceView() {
             ) : (
               <ChatInput
                 wsId={wsId}
-                onSend={sendMessage}
+                onSend={handleSend}
                 onStop={stopStreaming}
                 disabled={false}
                 isStreaming={isStreaming}
                 connectionStatus={connectionStatus}
+                placeholder={hasPendingPlan ? "Enter your plan adjustments here..." : undefined}
               />
             )}
           </div>

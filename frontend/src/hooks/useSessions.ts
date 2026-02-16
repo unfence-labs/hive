@@ -1,26 +1,38 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/hooks/useApi";
 import type { SessionMetadata } from "@/types";
 
 export function useSessions(workspaceId: string | undefined) {
   const [sessions, setSessions] = useState<SessionMetadata[]>([]);
   const [loading, setLoading] = useState(false);
+  const requestTokenRef = useRef(0);
 
   const fetchSessions = useCallback(async () => {
+    const requestToken = requestTokenRef.current + 1;
+    requestTokenRef.current = requestToken;
+
     if (!workspaceId) {
       setSessions([]);
+      setLoading(false);
       return;
     }
+
     setLoading(true);
     try {
       const result = await api.get<SessionMetadata[]>(
         `/api/workspaces/${workspaceId}/sessions`,
       );
-      setSessions(result);
+      if (requestTokenRef.current === requestToken) {
+        setSessions(result);
+      }
     } catch {
-      setSessions([]);
+      if (requestTokenRef.current === requestToken) {
+        setSessions([]);
+      }
     } finally {
-      setLoading(false);
+      if (requestTokenRef.current === requestToken) {
+        setLoading(false);
+      }
     }
   }, [workspaceId]);
 

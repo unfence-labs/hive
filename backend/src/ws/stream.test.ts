@@ -9,8 +9,10 @@ import { createProject } from "../projects/project-manager.js";
 import { createWorkspace } from "../workspaces/workspace-manager.js";
 import {
   getOrCreateSession,
+  getSessionById,
   createNewSession,
   sendMessage,
+  hardDeleteSession,
   endSession,
   _clearActiveSessions,
 } from "../agents/agent-manager.js";
@@ -125,6 +127,26 @@ function waitForMessage(
   });
 }
 
+/** Wait until an arbitrary condition is met. */
+function waitForCondition(
+  predicate: () => boolean,
+  timeoutMs = 3000,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const interval = setInterval(() => {
+      if (predicate()) {
+        clearInterval(interval);
+        clearTimeout(timeout);
+        resolve();
+      }
+    }, 20);
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+      reject(new Error("Timeout waiting for condition"));
+    }, timeoutMs);
+  });
+}
+
 describe("WS /ws/session/:wsId", () => {
   it("sends idle status when no session exists", async () => {
     const { wsReady, messages } = connectSessionWs(wsId);
@@ -182,7 +204,7 @@ describe("WS /ws/session/:wsId", () => {
     ws.close();
   });
 
-  it("sends busy status + history when session exists", async () => {
+  it("sends idle status + history when session exists but is not streaming", async () => {
     await getOrCreateSession(wsId, dataDir, CONV_CMD);
 
     const { wsReady, messages } = connectSessionWs(wsId);
@@ -192,7 +214,7 @@ describe("WS /ws/session/:wsId", () => {
 
     expect(messages[0].type).toBe("status");
     if (messages[0].type === "status") {
-      expect(messages[0].status).toBe("busy");
+      expect(messages[0].status).toBe("idle");
       expect(messages[0].sessionId).toBeTruthy();
       expect(messages[0].streaming).toBe(false);
     }
@@ -229,6 +251,104 @@ describe("WS /ws/session/:wsId", () => {
     await endSession(wsId, dataDir).catch(() => {});
   });
 
+  it("returns an error when user_message targets a deleted session id", async () => {
+    const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const deletedSessionId = session.sessionId;
+
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) => m.type === "status" && m.sessionId === deletedSessionId,
+        ),
+    );
+
+    await hardDeleteSession(wsId, deletedSessionId, dataDir);
+
+    const marker = messages.length;
+    ws.send(JSON.stringify({
+      type: "user_message",
+      content: "should fail",
+      sessionId: deletedSessionId,
+    }));
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) =>
+            m.type === "error" &&
+            m.message.includes(`Session ${deletedSessionId} not found`),
+        ),
+    );
+
+    expect(getSessionById(wsId, deletedSessionId)).toBeUndefined();
+    const busyForDeleted = messages
+      .slice(marker)
+      .some(
+        (m) =>
+          m.type === "status" &&
+          m.status === "busy" &&
+          m.sessionId === deletedSessionId,
+      );
+    expect(busyForDeleted).toBe(false);
+
+    ws.close();
+  });
+
+  it("returns an error when tool_input_response targets a deleted session id", async () => {
+    const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const deletedSessionId = session.sessionId;
+
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) => m.type === "status" && m.sessionId === deletedSessionId,
+        ),
+    );
+
+    await hardDeleteSession(wsId, deletedSessionId, dataDir);
+
+    const marker = messages.length;
+    ws.send(JSON.stringify({
+      type: "tool_input_response",
+      requestId: "req-missing-session",
+      toolName: "ExitPlanMode",
+      result: { type: "dismiss", message: "dismiss should fail" },
+      sessionId: deletedSessionId,
+    }));
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) =>
+            m.type === "error" &&
+            m.message.includes(`Session ${deletedSessionId} not found`),
+        ),
+    );
+
+    expect(getSessionById(wsId, deletedSessionId)).toBeUndefined();
+    const busyForDeleted = messages
+      .slice(marker)
+      .some(
+        (m) =>
+          m.type === "status" &&
+          m.status === "busy" &&
+          m.sessionId === deletedSessionId,
+      );
+    expect(busyForDeleted).toBe(false);
+
+    ws.close();
+  });
+
   it("accepts user_message options and keeps stream status busy", async () => {
     const { wsReady, messages } = connectSessionWs(wsId);
     const ws = await wsReady;
@@ -250,6 +370,81 @@ describe("WS /ws/session/:wsId", () => {
     await endSession(wsId, dataDir).catch(() => {});
   });
 
+  it("switches sessions without interrupting an already streaming session", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-sleep.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+
+    const local = await startWsApp(undefined, slowCmd);
+    const { wsReady, messages } = connectSessionWs(wsId, { address: local.address });
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.length >= 1);
+
+    ws.send(JSON.stringify({ type: "user_message", content: "first in session A" }));
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.some(
+        (m) =>
+          m.type === "status" &&
+          m.status === "busy" &&
+          m.streaming === true &&
+          typeof m.sessionId === "string",
+      ),
+    );
+
+    const firstBusy = [...messages].reverse().find(
+      (m) =>
+        m.type === "status" &&
+        m.status === "busy" &&
+        m.streaming === true &&
+        typeof m.sessionId === "string",
+    );
+    expect(firstBusy?.type).toBe("status");
+    if (!firstBusy || firstBusy.type !== "status" || !firstBusy.sessionId) {
+      throw new Error("Expected first streaming status with session id");
+    }
+    const firstSessionId = firstBusy.sessionId;
+
+    const secondSession = await createNewSession(wsId, dataDir, slowCmd);
+    ws.send(JSON.stringify({ type: "switch_session", sessionId: secondSession.sessionId }));
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) =>
+            m.type === "status" &&
+            (m.status === "busy" || m.status === "idle") &&
+            m.sessionId === secondSession.sessionId,
+        ),
+    );
+
+    ws.send(JSON.stringify({
+      type: "user_message",
+      content: "second in session B",
+      sessionId: secondSession.sessionId,
+    }));
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) =>
+            m.type === "status" &&
+            m.status === "busy" &&
+            m.sessionId === secondSession.sessionId &&
+            m.streaming === true,
+        ),
+    );
+
+    expect(getSessionById(wsId, firstSessionId)?.status).toBe("streaming");
+    expect(getSessionById(wsId, secondSession.sessionId)?.status).toBe("streaming");
+
+    ws.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
   it("accepts tool_input_response and keeps stream status busy", async () => {
     const { wsReady, messages } = connectSessionWs(wsId);
     const ws = await wsReady;
@@ -267,6 +462,61 @@ describe("WS /ws/session/:wsId", () => {
       messages,
       (msgs) => msgs.some((m) => m.type === "status" && m.status === "busy" && m.streaming === true),
     );
+
+    ws.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
+  it("routes dismiss responses to the originating session after handoff", async () => {
+    const { session: oldSession } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const oldRespondSpy = vi.spyOn(oldSession, "respondToToolInput");
+
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.some((m) => m.type === "status" && typeof m.sessionId === "string"),
+    );
+
+    oldSession.emit("message", {
+      type: "tool_input_required",
+      sessionId: oldSession.sessionId,
+      requestId: "req-dismiss",
+      toolName: "ExitPlanMode",
+      toolUseId: "toolu-plan",
+      input: { plan: "Plan A" },
+    });
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) =>
+            m.type === "tool_input_required" &&
+            m.requestId === "req-dismiss" &&
+            m.toolName === "ExitPlanMode",
+        ),
+    );
+
+    const newSession = await createNewSession(wsId, dataDir, CONV_CMD);
+    const newRespondSpy = vi.spyOn(newSession, "respondToToolInput");
+
+    ws.send(JSON.stringify({
+      type: "tool_input_response",
+      requestId: "req-dismiss",
+      toolName: "ExitPlanMode",
+      result: { type: "dismiss", message: "Plan handed off to a new session." },
+      sessionId: oldSession.sessionId,
+    }));
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(oldRespondSpy).toHaveBeenCalledWith(
+      "ExitPlanMode",
+      { type: "dismiss", message: "Plan handed off to a new session." },
+    );
+    expect(newRespondSpy).not.toHaveBeenCalled();
 
     ws.close();
     await endSession(wsId, dataDir).catch(() => {});
@@ -377,6 +627,140 @@ describe("WS /ws/session/:wsId", () => {
     ws1.close();
     ws2.close();
     await endSession(wsId, dataDir);
+  });
+
+  it("routes session-scoped status updates only to sockets focused on that session", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-focus.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 6\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+
+    const local = await startWsApp(undefined, slowCmd);
+    const first = connectSessionWs(wsId, { address: local.address });
+    const second = connectSessionWs(wsId, { address: local.address });
+    const ws1 = await first.wsReady;
+    const ws2 = await second.wsReady;
+
+    await waitForMessage(first.messages, (msgs) => msgs.some((m) => m.type === "status"));
+    await waitForMessage(second.messages, (msgs) => msgs.some((m) => m.type === "status"));
+
+    ws1.send(JSON.stringify({ type: "user_message", content: "session-a" }));
+    await waitForMessage(
+      first.messages,
+      (msgs) => msgs.some(
+        (m) =>
+          m.type === "status" &&
+          m.status === "busy" &&
+          m.streaming === true &&
+          typeof m.sessionId === "string",
+      ),
+    );
+
+    const firstBusy = [...first.messages].reverse().find(
+      (m) =>
+        m.type === "status" &&
+        m.status === "busy" &&
+        m.streaming === true &&
+        typeof m.sessionId === "string",
+    );
+    expect(firstBusy?.type).toBe("status");
+    if (!firstBusy || firstBusy.type !== "status" || !firstBusy.sessionId) {
+      throw new Error("Expected first session busy status with sessionId");
+    }
+    const firstSessionId = firstBusy.sessionId;
+
+    const secondSession = await createNewSession(wsId, dataDir, slowCmd);
+    ws2.send(JSON.stringify({ type: "switch_session", sessionId: secondSession.sessionId }));
+    await waitForMessage(
+      second.messages,
+      (msgs) => msgs.some(
+        (m) => m.type === "status" && m.sessionId === secondSession.sessionId,
+      ),
+    );
+
+    const firstMarker = first.messages.length;
+    const secondMarker = second.messages.length;
+    ws2.send(JSON.stringify({
+      type: "user_message",
+      content: "session-b",
+      sessionId: secondSession.sessionId,
+    }));
+
+    await waitForMessage(
+      second.messages,
+      (msgs) =>
+        msgs.slice(secondMarker).some(
+          (m) =>
+            m.type === "status" &&
+            m.status === "busy" &&
+            m.streaming === true &&
+            m.sessionId === secondSession.sessionId,
+        ),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    const leakedToFirstSocket = first.messages.slice(firstMarker).some(
+      (m) =>
+        m.type === "status" &&
+        m.status === "busy" &&
+        m.sessionId === secondSession.sessionId,
+    );
+    expect(leakedToFirstSocket).toBe(false);
+    expect(getSessionById(wsId, firstSessionId)?.status).toBe("streaming");
+    expect(getSessionById(wsId, secondSession.sessionId)?.status).toBe("streaming");
+
+    ws1.close();
+    ws2.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
+  it("keeps workspace channels isolated across concurrent workspace streams", async () => {
+    const otherWorkspace = await createWorkspace(projectId, dataDir);
+    const first = connectSessionWs(wsId);
+    const second = connectSessionWs(otherWorkspace.id);
+    const ws1 = await first.wsReady;
+    const ws2 = await second.wsReady;
+
+    await waitForMessage(first.messages, (msgs) => msgs.some((m) => m.type === "status"));
+    await waitForMessage(second.messages, (msgs) => msgs.some((m) => m.type === "status"));
+
+    const secondStartCount = second.messages.length;
+    ws1.send(JSON.stringify({ type: "user_message", content: "workspace-one-message" }));
+
+    await waitForMessage(
+      first.messages,
+      (msgs) => msgs.some((m) => m.type === "user_message"),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    const leakedToOtherWorkspace = second.messages.slice(secondStartCount).some(
+      (m) => m.type === "user_message" || (m.type === "status" && m.status === "busy"),
+    );
+    expect(leakedToOtherWorkspace).toBe(false);
+
+    ws1.close();
+    ws2.close();
+    await endSession(wsId, dataDir).catch(() => {});
+    await endSession(otherWorkspace.id, dataDir).catch(() => {});
+  });
+
+  it("keeps a workspace channel until the last socket closes, then removes it", async () => {
+    const first = connectSessionWs(wsId);
+    const second = connectSessionWs(wsId);
+    const ws1 = await first.wsReady;
+    const ws2 = await second.wsReady;
+
+    await waitForMessage(first.messages, (msgs) => msgs.some((m) => m.type === "status"));
+    await waitForMessage(second.messages, (msgs) => msgs.some((m) => m.type === "status"));
+    await waitForCondition(() => _getChannelsForTests().get(wsId)?.sockets.size === 2);
+
+    ws1.close();
+    await waitForCondition(() => _getChannelsForTests().get(wsId)?.sockets.size === 1);
+    expect(_getChannelsForTests().has(wsId)).toBe(true);
+
+    ws2.close();
+    await waitForCondition(() => !_getChannelsForTests().has(wsId));
   });
 
   it("does not broadcast stale idle status when a session is replaced", async () => {
@@ -583,13 +967,13 @@ describe("WS /ws/session/:wsId", () => {
     await waitForMessage(
       messages,
       (msgs) =>
-        msgs.some((m) => m.type === "status" && m.status === "busy") &&
+        msgs.some((m) => m.type === "status" && (m.status === "busy" || m.status === "idle")) &&
         msgs.some((m) => m.type === "branch_info") &&
         msgs.some((m) => m.type === "diff_stats"),
     );
 
     expect(messages[0]).toEqual(
-      expect.objectContaining({ type: "status", status: "busy" }),
+      expect.objectContaining({ type: "status", status: "idle" }),
     );
     expect(messages).toContainEqual({ type: "branch_info", info: branchInfo });
     expect(messages).toContainEqual({ type: "diff_stats", stats: diffStats });

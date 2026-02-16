@@ -25,6 +25,7 @@ interface ChatInputProps {
   disabled: boolean;
   isStreaming: boolean;
   connectionStatus: "connecting" | "connected" | "disconnected";
+  placeholder?: string;
 }
 
 interface AutocompleteState {
@@ -61,6 +62,7 @@ export default function ChatInput({
   disabled,
   isStreaming,
   connectionStatus,
+  placeholder: customPlaceholder,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [thinkingEnabled, setThinkingEnabled] = useState(true);
@@ -187,7 +189,7 @@ export default function ChatInput({
           <ChatInputAttachments onFileCountChange={setFileCount} attachmentsRef={attachmentsRef} />
           <PromptInputTextarea
             className="min-h-[100px] max-h-40 text-sm placeholder:text-muted-foreground/40"
-            placeholder={isDisconnected ? "Reconnecting..." : "Send a message..."}
+            placeholder={isDisconnected ? "Reconnecting..." : (customPlaceholder ?? "Send a message...")}
             value={value}
             onChange={handleChange}
             onKeyDown={handleKeyDown}

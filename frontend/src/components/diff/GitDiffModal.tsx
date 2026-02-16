@@ -24,7 +24,12 @@ import {
   type DiffLineAnnotation,
   type FileDiffMetadata,
 } from "@pierre/diffs";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Tooltip,
   TooltipTrigger,
@@ -540,6 +545,9 @@ export function GitDiffModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex !h-dvh !max-h-none !w-screen !max-w-screen flex-col overflow-hidden !rounded-none bg-background/95 p-0 backdrop-blur-sm sm:!h-[85vh] sm:!w-[calc(100vw-4rem)] sm:!max-w-[calc(100vw-4rem)] sm:!rounded-lg sm:p-4">
+        <DialogDescription className="sr-only">
+          Review changed files for this workspace and add line comments before sending instructions.
+        </DialogDescription>
         <TooltipProvider>
         <DialogTitle className="flex items-center gap-2 shrink-0">
           <FileTextIcon className="h-4 w-4" />

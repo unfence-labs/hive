@@ -6,21 +6,24 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { ToolCallList } from "@/components/chat/ToolCallList";
 import { CopyButton } from "@/components/chat/CopyButton";
+import type { PlanStatus } from "@/components/chat/PlanProposal";
 
 interface ChatMessageProps {
   message: ChatMessageType;
   isInteractive?: boolean;
+  planStatus?: PlanStatus;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onPlanApproval?: () => void;
-  onRejectToolInput?: (message?: string) => void;
+  onHandOff?: (planContent: string, planPath?: string) => void;
 }
 
 const ChatMessage = memo(function ChatMessage({
   message,
   isInteractive = false,
+  planStatus,
   onQuestionAnswer,
   onPlanApproval,
-  onRejectToolInput,
+  onHandOff,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
 
@@ -68,9 +71,10 @@ const ChatMessage = memo(function ChatMessage({
               <ToolCallList
                 toolCalls={message.toolCalls}
                 isInteractive={isInteractive}
+                planStatus={planStatus}
                 onQuestionAnswer={onQuestionAnswer}
                 onPlanApproval={onPlanApproval}
-                onRejectToolInput={onRejectToolInput}
+                onHandOff={onHandOff}
               />
             )}
             {message.cancelled && (

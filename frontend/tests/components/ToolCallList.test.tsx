@@ -31,19 +31,20 @@ describe("ToolCallList", () => {
     expect(screen.getByText("Bash")).toBeInTheDocument();
   });
 
-  it("renders ExitPlanMode action and calls approval callback", async () => {
+  it("renders ExitPlanMode as PlanProposal and calls approval callback", async () => {
     const user = userEvent.setup();
     const onPlanApproval = vi.fn();
 
     render(
       <ToolCallList
-        toolCalls={[tool({ name: "ExitPlanMode" })]}
+        toolCalls={[tool({ name: "ExitPlanMode", input: JSON.stringify({ plan: "Test plan content" }) })]}
         isInteractive
         onPlanApproval={onPlanApproval}
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Approve Plan" }));
+    expect(screen.getByText("Proposed plan")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Accept" }));
 
     expect(onPlanApproval).toHaveBeenCalledTimes(1);
   });
@@ -182,7 +183,7 @@ describe("ToolCallList", () => {
           tool({ name: "Read", input: JSON.stringify({ file_path: "/a.ts" }) }),
           tool({ name: "Grep", input: JSON.stringify({ pattern: "foo" }) }),
           tool({ name: "Bash", input: JSON.stringify({ command: "ls" }) }),
-          tool({ name: "ExitPlanMode" }),
+          tool({ name: "ExitPlanMode", input: JSON.stringify({ plan: "Test plan" }) }),
         ]}
         isInteractive
         onPlanApproval={onPlanApproval}
@@ -193,8 +194,9 @@ describe("ToolCallList", () => {
     expect(screen.getByText("3 tool calls")).toBeInTheDocument();
     expect(screen.queryByText("Read")).not.toBeInTheDocument();
 
-    // Interactive tool always visible
-    expect(screen.getByRole("button", { name: "Approve Plan" })).toBeInTheDocument();
+    // PlanProposal always visible with Accept button
+    expect(screen.getByText("Proposed plan")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument();
   });
 
   it("handles singular tool call label", () => {

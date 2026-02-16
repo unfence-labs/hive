@@ -36,6 +36,7 @@ vi.mock("@/lib/ws-transport", () => {
   const messageHandlers = new Map<string, Set<(msg: WsOutgoing) => void>>();
   const statusListeners = new Map<string, Set<() => void>>();
   const replayMessages = new Map<string, WsOutgoing[]>();
+  const bufferedFlags = new Map<string, boolean>();
 
   const getSet = <T,>(source: Map<string, Set<T>>, workspaceId: string) => {
     const existing = source.get(workspaceId);
@@ -72,7 +73,7 @@ vi.mock("@/lib/ws-transport", () => {
       }
       return {
         unsubscribe: () => { getSet(messageHandlers, workspaceId).delete(handler); },
-        hadBufferedMessages: false,
+        hadBufferedMessages: bufferedFlags.get(workspaceId) ?? false,
       };
     }),
     subscribe: (workspaceId: string, listener: () => void) => {
@@ -93,6 +94,7 @@ vi.mock("@/lib/ws-transport", () => {
       messageHandlers.clear();
       statusListeners.clear();
       replayMessages.clear();
+      bufferedFlags.clear();
       wsTransport.connect.mockClear();
       wsTransport.disconnect.mockClear();
       wsTransport.syncWorkspaces.mockClear();
@@ -102,6 +104,9 @@ vi.mock("@/lib/ws-transport", () => {
     },
     setReplay: (workspaceId: string, messages: WsOutgoing[]) => {
       replayMessages.set(workspaceId, messages);
+    },
+    setBuffered: (workspaceId: string, value: boolean) => {
+      bufferedFlags.set(workspaceId, value);
     },
     sendMock: wsTransport.send,
     connectMock: wsTransport.connect,
@@ -117,6 +122,7 @@ const getWsMock = async () =>
       emit: (workspaceId: string, msg: WsOutgoing) => void;
       reset: () => void;
       setReplay: (workspaceId: string, messages: WsOutgoing[]) => void;
+      setBuffered: (workspaceId: string, value: boolean) => void;
       sendMock: ReturnType<typeof vi.fn>;
       connectMock: ReturnType<typeof vi.fn>;
       disconnectMock: ReturnType<typeof vi.fn>;
@@ -177,6 +183,21 @@ describe("useConversation", () => {
       type: "user_message",
       content: "hello",
       options: { planMode: true, thinkingEnabled: false },
+    });
+  });
+
+  it("can target an explicit session id when sending a message", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      result.current.sendMessage("run in target", undefined, undefined, "sess-target");
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenCalledWith("ws-1", {
+      type: "user_message",
+      content: "run in target",
+      sessionId: "sess-target",
     });
   });
 
@@ -248,6 +269,51 @@ describe("useConversation", () => {
     expect(result.current.messages.at(-1)?.role).toBe("assistant");
     expect(result.current.messages.at(-1)?.content).toBe("Hi there");
     expect(result.current.sessionId).toBe("sess-1");
+  });
+
+  it("resyncs persisted session history on done to recover missed deltas", async () => {
+    const { __wsMock } = await getWsMock();
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock.mockResolvedValueOnce([]);
+    __apiMock.getMock.mockResolvedValueOnce([
+      {
+        id: "u1",
+        sessionId: "sess-1",
+        role: "user",
+        content: "start",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      },
+      {
+        id: "a1",
+        sessionId: "sess-1",
+        role: "assistant",
+        content: "final answer from persistence",
+        timestamp: "2026-02-12T00:00:01.000Z",
+      },
+    ]);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "start",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      // No text_delta received (simulates session unfocused while streaming).
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
+    });
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(2);
+      expect(result.current.messages.at(-1)?.content).toBe("final answer from persistence");
+    });
+    expect(__apiMock.getMock).toHaveBeenNthCalledWith(2, "/api/workspaces/ws-1/sessions/sess-1/messages");
   });
 
   it("preserves parentToolUseId from tool_use events in active and persisted tool calls", async () => {
@@ -468,6 +534,39 @@ describe("useConversation", () => {
     });
   });
 
+  it("includes current sessionId in tool input responses when available", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-42",
+        streaming: false,
+      });
+      __wsMock.emit("ws-1", {
+        type: "tool_input_required",
+        requestId: "req-42",
+        toolName: "ExitPlanMode",
+        toolUseId: "tool-42",
+        input: {},
+      });
+    });
+
+    act(() => {
+      result.current.approvePlan();
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
+      type: "tool_input_response",
+      requestId: "req-42",
+      toolName: "ExitPlanMode",
+      result: { type: "approve" },
+      sessionId: "sess-42",
+    });
+  });
+
   it("hydrates persisted history after mount even when websocket replays stale history", async () => {
     const { __wsMock } = await getWsMock();
     const { __apiMock } = await getApiMock();
@@ -511,6 +610,48 @@ describe("useConversation", () => {
     expect(result.current.messages[0]?.content).toBe("hello");
     expect(result.current.messages[1]?.role).toBe("assistant");
     expect(result.current.messages[1]?.content).toBe("world");
+  });
+
+  it("does not overwrite replayed buffered state when transport reports buffered messages", async () => {
+    const { __wsMock } = await getWsMock();
+    const { __apiMock } = await getApiMock();
+
+    __wsMock.setReplay("ws-1", [{
+      type: "history",
+      sessionId: "sess-buffered",
+      messages: [
+        {
+          id: "m-buffered",
+          sessionId: "sess-buffered",
+          role: "assistant",
+          content: "latest from buffered websocket",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      ],
+    }]);
+    __wsMock.setBuffered("ws-1", true);
+
+    __apiMock.getMock.mockResolvedValueOnce([
+      {
+        id: "m-stale",
+        sessionId: "sess-buffered",
+        role: "assistant",
+        content: "stale from disk",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      },
+    ]);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(1);
+    });
+    expect(result.current.messages[0]?.content).toBe("latest from buffered websocket");
+
+    await waitFor(() => {
+      expect(__apiMock.getMock).toHaveBeenCalledWith("/api/workspaces/ws-1/session/messages");
+    });
+    expect(result.current.messages[0]?.content).toBe("latest from buffered websocket");
   });
 
   it("does not overwrite backend user message with a late history request", async () => {
@@ -571,18 +712,98 @@ describe("useConversation", () => {
     expect(result.current.sessionId).toBe("sess-hydrated");
   });
 
-  it("switches sessions and loads specific session history", async () => {
+  it("rehydrates AskUserQuestion pending input from history when WS request event was missed", async () => {
     const { __apiMock } = await getApiMock();
-    __apiMock.getMock.mockResolvedValueOnce([]);
     __apiMock.getMock.mockResolvedValueOnce([
       {
-        id: "m-1",
-        sessionId: "sess-2",
+        id: "u1",
+        sessionId: "sess-q",
+        role: "user",
+        content: "ask me",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      },
+      {
+        id: "a1",
+        sessionId: "sess-q",
         role: "assistant",
-        content: "loaded from target session",
+        content: "",
         timestamp: "2026-02-12T00:00:01.000Z",
+        toolCalls: [
+          {
+            id: "tool-q1",
+            name: "AskUserQuestion",
+            input: JSON.stringify({
+              questions: [
+                {
+                  question: "Choisis un mode",
+                  multiSelect: false,
+                  options: [{ label: "A", description: "Option A" }],
+                },
+              ],
+            }),
+          },
+        ],
       },
     ]);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    await waitFor(() => {
+      expect(result.current.pendingToolInputs).toHaveLength(1);
+    });
+    expect(result.current.pendingToolInputs[0]).toEqual(
+      expect.objectContaining({
+        requestId: "history-tool-q1",
+        toolName: "AskUserQuestion",
+        toolUseId: "tool-q1",
+      }),
+    );
+  });
+
+  it("rehydrates ExitPlanMode pending input from history when WS request event was missed", async () => {
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock.mockResolvedValueOnce([
+      {
+        id: "u1",
+        sessionId: "sess-plan",
+        role: "user",
+        content: "plan stp",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      },
+      {
+        id: "a1",
+        sessionId: "sess-plan",
+        role: "assistant",
+        content: "Voici un plan",
+        timestamp: "2026-02-12T00:00:01.000Z",
+        toolCalls: [
+          {
+            id: "tool-plan-1",
+            name: "ExitPlanMode",
+            input: JSON.stringify({ plan: "Step 1\nStep 2" }),
+          },
+        ],
+      },
+    ]);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    await waitFor(() => {
+      expect(result.current.pendingToolInputs).toHaveLength(1);
+    });
+    expect(result.current.pendingToolInputs[0]).toEqual(
+      expect.objectContaining({
+        requestId: "history-tool-plan-1",
+        toolName: "ExitPlanMode",
+        toolUseId: "tool-plan-1",
+      }),
+    );
+  });
+
+  it("switches sessions and loads specific session history", async () => {
+    const { __apiMock } = await getApiMock();
+    const { __wsMock } = await getWsMock();
+    __apiMock.getMock.mockResolvedValueOnce([]);
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -590,7 +811,23 @@ describe("useConversation", () => {
       await result.current.switchSession("sess-2");
     });
 
-    expect(__apiMock.getMock).toHaveBeenNthCalledWith(2, "/api/workspaces/ws-1/sessions/sess-2/messages");
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "history",
+        sessionId: "sess-2",
+        messages: [
+          {
+            id: "m-1",
+            sessionId: "sess-2",
+            role: "assistant",
+            content: "loaded from target session",
+            timestamp: "2026-02-12T00:00:01.000Z",
+          },
+        ],
+      });
+    });
+
+    expect(__apiMock.getMock).toHaveBeenCalledTimes(1);
     expect(result.current.messages).toEqual([
       expect.objectContaining({ id: "m-1", content: "loaded from target session" }),
     ]);
@@ -615,25 +852,8 @@ describe("useConversation", () => {
 
   it("ignores stale session history response when switching rapidly", async () => {
     const { __apiMock } = await getApiMock();
-    let resolveFirstSwitch: ((messages: ChatMessage[]) => void) | undefined;
-
-    __apiMock.getMock
-      .mockResolvedValueOnce([])
-      .mockImplementationOnce(
-        () =>
-          new Promise<ChatMessage[]>((resolve) => {
-            resolveFirstSwitch = resolve;
-          }),
-      )
-      .mockResolvedValueOnce([
-        {
-          id: "m-new",
-          sessionId: "sess-new",
-          role: "assistant",
-          content: "new session payload",
-          timestamp: "2026-02-12T00:00:02.000Z",
-        },
-      ]);
+    const { __wsMock } = await getWsMock();
+    __apiMock.getMock.mockResolvedValueOnce([]);
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -646,15 +866,32 @@ describe("useConversation", () => {
     });
 
     act(() => {
-      resolveFirstSwitch?.([
-        {
-          id: "m-old",
-          sessionId: "sess-old",
-          role: "assistant",
-          content: "stale payload",
-          timestamp: "2026-02-12T00:00:03.000Z",
-        },
-      ]);
+      __wsMock.emit("ws-1", {
+        type: "history",
+        sessionId: "sess-old",
+        messages: [
+          {
+            id: "m-old",
+            sessionId: "sess-old",
+            role: "assistant",
+            content: "stale payload",
+            timestamp: "2026-02-12T00:00:03.000Z",
+          },
+        ],
+      });
+      __wsMock.emit("ws-1", {
+        type: "history",
+        sessionId: "sess-new",
+        messages: [
+          {
+            id: "m-new",
+            sessionId: "sess-new",
+            role: "assistant",
+            content: "new session payload",
+            timestamp: "2026-02-12T00:00:02.000Z",
+          },
+        ],
+      });
     });
 
     await waitFor(() => {
@@ -871,7 +1108,7 @@ describe("useConversation", () => {
     expect(result.current.activeToolCalls[0]?.output).toBe("file contents");
   });
 
-  it("does not create cancelled message when no content was produced", async () => {
+  it("creates an explicit cancelled message when no content was produced", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -892,9 +1129,25 @@ describe("useConversation", () => {
       __wsMock.emit("ws-1", { type: "cancelled" });
     });
 
-    // Only the user message should be there, no empty cancelled assistant message
-    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages).toHaveLength(2);
     expect(result.current.messages[0]?.role).toBe("user");
+    expect(result.current.messages[1]).toEqual(expect.objectContaining({
+      role: "assistant",
+      cancelled: true,
+      content: "Generation interrupted before any output.",
+    }));
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("ignores stale cancelled events when no stream is active", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "cancelled" });
+    });
+
+    expect(result.current.messages).toEqual([]);
     expect(result.current.isStreaming).toBe(false);
   });
 
@@ -961,6 +1214,58 @@ describe("useConversation", () => {
 
     // No tool_input_response should be sent
     expect(__wsMock.sendMock).not.toHaveBeenCalled();
+  });
+
+  it("sends dismiss plan response using pending ExitPlanMode request id", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "tool_input_required",
+        requestId: "req-dismiss",
+        toolName: "ExitPlanMode",
+        toolUseId: "tool-dismiss",
+        input: {},
+      });
+    });
+
+    act(() => {
+      result.current.dismissPlan("Plan handed off to a new session.");
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
+      type: "tool_input_response",
+      requestId: "req-dismiss",
+      toolName: "ExitPlanMode",
+      result: { type: "dismiss", message: "Plan handed off to a new session." },
+    });
+  });
+
+  it("sends dismiss plan response even without pending inputs (fallback interactive state)", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-fallback",
+        streaming: false,
+      });
+    });
+
+    act(() => {
+      result.current.dismissPlan("Plan handed off to a new session.");
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
+      type: "tool_input_response",
+      requestId: "",
+      toolName: "ExitPlanMode",
+      result: { type: "dismiss", message: "Plan handed off to a new session." },
+      sessionId: "sess-fallback",
+    });
   });
 
   it("sendMessage returns false and sets error when no workspace", () => {

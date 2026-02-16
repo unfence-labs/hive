@@ -14,18 +14,18 @@ import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
 import type { ChatMessage as ChatMessageType, ToolCall, QuestionAnswer } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
+import type { PlanStatus } from "@/components/chat/PlanProposal";
 
 interface ChatConversationProps {
   messages: ChatMessageType[];
   isStreaming: boolean;
-  isAwaitingResponse?: boolean;
   currentStreamingText: string;
   currentThinking: string;
   activeToolCalls: ToolCall[];
   pendingToolInputs?: PendingToolInput[];
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onPlanApproval?: () => void;
-  onRejectToolInput?: (message?: string) => void;
+  onHandOff?: (planContent: string, planPath?: string) => void;
   workspaceName?: string;
   projectName?: string;
   branch?: string;
@@ -36,26 +36,24 @@ interface ChatConversationProps {
 export default function ChatConversation({
   messages,
   isStreaming,
-  isAwaitingResponse = false,
   currentStreamingText,
   currentThinking,
   activeToolCalls,
   pendingToolInputs = [],
   onQuestionAnswer,
   onPlanApproval,
-  onRejectToolInput,
+  onHandOff,
   workspaceName,
   projectName,
   branch,
   defaultBranch,
   fileCount,
 }: ChatConversationProps) {
-  const isActive = isStreaming || isAwaitingResponse;
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef(0);
 
   useEffect(() => {
-    if (!isActive) {
+    if (!isStreaming) {
       setElapsed(0);
       return;
     }
@@ -63,7 +61,7 @@ export default function ChatConversation({
     setElapsed(0);
     const id = setInterval(() => setElapsed(Date.now() - startRef.current), 100);
     return () => clearInterval(id);
-  }, [isActive]);
+  }, [isStreaming]);
 
   const hasContent = messages.length > 0 || isStreaming;
 
@@ -84,6 +82,17 @@ export default function ChatConversation({
       return msg.toolCalls?.some((tc) => pendingToolUseIds.has(tc.id)) ?? false;
     }
     return idx === lastAssistantIdx && !hasUserAfterLast;
+  };
+
+  const getPlanStatus = (msg: ChatMessageType, idx: number): PlanStatus | undefined => {
+    const hasExitPlanMode = msg.toolCalls?.some((tc) => tc.name === "ExitPlanMode");
+    if (!hasExitPlanMode) return undefined;
+    if (isMessageInteractive(msg, idx)) return "interactive";
+    // "Revised" only if a later assistant message also proposes a plan
+    const hasLaterPlan = messages.slice(idx + 1).some(
+      (m) => m.role === "assistant" && m.toolCalls?.some((tc) => tc.name === "ExitPlanMode"),
+    );
+    return hasLaterPlan ? "revised" : "approved";
   };
 
   return (
@@ -112,9 +121,10 @@ export default function ChatConversation({
             key={msg.id ?? `${msg.timestamp}-${i}`}
             message={msg}
             isInteractive={isMessageInteractive(msg, i)}
+            planStatus={getPlanStatus(msg, i)}
             onQuestionAnswer={onQuestionAnswer}
             onPlanApproval={onPlanApproval}
-            onRejectToolInput={onRejectToolInput}
+            onHandOff={onHandOff}
           />
         ))}
 
@@ -136,14 +146,14 @@ export default function ChatConversation({
                 showExecutingState
                 onQuestionAnswer={onQuestionAnswer}
                 onPlanApproval={onPlanApproval}
-                onRejectToolInput={onRejectToolInput}
+                onHandOff={onHandOff}
               />
             </div>
           </div>
         )}
 
-        {/* Live elapsed timer while streaming */}
-        {isActive && (
+        {/* Live elapsed timer while streaming (not while awaiting user input) */}
+        {isStreaming && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <AgentActivityPreview size="small" />
             <span>{formatElapsed(elapsed)}</span>

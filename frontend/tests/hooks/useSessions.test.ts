@@ -162,4 +162,33 @@ describe("useSessions", () => {
     expect(api.get).toHaveBeenCalledTimes(2);
     expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-3")]);
   });
+
+  it("ignores stale session list responses when requests resolve out of order", async () => {
+    let resolveFirstFetch: ((value: SessionMetadata[]) => void) | undefined;
+    vi.mocked(api.get)
+      .mockImplementationOnce(
+        () =>
+          new Promise<SessionMetadata[]>((resolve) => {
+            resolveFirstFetch = resolve;
+          }),
+      )
+      .mockResolvedValueOnce([makeSession("sess-1"), makeSession("sess-2")]);
+
+    const { result } = renderHook(() => useSessions("ws-1"));
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-2")]);
+
+    act(() => {
+      resolveFirstFetch?.([makeSession("sess-1")]);
+    });
+
+    await waitFor(() => {
+      expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-2")]);
+      expect(result.current.loading).toBe(false);
+    });
+  });
 });

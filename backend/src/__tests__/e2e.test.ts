@@ -260,14 +260,14 @@ describe("E2E: conversation-only lifecycle", () => {
       wsClient.on("error", reject);
     });
 
-    // Wait for initial busy status
+    // Wait for initial status from existing, non-streaming session
     await new Promise<void>((resolve) => {
       const check = setInterval(() => {
         if (messages.length >= 1) { clearInterval(check); resolve(); }
       }, 20);
       setTimeout(() => { clearInterval(check); resolve(); }, 2000);
     });
-    expect(messages[0]).toMatchObject({ type: "status", status: "busy" });
+    expect(messages[0]).toMatchObject({ type: "status", status: "idle" });
 
     // End session via HTTP DELETE
     const endRes = await app.inject({
@@ -288,7 +288,7 @@ describe("E2E: conversation-only lifecycle", () => {
     });
 
     const idleMsg = messages.find((m) => m.type === "status" && m.status === "idle");
-    expect(idleMsg).toEqual({ type: "status", status: "idle", streaming: false });
+    expect(idleMsg).toMatchObject({ type: "status", status: "idle", streaming: false });
 
     wsClient.close();
   }, 15000);
