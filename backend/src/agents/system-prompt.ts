@@ -9,13 +9,6 @@ export interface GitContext {
   defaultBranch: string;
 }
 
-export interface BranchRenameDirective {
-  /** Prefix for the branch name (e.g. "feat/", "user/") */
-  prefix?: string;
-  /** Max length for the branch name (default: 40) */
-  maxLength?: number;
-}
-
 export interface SystemPromptOptions {
   cwd: string;
   workspaceName?: string;
@@ -23,8 +16,6 @@ export interface SystemPromptOptions {
   basePrompt?: string;
   /** Pre-resolved default branch (from bare repo). Skips detection if provided. */
   defaultBranch?: string;
-  /** If set, instructs Claude to rename the branch based on the task. */
-  branchRename?: BranchRenameDirective;
   /** Path to prompts directory (e.g. ~/.hive/prompts). Loads base.md from disk. */
   promptsDir?: string;
 }
@@ -87,7 +78,7 @@ export async function getGitContext(cwd: string, defaultBranchOverride?: string)
  * Build a system prompt by merging a base prompt with dynamic git context.
  */
 export async function buildSystemPrompt(opts: SystemPromptOptions): Promise<string> {
-  const { cwd, workspaceName, projectName, defaultBranch, branchRename, promptsDir } = opts;
+  const { cwd, workspaceName, projectName, defaultBranch, promptsDir } = opts;
 
   const ctx = await getGitContext(cwd, defaultBranch);
 
@@ -107,22 +98,6 @@ export async function buildSystemPrompt(opts: SystemPromptOptions): Promise<stri
     .replace(/\{PROJECT}/g, projectName ?? "unknown");
 
   const sections: string[] = [basePrompt];
-
-  // Branch rename directive
-  if (branchRename) {
-    const maxLen = branchRename.maxLength ?? 40;
-    const lines = [
-      "# Branch Naming",
-      "",
-      "Use `git branch -m` to rename the current branch immediately before doing anything else.",
-      "Choose a concise, descriptive name based on the task (e.g. \"add-auth-middleware\", \"fix-login-redirect\").",
-      `Keep it under ${maxLen} characters. Use kebab-case.`,
-    ];
-    if (branchRename.prefix) {
-      lines.push(`Use the prefix "${branchRename.prefix}" (e.g. "${branchRename.prefix}fix-login-bug").`);
-    }
-    sections.push(lines.join("\n"));
-  }
 
   // Git context (includes project/workspace info)
   const gitLines: string[] = [

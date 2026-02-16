@@ -5,6 +5,7 @@ import { buildSystemPrompt } from "./system-prompt.js";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { saveProject, getDataDir, loadProject, withProjectStateLock } from "../state/state.js";
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
+import { runNamingTask } from "./naming.js";
 import { NotFoundError } from "../utils/errors.js";
 import type { ChatMessage, SessionMetadata } from "../types.js";
 import type { Notifier } from "../notifications/notifier.js";
@@ -371,7 +372,6 @@ async function buildSessionPrompt(
     workspaceName: workspace.name,
     projectName: projectState.name,
     defaultBranch,
-    branchRename: {},
     promptsDir: join(dataDir, "prompts"),
   });
 }
@@ -418,6 +418,24 @@ async function createSession(
   });
   await session.persistMetadata();
   attachNotificationListener(session, ctx);
+
+  // Auto-name branch and session title on first message
+  session.once("first_message", (content: string) => {
+    void runNamingTask(
+      {
+        userMessage: content,
+        cwd: ctx.wsPath,
+        bareRepo: bareRepoPath(dataDir, ctx.projectId),
+        currentBranch: ctx.workspace.branch,
+        workspaceName: ctx.workspace.name,
+        command: options?.command,
+      },
+      (title: string) => session.setTitle(title),
+    ).catch((err) => {
+      console.warn("[naming] naming task failed:", err);
+    });
+  });
+
   rememberLoadedSession(ctx.workspace.id, session);
   return session;
 }
