@@ -321,14 +321,9 @@ export default function WorkspaceView() {
 
   const handleSend = useCallback(
     (content: string, images?: ImageAttachment[], options?: MessageOptions): boolean => {
-      if (hasPendingPlan) {
-        // Try to reject via pending tool input first; if none exists (fallback
-        // heuristic), send as a regular message which continues the conversation.
-        if (pendingToolInputs.some((p) => p.toolName === "ExitPlanMode")) {
-          rejectToolInput(content);
-          return true;
-        }
-        return sendMessage(content, images, options);
+      if (hasPendingPlan && pendingToolInputs.some((p) => p.toolName === "ExitPlanMode")) {
+        rejectToolInput(content);
+        return true;
       }
       return sendMessage(content, images, options);
     },
@@ -434,7 +429,6 @@ export default function WorkspaceView() {
             <ChatConversation
               messages={messages}
               isStreaming={isStreaming}
-              isAwaitingResponse={pendingToolInputs.length > 0}
               currentStreamingText={currentStreamingText}
               currentThinking={currentThinking}
               activeToolCalls={activeToolCalls}

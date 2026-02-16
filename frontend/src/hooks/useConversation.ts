@@ -280,6 +280,10 @@ function reducer(state: ConversationState, action: Action): ConversationState {
   }
 }
 
+function sessionIdField(id: string | undefined): { sessionId: string } | Record<string, never> {
+  return id ? { sessionId: id } : {};
+}
+
 export function useConversation(workspaceId: string | undefined) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const historyRequestTokenRef = useRef(0);
@@ -362,7 +366,7 @@ export function useConversation(workspaceId: string | undefined) {
       content,
       images: images?.length ? images : undefined,
       options,
-      ...(targetSessionId ? { sessionId: targetSessionId } : {}),
+      ...sessionIdField(targetSessionId),
     });
     if (!sent) {
       dispatch({ type: "error", message: "Message not sent: disconnected from server." });
@@ -376,7 +380,7 @@ export function useConversation(workspaceId: string | undefined) {
     if (!workspaceId) return;
     wsTransport.send(workspaceId, {
       type: "stop",
-      ...(state.sessionId ? { sessionId: state.sessionId } : {}),
+      ...sessionIdField(state.sessionId),
     });
   }, [workspaceId, state.sessionId]);
 
@@ -403,7 +407,7 @@ export function useConversation(workspaceId: string | undefined) {
       requestId: pending?.requestId ?? toolCallId,
       toolName: "AskUserQuestion",
       result: { type: "answer", answers },
-      ...(state.sessionId ? { sessionId: state.sessionId } : {}),
+      ...sessionIdField(state.sessionId),
     });
     dispatch({ type: "clear_pending_tool_inputs" });
     historyRequestTokenRef.current += 1;
@@ -420,7 +424,7 @@ export function useConversation(workspaceId: string | undefined) {
           requestId: pending?.requestId ?? toolUseId,
           toolName: "AskUserQuestion",
           result: { type: "answer", answers, questions: input?.questions },
-          ...(state.sessionId ? { sessionId: state.sessionId } : {}),
+          ...sessionIdField(state.sessionId),
         });
       }
       dispatch({ type: "clear_pending_tool_inputs" });
@@ -437,7 +441,7 @@ export function useConversation(workspaceId: string | undefined) {
       requestId: pending?.requestId ?? "",
       toolName: "ExitPlanMode",
       result: { type: "approve" },
-      ...(state.sessionId ? { sessionId: state.sessionId } : {}),
+      ...sessionIdField(state.sessionId),
     });
     dispatch({ type: "clear_pending_tool_inputs" });
     historyRequestTokenRef.current += 1;
@@ -451,7 +455,7 @@ export function useConversation(workspaceId: string | undefined) {
       requestId: pending.requestId,
       toolName: pending.toolName,
       result: { type: "reject", message },
-      ...(state.sessionId ? { sessionId: state.sessionId } : {}),
+      ...sessionIdField(state.sessionId),
     });
     dispatch({ type: "clear_pending_tool_inputs" });
     historyRequestTokenRef.current += 1;
@@ -465,7 +469,7 @@ export function useConversation(workspaceId: string | undefined) {
       requestId: pending?.requestId ?? "",
       toolName: "ExitPlanMode",
       result: { type: "dismiss", message },
-      ...(state.sessionId ? { sessionId: state.sessionId } : {}),
+      ...sessionIdField(state.sessionId),
     });
     if (pending) {
       dispatch({ type: "clear_pending_tool_inputs" });

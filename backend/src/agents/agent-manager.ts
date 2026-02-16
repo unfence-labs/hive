@@ -59,6 +59,14 @@ function getLoadedSessions(wsId: string): ConversationSession[] {
   return Array.from(loadedSessionsByWorkspace.get(wsId)?.values() ?? []);
 }
 
+function sortByUpdatedAtDesc<T extends { updatedAt: string }>(items: T[]): T[] {
+  return items.sort((a, b) => {
+    const aTime = new Date(a.updatedAt).getTime() || 0;
+    const bTime = new Date(b.updatedAt).getTime() || 0;
+    return bTime - aTime;
+  });
+}
+
 function removeLoadedSession(wsId: string, sessionId: string): void {
   const sessions = loadedSessionsByWorkspace.get(wsId);
   if (!sessions) return;
@@ -85,11 +93,8 @@ function getActiveSession(wsId: string): ConversationSession | undefined {
 function getMostRecentlyUpdatedLoadedSession(wsId: string): ConversationSession | undefined {
   const sessions = getLoadedSessions(wsId);
   if (sessions.length === 0) return undefined;
-  return sessions.sort((a, b) => {
-    const aTime = new Date(a.metadata.updatedAt).getTime() || 0;
-    const bTime = new Date(b.metadata.updatedAt).getTime() || 0;
-    return bTime - aTime;
-  })[0];
+  const sorted = sortByUpdatedAtDesc(sessions.map((s) => s.metadata));
+  return sorted[0] ? getLoadedSessionById(wsId, sorted[0].sessionId) : undefined;
 }
 
 async function persistWorkspaceSessionState(
@@ -244,12 +249,7 @@ export async function getSessionMessages(
       }
     }
 
-    metas
-      .sort((a, b) => {
-        const aTime = new Date(a.updatedAt).getTime() || 0;
-        const bTime = new Date(b.updatedAt).getTime() || 0;
-        return bTime - aTime;
-      })
+    sortByUpdatedAtDesc(metas)
       .forEach((meta) => {
         if (!candidateSessionIds.includes(meta.sessionId)) {
           candidateSessionIds.push(meta.sessionId);
@@ -475,11 +475,7 @@ export async function listWorkspaceSessions(
     }
   }
 
-  sessions.sort((a, b) => {
-    const aTime = new Date(a.updatedAt).getTime() || 0;
-    const bTime = new Date(b.updatedAt).getTime() || 0;
-    return bTime - aTime;
-  });
+  sortByUpdatedAtDesc(sessions);
 
   return sessions;
 }

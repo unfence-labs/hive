@@ -19,7 +19,6 @@ import type { PlanStatus } from "@/components/chat/PlanProposal";
 interface ChatConversationProps {
   messages: ChatMessageType[];
   isStreaming: boolean;
-  isAwaitingResponse?: boolean;
   currentStreamingText: string;
   currentThinking: string;
   activeToolCalls: ToolCall[];
@@ -37,7 +36,6 @@ interface ChatConversationProps {
 export default function ChatConversation({
   messages,
   isStreaming,
-  isAwaitingResponse: _isAwaitingResponse = false,
   currentStreamingText,
   currentThinking,
   activeToolCalls,
@@ -51,12 +49,11 @@ export default function ChatConversation({
   defaultBranch,
   fileCount,
 }: ChatConversationProps) {
-  const isActive = isStreaming;
   const [elapsed, setElapsed] = useState(0);
   const startRef = useRef(0);
 
   useEffect(() => {
-    if (!isActive) {
+    if (!isStreaming) {
       setElapsed(0);
       return;
     }
@@ -64,7 +61,7 @@ export default function ChatConversation({
     setElapsed(0);
     const id = setInterval(() => setElapsed(Date.now() - startRef.current), 100);
     return () => clearInterval(id);
-  }, [isActive]);
+  }, [isStreaming]);
 
   const hasContent = messages.length > 0 || isStreaming;
 
