@@ -138,7 +138,7 @@ export function ToolCallList({
   toolCalls,
   isInteractive,
   showExecutingState,
-  onQuestionAnswer,
+  onQuestionAnswer: _onQuestionAnswer,
   onPlanApproval,
   onRejectToolInput,
 }: ToolCallListProps) {

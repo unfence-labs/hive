@@ -86,13 +86,13 @@ async function getExecFileMock() {
 }
 
 function mockExecFileSuccess(stdout: string) {
-  return (_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
+  return (_cmd: string, _args: string[], _opts: unknown, cb: (...args: unknown[]) => void) => {
     cb(null, { stdout, stderr: "" });
   };
 }
 
 function mockExecFileError(error: { code?: string; stderr?: string; message?: string }) {
-  return (_cmd: string, _args: string[], _opts: unknown, cb: Function) => {
+  return (_cmd: string, _args: string[], _opts: unknown, cb: (...args: unknown[]) => void) => {
     const err = Object.assign(new Error(error.message ?? "fail"), {
       code: error.code,
       stderr: error.stderr,
