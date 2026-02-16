@@ -45,12 +45,12 @@ function isPlanFileTool(tool: ToolCall, name: string): boolean {
   }
 }
 
-/** Strip cat-n line numbers from Read tool output ("     1\tcontent" → "content"). */
+/** Strip line numbers from Read tool output (handles both tab and → separators). */
 function stripLineNumbers(text: string): string {
   const lines = text.split("\n");
   const first = lines.find((l) => l.trim());
-  if (first && /^\s*\d+\t/.test(first)) {
-    return lines.map((l) => l.replace(/^\s*\d+\t/, "")).join("\n");
+  if (first && /^\s*\d+[\t→]/.test(first)) {
+    return lines.map((l) => l.replace(/^\s*\d+[\t→]/, "")).join("\n");
   }
   return text;
 }
