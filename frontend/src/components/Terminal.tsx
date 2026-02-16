@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { getServerUrl } from "@/hooks/useServerUrl";
 import "@xterm/xterm/css/xterm.css";
 
 interface TerminalProps {
@@ -45,9 +46,14 @@ export default function Terminal({ workspaceId, visible = true, onExit }: Termin
     term.focus();
 
     // WebSocket
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsHost =
-      import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
+    const serverUrl = getServerUrl();
+    let wsHost: string;
+    if (serverUrl) {
+      wsHost = serverUrl.replace(/^http/, "ws");
+    } else {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      wsHost = import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
+    }
     const authToken = (import.meta.env.VITE_HIVE_AUTH_TOKEN as string | undefined)?.trim();
     const query = authToken ? `?token=${encodeURIComponent(authToken)}` : "";
     const ws = new WebSocket(
