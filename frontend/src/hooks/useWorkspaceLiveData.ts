@@ -5,6 +5,7 @@ import type { BranchInfo, DiffStatResponse } from "@/types";
 export interface WorkspaceLiveData {
   status?: "idle" | "busy";
   streaming?: boolean;
+  streamingSessions?: Record<string, boolean>;
   branch?: string;
   branchInfo?: BranchInfo;
   diffStats?: DiffStatResponse;
@@ -22,18 +23,47 @@ export function useWorkspaceLiveData(
       wsTransport.onMessage(wsId, (msg) => {
         if (msg.type === "status") {
           setLiveData((prev) => {
+            const current = prev[wsId] ?? {};
+            const prevSessions = { ...(current.streamingSessions ?? {}) };
+            const currentSessions = current.streamingSessions ?? {};
+
+            if (msg.sessionId) {
+              if (msg.streaming) {
+                prevSessions[msg.sessionId] = true;
+              } else {
+                delete prevSessions[msg.sessionId];
+              }
+            } else if (msg.status === "idle") {
+              // No sessionId + idle = workspace-level idle, clear all
+              for (const key of Object.keys(prevSessions)) {
+                delete prevSessions[key];
+              }
+            }
+
+            // Aggregate streaming: per-session map takes precedence, but
+            // fall back to the raw message field for legacy/sessionless status.
+            const anySessionStreaming = Object.keys(prevSessions).length > 0;
+            const streaming = anySessionStreaming || (!msg.sessionId && (msg.streaming ?? false));
             const next = {
               status: msg.status,
-              streaming: msg.streaming ?? false,
+              streaming,
+              streamingSessions: prevSessions,
             };
-            const current = prev[wsId];
+
+            const currentKeys = Object.keys(currentSessions);
+            const nextKeys = Object.keys(prevSessions);
+            const sessionsUnchanged =
+              currentKeys.length === nextKeys.length &&
+              nextKeys.every((key) => currentSessions[key] === prevSessions[key]);
+
             if (
-              current?.status === next.status &&
-              current.streaming === next.streaming
+              current.status === next.status &&
+              current.streaming === next.streaming &&
+              sessionsUnchanged
             ) {
               return prev;
             }
-            return { ...prev, [wsId]: { ...prev[wsId], ...next } };
+            return { ...prev, [wsId]: { ...current, ...next } };
           });
         } else if (msg.type === "branch_info") {
           setLiveData((prev) => {

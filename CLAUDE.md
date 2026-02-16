@@ -44,51 +44,61 @@ npm test
 Project -> Workspace -> Session
 
 - **Project**: bare-cloned Git repo (`git clone --bare`)
-- **Workspace**: Git worktree + branch (`workspace/<city>`)
+- **Workspace**: Git worktree + branch (`workspace/<city-name>`)
 - **Session**: persisted Claude conversation for one workspace
 
-One session is active in memory per workspace. Multiple sessions are supported on disk and can be activated/switched.
+One session is active per workspace, but multiple sessions can coexist and be switched/loaded from disk.
 
 ## Backend Architecture
 
+- `backend/src/index.ts`: app wiring, auth/rate-limit hooks, route registration, git sync bootstrap
 - `backend/src/api/projects.ts`: project CRUD + fetch
-- `backend/src/api/workspaces.ts`: workspace CRUD + diff/diff-stat/files + merge
+- `backend/src/api/workspaces.ts`: workspace CRUD + diff/stat + files/file + merge + archive
 - `backend/src/api/agents.ts`: session routes (single + multi-session)
+- `backend/src/api/completions.ts`: completion scanning endpoint
 - `backend/src/ws/stream.ts`: conversation WebSocket protocol
 - `backend/src/ws/terminal.ts`: PTY terminal WebSocket
+- `backend/src/services/git-sync.ts`: branch/PR/diff polling and workspace broadcasts
 - `backend/src/agents/conversation-session.ts`: Claude process lifecycle per turn
-- `backend/src/agents/agent-manager.ts`: session registry, persistence, switching
+- `backend/src/agents/agent-manager.ts`: in-memory session registry, persistence, switching
 - `backend/src/state/state.ts`: JSON persistence + per-project locks
 
 ### Important backend behavior
 
-- Conversation mode uses Claude CLI in print/stream mode per message (`--print --output-format stream-json -p`).
-- Session continuity is preserved with Claude `--session-id` / `--resume`.
-- Blocking tools (`AskUserQuestion`, `ExitPlanMode`) are intercepted and surfaced to UI as `tool_input_required`.
-- `getOrCreateSession()` auto-recovers stale `busy` workspaces after backend restart.
-- Merges happen in a **temporary worktree** on the default branch, then refs are updated in the bare repo.
+- Conversation turns use Claude CLI streaming mode (`--print --output-format stream-json -p`).
+- Session continuity uses Claude `--session-id` and `--resume`.
+- Blocking tools (`AskUserQuestion`, `ExitPlanMode`) are intercepted and surfaced as `tool_input_required`.
+- Session tool responses are session-scoped; dismiss/approve/reject are routed back to the correct session.
+- `getOrCreateSession()` recovers stale `busy` workspaces lazily (on access).
+- Workspace merge is executed in a temporary worktree on default branch, then default-branch ref is updated.
+- `archiveWorkspace()` removes worktree and moves matching session folders under `archive/<ws-id>/sessions`.
+- Git sync pushes cached `branch_info` + `diff_stats` snapshots to new WS clients.
 
 ## Frontend Architecture
 
-- `frontend/src/pages/WorkspaceView.tsx`: chat + terminal toggle + file tree + diff UI
-- `frontend/src/hooks/useConversation.ts`: reducer for WS messages + session switching
+- `frontend/src/App.tsx`: routing and global workspace WS syncing
+- `frontend/src/pages/WorkspaceView.tsx`: chat + terminal + file tree + modified files + diff modal
+- `frontend/src/hooks/useConversation.ts`: reducer-driven WS conversation state
 - `frontend/src/hooks/useSessions.ts`: list/create/activate/delete sessions
-- `frontend/src/lib/ws-transport.ts`: reconnecting WS transport with replay buffer
+- `frontend/src/hooks/useWorkspaceLiveData.ts`: status/branch/diff live map
+- `frontend/src/lib/ws-transport.ts`: reconnecting WS transport + replay buffer
+- `frontend/src/components/Sidebar.tsx`: project/workspace nav + archive/delete actions
 - `frontend/src/components/Terminal.tsx`: xterm + `/ws/terminal/:wsId`
 
 ### Important frontend behavior
 
-- App keeps WS session channels synced for all known workspace IDs (`wsTransport.syncWorkspaces`).
-- `useConversation` resets state on workspace switch, then hydrates from REST history.
-- Session selector supports create/switch/delete with confirmation dialog.
-- Diff UI uses `@pierre/diffs` and supports line annotations to send context back into chat.
+- The app keeps WS channels synced for all known workspace IDs (`wsTransport.syncWorkspaces`).
+- `useConversation` hydrates from REST history and resolves stale replay races with request tokens.
+- Terminal instances are tracked in context; hidden terminals stay alive until explicitly closed.
+- Session tabs support create/switch/delete with live message replay.
+- Chat input supports image attachments, thinking toggle, plan mode, and `/` + `@` autocomplete.
 
 ## Coding Rules
 
 - TypeScript strict mode, ES modules.
 - Use English for code/comments/UI copy.
 - Keep backend routes testable by preserving optional `dataDir` injection.
-- Keep session creation/switching serialized with workspace locks.
+- Keep state mutations serialized via workspace/project lock helpers.
 
 ## Critical Guardrails
 
@@ -97,20 +107,23 @@ One session is active in memory per workspace. Multiple sessions are supported o
 - Keep WebSocket protocol types in sync between:
   - `backend/src/types.ts`
   - `frontend/src/types.ts`
-- When adding WS message types, update:
-  - backend stream route dispatch,
-  - frontend reducer in `useConversation`,
+- When adding new WS message types, update:
+  - backend stream dispatch,
+  - frontend reducers/hooks (`useConversation`, `useWorkspaceLiveData`, `ws-transport` cache),
   - corresponding tests.
 
 ## Testing
 
 - Backend tests live next to source (`backend/src/**/*.test.ts`).
 - Frontend tests live in `frontend/tests/**`.
-- Use `SessionOptions.command = "bash"` in backend tests to avoid depending on local Claude CLI.
+- Use `SessionOptions.command = "bash"` in backend tests to avoid local Claude CLI dependency.
 
 ## Known Gaps (Current)
 
-- No global error boundary in frontend yet.
+- Merge conflict API payload is not structured yet (merge failures still return generic errors).
+- Fetch and merge actions are available in API but not exposed in frontend controls.
+- No global React error boundary yet.
 - No toast/notification system yet.
-- No dedicated terminal log replay endpoint yet.
-- Merge conflict UX is still generic (server returns an error, no structured conflict payload).
+- No startup reconciliation sweep for all persisted workspaces on backend boot.
+- No graceful SIGTERM/SIGINT shutdown flow that drains active sessions.
+- Completion scanner does not yet include plugin commands (`~/.claude/plugins`).

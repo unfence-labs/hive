@@ -6,6 +6,7 @@ import {
   getSessionById,
   getOrCreateSession,
   getSessionMessages,
+  getStreamingSessionIds,
   stopStreaming,
   type SessionOptions,
 } from "../agents/agent-manager.js";
@@ -134,6 +135,15 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     channel.pendingToolRequests.clear();
   };
 
+  const broadcastStatusToChannel = (
+    channel: WorkspaceChannel,
+    msg: Extract<WsOutgoing, { type: "status" }>,
+  ): void => {
+    for (const socket of channel.sockets) {
+      sendOutgoing(socket, msg);
+    }
+  };
+
   const attachSessionListeners = (
     workspaceId: string,
     channel: WorkspaceChannel,
@@ -148,22 +158,33 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         channel.pendingToolRequests.set(msg.requestId, session.sessionId);
       }
       sendToSession(channel, session.sessionId, msg);
+      // Broadcast streaming-stopped to ALL sockets so non-focused clients
+      // can update per-session streaming state.
+      if (msg.type === "done" || msg.type === "cancelled") {
+        broadcastStatusToChannel(channel, {
+          type: "status",
+          status: "idle",
+          sessionId: session.sessionId,
+          streaming: false,
+        });
+      }
     };
     const onError = (err: Error) => {
       sendToSession(channel, session.sessionId, { type: "error", message: err.message });
     };
     const onExit = (_code: number) => {
-      const live = getSessionById(workspaceId, session.sessionId);
-      if (!live) {
-        detachSessionTracking(channel, session.sessionId);
-        return;
-      }
-      sendToSession(channel, session.sessionId, {
+      // Always broadcast idle status so all clients clear streaming state,
+      // even if the session was already removed from memory (e.g. deletion).
+      broadcastStatusToChannel(channel, {
         type: "status",
         status: "idle",
         sessionId: session.sessionId,
         streaming: false,
       });
+      const live = getSessionById(workspaceId, session.sessionId);
+      if (!live) {
+        detachSessionTracking(channel, session.sessionId);
+      }
     };
 
     session.on("message", onMessage);
@@ -221,6 +242,17 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         attachSessionListeners(wsId, channel, session);
         setSocketFocus(channel, socket, session.sessionId);
         await sendSessionBootstrap(socket, session);
+        // Send status for other sessions that are currently streaming
+        for (const streamingId of getStreamingSessionIds(wsId)) {
+          if (streamingId !== session.sessionId) {
+            sendOutgoing(socket, {
+              type: "status",
+              status: "busy",
+              sessionId: streamingId,
+              streaming: true,
+            });
+          }
+        }
       } else {
         sendOutgoing(socket, { type: "status", status: "idle", streaming: false });
         try {
@@ -324,7 +356,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
               }
 
               targetSession.sendMessage(incoming.content, incoming.options, incoming.images);
-              sendToSession(channel, targetSession.sessionId, {
+              broadcastStatusToChannel(channel, {
                 type: "status",
                 status: "busy",
                 sessionId: targetSession.sessionId,
@@ -400,7 +432,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
               targetSession.respondToToolInput(incoming.toolName, incoming.result);
               // Dismiss persists a message without spawning a CLI — no streaming.
               if (incoming.result.type !== "dismiss") {
-                sendToSession(channel, targetSession.sessionId, {
+                broadcastStatusToChannel(channel, {
                   type: "status",
                   status: "busy",
                   sessionId: targetSession.sessionId,
