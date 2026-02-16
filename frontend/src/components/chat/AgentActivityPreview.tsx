@@ -1,86 +1,124 @@
-type Pixel = { x: number; y: number };
+import { useEffect, useRef } from "react";
 
 export type AgentActivitySize = "large" | "small";
 
-interface LoaderConfig {
-  stepPx: number;
-  pixelSizePx: number;
-  baseOpacity: number;
-  timing: (pixel: Pixel) => { delayMs: number; durationMs?: number };
-}
-
-function pixelsFromRows(rows: readonly string[]): Pixel[] {
-  return rows.flatMap((row, y) =>
-    row
-      .split("")
-      .map((value, x) => ({ value, x, y }))
-      .filter((cell) => cell.value === "1")
-      .map((cell) => ({ x: cell.x, y: cell.y })),
-  );
-}
-
-const H_ROWS = ["1001", "1111", "1001"] as const;
-const H_PIXELS = pixelsFromRows(H_ROWS);
-const H_MAX_X = Math.max(...H_PIXELS.map((pixel) => pixel.x));
-const H_MAX_Y = Math.max(...H_PIXELS.map((pixel) => pixel.y));
-
-const LOADER_CONFIG: Record<AgentActivitySize, LoaderConfig> = {
-  large: {
-    stepPx: 5,
-    pixelSizePx: 4,
-    baseOpacity: 0.95,
-    timing: ({ x, y }) => ({
-      delayMs: ((x * 17 + y * 29) % 11) * 95,
-      durationMs: 900 + ((x * 19 + y * 13) % 5) * 120,
-    }),
-  },
-  small: {
-    stepPx: 4,
-    pixelSizePx: 3,
-    baseOpacity: 0.88,
-    timing: ({ x, y }) => ({
-      delayMs: ((x * 13 + y * 31) % 12) * 85,
-      durationMs: 980 + ((x * 5 + y * 7) % 5) * 100,
-    }),
-  },
+const SIZE_CONFIG: Record<AgentActivitySize, { dot: number; gap: number }> = {
+  large: { dot: 4, gap: 1 },
+  small: { dot: 3, gap: 1 },
 };
 
 interface AgentActivityPreviewProps {
   size?: AgentActivitySize;
+  duration?: number;
 }
 
-export default function AgentActivityPreview({ size = "large" }: AgentActivityPreviewProps) {
-  const loader = LOADER_CONFIG[size];
-  const width = (H_MAX_X * loader.stepPx) + loader.pixelSizePx;
-  const height = (H_MAX_Y * loader.stepPx) + loader.pixelSizePx;
+export default function AgentActivityPreview({
+  size = "large",
+  duration = 1100,
+}: AgentActivityPreviewProps) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const rectsRef = useRef<(SVGRectElement | null)[]>([]);
+  const matrixRef = useRef<SVGFEColorMatrixElement>(null);
+  const { dot, gap } = SIZE_CONFIG[size];
+
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+
+    const computed = getComputedStyle(svg).color;
+    const match = computed.match(/(\d+),\s*(\d+),\s*(\d+)/);
+    const [r0, g0, b0] = match ? [+match[1], +match[2], +match[3]] : [107, 123, 245];
+
+    // Update glow filter color
+    if (matrixRef.current) {
+      matrixRef.current.setAttribute(
+        "values",
+        `0 0 0 0 ${r0 / 255}  0 0 0 0 ${g0 / 255}  0 0 0 0 ${b0 / 255}  0 0 0 0.5 0`,
+      );
+    }
+
+    const dimR = Math.round(r0 * 0.12);
+    const dimG = Math.round(g0 * 0.12);
+    const dimB = Math.round(b0 * 0.12);
+
+    const phases = Array.from({ length: 9 }, (_, i) => {
+      const col = i % 3, row = Math.floor(i / 3);
+      return (Math.atan2(row - 1, col - 1) / (Math.PI * 2) + 1) % 1;
+    });
+
+    const start = performance.now();
+    let raf: number;
+
+    function tick(now: number) {
+      const t = ((now - start) % duration) / duration;
+      for (let i = 0; i < 9; i++) {
+        const el = rectsRef.current[i];
+        if (!el) continue;
+        const p = ((t + phases[i]) % 1 + 1) % 1;
+        const raw = (Math.cos((p - 0.5) * Math.PI * 2) + 1) / 2;
+        const val = Math.max(0, (raw - 0.2) / 0.8);
+        if (val < 0.01) {
+          el.setAttribute("opacity", "0");
+          el.removeAttribute("filter");
+        } else {
+          const r = Math.round(dimR + (r0 - dimR) * val);
+          const g = Math.round(dimG + (g0 - dimG) * val);
+          const b = Math.round(dimB + (b0 - dimB) * val);
+          el.setAttribute("opacity", "1");
+          el.setAttribute("fill", `rgb(${r},${g},${b})`);
+          el.setAttribute("filter", val > 0.45 ? "url(#orbit-glow)" : "");
+          el.setAttribute(
+            "transform",
+            `translate(${(i % 3) * (dot + gap)},${Math.floor(i / 3) * (dot + gap)}) scale(${0.88 + val * 0.12})`,
+          );
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [dot, gap, duration]);
+
+  const total = dot * 3 + gap * 2;
+  const pad = 3;
 
   return (
-    <div className="inline-flex items-center">
-      <div
-        role="img"
-        aria-label={`Agent thinking loader ${size}`}
-        className="relative"
-        style={{ width: `${width}px`, height: `${height}px` }}
-      >
-        {H_PIXELS.map((pixel) => {
-          const timing = loader.timing(pixel);
-          return (
-            <span
-              key={`h-${size}-${pixel.x}-${pixel.y}`}
-              className="absolute block rounded-[1px] bg-primary shadow-[0_0_8px_var(--hive-accent-glow)] animate-pixel-thinking-h"
-              style={{
-                left: `${pixel.x * loader.stepPx}px`,
-                top: `${pixel.y * loader.stepPx}px`,
-                width: `${loader.pixelSizePx}px`,
-                height: `${loader.pixelSizePx}px`,
-                opacity: loader.baseOpacity,
-                animationDelay: `${(pixel.x * 80) + (pixel.y * 130) + timing.delayMs}ms`,
-                animationDuration: timing.durationMs ? `${timing.durationMs}ms` : undefined,
-              }}
-            />
-          );
-        })}
-      </div>
-    </div>
+    <svg
+      ref={svgRef}
+      className="text-primary"
+      width={total + pad * 2}
+      height={total + pad * 2}
+      viewBox={`${-pad} ${-pad} ${total + pad * 2} ${total + pad * 2}`}
+      role="img"
+      aria-label="Agent thinking"
+    >
+      <defs>
+        <filter id="orbit-glow" x="-100%" y="-100%" width="300%" height="300%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
+          <feColorMatrix
+            ref={matrixRef}
+            in="blur"
+            type="matrix"
+            values="0 0 0 0 0.42  0 0 0 0 0.48  0 0 0 0 0.96  0 0 0 0.5 0"
+            result="glow"
+          />
+          <feMerge>
+            <feMergeNode in="glow" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+      {Array.from({ length: 9 }, (_, i) => (
+        <rect
+          key={i}
+          ref={(el) => { rectsRef.current[i] = el; }}
+          width={dot}
+          height={dot}
+          rx={1}
+          ry={1}
+          opacity={0}
+        />
+      ))}
+    </svg>
   );
 }
