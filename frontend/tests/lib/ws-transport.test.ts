@@ -204,6 +204,21 @@ describe("wsTransport", () => {
     expect(wsTransport.getStatus("ws-1")).toBe("disconnected");
   });
 
+  it("keeps active workspace connection when only status listeners are attached", () => {
+    wsTransport.connect("ws-1");
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+
+    const unsubscribeStatus = wsTransport.subscribe("ws-1", vi.fn());
+
+    wsTransport.syncWorkspaces([]);
+    expect(wsTransport.getStatus("ws-1")).toBe("connected");
+
+    unsubscribeStatus();
+    wsTransport.syncWorkspaces([]);
+    expect(wsTransport.getStatus("ws-1")).toBe("disconnected");
+  });
+
   it("replays status, history, and buffered messages to newly attached handlers", () => {
     wsTransport.connect("ws-1");
     const socket = MockWebSocket.instances[0]!;
@@ -281,6 +296,47 @@ describe("wsTransport", () => {
       },
       { type: "text_delta", text: "response" },
       { type: "done", sessionId: "s1" },
+    ]);
+  });
+
+  it("replays only buffered events matching the latest replay session", () => {
+    wsTransport.connect("ws-1");
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+
+    const firstHandler: WsOutgoing[] = [];
+    const { unsubscribe } = wsTransport.onMessage("ws-1", (msg) => {
+      firstHandler.push(msg);
+    });
+
+    socket.message(JSON.stringify({
+      type: "status",
+      status: "busy",
+      streaming: true,
+      sessionId: "s-new",
+    }));
+    socket.message(JSON.stringify({
+      type: "history",
+      sessionId: "s-new",
+      messages: [],
+    }));
+    unsubscribe();
+
+    // Buffer stale + fresh events while no message handlers are attached.
+    socket.message(JSON.stringify({ type: "text_delta", sessionId: "s-old", text: "stale" }));
+    socket.message(JSON.stringify({ type: "done", sessionId: "s-old" }));
+    socket.message(JSON.stringify({ type: "text_delta", sessionId: "s-new", text: "fresh" }));
+    socket.message(JSON.stringify({ type: "done", sessionId: "s-new" }));
+
+    const replayed: WsOutgoing[] = [];
+    const result = wsTransport.onMessage("ws-1", (msg) => replayed.push(msg));
+
+    expect(result.hadBufferedMessages).toBe(true);
+    expect(replayed).toEqual([
+      { type: "status", status: "busy", streaming: true, sessionId: "s-new" },
+      { type: "history", sessionId: "s-new", messages: [] },
+      { type: "text_delta", sessionId: "s-new", text: "fresh" },
+      { type: "done", sessionId: "s-new" },
     ]);
   });
 

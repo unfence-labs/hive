@@ -27,9 +27,10 @@ beforeEach(() => {
 });
 
 describe("FileViewer", () => {
-  it("shows loading skeletons initially", () => {
+  it("shows loading skeletons initially", async () => {
+    const apiMock = await getApiMock();
     // Keep API pending forever
-    getApiMock().then((mock) => mock.mockReturnValue(new Promise(() => {})));
+    apiMock.mockReturnValue(new Promise(() => {}));
 
     render(<FileViewer wsId="ws-1" filePath="src/index.ts" />);
 

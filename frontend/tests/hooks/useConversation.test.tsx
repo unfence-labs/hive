@@ -36,6 +36,7 @@ vi.mock("@/lib/ws-transport", () => {
   const messageHandlers = new Map<string, Set<(msg: WsOutgoing) => void>>();
   const statusListeners = new Map<string, Set<() => void>>();
   const replayMessages = new Map<string, WsOutgoing[]>();
+  const bufferedFlags = new Map<string, boolean>();
 
   const getSet = <T,>(source: Map<string, Set<T>>, workspaceId: string) => {
     const existing = source.get(workspaceId);
@@ -72,7 +73,7 @@ vi.mock("@/lib/ws-transport", () => {
       }
       return {
         unsubscribe: () => { getSet(messageHandlers, workspaceId).delete(handler); },
-        hadBufferedMessages: false,
+        hadBufferedMessages: bufferedFlags.get(workspaceId) ?? false,
       };
     }),
     subscribe: (workspaceId: string, listener: () => void) => {
@@ -93,6 +94,7 @@ vi.mock("@/lib/ws-transport", () => {
       messageHandlers.clear();
       statusListeners.clear();
       replayMessages.clear();
+      bufferedFlags.clear();
       wsTransport.connect.mockClear();
       wsTransport.disconnect.mockClear();
       wsTransport.syncWorkspaces.mockClear();
@@ -102,6 +104,9 @@ vi.mock("@/lib/ws-transport", () => {
     },
     setReplay: (workspaceId: string, messages: WsOutgoing[]) => {
       replayMessages.set(workspaceId, messages);
+    },
+    setBuffered: (workspaceId: string, value: boolean) => {
+      bufferedFlags.set(workspaceId, value);
     },
     sendMock: wsTransport.send,
     connectMock: wsTransport.connect,
@@ -117,6 +122,7 @@ const getWsMock = async () =>
       emit: (workspaceId: string, msg: WsOutgoing) => void;
       reset: () => void;
       setReplay: (workspaceId: string, messages: WsOutgoing[]) => void;
+      setBuffered: (workspaceId: string, value: boolean) => void;
       sendMock: ReturnType<typeof vi.fn>;
       connectMock: ReturnType<typeof vi.fn>;
       disconnectMock: ReturnType<typeof vi.fn>;
@@ -604,6 +610,48 @@ describe("useConversation", () => {
     expect(result.current.messages[0]?.content).toBe("hello");
     expect(result.current.messages[1]?.role).toBe("assistant");
     expect(result.current.messages[1]?.content).toBe("world");
+  });
+
+  it("does not overwrite replayed buffered state when transport reports buffered messages", async () => {
+    const { __wsMock } = await getWsMock();
+    const { __apiMock } = await getApiMock();
+
+    __wsMock.setReplay("ws-1", [{
+      type: "history",
+      sessionId: "sess-buffered",
+      messages: [
+        {
+          id: "m-buffered",
+          sessionId: "sess-buffered",
+          role: "assistant",
+          content: "latest from buffered websocket",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      ],
+    }]);
+    __wsMock.setBuffered("ws-1", true);
+
+    __apiMock.getMock.mockResolvedValueOnce([
+      {
+        id: "m-stale",
+        sessionId: "sess-buffered",
+        role: "assistant",
+        content: "stale from disk",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      },
+    ]);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(1);
+    });
+    expect(result.current.messages[0]?.content).toBe("latest from buffered websocket");
+
+    await waitFor(() => {
+      expect(__apiMock.getMock).toHaveBeenCalledWith("/api/workspaces/ws-1/session/messages");
+    });
+    expect(result.current.messages[0]?.content).toBe("latest from buffered websocket");
   });
 
   it("does not overwrite backend user message with a late history request", async () => {
