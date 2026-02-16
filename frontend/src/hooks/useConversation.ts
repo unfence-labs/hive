@@ -44,6 +44,40 @@ const initialState: ConversationState = {
   sessionId: undefined,
 };
 
+function parseToolInput(input: string): unknown {
+  try {
+    return JSON.parse(input) as unknown;
+  } catch {
+    return {};
+  }
+}
+
+function derivePendingToolInputsFromHistory(messages: ChatMessage[]): PendingToolInput[] {
+  let lastAssistantIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "assistant") {
+      lastAssistantIdx = i;
+      break;
+    }
+  }
+  if (lastAssistantIdx < 0) return [];
+
+  const hasUserAfterLastAssistant = messages
+    .slice(lastAssistantIdx + 1)
+    .some((message) => message.role === "user");
+  if (hasUserAfterLastAssistant) return [];
+
+  const toolCalls = messages[lastAssistantIdx]?.toolCalls ?? [];
+  return toolCalls
+    .filter((tool) => tool.name === "AskUserQuestion" || tool.name === "ExitPlanMode")
+    .map((tool) => ({
+      requestId: `history-${tool.id}`,
+      toolName: tool.name,
+      toolUseId: tool.id,
+      input: parseToolInput(tool.input),
+    }));
+}
+
 function getActionSessionId(action: Action): string | undefined {
   switch (action.type) {
     case "user_message":
@@ -183,6 +217,9 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         state.sessionId === historySessionId &&
         state.isStreaming,
       );
+      const hydratedPendingToolInputs = preserveTransient
+        ? state.pendingToolInputs
+        : derivePendingToolInputsFromHistory(action.messages);
       return {
         ...state,
         messages: action.messages,
@@ -190,7 +227,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         currentText: preserveTransient ? state.currentText : "",
         currentThinking: preserveTransient ? state.currentThinking : "",
         activeToolCalls: preserveTransient ? state.activeToolCalls : [],
-        pendingToolInputs: preserveTransient ? state.pendingToolInputs : [],
+        pendingToolInputs: hydratedPendingToolInputs,
         error: undefined,
         sessionId: historySessionId,
       };

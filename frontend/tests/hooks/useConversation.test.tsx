@@ -649,6 +649,94 @@ describe("useConversation", () => {
     expect(result.current.sessionId).toBe("sess-hydrated");
   });
 
+  it("rehydrates AskUserQuestion pending input from history when WS request event was missed", async () => {
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock.mockResolvedValueOnce([
+      {
+        id: "u1",
+        sessionId: "sess-q",
+        role: "user",
+        content: "ask me",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      },
+      {
+        id: "a1",
+        sessionId: "sess-q",
+        role: "assistant",
+        content: "",
+        timestamp: "2026-02-12T00:00:01.000Z",
+        toolCalls: [
+          {
+            id: "tool-q1",
+            name: "AskUserQuestion",
+            input: JSON.stringify({
+              questions: [
+                {
+                  question: "Choisis un mode",
+                  multiSelect: false,
+                  options: [{ label: "A", description: "Option A" }],
+                },
+              ],
+            }),
+          },
+        ],
+      },
+    ]);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    await waitFor(() => {
+      expect(result.current.pendingToolInputs).toHaveLength(1);
+    });
+    expect(result.current.pendingToolInputs[0]).toEqual(
+      expect.objectContaining({
+        requestId: "history-tool-q1",
+        toolName: "AskUserQuestion",
+        toolUseId: "tool-q1",
+      }),
+    );
+  });
+
+  it("rehydrates ExitPlanMode pending input from history when WS request event was missed", async () => {
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock.mockResolvedValueOnce([
+      {
+        id: "u1",
+        sessionId: "sess-plan",
+        role: "user",
+        content: "plan stp",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      },
+      {
+        id: "a1",
+        sessionId: "sess-plan",
+        role: "assistant",
+        content: "Voici un plan",
+        timestamp: "2026-02-12T00:00:01.000Z",
+        toolCalls: [
+          {
+            id: "tool-plan-1",
+            name: "ExitPlanMode",
+            input: JSON.stringify({ plan: "Step 1\nStep 2" }),
+          },
+        ],
+      },
+    ]);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    await waitFor(() => {
+      expect(result.current.pendingToolInputs).toHaveLength(1);
+    });
+    expect(result.current.pendingToolInputs[0]).toEqual(
+      expect.objectContaining({
+        requestId: "history-tool-plan-1",
+        toolName: "ExitPlanMode",
+        toolUseId: "tool-plan-1",
+      }),
+    );
+  });
+
   it("switches sessions and loads specific session history", async () => {
     const { __apiMock } = await getApiMock();
     const { __wsMock } = await getWsMock();
