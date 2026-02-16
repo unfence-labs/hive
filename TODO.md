@@ -1,78 +1,56 @@
 # Hive — TODO
 
-## Completed Recently
+_Last cleanup: February 16, 2026._
 
-- [x] Multi-session API + UI (create, list, activate, delete, per-session messages)
-- [x] Conversation history replay on WebSocket connect (`history` events)
-- [x] Workspace status live updates through WS status messages (no manual refresh needed)
-- [x] Workspace file tree endpoint + UI explorer (`/api/workspaces/:wsId/files`)
-- [x] Diff stats endpoint + modified files panel (`/api/workspaces/:wsId/diff/stat`)
-- [x] Rich diff modal with split/unified modes and line annotations
-- [x] PTY terminal WebSocket (`/ws/terminal/:wsId`) with resize + input support
-- [x] Interactive Claude tool flow for `AskUserQuestion` and `ExitPlanMode`
-- [x] Repo URL sanitization (`file://` + local path protections in non-test mode)
-- [x] Optional auth token + API/WS rate limiting
+This list only contains open items. Completed and obsolete items were removed.
 
-## Next (High Priority)
+## P0 (Product + Reliability)
 
-- [ ] **Merge conflicts: structured API response**
-  Return a clear `409` payload (conflicting files, conflict type, suggested actions) instead of a generic merge failure.
+- [ ] **Structured merge conflict response**
+  Return `409` with a typed payload (`conflictingFiles`, conflict kind, suggested next actions) from `POST /api/workspaces/:wsId/merge`.
 
-- [ ] **Add fetch action in UI**
-  Wire `POST /api/projects/:id/fetch` in frontend and expose it in project/workspace controls.
+- [ ] **Expose fetch in frontend**
+  Add UI controls for `POST /api/projects/:id/fetch` with clear success/failure feedback.
 
-- [ ] **Add merge action in UI**
-  Expose merge from workspace view with proper success/failure UX and post-merge navigation.
-
-- [ ] **Terminal continuity across navigation**
-  Preserve terminal output when switching pages/workspaces (or provide explicit replay behavior).
-
-- [ ] **Global error boundaries**
-  Add React error boundaries so a single component crash does not blank the entire app.
-
-- [ ] **User-facing notifications**
-  Add toasts for create/delete/fetch/merge/session actions and backend errors.
+- [ ] **Expose merge in frontend**
+  Add UI flow for `POST /api/workspaces/:wsId/merge` with post-merge navigation and error handling.
 
 - [ ] **Startup reconciliation sweep**
-  On backend boot, scan all projects and reset orphaned `busy` workspaces to `idle` when no active process exists.
+  On backend boot, scan persisted workspaces and reset orphaned `busy` states to `idle` when no process/session is active.
 
-- [ ] **Graceful shutdown for active sessions**
-  On SIGTERM/SIGINT, stop active sessions cleanly and persist final workspace/session state.
+- [ ] **Graceful shutdown**
+  On `SIGTERM` / `SIGINT`, stop active sessions cleanly and persist final workspace/session state before exit.
 
-## Product / UX
+## P1 (UX)
 
-- [ ] Home/dashboard view at `/projects` (projects, active workspaces, recent sessions)
-- [ ] Light/dark mode toggle (currently dark-by-default)
-- [ ] Mobile-friendly sidebar behavior (collapse/drawer)
-- [ ] Workspace rename/alias support
-- [ ] Better empty states and loading feedback on all async paths
+- [ ] **Global error boundary**
+  Add a top-level React error boundary so one crashing subtree does not blank the app.
 
-## Infra / Ops
+- [ ] **User-facing notifications**
+  Add toasts for create/delete/fetch/merge/archive/session actions and API errors.
 
-- [ ] Add `.env.example` documenting all env vars
-- [ ] Add production reverse proxy config (Caddy or Nginx)
-- [ ] Add process manager config (systemd or pm2)
-- [ ] Add data retention policy (session/log cleanup + optional rotation)
-- [ ] Add system status endpoint (disk usage, project/workspace counts)
+- [ ] **Real `/projects` dashboard**
+  Replace the current placeholder with project/workspace/session overview.
 
-## Security / Hardening
+- [ ] **Mobile sidebar behavior**
+  Add collapse/drawer behavior for smaller viewports.
 
-- [ ] Optional per-user auth model (current token is shared/global)
-- [ ] Session/terminal access audit trail (who connected, when)
-- [ ] Optional sandbox policy for agent execution beyond CLI permissions
+- [ ] **Theme mode toggle**
+  Provide explicit light/dark switching in settings.
 
-## Later Ideas
+- [ ] **Workspace rename/alias**
+  Allow naming/renaming workspaces independently from generated city name.
 
-- [ ] Cost/token tracking per session/workspace/project
-- [ ] Notifications/webhooks on session completion
-- [ ] Agent chaining/presets/templates
-- [ ] Workspace snapshots and restore points
-- [ ] Git graph / branch visualization
-- [ ] Optional PR creation workflow after merge
+## P2 (Infra + Platform)
 
-## Obsolete / Replaced Items
+- [ ] Add `.env.example` for backend/frontend env vars.
+- [ ] Add deployment references (reverse proxy + process manager examples).
+- [ ] Add retention/cleanup policy for old sessions/logs/archives.
+- [ ] Add system status endpoint (disk usage, project/workspace/session counts).
 
-- [x] "Merge fix branch into main" — obsolete housekeeping item
-- [x] "AgentHistory View placeholder" — replaced by session selector + persisted message history
-- [x] "Diff viewer untested end-to-end" — now covered by dedicated frontend tests and backend route tests
-- [x] "Interactive mode via stdin to Claude process" — replaced by current conversation WS architecture + dedicated terminal WS
+## P3 (Security + Extensibility)
+
+- [ ] Add optional per-user auth model (current token is global/shared).
+- [ ] Add session/terminal access audit trail.
+- [ ] Add optional execution sandbox policy beyond CLI permission flags.
+- [ ] Add plugin command scanning in completions (`~/.claude/plugins/installed_plugins.json`).
