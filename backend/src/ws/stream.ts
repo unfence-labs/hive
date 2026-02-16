@@ -98,15 +98,13 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
   const sendSessionBootstrap = async (socket: WebSocket, session: ActiveSession): Promise<void> => {
     sendOutgoing(socket, {
       type: "status",
-      status: "busy",
+      status: session.status === "streaming" ? "busy" : "idle",
       sessionId: session.sessionId,
       streaming: session.status === "streaming",
     });
     try {
       const messages = await session.getMessages();
-      if (messages.length > 0) {
-        sendOutgoing(socket, { type: "history", messages });
-      }
+      sendOutgoing(socket, { type: "history", sessionId: session.sessionId, messages });
     } catch {
       // History load failure is non-fatal.
     }
@@ -143,7 +141,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     const onExit = (_code: number) => {
       sendToSession(channel, session.sessionId, {
         type: "status",
-        status: "busy",
+        status: "idle",
         sessionId: session.sessionId,
         streaming: false,
       });
@@ -191,7 +189,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             if (firstSessionId) {
               setSocketFocus(channel, socket, firstSessionId);
             }
-            sendOutgoing(socket, { type: "history", messages });
+            sendOutgoing(socket, { type: "history", sessionId: firstSessionId, messages });
           }
         } catch {
           // Ignore missing/corrupt persisted history.
@@ -228,6 +226,12 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
         switch (incoming.type) {
           case "switch_session": {
+            const state = channel.socketStates.get(socket);
+            const previousFocusSessionId = state?.focusedSessionId;
+            if (state) {
+              // Prevent stale events from the previous session while switch is in-flight.
+              state.focusedSessionId = incoming.sessionId;
+            }
             try {
               const session = await activateSession(
                 wsId,
@@ -239,6 +243,9 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
               setSocketFocus(channel, socket, session.sessionId);
               await sendSessionBootstrap(socket, session);
             } catch (err: unknown) {
+              if (state) {
+                state.focusedSessionId = previousFocusSessionId;
+              }
               sendOutgoing(socket, { type: "error", message: errorMessage(err, "Failed to switch session") });
             }
             break;

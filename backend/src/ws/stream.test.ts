@@ -183,7 +183,7 @@ describe("WS /ws/session/:wsId", () => {
     ws.close();
   });
 
-  it("sends busy status + history when session exists", async () => {
+  it("sends idle status + history when session exists but is not streaming", async () => {
     await getOrCreateSession(wsId, dataDir, CONV_CMD);
 
     const { wsReady, messages } = connectSessionWs(wsId);
@@ -193,7 +193,7 @@ describe("WS /ws/session/:wsId", () => {
 
     expect(messages[0].type).toBe("status");
     if (messages[0].type === "status") {
-      expect(messages[0].status).toBe("busy");
+      expect(messages[0].status).toBe("idle");
       expect(messages[0].sessionId).toBeTruthy();
       expect(messages[0].streaming).toBe(false);
     }
@@ -296,7 +296,7 @@ describe("WS /ws/session/:wsId", () => {
         msgs.some(
           (m) =>
             m.type === "status" &&
-            m.status === "busy" &&
+            (m.status === "busy" || m.status === "idle") &&
             m.sessionId === secondSession.sessionId,
         ),
     );
@@ -357,11 +357,12 @@ describe("WS /ws/session/:wsId", () => {
 
     await waitForMessage(
       messages,
-      (msgs) => msgs.some((m) => m.type === "status" && m.status === "busy"),
+      (msgs) => msgs.some((m) => m.type === "status" && typeof m.sessionId === "string"),
     );
 
     oldSession.emit("message", {
       type: "tool_input_required",
+      sessionId: oldSession.sessionId,
       requestId: "req-dismiss",
       toolName: "ExitPlanMode",
       toolUseId: "toolu-plan",
@@ -713,13 +714,13 @@ describe("WS /ws/session/:wsId", () => {
     await waitForMessage(
       messages,
       (msgs) =>
-        msgs.some((m) => m.type === "status" && m.status === "busy") &&
+        msgs.some((m) => m.type === "status" && (m.status === "busy" || m.status === "idle")) &&
         msgs.some((m) => m.type === "branch_info") &&
         msgs.some((m) => m.type === "diff_stats"),
     );
 
     expect(messages[0]).toEqual(
-      expect.objectContaining({ type: "status", status: "busy" }),
+      expect.objectContaining({ type: "status", status: "idle" }),
     );
     expect(messages).toContainEqual({ type: "branch_info", info: branchInfo });
     expect(messages).toContainEqual({ type: "diff_stats", stats: diffStats });

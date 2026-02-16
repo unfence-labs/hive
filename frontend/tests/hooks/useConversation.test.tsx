@@ -250,6 +250,51 @@ describe("useConversation", () => {
     expect(result.current.sessionId).toBe("sess-1");
   });
 
+  it("resyncs persisted session history on done to recover missed deltas", async () => {
+    const { __wsMock } = await getWsMock();
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock.mockResolvedValueOnce([]);
+    __apiMock.getMock.mockResolvedValueOnce([
+      {
+        id: "u1",
+        sessionId: "sess-1",
+        role: "user",
+        content: "start",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      },
+      {
+        id: "a1",
+        sessionId: "sess-1",
+        role: "assistant",
+        content: "final answer from persistence",
+        timestamp: "2026-02-12T00:00:01.000Z",
+      },
+    ]);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "start",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      // No text_delta received (simulates session unfocused while streaming).
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
+    });
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(2);
+      expect(result.current.messages.at(-1)?.content).toBe("final answer from persistence");
+    });
+    expect(__apiMock.getMock).toHaveBeenNthCalledWith(2, "/api/workspaces/ws-1/sessions/sess-1/messages");
+  });
+
   it("preserves parentToolUseId from tool_use events in active and persisted tool calls", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));
@@ -606,16 +651,8 @@ describe("useConversation", () => {
 
   it("switches sessions and loads specific session history", async () => {
     const { __apiMock } = await getApiMock();
+    const { __wsMock } = await getWsMock();
     __apiMock.getMock.mockResolvedValueOnce([]);
-    __apiMock.getMock.mockResolvedValueOnce([
-      {
-        id: "m-1",
-        sessionId: "sess-2",
-        role: "assistant",
-        content: "loaded from target session",
-        timestamp: "2026-02-12T00:00:01.000Z",
-      },
-    ]);
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -623,7 +660,23 @@ describe("useConversation", () => {
       await result.current.switchSession("sess-2");
     });
 
-    expect(__apiMock.getMock).toHaveBeenNthCalledWith(2, "/api/workspaces/ws-1/sessions/sess-2/messages");
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "history",
+        sessionId: "sess-2",
+        messages: [
+          {
+            id: "m-1",
+            sessionId: "sess-2",
+            role: "assistant",
+            content: "loaded from target session",
+            timestamp: "2026-02-12T00:00:01.000Z",
+          },
+        ],
+      });
+    });
+
+    expect(__apiMock.getMock).toHaveBeenCalledTimes(1);
     expect(result.current.messages).toEqual([
       expect.objectContaining({ id: "m-1", content: "loaded from target session" }),
     ]);
@@ -648,25 +701,8 @@ describe("useConversation", () => {
 
   it("ignores stale session history response when switching rapidly", async () => {
     const { __apiMock } = await getApiMock();
-    let resolveFirstSwitch: ((messages: ChatMessage[]) => void) | undefined;
-
-    __apiMock.getMock
-      .mockResolvedValueOnce([])
-      .mockImplementationOnce(
-        () =>
-          new Promise<ChatMessage[]>((resolve) => {
-            resolveFirstSwitch = resolve;
-          }),
-      )
-      .mockResolvedValueOnce([
-        {
-          id: "m-new",
-          sessionId: "sess-new",
-          role: "assistant",
-          content: "new session payload",
-          timestamp: "2026-02-12T00:00:02.000Z",
-        },
-      ]);
+    const { __wsMock } = await getWsMock();
+    __apiMock.getMock.mockResolvedValueOnce([]);
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -679,15 +715,32 @@ describe("useConversation", () => {
     });
 
     act(() => {
-      resolveFirstSwitch?.([
-        {
-          id: "m-old",
-          sessionId: "sess-old",
-          role: "assistant",
-          content: "stale payload",
-          timestamp: "2026-02-12T00:00:03.000Z",
-        },
-      ]);
+      __wsMock.emit("ws-1", {
+        type: "history",
+        sessionId: "sess-old",
+        messages: [
+          {
+            id: "m-old",
+            sessionId: "sess-old",
+            role: "assistant",
+            content: "stale payload",
+            timestamp: "2026-02-12T00:00:03.000Z",
+          },
+        ],
+      });
+      __wsMock.emit("ws-1", {
+        type: "history",
+        sessionId: "sess-new",
+        messages: [
+          {
+            id: "m-new",
+            sessionId: "sess-new",
+            role: "assistant",
+            content: "new session payload",
+            timestamp: "2026-02-12T00:00:02.000Z",
+          },
+        ],
+      });
     });
 
     await waitFor(() => {

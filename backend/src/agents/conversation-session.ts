@@ -248,11 +248,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         switch (block.type) {
           case "text":
             assistantText += block.text;
-            this.emit("message", { type: "text_delta", text: block.text });
+            this.emit("message", { type: "text_delta", sessionId: this.sessionId, text: block.text });
             break;
           case "thinking":
             thinkingText += block.thinking;
-            this.emit("message", { type: "thinking", text: block.thinking });
+            this.emit("message", { type: "thinking", sessionId: this.sessionId, text: block.thinking });
             break;
           case "tool_use": {
             const inputStr = typeof block.input === "string"
@@ -262,7 +262,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
               ? pendingTaskStack[pendingTaskStack.length - 1]
               : undefined;
             toolCalls.push({ id: block.id, name: block.name, input: inputStr, parentToolUseId });
-            this.emit("message", { type: "tool_use", id: block.id, name: block.name, input: inputStr, parentToolUseId });
+            this.emit("message", {
+              type: "tool_use",
+              sessionId: this.sessionId,
+              id: block.id,
+              name: block.name,
+              input: inputStr,
+              parentToolUseId,
+            });
 
             // Push Task tools onto the stack so their sub-tools get marked as children
             if (block.name === "Task") {
@@ -295,6 +302,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           if (tc) tc.output = block.content;
           this.emit("message", {
             type: "tool_result",
+            sessionId: this.sessionId,
             toolUseId: block.tool_use_id,
             output: block.content,
           });
@@ -398,11 +406,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       void (async () => {
         await this.persistQueue;
         if (shouldSurfaceCancelled) {
-          this.emit("message", { type: "cancelled" });
+          this.emit("message", { type: "cancelled", sessionId: this.sessionId });
         } else if (!cancelledByPark) {
           this.emit("message", {
             type: "done",
-            sessionId: this.claudeSessionId,
+            sessionId: this.sessionId,
             durationMs: resultDurationMs,
           });
         }
@@ -418,6 +426,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           }
           this.emit("message", {
             type: "tool_input_required",
+            sessionId: this.sessionId,
             requestId: nanoid(12),
             toolName: tool.name,
             toolUseId: tool.id,

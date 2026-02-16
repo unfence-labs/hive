@@ -27,6 +27,7 @@ const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
 type LocalAction =
   | { type: "reset" }
   | { type: "clear_chat" }
+  | { type: "prepare_session_switch"; sessionId: string }
   | { type: "clear_pending_tool_inputs" };
 
 type Action = WsOutgoing | LocalAction;
@@ -43,7 +44,39 @@ const initialState: ConversationState = {
   sessionId: undefined,
 };
 
+function getActionSessionId(action: Action): string | undefined {
+  switch (action.type) {
+    case "user_message":
+      return action.message.sessionId;
+    case "text_delta":
+    case "thinking":
+    case "tool_use":
+    case "tool_result":
+    case "tool_input_required":
+    case "done":
+    case "cancelled":
+    case "status":
+      return action.sessionId;
+    case "history":
+      return action.sessionId ?? action.messages[0]?.sessionId;
+    default:
+      return undefined;
+  }
+}
+
 function reducer(state: ConversationState, action: Action): ConversationState {
+  if (
+    action.type !== "reset" &&
+    action.type !== "clear_chat" &&
+    action.type !== "clear_pending_tool_inputs" &&
+    action.type !== "prepare_session_switch"
+  ) {
+    const actionSessionId = getActionSessionId(action);
+    if (actionSessionId && state.sessionId && actionSessionId !== state.sessionId) {
+      return state;
+    }
+  }
+
   switch (action.type) {
     case "user_message":
       if (state.messages.some((message) => message.id === action.message.id)) {
@@ -86,7 +119,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "done": {
       const assistantMsg: ChatMessage = {
         id: crypto.randomUUID(),
-        sessionId: action.sessionId ?? state.sessionId ?? "",
+        sessionId: action.sessionId,
         role: "assistant",
         content: state.currentText,
         toolCalls: state.activeToolCalls.length > 0 ? state.activeToolCalls : undefined,
@@ -101,7 +134,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         currentText: "",
         currentThinking: "",
         activeToolCalls: [],
-        sessionId: action.sessionId ?? state.sessionId,
+        sessionId: action.sessionId,
       };
     }
 
@@ -114,7 +147,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       }
       const cancelledMsg: ChatMessage = {
         id: crypto.randomUUID(),
-        sessionId: state.sessionId ?? "",
+        sessionId: action.sessionId,
         role: "assistant",
         content: hasOutput ? state.currentText : CANCELLED_NO_OUTPUT_MESSAGE,
         toolCalls: state.activeToolCalls.length > 0 ? state.activeToolCalls : undefined,
@@ -139,16 +172,29 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       return {
         ...state,
         workspaceStatus: action.status,
-        sessionId: action.sessionId ?? state.sessionId,
+        sessionId: action.sessionId ?? (action.status === "idle" ? undefined : state.sessionId),
         isStreaming: action.streaming ?? (action.status === "idle" ? false : state.isStreaming),
       };
 
-    case "history":
+    case "history": {
+      const historySessionId = action.sessionId ?? action.messages[0]?.sessionId ?? state.sessionId;
+      const preserveTransient = Boolean(
+        historySessionId &&
+        state.sessionId === historySessionId &&
+        state.isStreaming,
+      );
       return {
         ...state,
         messages: action.messages,
-        sessionId: action.messages[0]?.sessionId ?? state.sessionId,
+        isStreaming: preserveTransient ? state.isStreaming : false,
+        currentText: preserveTransient ? state.currentText : "",
+        currentThinking: preserveTransient ? state.currentThinking : "",
+        activeToolCalls: preserveTransient ? state.activeToolCalls : [],
+        pendingToolInputs: preserveTransient ? state.pendingToolInputs : [],
+        error: undefined,
+        sessionId: historySessionId,
       };
+    }
 
     case "tool_input_required":
       return {
@@ -163,6 +209,18 @@ function reducer(state: ConversationState, action: Action): ConversationState {
 
     case "clear_pending_tool_inputs":
       return { ...state, pendingToolInputs: [] };
+
+    case "prepare_session_switch":
+      return {
+        ...state,
+        sessionId: action.sessionId,
+        isStreaming: false,
+        currentText: "",
+        currentThinking: "",
+        activeToolCalls: [],
+        pendingToolInputs: [],
+        error: undefined,
+      };
 
     case "clear_chat":
       return {
@@ -188,6 +246,20 @@ function reducer(state: ConversationState, action: Action): ConversationState {
 export function useConversation(workspaceId: string | undefined) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const historyRequestTokenRef = useRef(0);
+  const syncSessionHistory = useCallback(async (sessionId: string) => {
+    if (!workspaceId || !sessionId) return;
+    const historyRequestToken = historyRequestTokenRef.current + 1;
+    historyRequestTokenRef.current = historyRequestToken;
+    try {
+      const messages = await api.get<ChatMessage[]>(
+        `/api/workspaces/${workspaceId}/sessions/${sessionId}/messages`,
+      );
+      if (historyRequestTokenRef.current !== historyRequestToken) return;
+      dispatch({ type: "history", sessionId, messages });
+    } catch {
+      // Best-effort sync. WS state remains the fallback if this request fails.
+    }
+  }, [workspaceId]);
   const connectionStatus = useSyncExternalStore(
     (listener) =>
       workspaceId ? wsTransport.subscribe(workspaceId, listener) : () => {},
@@ -205,7 +277,12 @@ export function useConversation(workspaceId: string | undefined) {
     dispatch({ type: "reset" });
     wsTransport.connect(workspaceId);
 
-    const { unsubscribe, hadBufferedMessages } = wsTransport.onMessage(workspaceId, (msg) => dispatch(msg));
+    const { unsubscribe, hadBufferedMessages } = wsTransport.onMessage(workspaceId, (msg) => {
+      dispatch(msg);
+      if ((msg.type === "done" || msg.type === "cancelled") && msg.sessionId) {
+        void syncSessionHistory(msg.sessionId);
+      }
+    });
 
     // If the transport replayed buffered messages (events that arrived while we were
     // on another workspace), the reducer already has the most current state. Bump the
@@ -230,7 +307,7 @@ export function useConversation(workspaceId: string | undefined) {
       }
       unsubscribe();
     };
-  }, [workspaceId]);
+  }, [workspaceId, syncSessionHistory]);
 
   const sendMessage = useCallback((content: string, images?: ImageAttachment[], options?: MessageOptions): boolean => {
     if (!workspaceId) {
@@ -266,19 +343,12 @@ export function useConversation(workspaceId: string | undefined) {
 
   const switchSession = useCallback(async (sessionId: string) => {
     if (!workspaceId) return;
-    dispatch({ type: "clear_chat" });
+    dispatch({ type: "prepare_session_switch", sessionId });
     dispatch({ type: "status", status: "busy", sessionId, streaming: false });
-    wsTransport.send(workspaceId, { type: "switch_session", sessionId });
     historyRequestTokenRef.current += 1;
-    const token = historyRequestTokenRef.current;
-    try {
-      const messages = await api.get<ChatMessage[]>(
-        `/api/workspaces/${workspaceId}/sessions/${sessionId}/messages`,
-      );
-      if (historyRequestTokenRef.current !== token) return;
-      dispatch({ type: "history", messages });
-    } catch {
-      // Non-fatal — chat will be empty until next WS event
+    const sent = wsTransport.send(workspaceId, { type: "switch_session", sessionId });
+    if (!sent) {
+      dispatch({ type: "error", message: "Session switch failed: disconnected from server." });
     }
   }, [workspaceId]);
 

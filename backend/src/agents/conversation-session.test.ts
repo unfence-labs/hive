@@ -238,7 +238,7 @@ describe("ConversationSession", () => {
   });
 
   it("emits text_delta for assistant text", () => {
-    const session = createSession();
+    const session = createSession({ sessionId: "sess-text-delta" });
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
@@ -247,7 +247,7 @@ describe("ConversationSession", () => {
 
     const textDeltas = messages.filter((m) => m.type === "text_delta");
     expect(textDeltas).toHaveLength(1);
-    expect(textDeltas[0]).toEqual({ type: "text_delta", text: "Hello!" });
+    expect(textDeltas[0]).toEqual({ type: "text_delta", sessionId: "sess-text-delta", text: "Hello!" });
   });
 
   it("emits user_message when a turn starts", () => {
@@ -269,7 +269,7 @@ describe("ConversationSession", () => {
   });
 
   it("emits tool_use for assistant tool calls", () => {
-    const session = createSession();
+    const session = createSession({ sessionId: "sess-tool-use" });
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
@@ -282,6 +282,7 @@ describe("ConversationSession", () => {
     expect(toolUses).toHaveLength(1);
     expect(toolUses[0]).toEqual({
       type: "tool_use",
+      sessionId: "sess-tool-use",
       id: "toolu_abc",
       name: "Read",
       input: JSON.stringify({ file_path: "/foo" }, null, 2),
@@ -289,7 +290,7 @@ describe("ConversationSession", () => {
   });
 
   it("emits tool_result for user messages", () => {
-    const session = createSession();
+    const session = createSession({ sessionId: "sess-tool-result" });
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
@@ -300,6 +301,7 @@ describe("ConversationSession", () => {
     expect(toolResults).toHaveLength(1);
     expect(toolResults[0]).toEqual({
       type: "tool_result",
+      sessionId: "sess-tool-result",
       toolUseId: "toolu_abc",
       output: "file contents",
     });
@@ -342,7 +344,7 @@ describe("ConversationSession", () => {
   });
 
   it("emits thinking events", () => {
-    const session = createSession();
+    const session = createSession({ sessionId: "sess-thinking" });
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
@@ -351,7 +353,7 @@ describe("ConversationSession", () => {
 
     const thinkingMsgs = messages.filter((m) => m.type === "thinking");
     expect(thinkingMsgs).toHaveLength(1);
-    expect(thinkingMsgs[0]).toEqual({ type: "thinking", text: "Hmm, let me think..." });
+    expect(thinkingMsgs[0]).toEqual({ type: "thinking", sessionId: "sess-thinking", text: "Hmm, let me think..." });
   });
 
   it("emits done on successful process close", async () => {
@@ -369,9 +371,10 @@ describe("ConversationSession", () => {
 
     const doneMsgs = messages.filter((m) => m.type === "done");
     expect(doneMsgs).toHaveLength(1);
-    // sessionId is the pre-generated UUID, not from the result event
-    expect(doneMsgs[0]).toHaveProperty("type", "done");
-    expect(doneMsgs[0]).toHaveProperty("sessionId");
+    expect(doneMsgs[0]).toEqual(expect.objectContaining({
+      type: "done",
+      sessionId: session.sessionId,
+    }));
     expect(session.status).toBe("idle");
   });
 
@@ -388,6 +391,7 @@ describe("ConversationSession", () => {
 
     const cancelledMsgs = messages.filter((m) => m.type === "cancelled");
     expect(cancelledMsgs).toHaveLength(1);
+    expect(cancelledMsgs[0]).toEqual(expect.objectContaining({ sessionId: session.sessionId }));
   });
 
   it("stop() kills the process", () => {
@@ -702,6 +706,7 @@ describe("ConversationSession", () => {
     expect(requiredEvents).toHaveLength(1);
     expect(requiredEvents[0]).toMatchObject({
       type: "tool_input_required",
+      sessionId: "tool-input-required",
       toolName: "AskUserQuestion",
       toolUseId: "toolu_ask",
       input: { questions: [{ question: "Choose", options: [{ label: "A" }] }] },
@@ -1037,6 +1042,7 @@ describe("ConversationSession", () => {
     expect(requiredEvents).toHaveLength(1);
     expect(requiredEvents[0]).toMatchObject({
       type: "tool_input_required",
+      sessionId: "exit-plan-block",
       toolName: "ExitPlanMode",
       toolUseId: "toolu_plan",
     });
