@@ -125,7 +125,7 @@ export default function Sidebar({
   };
 
   return (
-    <div className="flex h-full w-60 flex-col border-r border-border/50 bg-sidebar text-sidebar-foreground">
+    <div className="flex h-full w-72 flex-col border-r border-border/50 bg-sidebar text-sidebar-foreground">
       <div className="flex h-12 items-center justify-between border-b border-border/50 px-4">
         <Link to="/" className="font-title text-lg tracking-wide text-primary">
           Hive

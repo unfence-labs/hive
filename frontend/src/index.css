@@ -155,7 +155,33 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: oklch(1 0 0 / 0%) transparent;
   }
+  *:hover {
+    scrollbar-color: var(--input) transparent;
+  }
+
+  /* Webkit (Chrome, Safari, Edge) — iOS-style thin scrollbar */
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 0%);
+    border-radius: 9999px;
+    transition: background 0.2s;
+  }
+  *:hover::-webkit-scrollbar-thumb {
+    background: var(--input);
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: oklch(1 0 0 / 20%);
+  }
+
   html,
   body {
     @apply bg-background font-sans text-foreground;
