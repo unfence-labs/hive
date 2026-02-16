@@ -5,6 +5,7 @@ import SettingsView from "@/pages/SettingsView";
 import WorkspaceView from "@/pages/WorkspaceView";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import EmptyStateLogo from "@/components/EmptyStateLogo";
+import LogoSquareTempPage from "@/pages/LogoSquareTempPage";
 import { useProjects } from "@/hooks/useProjects";
 import { wsTransport } from "@/lib/ws-transport";
 
@@ -38,6 +39,7 @@ export default function App() {
         onSubmit={createProjectWithWorkspace}
       />
       <Routes>
+        <Route path="tmp/logo-carre" element={<LogoSquareTempPage />} />
         <Route
           element={
             <AppLayout
@@ -53,7 +55,7 @@ export default function App() {
           <Route index element={<Navigate to="/projects" replace />} />
           <Route
             path="projects"
-            element={<EmptyStateLogo />}
+            element={<EmptyStateLogo onAddProject={() => setShowAddProject(true)} />}
           />
           <Route path="projects/:id" element={<Navigate to="/projects" replace />} />
           <Route path="workspaces/:wsId" element={<WorkspaceView />} />
