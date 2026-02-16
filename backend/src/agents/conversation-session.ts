@@ -31,6 +31,7 @@ export type ConversationSessionEvent = {
   message: [msg: WsOutgoing];
   exit: [code: number];
   error: [err: Error];
+  first_message: [content: string];
 };
 
 export class ConversationSession extends EventEmitter<ConversationSessionEvent> {
@@ -148,6 +149,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.emit("message", { type: "user_message", message: userMsg });
 
     this.messageCount++;
+
+    if (this.messageCount === 1) {
+      this.emit("first_message", content);
+    }
 
     const promptContent = cliContent ?? content;
     if (images?.length) {
@@ -510,6 +515,15 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     } else if (result.type === "reject") {
       this.sendMessage(result.message || "I reject this. Please suggest an alternative approach.");
     }
+  }
+
+  /** Update the session title externally (e.g. from the naming task). */
+  setTitle(title: string): void {
+    this._metadata.title = title;
+    this._metadata.updatedAt = new Date().toISOString();
+    this.persistQueue = this.persistQueue
+      .then(() => this.saveMetadata())
+      .catch(() => {});
   }
 
   /** Append a ChatMessage to the session's messages.jsonl */

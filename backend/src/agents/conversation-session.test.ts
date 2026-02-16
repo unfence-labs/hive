@@ -1129,6 +1129,53 @@ describe("ConversationSession", () => {
     expect(session.metadata.title).toBe("padded message");
   });
 
+  it("emits first_message event on first sendMessage", () => {
+    const session = createSession({ sessionId: "first-msg-evt" });
+    const firstMessages: string[] = [];
+    session.on("first_message", (content) => firstMessages.push(content));
+
+    session.sendMessage("Hello world");
+    expect(firstMessages).toEqual(["Hello world"]);
+  });
+
+  it("does not emit first_message on second sendMessage", () => {
+    const session = createSession({ sessionId: "no-second-evt" });
+    const firstMessages: string[] = [];
+    session.on("first_message", (content) => firstMessages.push(content));
+
+    session.sendMessage("First");
+    mockProc._stdout.push(assistantLine("OK"));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    const mockProc2 = createMockProcess();
+    mockSpawn.mockReturnValue(mockProc2);
+
+    session.sendMessage("Second");
+    expect(firstMessages).toEqual(["First"]);
+  });
+
+  it("setTitle() updates metadata title", async () => {
+    const session = createSession({ sessionId: "set-title" });
+    session.sendMessage("Initial message");
+
+    // Naive title should be set
+    expect(session.metadata.title).toBe("Initial message");
+
+    // Override with setTitle
+    session.setTitle("AI-generated title");
+    expect(session.metadata.title).toBe("AI-generated title");
+
+    // Wait for persistence
+    mockProc._emitClose(0);
+    await new Promise((r) => setTimeout(r, 100));
+
+    const metaPath = join(tempDir, "sessions", "set-title", "metadata.json");
+    const raw = await readFile(metaPath, "utf-8");
+    const meta = JSON.parse(raw);
+    expect(meta.title).toBe("AI-generated title");
+  });
+
   it("SIGKILL timeout fires after SIGTERM on stop()", async () => {
     vi.useFakeTimers();
     const session = createSession();

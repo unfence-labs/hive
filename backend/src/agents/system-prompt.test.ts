@@ -126,35 +126,10 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Main branch: develop");
   });
 
-  it("includes branch rename directive when configured", async () => {
-    const prompt = await buildSystemPrompt({
-      cwd: repoDir,
-      branchRename: { prefix: "feat/" },
-    });
-    expect(prompt).toContain("git branch -m");
-    expect(prompt).toContain('prefix "feat/"');
-  });
-
-  it("includes branch rename without prefix", async () => {
-    const prompt = await buildSystemPrompt({
-      cwd: repoDir,
-      branchRename: {},
-    });
-    expect(prompt).toContain("git branch -m");
-    expect(prompt).not.toContain("prefix");
-  });
-
-  it("uses custom maxLength in branch rename", async () => {
-    const prompt = await buildSystemPrompt({
-      cwd: repoDir,
-      branchRename: { maxLength: 30 },
-    });
-    expect(prompt).toContain("under 30 characters");
-  });
-
-  it("omits branch rename when not configured", async () => {
+  it("does not include branch rename directives", async () => {
     const prompt = await buildSystemPrompt({ cwd: repoDir });
     expect(prompt).not.toContain("git branch -m");
+    expect(prompt).not.toContain("Branch Naming");
   });
 
   it("loads base prompt from promptsDir when provided", async () => {
