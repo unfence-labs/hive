@@ -11,8 +11,10 @@ import { terminalRoutes } from "./ws/terminal.js";
 import { createAuthHook } from "./utils/auth.js";
 import { createRateLimitHook } from "./utils/rate-limit.js";
 import { ensureDataDir, getDataDir } from "./state/state.js";
-import type { SessionOptions } from "./agents/agent-manager.js";
+import { type SessionOptions, setNotifier } from "./agents/agent-manager.js";
 import { GitSyncService } from "./services/git-sync.js";
+import { Notifier } from "./notifications/notifier.js";
+import { TelegramChannel } from "./notifications/telegram.js";
 import { broadcastToWorkspace } from "./ws/stream.js";
 import type { StreamRoutesOptions } from "./ws/stream.js";
 
@@ -94,6 +96,11 @@ const BRANCH_SYNC_INTERVAL_MS = 10_000;
 async function main() {
   const dataDir = getDataDir();
   await ensureDataDir(dataDir);
+
+  const channels = [TelegramChannel.fromEnv()].filter(
+    (c): c is NonNullable<typeof c> => c != null,
+  );
+  setNotifier(new Notifier(channels));
 
   const gitSync = new GitSyncService(dataDir);
   gitSync.onBranchChange((wsId, info) => {

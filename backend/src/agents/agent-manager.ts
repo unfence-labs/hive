@@ -7,6 +7,13 @@ import { saveProject, getDataDir, loadProject, withProjectStateLock } from "../s
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
 import { NotFoundError } from "../utils/errors.js";
 import type { ChatMessage, SessionMetadata } from "../types.js";
+import type { Notifier } from "../notifications/notifier.js";
+
+let notifier: Notifier | undefined;
+
+export function setNotifier(n: Notifier): void {
+  notifier = n;
+}
 
 const loadedSessionsByWorkspace = new Map<string, Map<string, ConversationSession>>();
 const activeSessionIds = new Map<string, string>();
@@ -369,6 +376,25 @@ async function buildSessionPrompt(
   });
 }
 
+function attachNotificationListener(
+  session: ConversationSession,
+  ctx: { workspace: { id: string; name: string }; projectState: { name: string } },
+): void {
+  if (!notifier) return;
+  const n = notifier;
+  session.on("message", (msg) => {
+    if (msg.type !== "done") return;
+    n.notify({
+      type: "agent_turn_complete",
+      workspaceId: ctx.workspace.id,
+      workspaceName: ctx.workspace.name,
+      projectName: ctx.projectState.name,
+      sessionId: session.sessionId,
+      durationMs: msg.durationMs,
+    }).catch(() => {});
+  });
+}
+
 async function createSession(
   ctx: Awaited<ReturnType<typeof resolveWorkspaceContext>>,
   dataDir: string,
@@ -391,6 +417,7 @@ async function createSession(
     skipPermissions: options?.skipPermissions,
   });
   await session.persistMetadata();
+  attachNotificationListener(session, ctx);
   rememberLoadedSession(ctx.workspace.id, session);
   return session;
 }
@@ -433,6 +460,7 @@ async function loadSessionFromDisk(
     systemPrompt,
     skipPermissions: options?.skipPermissions,
   });
+  attachNotificationListener(session, ctx);
   rememberLoadedSession(ctx.workspace.id, session);
   return session;
 }

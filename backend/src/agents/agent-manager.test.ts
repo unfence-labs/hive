@@ -18,16 +18,35 @@ import {
   hardDeleteSession,
   getSpecificSessionMessages,
   _clearActiveSessions,
+  setNotifier,
 } from "./agent-manager.js";
 import { loadProject, saveProject } from "../state/state.js";
 import type { ChatMessage, SessionMetadata } from "../types.js";
+import { Notifier } from "../notifications/notifier.js";
+import type { NotificationEvent } from "../notifications/types.js";
 
 const CONV_CMD = { command: "bash", systemPrompt: false as const };
 
 let tempDir: string;
 let dataDir: string;
 let projectId: string;
+let projectName: string;
 let wsId: string;
+let wsName: string;
+
+class RecordingNotifier extends Notifier {
+  readonly events: NotificationEvent[] = [];
+  rejectCalls = false;
+
+  constructor() {
+    super([]);
+  }
+
+  override async notify(event: NotificationEvent): Promise<void> {
+    this.events.push(event);
+    if (this.rejectCalls) throw new Error("notify failed");
+  }
+}
 
 beforeEach(async () => {
   tempDir = await createTempDir("hive-session-mgr-test-");
@@ -39,11 +58,14 @@ beforeEach(async () => {
   const fixtureRepoUrl = await createFixtureRepo(fixtureDir);
   const project = await createProject(fixtureRepoUrl, dataDir);
   projectId = project.id;
+  projectName = project.name;
   const ws = await createWorkspace(projectId, dataDir);
   wsId = ws.id;
+  wsName = ws.name;
 });
 
 afterEach(async () => {
+  setNotifier(new Notifier([]));
   _clearActiveSessions();
   await new Promise((r) => setTimeout(r, 50));
   await rm(tempDir, { recursive: true, force: true });
@@ -542,5 +564,98 @@ describe("getSpecificSessionMessages", () => {
 
   it("throws for non-existent workspace", async () => {
     await expect(getSpecificSessionMessages("missing", "sess-1", dataDir)).rejects.toThrow("not found");
+  });
+});
+
+describe("notifications", () => {
+  it("notifies when an active session emits done", async () => {
+    const notifier = new RecordingNotifier();
+    setNotifier(notifier);
+    const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+
+    session.emit("message", {
+      type: "done",
+      sessionId: session.sessionId,
+      durationMs: 2400,
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(notifier.events).toEqual([
+      {
+        type: "agent_turn_complete",
+        workspaceId: wsId,
+        workspaceName: wsName,
+        projectName,
+        sessionId: session.sessionId,
+        durationMs: 2400,
+      },
+    ]);
+  });
+
+  it("does not notify for non-done websocket messages", async () => {
+    const notifier = new RecordingNotifier();
+    setNotifier(notifier);
+    const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+
+    session.emit("message", {
+      type: "text_delta",
+      sessionId: session.sessionId,
+      text: "chunk",
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifier.events).toEqual([]);
+  });
+
+  it("attaches notifications to sessions resumed from disk", async () => {
+    const notifier = new RecordingNotifier();
+    setNotifier(notifier);
+
+    await writeSessionFixture("persisted-session", wsId, {
+      metadata: {
+        updatedAt: "2026-02-12T00:00:00.000Z",
+      },
+    });
+
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId)!;
+    ws.status = "busy";
+    ws.activeSessionId = "persisted-session";
+    await saveProject(state!, dataDir);
+
+    const { session, created } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    expect(created).toBe(false);
+    expect(session.sessionId).toBe("persisted-session");
+
+    session.emit("message", {
+      type: "done",
+      sessionId: session.sessionId,
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifier.events).toHaveLength(1);
+    expect(notifier.events[0]).toMatchObject({
+      type: "agent_turn_complete",
+      workspaceId: wsId,
+      sessionId: "persisted-session",
+    });
+  });
+
+  it("swallows notifier errors", async () => {
+    const notifier = new RecordingNotifier();
+    notifier.rejectCalls = true;
+    setNotifier(notifier);
+    const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+
+    expect(() => {
+      session.emit("message", {
+        type: "done",
+        sessionId: session.sessionId,
+      });
+    }).not.toThrow();
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifier.events).toHaveLength(1);
   });
 });
