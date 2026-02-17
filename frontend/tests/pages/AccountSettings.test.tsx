@@ -106,7 +106,7 @@ describe("AccountSettings", () => {
     render(<AccountSettings />);
 
     // The h2 should contain the login since name is empty
-    const heading = await screen.findByRole("heading", { level: 2 });
+    const heading = await screen.findByRole("heading", { level: 2, name: "bot-user" });
     expect(heading.textContent).toBe("bot-user");
   });
 

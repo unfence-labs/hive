@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Github, Loader2, LogOut, ExternalLink, Copy, Check, AlertCircle } from "lucide-react";
+import { Github, Loader2, LogOut, ExternalLink, Copy, Check, AlertCircle, CheckCircle2, Terminal, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/hooks/useApi";
 import { openExternal } from "@/lib/open-external";
@@ -300,6 +300,42 @@ export default function AccountSettings() {
             </div>
           </section>
         )}
+
+        {/* GitHub CLI integration status */}
+        <section className="rounded-lg border border-border/50 bg-card/50 p-5">
+          <div className="flex items-start gap-3">
+            {state.kind === "connected" ? (
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+            ) : state.kind === "no-gh" ? (
+              <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+            ) : (
+              <Terminal className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            )}
+            <div>
+              <h2 className="text-sm font-medium">GitHub CLI integration</h2>
+              {state.kind === "connected" && (
+                <>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    GitHub CLI is authenticated and ready.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Signed in as {state.user.login}
+                  </p>
+                </>
+              )}
+              {state.kind === "no-gh" && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  GitHub CLI (<code className="rounded bg-muted px-1 py-0.5 text-[11px]">gh</code>) is not installed.
+                </p>
+              )}
+              {(state.kind === "disconnected" || state.kind === "connecting" || state.kind === "error") && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  GitHub CLI is installed but not authenticated.
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );
