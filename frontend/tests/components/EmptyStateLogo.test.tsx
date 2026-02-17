@@ -42,6 +42,7 @@ describe("EmptyStateLogo", () => {
 
     const startConfig = screen.getByRole("link", { name: /start config/i });
     expect(startConfig).toHaveAttribute("href", "/settings");
+    expect(startConfig).toHaveClass("text-primary");
 
     const docs = screen.getByRole("link", { name: /documentation/i });
     expect(docs).toHaveAttribute("href", "https://docs.hive.dev");
@@ -69,5 +70,8 @@ describe("EmptyStateLogo", () => {
     expect(addRepository).toBeEnabled();
     await user.click(addRepository);
     expect(onAddProject).toHaveBeenCalledTimes(1);
+
+    const startConfig = screen.getByRole("link", { name: /start config/i });
+    expect(startConfig).toHaveClass("text-muted-foreground");
   });
 });

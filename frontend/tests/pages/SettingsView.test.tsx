@@ -74,15 +74,15 @@ describe("SettingsView", () => {
     expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 300);
   });
 
-  it("reconnect button saves config, checks connection and triggers parent refresh", async () => {
+  it("auto-refreshes connection on blur by running check and parent refresh", async () => {
     const user = userEvent.setup();
     const onRefreshConnection = vi.fn();
+    localStorage.setItem("hive-tailscale-port", "3000");
 
     render(<SettingsView onRefreshConnection={onRefreshConnection} />);
 
     await user.type(screen.getByPlaceholderText("100.x.x.x"), "100.64.0.11");
-    await user.type(screen.getByPlaceholderText("3000"), "4000");
-    await user.click(screen.getByTitle("Reconnect — saves config and reloads the app"));
+    await user.tab();
 
     await waitFor(() => {
       expect(check).toHaveBeenCalledTimes(1);
@@ -90,8 +90,8 @@ describe("SettingsView", () => {
     });
 
     expect(localStorage.getItem("hive-tailscale-ip")).toBe("100.64.0.11");
-    expect(localStorage.getItem("hive-tailscale-port")).toBe("4000");
-    expect(localStorage.getItem("hive-server-url")).toBe("http://100.64.0.11:4000");
+    expect(localStorage.getItem("hive-tailscale-port")).toBe("3000");
+    expect(localStorage.getItem("hive-server-url")).toBe("http://100.64.0.11:3000");
   });
 
   it("updates accent color from accent option buttons", async () => {
