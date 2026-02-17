@@ -3,10 +3,9 @@ import SwiftUI
 struct ChatView: View {
     let workspace: Workspace
 
-    @State private var messages: [ChatMessage] = []
+    @State private var store = ConversationStore()
     @State private var draft = ""
     @State private var isLoading = true
-    @State private var isBusy = false
     @State private var wsManager = WebSocketManager()
 
     private let api = APIClient()
@@ -15,20 +14,27 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 16) {
-                    ForEach(messages) { message in
+                    ForEach(store.displayMessages) { message in
                         MessageBubble(message: message)
                             .id(message.id)
+                    }
+
+                    if store.isStreaming && store.streamingMessage == nil {
+                        streamingIndicator
                     }
                 }
                 .padding()
                 .padding(.bottom, 60)
             }
-            .onChange(of: messages.count) {
+            .onChange(of: store.displayMessages.count) {
+                scrollToBottom(proxy)
+            }
+            .onChange(of: store.currentText) {
                 scrollToBottom(proxy)
             }
         }
         .safeAreaInset(edge: .bottom) {
-            ChatInputBar(draft: $draft, isBusy: isBusy, onSend: sendMessage)
+            ChatInputBar(draft: $draft, isBusy: store.isBusy, onSend: sendMessage)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 4)
         }
@@ -45,7 +51,7 @@ struct ChatView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                if isBusy {
+                if store.isBusy {
                     Button {
                         Task { await wsManager.send(.stop(sessionId: nil)) }
                     } label: {
@@ -62,6 +68,21 @@ struct ChatView: View {
         .onDisappear { wsManager.disconnect() }
     }
 
+    // MARK: - Streaming indicator
+
+    private var streamingIndicator: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { _ in
+                Circle()
+                    .fill(.secondary)
+                    .frame(width: 6, height: 6)
+                    .opacity(0.5)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .id("streaming-indicator")
+    }
+
     // MARK: - Setup
 
     private func setup() async {
@@ -76,7 +97,7 @@ struct ChatView: View {
             return
         }
         do {
-            messages = try await api.fetchMessages(
+            store.messages = try await api.fetchMessages(
                 workspaceId: workspace.id,
                 sessionId: sessionId
             )
@@ -91,21 +112,8 @@ struct ChatView: View {
     private func listenToWebSocket() {
         Task {
             for await event in wsManager.messages {
-                handleEvent(event)
+                store.handle(event)
             }
-        }
-    }
-
-    private func handleEvent(_ event: WsOutgoing) {
-        switch event {
-        case .userMessage(let msg):
-            messages.append(msg)
-        case .status(let status, _, let streaming, _):
-            isBusy = status == .busy || streaming == true
-        case .history(let msgs, _):
-            messages = msgs
-        default:
-            break // streaming events handled in task #8
         }
     }
 
@@ -123,8 +131,10 @@ struct ChatView: View {
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        if let lastId = messages.last?.id {
-            withAnimation { proxy.scrollTo(lastId, anchor: .bottom) }
+        if let lastId = store.displayMessages.last?.id {
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo(lastId, anchor: .bottom)
+            }
         }
     }
 }
