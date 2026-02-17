@@ -139,7 +139,7 @@ export default function Sidebar({
                             activeProjectId === project.id && "bg-sidebar-accent/60",
                           )}
                         >
-                          <ProjectAvatar name={project.name} />
+                          <ProjectAvatar name={project.name} projectId={project.id} hasFavicon={project.hasFavicon} />
                           <span className="min-w-0 flex-1 truncate pr-0 transition-[padding] group-hover:pr-12">
                             {project.name}
                           </span>

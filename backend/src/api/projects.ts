@@ -9,13 +9,35 @@ import {
 import { errorMessage, errorStatus } from "../utils/errors.js";
 import { bareRepoPath, workspacesDir } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
+import { git, gitBuffer } from "../utils/git.js";
 import type { CreateProjectRequest, ProjectState } from "../types.js";
 
-function enrichProject(project: ProjectState, dir: string) {
+const FAVICON_NAMES = new Set(["favicon.ico", "favicon.png", "favicon.svg"]);
+
+/** Find the first favicon path in the repo tree (recursive). */
+async function findFavicon(bare: string): Promise<string | null> {
+  const { stdout: tree } = await git(["ls-tree", "-r", "--name-only", "HEAD"], bare);
+  for (const line of tree.split("\n")) {
+    const basename = line.split("/").pop() ?? "";
+    if (FAVICON_NAMES.has(basename)) return line;
+  }
+  return null;
+}
+
+async function hasFaviconFlag(dir: string, projectId: string): Promise<boolean> {
+  try {
+    return (await findFavicon(bareRepoPath(dir, projectId))) !== null;
+  } catch {
+    return false;
+  }
+}
+
+async function enrichProject(project: ProjectState, dir: string) {
   return {
     ...project,
     repoPath: bareRepoPath(dir, project.id),
     workspacesPath: workspacesDir(dir, project.id),
+    hasFavicon: await hasFaviconFlag(dir, project.id),
   };
 }
 
@@ -37,14 +59,14 @@ export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
   app.get("/api/projects", async (_req, reply) => {
     const dir = dataDir ?? getDataDir();
     const projects = await listProjects(dir);
-    return reply.send(projects.map((p) => enrichProject(p, dir)));
+    return reply.send(await Promise.all(projects.map((p) => enrichProject(p, dir))));
   });
 
   app.get<{ Params: { id: string } }>("/api/projects/:id", async (req, reply) => {
     const dir = dataDir ?? getDataDir();
     const project = await getProject(req.params.id, dir);
     if (!project) return reply.status(404).send({ error: "Project not found" });
-    return reply.send(enrichProject(project, dir));
+    return reply.send(await enrichProject(project, dir));
   });
 
   app.delete<{ Params: { id: string } }>("/api/projects/:id", async (req, reply) => {
@@ -66,5 +88,35 @@ export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
         .status(errorStatus(err))
         .send({ error: errorMessage(err, "Fetch failed") });
     }
+  });
+
+  const EXT_MIME: Record<string, string> = {
+    ".ico": "image/x-icon",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+  };
+
+  app.get<{ Params: { id: string } }>("/api/projects/:id/favicon", async (req, reply) => {
+    const dir = dataDir ?? getDataDir();
+    const project = await getProject(req.params.id, dir);
+    if (!project) return reply.status(404).send({ error: "Project not found" });
+
+    const bare = bareRepoPath(dir, project.id);
+
+    try {
+      const path = await findFavicon(bare);
+      if (path) {
+        const ext = path.slice(path.lastIndexOf("."));
+        const buf = await gitBuffer(["show", `HEAD:${path}`], bare);
+        return reply
+          .header("Content-Type", EXT_MIME[ext] ?? "application/octet-stream")
+          .header("Cache-Control", "public, max-age=3600")
+          .send(buf);
+      }
+    } catch {
+      // Empty repo or git error — fall through to 404.
+    }
+
+    return reply.status(404).send({ error: "No favicon found" });
   });
 }

@@ -76,7 +76,7 @@ export default function SettingsSidebar({ projects }: SettingsSidebarProps) {
                         : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
                     )}
                   >
-                    <ProjectAvatar name={project.name} />
+                    <ProjectAvatar name={project.name} projectId={project.id} hasFavicon={project.hasFavicon} />
                     <span className="min-w-0 flex-1 truncate">{project.name}</span>
                     {isActive && (
                       <GitFork className="h-3 w-3 shrink-0 text-primary/60" />
