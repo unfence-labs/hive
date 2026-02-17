@@ -110,6 +110,25 @@ export async function createWorkspace(
 
       const defaultBranch = await resolveDefaultBranch(bare);
 
+      // Pull the remote default branch into FETCH_HEAD, then fast-forward
+      // the local ref only when the remote is strictly ahead.  This avoids
+      // overwriting local merges that haven't been pushed yet while still
+      // ensuring new workspaces start from the latest remote content.
+      try {
+        await git(["fetch", "origin", defaultBranch], bare);
+        // Safe to fast-forward when the local ref is an ancestor of FETCH_HEAD
+        await git(
+          ["merge-base", "--is-ancestor", `refs/heads/${defaultBranch}`, "FETCH_HEAD"],
+          bare,
+        );
+        await git(
+          ["update-ref", `refs/heads/${defaultBranch}`, "FETCH_HEAD"],
+          bare,
+        );
+      } catch {
+        // Fetch failed, local is ahead, or branches diverged — proceed with local state
+      }
+
       // Create worktree from the default branch
       await git(["worktree", "add", "-b", branch, wsPath, defaultBranch], bare);
 
