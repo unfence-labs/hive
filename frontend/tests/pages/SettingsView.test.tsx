@@ -1,34 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import SettingsView from "@/pages/SettingsView";
+import ConnectionSettings from "@/pages/settings/ConnectionSettings";
+import AppearanceSettings from "@/pages/settings/AppearanceSettings";
 
 const mocks = vi.hoisted(() => ({
   setAccent: vi.fn(),
   useConnectionStatus: vi.fn(),
-}));
-
-vi.mock("@/hooks/useAccentColor", () => ({
-  useAccentColor: () => ({
-    accentId: "blue",
-    setAccent: mocks.setAccent,
-    options: [
-      { id: "blue", label: "Blue", color: "#3b82f6" },
-      { id: "emerald", label: "Emerald", color: "#10b981" },
-    ],
-  }),
+  useAccentColor: vi.fn(),
 }));
 
 vi.mock("@/hooks/useConnectionStatus", () => ({
   useConnectionStatus: mocks.useConnectionStatus,
 }));
 
-describe("SettingsView", () => {
+vi.mock("@/hooks/useAccentColor", () => ({
+  useAccentColor: mocks.useAccentColor,
+}));
+
+describe("ConnectionSettings", () => {
   let check: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     check = vi.fn().mockResolvedValue(undefined);
-    mocks.setAccent.mockReset();
     mocks.useConnectionStatus.mockReset();
     mocks.useConnectionStatus.mockReturnValue({ status: "unknown", check });
 
@@ -39,7 +33,7 @@ describe("SettingsView", () => {
   });
 
   it("shows tailscale placeholders and unknown status when not configured", () => {
-    render(<SettingsView />);
+    render(<ConnectionSettings />);
 
     expect(screen.getByPlaceholderText("100.x.x.x")).toHaveValue("");
     expect(screen.getByPlaceholderText("3000")).toHaveValue("");
@@ -49,7 +43,7 @@ describe("SettingsView", () => {
   it("persists tailscale IP on blur and schedules a status check", async () => {
     const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
     const user = userEvent.setup();
-    render(<SettingsView />);
+    render(<ConnectionSettings />);
 
     const ipInput = screen.getByPlaceholderText("100.x.x.x");
     await user.type(ipInput, " 100.64.0.10 ");
@@ -64,7 +58,7 @@ describe("SettingsView", () => {
     localStorage.setItem("hive-tailscale-ip", "100.64.0.10");
     const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
     const user = userEvent.setup();
-    render(<SettingsView />);
+    render(<ConnectionSettings />);
 
     const portInput = screen.getByPlaceholderText("3000");
     await user.type(portInput, "3001{Enter}");
@@ -79,7 +73,7 @@ describe("SettingsView", () => {
     const onRefreshConnection = vi.fn();
     localStorage.setItem("hive-tailscale-port", "3000");
 
-    render(<SettingsView onRefreshConnection={onRefreshConnection} />);
+    render(<ConnectionSettings onRefreshConnection={onRefreshConnection} />);
 
     await user.type(screen.getByPlaceholderText("100.x.x.x"), "100.64.0.11");
     await user.tab();
@@ -93,10 +87,25 @@ describe("SettingsView", () => {
     expect(localStorage.getItem("hive-tailscale-port")).toBe("3000");
     expect(localStorage.getItem("hive-server-url")).toBe("http://100.64.0.11:3000");
   });
+});
+
+describe("AppearanceSettings", () => {
+  beforeEach(() => {
+    mocks.setAccent.mockReset();
+    mocks.useAccentColor.mockReset();
+    mocks.useAccentColor.mockReturnValue({
+      accentId: "blue",
+      setAccent: mocks.setAccent,
+      options: [
+        { id: "blue", label: "Blue", color: "#3b82f6" },
+        { id: "emerald", label: "Emerald", color: "#10b981" },
+      ],
+    });
+  });
 
   it("updates accent color from accent option buttons", async () => {
     const user = userEvent.setup();
-    render(<SettingsView />);
+    render(<AppearanceSettings />);
 
     await user.click(screen.getByRole("button", { name: "Accent color: Emerald" }));
 

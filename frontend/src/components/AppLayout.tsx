@@ -1,5 +1,6 @@
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
+import SettingsSidebar from "./SettingsSidebar";
 import Terminal from "./Terminal";
 import { TerminalProvider, useTerminalContext } from "@/contexts/TerminalContext";
 import { cn } from "@/lib/utils";
@@ -10,7 +11,6 @@ interface AppLayoutProps {
   loading: boolean;
   onAddProject: () => void;
   onAddWorkspace: (projectId: string) => Promise<unknown>;
-  onDeleteProject: (id: string) => Promise<void>;
   onArchiveWorkspace: (wsId: string) => Promise<void>;
 }
 
@@ -43,23 +43,35 @@ export default function AppLayout({
   loading,
   onAddProject,
   onAddWorkspace,
-  onDeleteProject,
   onArchiveWorkspace,
 }: AppLayoutProps) {
+  const { pathname } = useLocation();
+  const isSettings = pathname.startsWith("/settings");
+
   return (
     <TerminalProvider>
       <div className="flex h-screen">
-        <Sidebar
-          projects={projects}
-          loading={loading}
-          onAddProject={onAddProject}
-          onAddWorkspace={onAddWorkspace}
-          onDeleteProject={onDeleteProject}
-          onArchiveWorkspace={onArchiveWorkspace}
-        />
-        <main className="relative flex-1 overflow-hidden">
-          <Outlet />
-          <TerminalLayer />
+        {isSettings ? (
+          <SettingsSidebar projects={projects} />
+        ) : (
+          <Sidebar
+            projects={projects}
+            loading={loading}
+            onAddProject={onAddProject}
+            onAddWorkspace={onAddWorkspace}
+            onArchiveWorkspace={onArchiveWorkspace}
+          />
+        )}
+        <main className="flex flex-1 flex-col overflow-hidden">
+          <div
+            className="shrink-0"
+            style={{ height: "var(--titlebar-inset, 0px)" }}
+            data-tauri-drag-region
+          />
+          <div className="relative min-h-0 flex-1 overflow-hidden">
+            <Outlet />
+            <TerminalLayer />
+          </div>
         </main>
       </div>
     </TerminalProvider>

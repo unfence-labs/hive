@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { ArchiveIcon, FolderPlus, Plus, Settings, TerminalSquareIcon, Trash2 } from "lucide-react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArchiveIcon, FolderPlus, Plus, Settings, TerminalSquareIcon } from "lucide-react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -24,34 +24,14 @@ import { BranchLabel } from "@/components/BranchLabel";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { api } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
+import { getProjectColor } from "@/lib/project-colors";
 import type { DiffStatResponse, Project } from "@/types";
-
-const AVATAR_COLORS = [
-  { bg: "bg-red-500/20", text: "text-red-400" },
-  { bg: "bg-orange-500/20", text: "text-orange-400" },
-  { bg: "bg-amber-500/20", text: "text-amber-400" },
-  { bg: "bg-emerald-500/20", text: "text-emerald-400" },
-  { bg: "bg-teal-500/20", text: "text-teal-400" },
-  { bg: "bg-blue-500/20", text: "text-blue-400" },
-  { bg: "bg-indigo-500/20", text: "text-indigo-400" },
-  { bg: "bg-purple-500/20", text: "text-purple-400" },
-  { bg: "bg-pink-500/20", text: "text-pink-400" },
-] as const;
-
-function getProjectColor(name: string) {
-  let hash = 0;
-  for (const ch of name) {
-    hash = ((hash << 5) - hash + ch.charCodeAt(0)) | 0;
-  }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
 
 interface SidebarProps {
   projects: Project[];
   loading: boolean;
   onAddProject: () => void;
   onAddWorkspace: (projectId: string) => Promise<unknown>;
-  onDeleteProject: (id: string) => Promise<void>;
   onArchiveWorkspace: (wsId: string) => Promise<void>;
 }
 
@@ -60,7 +40,6 @@ export default function Sidebar({
   loading,
   onAddProject,
   onAddWorkspace,
-  onDeleteProject,
   onArchiveWorkspace,
 }: SidebarProps) {
   const workspaceIds = useMemo(
@@ -73,12 +52,12 @@ export default function Sidebar({
     [projects],
   );
   const { wsId: activeWsId } = useParams();
+  const { pathname } = useLocation();
   const navigate = useNavigate();
   const { activeTerminals } = useTerminalContext();
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const liveData = useWorkspaceLiveData(workspaceIds);
 
   const activeProjectId = projects.find((project) =>
@@ -127,11 +106,11 @@ export default function Sidebar({
 
   return (
     <div className="flex h-full w-72 flex-col border-r border-border/50 bg-sidebar text-sidebar-foreground">
-      <div className="flex h-12 items-center justify-between border-b border-border/50 px-4">
-        <Link to="/" className="font-title text-lg tracking-wide text-primary">
-          Hive
-        </Link>
-      </div>
+      <div
+        className="shrink-0"
+        style={{ height: "var(--titlebar-inset, 0px)" }}
+        data-tauri-drag-region
+      />
 
       <ScrollArea className="flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full">
         <div className="p-2">
@@ -176,17 +155,6 @@ export default function Sidebar({
                         </button>
                       </CollapsibleTrigger>
                       <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
-                        {(project.workspaces ?? []).length === 0 && (
-                          <button
-                            type="button"
-                            className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-destructive"
-                            onClick={() => setDeleteTarget(project.id)}
-                            aria-label={`Delete project ${project.name}`}
-                            title="Delete project"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        )}
                         <button
                           type="button"
                           className="shrink-0 rounded px-1 py-0.5 text-xs text-muted-foreground transition-colors hover:text-sidebar-foreground"
@@ -270,6 +238,7 @@ export default function Sidebar({
         </button>
         <Link
           to="/settings"
+          state={{ from: pathname }}
           className="rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
           aria-label="Settings"
           title="Settings"
@@ -303,30 +272,6 @@ export default function Sidebar({
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog
-        open={deleteTarget !== null}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete project</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete the repository and all its data. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (deleteTarget) void onDeleteProject(deleteTarget);
-                setDeleteTarget(null);
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

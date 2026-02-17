@@ -2,7 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { useEffect } from "react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import { TerminalProvider, useTerminalContext } from "@/contexts/TerminalContext";
 import { api } from "@/hooks/useApi";
@@ -66,13 +66,18 @@ function ActivateTerminals({ workspaceIds }: { workspaceIds: string[] }) {
   return null;
 }
 
+function SettingsStateProbe() {
+  const location = useLocation();
+  const from = (location.state as { from?: string } | null)?.from ?? "none";
+  return <div data-testid="settings-from">{from}</div>;
+}
+
 function renderSidebar(
   path: string,
   projects: Project[],
   onAddWorkspace = vi.fn(),
   activeTerminalWorkspaceIds: string[] = [],
   onArchiveWorkspace = vi.fn(),
-  onDeleteProject = vi.fn(),
 ) {
   return render(
     <TerminalProvider>
@@ -87,7 +92,6 @@ function renderSidebar(
                 loading={false}
                 onAddProject={vi.fn()}
                 onAddWorkspace={onAddWorkspace}
-                onDeleteProject={onDeleteProject}
                 onArchiveWorkspace={onArchiveWorkspace}
               />
             }
@@ -100,11 +104,11 @@ function renderSidebar(
                 loading={false}
                 onAddProject={vi.fn()}
                 onAddWorkspace={onAddWorkspace}
-                onDeleteProject={onDeleteProject}
                 onArchiveWorkspace={onArchiveWorkspace}
               />
             }
           />
+          <Route path="/settings" element={<SettingsStateProbe />} />
         </Routes>
       </MemoryRouter>
     </TerminalProvider>,
@@ -435,64 +439,14 @@ describe("Sidebar", () => {
     });
   });
 
-  it("shows delete button for projects with no workspaces", () => {
-    renderSidebar("/projects", projects);
-
-    expect(screen.getByRole("button", { name: /delete project beta/i })).toBeInTheDocument();
-  });
-
-  it("does not show delete button for projects with workspaces", () => {
-    renderSidebar("/projects", projects);
-
-    expect(screen.queryByRole("button", { name: /delete project alpha/i })).not.toBeInTheDocument();
-  });
-
-  it("shows confirmation dialog when clicking delete project", async () => {
+  it("passes the current route to settings navigation state", async () => {
     const user = userEvent.setup();
-    renderSidebar("/projects", projects);
+    renderSidebar("/workspaces/w1", projects);
 
-    await user.click(screen.getByRole("button", { name: /delete project beta/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText("Delete project")).toBeInTheDocument();
-    });
-    expect(screen.getByText(/permanently delete/i)).toBeInTheDocument();
-  });
-
-  it("calls onDeleteProject after confirming deletion", async () => {
-    const user = userEvent.setup();
-    const onDelete = vi.fn().mockResolvedValue(undefined);
-    renderSidebar("/projects", projects, vi.fn(), [], vi.fn(), onDelete);
-
-    await user.click(screen.getByRole("button", { name: /delete project beta/i }));
+    await user.click(screen.getByRole("link", { name: "Settings" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Delete project")).toBeInTheDocument();
+      expect(screen.getByTestId("settings-from")).toHaveTextContent("/workspaces/w1");
     });
-
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-
-    await waitFor(() => {
-      expect(onDelete).toHaveBeenCalledWith("p2");
-    });
-  });
-
-  it("does not call onDeleteProject when cancelling deletion", async () => {
-    const user = userEvent.setup();
-    const onDelete = vi.fn().mockResolvedValue(undefined);
-    renderSidebar("/projects", projects, vi.fn(), [], vi.fn(), onDelete);
-
-    await user.click(screen.getByRole("button", { name: /delete project beta/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText("Delete project")).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
-
-    await waitFor(() => {
-      expect(screen.queryByText("Delete project")).not.toBeInTheDocument();
-    });
-    expect(onDelete).not.toHaveBeenCalled();
   });
 });
