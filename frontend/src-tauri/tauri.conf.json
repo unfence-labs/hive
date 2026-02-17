@@ -2,7 +2,7 @@
   "$schema": "../../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Hive",
   "version": "0.1.0",
-  "identifier": "com.hive.app",
+  "identifier": "com.hive.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173"
