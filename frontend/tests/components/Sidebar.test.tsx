@@ -305,6 +305,71 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("button", { name: /archive workspace/i })).not.toBeInTheDocument();
   });
 
+  it("shows wave indicator when script is running", async () => {
+    const { __wsMock } = await getWsMock();
+    renderSidebar("/workspaces/w1", projects);
+
+    const workspaceLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
+    // No wave indicator initially
+    const svgsBefore = workspaceLink.querySelectorAll("svg");
+    expect(svgsBefore).toHaveLength(1); // only GitBranch
+
+    act(() => {
+      __wsMock.emit("w1", { type: "script_status", scriptType: "run", state: "running" });
+    });
+
+    // Wave indicator SVG should appear (the inline SVG with viewBox="0 0 12 12")
+    const svgsAfter = workspaceLink.querySelectorAll("svg");
+    expect(svgsAfter.length).toBeGreaterThan(1);
+  });
+
+  it("hides wave indicator when script finishes", async () => {
+    const { __wsMock } = await getWsMock();
+    renderSidebar("/workspaces/w1", projects);
+
+    act(() => {
+      __wsMock.emit("w1", { type: "script_status", scriptType: "run", state: "running" });
+    });
+
+    const workspaceLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
+    expect(workspaceLink.querySelectorAll("svg").length).toBeGreaterThan(1);
+
+    act(() => {
+      __wsMock.emit("w1", { type: "script_status", scriptType: "run", state: "done", exitCode: 0 });
+    });
+
+    expect(workspaceLink.querySelectorAll("svg")).toHaveLength(1); // back to GitBranch only
+  });
+
+  it("hides archive button when script is running", async () => {
+    const { __wsMock } = await getWsMock();
+    renderSidebar("/workspaces/w1", projects);
+
+    // Archive button exists initially
+    expect(screen.getByRole("button", { name: /archive workspace/i })).toBeInTheDocument();
+
+    act(() => {
+      __wsMock.emit("w1", { type: "script_status", scriptType: "run", state: "running" });
+    });
+
+    expect(screen.queryByRole("button", { name: /archive workspace/i })).not.toBeInTheDocument();
+  });
+
+  it("restores archive button when script stops", async () => {
+    const { __wsMock } = await getWsMock();
+    renderSidebar("/workspaces/w1", projects);
+
+    act(() => {
+      __wsMock.emit("w1", { type: "script_status", scriptType: "run", state: "running" });
+    });
+    expect(screen.queryByRole("button", { name: /archive workspace/i })).not.toBeInTheDocument();
+
+    act(() => {
+      __wsMock.emit("w1", { type: "script_status", scriptType: "run", state: "done", exitCode: 0 });
+    });
+    expect(screen.getByRole("button", { name: /archive workspace/i })).toBeInTheDocument();
+  });
+
   it("archives clean workspace directly without confirmation", async () => {
     const user = userEvent.setup();
     const onArchive = vi.fn().mockResolvedValue(undefined);

@@ -63,6 +63,68 @@ describe("createWorkspace", () => {
   it("throws for non-existent project", async () => {
     await expect(createWorkspace("nonexistent", dataDir)).rejects.toThrow("not found");
   });
+
+  it("picks up new files pushed to remote after project creation", async () => {
+    // Clone from fixture bare to simulate a collaborator pushing changes
+    const pushClone = join(tempDir, "push-clone");
+    await git(["clone", fixtureRepoUrl, pushClone]);
+    await git(["config", "user.email", "test@hive.dev"], pushClone);
+    await git(["config", "user.name", "Test"], pushClone);
+
+    await writeFile(join(pushClone, "new-remote-file.txt"), "from remote\n");
+    await git(["add", "."], pushClone);
+    await git(["commit", "-m", "add new file on remote"], pushClone);
+    await git(["push", "origin", "main"], pushClone);
+
+    // Workspace should fetch and contain the new file
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+    expect(existsSync(join(wsPath, "new-remote-file.txt"))).toBe(true);
+    const content = await readFile(join(wsPath, "new-remote-file.txt"), "utf-8");
+    expect(content).toBe("from remote\n");
+  });
+
+  it("picks up modified files pushed to remote after project creation", async () => {
+    const pushClone = join(tempDir, "push-clone-mod");
+    await git(["clone", fixtureRepoUrl, pushClone]);
+    await git(["config", "user.email", "test@hive.dev"], pushClone);
+    await git(["config", "user.name", "Test"], pushClone);
+
+    await writeFile(join(pushClone, "README.md"), "# Updated Remotely\n");
+    await git(["add", "."], pushClone);
+    await git(["commit", "-m", "update readme on remote"], pushClone);
+    await git(["push", "origin", "main"], pushClone);
+
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+    const content = await readFile(join(wsPath, "README.md"), "utf-8");
+    expect(content).toBe("# Updated Remotely\n");
+  });
+
+  it("each new workspace gets the latest remote state independently", async () => {
+    // Create a first workspace before any remote changes
+    const ws1 = await createWorkspace(projectId, dataDir);
+    const ws1Path = join(dataDir, projectId, "workspaces", ws1.name);
+    expect(existsSync(join(ws1Path, "round2.txt"))).toBe(false);
+
+    // Push a new commit to the remote
+    const pushClone = join(tempDir, "push-clone-multi");
+    await git(["clone", fixtureRepoUrl, pushClone]);
+    await git(["config", "user.email", "test@hive.dev"], pushClone);
+    await git(["config", "user.name", "Test"], pushClone);
+    await writeFile(join(pushClone, "round2.txt"), "second round\n");
+    await git(["add", "."], pushClone);
+    await git(["commit", "-m", "second round"], pushClone);
+    await git(["push", "origin", "main"], pushClone);
+
+    // Second workspace should have the new file
+    const ws2 = await createWorkspace(projectId, dataDir);
+    const ws2Path = join(dataDir, projectId, "workspaces", ws2.name);
+    expect(existsSync(join(ws2Path, "round2.txt"))).toBe(true);
+
+    // First workspace remains unchanged (no retroactive update)
+    expect(existsSync(join(ws1Path, "round2.txt"))).toBe(false);
+  });
 });
 
 describe("listWorkspaces", () => {

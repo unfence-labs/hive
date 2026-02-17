@@ -483,6 +483,73 @@ describe("useWorkspaceLiveData", () => {
     expect(result.current["ws-1"]?.branchInfo?.pr?.number).toBe(42);
   });
 
+  it("sets scriptRunning on script_status running message", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "running" });
+    });
+
+    expect(result.current["ws-1"]?.scriptRunning).toBe(true);
+    expect(result.current["ws-1"]?.scriptStates).toEqual({ run: "running" });
+  });
+
+  it("clears scriptRunning when script finishes", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "running" });
+    });
+    expect(result.current["ws-1"]?.scriptRunning).toBe(true);
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "done", exitCode: 0 });
+    });
+    expect(result.current["ws-1"]?.scriptRunning).toBe(false);
+    expect(result.current["ws-1"]?.scriptStates).toEqual({ run: "done" });
+  });
+
+  it("stays scriptRunning while at least one script type is running", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "script_status", scriptType: "setup", state: "running" });
+      __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "running" });
+    });
+    expect(result.current["ws-1"]?.scriptRunning).toBe(true);
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "script_status", scriptType: "setup", state: "done", exitCode: 0 });
+    });
+    // run is still running
+    expect(result.current["ws-1"]?.scriptRunning).toBe(true);
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "error", exitCode: 1 });
+    });
+    expect(result.current["ws-1"]?.scriptRunning).toBe(false);
+  });
+
+  it("does not re-render when same script_status is emitted twice", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "running" });
+    });
+
+    const firstRef = result.current;
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "running" });
+    });
+
+    expect(result.current).toBe(firstRef);
+  });
+
   it("handles multiple workspaces independently", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useWorkspaceLiveData(["ws-1", "ws-2"]));

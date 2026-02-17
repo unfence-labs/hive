@@ -6,6 +6,7 @@ import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/path
 import { pickCityName } from "../utils/city-names.js";
 import { loadProject, saveProject, getDataDir, withProjectStateLock } from "../state/state.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../utils/errors.js";
+import { stopAllForWorkspace } from "../services/script-runner.js";
 import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffStatResponse } from "../types.js";
 
 const IGNORED_DIRS = new Set([".git", "node_modules"]);
@@ -108,6 +109,25 @@ export async function createWorkspace(
 
       const defaultBranch = await resolveDefaultBranch(bare);
 
+      // Pull the remote default branch into FETCH_HEAD, then fast-forward
+      // the local ref only when the remote is strictly ahead.  This avoids
+      // overwriting local merges that haven't been pushed yet while still
+      // ensuring new workspaces start from the latest remote content.
+      try {
+        await git(["fetch", "origin", defaultBranch], bare);
+        // Safe to fast-forward when the local ref is an ancestor of FETCH_HEAD
+        await git(
+          ["merge-base", "--is-ancestor", `refs/heads/${defaultBranch}`, "FETCH_HEAD"],
+          bare,
+        );
+        await git(
+          ["update-ref", `refs/heads/${defaultBranch}`, "FETCH_HEAD"],
+          bare,
+        );
+      } catch {
+        // Fetch failed, local is ahead, or branches diverged — proceed with local state
+      }
+
       // Create worktree from the default branch
       await git(["worktree", "add", "-b", branch, wsPath, defaultBranch], bare);
 
@@ -121,6 +141,7 @@ export async function createWorkspace(
       };
       state.workspaces.push(workspace);
       await saveProject(state, dataDir);
+
       return workspace;
     },
     dataDir,
@@ -151,6 +172,8 @@ export async function deleteWorkspace(
   wsId: string,
   dataDir = getDataDir()
 ): Promise<void> {
+  stopAllForWorkspace(wsId);
+
   const result = await getWorkspace(wsId, dataDir);
   if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
 
@@ -194,6 +217,8 @@ export async function archiveWorkspace(
   wsId: string,
   dataDir = getDataDir()
 ): Promise<void> {
+  stopAllForWorkspace(wsId);
+
   const result = await getWorkspace(wsId, dataDir);
   if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
 

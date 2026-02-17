@@ -33,16 +33,17 @@ export async function loadProject(
 export async function loadAllProjects(
   dataDir = getDataDir()
 ): Promise<ProjectState[]> {
-  let entries: string[];
+  let entries: import("node:fs").Dirent[];
   try {
-    entries = await readdir(dataDir);
+    entries = await readdir(dataDir, { withFileTypes: true });
   } catch {
     return [];
   }
 
   const results: ProjectState[] = [];
   for (const entry of entries) {
-    const state = await loadProject(entry, dataDir);
+    if (!entry.isDirectory()) continue;
+    const state = await loadProject(entry.name, dataDir);
     if (state) results.push(state);
   }
   return results;

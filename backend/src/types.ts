@@ -165,6 +165,29 @@ export type CliJsonLine =
       level?: string;
     };
 
+// ── Script types ─────────────────────────────────────────────────────
+
+export type ScriptType = "setup" | "run";
+export type ScriptState = "idle" | "running" | "done" | "error";
+
+export interface HiveConfig {
+  scripts?: { setup?: string; run?: string };
+  port?: number;
+}
+
+export interface ScriptStatusInfo {
+  state: ScriptState;
+  exitCode?: number;
+}
+
+export interface WorkspaceScriptsResponse {
+  config: HiveConfig | null;
+  status: {
+    setup: ScriptStatusInfo;
+    run: ScriptStatusInfo;
+  };
+}
+
 // ── Diff types ───────────────────────────────────────────────────────
 
 export type DiffFileStatus = "added" | "modified" | "deleted" | "renamed";
@@ -231,4 +254,5 @@ export type WsOutgoing =
   | { type: "user_message"; message: ChatMessage }
   | { type: "history"; messages: ChatMessage[]; sessionId?: string }
   | { type: "branch_info"; info: BranchInfo }
-  | { type: "diff_stats"; stats: DiffStatResponse };
+  | { type: "diff_stats"; stats: DiffStatResponse }
+  | { type: "script_status"; scriptType: ScriptType; state: ScriptState; exitCode?: number };

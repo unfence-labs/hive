@@ -14,6 +14,8 @@ import { ensureDataDir, getDataDir } from "./state/state.js";
 import { type SessionOptions, rebuildNotifier } from "./agents/agent-manager.js";
 import { GitSyncService } from "./services/git-sync.js";
 import { settingsRoutes } from "./api/settings.js";
+import { scriptRoutes } from "./api/scripts.js";
+import { scriptWsRoutes } from "./ws/script.js";
 import { loadConfig } from "./state/config.js";
 import { broadcastToWorkspace } from "./ws/stream.js";
 import type { StreamRoutesOptions } from "./ws/stream.js";
@@ -88,6 +90,10 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     terminalRoutes(instance, { authToken }),
   );
   await app.register((instance: FastifyInstance) => settingsRoutes(instance));
+  await app.register((instance: FastifyInstance) => scriptRoutes(instance));
+  await app.register((instance: FastifyInstance) =>
+    scriptWsRoutes(instance, { authToken }),
+  );
 
   return app;
 }

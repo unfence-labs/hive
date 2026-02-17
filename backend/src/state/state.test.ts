@@ -83,6 +83,24 @@ describe("loadAllProjects", () => {
     expect(results[0].id).toBe("valid");
   });
 
+  it("ignores loose files in the data directory", async () => {
+    await saveProject(makeState("proj-ok"), dataDir);
+    await writeFile(join(dataDir, "config.json"), '{"key":"val"}', "utf-8");
+    await writeFile(join(dataDir, ".DS_Store"), "", "utf-8");
+    const results = await loadAllProjects(dataDir);
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe("proj-ok");
+  });
+
+  it("ignores nested non-project directories like prompts/", async () => {
+    await saveProject(makeState("proj-real"), dataDir);
+    await mkdir(join(dataDir, "prompts"), { recursive: true });
+    await mkdir(join(dataDir, "archive"), { recursive: true });
+    const results = await loadAllProjects(dataDir);
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe("proj-real");
+  });
+
   it("returns empty array for non-existent data dir", async () => {
     const results = await loadAllProjects("/tmp/nonexistent-hive-dir");
     expect(results).toEqual([]);
