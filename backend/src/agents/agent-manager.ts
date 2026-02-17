@@ -8,12 +8,24 @@ import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
 import { runNamingTask } from "./naming.js";
 import { NotFoundError } from "../utils/errors.js";
 import type { ChatMessage, SessionMetadata } from "../types.js";
-import type { Notifier } from "../notifications/notifier.js";
+import { Notifier } from "../notifications/notifier.js";
+import { TelegramChannel } from "../notifications/telegram.js";
+import type { AppConfig } from "../state/config.js";
 
 let notifier: Notifier | undefined;
 
 export function setNotifier(n: Notifier): void {
   notifier = n;
+}
+
+export function rebuildNotifier(config: AppConfig): void {
+  const channels = [];
+  const tg = config.notifications.telegram;
+  if (tg.enabled) {
+    const ch = TelegramChannel.fromConfig(tg);
+    if (ch) channels.push(ch);
+  }
+  setNotifier(new Notifier(channels));
 }
 
 const loadedSessionsByWorkspace = new Map<string, Map<string, ConversationSession>>();

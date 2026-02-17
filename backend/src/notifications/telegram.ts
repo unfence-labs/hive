@@ -35,6 +35,50 @@ export class TelegramChannel implements NotificationChannel {
     return new TelegramChannel(botToken, chatId);
   }
 
+  /** Returns a configured channel from explicit config, or null if credentials are missing. */
+  static fromConfig(cfg: { botToken: string; chatId: string }): TelegramChannel | null {
+    const botToken = cfg.botToken?.trim();
+    const chatId = cfg.chatId?.trim();
+    if (!botToken || !chatId) return null;
+    return new TelegramChannel(botToken, chatId);
+  }
+
+  /** Sends a test message and returns success/failure. */
+  static async sendTest(
+    botToken: string,
+    chatId: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    const token = botToken.trim();
+    const chat = chatId.trim();
+    if (!token || !chat) return { ok: false, error: "Bot token and chat ID are required" };
+    try {
+      const res = await fetch(
+        `https://api.telegram.org/bot${token}/sendMessage`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: chat,
+            text: "✅ Hive test notification — your Telegram integration is working!",
+            parse_mode: "HTML",
+          }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.text();
+        let errorMsg = `Telegram API error (${res.status})`;
+        try {
+          const parsed = JSON.parse(body) as { description?: string };
+          if (parsed.description) errorMsg = parsed.description;
+        } catch { /* use default */ }
+        return { ok: false, error: errorMsg };
+      }
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Network error" };
+    }
+  }
+
   isEnabled(): boolean {
     return true;
   }

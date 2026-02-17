@@ -1,6 +1,6 @@
 {
     "scripts": {
-        "setup": "cp /Users/0xlenny/conductor/repos/hive/.env .env && npm install",
-        "run": "set -a && source .env && set +a && cd backend && PORT=3000 npm run dev"
+        "setup": "npm install",
+        "run": "cd backend && PORT=3000 npm run dev"
     }
 }
