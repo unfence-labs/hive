@@ -62,7 +62,7 @@ export default function App() {
           />
           <Route path="projects/:id" element={<Navigate to="/projects" replace />} />
           <Route path="workspaces/:wsId" element={<WorkspaceView />} />
-          <Route path="settings" element={<Navigate to="/settings/account" replace />} />
+          <Route path="settings" element={<Navigate to="/settings/appearance" replace />} />
           <Route path="settings/account" element={<AccountSettings />} />
           <Route path="settings/appearance" element={<AppearanceSettings />} />
           <Route path="settings/connection" element={<ConnectionSettings onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }} />} />

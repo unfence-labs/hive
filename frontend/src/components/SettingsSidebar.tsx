@@ -36,16 +36,16 @@ export default function SettingsSidebar({ projects }: SettingsSidebarProps) {
           </button>
           <SidebarSection label="General">
             <NavItem
-              to="/settings/account"
-              label="Account"
-              icon={<CircleUser className="h-4 w-4" />}
-              active={pathname === "/settings/account"}
-            />
-            <NavItem
               to="/settings/appearance"
               label="Appearance"
               icon={<Paintbrush className="h-4 w-4" />}
               active={pathname === "/settings/appearance"}
+            />
+            <NavItem
+              to="/settings/account"
+              label="Account"
+              icon={<CircleUser className="h-4 w-4" />}
+              active={pathname === "/settings/account"}
             />
             <NavItem
               to="/settings/connection"
