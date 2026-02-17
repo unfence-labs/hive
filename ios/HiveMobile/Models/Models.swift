@@ -49,7 +49,7 @@ struct Project: Codable, Identifiable {
     var workspaces: [Workspace]
 }
 
-struct Workspace: Codable, Identifiable {
+struct Workspace: Codable, Identifiable, Hashable {
     let id: String
     let name: String
     let branch: String
