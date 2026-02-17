@@ -142,6 +142,11 @@ export default function Sidebar({
                           <ProjectAvatar name={project.name} projectId={project.id} hasFavicon={project.hasFavicon} />
                           <span className="min-w-0 flex-1 truncate pr-0 transition-[padding] group-hover:pr-12">
                             {project.name}
+                            {(project.workspaces ?? []).length > 0 && (
+                              <span className="ml-2.5 text-sm tabular-nums text-muted-foreground/40">
+                                {(project.workspaces ?? []).length}
+                              </span>
+                            )}
                           </span>
                         </button>
                       </CollapsibleTrigger>
