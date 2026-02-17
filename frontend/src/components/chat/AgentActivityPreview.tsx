@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 
 export type AgentActivitySize = "large" | "small";
 
@@ -16,6 +16,7 @@ export default function AgentActivityPreview({
   size = "large",
   duration = 1100,
 }: AgentActivityPreviewProps) {
+  const filterId = `orbit-glow-${useId().replace(/:/g, "")}`;
   const svgRef = useRef<SVGSVGElement>(null);
   const rectsRef = useRef<(SVGRectElement | null)[]>([]);
   const matrixRef = useRef<SVGFEColorMatrixElement>(null);
@@ -66,7 +67,7 @@ export default function AgentActivityPreview({
           const b = Math.round(dimB + (b0 - dimB) * val);
           el.setAttribute("opacity", "1");
           el.setAttribute("fill", `rgb(${r},${g},${b})`);
-          el.setAttribute("filter", val > 0.45 ? "url(#orbit-glow)" : "");
+          el.setAttribute("filter", val > 0.45 ? `url(#${filterId})` : "");
           el.setAttribute(
             "transform",
             `translate(${(i % 3) * (dot + gap)},${Math.floor(i / 3) * (dot + gap)}) scale(${0.88 + val * 0.12})`,
@@ -77,7 +78,7 @@ export default function AgentActivityPreview({
     }
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [dot, gap, duration]);
+  }, [dot, gap, duration, filterId]);
 
   const total = dot * 3 + gap * 2;
   const pad = 3;
@@ -93,7 +94,7 @@ export default function AgentActivityPreview({
       aria-label="Agent thinking"
     >
       <defs>
-        <filter id="orbit-glow" x="-100%" y="-100%" width="300%" height="300%">
+        <filter id={filterId} x="-100%" y="-100%" width="300%" height="300%">
           <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
           <feColorMatrix
             ref={matrixRef}
