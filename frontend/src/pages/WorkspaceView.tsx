@@ -602,6 +602,7 @@ export default function WorkspaceView() {
 
             {scriptsConfig && (
               <ScriptPanel
+                key={wsId}
                 config={scriptsConfig}
                 status={scriptsStatus}
                 onStart={startScript}

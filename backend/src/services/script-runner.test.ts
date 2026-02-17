@@ -203,6 +203,62 @@ describe("script-runner", () => {
     expect(mocks.processes[1]?.kill).toHaveBeenCalledTimes(1);
   });
 
+  it("removes stopped script from activeScripts so status returns idle", () => {
+    startScript("ws-1", "run", "npm run dev", "/tmp/workspace");
+    expect(getScriptStatus("ws-1").run.state).toBe("running");
+
+    stopScript("ws-1", "run");
+
+    expect(getScriptStatus("ws-1").run).toEqual({ state: "idle" });
+    expect(getScriptProcess("ws-1", "run")).toBeUndefined();
+  });
+
+  it("clears exit listeners on stop so stale broadcasts do not fire", () => {
+    const proc = startScript("ws-1", "run", "npm run dev", "/tmp/workspace");
+    const exitListener = vi.fn();
+    proc.exitListeners.set("broadcast", exitListener);
+
+    stopScript("ws-1", "run");
+
+    // Simulate the PTY exit that happens asynchronously after kill
+    mocks.processes[0]?.emitExit(137);
+
+    expect(exitListener).not.toHaveBeenCalled();
+  });
+
+  it("clears data listeners on stop so no stale output is pushed", () => {
+    const proc = startScript("ws-1", "run", "npm run dev", "/tmp/workspace");
+    const dataListener = vi.fn();
+    proc.listeners.set("ws-conn", dataListener);
+
+    stopScript("ws-1", "run");
+
+    // Data emitted after stop should not reach cleared listeners
+    mocks.processes[0]?.emitData("stale output");
+
+    expect(dataListener).not.toHaveBeenCalled();
+  });
+
+  it("preserves naturally completed scripts in activeScripts", () => {
+    startScript("ws-1", "setup", "npm ci", "/tmp/workspace");
+    mocks.processes[0]?.emitExit(0);
+
+    expect(getScriptStatus("ws-1").setup).toEqual({ state: "done", exitCode: 0 });
+    expect(getScriptProcess("ws-1", "setup")).toBeDefined();
+  });
+
+  it("stopAllForWorkspace removes both scripts from activeScripts", () => {
+    startScript("ws-1", "setup", "npm ci", "/tmp/workspace");
+    startScript("ws-1", "run", "npm run dev", "/tmp/workspace");
+
+    stopAllForWorkspace("ws-1");
+
+    expect(getScriptStatus("ws-1").setup).toEqual({ state: "idle" });
+    expect(getScriptStatus("ws-1").run).toEqual({ state: "idle" });
+    expect(getScriptProcess("ws-1", "setup")).toBeUndefined();
+    expect(getScriptProcess("ws-1", "run")).toBeUndefined();
+  });
+
   it("clears all active scripts during test cleanup", () => {
     startScript("ws-1", "setup", "npm ci", "/tmp/workspace");
     startScript("ws-2", "run", "npm run dev", "/tmp/workspace");

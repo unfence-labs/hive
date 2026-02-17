@@ -92,6 +92,13 @@ export function stopScript(wsId: string, type: ScriptType): boolean {
   const proc = activeScripts.get(k);
   if (!proc || proc.state !== "running") return false;
 
+  // Clear exit listeners to prevent stale "error" broadcasts after explicit stop
+  proc.exitListeners.clear();
+  proc.listeners.clear();
+
+  // Remove from map so getScriptStatus() returns "idle" on subsequent queries
+  activeScripts.delete(k);
+
   proc.pty.kill();
 
   // Fallback SIGKILL after 5s
