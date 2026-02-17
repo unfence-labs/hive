@@ -1,6 +1,6 @@
 # Hive
 
-Hive is a local web orchestrator for running multiple Claude Code conversations in parallel across isolated Git workspaces.
+Hive is an orchestrator for running multiple Claude Code conversations in parallel across isolated Git workspaces. It can run locally or as a remote backend with a Tauri desktop client connected over Tailscale.
 
 It manages:
 - projects as bare repositories,
@@ -28,6 +28,8 @@ It manages:
 - Git >= 2.20
 - Claude CLI installed and authenticated (`claude` command)
 - Optional: GitHub CLI (`gh`) for PR status in the UI
+- Optional (desktop app): Rust >= 1.77 for Tauri builds
+- Optional (remote setup): Tailscale for secure backend connectivity
 
 ## Installation
 
@@ -58,6 +60,24 @@ npm run dev
 Defaults:
 - Backend: `http://127.0.0.1:3000`
 - Frontend: `http://localhost:5173`
+
+### Tauri Desktop App
+
+The frontend can be run as a native desktop app using Tauri:
+
+```bash
+cd frontend
+npm run tauri dev
+```
+
+To build a distributable `.dmg` / `.exe`:
+
+```bash
+cd frontend
+npm run tauri build
+```
+
+See [GETTING_STARTED.md](GETTING_STARTED.md) for remote backend setup with Tailscale.
 
 ## Scripts
 

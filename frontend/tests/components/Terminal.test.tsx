@@ -121,6 +121,9 @@ describe("Terminal", () => {
     state.fitAddons.length = 0;
     MockWebSocket.instances.length = 0;
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
+    localStorage.removeItem("hive-server-url");
+    delete import.meta.env.VITE_WS_URL;
+    delete import.meta.env.VITE_HIVE_AUTH_TOKEN;
   });
 
   it("sends initial terminal size when websocket opens", () => {
@@ -131,6 +134,43 @@ describe("Terminal", () => {
     });
 
     expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "resize", cols: 120, rows: 40 }));
+  });
+
+  it("uses configured server URL as websocket host", () => {
+    localStorage.setItem("hive-server-url", "http://127.0.0.1:9000");
+
+    render(<Terminal workspaceId="ws-1" />);
+    const ws = getFirstWebSocket();
+
+    expect(ws.url).toBe("ws://127.0.0.1:9000/ws/terminal/ws-1");
+  });
+
+  it("maps https configured server URL to wss websocket host", () => {
+    localStorage.setItem("hive-server-url", "https://api.example.com");
+
+    render(<Terminal workspaceId="ws-1" />);
+    const ws = getFirstWebSocket();
+
+    expect(ws.url).toBe("wss://api.example.com/ws/terminal/ws-1");
+  });
+
+  it("falls back to VITE_WS_URL when no server URL is configured", () => {
+    import.meta.env.VITE_WS_URL = "ws://dev.example.test:8080";
+
+    render(<Terminal workspaceId="ws-1" />);
+    const ws = getFirstWebSocket();
+
+    expect(ws.url).toBe("ws://dev.example.test:8080/ws/terminal/ws-1");
+  });
+
+  it("appends auth token query parameter when configured", () => {
+    localStorage.setItem("hive-server-url", "http://127.0.0.1:9000");
+    import.meta.env.VITE_HIVE_AUTH_TOKEN = "secret token";
+
+    render(<Terminal workspaceId="ws-1" />);
+    const ws = getFirstWebSocket();
+
+    expect(ws.url).toBe("ws://127.0.0.1:9000/ws/terminal/ws-1?token=secret%20token");
   });
 
   it("forwards terminal input as binary websocket payload", () => {
