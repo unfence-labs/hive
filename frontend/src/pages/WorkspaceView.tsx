@@ -87,6 +87,15 @@ export default function WorkspaceView() {
   // Sidebar tab state
   const [sidebarTab, setSidebarTab] = useState<"all" | "modified">("all");
 
+  // Sidebar split: fraction of height given to file tree (vs ScriptPanel)
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+  const [sidebarSplit, setSidebarSplit] = useState<number>(() => {
+    const stored = localStorage.getItem("sidebar-split");
+    const parsed = stored ? parseFloat(stored) : NaN;
+    return Number.isFinite(parsed) && parsed > 0 && parsed < 1 ? parsed : 0.5;
+  });
+  const [isDraggingSplit, setIsDraggingSplit] = useState(false);
+
   // Diff modal state
   const [diffModalOpen, setDiffModalOpen] = useState(false);
   const [diffModalFile, setDiffModalFile] = useState<string | undefined>();
@@ -228,6 +237,38 @@ export default function WorkspaceView() {
     connectOutput: connectScriptOutput,
     disconnectOutput: disconnectScriptOutput,
   } = useScripts(wsId);
+
+  // Sidebar split drag handler
+  const handleDividerPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const container = splitContainerRef.current;
+      if (!container) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const totalHeight = containerRect.height;
+      setIsDraggingSplit(true);
+
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        const offsetY = moveEvent.clientY - containerRect.top;
+        const clamped = Math.min(0.85, Math.max(0.15, offsetY / totalHeight));
+        setSidebarSplit(clamped);
+      };
+
+      const onPointerUp = (upEvent: PointerEvent) => {
+        const offsetY = upEvent.clientY - containerRect.top;
+        const clamped = Math.min(0.85, Math.max(0.15, offsetY / totalHeight));
+        localStorage.setItem("sidebar-split", String(clamped));
+        setIsDraggingSplit(false);
+        document.removeEventListener("pointermove", onPointerMove);
+        document.removeEventListener("pointerup", onPointerUp);
+      };
+
+      document.addEventListener("pointermove", onPointerMove);
+      document.addEventListener("pointerup", onPointerUp);
+    },
+    [],
+  );
 
   // Refresh file tree when diff stats change (files created/modified/deleted)
   const diffStatsRef = useRef(liveData[wsId ?? ""]?.diffStats);
@@ -505,44 +546,71 @@ export default function WorkspaceView() {
               )}
             </button>
           </div>
-          <div className={cn("min-h-0 overflow-auto p-3", scriptsConfig ? "flex-1 basis-1/2" : "flex-1")}>
-            {sidebarTab === "modified" && (
-              <ModifiedFileList
-                committed={diffCommitted}
-                uncommitted={diffUncommitted}
-                onFileClick={handleModifiedFileClick}
-              />
+          <div
+            ref={splitContainerRef}
+            className={cn(
+              "flex min-h-0 flex-1 flex-col overflow-hidden",
+              isDraggingSplit && "select-none [&_*]:pointer-events-none",
             )}
-            {sidebarTab === "all" && fileTreeError && (
-              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
-                {fileTreeError}
+          >
+            <div
+              className="overflow-auto p-3"
+              style={
+                scriptsConfig
+                  ? { height: `${sidebarSplit * 100}%`, flexShrink: 0 }
+                  : { flex: 1, minHeight: 0 }
+              }
+            >
+              {sidebarTab === "modified" && (
+                <ModifiedFileList
+                  committed={diffCommitted}
+                  uncommitted={diffUncommitted}
+                  onFileClick={handleModifiedFileClick}
+                />
+              )}
+              {sidebarTab === "all" && fileTreeError && (
+                <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                  {fileTreeError}
+                </div>
+              )}
+              {sidebarTab === "all" && !fileTreeError && (
+                <FileTree
+                  expanded={expandedPaths}
+                  onExpandedChange={setExpandedPaths}
+                  onPathSelect={handleFileTreeSelect}
+                  selectedPath={selectedPath}
+                >
+                  {fileTree.length ? (
+                    renderFileTreeNodes(fileTree)
+                  ) : (
+                    <div className="px-2 py-1 text-xs text-muted-foreground">No files found.</div>
+                  )}
+                </FileTree>
+              )}
+            </div>
+
+            {scriptsConfig && (
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                className="group relative h-1.5 shrink-0 cursor-row-resize select-none"
+                onPointerDown={handleDividerPointerDown}
+              >
+                <div className="absolute inset-x-0 top-[2px] h-px bg-border/50 transition-colors group-hover:bg-border" />
               </div>
             )}
-            {sidebarTab === "all" && !fileTreeError && (
-              <FileTree
-                expanded={expandedPaths}
-                onExpandedChange={setExpandedPaths}
-                onPathSelect={handleFileTreeSelect}
-                selectedPath={selectedPath}
-              >
-                {fileTree.length ? (
-                  renderFileTreeNodes(fileTree)
-                ) : (
-                  <div className="px-2 py-1 text-xs text-muted-foreground">No files found.</div>
-                )}
-              </FileTree>
+
+            {scriptsConfig && (
+              <ScriptPanel
+                config={scriptsConfig}
+                status={scriptsStatus}
+                onStart={startScript}
+                onStop={stopScript}
+                onConnectOutput={connectScriptOutput}
+                onDisconnectOutput={disconnectScriptOutput}
+              />
             )}
           </div>
-          {scriptsConfig && (
-            <ScriptPanel
-              config={scriptsConfig}
-              status={scriptsStatus}
-              onStart={startScript}
-              onStop={stopScript}
-              onConnectOutput={connectScriptOutput}
-              onDisconnectOutput={disconnectScriptOutput}
-            />
-          )}
           <PrStatusSection branchInfo={branchInfo} />
         </aside>
       </div>

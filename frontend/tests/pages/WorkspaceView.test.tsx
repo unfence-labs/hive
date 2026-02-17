@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
@@ -26,6 +26,11 @@ const mocks = vi.hoisted(() => ({
   deleteSession: vi.fn(),
   refreshSessions: vi.fn(),
   clearCachedData: vi.fn(),
+  useScripts: vi.fn(),
+  startScript: vi.fn(),
+  stopScript: vi.fn(),
+  connectScriptOutput: vi.fn(),
+  disconnectScriptOutput: vi.fn(),
 }));
 
 vi.mock("@/hooks/useApi", () => ({
@@ -46,6 +51,14 @@ vi.mock("@/hooks/useWorkspaceLiveData", () => ({
 
 vi.mock("@/lib/ws-transport", () => ({
   wsTransport: { clearCachedData: mocks.clearCachedData },
+}));
+
+vi.mock("@/hooks/useScripts", () => ({
+  useScripts: mocks.useScripts,
+}));
+
+vi.mock("@/components/ScriptPanel", () => ({
+  default: () => <div data-testid="script-panel">script-panel</div>,
 }));
 
 vi.mock("@/components/ChatConversation", () => ({
@@ -218,6 +231,15 @@ describe("WorkspaceView terminal behavior", () => {
     mocks.clearCachedData.mockReset();
     mocks.useWorkspaceLiveData.mockReset();
     mocks.useWorkspaceLiveData.mockReturnValue({});
+
+    mocks.useScripts.mockReturnValue({
+      config: null,
+      status: { setup: { state: "idle" }, run: { state: "idle" } },
+      startScript: mocks.startScript,
+      stopScript: mocks.stopScript,
+      connectOutput: mocks.connectScriptOutput,
+      disconnectOutput: mocks.disconnectScriptOutput,
+    });
 
     mocks.apiGet.mockImplementation(async (url: string) => {
       const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
@@ -600,6 +622,15 @@ describe("WorkspaceView session delete behavior", () => {
     mocks.useWorkspaceLiveData.mockReset();
     mocks.useWorkspaceLiveData.mockReturnValue({});
 
+    mocks.useScripts.mockReturnValue({
+      config: null,
+      status: { setup: { state: "idle" }, run: { state: "idle" } },
+      startScript: mocks.startScript,
+      stopScript: mocks.stopScript,
+      connectOutput: mocks.connectScriptOutput,
+      disconnectOutput: mocks.disconnectScriptOutput,
+    });
+
     mocks.apiGet.mockImplementation(async (url: string) => {
       const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
       const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
@@ -753,5 +784,243 @@ describe("WorkspaceView session delete behavior", () => {
     expect(mocks.activateSession).not.toHaveBeenCalled();
     expect(mocks.switchSession).not.toHaveBeenCalled();
     expect(mocks.clearCachedData).not.toHaveBeenCalled();
+  });
+});
+
+describe("WorkspaceView sidebar split resize", () => {
+  const SCRIPTS_CONFIG = { scripts: { run: "npm start" }, port: 3000 };
+
+  function setupMocks(scriptsConfig: unknown = null) {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
+      const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
+      const diffStatsMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
+      if (workspaceMatch) return WORKSPACES[workspaceMatch[1]] ?? null;
+      if (filesMatch) return FILE_TREE;
+      if (diffStatsMatch) return DIFF_STATS;
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    mocks.useConversation.mockReturnValue({
+      messages: [],
+      isStreaming: false,
+      streamingStartedAt: null,
+      workspaceStatus: "idle",
+      currentStreamingText: "",
+      currentThinking: "",
+      activeToolCalls: [],
+      pendingToolInputs: [],
+      connectionStatus: "connected",
+      error: null,
+      sessionId: undefined,
+      sendMessage: mocks.sendMessage,
+      stopStreaming: mocks.stopStreaming,
+      clearChat: mocks.clearChat,
+      switchSession: mocks.switchSession,
+      answerQuestion: mocks.answerQuestion,
+      batchAnswerQuestions: mocks.batchAnswerQuestions,
+      approvePlan: mocks.approvePlan,
+      rejectToolInput: mocks.rejectToolInput,
+      dismissPlan: mocks.dismissPlan,
+    });
+
+    mocks.useSessions.mockReturnValue({
+      sessions: [],
+      createSession: mocks.createSession,
+      activateSession: mocks.activateSession,
+      deleteSession: mocks.deleteSession,
+      refresh: mocks.refreshSessions,
+    });
+
+    mocks.useScripts.mockReturnValue({
+      config: scriptsConfig,
+      status: { setup: { state: "idle" }, run: { state: "idle" } },
+      startScript: mocks.startScript,
+      stopScript: mocks.stopScript,
+      connectOutput: mocks.connectScriptOutput,
+      disconnectOutput: mocks.disconnectScriptOutput,
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.useWorkspaceLiveData.mockReturnValue({});
+    localStorage.removeItem("sidebar-split");
+  });
+
+  it("does not render drag handle when no scripts are configured", async () => {
+    setupMocks(null);
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    expect(screen.queryByRole("separator")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("script-panel")).not.toBeInTheDocument();
+  });
+
+  it("renders drag handle and script panel when scripts are configured", async () => {
+    setupMocks(SCRIPTS_CONFIG);
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    expect(screen.getByRole("separator")).toBeInTheDocument();
+    expect(screen.getByTestId("script-panel")).toBeInTheDocument();
+  });
+
+  it("drag handle has cursor-row-resize class", async () => {
+    setupMocks(SCRIPTS_CONFIG);
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    const separator = screen.getByRole("separator");
+    expect(separator.className).toContain("cursor-row-resize");
+  });
+
+  it("initializes split from localStorage", async () => {
+    localStorage.setItem("sidebar-split", "0.3");
+    setupMocks(SCRIPTS_CONFIG);
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    // File tree panel should use the stored 30% height
+    const separator = screen.getByRole("separator");
+    const fileTreePanel = separator.previousElementSibling as HTMLElement;
+    expect(fileTreePanel.style.height).toBe("30%");
+  });
+
+  it("defaults to 50% split when no localStorage value", async () => {
+    setupMocks(SCRIPTS_CONFIG);
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    const separator = screen.getByRole("separator");
+    const fileTreePanel = separator.previousElementSibling as HTMLElement;
+    expect(fileTreePanel.style.height).toBe("50%");
+  });
+
+  it("ignores invalid localStorage values and defaults to 50%", async () => {
+    localStorage.setItem("sidebar-split", "not-a-number");
+    setupMocks(SCRIPTS_CONFIG);
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    const separator = screen.getByRole("separator");
+    const fileTreePanel = separator.previousElementSibling as HTMLElement;
+    expect(fileTreePanel.style.height).toBe("50%");
+  });
+
+  it("ignores out-of-range localStorage values and defaults to 50%", async () => {
+    localStorage.setItem("sidebar-split", "1.5");
+    setupMocks(SCRIPTS_CONFIG);
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    const separator = screen.getByRole("separator");
+    const fileTreePanel = separator.previousElementSibling as HTMLElement;
+    expect(fileTreePanel.style.height).toBe("50%");
+  });
+
+  it("persists split to localStorage after drag", async () => {
+    setupMocks(SCRIPTS_CONFIG);
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    const separator = screen.getByRole("separator");
+    const container = separator.parentElement as HTMLElement;
+
+    // Mock container dimensions for the drag calculation
+    vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
+      top: 0, left: 0, bottom: 400, right: 420,
+      width: 420, height: 400,
+      x: 0, y: 0, toJSON: () => {},
+    });
+
+    // Simulate drag: pointerdown → pointermove → pointerup
+    fireEvent.pointerDown(separator, { clientX: 210, clientY: 200 });
+    fireEvent(document, new PointerEvent("pointermove", { clientX: 210, clientY: 120, bubbles: true }));
+    fireEvent(document, new PointerEvent("pointerup", { clientX: 210, clientY: 120, bubbles: true }));
+
+    // 120 / 400 = 0.3
+    expect(localStorage.getItem("sidebar-split")).toBe("0.3");
+  });
+
+  it("clamps split to minimum 15%", async () => {
+    setupMocks(SCRIPTS_CONFIG);
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    const separator = screen.getByRole("separator");
+    const container = separator.parentElement as HTMLElement;
+
+    vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
+      top: 0, left: 0, bottom: 400, right: 420,
+      width: 420, height: 400,
+      x: 0, y: 0, toJSON: () => {},
+    });
+
+    // Drag to y=20 which is 5% — should clamp to 15%
+    fireEvent.pointerDown(separator, { clientX: 210, clientY: 200 });
+    fireEvent(document, new PointerEvent("pointerup", { clientX: 210, clientY: 20, bubbles: true }));
+
+    expect(localStorage.getItem("sidebar-split")).toBe("0.15");
+  });
+
+  it("clamps split to maximum 85%", async () => {
+    setupMocks(SCRIPTS_CONFIG);
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    const separator = screen.getByRole("separator");
+    const container = separator.parentElement as HTMLElement;
+
+    vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
+      top: 0, left: 0, bottom: 400, right: 420,
+      width: 420, height: 400,
+      x: 0, y: 0, toJSON: () => {},
+    });
+
+    // Drag to y=380 which is 95% — should clamp to 85%
+    fireEvent.pointerDown(separator, { clientX: 210, clientY: 200 });
+    fireEvent(document, new PointerEvent("pointerup", { clientX: 210, clientY: 380, bubbles: true }));
+
+    expect(localStorage.getItem("sidebar-split")).toBe("0.85");
+  });
+
+  it("updates file tree height during drag", async () => {
+    setupMocks(SCRIPTS_CONFIG);
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    const separator = screen.getByRole("separator");
+    const container = separator.parentElement as HTMLElement;
+    const fileTreePanel = separator.previousElementSibling as HTMLElement;
+
+    vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
+      top: 0, left: 0, bottom: 400, right: 420,
+      width: 420, height: 400,
+      x: 0, y: 0, toJSON: () => {},
+    });
+
+    expect(fileTreePanel.style.height).toBe("50%");
+
+    fireEvent.pointerDown(separator, { clientX: 210, clientY: 200 });
+    fireEvent(document, new PointerEvent("pointermove", { clientX: 210, clientY: 280, bubbles: true }));
+
+    // 280 / 400 = 70%
+    await waitFor(() => {
+      expect(fileTreePanel.style.height).toBe("70%");
+    });
+
+    fireEvent(document, new PointerEvent("pointerup", { clientX: 210, clientY: 280, bubbles: true }));
+  });
+
+  it("file tree uses flex sizing when no scripts are configured", async () => {
+    setupMocks(null);
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    const fileTree = screen.getByTestId("file-tree");
+    const fileTreePanel = fileTree.parentElement as HTMLElement;
+    expect(fileTreePanel.style.flex).toContain("1");
+    expect(fileTreePanel.style.height).toBe("");
   });
 });
