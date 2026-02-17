@@ -58,7 +58,12 @@ vi.mock("@/hooks/useScripts", () => ({
 }));
 
 vi.mock("@/components/ScriptPanel", () => ({
-  default: () => <div data-testid="script-panel">script-panel</div>,
+  default: ({ config }: { config: unknown }) => {
+    const hasScripts = config && typeof config === "object" && "scripts" in config && (config as Record<string, unknown>).scripts;
+    return hasScripts
+      ? <div data-testid="script-panel">script-panel</div>
+      : <div data-testid="script-panel-placeholder">Add a <code>hive.json</code> to your repo.</div>;
+  },
 }));
 
 vi.mock("@/components/ChatConversation", () => ({
@@ -848,13 +853,13 @@ describe("WorkspaceView sidebar split resize", () => {
     localStorage.removeItem("sidebar-split");
   });
 
-  it("does not render drag handle when no scripts are configured", async () => {
+  it("renders drag handle and placeholder panel when no scripts are configured", async () => {
     setupMocks(null);
     renderWorkspace();
     await screen.findByText("tokyo");
 
-    expect(screen.queryByRole("separator")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("script-panel")).not.toBeInTheDocument();
+    expect(screen.getByRole("separator")).toBeInTheDocument();
+    expect(screen.getByTestId("script-panel-placeholder")).toBeInTheDocument();
   });
 
   it("renders drag handle and script panel when scripts are configured", async () => {
@@ -1013,14 +1018,13 @@ describe("WorkspaceView sidebar split resize", () => {
     fireEvent(document, new PointerEvent("pointerup", { clientX: 210, clientY: 280, bubbles: true }));
   });
 
-  it("file tree uses flex sizing when no scripts are configured", async () => {
+  it("file tree uses split sizing even when no scripts are configured", async () => {
     setupMocks(null);
     renderWorkspace();
     await screen.findByText("tokyo");
 
     const fileTree = screen.getByTestId("file-tree");
     const fileTreePanel = fileTree.parentElement as HTMLElement;
-    expect(fileTreePanel.style.flex).toContain("1");
-    expect(fileTreePanel.style.height).toBe("");
+    expect(fileTreePanel.style.height).toBe("50%");
   });
 });

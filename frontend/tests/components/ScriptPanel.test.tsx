@@ -74,12 +74,17 @@ describe("ScriptPanel", () => {
     vi.useRealTimers();
   });
 
-  it("renders nothing when no scripts are defined", () => {
-    const { container } = renderPanel({
-      config: {},
-    });
+  it("renders placeholder when no scripts are defined", () => {
+    renderPanel({ config: {} });
 
-    expect(container).toBeEmptyDOMElement();
+    expect(screen.getByText("hive.json")).toBeInTheDocument();
+    expect(screen.getByText(/setup & run scripts/i)).toBeInTheDocument();
+  });
+
+  it("renders placeholder when config is null", () => {
+    renderPanel({ config: null });
+
+    expect(screen.getByText("hive.json")).toBeInTheDocument();
   });
 
   it("starts setup script from idle state", async () => {

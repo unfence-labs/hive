@@ -555,11 +555,7 @@ export default function WorkspaceView() {
           >
             <div
               className="overflow-auto p-3"
-              style={
-                scriptsConfig
-                  ? { height: `${sidebarSplit * 100}%`, flexShrink: 0 }
-                  : { flex: 1, minHeight: 0 }
-              }
+              style={{ height: `${sidebarSplit * 100}%`, flexShrink: 0 }}
             >
               {sidebarTab === "modified" && (
                 <ModifiedFileList
@@ -589,28 +585,24 @@ export default function WorkspaceView() {
               )}
             </div>
 
-            {scriptsConfig && (
-              <div
-                role="separator"
-                aria-orientation="horizontal"
-                className="group relative h-1.5 shrink-0 cursor-row-resize select-none"
-                onPointerDown={handleDividerPointerDown}
-              >
-                <div className="absolute inset-x-0 top-[2px] h-px bg-border/50 transition-colors group-hover:bg-border" />
-              </div>
-            )}
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              className="group relative h-1.5 shrink-0 cursor-row-resize select-none"
+              onPointerDown={handleDividerPointerDown}
+            >
+              <div className="absolute inset-x-0 top-[2px] h-px bg-border/50 transition-colors group-hover:bg-border" />
+            </div>
 
-            {scriptsConfig && (
-              <ScriptPanel
-                key={wsId}
-                config={scriptsConfig}
-                status={scriptsStatus}
-                onStart={startScript}
-                onStop={stopScript}
-                onConnectOutput={connectScriptOutput}
-                onDisconnectOutput={disconnectScriptOutput}
-              />
-            )}
+            <ScriptPanel
+              key={wsId}
+              config={scriptsConfig}
+              status={scriptsStatus}
+              onStart={startScript}
+              onStop={stopScript}
+              onConnectOutput={connectScriptOutput}
+              onDisconnectOutput={disconnectScriptOutput}
+            />
           </div>
           <PrStatusSection branchInfo={branchInfo} />
         </aside>

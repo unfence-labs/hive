@@ -10,7 +10,7 @@ import type { ScriptType, ScriptStatusInfo, HiveConfig } from "@/types";
 import "@xterm/xterm/css/xterm.css";
 
 interface ScriptPanelProps {
-  config: HiveConfig;
+  config: HiveConfig | null;
   status: {
     setup: ScriptStatusInfo;
     run: ScriptStatusInfo;
@@ -42,8 +42,9 @@ export default function ScriptPanel({
   onConnectOutput,
   onDisconnectOutput,
 }: ScriptPanelProps) {
-  const hasSetup = !!config.scripts?.setup;
-  const hasRun = !!config.scripts?.run;
+  const hasSetup = !!config?.scripts?.setup;
+  const hasRun = !!config?.scripts?.run;
+  const hasScripts = hasSetup || hasRun;
 
   // Default to the first available tab
   const defaultTab: ScriptType = hasSetup ? "setup" : "run";
@@ -51,7 +52,7 @@ export default function ScriptPanel({
 
   // If the active tab's script doesn't exist, switch to the other
   const effectiveTab = (activeTab === "setup" && !hasSetup) ? "run" : (activeTab === "run" && !hasRun) ? "setup" : activeTab;
-  const currentStatus = status[effectiveTab];
+  const currentStatus = hasScripts ? status[effectiveTab] : { state: "idle" as const };
 
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -156,8 +157,26 @@ export default function ScriptPanel({
     }
   };
 
-  // Only show if there's at least one script
-  if (!hasSetup && !hasRun) return null;
+  if (!hasScripts) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex h-9 items-center border-t border-border/50 px-3">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">Scripts</span>
+        </div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-muted-foreground">
+          <p className="text-xs">
+            Add a <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">hive.json</code> to your repo to define setup &amp; run scripts.
+          </p>
+          <pre className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-left text-[11px] leading-relaxed">{`{
+  "scripts": {
+    "setup": "npm install",
+    "run": "npm run dev"
+  }
+}`}</pre>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
