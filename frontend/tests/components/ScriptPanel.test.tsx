@@ -142,6 +142,25 @@ describe("ScriptPanel", () => {
     expect(container.querySelector('svg[viewBox="0 0 12 12"]')).not.toBeInTheDocument();
   });
 
+  it("shows check icon for setup done but not for run done", () => {
+    const { container } = render(
+      <ScriptPanel
+        config={{ scripts: { setup: "npm ci", run: "npm run dev" } }}
+        status={{ setup: { state: "done", exitCode: 0 }, run: { state: "done", exitCode: 0 } }}
+        onStart={vi.fn()}
+        onStop={vi.fn()}
+        onConnectOutput={vi.fn()}
+        onDisconnectOutput={vi.fn()}
+      />,
+    );
+
+    // Setup tab shows a check icon (lucide SVG with 24x24 viewBox), run tab does not
+    const setupBtn = screen.getByRole("button", { name: /setup/i });
+    const runBtn = screen.getByRole("button", { name: /^run$/i });
+    expect(setupBtn.querySelector("svg")).toBeInTheDocument();
+    expect(runBtn.querySelector("svg")).not.toBeInTheDocument();
+  });
+
   it("shows running terminal, connects output, and can stop script", async () => {
     const { onStop, onConnectOutput } = renderPanel({
       status: {

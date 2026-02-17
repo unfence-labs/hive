@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { PlayIcon, SquareIcon, RotateCcwIcon, CheckCircle2Icon, XCircleIcon } from "lucide-react";
+import { PlayIcon, SquareIcon, RotateCcwIcon, CheckCircle2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { WaveIndicator } from "@/components/WaveIndicator";
@@ -21,15 +21,12 @@ interface ScriptPanelProps {
   onDisconnectOutput: () => void;
 }
 
-function StatusIndicator({ status }: { status: ScriptStatusInfo }) {
+function StatusIndicator({ status, type }: { status: ScriptStatusInfo; type: ScriptType }) {
   if (status.state === "running") {
     return <WaveIndicator />;
   }
-  if (status.state === "done") {
+  if (type === "setup" && status.state === "done") {
     return <CheckCircle2Icon className="size-3 text-green-400" />;
-  }
-  if (status.state === "error") {
-    return <XCircleIcon className="size-3 text-red-400" />;
   }
   return null;
 }
@@ -72,7 +69,7 @@ export default function ScriptPanel({
 
     const term = new XTerm({
       cursorBlink: false,
-      fontSize: 11,
+      fontSize: 12,
       fontFamily: '"Geist Mono", Menlo, Monaco, "Courier New", monospace',
       lineHeight: 1.3,
       theme: { background: "#09090f" },
@@ -193,7 +190,7 @@ export default function ScriptPanel({
             )}
             onClick={() => setActiveTab("setup")}
           >
-            <StatusIndicator status={status.setup} />
+            <StatusIndicator status={status.setup} type="setup" />
             Setup
           </button>
         )}
@@ -208,7 +205,7 @@ export default function ScriptPanel({
             )}
             onClick={() => setActiveTab("run")}
           >
-            <StatusIndicator status={status.run} />
+            <StatusIndicator status={status.run} type="run" />
             Run
           </button>
         )}
@@ -217,7 +214,7 @@ export default function ScriptPanel({
         <div className="ml-auto">
           {currentStatus.state === "running" ? (
             <Button variant="ghost" size="icon-xs" onClick={handleAction} title="Stop">
-              <SquareIcon className="size-3 text-red-400" />
+              <SquareIcon className="size-3 text-destructive" />
             </Button>
           ) : currentStatus.state === "done" || currentStatus.state === "error" ? (
             <Button variant="ghost" size="icon-xs" onClick={handleAction} title="Re-run">
@@ -235,7 +232,7 @@ export default function ScriptPanel({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {shouldShowTerminal ? (
           <>
-            <div ref={containerRef} className="h-full w-full bg-[#09090f]" />
+            <div ref={containerRef} className="h-full w-full bg-background" />
             {/* Port badge */}
             {effectiveTab === "run" && config.port && currentStatus.state === "running" && (
               <div className="absolute bottom-2 right-2">
@@ -246,17 +243,17 @@ export default function ScriptPanel({
             )}
           </>
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
-            <PlayIcon className="size-8 opacity-30" />
+          <div className="flex h-full flex-col items-center justify-center gap-3">
+            <PlayIcon className="size-8 text-muted-foreground/30" />
             <Button
               variant="outline"
               size="sm"
               onClick={handleAction}
             >
-              <PlayIcon className="mr-1.5 size-3" />
+              <PlayIcon className="size-3" />
               {effectiveTab === "setup" ? "Run setup" : "Run workspace"}
             </Button>
-            <p className="text-xs opacity-60">
+            <p className="text-xs text-muted-foreground/60">
               {effectiveTab === "setup" ? "Install dependencies" : "Test your changes here."}
             </p>
           </div>

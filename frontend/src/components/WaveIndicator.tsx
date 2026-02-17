@@ -4,7 +4,7 @@ const BAR_POSITIONS = [1, 3, 5, 7, 9];
 
 export function WaveIndicator({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 12 12" className={cn("size-3 text-blue-400", className)} fill="none">
+    <svg viewBox="0 0 12 12" className={cn("size-3 text-primary", className)} fill="none">
       {BAR_POSITIONS.map((x, i) => (
         <rect
           key={x}
