@@ -70,4 +70,25 @@ describe("useResource", () => {
 
     expect(api.get).toHaveBeenCalledTimes(2);
   });
+
+  it("clears stale data when a refresh fails after a successful fetch", async () => {
+    vi.mocked(api.get)
+      .mockResolvedValueOnce([{ id: 1 }])
+      .mockRejectedValueOnce(new Error("offline"));
+
+    const { result } = renderHook(() => useResource<{ id: number }>("/api/items"));
+
+    await waitFor(() => {
+      expect(result.current.data).toEqual([{ id: 1 }]);
+    });
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    await waitFor(() => {
+      expect(result.current.data).toEqual([]);
+    });
+    expect(result.current.error).toBe("offline");
+  });
 });
