@@ -70,9 +70,7 @@ struct HubView: View {
             }
         }
         .navigationDestination(for: Workspace.self) { workspace in
-            // Placeholder — will be replaced by ChatView in task #6
-            Text(workspace.name)
-                .navigationTitle(workspace.name)
+            ChatView(workspace: workspace)
         }
     }
 
