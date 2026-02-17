@@ -117,7 +117,7 @@ export function ConversationTabs({
                 role="button"
                 tabIndex={0}
                 className={cn(
-                  "ml-auto shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100",
+                  "ml-auto shrink-0 rounded p-0.5 text-muted-foreground/50",
                   "hover:bg-destructive/10 hover:text-destructive",
                 )}
                 onClick={(e) => {
@@ -182,7 +182,7 @@ export function ConversationTabs({
                     role="button"
                     tabIndex={0}
                     className={cn(
-                      "ml-auto shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100",
+                      "ml-auto shrink-0 rounded p-0.5 text-muted-foreground/50",
                       "hover:bg-destructive/10 hover:text-destructive",
                     )}
                     onClick={(e) => {
