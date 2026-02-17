@@ -62,12 +62,15 @@ export default function AppLayout({
             onArchiveWorkspace={onArchiveWorkspace}
           />
         )}
-        <main className="flex flex-1 flex-col overflow-hidden">
-          <div
-            className="shrink-0"
-            style={{ height: "var(--titlebar-inset, 0px)" }}
-            data-tauri-drag-region
-          />
+        <main className="relative flex flex-1 flex-col overflow-hidden">
+          {/* Layout spacer only for settings (workspace views handle their own inset) */}
+          {isSettings && (
+            <div
+              className="shrink-0"
+              style={{ height: "var(--titlebar-inset, 0px)" }}
+              data-tauri-drag-region
+            />
+          )}
           <div className="relative min-h-0 flex-1 overflow-hidden">
             <Outlet />
             <TerminalLayer />
