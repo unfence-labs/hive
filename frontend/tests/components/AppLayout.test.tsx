@@ -50,9 +50,9 @@ function TerminalControls() {
   );
 }
 
-function renderLayout() {
+function renderLayout(initialEntry = "/workspaces/ws-1") {
   return render(
-    <MemoryRouter initialEntries={["/workspaces/ws-1"]}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <Routes>
         <Route
           element={
@@ -65,6 +65,7 @@ function renderLayout() {
           }
         >
           <Route path="/workspaces/:wsId" element={<TerminalControls />} />
+          <Route path="/settings/appearance" element={<div data-testid="settings-content">settings</div>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -105,5 +106,26 @@ describe("AppLayout", () => {
     expect(screen.queryByTestId("terminal-ws-1")).not.toBeInTheDocument();
     expect(screen.getByTestId("active-terminals")).toBeEmptyDOMElement();
     expect(screen.getByTestId("visible-terminal")).toHaveTextContent("none");
+  });
+
+  it("does not render the legacy titlebar spacer in workspace layout", () => {
+    const { container } = renderLayout();
+
+    const main = container.querySelector("main");
+    const legacySpacerInMain = main?.querySelector("[style*='--titlebar-inset']");
+
+    expect(legacySpacerInMain).not.toBeInTheDocument();
+    expect(main).toHaveClass("relative");
+  });
+
+  it("does not render the legacy titlebar spacer in settings layout", async () => {
+    const { container } = renderLayout("/settings/appearance");
+    await screen.findByTestId("settings-content");
+
+    const main = container.querySelector("main");
+    const legacySpacerInMain = main?.querySelector("[style*='--titlebar-inset']");
+
+    expect(legacySpacerInMain).not.toBeInTheDocument();
+    expect(main).toHaveClass("relative");
   });
 });

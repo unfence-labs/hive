@@ -466,6 +466,19 @@ describe("WorkspaceView terminal behavior", () => {
     expect(screen.getByText("> origin/main")).toBeInTheDocument();
   });
 
+  it("marks workspace and sidebar headers as drag regions", async () => {
+    const { container } = renderWorkspace();
+
+    await screen.findByText("tokyo");
+
+    const workspaceHeader = screen.getByText("tokyo").closest("div");
+    const sidebarHeader = screen.getByRole("button", { name: "All" }).closest("div");
+
+    expect(workspaceHeader).toHaveAttribute("data-tauri-drag-region");
+    expect(sidebarHeader).toHaveAttribute("data-tauri-drag-region");
+    expect(container.querySelectorAll("[data-tauri-drag-region]")).toHaveLength(2);
+  });
+
   it("fetches diff stats on workspace bootstrap", async () => {
     renderWorkspace();
     await screen.findByText("tokyo");

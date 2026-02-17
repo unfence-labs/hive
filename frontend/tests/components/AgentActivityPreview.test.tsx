@@ -34,7 +34,7 @@ describe("AgentActivityPreview", () => {
 
   it("contains a glow filter definition", () => {
     const { container } = render(<AgentActivityPreview />);
-    const filter = container.querySelector("filter#orbit-glow");
+    const filter = container.querySelector("filter[id^='orbit-glow-']");
     expect(filter).toBeInTheDocument();
   });
 
@@ -42,5 +42,29 @@ describe("AgentActivityPreview", () => {
     const { container } = render(<AgentActivityPreview />);
     const svg = container.querySelector("svg")!;
     expect(svg.classList.toString()).toContain("text-primary");
+  });
+
+  it("generates a unique glow filter id per instance", () => {
+    const { container } = render(
+      <div>
+        <AgentActivityPreview />
+        <AgentActivityPreview />
+      </div>,
+    );
+
+    const filters = Array.from(container.querySelectorAll("filter[id^='orbit-glow-']"));
+    const ids = filters.map((filter) => filter.getAttribute("id"));
+
+    expect(filters).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it("sanitizes generated glow filter id to avoid colons", () => {
+    const { container } = render(<AgentActivityPreview />);
+    const filter = container.querySelector("filter[id^='orbit-glow-']");
+    const id = filter?.getAttribute("id");
+
+    expect(id).toBeTruthy();
+    expect(id).not.toContain(":");
   });
 });

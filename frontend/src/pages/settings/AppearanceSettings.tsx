@@ -7,7 +7,7 @@ export default function AppearanceSettings() {
 
   return (
     <div className="flex h-full flex-col overflow-auto">
-      <div className="border-b border-border/50 px-8 py-5">
+      <div className="border-b border-border/50 px-8 py-5" data-tauri-drag-region>
         <h1 className="text-base font-semibold">Appearance</h1>
         <p className="mt-1 text-xs text-muted-foreground">
           Customize how Hive looks on your device.

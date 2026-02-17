@@ -355,7 +355,7 @@ export default function WorkspaceView() {
       {/* Chat area + right panel */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="relative z-20 flex h-12 items-center gap-2 border-b border-border/50 px-4 backdrop-blur-sm">
+          <div className="relative z-20 flex h-12 items-center gap-2 border-b border-border/50 px-4 backdrop-blur-sm" data-tauri-drag-region>
             <span className="truncate text-sm font-semibold text-foreground">{workspace?.projectName ?? workspace?.name}</span>
             {displayBranch && (
               <BranchLabel branch={displayBranch} showIcon={false} className="text-xs text-muted-foreground" />
@@ -462,7 +462,7 @@ export default function WorkspaceView() {
         </div>
 
         <aside className="hidden w-80 shrink-0 border-l border-border/50 bg-sidebar lg:flex lg:flex-col">
-          <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4">
+          <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4" data-tauri-drag-region>
             <button
               type="button"
               className={cn(

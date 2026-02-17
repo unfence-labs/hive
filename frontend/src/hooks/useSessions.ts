@@ -1,6 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { api } from "@/hooks/useApi";
 import type { SessionMetadata } from "@/types";
+
+/** Sort sessions by creation time (oldest first) for stable tab ordering. */
+function sortByCreatedAtAsc(sessions: SessionMetadata[]): SessionMetadata[] {
+  return [...sessions].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+}
 
 export function useSessions(workspaceId: string | undefined) {
   const [sessions, setSessions] = useState<SessionMetadata[]>([]);
@@ -77,8 +84,10 @@ export function useSessions(workspaceId: string | undefined) {
     }
   }, [workspaceId, fetchSessions]);
 
+  const stableSessions = useMemo(() => sortByCreatedAtAsc(sessions), [sessions]);
+
   return {
-    sessions,
+    sessions: stableSessions,
     loading,
     createSession,
     activateSession,
