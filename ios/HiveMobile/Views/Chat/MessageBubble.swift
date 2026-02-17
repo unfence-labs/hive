@@ -1,3 +1,4 @@
+import MarkdownUI
 import SwiftUI
 
 struct MessageBubble: View {
@@ -44,8 +45,8 @@ struct MessageBubble: View {
                     .padding(.vertical, 10)
                     .background(.accent.opacity(0.25), in: RoundedRectangle(cornerRadius: 18))
             case .assistant:
-                // Native SwiftUI markdown rendering (handles bold, italic, code, links, lists)
-                Text(LocalizedStringKey(message.content))
+                Markdown(message.content)
+                    .markdownTheme(.chat)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             }
@@ -156,6 +157,14 @@ private struct ToolCallRow: View {
         case "Task": return "arrow.triangle.branch"
         default: return "wrench"
         }
+    }
+}
+
+// MARK: - Chat Markdown Theme
+
+private extension Theme {
+    static let chat = Theme.gitHub.text {
+        BackgroundColor(.clear)
     }
 }
 

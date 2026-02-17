@@ -65,6 +65,7 @@
 			);
 			name = HiveMobile;
 			packageProductDependencies = (
+				AA1B3C4D5E6F0001AABB0021 /* MarkdownUI */,
 			);
 			productName = HiveMobile;
 			productReference = AA1B3C4D5E6F0001AABB0003 /* HiveMobile.app */;
@@ -93,6 +94,9 @@
 			productRefGroup = AA1B3C4D5E6F0001AABB0002 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
+			packageReferences = (
+				AA1B3C4D5E6F0001AABB0020 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+			);
 			targets = (
 				AA1B3C4D5E6F0001AABB0004 /* HiveMobile */,
 			);
@@ -323,6 +327,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AA1B3C4D5E6F0001AABB0020 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AA1B3C4D5E6F0001AABB0021 /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA1B3C4D5E6F0001AABB0020 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
+			productName = MarkdownUI;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = AA1B3C4D5E6F0001AABB0005 /* Project object */;
 }
