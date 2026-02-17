@@ -3,7 +3,7 @@ import { ArrowLeft, Bell, CircleUser, Paintbrush, Wifi, GitFork } from "lucide-r
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { getProjectColor } from "@/lib/project-colors";
+import { ProjectAvatar } from "@/components/ProjectAvatar";
 import type { Project } from "@/types";
 
 interface SettingsSidebarProps {
@@ -36,16 +36,16 @@ export default function SettingsSidebar({ projects }: SettingsSidebarProps) {
           </button>
           <SidebarSection label="General">
             <NavItem
-              to="/settings/account"
-              label="Account"
-              icon={<CircleUser className="h-4 w-4" />}
-              active={pathname === "/settings/account"}
-            />
-            <NavItem
               to="/settings/appearance"
               label="Appearance"
               icon={<Paintbrush className="h-4 w-4" />}
               active={pathname === "/settings/appearance"}
+            />
+            <NavItem
+              to="/settings/account"
+              label="Account"
+              icon={<CircleUser className="h-4 w-4" />}
+              active={pathname === "/settings/account"}
             />
             <NavItem
               to="/settings/connection"
@@ -64,7 +64,6 @@ export default function SettingsSidebar({ projects }: SettingsSidebarProps) {
           {projects.length > 0 && (
             <SidebarSection label="Repositories">
               {projects.map((project) => {
-                const color = getProjectColor(project.name);
                 const isActive = pathname === `/settings/repositories/${project.id}`;
                 return (
                   <Link
@@ -77,15 +76,7 @@ export default function SettingsSidebar({ projects }: SettingsSidebarProps) {
                         : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
                     )}
                   >
-                    <span
-                      className={cn(
-                        "flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-bold",
-                        color.bg,
-                        color.text,
-                      )}
-                    >
-                      {project.name[0]?.toUpperCase() ?? "?"}
-                    </span>
+                    <ProjectAvatar name={project.name} projectId={project.id} hasFavicon={project.hasFavicon} />
                     <span className="min-w-0 flex-1 truncate">{project.name}</span>
                     {isActive && (
                       <GitFork className="h-3 w-3 shrink-0 text-primary/60" />

@@ -15,3 +15,13 @@ export async function git(args: string[], cwd?: string): Promise<ExecResult> {
   });
   return { stdout: stdout.trim(), stderr: stderr.trim() };
 }
+
+/** Like `git()` but returns raw Buffer stdout (for binary content). */
+export async function gitBuffer(args: string[], cwd?: string): Promise<Buffer> {
+  const { stdout } = await execFile("git", args, {
+    cwd,
+    maxBuffer: 10 * 1024 * 1024,
+    encoding: "buffer",
+  });
+  return stdout;
+}

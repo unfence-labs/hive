@@ -25,7 +25,7 @@ import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { WaveIndicator } from "@/components/WaveIndicator";
 import { api } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
-import { getProjectColor } from "@/lib/project-colors";
+import { ProjectAvatar } from "@/components/ProjectAvatar";
 import type { DiffStatResponse, Project } from "@/types";
 
 interface SidebarProps {
@@ -122,9 +122,7 @@ export default function Sidebar({
               <Skeleton className="h-6 w-full" />
             </div>
           ) : (
-            projects.map((project) => {
-              const color = getProjectColor(project.name);
-              return (
+            projects.map((project) => (
                 <div key={project.id} className="mb-1">
                   <Collapsible
                     open={isProjectExpanded(project.id)}
@@ -137,21 +135,18 @@ export default function Sidebar({
                         <button
                           type="button"
                           className={cn(
-                            "flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-left text-sm font-medium transition-colors hover:bg-sidebar-accent/60",
+                            "flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-md px-2 py-1.5 text-left text-sm font-medium transition-colors hover:bg-sidebar-accent/60",
                             activeProjectId === project.id && "bg-sidebar-accent/60",
                           )}
                         >
-                          <span
-                            className={cn(
-                              "flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold",
-                              color.bg,
-                              color.text,
-                            )}
-                          >
-                            {project.name[0]?.toUpperCase() ?? "?"}
-                          </span>
+                          <ProjectAvatar name={project.name} projectId={project.id} hasFavicon={project.hasFavicon} />
                           <span className="min-w-0 flex-1 truncate pr-0 transition-[padding] group-hover:pr-12">
                             {project.name}
+                            {(project.workspaces ?? []).length > 0 && (
+                              <span className="ml-2.5 text-sm tabular-nums text-muted-foreground/40">
+                                {(project.workspaces ?? []).length}
+                              </span>
+                            )}
                           </span>
                         </button>
                       </CollapsibleTrigger>
@@ -226,8 +221,7 @@ export default function Sidebar({
                     </CollapsibleContent>
                   </Collapsible>
                 </div>
-              );
-            })
+              ))
           )}
         </div>
       </ScrollArea>

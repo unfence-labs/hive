@@ -162,6 +162,21 @@ describe("ConversationTabs", () => {
     expect(untitledTab.className).not.toContain("text-accent-foreground");
   });
 
+  it("calls onConversationTabClick when clicking empty Untitled tab", async () => {
+    const user = userEvent.setup();
+    const onConversationTabClick = vi.fn();
+    renderTabs({
+      sessions: [],
+      activeSessionId: undefined,
+      openFile: "src/index.ts",
+      isFileActive: true,
+      onConversationTabClick,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Untitled" }));
+    expect(onConversationTabClick).toHaveBeenCalledTimes(1);
+  });
+
   it("renders three or more tabs", () => {
     renderTabs({
       sessions: [

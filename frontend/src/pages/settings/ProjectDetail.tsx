@@ -11,7 +11,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { getProjectColor } from "@/lib/project-colors";
+import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types";
 
@@ -34,7 +34,6 @@ export default function ProjectDetail({ projects, onDeleteProject }: ProjectDeta
     );
   }
 
-  const color = getProjectColor(project.name);
   const hasWorkspaces = (project.workspaces ?? []).length > 0;
   const workspaceCount = (project.workspaces ?? []).length;
 
@@ -47,15 +46,7 @@ export default function ProjectDetail({ projects, onDeleteProject }: ProjectDeta
     <div className="flex h-full flex-col overflow-auto">
       <div className="border-b border-border/50 px-8 py-5" data-tauri-drag-region>
         <div className="flex items-center gap-3">
-          <span
-            className={cn(
-              "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sm font-bold",
-              color.bg,
-              color.text,
-            )}
-          >
-            {project.name[0]?.toUpperCase() ?? "?"}
-          </span>
+          <ProjectAvatar name={project.name} projectId={project.id} hasFavicon={project.hasFavicon} className="h-8 w-8 rounded-md text-sm" />
           <div>
             <h1 className="text-base font-semibold">{project.name}</h1>
             <p className="text-xs text-muted-foreground">Repository settings</p>

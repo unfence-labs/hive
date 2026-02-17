@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { join } from "node:path";
-import { mkdtemp, rm, mkdir } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { git } from "./git.js";
+import { git, gitBuffer } from "./git.js";
 
 let tempDir: string;
 
@@ -55,5 +55,23 @@ describe("git()", () => {
     const result = await git(["status"], tempDir);
     expect(result).toHaveProperty("stdout");
     expect(result).toHaveProperty("stderr");
+  });
+});
+
+describe("gitBuffer()", () => {
+  it("returns raw binary stdout from git show", async () => {
+    await git(["init", tempDir]);
+    await git(["checkout", "-b", "main"], tempDir);
+    await git(["config", "user.email", "test@hive.dev"], tempDir);
+    await git(["config", "user.name", "Hive Test"], tempDir);
+
+    const binary = Buffer.from([0x00, 0x01, 0x7f, 0x80, 0xff, 0x0a]);
+    await writeFile(join(tempDir, "favicon.png"), binary);
+    await git(["add", "favicon.png"], tempDir);
+    await git(["commit", "-m", "add binary"], tempDir);
+
+    const buf = await gitBuffer(["show", "HEAD:favicon.png"], tempDir);
+    expect(Buffer.compare(buf, binary)).toBe(0);
+    expect(buf.length).toBe(binary.length);
   });
 });

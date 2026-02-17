@@ -6,6 +6,7 @@ export interface Project {
   workspaces: Workspace[];
   repoPath?: string;
   workspacesPath?: string;
+  hasFavicon?: boolean;
 }
 
 export interface Workspace {
