@@ -56,12 +56,20 @@ vi.mock("@/components/EmptyStateLogo", () => ({
   ),
 }));
 
-vi.mock("@/pages/SettingsView", () => ({
+vi.mock("@/pages/settings/AppearanceSettings", () => ({
+  default: () => <div>appearance settings</div>,
+}));
+
+vi.mock("@/pages/settings/ConnectionSettings", () => ({
   default: ({ onRefreshConnection }: { onRefreshConnection?: () => void }) => (
     <button type="button" onClick={onRefreshConnection}>
       refresh connection
     </button>
   ),
+}));
+
+vi.mock("@/pages/settings/ProjectDetail", () => ({
+  default: () => <div>project detail</div>,
 }));
 
 vi.mock("@/pages/WorkspaceView", () => ({
@@ -101,7 +109,7 @@ describe("App", () => {
 
   it("refreshes backend connection from settings route", async () => {
     const user = userEvent.setup();
-    window.history.pushState({}, "", "/settings");
+    window.history.pushState({}, "", "/settings/connection");
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: "refresh connection" }));
