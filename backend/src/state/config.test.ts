@@ -91,7 +91,7 @@ describe("loadConfig", () => {
         telegram: { enabled: true, botToken: "t", chatId: "c" },
       },
     });
-    expect((config as Record<string, unknown>)["unknownKey"]).toBeUndefined();
+    expect((config as unknown as Record<string, unknown>)["unknownKey"]).toBeUndefined();
   });
 
   it("handles completely empty notifications object", async () => {
