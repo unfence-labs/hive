@@ -3,6 +3,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+// Prevent the top-level main() from running preflight checks (claude not on CI)
+vi.mock("./utils/preflight.js", () => ({ preflight: vi.fn() }));
+
 // Prevent the top-level main() from actually listening on a port
 vi.mock("fastify", async (importOriginal) => {
   const actual = await importOriginal<typeof import("fastify")>();
