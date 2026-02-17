@@ -1,0 +1,181 @@
+import Foundation
+import Observation
+
+/// Monitors real-time streaming status for all workspaces from the hub.
+///
+/// Opens a lightweight WebSocket connection per workspace, listens for `status`
+/// messages, and tracks which workspaces are actively streaming. This mirrors the
+/// React frontend's `useWorkspaceLiveData` approach instead of relying on the
+/// persisted REST `status` field which stays "busy" long after streaming ends.
+@MainActor
+@Observable
+final class HubStatusMonitor {
+    private(set) var streamingWorkspaces: Set<String> = []
+
+    private var connections: [String: WorkspaceConnection] = [:]
+    private let decoder = JSONDecoder()
+
+    func isStreaming(_ workspaceId: String) -> Bool {
+        streamingWorkspaces.contains(workspaceId)
+    }
+
+    /// Sync monitored workspaces — opens new connections, closes stale ones.
+    func sync(workspaceIds: [String]) {
+        let desired = Set(workspaceIds)
+        let current = Set(connections.keys)
+
+        // Remove connections for workspaces no longer in the list
+        for id in current.subtracting(desired) {
+            connections[id]?.cancel()
+            connections.removeValue(forKey: id)
+            streamingWorkspaces.remove(id)
+        }
+
+        // Add connections for new workspaces
+        for id in desired.subtracting(current) {
+            let conn = WorkspaceConnection(workspaceId: id, monitor: self)
+            connections[id] = conn
+            conn.connect()
+        }
+    }
+
+    /// Disconnect everything.
+    func disconnectAll() {
+        for conn in connections.values { conn.cancel() }
+        connections.removeAll()
+        streamingWorkspaces.removeAll()
+    }
+
+    // MARK: - Called by WorkspaceConnection
+
+    fileprivate func didReceiveStreaming(_ streaming: Bool, for workspaceId: String) {
+        if streaming {
+            streamingWorkspaces.insert(workspaceId)
+        } else {
+            streamingWorkspaces.remove(workspaceId)
+        }
+    }
+}
+
+// MARK: - Per-workspace lightweight connection
+
+@MainActor
+private final class WorkspaceConnection {
+    let workspaceId: String
+    private weak var monitor: HubStatusMonitor?
+
+    private var wsTask: URLSessionWebSocketTask?
+    private var receiveTask: Task<Void, Never>?
+    private var pingTask: Task<Void, Never>?
+    private var reconnectTask: Task<Void, Never>?
+    private var intentionallyClosed = false
+    private var backoff: UInt64 = 1
+
+    private let decoder = JSONDecoder()
+
+    init(workspaceId: String, monitor: HubStatusMonitor) {
+        self.workspaceId = workspaceId
+        self.monitor = monitor
+    }
+
+    func connect() {
+        intentionallyClosed = false
+        performConnect()
+    }
+
+    func cancel() {
+        intentionallyClosed = true
+        receiveTask?.cancel()
+        pingTask?.cancel()
+        reconnectTask?.cancel()
+        wsTask?.cancel(with: .goingAway, reason: nil)
+        wsTask = nil
+    }
+
+    private func performConnect() {
+        let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
+        let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
+        let token = UserDefaults.standard.string(forKey: "authToken") ?? ""
+
+        guard let url = URL(string: "ws://\(host):\(port)/ws/session/\(workspaceId)?token=\(token)") else {
+            return
+        }
+
+        let task = URLSession.shared.webSocketTask(with: url)
+        self.wsTask = task
+        task.resume()
+        backoff = 1
+        startReceiving()
+        startPinging()
+    }
+
+    private func startReceiving() {
+        receiveTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                guard let task = self.wsTask else { break }
+                do {
+                    let message = try await task.receive()
+                    self.handleFrame(message)
+                } catch {
+                    if !Task.isCancelled { self.handleDisconnect() }
+                    break
+                }
+            }
+        }
+    }
+
+    private func handleFrame(_ message: URLSessionWebSocketTask.Message) {
+        let data: Data?
+        switch message {
+        case .string(let text): data = text.data(using: .utf8)
+        case .data(let d): data = d
+        @unknown default: data = nil
+        }
+        guard let data else { return }
+
+        // Only decode enough to check for "status" type — avoid full WsOutgoing decode
+        // to keep this as lightweight as possible.
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = json["type"] as? String, type == "status" else {
+            return
+        }
+
+        let streaming = json["streaming"] as? Bool ?? false
+        monitor?.didReceiveStreaming(streaming, for: workspaceId)
+    }
+
+    private func startPinging() {
+        pingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { break }
+                self?.wsTask?.sendPing { error in
+                    if error != nil {
+                        Task { @MainActor [weak self] in
+                            self?.handleDisconnect()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func handleDisconnect() {
+        receiveTask?.cancel()
+        pingTask?.cancel()
+        wsTask?.cancel(with: .goingAway, reason: nil)
+        wsTask = nil
+
+        guard !intentionallyClosed else { return }
+
+        reconnectTask = Task { [weak self] in
+            guard let self else { return }
+            let delay = self.backoff
+            self.backoff = min(self.backoff * 2, 30)
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, !self.intentionallyClosed else { return }
+            self.performConnect()
+        }
+    }
+}

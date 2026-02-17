@@ -4,6 +4,7 @@ struct HubView: View {
     @State private var projects: [Project] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var statusMonitor = HubStatusMonitor()
 
     private let api = APIClient()
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
@@ -34,6 +35,7 @@ struct HubView: View {
         }
         .refreshable { await loadProjects() }
         .task { await loadProjects() }
+        .onDisappear { statusMonitor.disconnectAll() }
         .overlay {
             if let errorMessage {
                 errorBanner(errorMessage)
@@ -66,7 +68,10 @@ struct HubView: View {
                 LazyVGrid(columns: columns, spacing: HiveSpacing.md) {
                     ForEach(project.workspaces) { workspace in
                         NavigationLink(value: workspace) {
-                            WorkspaceCard(workspace: workspace)
+                            WorkspaceCard(
+                                workspace: workspace,
+                                isStreaming: statusMonitor.isStreaming(workspace.id)
+                            )
                         }
                         .buttonStyle(.plain)
                     }
@@ -99,6 +104,9 @@ struct HubView: View {
         errorMessage = nil
         do {
             projects = try await api.fetchProjects()
+            // Sync the status monitor with all workspace IDs for real-time streaming detection
+            let allWorkspaceIds = projects.flatMap(\.workspaces).map(\.id)
+            statusMonitor.sync(workspaceIds: allWorkspaceIds)
         } catch is CancellationError {
             // SwiftUI task cancellation — ignore
         } catch let urlError as URLError where urlError.code == .cancelled {

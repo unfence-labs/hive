@@ -1,14 +1,14 @@
 import SwiftUI
 
 struct StatusDot: View {
-    let status: WorkspaceStatus
+    var isStreaming: Bool = false
 
     var body: some View {
         Circle()
-            .fill(status == .busy ? Color.accentColor : .green)
+            .fill(isStreaming ? Color.accentColor : .green)
             .frame(width: 8, height: 8)
             .shadow(
-                color: status == .busy ? .accentColor.opacity(0.5) : .green.opacity(0.5),
+                color: isStreaming ? .accentColor.opacity(0.5) : .green.opacity(0.5),
                 radius: 4
             )
     }
@@ -16,8 +16,8 @@ struct StatusDot: View {
 
 #Preview {
     HStack(spacing: 20) {
-        StatusDot(status: .idle)
-        StatusDot(status: .busy)
+        StatusDot(isStreaming: false)
+        StatusDot(isStreaming: true)
     }
     .padding()
     .preferredColorScheme(.dark)

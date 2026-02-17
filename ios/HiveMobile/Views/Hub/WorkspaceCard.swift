@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WorkspaceCard: View {
     let workspace: Workspace
+    var isStreaming: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: HiveSpacing.sm) {
@@ -12,13 +13,13 @@ struct WorkspaceCard: View {
                     .bold()
                     .lineLimit(2)
                 Spacer()
-                StatusDot(status: workspace.status)
+                StatusDot(isStreaming: isStreaming)
             }
 
             Spacer()
 
-            // Activity indicator (centered, only when busy)
-            if workspace.status == .busy {
+            // Activity indicator (centered, only when actually streaming)
+            if isStreaming {
                 HStack {
                     Spacer()
                     AgentActivityIndicator(dotSize: 5, spacing: 2.5)
@@ -51,7 +52,7 @@ struct WorkspaceCard: View {
             id: "1", name: "san-antonio-v1", branch: "0xlny/ios-swift-app",
             status: .busy, createdAt: "", activeSessionId: nil,
             projectName: "hive", defaultBranch: "main"
-        ))
+        ), isStreaming: true)
         WorkspaceCard(workspace: Workspace(
             id: "2", name: "boston-v3", branch: "main",
             status: .idle, createdAt: "", activeSessionId: nil,
