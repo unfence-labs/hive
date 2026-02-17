@@ -98,6 +98,13 @@ describe("buildApp", () => {
     expect(res.json().error).toContain("No active session");
   });
 
+  it("registers script routes", async () => {
+    app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/api/workspaces/test-ws/scripts" });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: "Workspace not found" });
+  });
+
   it("adds CORS headers for API requests with an Origin", async () => {
     app = await buildApp();
     const res = await app.inject({
