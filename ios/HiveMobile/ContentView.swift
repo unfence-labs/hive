@@ -2,11 +2,15 @@ import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        NavigationStack {
-            Text("Hive")
-                .font(.largeTitle)
-                .fontWeight(.bold)
+        TabView {
+            Tab("Hub", systemImage: "square.grid.2x2") {
+                HubView()
+            }
+            Tab("Settings", systemImage: "gear") {
+                SettingsView()
+            }
         }
+        .tabBarMinimizeBehavior(.onScrollDown)
     }
 }
 
