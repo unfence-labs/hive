@@ -1,0 +1,242 @@
+import { useEffect, useRef, useState, useCallback } from "react";
+import { Terminal as XTerm } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { PlayIcon, SquareIcon, RotateCcwIcon, CheckCircle2Icon, XCircleIcon, Loader2Icon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import type { ScriptType, ScriptStatusInfo, HiveConfig } from "@/types";
+import "@xterm/xterm/css/xterm.css";
+
+interface ScriptPanelProps {
+  config: HiveConfig;
+  status: {
+    setup: ScriptStatusInfo;
+    run: ScriptStatusInfo;
+  };
+  onStart: (type: ScriptType) => void;
+  onStop: (type: ScriptType) => void;
+  onConnectOutput: (type: ScriptType, term: XTerm) => void;
+  onDisconnectOutput: () => void;
+}
+
+function StatusIndicator({ status }: { status: ScriptStatusInfo }) {
+  if (status.state === "running") {
+    return <Loader2Icon className="size-3 animate-spin text-blue-400" />;
+  }
+  if (status.state === "done") {
+    return <CheckCircle2Icon className="size-3 text-green-400" />;
+  }
+  if (status.state === "error") {
+    return <XCircleIcon className="size-3 text-red-400" />;
+  }
+  return null;
+}
+
+export default function ScriptPanel({
+  config,
+  status,
+  onStart,
+  onStop,
+  onConnectOutput,
+  onDisconnectOutput,
+}: ScriptPanelProps) {
+  const hasSetup = !!config.scripts?.setup;
+  const hasRun = !!config.scripts?.run;
+
+  // Default to the first available tab
+  const defaultTab: ScriptType = hasSetup ? "setup" : "run";
+  const [activeTab, setActiveTab] = useState<ScriptType>(defaultTab);
+
+  // If the active tab's script doesn't exist, switch to the other
+  const effectiveTab = (activeTab === "setup" && !hasSetup) ? "run" : (activeTab === "run" && !hasRun) ? "setup" : activeTab;
+  const currentStatus = status[effectiveTab];
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const termRef = useRef<XTerm | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
+  const connectedTabRef = useRef<ScriptType | null>(null);
+
+  // Create / destroy xterm when the tab changes or when status transitions to running
+  const shouldShowTerminal = currentStatus.state !== "idle";
+
+  const initTerminal = useCallback(() => {
+    const el = containerRef.current;
+    if (!el || termRef.current) return;
+
+    const term = new XTerm({
+      cursorBlink: false,
+      fontSize: 11,
+      fontFamily: '"Geist Mono", Menlo, Monaco, "Courier New", monospace',
+      lineHeight: 1.3,
+      theme: { background: "#09090f" },
+      scrollback: 5000,
+      disableStdin: false,
+    });
+
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(el);
+    fitAddon.fit();
+
+    termRef.current = term;
+    fitAddonRef.current = fitAddon;
+
+    // Connect to the script WS
+    connectedTabRef.current = effectiveTab;
+    onConnectOutput(effectiveTab, term);
+  }, [effectiveTab, onConnectOutput]);
+
+  const destroyTerminal = useCallback(() => {
+    if (termRef.current) {
+      onDisconnectOutput();
+      termRef.current.dispose();
+      termRef.current = null;
+      fitAddonRef.current = null;
+      connectedTabRef.current = null;
+    }
+  }, [onDisconnectOutput]);
+
+  // Init terminal when needed
+  useEffect(() => {
+    if (shouldShowTerminal) {
+      // Small delay to let the DOM container render
+      const timer = setTimeout(() => initTerminal(), 50);
+      return () => clearTimeout(timer);
+    }
+    destroyTerminal();
+    return undefined;
+  }, [shouldShowTerminal, initTerminal, destroyTerminal]);
+
+  // Reconnect when tab changes
+  useEffect(() => {
+    if (shouldShowTerminal && termRef.current && connectedTabRef.current !== effectiveTab) {
+      // Tab changed while terminal is alive — destroy and reinit
+      destroyTerminal();
+      const timer = setTimeout(() => initTerminal(), 50);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [effectiveTab, shouldShowTerminal, destroyTerminal, initTerminal]);
+
+  // ResizeObserver for fitting
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver(() => {
+      fitAddonRef.current?.fit();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      destroyTerminal();
+    };
+  }, [destroyTerminal]);
+
+  const handleAction = () => {
+    if (currentStatus.state === "running") {
+      onStop(effectiveTab);
+    } else {
+      // Clear terminal before re-run
+      if (termRef.current) {
+        destroyTerminal();
+      }
+      onStart(effectiveTab);
+    }
+  };
+
+  // Only show if there's at least one script
+  if (!hasSetup && !hasRun) return null;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Tab bar */}
+      <div className="flex h-9 items-center gap-3 border-t border-border/50 px-3">
+        {hasSetup && (
+          <button
+            type="button"
+            className={cn(
+              "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
+              effectiveTab === "setup"
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => setActiveTab("setup")}
+          >
+            <StatusIndicator status={status.setup} />
+            Setup
+          </button>
+        )}
+        {hasRun && (
+          <button
+            type="button"
+            className={cn(
+              "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
+              effectiveTab === "run"
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => setActiveTab("run")}
+          >
+            <StatusIndicator status={status.run} />
+            Run
+          </button>
+        )}
+
+        {/* Action button */}
+        <div className="ml-auto">
+          {currentStatus.state === "running" ? (
+            <Button variant="ghost" size="icon-xs" onClick={handleAction} title="Stop">
+              <SquareIcon className="size-3 text-red-400" />
+            </Button>
+          ) : currentStatus.state === "done" || currentStatus.state === "error" ? (
+            <Button variant="ghost" size="icon-xs" onClick={handleAction} title="Re-run">
+              <RotateCcwIcon className="size-3" />
+            </Button>
+          ) : (
+            <Button variant="ghost" size="icon-xs" onClick={handleAction} title={effectiveTab === "setup" ? "Run setup" : "Run"}>
+              <PlayIcon className="size-3" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Content area */}
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        {shouldShowTerminal ? (
+          <>
+            <div ref={containerRef} className="h-full w-full bg-[#09090f]" />
+            {/* Port badge */}
+            {effectiveTab === "run" && config.port && currentStatus.state === "running" && (
+              <div className="absolute bottom-2 right-2">
+                <Badge variant="secondary" className="text-[10px]">
+                  Port {config.port}
+                </Badge>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+            <PlayIcon className="size-8 opacity-30" />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAction}
+            >
+              <PlayIcon className="mr-1.5 size-3" />
+              {effectiveTab === "setup" ? "Run setup" : "Run workspace"}
+            </Button>
+            <p className="text-xs opacity-60">
+              {effectiveTab === "setup" ? "Install dependencies" : "Test your changes here."}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

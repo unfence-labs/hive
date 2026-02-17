@@ -20,12 +20,14 @@ import { useTerminalContext } from "@/contexts/TerminalContext";
 import { GitDiffModal } from "@/components/diff/GitDiffModal";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { PrStatusSection } from "@/components/PrStatusSection";
+import ScriptPanel from "@/components/ScriptPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
+import { useScripts } from "@/hooks/useScripts";
 import type { DiffStatResponse, ImageAttachment, MessageOptions, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 const DEFAULT_EXPANDED = new Set<string>();
@@ -216,6 +218,16 @@ export default function WorkspaceView() {
   } = useConversation(wsId);
 
   const { sessions, createSession, activateSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
+
+  // Scripts (hive.json setup/run)
+  const {
+    config: scriptsConfig,
+    status: scriptsStatus,
+    startScript,
+    stopScript,
+    connectOutput: connectScriptOutput,
+    disconnectOutput: disconnectScriptOutput,
+  } = useScripts(wsId);
 
   // Refresh file tree when diff stats change (files created/modified/deleted)
   const diffStatsRef = useRef(liveData[wsId ?? ""]?.diffStats);
@@ -461,7 +473,7 @@ export default function WorkspaceView() {
           )}
         </div>
 
-        <aside className="hidden w-80 shrink-0 border-l border-border/50 bg-sidebar lg:flex lg:flex-col">
+        <aside className="hidden min-w-[420px] shrink-0 border-l border-border/50 bg-sidebar lg:flex lg:flex-col">
           <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4" data-tauri-drag-region>
             <button
               type="button"
@@ -493,7 +505,7 @@ export default function WorkspaceView() {
               )}
             </button>
           </div>
-          <div className="min-h-0 flex-1 overflow-auto p-3">
+          <div className={cn("min-h-0 overflow-auto p-3", scriptsConfig ? "flex-1 basis-1/2" : "flex-1")}>
             {sidebarTab === "modified" && (
               <ModifiedFileList
                 committed={diffCommitted}
@@ -521,6 +533,16 @@ export default function WorkspaceView() {
               </FileTree>
             )}
           </div>
+          {scriptsConfig && (
+            <ScriptPanel
+              config={scriptsConfig}
+              status={scriptsStatus}
+              onStart={startScript}
+              onStop={stopScript}
+              onConnectOutput={connectScriptOutput}
+              onDisconnectOutput={disconnectScriptOutput}
+            />
+          )}
           <PrStatusSection branchInfo={branchInfo} />
         </aside>
       </div>

@@ -6,6 +6,8 @@ import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/path
 import { pickCityName } from "../utils/city-names.js";
 import { loadProject, saveProject, getDataDir, withProjectStateLock } from "../state/state.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../utils/errors.js";
+import { readHiveConfig } from "../utils/hive-config.js";
+import { startScript, stopAllForWorkspace } from "../services/script-runner.js";
 import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffStatResponse } from "../types.js";
 
 const IGNORED_DIRS = new Set([".git", "node_modules"]);
@@ -121,6 +123,20 @@ export async function createWorkspace(
       };
       state.workspaces.push(workspace);
       await saveProject(state, dataDir);
+
+      // Fire-and-forget: auto-run setup script if hive.json defines one
+      readHiveConfig(wsPath).then((config) => {
+        if (config?.scripts?.setup) {
+          try {
+            startScript(workspace.id, "setup", config.scripts.setup, wsPath);
+          } catch {
+            // Setup failure is non-fatal — user can re-run from UI
+          }
+        }
+      }).catch(() => {
+        // Ignore hive.json read errors
+      });
+
       return workspace;
     },
     dataDir,
@@ -151,6 +167,8 @@ export async function deleteWorkspace(
   wsId: string,
   dataDir = getDataDir()
 ): Promise<void> {
+  stopAllForWorkspace(wsId);
+
   const result = await getWorkspace(wsId, dataDir);
   if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
 
@@ -194,6 +212,8 @@ export async function archiveWorkspace(
   wsId: string,
   dataDir = getDataDir()
 ): Promise<void> {
+  stopAllForWorkspace(wsId);
+
   const result = await getWorkspace(wsId, dataDir);
   if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
 
