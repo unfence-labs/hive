@@ -8,12 +8,17 @@ const mocks = vi.hoisted(() => ({
   startScript: vi.fn(),
   stopScript: vi.fn(),
   getScriptStatus: vi.fn(),
+  broadcastToWorkspace: vi.fn(),
 }));
 
 vi.mock("../services/script-runner.js", () => ({
   startScript: mocks.startScript,
   stopScript: mocks.stopScript,
   getScriptStatus: mocks.getScriptStatus,
+}));
+
+vi.mock("../ws/stream.js", () => ({
+  broadcastToWorkspace: mocks.broadcastToWorkspace,
 }));
 
 import { scriptRoutes } from "./scripts.js";
@@ -57,10 +62,12 @@ beforeEach(async () => {
   mocks.startScript.mockReset();
   mocks.stopScript.mockReset();
   mocks.getScriptStatus.mockReset();
+  mocks.broadcastToWorkspace.mockReset();
   mocks.getScriptStatus.mockReturnValue({
     setup: { state: "idle" },
     run: { state: "idle" },
   });
+  mocks.startScript.mockReturnValue({ exitListeners: new Map() });
   mocks.stopScript.mockReturnValue(true);
 
   app = Fastify();
@@ -171,6 +178,72 @@ describe("script routes", () => {
     expect(mocks.startScript).toHaveBeenCalledWith(WS_ID, "run", "npm run dev", wsPath);
   });
 
+  it("broadcasts script_status running on successful start", async () => {
+    await writeHiveJson({ scripts: { run: "npm run dev" } });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${WS_ID}/scripts/run/start`,
+    });
+
+    expect(mocks.broadcastToWorkspace).toHaveBeenCalledWith(WS_ID, {
+      type: "script_status",
+      scriptType: "run",
+      state: "running",
+    });
+  });
+
+  it("registers an exit listener that broadcasts done/error on process exit", async () => {
+    const exitListeners = new Map<string, (code: number) => void>();
+    mocks.startScript.mockReturnValue({ exitListeners });
+    await writeHiveJson({ scripts: { setup: "npm ci" } });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${WS_ID}/scripts/setup/start`,
+    });
+
+    // An exit listener should have been registered
+    expect(exitListeners.size).toBe(1);
+    const listener = [...exitListeners.values()][0];
+
+    // Simulate successful exit
+    mocks.broadcastToWorkspace.mockClear();
+    listener(0);
+
+    expect(mocks.broadcastToWorkspace).toHaveBeenCalledWith(WS_ID, {
+      type: "script_status",
+      scriptType: "setup",
+      state: "done",
+      exitCode: 0,
+    });
+
+    // Listener should self-clean
+    expect(exitListeners.size).toBe(0);
+  });
+
+  it("broadcasts script_status error on non-zero exit", async () => {
+    const exitListeners = new Map<string, (code: number) => void>();
+    mocks.startScript.mockReturnValue({ exitListeners });
+    await writeHiveJson({ scripts: { run: "npm run dev" } });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${WS_ID}/scripts/run/start`,
+    });
+
+    const listener = [...exitListeners.values()][0];
+    mocks.broadcastToWorkspace.mockClear();
+    listener(1);
+
+    expect(mocks.broadcastToWorkspace).toHaveBeenCalledWith(WS_ID, {
+      type: "script_status",
+      scriptType: "run",
+      state: "error",
+      exitCode: 1,
+    });
+  });
+
   it("POST /api/workspaces/:wsId/scripts/:type/start maps runner errors to 409", async () => {
     await writeHiveJson({
       scripts: { setup: "npm ci" },
@@ -219,5 +292,29 @@ describe("script routes", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ stopped: true });
     expect(mocks.stopScript).toHaveBeenCalledWith(WS_ID, "setup");
+  });
+
+  it("broadcasts script_status idle on stop", async () => {
+    await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${WS_ID}/scripts/setup/stop`,
+    });
+
+    expect(mocks.broadcastToWorkspace).toHaveBeenCalledWith(WS_ID, {
+      type: "script_status",
+      scriptType: "setup",
+      state: "idle",
+    });
+  });
+
+  it("does not broadcast on failed stop (no running script)", async () => {
+    mocks.stopScript.mockReturnValue(false);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${WS_ID}/scripts/run/stop`,
+    });
+
+    expect(mocks.broadcastToWorkspace).not.toHaveBeenCalled();
   });
 });

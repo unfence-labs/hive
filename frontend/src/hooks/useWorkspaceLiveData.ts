@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { wsTransport } from "@/lib/ws-transport";
-import type { BranchInfo, DiffStatResponse } from "@/types";
+import type { BranchInfo, DiffStatResponse, ScriptState } from "@/types";
 
 export interface WorkspaceLiveData {
   status?: "idle" | "busy";
@@ -9,6 +9,8 @@ export interface WorkspaceLiveData {
   branch?: string;
   branchInfo?: BranchInfo;
   diffStats?: DiffStatResponse;
+  scriptRunning?: boolean;
+  scriptStates?: { setup?: ScriptState; run?: ScriptState };
 }
 
 export function useWorkspaceLiveData(
@@ -96,6 +98,17 @@ export function useWorkspaceLiveData(
               diffStats: msg.stats,
             },
           }));
+        } else if (msg.type === "script_status") {
+          setLiveData((prev) => {
+            const current = prev[wsId] ?? {};
+            const prevScripts = { ...current.scriptStates };
+            prevScripts[msg.scriptType] = msg.state;
+            const scriptRunning = prevScripts.setup === "running" || prevScripts.run === "running";
+            if (current.scriptRunning === scriptRunning && current.scriptStates?.[msg.scriptType] === msg.state) {
+              return prev;
+            }
+            return { ...prev, [wsId]: { ...current, scriptRunning, scriptStates: prevScripts } };
+          });
         }
       }),
     );

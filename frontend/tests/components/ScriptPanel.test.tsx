@@ -93,6 +93,50 @@ describe("ScriptPanel", () => {
     expect(onStart).toHaveBeenCalledWith("setup");
   });
 
+  it("shows wave indicator when script is running", () => {
+    const { container } = renderPanel({
+      status: {
+        setup: { state: "running" },
+        run: { state: "idle" },
+      },
+    });
+
+    // Wave indicator renders as an SVG with viewBox="0 0 12 12" and 5 rect bars
+    const waveSvg = container.querySelector('svg[viewBox="0 0 12 12"]');
+    expect(waveSvg).toBeInTheDocument();
+    expect(waveSvg?.querySelectorAll("rect")).toHaveLength(5);
+  });
+
+  it("does not show wave indicator when script is done or errored", () => {
+    const { container, rerender } = render(
+      <ScriptPanel
+        config={{ scripts: { setup: "npm ci" } }}
+        status={{ setup: { state: "done", exitCode: 0 }, run: { state: "idle" } }}
+        onStart={vi.fn()}
+        onStop={vi.fn()}
+        onConnectOutput={vi.fn()}
+        onDisconnectOutput={vi.fn()}
+      />,
+    );
+
+    // No wave indicator on done
+    expect(container.querySelector('svg[viewBox="0 0 12 12"]')).not.toBeInTheDocument();
+
+    rerender(
+      <ScriptPanel
+        config={{ scripts: { setup: "npm ci" } }}
+        status={{ setup: { state: "error", exitCode: 1 }, run: { state: "idle" } }}
+        onStart={vi.fn()}
+        onStop={vi.fn()}
+        onConnectOutput={vi.fn()}
+        onDisconnectOutput={vi.fn()}
+      />,
+    );
+
+    // No wave indicator on error
+    expect(container.querySelector('svg[viewBox="0 0 12 12"]')).not.toBeInTheDocument();
+  });
+
   it("shows running terminal, connects output, and can stop script", async () => {
     const { onStop, onConnectOutput } = renderPanel({
       status: {

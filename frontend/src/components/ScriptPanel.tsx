@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { PlayIcon, SquareIcon, RotateCcwIcon, CheckCircle2Icon, XCircleIcon, Loader2Icon } from "lucide-react";
+import { PlayIcon, SquareIcon, RotateCcwIcon, CheckCircle2Icon, XCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { WaveIndicator } from "@/components/WaveIndicator";
 import { cn } from "@/lib/utils";
 import type { ScriptType, ScriptStatusInfo, HiveConfig } from "@/types";
 import "@xterm/xterm/css/xterm.css";
@@ -22,7 +23,7 @@ interface ScriptPanelProps {
 
 function StatusIndicator({ status }: { status: ScriptStatusInfo }) {
   if (status.state === "running") {
-    return <Loader2Icon className="size-3 animate-spin text-blue-400" />;
+    return <WaveIndicator />;
   }
   if (status.state === "done") {
     return <CheckCircle2Icon className="size-3 text-green-400" />;

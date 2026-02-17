@@ -6,7 +6,9 @@ import {
   startScript,
   stopScript,
   getScriptStatus,
+  getScriptProcess,
 } from "../services/script-runner.js";
+import { broadcastToWorkspace } from "../ws/stream.js";
 import { workspacesDir } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
 import { errorMessage } from "../utils/errors.js";
@@ -58,7 +60,23 @@ export async function scriptRoutes(app: FastifyInstance, dataDir?: string) {
       }
 
       try {
-        startScript(req.params.wsId, scriptType, command, resolved.wsPath);
+        const proc = startScript(req.params.wsId, scriptType, command, resolved.wsPath);
+        broadcastToWorkspace(req.params.wsId, {
+          type: "script_status",
+          scriptType,
+          state: "running",
+        });
+        // Broadcast exit status when the process finishes
+        const listenerId = `broadcast-${Date.now()}`;
+        proc.exitListeners.set(listenerId, (code) => {
+          broadcastToWorkspace(req.params.wsId, {
+            type: "script_status",
+            scriptType,
+            state: code === 0 ? "done" : "error",
+            exitCode: code,
+          });
+          proc.exitListeners.delete(listenerId);
+        });
         return reply.send({ started: true });
       } catch (err: unknown) {
         return reply.status(409).send({ error: errorMessage(err, "Failed to start script") });
@@ -79,6 +97,12 @@ export async function scriptRoutes(app: FastifyInstance, dataDir?: string) {
       if (!stopped) {
         return reply.status(409).send({ error: `No running "${scriptType}" script to stop` });
       }
+
+      broadcastToWorkspace(req.params.wsId, {
+        type: "script_status",
+        scriptType,
+        state: "idle",
+      });
 
       return reply.send({ stopped: true });
     },

@@ -22,6 +22,7 @@ import { useTerminalContext } from "@/contexts/TerminalContext";
 import { useWorkspaceLiveData } from "@/hooks/useWorkspaceLiveData";
 import { BranchLabel } from "@/components/BranchLabel";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
+import { WaveIndicator } from "@/components/WaveIndicator";
 import { api } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { getProjectColor } from "@/lib/project-colors";
@@ -173,6 +174,7 @@ export default function Sidebar({
                         {(project.workspaces ?? []).map((ws) => {
                           const wsLive = liveData[ws.id];
                           const wsStreaming = wsLive?.streaming ?? false;
+                          const wsScriptRunning = wsLive?.scriptRunning ?? false;
                           const displayBranch = wsLive?.branch ?? ws.branch;
                           const hasTerminal = activeTerminals.has(ws.id);
                           return (
@@ -191,6 +193,9 @@ export default function Sidebar({
                                     </div>
                                   )}
                                   <BranchLabel branch={displayBranch} showIcon={!wsStreaming} className="min-w-0 flex-1 text-sm" />
+                                  {wsScriptRunning && (
+                                    <WaveIndicator className="shrink-0" />
+                                  )}
                                   {hasTerminal && (
                                     <TerminalSquareIcon className="h-3 w-3 shrink-0 text-primary/70" />
                                   )}
@@ -199,7 +204,7 @@ export default function Sidebar({
                                   <span className="truncate">{ws.name}</span>
                                 </div>
                               </Link>
-                              {!hasTerminal && (
+                              {!hasTerminal && !wsScriptRunning && (
                                 <button
                                   type="button"
                                   className="absolute right-1.5 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"

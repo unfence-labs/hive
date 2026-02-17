@@ -231,4 +231,5 @@ export type WsOutgoing =
   | { type: "user_message"; message: ChatMessage }
   | { type: "history"; messages: ChatMessage[]; sessionId?: string }
   | { type: "branch_info"; info: BranchInfo }
-  | { type: "diff_stats"; stats: DiffStatResponse };
+  | { type: "diff_stats"; stats: DiffStatResponse }
+  | { type: "script_status"; scriptType: ScriptType; state: ScriptState; exitCode?: number };
