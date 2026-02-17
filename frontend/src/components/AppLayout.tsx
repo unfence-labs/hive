@@ -62,9 +62,16 @@ export default function AppLayout({
             onArchiveWorkspace={onArchiveWorkspace}
           />
         )}
-        <main className="relative flex-1 overflow-hidden">
-          <Outlet />
-          <TerminalLayer />
+        <main className="flex flex-1 flex-col overflow-hidden">
+          <div
+            className="shrink-0"
+            style={{ height: "var(--titlebar-inset, 0px)" }}
+            data-tauri-drag-region
+          />
+          <div className="relative min-h-0 flex-1 overflow-hidden">
+            <Outlet />
+            <TerminalLayer />
+          </div>
         </main>
       </div>
     </TerminalProvider>

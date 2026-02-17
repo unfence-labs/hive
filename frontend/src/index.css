@@ -74,6 +74,7 @@
 }
 
 :root {
+  --titlebar-inset: 0px;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -198,6 +199,16 @@
   }
   [data-streamdown="link"]:hover {
     @apply !text-blue-300;
+  }
+
+  /* Tauri: transparent titlebar drag regions */
+  [data-tauri-drag-region] {
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+  [data-tauri-drag-region] :is(a, button, [role="button"], input, select, textarea) {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
   }
 }
 

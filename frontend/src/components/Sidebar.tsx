@@ -106,11 +106,11 @@ export default function Sidebar({
 
   return (
     <div className="flex h-full w-72 flex-col border-r border-border/50 bg-sidebar text-sidebar-foreground">
-      <div className="flex h-12 items-center justify-between border-b border-border/50 px-4">
-        <Link to="/" className="font-title text-lg tracking-wide text-primary">
-          Hive
-        </Link>
-      </div>
+      <div
+        className="shrink-0"
+        style={{ height: "var(--titlebar-inset, 0px)" }}
+        data-tauri-drag-region
+      />
 
       <ScrollArea className="flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full">
         <div className="p-2">

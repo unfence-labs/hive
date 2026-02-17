@@ -18,19 +18,22 @@ export default function SettingsSidebar({ projects }: SettingsSidebarProps) {
 
   return (
     <div className="flex h-full w-72 flex-col border-r border-border/50 bg-sidebar text-sidebar-foreground">
-      <div className="flex h-12 items-center border-b border-border/50 px-3">
-        <button
-          type="button"
-          onClick={() => navigate(returnTo.current)}
-          className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back
-        </button>
-      </div>
+      <div
+        className="shrink-0"
+        style={{ height: "var(--titlebar-inset, 0px)" }}
+        data-tauri-drag-region
+      />
 
       <ScrollArea className="flex-1">
         <div className="px-3 py-3">
+          <button
+            type="button"
+            onClick={() => navigate(returnTo.current)}
+            className="mb-4 flex items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back
+          </button>
           <SidebarSection label="General">
             <NavItem
               to="/settings/appearance"
