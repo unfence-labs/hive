@@ -196,7 +196,12 @@ export default function EmptyStateLogo({
           </button>
           <Link
             to="/settings"
-            className="flex cursor-pointer items-center gap-2 rounded-md border border-primary/50 bg-primary/15 px-5 py-2.5 font-mono text-sm text-primary transition-all duration-200 hover:border-primary hover:bg-primary/25 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-1 focus:ring-offset-transparent"
+            className={cn(
+              "flex cursor-pointer items-center gap-2 rounded-md border px-5 py-2.5 font-mono text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-transparent",
+              isConfigured
+                ? "border-border bg-background text-muted-foreground hover:border-border/80 hover:bg-muted/10 hover:text-foreground focus:ring-ring/30"
+                : "border-primary/50 bg-primary/15 text-primary hover:border-primary hover:bg-primary/25 focus:ring-primary/40",
+            )}
           >
             <Settings size={15} />
             Start config

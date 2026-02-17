@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, RefreshCw } from "lucide-react";
+import { Check } from "lucide-react";
 import { useAccentColor } from "@/hooks/useAccentColor";
 import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
@@ -29,15 +29,13 @@ export default function SettingsView({ onRefreshConnection }: SettingsViewProps)
   const [ipDraft, setIpDraft] = useState(ip);
   const [portDraft, setPortDraft] = useState(port);
 
-  const saveIp = () => { setIp(ipDraft); setTimeout(check, 300); };
-  const savePort = () => { setPort(portDraft); setTimeout(check, 300); };
-
-  const refreshConnection = async () => {
-    setIp(ipDraft);
-    setPort(portDraft);
-    await check();
-    onRefreshConnection?.();
+  const save = (nextIp: string, nextPort: string) => {
+    setIp(nextIp);
+    setPort(nextPort);
+    setTimeout(async () => { await check(); onRefreshConnection?.(); }, 300);
   };
+  const saveIp = () => save(ipDraft, port);
+  const savePort = () => save(ip, portDraft);
 
   return (
     <div className="flex h-full flex-col overflow-auto">
@@ -129,14 +127,6 @@ export default function SettingsView({ onRefreshConnection }: SettingsViewProps)
             <div className="flex items-center gap-2">
               <span className={cn("h-2 w-2 rounded-full", STATUS_DOT[status])} />
               <span className="text-xs text-muted-foreground">{STATUS_LABEL[status]}</span>
-              <button
-                type="button"
-                onClick={refreshConnection}
-                className="ml-1 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                title="Reconnect — saves config and reloads the app"
-              >
-                <RefreshCw size={13} />
-              </button>
             </div>
           </div>
         </section>
