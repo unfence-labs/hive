@@ -473,7 +473,7 @@ export default function WorkspaceView() {
           )}
         </div>
 
-        <aside className="hidden min-w-[420px] shrink-0 border-l border-border/50 bg-sidebar lg:flex lg:flex-col">
+        <aside className="hidden w-[420px] shrink-0 border-l border-border/50 bg-sidebar lg:flex lg:flex-col">
           <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4" data-tauri-drag-region>
             <button
               type="button"

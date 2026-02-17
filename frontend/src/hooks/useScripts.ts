@@ -85,6 +85,12 @@ export function useScripts(wsId: string | undefined) {
 
   const stopScript = useCallback(async (type: ScriptType) => {
     if (!wsId) return;
+    // Close WS first so the PTY exit message doesn't override the idle status
+    if (connectedTypeRef.current === type) {
+      wsRef.current?.close();
+      wsRef.current = null;
+      connectedTypeRef.current = null;
+    }
     try {
       await api.post(`/api/workspaces/${wsId}/scripts/${type}/stop`);
       setState((prev) => ({

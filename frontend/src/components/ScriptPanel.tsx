@@ -14,8 +14,8 @@ interface ScriptPanelProps {
     setup: ScriptStatusInfo;
     run: ScriptStatusInfo;
   };
-  onStart: (type: ScriptType) => void;
-  onStop: (type: ScriptType) => void;
+  onStart: (type: ScriptType) => Promise<void> | void;
+  onStop: (type: ScriptType) => Promise<void> | void;
   onConnectOutput: (type: ScriptType, term: XTerm) => void;
   onDisconnectOutput: () => void;
 }
@@ -57,6 +57,10 @@ export default function ScriptPanel({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const connectedTabRef = useRef<ScriptType | null>(null);
 
+  // Incremented on re-run to force the terminal init effect to re-fire
+  // (shouldShowTerminal stays true when going from done/error → running)
+  const [runGeneration, setRunGeneration] = useState(0);
+
   // Create / destroy xterm when the tab changes or when status transitions to running
   const shouldShowTerminal = currentStatus.state !== "idle";
 
@@ -97,7 +101,7 @@ export default function ScriptPanel({
     }
   }, [onDisconnectOutput]);
 
-  // Init terminal when needed
+  // Init terminal when needed (runGeneration forces re-fire on restart)
   useEffect(() => {
     if (shouldShowTerminal) {
       // Small delay to let the DOM container render
@@ -106,7 +110,7 @@ export default function ScriptPanel({
     }
     destroyTerminal();
     return undefined;
-  }, [shouldShowTerminal, initTerminal, destroyTerminal]);
+  }, [shouldShowTerminal, runGeneration, initTerminal, destroyTerminal]);
 
   // Reconnect when tab changes
   useEffect(() => {
@@ -138,15 +142,16 @@ export default function ScriptPanel({
     };
   }, [destroyTerminal]);
 
-  const handleAction = () => {
+  const handleAction = async () => {
     if (currentStatus.state === "running") {
       onStop(effectiveTab);
     } else {
       // Clear terminal before re-run
-      if (termRef.current) {
-        destroyTerminal();
-      }
-      onStart(effectiveTab);
+      destroyTerminal();
+      // Await start so the backend process exists before the WS connects
+      await onStart(effectiveTab);
+      // Force the terminal init effect to re-fire
+      setRunGeneration((g) => g + 1);
     }
   };
 
