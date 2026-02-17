@@ -158,6 +158,18 @@ describe("Sidebar", () => {
     expect(screen.getByText("workspace/tokyo")).toBeInTheDocument();
   });
 
+  it("shows workspace count beside project name only when count is greater than zero", () => {
+    renderSidebar("/projects", projects);
+
+    const alphaLabel = screen.getByText("Alpha").closest("span");
+    const betaLabel = screen.getByText("Beta").closest("span");
+
+    expect(alphaLabel).toBeInTheDocument();
+    expect(alphaLabel?.querySelector("span")).toHaveTextContent("1");
+    expect(betaLabel).toBeInTheDocument();
+    expect(betaLabel?.querySelector("span")).toBeNull();
+  });
+
   it("expands the active project's workspaces on workspace route", () => {
     renderSidebar("/workspaces/w1", projects);
 

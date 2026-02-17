@@ -94,6 +94,17 @@ describe("AppLayout", () => {
     expect(screen.getByTestId("terminal-ws-2")).toHaveAttribute("data-visible", "false");
   });
 
+  it("uses the wider desktop right offset for terminal layer to avoid panel overlap", async () => {
+    const user = userEvent.setup();
+    renderLayout();
+
+    await user.click(screen.getByRole("button", { name: "open ws-1" }));
+
+    const terminalLayer = screen.getByTestId("terminal-ws-1").closest("div");
+    expect(terminalLayer).toBeInTheDocument();
+    expect(terminalLayer?.className).toContain("lg:right-[420px]");
+  });
+
   it("removes a terminal when it exits via onExit callback", async () => {
     const user = userEvent.setup();
     renderLayout();
