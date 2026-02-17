@@ -56,6 +56,101 @@ describe("TelegramChannel.fromEnv", () => {
   });
 });
 
+describe("TelegramChannel.fromConfig", () => {
+  it("returns null when credentials are blank", () => {
+    expect(TelegramChannel.fromConfig({ botToken: "", chatId: "chat" })).toBeNull();
+    expect(TelegramChannel.fromConfig({ botToken: "token", chatId: "   " })).toBeNull();
+  });
+
+  it("trims credentials before creating channel", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => "",
+    })) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    const channel = TelegramChannel.fromConfig({ botToken: " token ", chatId: " chat " });
+    expect(channel).toBeDefined();
+
+    await channel!.send(eventFixture());
+
+    const [url, init] = vi.mocked(fetchMock).mock.calls[0]!;
+    expect(url).toBe("https://api.telegram.org/bottoken/sendMessage");
+    const body = JSON.parse(String(init?.body));
+    expect(body.chat_id).toBe("chat");
+  });
+});
+
+describe("TelegramChannel.sendTest", () => {
+  it("returns validation error when credentials are missing", async () => {
+    await expect(TelegramChannel.sendTest("", "chat")).resolves.toEqual({
+      ok: false,
+      error: "Bot token and chat ID are required",
+    });
+  });
+
+  it("sends a test notification with trimmed credentials", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => "",
+    })) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await TelegramChannel.sendTest(" token ", " chat ");
+
+    expect(result).toEqual({ ok: true });
+    const [url, init] = vi.mocked(fetchMock).mock.calls[0]!;
+    expect(url).toBe("https://api.telegram.org/bottoken/sendMessage");
+    expect(init?.method).toBe("POST");
+    expect(init?.headers).toEqual({ "Content-Type": "application/json" });
+    const body = JSON.parse(String(init?.body));
+    expect(body).toEqual({
+      chat_id: "chat",
+      text: "✅ Hive test notification — your Telegram integration is working!",
+      parse_mode: "HTML",
+    });
+  });
+
+  it("returns Telegram description when API responds with JSON error", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      text: async () => JSON.stringify({ description: "Unauthorized" }),
+    })) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await TelegramChannel.sendTest("token", "chat");
+
+    expect(result).toEqual({ ok: false, error: "Unauthorized" });
+  });
+
+  it("returns fallback error when API error body is not JSON", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      text: async () => "bad gateway",
+    })) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await TelegramChannel.sendTest("token", "chat");
+
+    expect(result).toEqual({ ok: false, error: "Telegram API error (500)" });
+  });
+
+  it("returns network error when fetch throws", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error("network down");
+    }) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await TelegramChannel.sendTest("token", "chat");
+
+    expect(result).toEqual({ ok: false, error: "network down" });
+  });
+});
+
 describe("TelegramChannel.send", () => {
   it("posts an escaped HTML message with rounded duration", async () => {
     const fetchMock = vi.fn(async () => ({

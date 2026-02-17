@@ -59,6 +59,19 @@ describe("api", () => {
     });
   });
 
+  it("sends JSON body and content-type on PUT", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.put("/api/items/1", { name: "beta" });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/items/1", {
+      method: "PUT",
+      body: JSON.stringify({ name: "beta" }),
+      headers: { "Content-Type": "application/json" },
+    });
+  });
+
   it("throws ApiError with response body when request fails", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(
       new Response("bad request", { status: 400, statusText: "Bad Request" }),

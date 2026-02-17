@@ -68,6 +68,10 @@ vi.mock("@/pages/settings/ConnectionSettings", () => ({
   ),
 }));
 
+vi.mock("@/pages/settings/NotificationSettings", () => ({
+  default: () => <div>notification settings</div>,
+}));
+
 vi.mock("@/pages/settings/ProjectDetail", () => ({
   default: () => <div>project detail</div>,
 }));
@@ -116,5 +120,13 @@ describe("App", () => {
 
     expect(mocks.disconnectAll).toHaveBeenCalledTimes(1);
     expect(mocks.fetchProjects).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders notification settings route", () => {
+    window.history.pushState({}, "", "/settings/notifications");
+
+    render(<App />);
+
+    expect(screen.getByText("notification settings")).toBeInTheDocument();
   });
 });

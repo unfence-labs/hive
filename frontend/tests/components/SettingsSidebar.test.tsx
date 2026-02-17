@@ -32,6 +32,7 @@ describe("SettingsSidebar", () => {
         <Routes>
           <Route path="/settings" element={<SettingsShell />}>
             <Route path="appearance" element={<div>Appearance settings</div>} />
+            <Route path="notifications" element={<div>Notification settings</div>} />
             <Route path="repositories/:projectId" element={<div>Repository settings</div>} />
           </Route>
           <Route path="/workspaces/:wsId" element={<div>Workspace w1</div>} />
@@ -57,6 +58,7 @@ describe("SettingsSidebar", () => {
         <Routes>
           <Route path="/settings" element={<SettingsShell />}>
             <Route path="appearance" element={<div>Appearance settings</div>} />
+            <Route path="notifications" element={<div>Notification settings</div>} />
           </Route>
           <Route path="/projects" element={<div>Projects list</div>} />
         </Routes>
@@ -66,6 +68,25 @@ describe("SettingsSidebar", () => {
     await user.click(screen.getByRole("button", { name: "Back" }));
     await waitFor(() => {
       expect(screen.getByText("Projects list")).toBeInTheDocument();
+    });
+  });
+
+  it("navigates to notifications settings", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/settings/appearance"]}>
+        <Routes>
+          <Route path="/settings" element={<SettingsShell />}>
+            <Route path="appearance" element={<div>Appearance settings</div>} />
+            <Route path="notifications" element={<div>Notification settings</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("link", { name: /Notifications/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Notification settings")).toBeInTheDocument();
     });
   });
 });
