@@ -6,42 +6,45 @@ struct HubView: View {
     @State private var errorMessage: String?
 
     private let api = APIClient()
+    private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                if isLoading && projects.isEmpty {
-                    ProgressView()
-                        .padding(.top, 80)
-                } else if projects.isEmpty {
-                    ContentUnavailableView(
-                        "No Projects",
-                        systemImage: "folder",
-                        description: Text("Connect to your Hive server in Settings.")
-                    )
-                    .padding(.top, 40)
-                } else {
-                    projectList
+        ScrollView {
+            if isLoading && projects.isEmpty {
+                ProgressView()
+                    .padding(.top, 80)
+            } else if projects.isEmpty {
+                ContentUnavailableView(
+                    "No Projects",
+                    systemImage: "folder",
+                    description: Text("Connect to your Hive server in Settings (tap the gear icon).")
+                )
+                .padding(.top, 40)
+            } else {
+                projectGrid
+            }
+        }
+        .navigationTitle("Hub")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink(value: SettingsRoute()) {
+                    Image(systemName: "gear")
                 }
             }
-            .navigationTitle("Hub")
-            .navigationDestination(for: Workspace.self) { workspace in
-                ChatView(workspace: workspace)
-            }
-            .refreshable { await loadProjects() }
-            .task { await loadProjects() }
-            .overlay {
-                if let errorMessage {
-                    errorBanner(errorMessage)
-                }
+        }
+        .refreshable { await loadProjects() }
+        .task { await loadProjects() }
+        .overlay {
+            if let errorMessage {
+                errorBanner(errorMessage)
             }
         }
     }
 
-    // MARK: - Project list
+    // MARK: - Project Grid
 
-    private var projectList: some View {
-        LazyVStack(alignment: .leading, spacing: 28) {
+    private var projectGrid: some View {
+        LazyVStack(alignment: .leading, spacing: HiveSpacing.xxl) {
             ForEach(projects) { project in
                 projectSection(project)
             }
@@ -50,7 +53,7 @@ struct HubView: View {
     }
 
     private func projectSection(_ project: Project) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: HiveSpacing.md) {
             Text(project.name)
                 .font(.headline)
                 .foregroundStyle(.secondary)
@@ -60,21 +63,19 @@ struct HubView: View {
                     .font(.subheadline)
                     .foregroundStyle(.tertiary)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 12) {
-                        ForEach(project.workspaces) { workspace in
-                            NavigationLink(value: workspace) {
-                                WorkspaceCard(workspace: workspace)
-                            }
-                            .buttonStyle(.plain)
+                LazyVGrid(columns: columns, spacing: HiveSpacing.md) {
+                    ForEach(project.workspaces) { workspace in
+                        NavigationLink(value: workspace) {
+                            WorkspaceCard(workspace: workspace)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
         }
     }
 
-    // MARK: - Error banner
+    // MARK: - Error Banner
 
     private func errorBanner(_ message: String) -> some View {
         VStack {
@@ -91,7 +92,7 @@ struct HubView: View {
         .animation(.default, value: errorMessage)
     }
 
-    // MARK: - Data loading
+    // MARK: - Data Loading
 
     private func loadProjects() async {
         isLoading = true
@@ -99,7 +100,7 @@ struct HubView: View {
         do {
             projects = try await api.fetchProjects()
         } catch is CancellationError {
-            // SwiftUI task cancellation — ignore silently
+            // SwiftUI task cancellation — ignore
         } catch let urlError as URLError where urlError.code == .cancelled {
             // URLSession cancelled by concurrent refresh — ignore
         } catch {
@@ -110,6 +111,8 @@ struct HubView: View {
 }
 
 #Preview {
-    HubView()
-        .preferredColorScheme(.dark)
+    NavigationStack {
+        HubView()
+    }
+    .preferredColorScheme(.dark)
 }

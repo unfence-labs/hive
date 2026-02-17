@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		1A30DD6A2F452AEE00ABB169 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = AA1B3C4D5E6F0001AABB0021 /* MarkdownUI */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		AA1B3C4D5E6F0001AABB0003 /* HiveMobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HiveMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1A30DD6A2F452AEE00ABB169 /* MarkdownUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -90,13 +95,13 @@
 			);
 			mainGroup = AA1B3C4D5E6F0001AABB0001;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				AA1B3C4D5E6F0001AABB0020 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AA1B3C4D5E6F0001AABB0002 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
-			packageReferences = (
-				AA1B3C4D5E6F0001AABB0020 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
-			);
 			targets = (
 				AA1B3C4D5E6F0001AABB0004 /* HiveMobile */,
 			);

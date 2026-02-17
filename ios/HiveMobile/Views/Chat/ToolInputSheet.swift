@@ -1,3 +1,4 @@
+import MarkdownUI
 import SwiftUI
 
 struct ToolInputSheet: View {
@@ -69,12 +70,12 @@ private struct AskUserQuestionView: View {
                             Button("Next") {
                                 currentIndex += 1
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.glassProminent)
                         } else {
                             Button("Submit") {
                                 submit()
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.glassProminent)
                             .disabled(!hasAnyAnswer)
                         }
                     }
@@ -97,17 +98,19 @@ private struct AskUserQuestionView: View {
 
     private func questionView(_ fq: FlatQuestion) -> some View {
         let draft = drafts[fq.key] ?? AnswerDraft()
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: HiveSpacing.sm) {
             Text(fq.question.question)
                 .font(.subheadline)
                 .bold()
 
             ForEach(Array(fq.question.options.enumerated()), id: \.offset) { optIdx, option in
+                let isSelected = draft.selectedOptions.contains(optIdx)
                 Button {
                     toggleOption(fq: fq, optionIndex: optIdx)
                 } label: {
                     HStack {
-                        Image(systemName: draft.selectedOptions.contains(optIdx) ? "checkmark.circle.fill" : "circle")
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(isSelected ? .accent : .secondary)
                         VStack(alignment: .leading) {
                             Text(option.label)
                             if let desc = option.description {
@@ -118,7 +121,16 @@ private struct AskUserQuestionView: View {
                         }
                         Spacer()
                     }
-                    .contentShape(Rectangle())
+                    .padding(HiveSpacing.md)
+                    .glassEffect(
+                        isSelected ? .regular.interactive() : .regular,
+                        in: RoundedRectangle(cornerRadius: 12)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(isSelected ? Color.accentColor.opacity(0.08) : .clear)
+                            .allowsHitTesting(false)
+                    )
                 }
                 .buttonStyle(.plain)
             }
@@ -180,7 +192,6 @@ private struct AskUserQuestionView: View {
 
         for fq in flatQuestions {
             let draft = drafts[fq.key] ?? AnswerDraft()
-            // Only include answers with selections or custom text (like the frontend)
             guard !draft.selectedOptions.isEmpty || !draft.customText.isEmpty else { continue }
 
             let answer = QuestionAnswer(
@@ -199,7 +210,6 @@ private struct AskUserQuestionView: View {
             grouped[fq.pending.requestId]?.answers.append(answer)
         }
 
-        // Send one response per pending tool input
         for (_, entry) in grouped {
             let questionInputs = entry.questions.map { q in
                 QuestionInput(
@@ -240,13 +250,16 @@ private struct ExitPlanModeView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: HiveSpacing.lg) {
                 Text("Plan Proposal")
                     .font(.headline)
 
-                Text(LocalizedStringKey(pending.input))
+                Markdown(pending.input)
+                    .markdownTheme(.planProposal)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
+                    .padding(HiveSpacing.md)
+                    .glassCard(cornerRadius: 14)
 
                 HStack(spacing: 12) {
                     Button {
@@ -255,7 +268,7 @@ private struct ExitPlanModeView: View {
                         Text("Approve")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .tint(.green)
 
                     Button {
@@ -265,7 +278,7 @@ private struct ExitPlanModeView: View {
                         Text("Reject")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glass)
                     .tint(.red)
                 }
 
@@ -277,4 +290,17 @@ private struct ExitPlanModeView: View {
         }
         .navigationTitle("Plan")
     }
+}
+
+// MARK: - Plan Proposal Markdown Theme
+
+private extension Theme {
+    static let planProposal = Theme.gitHub
+        .text {
+            BackgroundColor(.clear)
+            ForegroundColor(.primary)
+        }
+        .code {
+            BackgroundColor(Color(.systemFill))
+        }
 }

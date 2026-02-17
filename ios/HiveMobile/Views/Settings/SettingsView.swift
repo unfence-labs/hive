@@ -4,17 +4,69 @@ struct SettingsView: View {
     @AppStorage("serverHost") private var host = "localhost"
     @AppStorage("serverPort") private var port = "3000"
     @AppStorage("authToken") private var token = ""
+    @AppStorage("hiveAccent") private var accentId = "violet"
 
     @State private var healthStatus: HealthStatus = .unknown
     @State private var isChecking = false
 
     var body: some View {
-        NavigationStack {
-            Form {
-                connectionSection
-                healthSection
+        Form {
+            accentSection
+            connectionSection
+            healthSection
+        }
+        .navigationTitle("Settings")
+    }
+
+    // MARK: - Accent Color Picker
+
+    private var accentSection: some View {
+        Section("Appearance") {
+            VStack(alignment: .leading, spacing: HiveSpacing.md) {
+                Text("Accent Color")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: HiveSpacing.lg) {
+                    ForEach(AccentOption.allCases) { option in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                accentId = option.rawValue
+                            }
+                        } label: {
+                            VStack(spacing: 6) {
+                                ZStack {
+                                    Circle()
+                                        .fill(option.color)
+                                        .frame(width: 36, height: 36)
+
+                                    if option.rawValue == accentId {
+                                        Image(systemName: "checkmark")
+                                            .font(.caption.bold())
+                                            .foregroundStyle(.white)
+                                    }
+
+                                    if option.rawValue == accentId {
+                                        Circle()
+                                            .strokeBorder(option.color, lineWidth: 1.5)
+                                            .frame(width: 44, height: 44)
+                                    }
+                                }
+                                .shadow(
+                                    color: option.rawValue == accentId ? option.color.opacity(0.4) : .clear,
+                                    radius: 8
+                                )
+
+                                Text(option.label)
+                                    .font(.caption2)
+                                    .foregroundStyle(option.rawValue == accentId ? .primary : .secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
-            .navigationTitle("Settings")
+            .padding(.vertical, HiveSpacing.xs)
         }
     }
 
@@ -118,6 +170,8 @@ private enum HealthStatus {
 }
 
 #Preview {
-    SettingsView()
-        .preferredColorScheme(.dark)
+    NavigationStack {
+        SettingsView()
+    }
+    .preferredColorScheme(.dark)
 }

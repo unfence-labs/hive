@@ -43,7 +43,12 @@ struct MessageBubble: View {
                 Text(message.content)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(.accent.opacity(0.25), in: RoundedRectangle(cornerRadius: 18))
+                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18)
+                            .fill(Color.accentColor.opacity(0.1))
+                            .allowsHitTesting(false)
+                    )
             case .assistant:
                 Markdown(message.content)
                     .markdownTheme(.chat)
@@ -79,9 +84,9 @@ private struct ThinkingBlock: View {
         } label: {
             Label("Thinking", systemImage: "brain")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.accent)
         }
-        .tint(.secondary)
+        .tint(.accent)
     }
 }
 
@@ -99,6 +104,12 @@ private struct ToolCallsBlock: View {
                 )
             }
         }
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(Color.accentColor.opacity(0.3))
+                .frame(width: 2)
+        }
+        .padding(.leading, 6)
     }
 
     private var topLevelCalls: [ToolCall] {
@@ -163,9 +174,14 @@ private struct ToolCallRow: View {
 // MARK: - Chat Markdown Theme
 
 private extension Theme {
-    static let chat = Theme.gitHub.text {
-        BackgroundColor(.clear)
-    }
+    static let chat = Theme.gitHub
+        .text {
+            BackgroundColor(.clear)
+            ForegroundColor(.primary)
+        }
+        .code {
+            BackgroundColor(Color(.systemFill))
+        }
 }
 
 #Preview {

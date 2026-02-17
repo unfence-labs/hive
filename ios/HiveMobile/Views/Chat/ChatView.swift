@@ -9,20 +9,14 @@ struct ChatView: View {
     @State private var wsManager = WebSocketManager()
     @State private var sessions: [SessionMetadata] = []
     @State private var activeSessionId: String?
+    @State private var showSessionSheet = false
+    @State private var thinkingEnabled = false
+    @State private var planModeEnabled = false
 
     private let api = APIClient()
 
     var body: some View {
         VStack(spacing: 0) {
-            if sessions.count > 1 {
-                SessionTabBar(
-                    sessions: sessions,
-                    activeSessionId: activeSessionId,
-                    onSelect: { switchSession($0) },
-                    onCreate: { createSession() }
-                )
-            }
-
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 16) {
@@ -47,35 +41,25 @@ struct ChatView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            ChatInputBar(draft: $draft, isBusy: store.isBusy, onSend: sendMessage)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 4)
+            ChatInputBar(
+                draft: $draft,
+                isBusy: store.isBusy,
+                thinkingEnabled: $thinkingEnabled,
+                planModeEnabled: $planModeEnabled,
+                onSend: sendMessage
+            )
+            .padding(.horizontal, 12)
+            .padding(.bottom, 4)
         }
-        .navigationTitle(workspace.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
                     Text(workspace.name)
                         .font(.headline)
-                    HStack(spacing: 4) {
-                        Text(store.branchInfo?.name ?? workspace.branch)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        if let pr = store.branchInfo?.pr {
-                            Text("#\(pr.number)")
-                                .font(.caption2)
-                                .foregroundStyle(prColor(pr.state))
-                        }
-                        if let diff = store.diffStats {
-                            let total = diff.committed.count + diff.uncommitted.count
-                            if total > 0 {
-                                Text("\(total) files")
-                                    .font(.caption2)
-                                    .foregroundStyle(.orange)
-                            }
-                        }
-                    }
+                    Text(store.branchInfo?.name ?? workspace.branch)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -84,36 +68,30 @@ struct ChatView: View {
                         Button {
                             Task { await wsManager.send(.stop(sessionId: nil)) }
                         } label: {
-                            Image(systemName: "stop.circle")
+                            Image(systemName: "stop.circle.fill")
                                 .foregroundStyle(.red)
                         }
                     }
 
-                    Menu {
-                        Button("New Session", systemImage: "plus") {
-                            createSession()
-                        }
-                        if sessions.count > 1 {
-                            Divider()
-                            ForEach(sessions) { session in
-                                Button {
-                                    switchSession(session.sessionId)
-                                } label: {
-                                    Label(
-                                        session.title ?? "Session",
-                                        systemImage: session.sessionId == activeSessionId ? "checkmark" : "bubble.left"
-                                    )
-                                }
-                            }
-                        }
+                    Button {
+                        showSessionSheet = true
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: "text.bubble")
                     }
                 }
             }
         }
         .overlay {
             if isLoading { ProgressView() }
+        }
+        .sheet(isPresented: $showSessionSheet) {
+            SessionSheet(
+                sessions: sessions,
+                activeSessionId: activeSessionId,
+                onSelect: { switchSession($0) },
+                onCreate: { createSession() },
+                onDelete: { deleteSession($0) }
+            )
         }
         .sheet(isPresented: Binding(
             get: { !store.pendingToolInputs.isEmpty },
@@ -128,7 +106,7 @@ struct ChatView: View {
         .onDisappear { wsManager.disconnect() }
     }
 
-    // MARK: - Streaming indicator
+    // MARK: - Streaming Indicator
 
     private var streamingIndicator: some View {
         HStack(spacing: 4) {
@@ -204,6 +182,20 @@ struct ChatView: View {
         }
     }
 
+    private func deleteSession(_ sessionId: String) {
+        Task {
+            do {
+                try await api.deleteSession(workspaceId: workspace.id, sessionId: sessionId)
+                sessions.removeAll { $0.sessionId == sessionId }
+                if sessionId == activeSessionId, let first = sessions.first {
+                    switchSession(first.sessionId)
+                }
+            } catch {
+                print("[ChatView] deleteSession failed:", error)
+            }
+        }
+    }
+
     // MARK: - WebSocket
 
     private func listenToWebSocket() {
@@ -220,9 +212,17 @@ struct ChatView: View {
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
         draft = ""
+
+        let options: MessageOptions? = (thinkingEnabled || planModeEnabled)
+            ? MessageOptions(
+                planMode: planModeEnabled ? true : nil,
+                thinkingEnabled: thinkingEnabled ? true : nil
+            )
+            : nil
+
         Task {
             await wsManager.send(.userMessage(
-                content: content, images: nil, options: nil, sessionId: nil
+                content: content, images: nil, options: options, sessionId: nil
             ))
         }
     }
@@ -235,14 +235,6 @@ struct ChatView: View {
                 result: result,
                 sessionId: pending.sessionId
             ))
-        }
-    }
-
-    private func prColor(_ state: PRState) -> Color {
-        switch state {
-        case .open, .draft: .green
-        case .merged: .purple
-        case .closed: .red
         }
     }
 

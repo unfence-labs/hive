@@ -38,6 +38,7 @@ struct AgentActivityIndicator: View {
                 width: dotSize * 3 + spacing * 2,
                 height: dotSize * 3 + spacing * 2
             )
+            .shadow(color: .accentColor.opacity(0.25), radius: dotSize * 2)
         }
     }
 }
