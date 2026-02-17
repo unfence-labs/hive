@@ -9,18 +9,44 @@ It manages:
 
 ## Current Capabilities
 
-- Project import (`git clone --bare`) with repository URL validation.
-- Workspace lifecycle (create, list, delete, archive, merge).
-- File tree + file content APIs per workspace.
-- Unified diff + committed/uncommitted diff stats.
-- Multi-session support per workspace (create, list, activate, delete, replay history).
-- Conversation WebSocket with session focus, history replay, and buffered event replay.
-- Interactive Claude tool loop for `AskUserQuestion` and `ExitPlanMode`.
-- Image attachments persisted per session.
+**Core**
+- Project import (`git clone --bare`) with repository URL validation and remote fetch.
+- Workspace lifecycle (create, list, delete, archive, merge) with auto-naming via dedicated Claude subprocess.
+- Multi-session support per workspace (create, list, activate, delete, switch, replay history).
+- Conversation WebSocket with session focus, history replay, buffered event replay, and per-session streaming status.
+- Interactive Claude tool loop for `AskUserQuestion` and `ExitPlanMode` with plan proposal cards.
+- Image attachments persisted per session (paste, drag-drop, file picker).
 - Per-workspace PTY terminal (`/ws/terminal/:wsId`) with resize and binary I/O.
-- Live branch + PR + diff-stat snapshots via background git sync over WebSocket.
+- File tree + file content viewer with Shiki syntax highlighting.
+- Unified diff + committed/uncommitted/untracked diff stats.
+
+**Live sync**
+- Real-time branch name, PR status, and diff-stat snapshots via background git polling over WebSocket.
+- Script execution status broadcasting (`script_status` WS messages).
+
+**Automation**
+- Workspace setup/run scripts via `hive.json` with PTY execution and live terminal output.
 - Slash-command / agent autocomplete scanning from user and project `.claude` directories.
+
+**Integrations**
+- GitHub OAuth device flow for `gh` CLI authentication and git credential setup.
+- Telegram notifications on agent turn completion (UI-configurable bot token + chat ID).
+- Preflight dependency checks on startup (git, claude, gh).
+
+**Settings**
+- Tailscale connection config (IP + port) with health check indicator.
+- Appearance settings (accent color picker).
+- Account settings (GitHub connect/disconnect with profile display).
+- Notification settings (Telegram enable/disable, test message).
+- Per-repository detail view with deletion controls.
+
+**Desktop**
+- Tauri v2 desktop app (macOS `.dmg`, Windows `.exe`) with native titlebar integration.
+- macOS traffic light positioning, drag regions, and App Transport Security exceptions for Tailscale HTTP.
+
+**Security**
 - Optional auth token + in-memory request rate limiting.
+- File content API with path traversal protection and 1 MB size cap.
 
 ## Prerequisites
 
@@ -120,6 +146,7 @@ npm test
 | `HIVE_RATE_LIMIT_MAX` | `120` | Max requests per IP within one window |
 | `HIVE_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window in ms |
 | `HIVE_CLAUDE_SKIP_PERMISSIONS` | `true` | Controls Claude `--dangerously-skip-permissions` |
+| `GITHUB_CLIENT_ID` | _(built-in)_ | Override GitHub OAuth App client ID |
 
 ### Frontend
 
@@ -170,6 +197,31 @@ npm test
 | `DELETE` | `/api/workspaces/:wsId/sessions/:sessionId` | Hard-delete a session |
 | `GET` | `/api/workspaces/:wsId/sessions/:sessionId/messages` | Get messages for a specific session |
 
+### Settings
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/settings/notifications` | Get notification config (Telegram) |
+| `PUT` | `/api/settings/notifications` | Update notification config |
+| `POST` | `/api/settings/notifications/test` | Send a test Telegram message |
+
+### Account
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/account/status` | GitHub CLI install + auth status + user profile |
+| `POST` | `/api/account/connect` | Start GitHub OAuth device flow |
+| `POST` | `/api/account/connect/poll` | Poll for device flow completion |
+| `POST` | `/api/account/disconnect` | Logout from GitHub CLI |
+
+### Scripts
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/workspaces/:wsId/scripts` | Get `hive.json` config + script statuses |
+| `POST` | `/api/workspaces/:wsId/scripts/:type/start` | Start setup or run script |
+| `POST` | `/api/workspaces/:wsId/scripts/:type/stop` | Stop a running script |
+
 ## WebSocket API
 
 ### Conversation stream
@@ -184,7 +236,13 @@ Client -> server:
 - `{ "type": "tool_input_response", "requestId": "...", "toolName": "AskUserQuestion|ExitPlanMode", "result": ... , "sessionId": "..." }`
 
 Server -> client (main types):
-- `status`, `history`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `tool_input_required`, `done`, `cancelled`, `error`, `branch_info`, `diff_stats`
+- `status`, `history`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `tool_input_required`, `done`, `cancelled`, `error`, `branch_info`, `diff_stats`, `script_status`
+
+### Script stream
+
+- Endpoint: `ws://<host>/ws/script/:wsId/:type`
+- Binary frames: PTY output bytes from the running script
+- Server control messages: `ready`, `exit`, `error`
 
 ### Terminal stream
 
@@ -201,25 +259,48 @@ Hierarchy:
 - **Session**: Claude conversation persisted under the project
 
 Backend key modules:
-- `backend/src/projects/` project lifecycle
-- `backend/src/workspaces/` worktree lifecycle, diff, merge, archive, file APIs
-- `backend/src/agents/` session lifecycle, stream parser, session switching
-- `backend/src/ws/` WebSocket routes (`session`, `terminal`)
-- `backend/src/services/git-sync.ts` branch/PR/diff sync snapshots + broadcasts
-- `backend/src/state/` JSON persistence + project-level locking
+- `backend/src/api/projects.ts` project CRUD + fetch
+- `backend/src/api/workspaces.ts` workspace CRUD + diff/stat + files + merge + archive
+- `backend/src/api/agents.ts` session routes (single + multi-session)
+- `backend/src/api/completions.ts` completion scanning endpoint
+- `backend/src/api/settings.ts` notification config CRUD
+- `backend/src/api/account.ts` GitHub OAuth device flow + CLI integration
+- `backend/src/api/scripts.ts` setup/run script lifecycle
+- `backend/src/ws/stream.ts` conversation WebSocket protocol
+- `backend/src/ws/terminal.ts` PTY terminal WebSocket
+- `backend/src/ws/script.ts` script execution WebSocket
+- `backend/src/agents/agent-manager.ts` in-memory session registry, persistence, switching
+- `backend/src/agents/conversation-session.ts` Claude process lifecycle per turn
+- `backend/src/agents/naming.ts` branch + session auto-naming via dedicated Claude subprocess
+- `backend/src/services/git-sync.ts` branch/PR/diff polling and workspace broadcasts
+- `backend/src/services/script-runner.ts` PTY-based script execution with status broadcasting
+- `backend/src/notifications/` Telegram notification channel + event dispatcher
+- `backend/src/state/state.ts` JSON persistence + per-project locks
+- `backend/src/state/config.ts` file-based app config (`config.json`)
+- `backend/src/utils/preflight.ts` startup dependency checks (git, claude, gh)
+- `backend/src/utils/hive-config.ts` `hive.json` parser for workspace scripts
 
 Frontend key modules:
-- `frontend/src/hooks/useProjects.ts` project/workspace state
-- `frontend/src/hooks/useConversation.ts` session message state + interactive tool responses
+- `frontend/src/pages/WorkspaceView.tsx` main chat/terminal/file tree/diff/scripts UI
+- `frontend/src/pages/settings/` settings pages (Appearance, Connection, Account, Notifications, ProjectDetail)
+- `frontend/src/hooks/useConversation.ts` reducer-driven conversation state + tool responses
 - `frontend/src/hooks/useSessions.ts` multi-session operations
-- `frontend/src/hooks/useWorkspaceLiveData.ts` live status/branch/diff data
+- `frontend/src/hooks/useWorkspaceLiveData.ts` live status/branch/diff/script data from WS
+- `frontend/src/hooks/useProjects.ts` project/workspace state
+- `frontend/src/hooks/useScripts.ts` script start/stop/status
+- `frontend/src/hooks/useConnectionStatus.ts` backend health check
+- `frontend/src/hooks/useTailscaleConfig.ts` Tailscale connection config
+- `frontend/src/hooks/useServerUrl.ts` configurable backend URL resolution
 - `frontend/src/lib/ws-transport.ts` resilient WS transport + replay buffer
-- `frontend/src/pages/WorkspaceView.tsx` main chat/terminal/file tree/diff UI
+- `frontend/src/components/Sidebar.tsx` project/workspace nav + archive/delete
+- `frontend/src/components/Terminal.tsx` xterm + `/ws/terminal/:wsId`
+- `frontend/src-tauri/` Tauri v2 desktop app (Rust shell, config, icons)
 
 ## Data Layout
 
 ```text
 $DATA_DIR/
+├── config.json
 ├── prompts/
 │   └── base.md
 └── proj-<id>/
@@ -244,7 +325,7 @@ $DATA_DIR/
 - Backend tests: `backend/src/**/*.test.ts`
 - Frontend tests: `frontend/tests/**/*.test.ts(x)`
 - Framework: Vitest
-- CI runs lint, typecheck, and tests on push/PR to `main`
+- CI (`.github/workflows/ci.yml`) runs lint, typecheck, build, and tests on push/PR to `main`
 
 ## License
 
