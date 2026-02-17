@@ -102,6 +102,84 @@ describe("settings routes", () => {
     expect(mocks.rebuildNotifier).toHaveBeenCalledWith(config);
   });
 
+  it("PUT /api/settings/notifications returns 400 when telegram field is missing", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings/notifications",
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "Invalid payload" });
+  });
+
+  it("PUT /api/settings/notifications defaults missing botToken and chatId to empty string", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings/notifications",
+      payload: { telegram: { enabled: false } },
+    });
+
+    expect(res.statusCode).toBe(200);
+
+    const config = await loadConfig(tempDir);
+    expect(config.notifications.telegram.botToken).toBe("");
+    expect(config.notifications.telegram.chatId).toBe("");
+  });
+
+  it("GET /api/settings/notifications returns saved config after PUT", async () => {
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings/notifications",
+      payload: {
+        telegram: { enabled: true, botToken: "saved-token", chatId: "saved-chat" },
+      },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/settings/notifications",
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      telegram: { enabled: true, botToken: "saved-token", chatId: "saved-chat" },
+    });
+  });
+
+  it("POST /api/settings/notifications/test returns 400 when chatId is empty", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/settings/notifications/test",
+      payload: { botToken: "valid-token", chatId: "" },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("POST /api/settings/notifications/test returns 400 when chatId is whitespace", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/settings/notifications/test",
+      payload: { botToken: "valid-token", chatId: "   " },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("POST /api/settings/notifications/test proxies successful result", async () => {
+    vi.spyOn(TelegramChannel, "sendTest").mockResolvedValue({ ok: true });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/settings/notifications/test",
+      payload: { botToken: "token", chatId: "chat" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+  });
+
   it("POST /api/settings/notifications/test validates required fields", async () => {
     const res = await app.inject({
       method: "POST",

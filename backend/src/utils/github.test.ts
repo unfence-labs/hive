@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { parseGitHubRepo, fetchPrForBranch, _resetGhState } from "./github.js";
+import { parseGitHubRepo, fetchPrForBranch, isGhInstalled, gh, _resetGhState } from "./github.js";
 
 // ── parseGitHubRepo ─────────────────────────────────────────────────
 
@@ -72,6 +72,94 @@ describe("parseGitHubRepo", () => {
   });
 });
 
+// ── isGhInstalled ───────────────────────────────────────────────────
+
+describe("isGhInstalled", () => {
+  beforeEach(() => {
+    _resetGhState();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns true when gh --version succeeds", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(mockExecFileSuccess("gh version 2.40.0"));
+
+    const result = await isGhInstalled();
+    expect(result).toBe(true);
+  });
+
+  it("returns false when gh --version throws ENOENT", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(mockExecFileError({ code: "ENOENT" }));
+
+    const result = await isGhInstalled();
+    expect(result).toBe(false);
+  });
+
+  it("returns true when gh --version throws a non-ENOENT error (binary exists but errored)", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(mockExecFileError({ code: "EPERM", message: "permission denied" }));
+
+    const result = await isGhInstalled();
+    expect(result).toBe(true);
+  });
+
+  it("caches the result across calls", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(mockExecFileSuccess("gh version 2.40.0"));
+
+    await isGhInstalled();
+    const callsAfterFirst = execFileMock.mock.calls.length;
+
+    await isGhInstalled();
+
+    // Second call should not invoke execFile again (cached)
+    expect(execFileMock.mock.calls.length).toBe(callsAfterFirst);
+  });
+
+  it("_resetGhState clears the cached result", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(mockExecFileError({ code: "ENOENT" }));
+
+    expect(await isGhInstalled()).toBe(false);
+
+    _resetGhState();
+
+    execFileMock.mockImplementation(mockExecFileSuccess("gh version 2.40.0"));
+    expect(await isGhInstalled()).toBe(true);
+  });
+});
+
+// ── gh() wrapper ────────────────────────────────────────────────────
+
+describe("gh", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns trimmed stdout and stderr", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(
+      (_cmd: string, _args: string[], _opts: unknown, cb: (...args: unknown[]) => void) => {
+        cb(null, { stdout: "  hello\n  ", stderr: "  warn\n  " });
+      },
+    );
+
+    const result = await gh(["some", "command"]);
+    expect(result).toEqual({ stdout: "hello", stderr: "warn" });
+  });
+
+  it("throws when execFile errors", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(mockExecFileError({ message: "command failed" }));
+
+    await expect(gh(["bad"])).rejects.toThrow("command failed");
+  });
+});
+
 // ── fetchPrForBranch ────────────────────────────────────────────────
 
 // We mock child_process.execFile to avoid needing `gh` installed
@@ -86,13 +174,16 @@ async function getExecFileMock() {
 }
 
 function mockExecFileSuccess(stdout: string) {
-  return (_cmd: string, _args: string[], _opts: unknown, cb: (...args: unknown[]) => void) => {
+  // Handle both 3-arg (promisify without opts) and 4-arg (promisify with opts) patterns
+  return (...args: unknown[]) => {
+    const cb = args[args.length - 1] as (...a: unknown[]) => void;
     cb(null, { stdout, stderr: "" });
   };
 }
 
 function mockExecFileError(error: { code?: string; stderr?: string; message?: string }) {
-  return (_cmd: string, _args: string[], _opts: unknown, cb: (...args: unknown[]) => void) => {
+  return (...args: unknown[]) => {
+    const cb = args[args.length - 1] as (...a: unknown[]) => void;
     const err = Object.assign(new Error(error.message ?? "fail"), {
       code: error.code,
       stderr: error.stderr,
@@ -435,6 +526,31 @@ describe("fetchPrForBranch", () => {
     const { pr, error } = await fetchPrForBranch("acme", "widget", "retry-branch");
     expect(pr).toBeNull();
     expect(error).toBeUndefined();
+  });
+
+  it("checksStatus returns success when all checks have SUCCESS conclusion", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(
+      mockExecFileSuccess(
+        JSON.stringify([
+          {
+            number: 20,
+            url: "https://github.com/acme/widget/pull/20",
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+            statusCheckRollup: [
+              { conclusion: "SUCCESS" },
+              { conclusion: "SUCCESS" },
+            ],
+          },
+        ]),
+      ),
+    );
+
+    const { pr } = await fetchPrForBranch("acme", "widget", "all-green");
+    expect(pr!.checksStatus).toBe("success");
   });
 
   it("_resetGhState re-enables gh after ENOENT", async () => {

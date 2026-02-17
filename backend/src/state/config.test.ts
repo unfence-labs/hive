@@ -62,9 +62,63 @@ describe("loadConfig", () => {
 
     expect(second.notifications.telegram.enabled).toBe(false);
   });
+
+  it("loads a fully populated config file", async () => {
+    const full: AppConfig = {
+      notifications: {
+        telegram: { enabled: true, botToken: "tok", chatId: "cid" },
+      },
+    };
+    await writeFile(join(dataDir, "config.json"), JSON.stringify(full), "utf-8");
+
+    const config = await loadConfig(dataDir);
+    expect(config).toEqual(full);
+  });
+
+  it("ignores unknown top-level keys in the config file", async () => {
+    await writeFile(
+      join(dataDir, "config.json"),
+      JSON.stringify({
+        notifications: { telegram: { enabled: true, botToken: "t", chatId: "c" } },
+        unknownKey: "should-be-ignored",
+      }),
+      "utf-8",
+    );
+
+    const config = await loadConfig(dataDir);
+    expect(config).toEqual({
+      notifications: {
+        telegram: { enabled: true, botToken: "t", chatId: "c" },
+      },
+    });
+    expect((config as Record<string, unknown>)["unknownKey"]).toBeUndefined();
+  });
+
+  it("handles completely empty notifications object", async () => {
+    await writeFile(
+      join(dataDir, "config.json"),
+      JSON.stringify({ notifications: {} }),
+      "utf-8",
+    );
+
+    const config = await loadConfig(dataDir);
+    expect(config).toEqual(DEFAULT_CONFIG);
+  });
 });
 
 describe("saveConfig", () => {
+  it("creates dataDir recursively if it does not exist", async () => {
+    const nestedDir = join(dataDir, "nested", "deep");
+    const config: AppConfig = {
+      notifications: { telegram: { enabled: false, botToken: "", chatId: "" } },
+    };
+
+    await saveConfig(config, nestedDir);
+
+    const loaded = await loadConfig(nestedDir);
+    expect(loaded).toEqual(config);
+  });
+
   it("writes pretty JSON and round-trips through loadConfig", async () => {
     const config: AppConfig = {
       notifications: {
