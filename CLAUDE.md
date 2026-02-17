@@ -2,7 +2,7 @@
 
 This repository is a monorepo:
 - `backend/`: Fastify API + WebSocket server
-- `frontend/`: React + Vite UI
+- `frontend/`: React + Vite UI + Tauri desktop app (`frontend/src-tauri/`)
 
 Hive runs Claude conversations in isolated Git workspaces (worktrees) created from a project's bare repo.
 
@@ -37,6 +37,8 @@ npm run build
 npm run lint
 npm run typecheck
 npm test
+npm run tauri dev    # run as desktop app
+npm run tauri build  # build distributable
 ```
 
 ## Core Model
@@ -84,9 +86,11 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `frontend/src/lib/ws-transport.ts`: reconnecting WS transport + replay buffer
 - `frontend/src/components/Sidebar.tsx`: project/workspace nav + archive/delete actions
 - `frontend/src/components/Terminal.tsx`: xterm + `/ws/terminal/:wsId`
+- `frontend/src-tauri/`: Tauri v2 desktop app (Rust shell, config, icons)
 
 ### Important frontend behavior
 
+- The frontend supports a configurable server URL (Settings > Server URL) for remote backend connectivity. All API calls (`useApi.ts`) and WebSockets (`ws-transport.ts`, `Terminal.tsx`) resolve the base URL via `getServerUrl()` from `useServerUrl.ts`.
 - The app keeps WS channels synced for all known workspace IDs (`wsTransport.syncWorkspaces`).
 - `useConversation` hydrates from REST history and resolves stale replay races with request tokens.
 - Terminal instances are tracked in context; hidden terminals stay alive until explicitly closed.
@@ -117,6 +121,14 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - Backend tests live next to source (`backend/src/**/*.test.ts`).
 - Frontend tests live in `frontend/tests/**`.
 - Use `SessionOptions.command = "bash"` in backend tests to avoid local Claude CLI dependency.
+
+## Tauri Desktop App
+
+- Tauri v2 config: `frontend/src-tauri/tauri.conf.json`
+- Icons: `frontend/src-tauri/icons/` (generated via `npx tauri icon <source.png>`)
+- macOS icons require pre-baked squircle corners (macOS does not auto-mask like iOS).
+- Icons are compiled into the Rust binary; after changing icons run `cargo clean` in `src-tauri/` then rebuild.
+- Vite config (`frontend/vite.config.ts`) includes Tauri-specific settings (fixed port, HMR, build targets).
 
 ## Known Gaps (Current)
 
