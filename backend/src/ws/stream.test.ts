@@ -18,6 +18,7 @@ import {
 } from "../agents/agent-manager.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
 import { streamRoutes, broadcastToWorkspace, _getChannelsForTests } from "./stream.js";
+import { startScript, _clearAll as clearScripts } from "../services/script-runner.js";
 import type { WsOutgoing } from "../types.js";
 
 const CONV_CMD = { command: "bash" };
@@ -51,6 +52,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  clearScripts();
   _clearActiveSessions();
   await new Promise((r) => setTimeout(r, 100));
   await app.close();
@@ -1011,6 +1013,78 @@ describe("WS /ws/session/:wsId", () => {
 
     ws.close();
     await local.app.close();
+  });
+
+  it("sends script_status on connect when a script is running", async () => {
+    const fakeScript = join(tempDir, "fake-run.sh");
+    await writeFile(fakeScript, "#!/bin/sh\nsleep 30\n", "utf-8");
+    await chmod(fakeScript, 0o755);
+
+    startScript(wsId, "run", fakeScript, tempDir);
+
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.some((m) => m.type === "script_status"),
+    );
+
+    const scriptMsg = messages.find((m) => m.type === "script_status");
+    expect(scriptMsg).toEqual({
+      type: "script_status",
+      scriptType: "run",
+      state: "running",
+    });
+
+    ws.close();
+  });
+
+  it("sends script_status with exitCode on connect when a script has finished", async () => {
+    const fakeScript = join(tempDir, "fake-fail.sh");
+    await writeFile(fakeScript, "#!/bin/sh\nexit 1\n", "utf-8");
+    await chmod(fakeScript, 0o755);
+
+    const proc = startScript(wsId, "setup", fakeScript, tempDir);
+
+    // Wait for the script to actually exit
+    await new Promise<void>((resolve) => {
+      const lid = "test-wait-exit";
+      proc.exitListeners.set(lid, () => {
+        proc.exitListeners.delete(lid);
+        resolve();
+      });
+    });
+
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.some((m) => m.type === "script_status"),
+    );
+
+    const scriptMsg = messages.find((m) => m.type === "script_status");
+    expect(scriptMsg).toEqual({
+      type: "script_status",
+      scriptType: "setup",
+      state: "error",
+      exitCode: 1,
+    });
+
+    ws.close();
+  });
+
+  it("does not send script_status on connect when all scripts are idle", async () => {
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(messages.some((m) => m.type === "script_status")).toBe(false);
+
+    ws.close();
   });
 
   it("sends snapshots after busy status when session exists", async () => {

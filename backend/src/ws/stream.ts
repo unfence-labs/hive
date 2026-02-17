@@ -13,6 +13,7 @@ import {
 import { errorMessage } from "../utils/errors.js";
 import { isAuthorized } from "../utils/auth.js";
 import type { WsIncoming, WsOutgoing } from "../types.js";
+import { getScriptStatus, type ScriptType } from "../services/script-runner.js";
 
 interface GitSyncSnapshotProvider {
   getCachedBranchInfo: (workspaceId: string) => Extract<WsOutgoing, { type: "branch_info" }>["info"] | undefined;
@@ -284,6 +285,21 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       const diffStats = gitSyncSnapshotProvider?.getCachedDiffStats(wsId);
       if (diffStats) {
         sendOutgoing(socket, { type: "diff_stats", stats: diffStats });
+      }
+
+      // Bootstrap script running state so sidebar indicators survive reconnects.
+      const scriptStatus = getScriptStatus(wsId);
+      for (const scriptType of ["setup", "run"] as ScriptType[]) {
+        if (scriptStatus[scriptType].state !== "idle") {
+          sendOutgoing(socket, {
+            type: "script_status",
+            scriptType,
+            state: scriptStatus[scriptType].state,
+            ...(scriptStatus[scriptType].exitCode !== undefined
+              ? { exitCode: scriptStatus[scriptType].exitCode }
+              : {}),
+          });
+        }
       }
 
       socket.on("close", () => {
