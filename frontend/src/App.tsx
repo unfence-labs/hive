@@ -10,7 +10,7 @@ import { useProjects } from "@/hooks/useProjects";
 import { wsTransport } from "@/lib/ws-transport";
 
 export default function App() {
-  const { projects, loading, createWorkspace, createProjectWithWorkspace, deleteProject, archiveWorkspace } = useProjects();
+  const { projects, loading, fetchProjects, createWorkspace, createProjectWithWorkspace, deleteProject, archiveWorkspace } = useProjects();
   const [showAddProject, setShowAddProject] = useState(false);
   const workspaceIds = useMemo(
     () =>
@@ -59,7 +59,7 @@ export default function App() {
           />
           <Route path="projects/:id" element={<Navigate to="/projects" replace />} />
           <Route path="workspaces/:wsId" element={<WorkspaceView />} />
-          <Route path="settings" element={<SettingsView />} />
+          <Route path="settings" element={<SettingsView onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }} />} />
         </Route>
       </Routes>
     </BrowserRouter>

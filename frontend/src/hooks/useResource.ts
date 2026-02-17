@@ -14,6 +14,7 @@ export function useResource<T>(url: string | null) {
       setData(result);
       setError(null);
     } catch (e) {
+      setData([]);
       setError(e instanceof Error ? e.message : "Failed to fetch");
     } finally {
       setLoading(false);

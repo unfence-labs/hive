@@ -3,12 +3,15 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import SettingsView from "@/pages/SettingsView";
 
-const setAccent = vi.fn();
+const mocks = vi.hoisted(() => ({
+  setAccent: vi.fn(),
+  useConnectionStatus: vi.fn(),
+}));
 
 vi.mock("@/hooks/useAccentColor", () => ({
   useAccentColor: () => ({
     accentId: "blue",
-    setAccent,
+    setAccent: mocks.setAccent,
     options: [
       { id: "blue", label: "Blue", color: "#3b82f6" },
       { id: "emerald", label: "Emerald", color: "#10b981" },
@@ -16,65 +19,87 @@ vi.mock("@/hooks/useAccentColor", () => ({
   }),
 }));
 
+vi.mock("@/hooks/useConnectionStatus", () => ({
+  useConnectionStatus: mocks.useConnectionStatus,
+}));
+
 describe("SettingsView", () => {
+  let check: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
-    setAccent.mockReset();
+    check = vi.fn().mockResolvedValue(undefined);
+    mocks.setAccent.mockReset();
+    mocks.useConnectionStatus.mockReset();
+    mocks.useConnectionStatus.mockReturnValue({ status: "unknown", check });
+
+    vi.restoreAllMocks();
     localStorage.removeItem("hive-server-url");
-    localStorage.removeItem("hive-vps-target");
+    localStorage.removeItem("hive-tailscale-ip");
+    localStorage.removeItem("hive-tailscale-port");
   });
 
-  it("shows default local address and empty VPS target", () => {
+  it("shows tailscale placeholders and unknown status when not configured", () => {
     render(<SettingsView />);
 
-    expect(screen.getByPlaceholderText("http://localhost:3000")).toHaveValue("http://localhost:3000");
-    expect(screen.getByPlaceholderText("user@192.168.1.1")).toHaveValue("");
+    expect(screen.getByPlaceholderText("100.x.x.x")).toHaveValue("");
+    expect(screen.getByPlaceholderText("3000")).toHaveValue("");
+    expect(screen.getByText("Not configured")).toBeInTheDocument();
   });
 
-  it("persists local address on Enter and trims trailing slash", async () => {
+  it("persists tailscale IP on blur and schedules a status check", async () => {
+    const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
     const user = userEvent.setup();
     render(<SettingsView />);
 
-    const localAddressInput = screen.getByPlaceholderText("http://localhost:3000");
-    await user.clear(localAddressInput);
-    await user.type(localAddressInput, "  http://localhost:4567///");
-    expect(screen.getByText("unsaved")).toBeInTheDocument();
+    const ipInput = screen.getByPlaceholderText("100.x.x.x");
+    await user.type(ipInput, " 100.64.0.10 ");
+    await user.tab();
 
-    await user.keyboard("{Enter}");
+    expect(localStorage.getItem("hive-tailscale-ip")).toBe("100.64.0.10");
+    expect(localStorage.getItem("hive-server-url")).toBeNull();
+    expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 300);
+  });
+
+  it("persists port on Enter and updates computed server URL", async () => {
+    localStorage.setItem("hive-tailscale-ip", "100.64.0.10");
+    const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    const user = userEvent.setup();
+    render(<SettingsView />);
+
+    const portInput = screen.getByPlaceholderText("3000");
+    await user.type(portInput, "3001{Enter}");
+
+    expect(localStorage.getItem("hive-tailscale-port")).toBe("3001");
+    expect(localStorage.getItem("hive-server-url")).toBe("http://100.64.0.10:3001");
+    expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 300);
+  });
+
+  it("auto-refreshes connection on blur by running check and parent refresh", async () => {
+    const user = userEvent.setup();
+    const onRefreshConnection = vi.fn();
+    localStorage.setItem("hive-tailscale-port", "3000");
+
+    render(<SettingsView onRefreshConnection={onRefreshConnection} />);
+
+    await user.type(screen.getByPlaceholderText("100.x.x.x"), "100.64.0.11");
+    await user.tab();
 
     await waitFor(() => {
-      expect(localStorage.getItem("hive-server-url")).toBe("http://localhost:4567");
+      expect(check).toHaveBeenCalledTimes(1);
+      expect(onRefreshConnection).toHaveBeenCalledTimes(1);
     });
-    expect(localAddressInput).toHaveValue("  http://localhost:4567///");
+
+    expect(localStorage.getItem("hive-tailscale-ip")).toBe("100.64.0.11");
+    expect(localStorage.getItem("hive-tailscale-port")).toBe("3000");
+    expect(localStorage.getItem("hive-server-url")).toBe("http://100.64.0.11:3000");
   });
 
-  it("persists VPS target and renders ssh tunnel command with local port", async () => {
+  it("updates accent color from accent option buttons", async () => {
     const user = userEvent.setup();
     render(<SettingsView />);
 
-    const localAddressInput = screen.getByPlaceholderText("http://localhost:3000");
-    await user.clear(localAddressInput);
-    await user.type(localAddressInput, "http://localhost:7000");
-    await user.keyboard("{Enter}");
+    await user.click(screen.getByRole("button", { name: "Accent color: Emerald" }));
 
-    const vpsTargetInput = screen.getByPlaceholderText("user@192.168.1.1");
-    await user.type(vpsTargetInput, "  deploy@vps.example.com  ");
-    await user.keyboard("{Enter}");
-
-    await waitFor(() => {
-      expect(localStorage.getItem("hive-vps-target")).toBe("deploy@vps.example.com");
-    });
-    expect(screen.getByText(/ssh -L 7000:localhost:7000 deploy@vps\.example\.com/)).toBeInTheDocument();
-  });
-
-  it("uses default HTTPS port in ssh command when local address omits explicit port", async () => {
-    const user = userEvent.setup();
-    localStorage.setItem("hive-vps-target", "deploy@vps.example.com");
-    render(<SettingsView />);
-
-    const localAddressInput = screen.getByPlaceholderText("http://localhost:3000");
-    await user.clear(localAddressInput);
-    await user.type(localAddressInput, "https://api.example.com");
-
-    expect(screen.getByText(/ssh -L 443:localhost:443 deploy@vps\.example\.com/)).toBeInTheDocument();
+    expect(mocks.setAccent).toHaveBeenCalledWith("emerald");
   });
 });
