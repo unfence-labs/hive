@@ -12,7 +12,7 @@ This guide covers deploying the Hive backend on a VPS and connecting to it from 
 +------------------+                             +------------------+
 ```
 
-The backend runs on a VPS where Claude CLI, Git, and all heavy operations happen. The frontend runs locally as a Tauri desktop app and connects to the backend over a Tailscale private network. No ports are exposed to the public internet.
+The backend runs on a VPS where Claude CLI, Git, GitHub CLI, and all heavy operations happen. The frontend runs locally as a Tauri desktop app and connects to the backend over a Tailscale private network. No ports are exposed to the public internet.
 
 ## 1. Install Tailscale
 
@@ -52,6 +52,15 @@ ping 100.x.x.x
 ```
 
 ## 2. Deploy the Backend on the VPS
+
+### Prerequisites
+
+The backend runs preflight checks on startup and exits with a clear error if any dependency is missing:
+
+- **Node.js >= 20**
+- **Git >= 2.17** (worktree support)
+- **Claude CLI** installed and authenticated (`claude` command)
+- **GitHub CLI** (`gh`) — optional but required for PR status and GitHub OAuth from the app
 
 ### Clone and build
 
@@ -130,7 +139,7 @@ cd frontend
 npm run dev
 ```
 
-Open the app, go to Settings, and set the Server URL to `http://100.x.x.x:3000` (your VPS Tailscale IP). All API and WebSocket traffic will route through Tailscale.
+Open the app and go to **Settings > Connection**. Enter your VPS Tailscale IP (e.g. `100.x.x.x`) and port (`3000`). The status badge will show **Connected** (green) once the health check succeeds. All API and WebSocket traffic routes through Tailscale.
 
 ### Tauri Desktop App
 
@@ -139,7 +148,7 @@ cd frontend
 npm run tauri dev
 ```
 
-Same as above: configure the Server URL in Settings to point to your VPS Tailscale IP.
+Same as above: configure the Tailscale IP and port in **Settings > Connection**.
 
 To build a distributable app:
 
@@ -149,6 +158,13 @@ npm run tauri build
 ```
 
 The output (`.dmg` on macOS, `.msi` on Windows) will be in `frontend/src-tauri/target/release/bundle/`.
+
+### Post-connect setup (optional)
+
+Once connected, you can configure additional integrations from the app:
+
+- **Settings > Account** — Connect your GitHub account via OAuth device flow. This authenticates the `gh` CLI on the VPS and configures git credentials, enabling PR status detection and authenticated cloning.
+- **Settings > Notifications** — Enable Telegram notifications to receive alerts when an agent turn completes. Enter your bot token and chat ID, then hit "Test" to verify.
 
 ## Environment Variables Reference
 
@@ -166,7 +182,7 @@ The output (`.dmg` on macOS, `.msi` on Windows) will be in `frontend/src-tauri/t
 |---|---|
 | `VITE_HIVE_AUTH_TOKEN` | Must match the backend `HIVE_AUTH_TOKEN` |
 
-The server URL is configured at runtime in the app Settings, not via env vars.
+The Tailscale IP and port are configured at runtime in **Settings > Connection**, not via env vars. Telegram notification credentials are configured in **Settings > Notifications** and persisted in `~/.hive/config.json` on the VPS.
 
 ## Updating the Backend
 
