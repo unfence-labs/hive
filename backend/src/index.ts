@@ -20,6 +20,7 @@ import { scriptWsRoutes } from "./ws/script.js";
 import { loadConfig } from "./state/config.js";
 import { broadcastToWorkspace } from "./ws/stream.js";
 import type { StreamRoutesOptions } from "./ws/stream.js";
+import { preflight } from "./utils/preflight.js";
 
 const HOST = process.env.HOST ?? "127.0.0.1";
 const PORT = Number(process.env.PORT ?? 3000);
@@ -103,6 +104,8 @@ export async function buildApp(opts: BuildAppOptions = {}) {
 const BRANCH_SYNC_INTERVAL_MS = 10_000;
 
 async function main() {
+  await preflight();
+
   const dataDir = getDataDir();
   await ensureDataDir(dataDir);
 
