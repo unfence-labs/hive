@@ -33,6 +33,7 @@ describe("ProjectDetail", () => {
 
     renderProjectDetail("/settings/repositories/p1", projects);
 
+    expect(screen.getByRole("heading", { name: "Alpha" }).closest("[data-tauri-drag-region]")).toBeInTheDocument();
     expect(screen.getByText("Bare repo path")).toBeInTheDocument();
     expect(screen.getByText("Workspaces path")).toBeInTheDocument();
     expect(screen.getAllByText("—")).toHaveLength(2);

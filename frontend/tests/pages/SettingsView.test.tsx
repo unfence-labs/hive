@@ -35,6 +35,7 @@ describe("ConnectionSettings", () => {
   it("shows tailscale placeholders and unknown status when not configured", () => {
     render(<ConnectionSettings />);
 
+    expect(screen.getByRole("heading", { name: "Connection" }).closest("div")).toHaveAttribute("data-tauri-drag-region");
     expect(screen.getByPlaceholderText("100.x.x.x")).toHaveValue("");
     expect(screen.getByPlaceholderText("3000")).toHaveValue("");
     expect(screen.getByText("Not configured")).toBeInTheDocument();
@@ -107,6 +108,7 @@ describe("AppearanceSettings", () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
+    expect(screen.getByRole("heading", { name: "Appearance" }).closest("div")).toHaveAttribute("data-tauri-drag-region");
     await user.click(screen.getByRole("button", { name: "Accent color: Emerald" }));
 
     expect(mocks.setAccent).toHaveBeenCalledWith("emerald");

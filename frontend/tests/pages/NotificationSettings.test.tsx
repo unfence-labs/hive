@@ -45,6 +45,7 @@ describe("NotificationSettings", () => {
     await renderReady({ enabled: true, botToken: "token-1", chatId: "chat-1" });
 
     expect(mocks.get).toHaveBeenCalledWith("/api/settings/notifications");
+    expect(screen.getByRole("heading", { name: "Notifications" }).closest("div")).toHaveAttribute("data-tauri-drag-region");
     expect(screen.getByRole("switch", { name: "Telegram" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByLabelText("Bot Token")).toHaveValue("token-1");
     expect(screen.getByLabelText("Chat ID")).toHaveValue("chat-1");

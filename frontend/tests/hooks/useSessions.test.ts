@@ -12,11 +12,15 @@ vi.mock("@/hooks/useApi", () => ({
   },
 }));
 
-function makeSession(id: string, workspaceId = "ws-1"): SessionMetadata {
+function makeSession(
+  id: string,
+  workspaceId = "ws-1",
+  createdAt = "2026-02-12T00:00:00.000Z",
+): SessionMetadata {
   return {
     sessionId: id,
     workspaceId,
-    createdAt: "2026-02-12T00:00:00.000Z",
+    createdAt,
     updatedAt: "2026-02-12T00:00:01.000Z",
     messageCount: 0,
   };
@@ -37,6 +41,31 @@ describe("useSessions", () => {
     });
     expect(api.get).toHaveBeenCalledWith("/api/workspaces/ws-1/sessions");
     expect(result.current.loading).toBe(false);
+  });
+
+  it("sorts sessions by createdAt ascending on initial fetch", async () => {
+    const newest = makeSession("sess-newest", "ws-1", "2026-02-12T00:00:03.000Z");
+    const oldest = makeSession("sess-oldest", "ws-1", "2026-02-12T00:00:01.000Z");
+    const middle = makeSession("sess-middle", "ws-1", "2026-02-12T00:00:02.000Z");
+    const apiResult = [newest, oldest, middle];
+
+    vi.mocked(api.get).mockResolvedValueOnce(apiResult);
+
+    const { result } = renderHook(() => useSessions("ws-1"));
+
+    await waitFor(() => {
+      expect(result.current.sessions.map((s) => s.sessionId)).toEqual([
+        "sess-oldest",
+        "sess-middle",
+        "sess-newest",
+      ]);
+    });
+
+    expect(apiResult.map((s) => s.sessionId)).toEqual([
+      "sess-newest",
+      "sess-oldest",
+      "sess-middle",
+    ]);
   });
 
   it("stays empty and skips API calls when workspace is undefined", async () => {
@@ -80,6 +109,33 @@ describe("useSessions", () => {
     expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-2")]);
   });
 
+  it("keeps sessions sorted after createSession refreshes with unsorted data", async () => {
+    vi.mocked(api.get)
+      .mockResolvedValueOnce([makeSession("sess-middle", "ws-1", "2026-02-12T00:00:02.000Z")])
+      .mockResolvedValueOnce([
+        makeSession("sess-new", "ws-1", "2026-02-12T00:00:03.000Z"),
+        makeSession("sess-old", "ws-1", "2026-02-12T00:00:01.000Z"),
+        makeSession("sess-middle", "ws-1", "2026-02-12T00:00:02.000Z"),
+      ]);
+    vi.mocked(api.post).mockResolvedValueOnce(makeSession("sess-new", "ws-1", "2026-02-12T00:00:03.000Z"));
+
+    const { result } = renderHook(() => useSessions("ws-1"));
+
+    await waitFor(() => {
+      expect(result.current.sessions.map((s) => s.sessionId)).toEqual(["sess-middle"]);
+    });
+
+    await act(async () => {
+      await result.current.createSession();
+    });
+
+    expect(result.current.sessions.map((s) => s.sessionId)).toEqual([
+      "sess-old",
+      "sess-middle",
+      "sess-new",
+    ]);
+  });
+
   it("activates a session then refreshes the list", async () => {
     vi.mocked(api.get)
       .mockResolvedValueOnce([makeSession("sess-1")])
@@ -101,6 +157,33 @@ describe("useSessions", () => {
     expect(api.post).toHaveBeenCalledWith("/api/workspaces/ws-1/sessions/sess-2/activate");
     expect(api.get).toHaveBeenCalledTimes(2);
     expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-2")]);
+  });
+
+  it("keeps sessions sorted after activateSession refreshes with unsorted data", async () => {
+    vi.mocked(api.get)
+      .mockResolvedValueOnce([makeSession("sess-a", "ws-1", "2026-02-12T00:00:01.000Z")])
+      .mockResolvedValueOnce([
+        makeSession("sess-c", "ws-1", "2026-02-12T00:00:03.000Z"),
+        makeSession("sess-a", "ws-1", "2026-02-12T00:00:01.000Z"),
+        makeSession("sess-b", "ws-1", "2026-02-12T00:00:02.000Z"),
+      ]);
+    vi.mocked(api.post).mockResolvedValueOnce(makeSession("sess-c", "ws-1", "2026-02-12T00:00:03.000Z"));
+
+    const { result } = renderHook(() => useSessions("ws-1"));
+
+    await waitFor(() => {
+      expect(result.current.sessions.map((s) => s.sessionId)).toEqual(["sess-a"]);
+    });
+
+    await act(async () => {
+      await result.current.activateSession("sess-c");
+    });
+
+    expect(result.current.sessions.map((s) => s.sessionId)).toEqual([
+      "sess-a",
+      "sess-b",
+      "sess-c",
+    ]);
   });
 
   it("deletes a session then refreshes the list", async () => {
@@ -161,6 +244,31 @@ describe("useSessions", () => {
 
     expect(api.get).toHaveBeenCalledTimes(2);
     expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-3")]);
+  });
+
+  it("sorts sessions after manual refresh", async () => {
+    vi.mocked(api.get)
+      .mockResolvedValueOnce([makeSession("sess-2", "ws-1", "2026-02-12T00:00:02.000Z")])
+      .mockResolvedValueOnce([
+        makeSession("sess-3", "ws-1", "2026-02-12T00:00:03.000Z"),
+        makeSession("sess-1", "ws-1", "2026-02-12T00:00:01.000Z"),
+        makeSession("sess-2", "ws-1", "2026-02-12T00:00:02.000Z"),
+      ]);
+
+    const { result } = renderHook(() => useSessions("ws-1"));
+    await waitFor(() => {
+      expect(result.current.sessions.map((s) => s.sessionId)).toEqual(["sess-2"]);
+    });
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(result.current.sessions.map((s) => s.sessionId)).toEqual([
+      "sess-1",
+      "sess-2",
+      "sess-3",
+    ]);
   });
 
   it("ignores stale session list responses when requests resolve out of order", async () => {
