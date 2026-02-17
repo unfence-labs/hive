@@ -421,7 +421,7 @@ export default function WorkspaceView() {
                 variant="outline"
                 size="xs"
                 className={view === "chatbot"
-                  ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary dark:border-primary/40 dark:bg-primary/10"
+                  ? "relative z-10 border-primary/40 bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary dark:border-primary/40 dark:bg-primary/10"
                   : "hover:bg-transparent hover:text-current"}
                 onClick={() => {
                   setView("chatbot");
@@ -434,9 +434,12 @@ export default function WorkspaceView() {
               <Button
                 variant="outline"
                 size="xs"
-                className={view === "terminal"
-                  ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary dark:border-primary/40 dark:bg-primary/10"
-                  : "hover:bg-transparent hover:text-current"}
+                className={cn(
+                  "!border-l -ml-px",
+                  view === "terminal"
+                    ? "relative z-10 border-primary/40 bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary dark:border-primary/40 dark:bg-primary/10"
+                    : "hover:bg-transparent hover:text-current",
+                )}
                 onClick={() => {
                   setView("terminal");
                   if (wsId) openTerminal(wsId);
