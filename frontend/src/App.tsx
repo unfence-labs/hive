@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import WorkspaceView from "@/pages/WorkspaceView";
+import AccountSettings from "@/pages/settings/AccountSettings";
 import AppearanceSettings from "@/pages/settings/AppearanceSettings";
 import ConnectionSettings from "@/pages/settings/ConnectionSettings";
 import NotificationSettings from "@/pages/settings/NotificationSettings";
@@ -61,7 +62,8 @@ export default function App() {
           />
           <Route path="projects/:id" element={<Navigate to="/projects" replace />} />
           <Route path="workspaces/:wsId" element={<WorkspaceView />} />
-          <Route path="settings" element={<Navigate to="/settings/appearance" replace />} />
+          <Route path="settings" element={<Navigate to="/settings/account" replace />} />
+          <Route path="settings/account" element={<AccountSettings />} />
           <Route path="settings/appearance" element={<AppearanceSettings />} />
           <Route path="settings/connection" element={<ConnectionSettings onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }} />} />
           <Route path="settings/notifications" element={<NotificationSettings />} />

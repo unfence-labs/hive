@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { ArrowLeft, Bell, Paintbrush, Wifi, GitFork } from "lucide-react";
+import { ArrowLeft, Bell, CircleUser, Paintbrush, Wifi, GitFork } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,12 @@ export default function SettingsSidebar({ projects }: SettingsSidebarProps) {
             Back
           </button>
           <SidebarSection label="General">
+            <NavItem
+              to="/settings/account"
+              label="Account"
+              icon={<CircleUser className="h-4 w-4" />}
+              active={pathname === "/settings/account"}
+            />
             <NavItem
               to="/settings/appearance"
               label="Appearance"
