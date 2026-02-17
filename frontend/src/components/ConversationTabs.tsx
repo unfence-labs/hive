@@ -32,6 +32,7 @@ interface ConversationTabsProps {
   isFileActive?: boolean;
   onFileTabClick?: () => void;
   onFileTabClose?: () => void;
+  onConversationTabClick?: () => void;
 }
 
 function getTabTitle(session: SessionMetadata): string {
@@ -50,6 +51,7 @@ export function ConversationTabs({
   isFileActive,
   onFileTabClick,
   onFileTabClose,
+  onConversationTabClick,
 }: ConversationTabsProps) {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(sessions.length);
@@ -134,17 +136,19 @@ export function ConversationTabs({
             </button>
           )}
           {sessions.length === 0 && (
-            <span
+            <button
+              type="button"
               className={cn(
-                "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs",
+                "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
                 !isFileActive
                   ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground",
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
               )}
+              onClick={onConversationTabClick}
             >
               <MessageSquareIcon className="size-3 shrink-0" />
               <span className="truncate">Untitled</span>
-            </span>
+            </button>
           )}
           {sessions.map((session, i) => {
             const isActive = session.sessionId === activeSessionId;

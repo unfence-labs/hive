@@ -465,6 +465,7 @@ export default function WorkspaceView() {
               setOpenFile(null);
               setActiveTab("conversation");
             }}
+            onConversationTabClick={() => setActiveTab("conversation")}
           />
           <div className={view === "chatbot" && activeTab === "conversation" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
             {error && (
