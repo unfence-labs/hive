@@ -4,6 +4,7 @@ import AppLayout from "@/components/AppLayout";
 import WorkspaceView from "@/pages/WorkspaceView";
 import AppearanceSettings from "@/pages/settings/AppearanceSettings";
 import ConnectionSettings from "@/pages/settings/ConnectionSettings";
+import NotificationSettings from "@/pages/settings/NotificationSettings";
 import ProjectDetail from "@/pages/settings/ProjectDetail";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import EmptyStateLogo from "@/components/EmptyStateLogo";
@@ -63,6 +64,7 @@ export default function App() {
           <Route path="settings" element={<Navigate to="/settings/appearance" replace />} />
           <Route path="settings/appearance" element={<AppearanceSettings />} />
           <Route path="settings/connection" element={<ConnectionSettings onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }} />} />
+          <Route path="settings/notifications" element={<NotificationSettings />} />
           <Route path="settings/repositories/:projectId" element={<ProjectDetail projects={projects} onDeleteProject={deleteProject} />} />
         </Route>
       </Routes>

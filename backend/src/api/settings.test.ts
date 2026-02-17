@@ -1,0 +1,131 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import Fastify, { type FastifyInstance } from "fastify";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+const mocks = vi.hoisted(() => ({
+  rebuildNotifier: vi.fn(),
+}));
+
+vi.mock("../agents/agent-manager.js", () => ({
+  rebuildNotifier: mocks.rebuildNotifier,
+}));
+
+import { settingsRoutes } from "./settings.js";
+import { loadConfig } from "../state/config.js";
+import { TelegramChannel } from "../notifications/telegram.js";
+
+let tempDir: string;
+let app: ReturnType<typeof Fastify>;
+let previousDataDir: string | undefined;
+
+beforeEach(async () => {
+  tempDir = await mkdtemp(join(tmpdir(), "hive-settings-api-test-"));
+  previousDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = tempDir;
+
+  app = Fastify();
+  await app.register((instance: FastifyInstance) => settingsRoutes(instance));
+  await app.ready();
+});
+
+afterEach(async () => {
+  await app.close();
+  await rm(tempDir, { recursive: true, force: true });
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
+
+  if (previousDataDir === undefined) {
+    delete process.env.DATA_DIR;
+  } else {
+    process.env.DATA_DIR = previousDataDir;
+  }
+});
+
+describe("settings routes", () => {
+  it("GET /api/settings/notifications returns default config", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/settings/notifications",
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      telegram: {
+        enabled: false,
+        botToken: "",
+        chatId: "",
+      },
+    });
+  });
+
+  it("PUT /api/settings/notifications validates payload", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings/notifications",
+      payload: { telegram: { enabled: "yes" } },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "Invalid payload" });
+  });
+
+  it("PUT /api/settings/notifications saves trimmed values and rebuilds notifier", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings/notifications",
+      payload: {
+        telegram: {
+          enabled: true,
+          botToken: "  bot-token  ",
+          chatId: "  chat-id  ",
+        },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+
+    const config = await loadConfig(tempDir);
+    expect(config).toEqual({
+      notifications: {
+        telegram: {
+          enabled: true,
+          botToken: "bot-token",
+          chatId: "chat-id",
+        },
+      },
+    });
+
+    expect(mocks.rebuildNotifier).toHaveBeenCalledTimes(1);
+    expect(mocks.rebuildNotifier).toHaveBeenCalledWith(config);
+  });
+
+  it("POST /api/settings/notifications/test validates required fields", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/settings/notifications/test",
+      payload: { botToken: "", chatId: "chat-id" },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ ok: false, error: "Bot token and chat ID are required" });
+  });
+
+  it("POST /api/settings/notifications/test proxies Telegram test result", async () => {
+    const sendTestSpy = vi
+      .spyOn(TelegramChannel, "sendTest")
+      .mockResolvedValue({ ok: false, error: "chat not found" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/settings/notifications/test",
+      payload: { botToken: " token ", chatId: " chat " },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: false, error: "chat not found" });
+    expect(sendTestSpy).toHaveBeenCalledWith(" token ", " chat ");
+  });
+});

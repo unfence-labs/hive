@@ -1,4 +1,7 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 // Prevent the top-level main() from actually listening on a port
 vi.mock("fastify", async (importOriginal) => {
@@ -25,13 +28,27 @@ vi.mock("fastify", async (importOriginal) => {
 import { buildApp } from "./index.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
+let tempDataDir: string;
+let previousDataDir: string | undefined;
+
+beforeEach(async () => {
+  tempDataDir = await mkdtemp(join(tmpdir(), "hive-index-test-"));
+  previousDataDir = process.env.DATA_DIR;
+  process.env.DATA_DIR = tempDataDir;
+});
 
 afterEach(async () => {
   delete process.env.HIVE_AUTH_TOKEN;
   delete process.env.HIVE_RATE_LIMIT_MAX;
   delete process.env.HIVE_RATE_LIMIT_WINDOW_MS;
   delete process.env.HIVE_CLAUDE_SKIP_PERMISSIONS;
+  if (previousDataDir === undefined) {
+    delete process.env.DATA_DIR;
+  } else {
+    process.env.DATA_DIR = previousDataDir;
+  }
   await app?.close();
+  await rm(tempDataDir, { recursive: true, force: true });
 });
 
 describe("buildApp", () => {
@@ -59,6 +76,19 @@ describe("buildApp", () => {
     const res = await app.inject({ method: "GET", url: "/api/workspaces/test-ws" });
     expect(res.statusCode).toBe(404);
     expect(res.json().error).toContain("not found");
+  });
+
+  it("registers settings routes", async () => {
+    app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/api/settings/notifications" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      telegram: {
+        enabled: expect.any(Boolean),
+        botToken: expect.any(String),
+        chatId: expect.any(String),
+      },
+    });
   });
 
   it("registers session routes", async () => {

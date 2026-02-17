@@ -11,10 +11,10 @@ import { terminalRoutes } from "./ws/terminal.js";
 import { createAuthHook } from "./utils/auth.js";
 import { createRateLimitHook } from "./utils/rate-limit.js";
 import { ensureDataDir, getDataDir } from "./state/state.js";
-import { type SessionOptions, setNotifier } from "./agents/agent-manager.js";
+import { type SessionOptions, rebuildNotifier } from "./agents/agent-manager.js";
 import { GitSyncService } from "./services/git-sync.js";
-import { Notifier } from "./notifications/notifier.js";
-import { TelegramChannel } from "./notifications/telegram.js";
+import { settingsRoutes } from "./api/settings.js";
+import { loadConfig } from "./state/config.js";
 import { broadcastToWorkspace } from "./ws/stream.js";
 import type { StreamRoutesOptions } from "./ws/stream.js";
 
@@ -87,6 +87,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register((instance: FastifyInstance) =>
     terminalRoutes(instance, { authToken }),
   );
+  await app.register((instance: FastifyInstance) => settingsRoutes(instance));
 
   return app;
 }
@@ -97,10 +98,8 @@ async function main() {
   const dataDir = getDataDir();
   await ensureDataDir(dataDir);
 
-  const channels = [TelegramChannel.fromEnv()].filter(
-    (c): c is NonNullable<typeof c> => c != null,
-  );
-  setNotifier(new Notifier(channels));
+  const config = await loadConfig(dataDir);
+  rebuildNotifier(config);
 
   const gitSync = new GitSyncService(dataDir);
   gitSync.onBranchChange((wsId, info) => {
