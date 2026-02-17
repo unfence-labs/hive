@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Github, Loader2, LogOut, ExternalLink, Copy, Check, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/hooks/useApi";
+import { openExternal } from "@/lib/open-external";
 
 interface GitHubUser {
   login: string;
@@ -13,7 +14,6 @@ interface GitHubUser {
 interface AccountStatus {
   ghInstalled: boolean;
   authenticated: boolean;
-  deviceFlowAvailable: boolean;
   user?: GitHubUser;
 }
 
@@ -33,7 +33,6 @@ interface PollResponse {
 type PageState =
   | { kind: "loading" }
   | { kind: "no-gh" }
-  | { kind: "no-client-id" }
   | { kind: "disconnected" }
   | { kind: "connecting"; userCode: string; verificationUri: string }
   | { kind: "connected"; user: GitHubUser }
@@ -60,8 +59,6 @@ export default function AccountSettings() {
         setState({ kind: "no-gh" });
       } else if (status.authenticated && status.user) {
         setState({ kind: "connected", user: status.user });
-      } else if (!status.deviceFlowAvailable) {
-        setState({ kind: "no-client-id" });
       } else {
         setState({ kind: "disconnected" });
       }
@@ -77,9 +74,11 @@ export default function AccountSettings() {
 
   const startPolling = useCallback(
     (userCode: string, verificationUri: string) => {
+      let errorCount = 0;
       const poll = async () => {
         try {
           const res = await api.post<PollResponse>("/api/account/connect/poll");
+          errorCount = 0;
           if (res.status === "pending") {
             pollTimer.current = setTimeout(poll, pollInterval.current * 1000);
           } else if (res.status === "slow_down") {
@@ -92,9 +91,14 @@ export default function AccountSettings() {
           } else if (res.status === "denied") {
             setState({ kind: "error", message: "Authorization was denied.", retryable: true });
           }
-        } catch {
-          // Network error during poll — keep the connecting UI, retry
-          pollTimer.current = setTimeout(poll, pollInterval.current * 1000);
+        } catch (err) {
+          errorCount++;
+          if (errorCount >= 3) {
+            const msg = err instanceof Error ? err.message : "Connection failed";
+            setState({ kind: "error", message: `GitHub login failed: ${msg}`, retryable: true });
+          } else {
+            pollTimer.current = setTimeout(poll, pollInterval.current * 1000);
+          }
         }
       };
       setState({ kind: "connecting", userCode, verificationUri });
@@ -157,29 +161,14 @@ export default function AccountSettings() {
                 <p className="mt-1 text-xs text-muted-foreground">
                   The GitHub CLI (<code className="rounded bg-muted px-1 py-0.5 text-[11px]">gh</code>) is required but was not found on the server.
                 </p>
-                <a
-                  href="https://cli.github.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-3 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+                <button
+                  type="button"
+                  onClick={() => void openExternal("https://cli.github.com")}
+                  className="mt-3 inline-flex cursor-pointer items-center gap-1.5 text-xs text-primary hover:underline"
                 >
                   Install GitHub CLI
                   <ExternalLink className="h-3 w-3" />
-                </a>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {state.kind === "no-client-id" && (
-          <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-              <div>
-                <h2 className="text-sm font-medium">GitHub OAuth App not configured</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Set the <code className="rounded bg-muted px-1 py-0.5 text-[11px]">GITHUB_CLIENT_ID</code> environment variable to enable the Connect with GitHub flow. Create an OAuth App in GitHub Developer Settings with Device Flow enabled.
-                </p>
+                </button>
               </div>
             </div>
           </section>
@@ -229,15 +218,14 @@ export default function AccountSettings() {
                     : <Copy className="h-4 w-4" />}
                 </button>
               </div>
-              <a
-                href={state.verificationUri}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              <button
+                type="button"
+                onClick={() => void openExternal(state.verificationUri)}
+                className="mt-4 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
               >
                 Open GitHub
                 <ExternalLink className="h-3 w-3" />
-              </a>
+              </button>
               <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 Waiting for authorization...

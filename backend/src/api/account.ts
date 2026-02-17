@@ -18,8 +18,12 @@ interface DeviceFlowState {
 
 let pendingDeviceFlow: DeviceFlowState | null = null;
 
-function getClientId(): string | undefined {
-  return process.env.GITHUB_CLIENT_ID?.trim() || undefined;
+// Default OAuth App client_id for Hive (public, not a secret).
+// Override with GITHUB_CLIENT_ID env var for self-hosted instances.
+const DEFAULT_CLIENT_ID = "Ov23livbVN5QHEParafr";
+
+function getClientId(): string {
+  return process.env.GITHUB_CLIENT_ID?.trim() || DEFAULT_CLIENT_ID;
 }
 
 async function fetchGitHubUser(): Promise<GitHubUser | null> {
@@ -48,11 +52,19 @@ async function isGhAuthenticated(): Promise<boolean> {
 
 async function loginWithToken(token: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = execFileCb("gh", ["auth", "login", "--with-token"], (err) => {
-      if (err) reject(err);
-      else resolve();
-    });
-    child.stdin?.write(token);
+    const child = execFileCb(
+      "gh",
+      ["auth", "login", "--hostname", "github.com", "--with-token"],
+      (err) => {
+        if (err) {
+          const stderr = (err as unknown as { stderr?: string }).stderr ?? "";
+          reject(new Error(stderr || err.message));
+        } else {
+          resolve();
+        }
+      },
+    );
+    child.stdin?.write(token + "\n");
     child.stdin?.end();
   });
 }
@@ -73,22 +85,17 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const authenticated = await isGhAuthenticated();
-    const clientId = getClientId();
 
     if (!authenticated) {
-      return { ghInstalled: true, authenticated: false, deviceFlowAvailable: !!clientId };
+      return { ghInstalled: true, authenticated: false, deviceFlowAvailable: true };
     }
 
     const user = await fetchGitHubUser();
-    return { ghInstalled: true, authenticated: true, deviceFlowAvailable: !!clientId, user };
+    return { ghInstalled: true, authenticated: true, deviceFlowAvailable: true, user };
   });
 
   app.post("/api/account/connect", async (_req, reply) => {
     const clientId = getClientId();
-    if (!clientId) {
-      return reply.status(400).send({ error: "GITHUB_CLIENT_ID not configured" });
-    }
-
     const installed = await isGhInstalled();
     if (!installed) {
       return reply.status(400).send({ error: "gh CLI not installed" });
@@ -102,7 +109,7 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
       },
       body: JSON.stringify({
         client_id: clientId,
-        scope: "repo read:user user:email",
+        scope: "repo read:user user:email read:org",
       }),
     });
 
@@ -211,7 +218,11 @@ export async function accountRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/api/account/disconnect", async (_req, reply) => {
     try {
-      await gh(["auth", "logout", "--hostname", "github.com", "--yes"]);
+      // Need the username for non-interactive logout (no --yes flag exists)
+      const user = await fetchGitHubUser();
+      const args = ["auth", "logout", "--hostname", "github.com"];
+      if (user?.login) args.push("--user", user.login);
+      await gh(args);
       _resetGhState();
       return { ok: true };
     } catch (err: unknown) {
