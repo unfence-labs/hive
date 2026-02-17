@@ -18,6 +18,10 @@ final class ConversationStore {
     // Pending tool input (AskUserQuestion / ExitPlanMode)
     var pendingToolInput: PendingToolInput?
 
+    // Branch & diff info (pushed via WS)
+    var branchInfo: BranchInfo?
+    var diffStats: DiffStatResponse?
+
     // MARK: - Computed
 
     /// The in-progress assistant message shown during streaming
@@ -108,8 +112,11 @@ final class ConversationStore {
                 messages = msgs
             }
 
-        case .branchInfo, .diffStats:
-            break // handled elsewhere later
+        case .branchInfo(let info):
+            branchInfo = info
+
+        case .diffStats(let stats):
+            diffStats = stats
         }
     }
 
@@ -144,7 +151,8 @@ final class ConversationStore {
 
 // MARK: - Pending Tool Input
 
-struct PendingToolInput {
+struct PendingToolInput: Identifiable {
+    var id: String { requestId }
     let sessionId: String
     let requestId: String
     let toolName: String

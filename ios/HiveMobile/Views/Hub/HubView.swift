@@ -98,6 +98,10 @@ struct HubView: View {
         errorMessage = nil
         do {
             projects = try await api.fetchProjects()
+        } catch is CancellationError {
+            // SwiftUI task cancellation — ignore silently
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            // URLSession cancelled by concurrent refresh — ignore
         } catch {
             errorMessage = error.localizedDescription
         }

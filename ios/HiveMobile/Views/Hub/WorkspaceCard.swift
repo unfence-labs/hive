@@ -5,16 +5,10 @@ struct WorkspaceCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(workspace.name)
-                    .font(.subheadline)
-                    .bold()
-                    .lineLimit(1)
-
-                Spacer()
-
-                statusDot
-            }
+            Text(workspace.name)
+                .font(.subheadline)
+                .bold()
+                .lineLimit(1)
 
             Label(workspace.branch, systemImage: "arrow.triangle.branch")
                 .font(.caption)
@@ -24,12 +18,6 @@ struct WorkspaceCard: View {
         .padding(14)
         .frame(width: 200, alignment: .leading)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-    }
-
-    private var statusDot: some View {
-        Circle()
-            .fill(workspace.status == .busy ? .orange : .green)
-            .frame(width: 8, height: 8)
     }
 }
 
