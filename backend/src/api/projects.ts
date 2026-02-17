@@ -7,7 +7,17 @@ import {
   fetchProject,
 } from "../projects/project-manager.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
-import type { CreateProjectRequest } from "../types.js";
+import { bareRepoPath, workspacesDir } from "../utils/paths.js";
+import { getDataDir } from "../state/state.js";
+import type { CreateProjectRequest, ProjectState } from "../types.js";
+
+function enrichProject(project: ProjectState, dir: string) {
+  return {
+    ...project,
+    repoPath: bareRepoPath(dir, project.id),
+    workspacesPath: workspacesDir(dir, project.id),
+  };
+}
 
 export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
   app.post<{ Body: CreateProjectRequest }>("/api/projects", async (req, reply) => {
@@ -25,14 +35,16 @@ export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
   });
 
   app.get("/api/projects", async (_req, reply) => {
-    const projects = await listProjects(dataDir);
-    return reply.send(projects);
+    const dir = dataDir ?? getDataDir();
+    const projects = await listProjects(dir);
+    return reply.send(projects.map((p) => enrichProject(p, dir)));
   });
 
   app.get<{ Params: { id: string } }>("/api/projects/:id", async (req, reply) => {
-    const project = await getProject(req.params.id, dataDir);
+    const dir = dataDir ?? getDataDir();
+    const project = await getProject(req.params.id, dir);
     if (!project) return reply.status(404).send({ error: "Project not found" });
-    return reply.send(project);
+    return reply.send(enrichProject(project, dir));
   });
 
   app.delete<{ Params: { id: string } }>("/api/projects/:id", async (req, reply) => {

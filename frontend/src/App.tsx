@@ -1,8 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import AppLayout from "@/components/AppLayout";
-import SettingsView from "@/pages/SettingsView";
 import WorkspaceView from "@/pages/WorkspaceView";
+import AppearanceSettings from "@/pages/settings/AppearanceSettings";
+import ConnectionSettings from "@/pages/settings/ConnectionSettings";
+import ProjectDetail from "@/pages/settings/ProjectDetail";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import EmptyStateLogo from "@/components/EmptyStateLogo";
 import LogoSquareTempPage from "@/pages/LogoSquareTempPage";
@@ -47,7 +49,6 @@ export default function App() {
               loading={loading}
               onAddProject={() => setShowAddProject(true)}
               onAddWorkspace={createWorkspace}
-              onDeleteProject={deleteProject}
               onArchiveWorkspace={archiveWorkspace}
             />
           }
@@ -59,7 +60,10 @@ export default function App() {
           />
           <Route path="projects/:id" element={<Navigate to="/projects" replace />} />
           <Route path="workspaces/:wsId" element={<WorkspaceView />} />
-          <Route path="settings" element={<SettingsView onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }} />} />
+          <Route path="settings" element={<Navigate to="/settings/appearance" replace />} />
+          <Route path="settings/appearance" element={<AppearanceSettings />} />
+          <Route path="settings/connection" element={<ConnectionSettings onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }} />} />
+          <Route path="settings/repositories/:projectId" element={<ProjectDetail projects={projects} onDeleteProject={deleteProject} />} />
         </Route>
       </Routes>
     </BrowserRouter>

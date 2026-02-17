@@ -4,6 +4,8 @@ export interface Project {
   url: string;
   createdAt: string;
   workspaces: Workspace[];
+  repoPath?: string;
+  workspacesPath?: string;
 }
 
 export interface Workspace {
