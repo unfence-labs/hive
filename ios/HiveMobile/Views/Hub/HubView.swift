@@ -25,6 +25,9 @@ struct HubView: View {
                 }
             }
             .navigationTitle("Hub")
+            .navigationDestination(for: Workspace.self) { workspace in
+                ChatView(workspace: workspace)
+            }
             .refreshable { await loadProjects() }
             .task { await loadProjects() }
             .overlay {
@@ -68,9 +71,6 @@ struct HubView: View {
                     }
                 }
             }
-        }
-        .navigationDestination(for: Workspace.self) { workspace in
-            ChatView(workspace: workspace)
         }
     }
 
