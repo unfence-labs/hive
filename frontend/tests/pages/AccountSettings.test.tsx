@@ -32,13 +32,15 @@ afterEach(() => {
 // ── Loading / status check states ────────────────────────────────────
 
 describe("AccountSettings", () => {
-  it("renders nothing during initial loading state", () => {
+  it("renders a loading spinner during initial loading state", () => {
     // Never resolve the GET call
     mocks.get.mockReturnValue(new Promise(() => {}));
 
-    const { container } = render(<AccountSettings />);
-    // The component returns null during "loading"
-    expect(container.innerHTML).toBe("");
+    render(<AccountSettings />);
+    // The component shows a spinner while loading
+    expect(screen.getByText("Account")).toBeInTheDocument();
+    expect(screen.queryByText("Not connected")).not.toBeInTheDocument();
+    expect(screen.queryByText("GitHub CLI not found")).not.toBeInTheDocument();
   });
 
   it("shows 'no-gh' state when ghInstalled is false", async () => {
@@ -163,8 +165,8 @@ describe("AccountSettings", () => {
     await user.click(screen.getByText("Connect with GitHub"));
     await screen.findByText("COPY-ME");
 
-    // The copy button exists alongside the user code
-    expect(screen.getByTitle("Copy code")).toBeInTheDocument();
+    // The code block is a clickable button with copy label
+    expect(screen.getByLabelText("Copy code to clipboard")).toBeInTheDocument();
   });
 
   it("opens GitHub verification URL", async () => {
