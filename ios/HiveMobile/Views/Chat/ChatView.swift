@@ -13,7 +13,6 @@ struct ChatView: View {
     private let api = APIClient()
 
     var body: some View {
-        @Bindable var store = store
         VStack(spacing: 0) {
             if sessions.count > 1 {
                 SessionTabBar(
@@ -116,10 +115,13 @@ struct ChatView: View {
         .overlay {
             if isLoading { ProgressView() }
         }
-        .sheet(item: $store.pendingToolInput) { pending in
-            ToolInputSheet(pending: pending) { result in
+        .sheet(isPresented: Binding(
+            get: { !store.pendingToolInputs.isEmpty },
+            set: { if !$0 { store.clearPendingToolInputs() } }
+        )) {
+            ToolInputSheet(pendingInputs: store.pendingToolInputs) { pending, result in
                 respondToTool(pending: pending, result: result)
-                store.pendingToolInput = nil
+                store.clearPendingToolInputs()
             }
         }
         .task { await setup() }

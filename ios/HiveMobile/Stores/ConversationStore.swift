@@ -15,8 +15,8 @@ final class ConversationStore {
     var currentThinking = ""
     var activeToolCalls: [ToolCall] = []
 
-    // Pending tool input (AskUserQuestion / ExitPlanMode)
-    var pendingToolInput: PendingToolInput?
+    // Pending tool inputs (AskUserQuestion / ExitPlanMode) — can be multiple
+    var pendingToolInputs: [PendingToolInput] = []
 
     // Branch & diff info (pushed via WS)
     var branchInfo: BranchInfo?
@@ -80,10 +80,10 @@ final class ConversationStore {
             }
 
         case .toolInputRequired(let sessionId, let requestId, let toolName, let toolUseId, let input):
-            pendingToolInput = PendingToolInput(
+            pendingToolInputs.append(PendingToolInput(
                 sessionId: sessionId, requestId: requestId,
                 toolName: toolName, toolUseId: toolUseId, input: input
-            )
+            ))
 
         case .done(let sessionId, _, let durationMs):
             finalizeMessage(sessionId: sessionId, durationMs: durationMs, cancelled: false)
@@ -92,7 +92,6 @@ final class ConversationStore {
             finalizeMessage(sessionId: sessionId, durationMs: nil, cancelled: true)
 
         case .error(let message):
-            // Append as a system-like assistant message
             messages.append(ChatMessage(
                 id: UUID().uuidString, sessionId: "", role: .assistant,
                 content: "Error: \(message)", images: nil, toolCalls: nil,
@@ -105,11 +104,14 @@ final class ConversationStore {
 
         case .userMessage(let msg):
             messages.append(msg)
+            // Clear pending tool inputs when user sends a new message (like frontend)
+            pendingToolInputs = []
 
         case .history(let msgs, _):
-            // Only replace if not actively streaming
             if !isStreaming {
                 messages = msgs
+                // Derive pending tool inputs from history
+                pendingToolInputs = derivePendingToolInputsFromHistory(msgs)
             }
 
         case .branchInfo(let info):
@@ -118,6 +120,10 @@ final class ConversationStore {
         case .diffStats(let stats):
             diffStats = stats
         }
+    }
+
+    func clearPendingToolInputs() {
+        pendingToolInputs = []
     }
 
     // MARK: - Private
@@ -146,6 +152,30 @@ final class ConversationStore {
         currentText = ""
         currentThinking = ""
         activeToolCalls = []
+    }
+
+    /// Derive pending tool inputs from history — mirrors frontend's derivePendingToolInputsFromHistory.
+    /// If the last assistant message has unanswered AskUserQuestion/ExitPlanMode tool calls
+    /// with no user message after, they become pending.
+    private func derivePendingToolInputsFromHistory(_ msgs: [ChatMessage]) -> [PendingToolInput] {
+        guard let lastAssistantIdx = msgs.lastIndex(where: { $0.role == .assistant }) else {
+            return []
+        }
+        let hasUserAfter = msgs[(lastAssistantIdx + 1)...].contains { $0.role == .user }
+        if hasUserAfter { return [] }
+
+        let toolCalls = msgs[lastAssistantIdx].toolCalls ?? []
+        return toolCalls
+            .filter { $0.name == "AskUserQuestion" || $0.name == "ExitPlanMode" }
+            .map { tool in
+                PendingToolInput(
+                    sessionId: msgs[lastAssistantIdx].sessionId,
+                    requestId: "history-\(tool.id)",
+                    toolName: tool.name,
+                    toolUseId: tool.id,
+                    input: tool.input
+                )
+            }
     }
 }
 

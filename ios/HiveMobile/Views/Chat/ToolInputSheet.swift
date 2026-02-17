@@ -1,18 +1,21 @@
 import SwiftUI
 
 struct ToolInputSheet: View {
-    let pending: PendingToolInput
-    let onRespond: (ToolInputResult) -> Void
+    let pendingInputs: [PendingToolInput]
+    let onRespond: (PendingToolInput, ToolInputResult) -> Void
 
     var body: some View {
         NavigationStack {
             Group {
-                if pending.toolName == "AskUserQuestion" {
-                    AskUserQuestionView(input: pending.input, onRespond: onRespond)
-                } else if pending.toolName == "ExitPlanMode" {
-                    ExitPlanModeView(input: pending.input, onRespond: onRespond)
+                if let askQuestion = pendingInputs.first(where: { $0.toolName == "AskUserQuestion" }) {
+                    AskUserQuestionView(
+                        allInputs: pendingInputs.filter { $0.toolName == "AskUserQuestion" },
+                        onRespond: onRespond
+                    )
+                } else if let planMode = pendingInputs.first(where: { $0.toolName == "ExitPlanMode" }) {
+                    ExitPlanModeView(pending: planMode, onRespond: onRespond)
                 } else {
-                    Text("Unknown tool: \(pending.toolName)")
+                    Text("Unknown tool input")
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -25,47 +28,86 @@ struct ToolInputSheet: View {
 // MARK: - AskUserQuestion
 
 private struct AskUserQuestionView: View {
-    let input: String
-    let onRespond: (ToolInputResult) -> Void
+    let allInputs: [PendingToolInput]
+    let onRespond: (PendingToolInput, ToolInputResult) -> Void
 
-    @State private var questions: [Question] = []
-    @State private var selections: [[Int]] = []
-    @State private var customTexts: [String] = []
+    @State private var flatQuestions: [FlatQuestion] = []
+    @State private var drafts: [String: AnswerDraft] = [:]
+    @State private var currentIndex = 0
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                ForEach(Array(questions.enumerated()), id: \.offset) { idx, question in
-                    questionView(question, index: idx)
-                }
+                if let current = currentQuestion {
+                    questionView(current)
 
-                Button {
-                    submit()
-                } label: {
-                    Text("Submit")
-                        .frame(maxWidth: .infinity)
+                    // Navigation + submit
+                    HStack {
+                        if flatQuestions.count > 1 {
+                            Button {
+                                currentIndex = max(0, currentIndex - 1)
+                            } label: {
+                                Image(systemName: "chevron.left")
+                            }
+                            .disabled(currentIndex == 0)
+
+                            Text("\(currentIndex + 1)/\(flatQuestions.count)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            Button {
+                                currentIndex = min(flatQuestions.count - 1, currentIndex + 1)
+                            } label: {
+                                Image(systemName: "chevron.right")
+                            }
+                            .disabled(currentIndex == flatQuestions.count - 1)
+
+                            Spacer()
+                        }
+
+                        if currentIndex < flatQuestions.count - 1 {
+                            Button("Next") {
+                                currentIndex += 1
+                            }
+                            .buttonStyle(.borderedProminent)
+                        } else {
+                            Button("Submit") {
+                                submit()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!hasAnyAnswer)
+                        }
+                    }
+                    .padding(.top, 8)
                 }
-                .buttonStyle(.borderedProminent)
-                .padding(.top, 8)
             }
             .padding()
         }
         .navigationTitle("Question")
-        .onAppear { parseQuestions() }
+        .onAppear { parseAllQuestions() }
     }
 
-    private func questionView(_ question: Question, index: Int) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(question.question)
+    private var currentQuestion: FlatQuestion? {
+        currentIndex < flatQuestions.count ? flatQuestions[currentIndex] : nil
+    }
+
+    private var hasAnyAnswer: Bool {
+        drafts.values.contains { !$0.selectedOptions.isEmpty || !$0.customText.isEmpty }
+    }
+
+    private func questionView(_ fq: FlatQuestion) -> some View {
+        let draft = drafts[fq.key] ?? AnswerDraft()
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(fq.question.question)
                 .font(.subheadline)
                 .bold()
 
-            ForEach(Array(question.options.enumerated()), id: \.offset) { optIdx, option in
+            ForEach(Array(fq.question.options.enumerated()), id: \.offset) { optIdx, option in
                 Button {
-                    toggleOption(questionIndex: index, optionIndex: optIdx, multiSelect: question.multiSelect ?? false)
+                    toggleOption(fq: fq, optionIndex: optIdx)
                 } label: {
                     HStack {
-                        Image(systemName: isSelected(index, optIdx) ? "checkmark.circle.fill" : "circle")
+                        Image(systemName: draft.selectedOptions.contains(optIdx) ? "checkmark.circle.fill" : "circle")
                         VStack(alignment: .leading) {
                             Text(option.label)
                             if let desc = option.description {
@@ -81,56 +123,108 @@ private struct AskUserQuestionView: View {
                 .buttonStyle(.plain)
             }
 
-            TextField("Additional context...", text: binding(for: index), axis: .vertical)
+            TextField("Type something...", text: customTextBinding(for: fq), axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...3)
         }
     }
 
-    private func isSelected(_ q: Int, _ o: Int) -> Bool {
-        guard q < selections.count else { return false }
-        return selections[q].contains(o)
-    }
-
-    private func toggleOption(questionIndex: Int, optionIndex: Int, multiSelect: Bool) {
-        guard questionIndex < selections.count else { return }
-        if multiSelect {
-            if let idx = selections[questionIndex].firstIndex(of: optionIndex) {
-                selections[questionIndex].remove(at: idx)
+    private func toggleOption(fq: FlatQuestion, optionIndex: Int) {
+        var draft = drafts[fq.key] ?? AnswerDraft()
+        let isMulti = fq.question.multiSelect ?? false
+        if isMulti {
+            if let idx = draft.selectedOptions.firstIndex(of: optionIndex) {
+                draft.selectedOptions.remove(at: idx)
             } else {
-                selections[questionIndex].append(optionIndex)
+                draft.selectedOptions.append(optionIndex)
             }
         } else {
-            selections[questionIndex] = [optionIndex]
+            draft.selectedOptions = draft.selectedOptions == [optionIndex] ? [] : [optionIndex]
         }
+        drafts[fq.key] = draft
     }
 
-    private func binding(for index: Int) -> Binding<String> {
+    private func customTextBinding(for fq: FlatQuestion) -> Binding<String> {
         Binding(
-            get: { index < customTexts.count ? customTexts[index] : "" },
-            set: { if index < customTexts.count { customTexts[index] = $0 } }
+            get: { drafts[fq.key]?.customText ?? "" },
+            set: {
+                var draft = drafts[fq.key] ?? AnswerDraft()
+                draft.customText = $0
+                drafts[fq.key] = draft
+            }
         )
     }
 
-    private func parseQuestions() {
-        guard let data = input.data(using: .utf8),
-              let parsed = try? JSONDecoder().decode(ToolInputPayload.self, from: data) else { return }
-        questions = parsed.questions
-        selections = Array(repeating: [], count: questions.count)
-        customTexts = Array(repeating: "", count: questions.count)
+    private func parseAllQuestions() {
+        var result: [FlatQuestion] = []
+        for pending in allInputs {
+            guard let data = pending.input.data(using: .utf8),
+                  let payload = try? JSONDecoder().decode(ToolInputPayload.self, from: data) else {
+                continue
+            }
+            for (i, q) in payload.questions.enumerated() {
+                result.append(FlatQuestion(
+                    pending: pending,
+                    questionIndex: i,
+                    question: q,
+                    originalQuestions: payload.questions
+                ))
+            }
+        }
+        flatQuestions = result
     }
 
     private func submit() {
-        var answers: [QuestionAnswer] = []
-        for (i, _) in questions.enumerated() {
-            let selected = i < selections.count ? selections[i] : []
-            let text = i < customTexts.count && !customTexts[i].isEmpty ? customTexts[i] : nil
-            answers.append(QuestionAnswer(
-                questionIndex: i, selectedOptions: selected, customText: text
-            ))
+        // Group answers by pending tool input, matching frontend's batchAnswerQuestions
+        var grouped: [String: (pending: PendingToolInput, answers: [QuestionAnswer], questions: [Question])] = [:]
+
+        for fq in flatQuestions {
+            let draft = drafts[fq.key] ?? AnswerDraft()
+            // Only include answers with selections or custom text (like the frontend)
+            guard !draft.selectedOptions.isEmpty || !draft.customText.isEmpty else { continue }
+
+            let answer = QuestionAnswer(
+                questionIndex: fq.questionIndex,
+                selectedOptions: draft.selectedOptions,
+                customText: draft.customText.isEmpty ? nil : draft.customText
+            )
+
+            if grouped[fq.pending.requestId] == nil {
+                grouped[fq.pending.requestId] = (
+                    pending: fq.pending,
+                    answers: [],
+                    questions: fq.originalQuestions
+                )
+            }
+            grouped[fq.pending.requestId]?.answers.append(answer)
         }
-        onRespond(.answer(answers: answers, questions: nil))
+
+        // Send one response per pending tool input
+        for (_, entry) in grouped {
+            let questionInputs = entry.questions.map { q in
+                QuestionInput(
+                    question: q.question,
+                    options: q.options,
+                    multiSelect: q.multiSelect
+                )
+            }
+            onRespond(entry.pending, .answer(answers: entry.answers, questions: questionInputs))
+        }
     }
+}
+
+private struct FlatQuestion {
+    let pending: PendingToolInput
+    let questionIndex: Int
+    let question: Question
+    let originalQuestions: [Question]
+
+    var key: String { "\(pending.requestId)-\(questionIndex)" }
+}
+
+private struct AnswerDraft {
+    var selectedOptions: [Int] = []
+    var customText: String = ""
 }
 
 private struct ToolInputPayload: Decodable {
@@ -140,8 +234,8 @@ private struct ToolInputPayload: Decodable {
 // MARK: - ExitPlanMode
 
 private struct ExitPlanModeView: View {
-    let input: String
-    let onRespond: (ToolInputResult) -> Void
+    let pending: PendingToolInput
+    let onRespond: (PendingToolInput, ToolInputResult) -> Void
     @State private var rejectMessage = ""
 
     var body: some View {
@@ -150,13 +244,13 @@ private struct ExitPlanModeView: View {
                 Text("Plan Proposal")
                     .font(.headline)
 
-                Text(LocalizedStringKey(input))
+                Text(LocalizedStringKey(pending.input))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
 
                 HStack(spacing: 12) {
                     Button {
-                        onRespond(.approve)
+                        onRespond(pending, .approve)
                     } label: {
                         Text("Approve")
                             .frame(maxWidth: .infinity)
@@ -166,7 +260,7 @@ private struct ExitPlanModeView: View {
 
                     Button {
                         let msg = rejectMessage.isEmpty ? nil : rejectMessage
-                        onRespond(.reject(message: msg))
+                        onRespond(pending, .reject(message: msg))
                     } label: {
                         Text("Reject")
                             .frame(maxWidth: .infinity)
