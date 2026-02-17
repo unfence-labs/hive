@@ -29,13 +29,32 @@ export function parseGitHubRepo(
   }
 }
 
-async function gh(
+export async function gh(
   args: string[],
 ): Promise<{ stdout: string; stderr: string }> {
   const { stdout, stderr } = await execFile("gh", args, {
     maxBuffer: 10 * 1024 * 1024,
   });
   return { stdout: stdout.trim(), stderr: stderr.trim() };
+}
+
+/** Check whether the `gh` binary is on PATH. Caches the result. */
+export async function isGhInstalled(): Promise<boolean> {
+  if (ghAvailable !== null) return ghAvailable;
+  try {
+    await execFile("gh", ["--version"]);
+    ghAvailable = true;
+    return true;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      ghAvailable = false;
+      ghUnavailableReason = "gh CLI not installed";
+      return false;
+    }
+    // gh exists but errored for some other reason
+    ghAvailable = true;
+    return true;
+  }
 }
 
 interface GhPrItem {
