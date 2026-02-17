@@ -45,7 +45,7 @@ export default function ProjectDetail({ projects, onDeleteProject }: ProjectDeta
 
   return (
     <div className="flex h-full flex-col overflow-auto">
-      <div className="border-b border-border/50 px-8 py-5">
+      <div className="border-b border-border/50 px-8 py-5" data-tauri-drag-region>
         <div className="flex items-center gap-3">
           <span
             className={cn(
