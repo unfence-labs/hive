@@ -1,26 +1,43 @@
 import { useState } from "react";
-import { Check } from "lucide-react";
+import { Check, RefreshCw } from "lucide-react";
 import { useAccentColor } from "@/hooks/useAccentColor";
-import { useServerUrl } from "@/hooks/useServerUrl";
-import { useVpsTarget } from "@/hooks/useVpsTarget";
+import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
+import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-function getPortFromUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    return u.port || (u.protocol === "https:" ? "443" : "80");
-  } catch {
-    return "3000";
-  }
+const STATUS_DOT: Record<string, string> = {
+  connected: "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]",
+  disconnected: "bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.6)]",
+  unknown: "bg-muted-foreground/40",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  connected: "Connected",
+  disconnected: "Unreachable",
+  unknown: "Not configured",
+};
+
+interface SettingsViewProps {
+  onRefreshConnection?: () => void;
 }
 
-export default function SettingsView() {
+export default function SettingsView({ onRefreshConnection }: SettingsViewProps) {
   const { accentId, setAccent, options } = useAccentColor();
-  const { serverUrl, setServerUrl } = useServerUrl();
-  const { vpsTarget, setVpsTarget } = useVpsTarget();
-  const [draft, setDraft] = useState(serverUrl || "http://localhost:3000");
-  const [vpsDraft, setVpsDraft] = useState(vpsTarget);
+  const { ip, port, setIp, setPort } = useTailscaleConfig();
+  const { status, check } = useConnectionStatus();
+  const [ipDraft, setIpDraft] = useState(ip);
+  const [portDraft, setPortDraft] = useState(port);
+
+  const saveIp = () => { setIp(ipDraft); setTimeout(check, 300); };
+  const savePort = () => { setPort(portDraft); setTimeout(check, 300); };
+
+  const refreshConnection = async () => {
+    setIp(ipDraft);
+    setPort(portDraft);
+    await check();
+    onRefreshConnection?.();
+  };
 
   return (
     <div className="flex h-full flex-col overflow-auto">
@@ -73,58 +90,53 @@ export default function SettingsView() {
           </div>
         </section>
 
-        {/* Connection */}
+        {/* Tailscale Connection */}
         <section>
-          <h2 className="mb-1 text-sm font-medium text-foreground">Connection</h2>
+          <h2 className="mb-1 text-sm font-medium text-foreground">Tailscale connection</h2>
           <p className="mb-4 text-xs text-muted-foreground">
-            Connect to a remote backend via SSH tunnel.
+            Connect to your Hive backend via Tailscale.
           </p>
 
           <div className="space-y-4">
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                Local address
+                Tailscale IP
               </label>
-              <div className="flex gap-2">
-                <Input
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onBlur={() => setServerUrl(draft)}
-                  onKeyDown={(e) => { if (e.key === "Enter") setServerUrl(draft); }}
-                  placeholder="http://localhost:3000"
-                  className="max-w-xs font-mono text-xs"
-                />
-                {draft !== (serverUrl || "http://localhost:3000") && (
-                  <span className="self-center text-[10px] text-muted-foreground">unsaved</span>
-                )}
-              </div>
+              <Input
+                value={ipDraft}
+                onChange={(e) => setIpDraft(e.target.value)}
+                onBlur={saveIp}
+                onKeyDown={(e) => { if (e.key === "Enter") saveIp(); }}
+                placeholder="100.x.x.x"
+                className="max-w-xs font-mono text-xs"
+              />
             </div>
 
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                VPS target
+                Backend port
               </label>
-              <div className="flex gap-2">
-                <Input
-                  value={vpsDraft}
-                  onChange={(e) => setVpsDraft(e.target.value)}
-                  onBlur={() => setVpsTarget(vpsDraft)}
-                  onKeyDown={(e) => { if (e.key === "Enter") setVpsTarget(vpsDraft); }}
-                  placeholder="user@192.168.1.1"
-                  className="max-w-xs font-mono text-xs"
-                />
-                {vpsDraft !== vpsTarget && (
-                  <span className="self-center text-[10px] text-muted-foreground">unsaved</span>
-                )}
-              </div>
-              {vpsTarget && (
-                <p className="mt-1.5 text-[10px] text-muted-foreground">
-                  Run on your machine:{" "}
-                  <code className="rounded bg-muted px-1 py-0.5 font-mono text-foreground">
-                    ssh -L {getPortFromUrl(draft || "http://localhost:3000")}:localhost:{getPortFromUrl(draft || "http://localhost:3000")} {vpsTarget}
-                  </code>
-                </p>
-              )}
+              <Input
+                value={portDraft}
+                onChange={(e) => setPortDraft(e.target.value)}
+                onBlur={savePort}
+                onKeyDown={(e) => { if (e.key === "Enter") savePort(); }}
+                placeholder="3000"
+                className="max-w-xs font-mono text-xs"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className={cn("h-2 w-2 rounded-full", STATUS_DOT[status])} />
+              <span className="text-xs text-muted-foreground">{STATUS_LABEL[status]}</span>
+              <button
+                type="button"
+                onClick={refreshConnection}
+                className="ml-1 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                title="Reconnect — saves config and reloads the app"
+              >
+                <RefreshCw size={13} />
+              </button>
             </div>
           </div>
         </section>

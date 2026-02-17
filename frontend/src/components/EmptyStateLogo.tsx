@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
-import { FolderGit2, BookOpen } from "lucide-react";
+import { Link } from "react-router-dom";
+import { FolderGit2, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
 
 interface EmptyStateLogoProps {
   className?: string;
@@ -156,6 +158,7 @@ export default function EmptyStateLogo({
   enableAnimation = false,
 }: EmptyStateLogoProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { isConfigured } = useTailscaleConfig();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -175,22 +178,36 @@ export default function EmptyStateLogo({
         className="block h-full w-full"
         style={{ imageRendering: "pixelated" }}
       />
-      <div className="absolute inset-x-0 bottom-[28%] flex items-center justify-center gap-3">
-        <button
-          type="button"
-          onClick={onAddProject}
-          className="flex cursor-pointer items-center gap-2 rounded border border-primary/30 bg-background px-5 py-2.5 font-mono text-sm text-primary transition-colors duration-200 hover:border-primary/60 hover:bg-primary/5 focus:outline-none focus:ring-1 focus:ring-primary/50"
-        >
-          <FolderGit2 size={16} />
-          Add repository
-        </button>
+      <div className="absolute inset-x-0 bottom-[28%] flex flex-col items-center gap-4">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onAddProject}
+            disabled={!isConfigured}
+            className={cn(
+              "flex items-center gap-2 rounded-md border px-5 py-2.5 font-mono text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-transparent",
+              isConfigured
+                ? "cursor-pointer border-primary/40 bg-primary/10 text-primary hover:border-primary/70 hover:bg-primary/20 focus:ring-primary/40"
+                : "cursor-not-allowed border-border/30 bg-muted/5 text-muted-foreground/30",
+            )}
+          >
+            <FolderGit2 size={15} />
+            Add repository
+          </button>
+          <Link
+            to="/settings"
+            className="flex cursor-pointer items-center gap-2 rounded-md border border-primary/50 bg-primary/15 px-5 py-2.5 font-mono text-sm text-primary transition-all duration-200 hover:border-primary hover:bg-primary/25 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-1 focus:ring-offset-transparent"
+          >
+            <Settings size={15} />
+            Start config
+          </Link>
+        </div>
         <a
           href="https://docs.hive.dev"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex cursor-pointer items-center gap-2 rounded border border-border bg-background px-5 py-2.5 font-mono text-sm text-muted-foreground transition-colors duration-200 hover:border-border/80 hover:bg-muted/10 hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring/30"
+          className="text-[11px] text-muted-foreground/40 transition-colors hover:text-muted-foreground/70"
         >
-          <BookOpen size={16} />
           Documentation
         </a>
       </div>
