@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { ArchiveIcon, FolderPlus, Plus, Settings, TerminalSquareIcon } from "lucide-react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -52,6 +52,7 @@ export default function Sidebar({
     [projects],
   );
   const { wsId: activeWsId } = useParams();
+  const { pathname } = useLocation();
   const navigate = useNavigate();
   const { activeTerminals } = useTerminalContext();
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
@@ -237,6 +238,7 @@ export default function Sidebar({
         </button>
         <Link
           to="/settings"
+          state={{ from: pathname }}
           className="rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
           aria-label="Settings"
           title="Settings"

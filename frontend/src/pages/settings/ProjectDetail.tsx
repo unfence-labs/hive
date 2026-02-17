@@ -61,14 +61,8 @@ export default function ProjectDetail({ projects, onDeleteProject }: ProjectDeta
 
       <div className="max-w-xl space-y-6 p-6">
         <InfoRow label="Repository URL" value={project.url} mono />
-
-        {project.repoPath && (
-          <InfoRow label="Bare repo path" value={project.repoPath} mono />
-        )}
-
-        {project.workspacesPath && (
-          <InfoRow label="Workspaces path" value={project.workspacesPath} mono />
-        )}
+        <InfoRow label="Bare repo path" value={project.repoPath ?? "—"} mono />
+        <InfoRow label="Workspaces path" value={project.workspacesPath ?? "—"} mono />
 
         <InfoRow
           label="Active workspaces"

@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { ArrowLeft, Paintbrush, Wifi } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -11,14 +12,16 @@ interface SettingsSidebarProps {
 
 export default function SettingsSidebar({ projects }: SettingsSidebarProps) {
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const location = useLocation();
+  const { pathname } = location;
+  const returnTo = useRef((location.state as { from?: string } | null)?.from ?? "/projects");
 
   return (
     <div className="flex h-full w-72 flex-col border-r border-border/50 bg-sidebar text-sidebar-foreground">
       <div className="flex h-12 items-center border-b border-border/50 px-4">
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={() => navigate(returnTo.current)}
           className="flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-sidebar-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
