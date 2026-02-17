@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { ArrowLeft, Bell, CircleUser, Paintbrush, Wifi, GitFork } from "lucide-react";
+import { ArrowLeft, ArrowDownToLine, Bell, CircleUser, Paintbrush, Wifi, GitFork } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -58,6 +58,12 @@ export default function SettingsSidebar({ projects }: SettingsSidebarProps) {
               label="Notifications"
               icon={<Bell className="h-4 w-4" />}
               active={pathname === "/settings/notifications"}
+            />
+            <NavItem
+              to="/settings/conductor"
+              label="Import from Conductor"
+              icon={<ArrowDownToLine className="h-4 w-4" />}
+              active={pathname === "/settings/conductor"}
             />
           </SidebarSection>
 

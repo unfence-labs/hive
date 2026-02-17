@@ -17,6 +17,7 @@ import { settingsRoutes } from "./api/settings.js";
 import { accountRoutes } from "./api/account.js";
 import { scriptRoutes } from "./api/scripts.js";
 import { scriptWsRoutes } from "./ws/script.js";
+import { conductorRoutes } from "./api/conductor.js";
 import { loadConfig } from "./state/config.js";
 import { broadcastToWorkspace } from "./ws/stream.js";
 import type { StreamRoutesOptions } from "./ws/stream.js";
@@ -97,6 +98,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register((instance: FastifyInstance) =>
     scriptWsRoutes(instance, { authToken }),
   );
+  await app.register((instance: FastifyInstance) => conductorRoutes(instance));
 
   return app;
 }
