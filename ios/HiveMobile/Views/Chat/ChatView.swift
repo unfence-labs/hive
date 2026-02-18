@@ -55,9 +55,9 @@ struct ChatView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
-                    Text(workspace.name)
+                    Text(workspace.projectName ?? workspace.name)
                         .font(.headline)
-                    Text(store.branchInfo?.name ?? workspace.branch)
+                    Text("\(workspace.name) · \(store.branchInfo?.name ?? workspace.branch)")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

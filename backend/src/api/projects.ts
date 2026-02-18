@@ -76,6 +76,7 @@ async function enrichProject(project: ProjectState, dir: string) {
     hasFavicon,
     workspaces: project.workspaces.map((ws) => ({
       ...ws,
+      projectName: project.name,
       sessionCount: sessionCounts.get(ws.id) ?? 0,
     })),
   };
