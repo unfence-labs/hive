@@ -66,4 +66,35 @@ describe("createAuthHook", () => {
     expect(statusCode).toBe(401);
     expect(payload).toEqual({ error: "Unauthorized" });
   });
+
+  it("accepts matching ?token= query param", async () => {
+    const hook = createAuthHook("secret");
+    const reply = {
+      status: () => reply,
+      send: () => undefined,
+    };
+    await expect(
+      hook(
+        { url: "/api/attachments/img.jpg", headers: {}, query: { token: "secret" } } as never,
+        reply as never,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects request with wrong ?token= query param", async () => {
+    let statusCode: number | undefined;
+    const reply = {
+      status(code: number) {
+        statusCode = code;
+        return this;
+      },
+      send() {},
+    };
+    const hook = createAuthHook("secret");
+    await hook(
+      { url: "/api/attachments/img.jpg", headers: {}, query: { token: "wrong" } } as never,
+      reply as never,
+    );
+    expect(statusCode).toBe(401);
+  });
 });

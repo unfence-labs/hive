@@ -45,7 +45,9 @@ export function createAuthHook(expectedToken?: string) {
   return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     if (!expectedToken) return;
     if (req.url.startsWith("/health")) return;
-    if (isAuthorized(req.headers, expectedToken)) return;
+    // Support ?token= query param for resources loaded via <img src> / AsyncImage
+    const queryToken = (req.query as Record<string, string>)?.token;
+    if (isAuthorized(req.headers, expectedToken, queryToken)) return;
 
     reply.status(401).send({ error: "Unauthorized" });
   };

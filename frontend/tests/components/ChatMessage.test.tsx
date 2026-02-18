@@ -22,6 +22,10 @@ vi.mock("@/components/ai-elements/message", () => ({
   ),
 }));
 
+vi.mock("@/lib/image-url", () => ({
+  resolveImageSrc: (url: string) => url.startsWith("/api/") ? `http://test-server${url}` : url,
+}));
+
 function assistantMessage(overrides: Partial<ChatMessageType> = {}): ChatMessageType {
   return {
     id: "a1",
@@ -162,6 +166,53 @@ describe("ChatMessage", () => {
 
     expect(screen.getByText("Text only")).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("resolves API path images via resolveImageSrc", () => {
+    render(
+      <ChatMessage
+        message={{
+          id: "u-api-img",
+          sessionId: "sess-1",
+          role: "user",
+          content: "Server image",
+          timestamp: "2026-02-12T00:00:00.000Z",
+          images: [
+            { name: "photo.jpg", mediaType: "image/jpeg", dataUrl: "/api/workspaces/ws1/sessions/s1/attachments/abc.jpg" },
+          ],
+        }}
+      />,
+    );
+
+    const img = screen.getByRole("img");
+    // resolveImageSrc mock prepends http://test-server for /api/ paths
+    expect(img).toHaveAttribute("src", "http://test-server/api/workspaces/ws1/sessions/s1/attachments/abc.jpg");
+    expect(img).toHaveAttribute("alt", "photo.jpg");
+  });
+
+  it("handles mix of base64 and API path images", () => {
+    render(
+      <ChatMessage
+        message={{
+          id: "u-mixed-img",
+          sessionId: "sess-1",
+          role: "user",
+          content: "",
+          timestamp: "2026-02-12T00:00:00.000Z",
+          images: [
+            { name: "old.png", mediaType: "image/png", dataUrl: "data:image/png;base64,abc" },
+            { name: "new.jpg", mediaType: "image/jpeg", dataUrl: "/api/workspaces/ws1/sessions/s1/attachments/def.jpg" },
+          ],
+        }}
+      />,
+    );
+
+    const images = screen.getAllByRole("img");
+    expect(images).toHaveLength(2);
+    // base64 passed through as-is
+    expect(images[0]).toHaveAttribute("src", "data:image/png;base64,abc");
+    // API path resolved with server URL
+    expect(images[1]).toHaveAttribute("src", "http://test-server/api/workspaces/ws1/sessions/s1/attachments/def.jpg");
   });
 
   // ── Additional assistant message coverage ───────────────────────────

@@ -128,7 +128,31 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.stopReason = null;
     this._lastPlanMode = msgOptions?.planMode ?? false;
 
-    // Persist user message immediately (include images for history display)
+    const promptContent = cliContent ?? content;
+
+    if (images?.length) {
+      // Save images to disk first, then emit/persist with lightweight URL references
+      void this.saveImagesToDisk(images).then((saved) => {
+        const urlImages = saved.map((s, i) => ({
+          name: images[i].name,
+          mediaType: images[i].mediaType,
+          dataUrl: `/api/workspaces/${this.workspaceId}/sessions/${this.sessionId}/attachments/${s.filename}`,
+        }));
+        this.emitUserMessage(content, msgOptions, urlImages);
+        this.spawnCli(this.buildPromptWithImages(promptContent, saved.map((s) => s.path)), msgOptions);
+      }).catch((err) => {
+        this._status = "error";
+        this._streamingStartedAt = null;
+        this.emit("error", err instanceof Error ? err : new Error(String(err)));
+      });
+    } else {
+      this.emitUserMessage(content, msgOptions);
+      this.spawnCli(promptContent, msgOptions);
+    }
+  }
+
+  /** Emit, persist and count a user message. */
+  private emitUserMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[]): void {
     const userMsg: ChatMessage = {
       id: nanoid(12),
       sessionId: this.sessionId,
@@ -137,43 +161,27 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       images: images?.length ? images : undefined,
       timestamp: new Date().toISOString(),
     };
-    // Set conversation title from first user message
     if (!this._metadata.title) {
       const firstLine = content.trim().replace(/\n.*/s, "").trimEnd();
       this._metadata.title = firstLine.length > 50
         ? firstLine.slice(0, 47).trimEnd() + "..."
         : firstLine;
     }
-
     void this.enqueuePersist(userMsg);
     this.emit("message", { type: "user_message", message: userMsg });
-
     this.messageCount++;
-
     if (this.messageCount === 1) {
       this.emit("first_message", content);
     }
-
-    const promptContent = cliContent ?? content;
-    if (images?.length) {
-      void this.saveImagesToDisk(images).then((paths) => {
-        this.spawnCli(this.buildPromptWithImages(promptContent, paths), msgOptions);
-      }).catch((err) => {
-        this._status = "error";
-        this._streamingStartedAt = null;
-        this.emit("error", err instanceof Error ? err : new Error(String(err)));
-      });
-    } else {
-      this.spawnCli(promptContent, msgOptions);
-    }
   }
 
-  /** Save base64 image data to disk so Claude can read them. */
-  private async saveImagesToDisk(images: ImageAttachment[]): Promise<string[]> {
+  /** Save base64 image data to disk so Claude can read them.
+   *  Returns both the absolute file path (for CLI) and the filename (for URL references). */
+  private async saveImagesToDisk(images: ImageAttachment[]): Promise<{ path: string; filename: string }[]> {
     const attachmentsDir = join(this.sessionDir, "attachments");
     await mkdir(attachmentsDir, { recursive: true });
 
-    const paths: string[] = [];
+    const results: { path: string; filename: string }[] = [];
     for (const img of images) {
       const base64Match = img.dataUrl.match(/^data:[^;]+;base64,(.+)$/);
       if (!base64Match) continue;
@@ -182,9 +190,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       const filename = `${nanoid(8)}.${ext}`;
       const filepath = join(attachmentsDir, filename);
       await writeFile(filepath, buffer);
-      paths.push(filepath);
+      results.push({ path: filepath, filename });
     }
-    return paths;
+    return results;
   }
 
   /** Build a prompt that includes image file paths for Claude to read. */

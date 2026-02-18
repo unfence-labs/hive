@@ -155,7 +155,8 @@ struct ChatInputBar: View {
 
     private func handleSend() {
         let imageAttachments = attachedImages.compactMap { item -> ImageAttachment? in
-            guard let data = item.image.jpegData(compressionQuality: 0.8) else { return nil }
+            let resized = item.image.constrainedTo(maxDimension: 1536)
+            guard let data = resized.jpegData(compressionQuality: 0.7) else { return nil }
             return ImageAttachment(
                 name: "image.jpg",
                 mediaType: "image/jpeg",
@@ -241,6 +242,19 @@ private struct AttachmentChip: View {
             }
             .offset(x: 4, y: -4)
         }
+    }
+}
+
+// MARK: - UIImage Resizing
+
+private extension UIImage {
+    func constrainedTo(maxDimension: CGFloat) -> UIImage {
+        let longest = max(size.width, size.height)
+        guard longest > maxDimension else { return self }
+        let scale = maxDimension / longest
+        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: newSize)
+        return renderer.image { _ in draw(in: CGRect(origin: .zero, size: newSize)) }
     }
 }
 

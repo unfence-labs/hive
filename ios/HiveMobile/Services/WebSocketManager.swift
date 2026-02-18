@@ -74,6 +74,7 @@ final class WebSocketManager {
 
         connectionState = .connecting
         let wsTask = URLSession.shared.webSocketTask(with: url)
+        wsTask.maximumMessageSize = 10 * 1024 * 1024 // 10 MB – match backend maxPayload
         self.task = wsTask
         wsTask.resume()
 
