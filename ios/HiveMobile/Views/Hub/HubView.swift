@@ -25,6 +25,7 @@ struct HubView: View {
                 projectGrid
             }
         }
+        .scrollBounceBehavior(.always)
         .navigationTitle("Hub")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -33,7 +34,13 @@ struct HubView: View {
                 }
             }
         }
-        .refreshable { await loadProjects() }
+        .refreshable {
+            // Unstructured Task shields loadProjects() from SwiftUI prematurely
+            // cancelling the .refreshable task on ScrollView (known iOS 26 regression).
+            await Task { @MainActor in
+                await loadProjects()
+            }.value
+        }
         .task { await loadProjects() }
         .onDisappear { statusMonitor.disconnectAll() }
         .overlay {
@@ -104,13 +111,10 @@ struct HubView: View {
         errorMessage = nil
         do {
             projects = try await api.fetchProjects()
-            // Sync the status monitor with all workspace IDs for real-time streaming detection
             let allWorkspaceIds = projects.flatMap(\.workspaces).map(\.id)
             statusMonitor.sync(workspaceIds: allWorkspaceIds)
         } catch is CancellationError {
-            // SwiftUI task cancellation — ignore
-        } catch let urlError as URLError where urlError.code == .cancelled {
-            // URLSession cancelled by concurrent refresh — ignore
+            // Genuine SwiftUI task cancellation (view disappeared) — ignore
         } catch {
             errorMessage = error.localizedDescription
         }

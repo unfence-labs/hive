@@ -39,6 +39,7 @@ final class APIClient {
 
         var req = URLRequest(url: url)
         req.httpMethod = method
+        req.cachePolicy = .reloadIgnoringLocalCacheData
         if !authToken.isEmpty {
             req.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
         }
@@ -54,7 +55,11 @@ final class APIClient {
         } catch is CancellationError {
             throw CancellationError()
         } catch let urlError as URLError where urlError.code == .cancelled {
-            throw CancellationError()
+            // Only treat as cancellation if the Swift task itself was cancelled
+            // (e.g. SwiftUI view disappeared). Otherwise the network layer aborted
+            // the request (connection dropped, server unreachable) — surface that.
+            if Task.isCancelled { throw CancellationError() }
+            throw APIError.networkError(urlError)
         } catch {
             throw APIError.networkError(error)
         }
