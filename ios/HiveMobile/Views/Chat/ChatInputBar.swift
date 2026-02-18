@@ -197,14 +197,14 @@ private struct ModeToggle: View {
                 Text(label)
             }
             .font(.caption)
-            .foregroundStyle(isActive ? .accent : .secondary)
+            .foregroundStyle(isActive ? .primary : .secondary)
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .background(
-                Capsule().fill(isActive ? Color.accentColor.opacity(0.15) : .clear)
+                Capsule().fill(isActive ? Color.primary.opacity(0.1) : .clear)
             )
             .overlay(
-                Capsule().stroke(isActive ? Color.accentColor.opacity(0.4) : .clear, lineWidth: 1)
+                Capsule().stroke(isActive ? Color.primary.opacity(0.2) : .clear, lineWidth: 0.5)
             )
         }
         .frame(minHeight: 44)
