@@ -46,9 +46,9 @@ struct MessageBubble: View {
             switch message.role {
             case .user:
                 Text(message.content)
-                    .font(.system(size: 15))
+                    .font(.system(size: 14))
                     .foregroundStyle(WhisperColor.text)
-                    .lineSpacing(4)
+                    .lineSpacing(3)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .glassEffect(.regular, in: userBubbleShape)
@@ -81,7 +81,7 @@ struct MessageBubble: View {
     @ViewBuilder
     private var messageFooter: some View {
         if message.id != "streaming" {
-            HStack(spacing: 6) {
+            HStack(alignment: .center, spacing: 4) {
                 if message.cancelled == true {
                     HStack(spacing: 3) {
                         Image(systemName: "slash.circle")
@@ -92,15 +92,18 @@ struct MessageBubble: View {
                     .foregroundStyle(WhisperColor.textMuted)
                 }
 
+                Text(formatTimestamp(message.timestamp))
+                    .font(WhisperFont.mono(10))
+                    .foregroundStyle(WhisperColor.textMuted)
+
                 if let ms = message.durationMs, message.role == .assistant {
+                    Text("·")
+                        .font(WhisperFont.mono(10))
+                        .foregroundStyle(WhisperColor.textMuted)
                     Text(formatDuration(ms))
                         .font(WhisperFont.mono(10))
                         .foregroundStyle(WhisperColor.textMuted)
                 }
-
-                Text(formatTimestamp(message.timestamp))
-                    .font(.caption2)
-                    .foregroundStyle(WhisperColor.textMuted)
             }
         }
     }
@@ -213,7 +216,7 @@ private struct WhisperThinkingBlock: View {
                         .foregroundStyle(WhisperColor.textMuted)
 
                     Text("Thinking")
-                        .font(WhisperFont.mono(11))
+                        .font(WhisperFont.mono(12))
                         .foregroundStyle(WhisperColor.textMuted)
 
                     Image(systemName: "chevron.right")
@@ -227,9 +230,9 @@ private struct WhisperThinkingBlock: View {
 
             if isExpanded {
                 Text(content)
-                    .font(WhisperFont.mono(12))
+                    .font(WhisperFont.mono(11))
                     .foregroundStyle(WhisperColor.textSecondary)
-                    .lineSpacing(3)
+                    .lineSpacing(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 18)
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -286,12 +289,12 @@ private struct WhisperToolCallRow: View {
                         .foregroundStyle(WhisperColor.textMuted)
 
                     Text(tool.name)
-                        .font(WhisperFont.mono(11))
+                        .font(WhisperFont.mono(12))
                         .foregroundStyle(WhisperColor.textMuted)
 
                     if !tool.input.isEmpty {
                         Text(tool.input.prefix(40))
-                            .font(WhisperFont.mono(11))
+                            .font(WhisperFont.mono(12))
                             .foregroundStyle(WhisperColor.textMuted.opacity(0.6))
                             .lineLimit(1)
                     }
@@ -353,10 +356,11 @@ private extension Theme {
         .text {
             BackgroundColor(.clear)
             ForegroundColor(Color(red: 0.91, green: 0.91, blue: 0.94))
+            FontSize(14)
         }
         .code {
             FontFamilyVariant(.monospaced)
-            FontSize(13)
+            FontSize(12)
             BackgroundColor(Color.white.opacity(0.05))
         }
 }
