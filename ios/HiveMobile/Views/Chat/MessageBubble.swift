@@ -43,7 +43,16 @@ struct MessageBubble: View {
             }
         }
 
-        if !message.content.isEmpty {
+        if message.role == .assistant, message.cancelled == true {
+            HStack(spacing: 4) {
+                Image(systemName: "stop.circle")
+                    .font(.system(size: 11))
+                Text("Stopped")
+                    .font(.system(size: 13))
+                    .italic()
+            }
+            .foregroundStyle(.red.opacity(0.7))
+        } else if !message.content.isEmpty {
             switch message.role {
             case .user:
                 Text(message.content)
@@ -83,16 +92,6 @@ struct MessageBubble: View {
     private var messageFooter: some View {
         if message.id != "streaming" {
             HStack(alignment: .center, spacing: 4) {
-                if message.cancelled == true {
-                    HStack(spacing: 3) {
-                        Image(systemName: "slash.circle")
-                            .font(.system(size: 9))
-                        Text("Cancelled")
-                            .font(WhisperFont.mono(10))
-                    }
-                    .foregroundStyle(WhisperColor.textMuted)
-                }
-
                 Text(formatTimestamp(message.timestamp))
                     .font(WhisperFont.mono(10))
                     .foregroundStyle(WhisperColor.textMuted)

@@ -132,7 +132,8 @@ final class ConversationStore {
     // MARK: - Private
 
     private func finalizeMessage(sessionId: String, durationMs: Int?, cancelled: Bool) {
-        if !currentText.isEmpty || !activeToolCalls.isEmpty || !currentThinking.isEmpty {
+        let hasContent = !currentText.isEmpty || !activeToolCalls.isEmpty || !currentThinking.isEmpty
+        if hasContent {
             let msg = ChatMessage(
                 id: UUID().uuidString,
                 sessionId: sessionId,
@@ -144,6 +145,18 @@ final class ConversationStore {
                 timestamp: ISO8601DateFormatter().string(from: Date()),
                 cancelled: cancelled ? true : nil,
                 durationMs: durationMs
+            )
+            messages.append(msg)
+        } else if cancelled {
+            let msg = ChatMessage(
+                id: UUID().uuidString,
+                sessionId: sessionId,
+                role: .assistant,
+                content: "",
+                images: nil, toolCalls: nil, thinkingContent: nil,
+                timestamp: ISO8601DateFormatter().string(from: Date()),
+                cancelled: true,
+                durationMs: nil
             )
             messages.append(msg)
         }

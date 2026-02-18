@@ -65,7 +65,8 @@ struct ChatView: View {
                 thinkingEnabled: $thinkingEnabled,
                 planModeEnabled: $planModeEnabled,
                 selectedModel: $selectedModel,
-                onSend: sendMessage
+                onSend: sendMessage,
+                onStop: { Task { await wsManager.send(.stop(sessionId: nil)) } }
             )
             .padding(.horizontal, 12)
             .padding(.bottom, 4)
@@ -84,28 +85,17 @@ struct ChatView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 12) {
-                    if store.isBusy {
-                        Button {
-                            Task { await wsManager.send(.stop(sessionId: nil)) }
-                        } label: {
-                            Image(systemName: "stop.circle.fill")
-                                .foregroundStyle(.red)
-                        }
-                    }
-
-                    Button {
-                        showSessionSheet = true
-                    } label: {
-                        if let projectId = workspace.projectId {
-                            ProjectAvatar(
-                                id: projectId,
-                                name: workspace.projectName ?? workspace.name,
-                                hasFavicon: workspace.hasFavicon
-                            )
-                        } else {
-                            Image(systemName: "text.bubble")
-                        }
+                Button {
+                    showSessionSheet = true
+                } label: {
+                    if let projectId = workspace.projectId {
+                        ProjectAvatar(
+                            id: projectId,
+                            name: workspace.projectName ?? workspace.name,
+                            hasFavicon: workspace.hasFavicon
+                        )
+                    } else {
+                        Image(systemName: "text.bubble")
                     }
                 }
             }

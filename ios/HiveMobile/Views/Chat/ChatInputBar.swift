@@ -8,6 +8,7 @@ struct ChatInputBar: View {
     @Binding var planModeEnabled: Bool
     @Binding var selectedModel: ClaudeModel
     let onSend: ([ImageAttachment]) -> Void
+    var onStop: (() -> Void)?
 
     @AppStorage("hiveAccent") private var accentId = "violet"
     @State private var attachedImages: [AttachedImage] = []
@@ -128,6 +129,16 @@ struct ChatInputBar: View {
                     .foregroundStyle(canSend ? .primary : .tertiary)
             }
             .disabled(!canSend)
+
+            if isBusy {
+                Button {
+                    onStop?()
+                } label: {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.red)
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -268,15 +279,18 @@ private extension UIImage {
             isBusy: false,
             thinkingEnabled: .constant(true),
             planModeEnabled: .constant(false),
-            selectedModel: .constant(.opus)
-        ) { _ in }
+            selectedModel: .constant(.opus),
+            onSend: { _ in }
+        )
         ChatInputBar(
             draft: .constant(""),
-            isBusy: false,
+            isBusy: true,
             thinkingEnabled: .constant(false),
             planModeEnabled: .constant(true),
-            selectedModel: .constant(.sonnet)
-        ) { _ in }
+            selectedModel: .constant(.sonnet),
+            onSend: { _ in },
+            onStop: {}
+        )
     }
     .padding()
     .preferredColorScheme(.dark)
