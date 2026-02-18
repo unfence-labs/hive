@@ -2,6 +2,8 @@ import SwiftUI
 
 @main
 struct HiveApp: App {
+    @State private var projectStore = ProjectStore()
+
     var body: some Scene {
         WindowGroup {
             NavigationStack {
@@ -13,6 +15,7 @@ struct HiveApp: App {
                         SettingsView()
                     }
             }
+            .environment(projectStore)
             .tint(.white)
             .preferredColorScheme(.dark)
         }
