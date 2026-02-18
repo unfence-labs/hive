@@ -5,6 +5,16 @@ struct ProjectAvatar: View {
     let project: Project
     @State private var favicon: UIImage?
 
+    init(project: Project) {
+        self.project = project
+        if project.hasFavicon == true {
+            let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
+            let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
+            let urlString = "http://\(host):\(port)/api/projects/\(project.id)/favicon"
+            _favicon = State(initialValue: ImageCache.shared.image(forKey: ImageCache.key(for: urlString)))
+        }
+    }
+
     private static let palette: [Color] = [
         .red, .orange, .yellow, .green, .teal, .blue, .indigo, .purple, .pink,
     ]
@@ -45,13 +55,9 @@ struct ProjectAvatar: View {
     }
 
     private func loadFavicon() async {
-        guard let urlString = faviconURLString, let url = URL(string: urlString) else { return }
+        guard favicon == nil,
+              let urlString = faviconURLString, let url = URL(string: urlString) else { return }
         let key = ImageCache.key(for: urlString)
-
-        if let cached = ImageCache.shared.image(forKey: key) {
-            favicon = cached
-            return
-        }
 
         guard let (data, _) = try? await URLSession.shared.data(from: url),
               let image = UIImage(data: data) else { return }

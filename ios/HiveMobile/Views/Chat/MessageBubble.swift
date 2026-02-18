@@ -150,6 +150,13 @@ private struct ImageThumb: View {
     private static let size = MessageBubble.thumbSize
     private static let radius = MessageBubble.thumbRadius
 
+    init(attachment: ImageAttachment, resolveURL: @escaping (String) -> URL?) {
+        self.attachment = attachment
+        self.resolveURL = resolveURL
+        let key = ImageCache.key(for: attachment.dataUrl)
+        _image = State(initialValue: ImageCache.shared.image(forKey: key))
+    }
+
     var body: some View {
         Group {
             if let image {
@@ -174,12 +181,8 @@ private struct ImageThumb: View {
     }
 
     private func loadImage() async {
+        guard image == nil else { return }
         let key = ImageCache.key(for: attachment.dataUrl)
-
-        if let cached = ImageCache.shared.image(forKey: key) {
-            image = cached
-            return
-        }
 
         if attachment.dataUrl.hasPrefix("data:") {
             guard let range = attachment.dataUrl.range(of: ";base64,") else {
@@ -192,8 +195,8 @@ private struct ImageThumb: View {
                 failed = true
                 return
             }
-            ImageCache.shared.store(decoded, forKey: key)
-            image = decoded
+            ImageCache.shared.storeThumbnail(decoded, forKey: key, maxSize: Self.size)
+            image = ImageCache.shared.image(forKey: key)
             return
         }
 
@@ -208,8 +211,8 @@ private struct ImageThumb: View {
                 failed = true
                 return
             }
-            ImageCache.shared.store(decoded, forKey: key)
-            image = decoded
+            ImageCache.shared.storeThumbnail(decoded, forKey: key, maxSize: Self.size)
+            image = ImageCache.shared.image(forKey: key)
         } catch {
             failed = true
         }
