@@ -26,7 +26,14 @@ final class ProjectStore {
         isLoading = true
         errorMessage = nil
         do {
-            let fresh = try await api.fetchProjects()
+            var fresh = try await api.fetchProjects()
+            // Enrich workspaces with parent project metadata for downstream views.
+            for i in fresh.indices {
+                for j in fresh[i].workspaces.indices {
+                    fresh[i].workspaces[j].projectId = fresh[i].id
+                    fresh[i].workspaces[j].hasFavicon = fresh[i].hasFavicon
+                }
+            }
             projects = fresh
             hasFetchedOnce = true
             let allWorkspaceIds = fresh.flatMap(\.workspaces).map(\.id)
