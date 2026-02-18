@@ -59,6 +59,8 @@ struct HubView: View {
                 Text(project.name)
                     .font(.headline)
                     .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                addWorkspaceButton(for: project)
             }
 
             if project.workspaces.isEmpty {
@@ -82,6 +84,35 @@ struct HubView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func addWorkspaceButton(for project: Project) -> some View {
+        let isCreating = store.creatingWorkspaceProjectIds.contains(project.id)
+        return Button {
+            handleCreateWorkspace(for: project.id)
+        } label: {
+            Group {
+                if isCreating {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "plus")
+                        .font(.footnote.weight(.semibold))
+                }
+            }
+            .frame(width: 28, height: 28)
+            .background(.white.opacity(0.08), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isCreating)
+        .accessibilityLabel(isCreating ? "Creating workspace for \(project.name)" : "Add workspace to \(project.name)")
+        .accessibilityHint("Creates a new workspace in this project.")
+    }
+
+    private func handleCreateWorkspace(for projectId: String) {
+        Task {
+            await store.createWorkspace(in: projectId)
         }
     }
 

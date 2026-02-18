@@ -100,6 +100,10 @@ final class APIClient {
         try await get(path: "/api/projects")
     }
 
+    func createWorkspace(projectId: String) async throws -> Workspace {
+        try await post(path: "/api/projects/\(projectId)/workspaces")
+    }
+
     func fetchSessions(workspaceId: String) async throws -> [SessionMetadata] {
         try await get(path: "/api/workspaces/\(workspaceId)/sessions")
     }
