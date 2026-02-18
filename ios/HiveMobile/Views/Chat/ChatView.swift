@@ -28,7 +28,7 @@ struct ChatView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 16) {
+                        VStack(spacing: 16) {
                             ForEach(store.displayMessages) { message in
                                 MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds)
                                     .id(message.id)
@@ -42,7 +42,6 @@ struct ChatView: View {
                                 .frame(height: 1)
                                 .id(bottomAnchorID)
                         }
-                        .scrollTargetLayout()
                         .padding()
                     }
                     .defaultScrollAnchor(.bottom)

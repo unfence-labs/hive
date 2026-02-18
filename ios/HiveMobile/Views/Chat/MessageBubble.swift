@@ -344,7 +344,7 @@ private struct WhisperThinkingBlock: View {
                         .lineSpacing(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(.opacity)
             }
         }
     }
@@ -391,6 +391,7 @@ private struct WhisperToolCallsBlock: View {
                         isPending: pendingToolUseIds.contains(tool.id)
                     )
                 }
+                .transition(.opacity)
             }
         }
     }
@@ -502,7 +503,7 @@ private struct WhisperToolCallRow: View {
                         }
                     }
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(.opacity)
             }
         }
     }
@@ -548,7 +549,7 @@ private struct AskUserQuestionContent: View {
                 }
             }
         }
-        .transition(.opacity.combined(with: .move(edge: .top)))
+        .transition(.opacity)
     }
 }
 
