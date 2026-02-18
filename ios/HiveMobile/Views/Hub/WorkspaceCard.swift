@@ -21,25 +21,17 @@ struct WorkspaceCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: HiveSpacing.sm) {
-            // Header: name + status dot
+            // Header: name + status indicator
             HStack(alignment: .top) {
                 Text(workspace.name)
                     .font(.headline)
                     .bold()
                     .lineLimit(2)
                 Spacer()
-                StatusDot(isStreaming: isStreaming)
-            }
-
-            Spacer()
-
-            // Activity indicator (centered, only when actually streaming)
-            if isStreaming {
-                HStack {
-                    Spacer()
-                    AgentActivityIndicator(dotSize: 5, spacing: 2.5)
-                        .shadow(color: .accentColor.opacity(0.3), radius: 6)
-                    Spacer()
+                if isStreaming {
+                    AgentActivityIndicator(dotSize: 3, spacing: 1.5)
+                } else {
+                    StatusDot(isStreaming: false)
                 }
             }
 
