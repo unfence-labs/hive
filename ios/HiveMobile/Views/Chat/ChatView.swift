@@ -46,9 +46,6 @@ struct ChatView: View {
                     }
                     .defaultScrollAnchor(.bottom)
                     .scrollDismissesKeyboard(.interactively)
-                    .onTapGesture {
-                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                    }
                     .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                         scrollToBottom(proxy)
                     }

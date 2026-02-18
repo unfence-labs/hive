@@ -12,7 +12,6 @@ struct ChatInputBar: View {
     @AppStorage("hiveAccent") private var accentId = "violet"
     @State private var attachedImages: [AttachedImage] = []
     @State private var selectedItems: [PhotosPickerItem] = []
-    @FocusState private var isDraftFocused: Bool
 
     private var hiveAccent: Color {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
@@ -114,17 +113,12 @@ struct ChatInputBar: View {
 
             TextField("Message", text: $draft, axis: .vertical)
                 .lineLimit(1...5)
-                .focused($isDraftFocused)
                 .submitLabel(.send)
                 .onSubmit {
                     if canSend { handleSend() }
                 }
                 .textFieldStyle(.plain)
                 .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    isDraftFocused = true
-                }
 
             Button {
                 handleSend()
