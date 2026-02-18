@@ -111,15 +111,16 @@ struct ChatView: View {
     // MARK: - Streaming Indicator
 
     private var streamingIndicator: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 3) {
             ForEach(0..<3, id: \.self) { _ in
                 Circle()
-                    .fill(.secondary)
-                    .frame(width: 6, height: 6)
-                    .opacity(0.5)
+                    .fill(WhisperColor.textMuted)
+                    .frame(width: 4, height: 4)
             }
         }
+        .shimmer()
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, 2)
         .id("streaming-indicator")
     }
 

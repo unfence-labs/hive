@@ -9,30 +9,24 @@ struct MessageBubble: View {
             if message.role == .user { Spacer(minLength: 60) }
 
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
-                // Thinking block (collapsible)
                 if let thinking = message.thinkingContent, !thinking.isEmpty {
-                    ThinkingBlock(content: thinking)
+                    WhisperThinkingBlock(content: thinking)
                 }
 
-                // Tool calls (collapsible)
                 if let tools = message.toolCalls, !tools.isEmpty {
-                    ToolCallsBlock(toolCalls: tools)
+                    WhisperToolCallsBlock(toolCalls: tools)
                 }
 
-                // Message content
                 messageContent
 
-                // Timestamp
-                if message.id != "streaming" {
-                    Text(formatTimestamp(message.timestamp))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+                messageFooter
             }
 
-            if message.role == .assistant { Spacer(minLength: 40) }
+            if message.role == .assistant { Spacer(minLength: 0) }
         }
     }
+
+    // MARK: - Message Content
 
     @ViewBuilder
     private var messageContent: some View {
@@ -63,27 +57,70 @@ struct MessageBubble: View {
             }
         }
 
-        if message.content.isEmpty { EmptyView() }
-        else {
+        if !message.content.isEmpty {
             switch message.role {
             case .user:
                 Text(message.content)
+                    .font(.system(size: 15))
+                    .foregroundStyle(WhisperColor.text)
+                    .lineSpacing(4)
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18))
+                    .padding(.vertical, 8)
+                    .glassEffect(.regular, in: userBubbleShape)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 18)
-                            .fill(Color.accentColor.opacity(0.1))
-                            .allowsHitTesting(false)
+                        userBubbleShape
+                            .stroke(WhisperColor.border, lineWidth: 1)
                     )
             case .assistant:
                 Markdown(message.content)
-                    .markdownTheme(.chat)
+                    .markdownTheme(.whisperChat)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             }
         }
     }
+
+    // MARK: - User Bubble Shape
+
+    private var userBubbleShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 14,
+            bottomLeadingRadius: 14,
+            bottomTrailingRadius: 4,
+            topTrailingRadius: 14
+        )
+    }
+
+    // MARK: - Message Footer
+
+    @ViewBuilder
+    private var messageFooter: some View {
+        if message.id != "streaming" {
+            HStack(spacing: 6) {
+                if message.cancelled == true {
+                    HStack(spacing: 3) {
+                        Image(systemName: "slash.circle")
+                            .font(.system(size: 9))
+                        Text("Cancelled")
+                            .font(WhisperFont.mono(10))
+                    }
+                    .foregroundStyle(WhisperColor.textMuted)
+                }
+
+                if let ms = message.durationMs, message.role == .assistant {
+                    Text(formatDuration(ms))
+                        .font(WhisperFont.mono(10))
+                        .foregroundStyle(WhisperColor.textMuted)
+                }
+
+                Text(formatTimestamp(message.timestamp))
+                    .font(.caption2)
+                    .foregroundStyle(WhisperColor.textMuted)
+            }
+        }
+    }
+
+    // MARK: - Helpers
 
     private func resolveImageURL(_ dataUrl: String) -> URL? {
         guard dataUrl.hasPrefix("/api/") else { return nil }
@@ -113,50 +150,72 @@ struct MessageBubble: View {
         display.timeStyle = .short
         return display.string(from: date)
     }
+
+    private func formatDuration(_ ms: Int) -> String {
+        if ms < 1000 { return "\(ms)ms" }
+        let s = Double(ms) / 1000.0
+        return String(format: "%.1fs", s)
+    }
 }
 
-// MARK: - Thinking Block
+// MARK: - Whisper Thinking Block
 
-private struct ThinkingBlock: View {
+private struct WhisperThinkingBlock: View {
     let content: String
     @State private var isExpanded = false
 
     var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            Text(content)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 4)
-        } label: {
-            Label("Thinking", systemImage: "brain")
-                .font(.caption)
-                .foregroundStyle(.accent)
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "brain")
+                        .font(.system(size: 9))
+                        .frame(width: 12, height: 12)
+                        .background(WhisperColor.toolIconBg, in: RoundedRectangle(cornerRadius: 3))
+                        .foregroundStyle(WhisperColor.textMuted)
+
+                    Text("Thinking")
+                        .font(WhisperFont.mono(11))
+                        .foregroundStyle(WhisperColor.textMuted)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundStyle(WhisperColor.textMuted)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                Text(content)
+                    .font(WhisperFont.mono(12))
+                    .foregroundStyle(WhisperColor.textSecondary)
+                    .lineSpacing(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 18)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
-        .tint(.accent)
     }
 }
 
-// MARK: - Tool Calls Block
+// MARK: - Whisper Tool Calls Block
 
-private struct ToolCallsBlock: View {
+private struct WhisperToolCallsBlock: View {
     let toolCalls: [ToolCall]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             ForEach(topLevelCalls) { tool in
-                ToolCallRow(
+                WhisperToolCallRow(
                     tool: tool,
                     children: childCalls(for: tool.id)
                 )
             }
         }
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(Color.accentColor.opacity(0.3))
-                .frame(width: 2)
-        }
-        .padding(.leading, 6)
     }
 
     private var topLevelCalls: [ToolCall] {
@@ -168,40 +227,73 @@ private struct ToolCallsBlock: View {
     }
 }
 
-private struct ToolCallRow: View {
+private struct WhisperToolCallRow: View {
     let tool: ToolCall
     let children: [ToolCall]
     @State private var isExpanded = false
 
-    var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            VStack(alignment: .leading, spacing: 6) {
-                if let output = tool.output, !output.isEmpty {
-                    Text(output)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(isExpanded ? nil : 5)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+    private var hasExpandableContent: Bool {
+        (tool.output != nil && !tool.output!.isEmpty) || !children.isEmpty
+    }
 
-                ForEach(children) { child in
-                    ToolCallRow(tool: child, children: [])
-                        .padding(.leading, 12)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                guard hasExpandableContent else { return }
+                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: iconName(for: tool.name))
+                        .font(.system(size: 9))
+                        .frame(width: 12, height: 12)
+                        .background(WhisperColor.toolIconBg, in: RoundedRectangle(cornerRadius: 3))
+                        .foregroundStyle(WhisperColor.textMuted)
+
+                    Text(tool.name)
+                        .font(WhisperFont.mono(11))
+                        .foregroundStyle(WhisperColor.textMuted)
+
+                    if !tool.input.isEmpty {
+                        Text(tool.input.prefix(40))
+                            .font(WhisperFont.mono(11))
+                            .foregroundStyle(WhisperColor.textMuted.opacity(0.6))
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    if hasExpandableContent {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundStyle(WhisperColor.textMuted)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    }
                 }
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
             }
-            .padding(.top, 4)
-        } label: {
-            Label {
-                Text(tool.name)
-                    .font(.caption)
-                    .bold()
-            } icon: {
-                Image(systemName: iconName(for: tool.name))
-                    .font(.caption2)
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let output = tool.output, !output.isEmpty {
+                        Text(output)
+                            .font(WhisperFont.mono(11))
+                            .foregroundStyle(WhisperColor.textSecondary)
+                            .lineLimit(20)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 4)
+                            .padding(.leading, 18)
+                    }
+
+                    ForEach(children) { child in
+                        WhisperToolCallRow(tool: child, children: [])
+                            .padding(.leading, 12)
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
-            .foregroundStyle(.secondary)
         }
-        .tint(.secondary)
     }
 
     private func iconName(for toolName: String) -> String {
@@ -218,18 +310,22 @@ private struct ToolCallRow: View {
     }
 }
 
-// MARK: - Chat Markdown Theme
+// MARK: - Whisper Chat Markdown Theme
 
 private extension Theme {
-    static let chat = Theme.gitHub
+    static let whisperChat = Theme.gitHub
         .text {
             BackgroundColor(.clear)
-            ForegroundColor(.primary)
+            ForegroundColor(Color(red: 0.91, green: 0.91, blue: 0.94))
         }
         .code {
-            BackgroundColor(Color(.systemFill))
+            FontFamilyVariant(.monospaced)
+            FontSize(13)
+            BackgroundColor(Color.white.opacity(0.05))
         }
 }
+
+// MARK: - Preview
 
 #Preview {
     ScrollView {
@@ -250,6 +346,12 @@ private extension Theme {
                 ],
                 thinkingContent: "The user wants me to fix a login bug. Let me look at the auth module.",
                 timestamp: "2026-02-17T12:00:05.000Z", cancelled: nil, durationMs: 3200
+            ))
+            MessageBubble(message: ChatMessage(
+                id: "3", sessionId: "s1", role: .assistant,
+                content: "This was cancelled midway.",
+                images: nil, toolCalls: nil, thinkingContent: nil,
+                timestamp: "2026-02-17T12:01:00.000Z", cancelled: true, durationMs: 1500
             ))
         }
         .padding()
