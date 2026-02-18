@@ -1,16 +1,17 @@
 import Foundation
 import Observation
 
-/// Monitors real-time streaming status and diff stats for all workspaces from the hub.
+/// Monitors real-time streaming status, diff stats, and branch/PR info for all workspaces.
 ///
-/// Opens a lightweight WebSocket connection per workspace, listens for `status`
-/// and `diff_stats` messages. This mirrors the React frontend's `useWorkspaceLiveData`
-/// approach instead of relying on the persisted REST `status` field.
+/// Opens a lightweight WebSocket connection per workspace, listens for `status`,
+/// `diff_stats`, and `branch_info` messages. This mirrors the React frontend's
+/// `useWorkspaceLiveData` approach.
 @MainActor
 @Observable
 final class HubStatusMonitor {
     private(set) var streamingWorkspaces: Set<String> = []
     private(set) var workspaceDiffStats: [String: DiffStatResponse] = [:]
+    private(set) var workspaceBranchInfo: [String: BranchInfo] = [:]
 
     private var connections: [String: WorkspaceConnection] = [:]
     private let decoder = JSONDecoder()
@@ -21,6 +22,10 @@ final class HubStatusMonitor {
 
     func diffStats(for workspaceId: String) -> DiffStatResponse? {
         workspaceDiffStats[workspaceId]
+    }
+
+    func branchInfo(for workspaceId: String) -> BranchInfo? {
+        workspaceBranchInfo[workspaceId]
     }
 
     /// Sync monitored workspaces — opens new connections, closes stale ones.
@@ -34,6 +39,7 @@ final class HubStatusMonitor {
             connections.removeValue(forKey: id)
             streamingWorkspaces.remove(id)
             workspaceDiffStats.removeValue(forKey: id)
+            workspaceBranchInfo.removeValue(forKey: id)
         }
 
         // Add connections for new workspaces
@@ -50,6 +56,7 @@ final class HubStatusMonitor {
         connections.removeAll()
         streamingWorkspaces.removeAll()
         workspaceDiffStats.removeAll()
+        workspaceBranchInfo.removeAll()
     }
 
     // MARK: - Called by WorkspaceConnection
@@ -64,6 +71,10 @@ final class HubStatusMonitor {
 
     fileprivate func didReceiveDiffStats(_ stats: DiffStatResponse, for workspaceId: String) {
         workspaceDiffStats[workspaceId] = stats
+    }
+
+    fileprivate func didReceiveBranchInfo(_ info: BranchInfo, for workspaceId: String) {
+        workspaceBranchInfo[workspaceId] = info
     }
 }
 
@@ -144,7 +155,7 @@ private final class WorkspaceConnection {
         }
         guard let data else { return }
 
-        // Lightweight selective decode — only handle "status" and "diff_stats" types.
+        // Lightweight selective decode — only handle types the hub cares about.
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = json["type"] as? String else {
             return
@@ -159,6 +170,12 @@ private final class WorkspaceConnection {
                let statsData = try? JSONSerialization.data(withJSONObject: statsJson),
                let stats = try? decoder.decode(DiffStatResponse.self, from: statsData) {
                 monitor?.didReceiveDiffStats(stats, for: workspaceId)
+            }
+        case "branch_info":
+            if let infoJson = json["info"],
+               let infoData = try? JSONSerialization.data(withJSONObject: infoJson),
+               let info = try? decoder.decode(BranchInfo.self, from: infoData) {
+                monitor?.didReceiveBranchInfo(info, for: workspaceId)
             }
         default:
             break

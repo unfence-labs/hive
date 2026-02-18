@@ -78,7 +78,8 @@ struct HubView: View {
                             WorkspaceCard(
                                 workspace: workspace,
                                 isStreaming: statusMonitor.isStreaming(workspace.id),
-                                diffStats: statusMonitor.diffStats(for: workspace.id)
+                                diffStats: statusMonitor.diffStats(for: workspace.id),
+                                branchInfo: statusMonitor.branchInfo(for: workspace.id)
                             )
                         }
                         .buttonStyle(.plain)
