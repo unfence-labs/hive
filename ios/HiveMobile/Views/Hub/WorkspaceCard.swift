@@ -84,7 +84,8 @@ struct WorkspaceCard: View {
             }
         }
         .padding(HiveSpacing.lg)
-        .frame(minHeight: 140)
+        .frame(maxWidth: .infinity, minHeight: 140, alignment: .topLeading)
+        .contentShape(Rectangle())
         .glassCardInteractive()
         .accentGlow(color: .accentColor, radius: 6, isActive: isStreaming)
     }

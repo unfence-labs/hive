@@ -5,6 +5,7 @@ struct ChatInputBar: View {
     let isBusy: Bool
     @Binding var thinkingEnabled: Bool
     @Binding var planModeEnabled: Bool
+    @FocusState private var isDraftFocused: Bool
     let onSend: () -> Void
 
     var body: some View {
@@ -17,7 +18,17 @@ struct ChatInputBar: View {
 
             TextField("Message", text: $draft, axis: .vertical)
                 .lineLimit(1...5)
+                .focused($isDraftFocused)
+                .submitLabel(.send)
+                .onSubmit {
+                    if canSend { onSend() }
+                }
                 .textFieldStyle(.plain)
+                .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isDraftFocused = true
+                }
 
             Button {
                 onSend()
@@ -49,7 +60,7 @@ private struct ModeToggle: View {
             Image(systemName: systemImage)
                 .font(.system(size: 14))
                 .foregroundStyle(isActive ? .accent : .secondary)
-                .frame(width: 28, height: 28)
+                .frame(width: 32, height: 32)
         }
     }
 }

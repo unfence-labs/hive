@@ -83,6 +83,7 @@ struct HubView: View {
                                 sessionCount: workspace.sessionCount
                             )
                         }
+                        .contentShape(Rectangle())
                         .buttonStyle(.plain)
                     }
                 }
