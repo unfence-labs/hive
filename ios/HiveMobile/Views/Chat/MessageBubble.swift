@@ -197,6 +197,92 @@ private struct ImageThumb: View {
     }
 }
 
+// MARK: - Tool Display Helpers
+
+private struct ToolDisplay {
+    let icon: String
+    let label: String
+    var detail: String?
+    var hideOutput = false
+}
+
+private func toolIcon(for name: String) -> String {
+    switch name {
+    case "Read", "Write": return "doc.text"
+    case "Edit": return "pencil"
+    case "Bash": return "terminal"
+    case "Grep", "Glob": return "magnifyingglass"
+    case "Task": return "arrow.triangle.branch"
+    case "WebSearch", "WebFetch": return "globe"
+    default: return "wrench"
+    }
+}
+
+private func getFilename(_ path: String) -> String {
+    (path as NSString).lastPathComponent
+}
+
+private func getToolDisplay(_ tool: ToolCall) -> ToolDisplay {
+    guard let data = tool.input.data(using: .utf8),
+          let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        return ToolDisplay(icon: toolIcon(for: tool.name), label: tool.name, detail: String(tool.input.prefix(40)))
+    }
+
+    switch tool.name {
+    case "Read":
+        let filePath = input["file_path"] as? String
+        let limit = input["limit"] as? Int
+        let label = limit != nil ? "Read \(limit!) lines" : "Read"
+        return ToolDisplay(icon: "doc.text", label: label, detail: filePath.map(getFilename))
+
+    case "Edit":
+        let filePath = input["file_path"] as? String
+        return ToolDisplay(icon: "pencil", label: "Edit", detail: filePath.map(getFilename), hideOutput: true)
+
+    case "Write":
+        let filePath = input["file_path"] as? String
+        return ToolDisplay(icon: "doc.text", label: "Write", detail: filePath.map(getFilename))
+
+    case "Bash":
+        let command = input["command"] as? String
+        let truncated = command.map { $0.count > 50 ? String($0.prefix(50)) + "..." : $0 }
+        return ToolDisplay(icon: "terminal", label: "Bash", detail: truncated)
+
+    case "Grep":
+        let pattern = input["pattern"] as? String
+        let path = input["path"] as? String
+        var detail = pattern.map { "\"\($0)\"" }
+        if let path { detail = (detail ?? "") + " in \(getFilename(path))" }
+        return ToolDisplay(icon: "magnifyingglass", label: "Grep", detail: detail)
+
+    case "Glob":
+        let pattern = input["pattern"] as? String
+        return ToolDisplay(icon: "magnifyingglass", label: "Glob", detail: pattern)
+
+    case "Task":
+        let subagentType = input["subagent_type"] as? String
+        let description = input["description"] as? String
+        let label = subagentType != nil ? "Task (\(subagentType!))" : "Task"
+        return ToolDisplay(icon: "arrow.triangle.branch", label: label, detail: description)
+
+    case "WebFetch", "WebSearch":
+        let url = input["url"] as? String
+        let query = input["query"] as? String
+        return ToolDisplay(icon: "globe", label: tool.name, detail: url ?? query)
+
+    default:
+        return ToolDisplay(icon: toolIcon(for: tool.name), label: tool.name)
+    }
+}
+
+private func getOutputSummary(_ tool: ToolCall) -> String? {
+    guard let output = tool.output, !output.isEmpty else { return nil }
+    let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
+    if lines.count == 1, lines[0].count < 60 { return String(lines[0]) }
+    if lines.count > 1 { return "\(lines.count) lines" }
+    return nil
+}
+
 // MARK: - Whisper Thinking Block
 
 private struct WhisperThinkingBlock: View {
@@ -204,38 +290,23 @@ private struct WhisperThinkingBlock: View {
     @State private var isExpanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "brain")
-                        .font(.system(size: 9))
-                        .frame(width: 12, height: 12)
-                        .background(WhisperColor.toolIconBg, in: RoundedRectangle(cornerRadius: 3))
-                        .foregroundStyle(WhisperColor.textMuted)
-
-                    Text("Thinking")
-                        .font(WhisperFont.mono(12))
-                        .foregroundStyle(WhisperColor.textMuted)
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .medium))
-                        .foregroundStyle(WhisperColor.textMuted)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                }
-                .contentShape(Rectangle())
+                ToolRowLabel(icon: "brain", label: "Thinking")
             }
             .buttonStyle(.plain)
 
             if isExpanded {
-                Text(content)
-                    .font(WhisperFont.mono(11))
-                    .foregroundStyle(WhisperColor.textSecondary)
-                    .lineSpacing(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 18)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                ToolContentPanel {
+                    Text(content)
+                        .font(WhisperFont.mono(11))
+                        .foregroundStyle(WhisperColor.textSecondary)
+                        .lineSpacing(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }
@@ -243,109 +314,207 @@ private struct WhisperThinkingBlock: View {
 
 // MARK: - Whisper Tool Calls Block
 
+private let collapseThreshold = 3
+
 private struct WhisperToolCallsBlock: View {
     let toolCalls: [ToolCall]
+    @State private var groupExpanded = false
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(topLevelCalls) { tool in
-                WhisperToolCallRow(
-                    tool: tool,
-                    children: childCalls(for: tool.id)
-                )
-            }
-        }
-    }
-
-    private var topLevelCalls: [ToolCall] {
+    private var rootTools: [ToolCall] {
         toolCalls.filter { $0.parentToolUseId == nil }
     }
 
-    private func childCalls(for parentId: String) -> [ToolCall] {
+    private func children(for parentId: String) -> [ToolCall] {
         toolCalls.filter { $0.parentToolUseId == parentId }
     }
+
+    private var shouldCollapse: Bool {
+        rootTools.count >= collapseThreshold
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if shouldCollapse {
+                CollapsedToolSummary(
+                    tools: rootTools,
+                    isExpanded: groupExpanded,
+                    onToggle: {
+                        withAnimation(.easeInOut(duration: 0.2)) { groupExpanded.toggle() }
+                    }
+                )
+            }
+
+            if !shouldCollapse || groupExpanded {
+                ForEach(rootTools) { tool in
+                    WhisperToolCallRow(
+                        tool: tool,
+                        children: children(for: tool.id)
+                    )
+                }
+            }
+        }
+    }
 }
+
+// MARK: - Collapsed Tool Summary
+
+private struct CollapsedToolSummary: View {
+    let tools: [ToolCall]
+    let isExpanded: Bool
+    let onToggle: () -> Void
+
+    private var summaryLabel: String {
+        let subagentCount = tools.filter { $0.name == "Task" }.count
+        let toolCount = tools.count - subagentCount
+        var parts: [String] = []
+        if toolCount > 0 { parts.append("\(toolCount) tool call\(toolCount != 1 ? "s" : "")") }
+        if subagentCount > 0 { parts.append("\(subagentCount) subagent\(subagentCount != 1 ? "s" : "")") }
+        return parts.joined(separator: ", ")
+    }
+
+    private var uniqueIcons: [String] {
+        var seen = Set<String>()
+        return tools.compactMap { tool in
+            let icon = toolIcon(for: tool.name)
+            return seen.insert(icon).inserted ? icon : nil
+        }
+    }
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(WhisperColor.textMuted)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+
+                Text(summaryLabel)
+                    .font(WhisperFont.mono(12))
+                    .foregroundStyle(WhisperColor.textMuted)
+
+                HStack(spacing: 3) {
+                    ForEach(uniqueIcons, id: \.self) { icon in
+                        Image(systemName: icon)
+                            .font(.system(size: 9))
+                            .foregroundStyle(WhisperColor.textMuted.opacity(0.5))
+                    }
+                }
+            }
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Tool Call Row
 
 private struct WhisperToolCallRow: View {
     let tool: ToolCall
     let children: [ToolCall]
     @State private var isExpanded = false
 
-    private var hasExpandableContent: Bool {
-        (tool.output != nil && !tool.output!.isEmpty) || !children.isEmpty
-    }
-
     var body: some View {
+        let display = getToolDisplay(tool)
+        let summary = !isExpanded ? getOutputSummary(tool) : nil
+
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                guard hasExpandableContent else { return }
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: iconName(for: tool.name))
-                        .font(.system(size: 9))
-                        .frame(width: 12, height: 12)
-                        .background(WhisperColor.toolIconBg, in: RoundedRectangle(cornerRadius: 3))
-                        .foregroundStyle(WhisperColor.textMuted)
-
-                    Text(tool.name)
-                        .font(WhisperFont.mono(12))
-                        .foregroundStyle(WhisperColor.textMuted)
-
-                    if !tool.input.isEmpty {
-                        Text(tool.input.prefix(40))
-                            .font(WhisperFont.mono(12))
-                            .foregroundStyle(WhisperColor.textMuted.opacity(0.6))
-                            .lineLimit(1)
-                    }
-
-                    Spacer()
-
-                    if hasExpandableContent {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 8, weight: .medium))
-                            .foregroundStyle(WhisperColor.textMuted)
-                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    }
-                }
-                .padding(.vertical, 2)
-                .contentShape(Rectangle())
+                ToolRowLabel(icon: display.icon, label: display.label, detail: display.detail, summary: summary)
             }
             .buttonStyle(.plain)
 
             if isExpanded {
-                VStack(alignment: .leading, spacing: 6) {
-                    if let output = tool.output, !output.isEmpty {
-                        Text(output)
-                            .font(WhisperFont.mono(11))
-                            .foregroundStyle(WhisperColor.textSecondary)
-                            .lineLimit(20)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.top, 4)
-                            .padding(.leading, 18)
+                VStack(alignment: .leading, spacing: 0) {
+                    if let output = tool.output, !output.isEmpty, !display.hideOutput {
+                        ToolContentPanel {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("OUTPUT")
+                                    .font(WhisperFont.mono(9))
+                                    .foregroundStyle(WhisperColor.textMuted.opacity(0.5))
+                                    .tracking(1)
+                                Text(output)
+                                    .font(WhisperFont.mono(11))
+                                    .foregroundStyle(WhisperColor.textSecondary)
+                                    .lineLimit(20)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
                     }
 
-                    ForEach(children) { child in
-                        WhisperToolCallRow(tool: child, children: [])
-                            .padding(.leading, 12)
+                    if !children.isEmpty {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(children) { child in
+                                WhisperToolCallRow(tool: child, children: [])
+                            }
+                        }
+                        .padding(.leading, 14)
+                        .overlay(alignment: .leading) {
+                            Rectangle()
+                                .fill(WhisperColor.textMuted.opacity(0.15))
+                                .frame(width: 2)
+                                .padding(.leading, 5)
+                        }
                     }
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }
+}
 
-    private func iconName(for toolName: String) -> String {
-        switch toolName {
-        case "Read": return "doc.text"
-        case "Write", "Edit": return "pencil"
-        case "Bash": return "terminal"
-        case "Grep": return "magnifyingglass"
-        case "Glob": return "folder.badge.magnifyingglass"
-        case "WebSearch", "WebFetch": return "globe"
-        case "Task": return "arrow.triangle.branch"
-        default: return "wrench"
+// MARK: - Shared Tool Row Components
+
+private struct ToolRowLabel: View {
+    let icon: String
+    let label: String
+    var detail: String?
+    var summary: String?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+                .frame(width: 14, height: 14)
+                .foregroundStyle(WhisperColor.textMuted)
+
+            Text(label)
+                .font(WhisperFont.mono(12))
+                .foregroundStyle(WhisperColor.textMuted)
+
+            if let detail {
+                Text(detail)
+                    .font(WhisperFont.mono(11))
+                    .foregroundStyle(WhisperColor.textMuted)
+                    .lineLimit(1)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(WhisperColor.toolIconBg, in: RoundedRectangle(cornerRadius: 4))
+            }
+
+            if let summary {
+                Text(summary)
+                    .font(WhisperFont.mono(10))
+                    .foregroundStyle(WhisperColor.textMuted.opacity(0.5))
+                    .lineLimit(1)
+            }
         }
+        .padding(.vertical, 3)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct ToolContentPanel<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(WhisperColor.toolIconBg.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+            .padding(.top, 2)
     }
 }
 
@@ -381,8 +550,10 @@ private extension Theme {
                 content: "I'll look into the **authentication flow**. Let me check the relevant files first.\n\n```swift\nfunc login() { }\n```",
                 images: nil,
                 toolCalls: [
-                    ToolCall(id: "t1", name: "Read", input: "auth.swift", output: "func login() { ... }", parentToolUseId: nil),
-                    ToolCall(id: "t2", name: "Edit", input: "auth.swift", output: "Fixed the bug", parentToolUseId: nil),
+                    ToolCall(id: "t1", name: "Read", input: "{\"file_path\":\"/src/auth.swift\",\"limit\":77}", output: "func login() {\n    let token = getToken()\n    validate(token)\n}", parentToolUseId: nil),
+                    ToolCall(id: "t2", name: "Edit", input: "{\"file_path\":\"/src/auth.swift\",\"old_string\":\"validate(token)\",\"new_string\":\"try await validate(token)\"}", output: "OK", parentToolUseId: nil),
+                    ToolCall(id: "t3", name: "Bash", input: "{\"command\":\"swift build\"}", output: "Build complete! (0.45s)", parentToolUseId: nil),
+                    ToolCall(id: "t4", name: "Grep", input: "{\"pattern\":\"loginError\",\"path\":\"/src/auth.swift\"}", output: "src/auth.swift:42: case loginError\nsrc/auth.swift:88: throw loginError", parentToolUseId: nil),
                 ],
                 thinkingContent: "The user wants me to fix a login bug. Let me look at the auth module.",
                 timestamp: "2026-02-17T12:00:05.000Z", cancelled: nil, durationMs: 3200
