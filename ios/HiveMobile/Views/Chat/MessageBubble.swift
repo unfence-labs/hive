@@ -90,8 +90,12 @@ struct MessageBubble: View {
         let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
         let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
         let token = UserDefaults.standard.string(forKey: "authToken") ?? ""
-        let sep = dataUrl.contains("?") ? "&" : "?"
-        return URL(string: "http://\(host):\(port)\(dataUrl)\(sep)token=\(token)")
+        var urlString = "http://\(host):\(port)\(dataUrl)"
+        if !token.isEmpty {
+            let sep = dataUrl.contains("?") ? "&" : "?"
+            urlString += "\(sep)token=\(token)"
+        }
+        return URL(string: urlString)
     }
 
     private func decodeBase64Image(_ dataUrl: String) -> UIImage? {

@@ -122,6 +122,35 @@ struct ToolCall: Codable, Identifiable {
     let input: String
     let output: String?
     let parentToolUseId: String?
+
+    init(id: String, name: String, input: String, output: String?, parentToolUseId: String?) {
+        self.id = id
+        self.name = name
+        self.input = input
+        self.output = output
+        self.parentToolUseId = parentToolUseId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        input = try container.decode(String.self, forKey: .input)
+        parentToolUseId = try container.decodeIfPresent(String.self, forKey: .parentToolUseId)
+        // output can be a string or (rarely) a JSON array/object from the CLI — coerce to string
+        if let str = try? container.decodeIfPresent(String.self, forKey: .output) {
+            output = str
+        } else if let raw = try? container.decodeIfPresent(AnyCodableValue.self, forKey: .output),
+                  let data = try? JSONEncoder().encode(raw) {
+            output = String(data: data, encoding: .utf8)
+        } else {
+            output = nil
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, input, output, parentToolUseId
+    }
 }
 
 struct ChatMessage: Codable, Identifiable {
@@ -135,6 +164,47 @@ struct ChatMessage: Codable, Identifiable {
     let timestamp: String
     let cancelled: Bool?
     let durationMs: Int?
+
+    init(id: String, sessionId: String, role: MessageRole, content: String,
+         images: [ImageAttachment]?, toolCalls: [ToolCall]?, thinkingContent: String?,
+         timestamp: String, cancelled: Bool?, durationMs: Int?) {
+        self.id = id
+        self.sessionId = sessionId
+        self.role = role
+        self.content = content
+        self.images = images
+        self.toolCalls = toolCalls
+        self.thinkingContent = thinkingContent
+        self.timestamp = timestamp
+        self.cancelled = cancelled
+        self.durationMs = durationMs
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        sessionId = try container.decode(String.self, forKey: .sessionId)
+        role = try container.decode(MessageRole.self, forKey: .role)
+        content = try container.decode(String.self, forKey: .content)
+        images = try container.decodeIfPresent([ImageAttachment].self, forKey: .images)
+        toolCalls = try container.decodeIfPresent([ToolCall].self, forKey: .toolCalls)
+        thinkingContent = try container.decodeIfPresent(String.self, forKey: .thinkingContent)
+        timestamp = try container.decode(String.self, forKey: .timestamp)
+        cancelled = try container.decodeIfPresent(Bool.self, forKey: .cancelled)
+        // durationMs may arrive as Int or Double from the backend
+        if let intVal = try? container.decodeIfPresent(Int.self, forKey: .durationMs) {
+            durationMs = intVal
+        } else if let doubleVal = try? container.decodeIfPresent(Double.self, forKey: .durationMs) {
+            durationMs = Int(doubleVal)
+        } else {
+            durationMs = nil
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, sessionId, role, content, images, toolCalls
+        case thinkingContent, timestamp, cancelled, durationMs
+    }
 }
 
 // MARK: - Diff
