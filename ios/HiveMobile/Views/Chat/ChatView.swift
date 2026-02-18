@@ -74,6 +74,8 @@ struct ChatView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 4)
         }
+        .toolbarBackground(.black, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
