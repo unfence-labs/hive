@@ -34,8 +34,8 @@ struct ChatView: View {
                                     .id(message.id)
                             }
 
-                            if store.isStreaming && store.streamingMessage == nil {
-                                streamingIndicator
+                            if store.isStreaming {
+                                streamingActivityRow
                             }
 
                             Color.clear
@@ -122,30 +122,31 @@ struct ChatView: View {
         .onDisappear { wsManager.disconnect() }
     }
 
-    // MARK: - Streaming Indicator
+    // MARK: - Streaming Activity
 
-    private var streamingIndicator: some View {
-        HStack(spacing: 3) {
-            ForEach(0..<3, id: \.self) { _ in
-                Circle()
-                    .fill(WhisperColor.textMuted)
-                    .frame(width: 4, height: 4)
+    private var streamingActivityRow: some View {
+        TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
+            HStack(spacing: 6) {
+                AgentActivityIndicator(dotSize: 3, spacing: 1.5)
+                Text(formatStreamingElapsed(at: timeline.date))
+                    .font(WhisperFont.mono(10))
+                    .foregroundStyle(WhisperColor.textMuted)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 2)
+            .id("streaming-indicator")
         }
-        .shimmer()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, 2)
-        .id("streaming-indicator")
     }
 
     // MARK: - Setup
 
     private func setup() async {
-        wsManager.connect(workspaceId: workspace.id)
-        listenToWebSocket()
-
         await loadSessions()
         activeSessionId = workspace.activeSessionId ?? sessions.first?.sessionId
+        store.setFocusedSessionId(activeSessionId)
+
+        wsManager.connect(workspaceId: workspace.id)
+        listenToWebSocket()
 
         await loadMessages()
     }
@@ -165,6 +166,7 @@ struct ChatView: View {
             isLoading = false
             return
         }
+        store.setFocusedSessionId(sessionId)
         do {
             store.messages = try await api.fetchMessages(
                 workspaceId: workspace.id,
@@ -183,7 +185,7 @@ struct ChatView: View {
     private func switchSession(_ sessionId: String) {
         guard sessionId != activeSessionId else { return }
         activeSessionId = sessionId
-        store.messages = []
+        store.prepareSessionSwitch(sessionId)
         isLoading = true
         Task {
             await wsManager.send(.switchSession(sessionId: sessionId))
@@ -264,6 +266,21 @@ struct ChatView: View {
         } else {
             proxy.scrollTo(bottomAnchorID, anchor: .bottom)
         }
+    }
+
+    private func formatStreamingElapsed(at date: Date) -> String {
+        guard let startedAt = store.streamingStartedAt else {
+            return "0.0s"
+        }
+
+        let elapsedMs = max(0, Int(date.timeIntervalSince(startedAt) * 1000))
+        let totalSec = Double(elapsedMs) / 1000
+        let min = Int(totalSec / 60)
+        let sec = totalSec.truncatingRemainder(dividingBy: 60)
+        let secFormatted = sec.formatted(.number.precision(.fractionLength(1)))
+        let secLabel = min > 0 && sec < 10 ? "0\(secFormatted)" : secFormatted
+
+        return min > 0 ? "\(min)m \(secLabel)s" : "\(secFormatted)s"
     }
 }
 
