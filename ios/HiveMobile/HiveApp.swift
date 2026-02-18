@@ -4,7 +4,10 @@ import SwiftUI
 struct HiveApp: App {
     @State private var projectStore = ProjectStore()
     @State private var selectedTab: AppTab = .hub
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hiveAccent") private var accentId = "violet"
+
+    private let liveActivityManager = LiveActivityManager()
 
     private var accent: Color {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
@@ -33,7 +36,45 @@ struct HiveApp: App {
             .tint(accent)
             .environment(projectStore)
             .preferredColorScheme(.dark)
+            .onChange(of: scenePhase) { _, phase in
+                handleScenePhase(phase)
+            }
+            .onAppear {
+                setupStreamingCallback()
+            }
         }
+    }
+
+    private func handleScenePhase(_ phase: ScenePhase) {
+        switch phase {
+        case .background:
+            liveActivityManager.didEnterBackground(
+                streamingIds: projectStore.statusMonitor.streamingWorkspaces,
+                labelResolver: workspaceLabel(for:)
+            )
+        case .active:
+            liveActivityManager.didEnterForeground()
+        default:
+            break
+        }
+    }
+
+    private func setupStreamingCallback() {
+        projectStore.statusMonitor.onStreamingChange = { [liveActivityManager] ids in
+            liveActivityManager.streamingDidChange(
+                streamingIds: ids,
+                labelResolver: workspaceLabel(for:)
+            )
+        }
+    }
+
+    private func workspaceLabel(for id: String) -> String? {
+        for project in projectStore.projects {
+            if let ws = project.workspaces.first(where: { $0.id == id }) {
+                return "\(project.name) — \(ws.branch)"
+            }
+        }
+        return nil
     }
 }
 

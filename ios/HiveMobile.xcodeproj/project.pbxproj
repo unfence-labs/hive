@@ -8,16 +8,47 @@
 
 /* Begin PBXBuildFile section */
 		1A30DD6A2F452AEE00ABB169 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = AA1B3C4D5E6F0001AABB0021 /* MarkdownUI */; };
+		CC1B3C4D5E6F0002AABB000D /* HiveWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC1B3C4D5E6F0002AABB0001 /* HiveWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		CC1B3C4D5E6F0002AABB000B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = AA1B3C4D5E6F0001AABB0005 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CC1B3C4D5E6F0002AABB0006;
+			remoteInfo = HiveWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		CC1B3C4D5E6F0002AABB000C /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				CC1B3C4D5E6F0002AABB000D /* HiveWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		AA1B3C4D5E6F0001AABB0003 /* HiveMobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HiveMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CC1B3C4D5E6F0002AABB0001 /* HiveWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = HiveWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		AA1B3C4D5E6F0001AABB0006 /* HiveMobile */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = HiveMobile;
+			sourceTree = "<group>";
+		};
+		CC1B3C4D5E6F0002AABB0002 /* HiveWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = HiveWidget;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -31,6 +62,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CC1B3C4D5E6F0002AABB0003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -38,6 +76,7 @@
 			isa = PBXGroup;
 			children = (
 				AA1B3C4D5E6F0001AABB0006 /* HiveMobile */,
+				CC1B3C4D5E6F0002AABB0002 /* HiveWidget */,
 				AA1B3C4D5E6F0001AABB0002 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -46,6 +85,7 @@
 			isa = PBXGroup;
 			children = (
 				AA1B3C4D5E6F0001AABB0003 /* HiveMobile.app */,
+				CC1B3C4D5E6F0002AABB0001 /* HiveWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -60,10 +100,12 @@
 				AA1B3C4D5E6F0001AABB0009 /* Sources */,
 				AA1B3C4D5E6F0001AABB0007 /* Frameworks */,
 				AA1B3C4D5E6F0001AABB0008 /* Resources */,
+				CC1B3C4D5E6F0002AABB000C /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				CC1B3C4D5E6F0002AABB000A /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				AA1B3C4D5E6F0001AABB0006 /* HiveMobile */,
@@ -75,6 +117,26 @@
 			productName = HiveMobile;
 			productReference = AA1B3C4D5E6F0001AABB0003 /* HiveMobile.app */;
 			productType = "com.apple.product-type.application";
+		};
+		CC1B3C4D5E6F0002AABB0006 /* HiveWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CC1B3C4D5E6F0002AABB0009 /* Build configuration list for PBXNativeTarget "HiveWidgetExtension" */;
+			buildPhases = (
+				CC1B3C4D5E6F0002AABB0004 /* Sources */,
+				CC1B3C4D5E6F0002AABB0003 /* Frameworks */,
+				CC1B3C4D5E6F0002AABB0005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				CC1B3C4D5E6F0002AABB0002 /* HiveWidget */,
+			);
+			name = HiveWidgetExtension;
+			productName = HiveWidgetExtension;
+			productReference = CC1B3C4D5E6F0002AABB0001 /* HiveWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -104,12 +166,20 @@
 			projectRoot = "";
 			targets = (
 				AA1B3C4D5E6F0001AABB0004 /* HiveMobile */,
+				CC1B3C4D5E6F0002AABB0006 /* HiveWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		AA1B3C4D5E6F0001AABB0008 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CC1B3C4D5E6F0002AABB0005 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -126,7 +196,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CC1B3C4D5E6F0002AABB0004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		CC1B3C4D5E6F0002AABB000A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CC1B3C4D5E6F0002AABB0006 /* HiveWidgetExtension */;
+			targetProxy = CC1B3C4D5E6F0002AABB000B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		AA1B3C4D5E6F0001AABB000A /* Debug */ = {
@@ -308,6 +393,54 @@
 			};
 			name = Release;
 		};
+		CC1B3C4D5E6F0002AABB0007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HiveWidgetInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = HiveWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.hive.mobile-agent.HiveWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		CC1B3C4D5E6F0002AABB0008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = HiveWidgetInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = HiveWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.hive.mobile-agent.HiveWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -325,6 +458,15 @@
 			buildConfigurations = (
 				AA1B3C4D5E6F0001AABB000C /* Debug */,
 				AA1B3C4D5E6F0001AABB000D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CC1B3C4D5E6F0002AABB0009 /* Build configuration list for PBXNativeTarget "HiveWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CC1B3C4D5E6F0002AABB0007 /* Debug */,
+				CC1B3C4D5E6F0002AABB0008 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
