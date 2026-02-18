@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hive Chat — Redesign Concepts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #09090f;
+    --bg-card: #111119;
+    --bg-elevated: #16161e;
+    --bg-hover: #1c1c26;
+    --border: rgba(255,255,255,0.08);
+    --border-subtle: rgba(255,255,255,0.04);
+    --text: #e8e8f0;
+    --text-secondary: #8b8b9e;
+    --text-muted: #55556a;
+    --accent: #7c3aed;
+    --accent-soft: rgba(124,58,237,0.1);
+    --accent-border: rgba(124,58,237,0.15);
+    --green: #22c55e;
+    --green-soft: rgba(34,197,94,0.1);
+    --blue: #60a5fa;
+    --blue-soft: rgba(96,165,250,0.08);
+    --font-sans: 'Inter', -apple-system, system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ===== Header ===== */
+  .page-header {
+    padding: 48px 48px 32px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .page-header h1 {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  .page-header p {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    max-width: 680px;
+  }
+  .page-header .tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-border);
+    padding: 3px 10px;
+    border-radius: 100px;
+    margin-bottom: 16px;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+
+  /* ===== Grid ===== */
+  .concepts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap: 24px;
+    padding: 0 48px 64px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  /* ===== Card Wrapper ===== */
+  .concept-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .concept-card:hover {
+    border-color: rgba(255,255,255,0.12);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.04), 0 8px 32px rgba(0,0,0,0.3);
+  }
+  .concept-meta {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .concept-meta .number {
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .concept-meta h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.2px;
+  }
+  .concept-meta .desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+
+  .concept-preview {
+    padding: 20px;
+    min-height: 280px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    overflow: hidden;
+  }
+
+  /* ===== Shared Mini Elements ===== */
+  .mini-user { color: var(--text); }
+  .mini-assistant { color: var(--text-secondary); }
+  .mini-tool { color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; }
+  .mini-thinking { color: var(--text-muted); font-style: italic; font-size: 11px; }
+  .mini-code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: rgba(255,255,255,0.04);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--text-secondary);
+  }
+  .mini-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-weight: 500;
+  }
+
+  /* ===== Concept 1: Ghostline ===== */
+  .c1 .turn { padding: 12px 0; }
+  .c1 .turn + .turn { border-top: 1px solid var(--border-subtle); }
+  .c1 .role {
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .c1 .msg { color: var(--text); line-height: 1.65; }
+  .c1 .tool-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-family: var(--font-mono);
+    padding: 3px 0;
+  }
+  .c1 .tool-dot {
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+  }
+
+  /* ===== Concept 2: Whisper ===== */
+  .c2 .turn { margin-bottom: 16px; }
+  .c2 .user-bubble {
+    margin-left: auto;
+    max-width: 75%;
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 14px 14px 4px 14px;
+    color: var(--text);
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+  .c2 .assistant-msg {
+    max-width: 90%;
+    color: var(--text);
+    font-size: 12.5px;
+    line-height: 1.7;
+    padding: 4px 0;
+  }
+  .c2 .tool-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 0;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+  .c2 .tool-icon {
+    width: 12px; height: 12px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.05);
+    flex-shrink: 0;
+  }
+
+  /* ===== Concept 3: Linear ===== */
+  .c3 .turn { padding: 10px 0; }
+  .c3 .turn + .turn { border-top: 1px solid var(--border-subtle); }
+  .c3 .header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .c3 .avatar {
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 600; color: var(--accent);
+    flex-shrink: 0;
+  }
+  .c3 .avatar.ai {
+    background: rgba(255,255,255,0.05);
+    border-color: var(--border);
+    color: var(--text-muted);
+  }
+  .c3 .name { font-size: 12px; font-weight: 500; color: var(--text); }
+  .c3 .time { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); }
+  .c3 .msg { color: var(--text-secondary); padding-left: 26px; }
+  .c3 .tools-bar {
+    display: flex;
+    gap: 4px;
+    padding-left: 26px;
+    padding-top: 6px;
+    flex-wrap: wrap;
+  }
+  .c3 .tool-chip {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+    color: var(--text-muted);
+    border: 1px solid var(--border-subtle);
+  }
+
+  /* ===== Concept 4: Terminal ===== */
+  .c4 {
+    font-family: var(--font-mono) !important;
+    font-size: 12px !important;
+    line-height: 1.7;
+  }
+  .c4 .line { padding: 1px 0; }
+  .c4 .prompt-char { color: var(--green); font-weight: 500; }
+  .c4 .user-text { color: var(--text); }
+  .c4 .ai-text { color: var(--text-secondary); }
+  .c4 .tool-text { color: var(--text-muted); }
+  .c4 .separator {
+    border-top: 1px dashed var(--border-subtle);
+    margin: 8px 0;
+  }
+  .c4 .status-text { color: var(--green); opacity: 0.6; }
+
+  /* ===== Concept 5: Newspaper ===== */
+  .c5 .turn { margin-bottom: 20px; }
+  .c5 .user-block {
+    background: var(--accent-soft);
+    border-left: 2px solid var(--accent);
+    padding: 10px 16px;
+    border-radius: 0 8px 8px 0;
+    color: var(--text);
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+  .c5 .prose {
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.75;
+    max-width: 52ch;
+  }
+  .c5 .tools-summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border-subtle);
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+  .c5 .meta {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 8px;
+  }
+
+  /* ===== Concept 6: Compact Stack ===== */
+  .c6 .turn {
+    display: flex;
+    gap: 10px;
+    padding: 8px 0;
+  }
+  .c6 .turn + .turn { border-top: 1px solid var(--border-subtle); }
+  .c6 .mini-av {
+    width: 20px; height: 20px;
+    border-radius: 5px;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 600;
+  }
+  .c6 .mini-av.u { background: var(--accent-soft); color: var(--accent); }
+  .c6 .mini-av.a { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+  .c6 .content { flex: 1; min-width: 0; }
+  .c6 .top-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 2px;
+  }
+  .c6 .name { font-size: 11px; font-weight: 500; color: var(--text); }
+  .c6 .ts { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); }
+  .c6 .msg { font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+  .c6 .tool-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    padding: 1px 6px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 3px;
+    margin: 2px 2px 2px 0;
+  }
+
+  /* ===== Concept 7: Thread ===== */
+  .c7 { position: relative; padding-left: 20px; }
+  .c7::before {
+    content: '';
+    position: absolute;
+    left: 6px;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--border);
+  }
+  .c7 .turn { position: relative; padding: 10px 0; }
+  .c7 .dot {
+    position: absolute;
+    left: -17px;
+    top: 14px;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border);
+    background: var(--bg-card);
+  }
+  .c7 .dot.user { border-color: var(--accent); background: var(--accent); }
+  .c7 .role-label {
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  .c7 .msg { color: var(--text); font-size: 12.5px; line-height: 1.6; }
+  .c7 .tool-mini {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    padding: 2px 0;
+  }
+
+  /* ===== Concept 8: Pill Accent ===== */
+  .c8 .turn { margin-bottom: 14px; }
+  .c8 .user-pill {
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 20px;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-border);
+    color: var(--text);
+    font-size: 12.5px;
+    max-width: 80%;
+    float: right;
+    clear: both;
+  }
+  .c8 .ai-block {
+    clear: both;
+    color: var(--text);
+    font-size: 12.5px;
+    line-height: 1.7;
+    padding: 4px 0;
+  }
+  .c8 .tool-crumbs {
+    display: flex;
+    gap: 3px;
+    flex-wrap: wrap;
+    margin: 4px 0;
+  }
+  .c8 .crumb {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.03);
+  }
+
+  /* ===== Concept 9: IDE Panel ===== */
+  .c9 { font-family: var(--font-mono); font-size: 11.5px; }
+  .c9 .section {
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .c9 .section-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: rgba(255,255,255,0.02);
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .c9 .section-body {
+    padding: 10px 12px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+  }
+  .c9 .tool-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .c9 .tool-line .fname {
+    color: var(--blue);
+    font-size: 10.5px;
+  }
+  .c9 .arrow { color: var(--text-muted); font-size: 9px; }
+
+  /* ===== Concept 10: Card Stream ===== */
+  .c10 .user-float {
+    text-align: right;
+    margin-bottom: 12px;
+  }
+  .c10 .user-text {
+    display: inline-block;
+    padding: 8px 14px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 12px 12px 4px 12px;
+    color: var(--text);
+    font-size: 12.5px;
+    text-align: left;
+    max-width: 75%;
+  }
+  .c10 .ai-card {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .c10 .ai-card .text { color: var(--text); line-height: 1.7; font-size: 12.5px; }
+  .c10 .ai-card .tools {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .c10 .ai-card .t-pill {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+    color: var(--text-muted);
+  }
+  .c10 .ai-card .footer {
+    margin-top: 8px;
+    font-size: 10px;
+    color: var(--text-muted);
+    display: flex;
+    gap: 8px;
+  }
+
+  /* ===== Concept 11: Inline Tags ===== */
+  .c11 .turn { margin-bottom: 14px; }
+  .c11 .user-line {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .c11 .user-marker {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent);
+    padding-top: 2px;
+    flex-shrink: 0;
+  }
+  .c11 .ai-marker {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    padding-top: 2px;
+    flex-shrink: 0;
+  }
+  .c11 .msg { color: var(--text); font-size: 12.5px; line-height: 1.7; }
+  .c11 .inline-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--blue-soft);
+    color: var(--blue);
+    vertical-align: middle;
+    margin: 0 2px;
+  }
+  .c11 .thinking-tag {
+    background: rgba(255,255,255,0.04);
+    color: var(--text-muted);
+    font-style: italic;
+    font-family: var(--font-sans);
+  }
+
+  /* ===== Concept 12: Margin Labels ===== */
+  .c12 .turn {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 0;
+    padding: 10px 0;
+  }
+  .c12 .turn + .turn { border-top: 1px solid var(--border-subtle); }
+  .c12 .label {
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    padding-top: 2px;
+    text-align: right;
+    padding-right: 12px;
+  }
+  .c12 .label.user { color: var(--accent); }
+  .c12 .body { color: var(--text); font-size: 12.5px; line-height: 1.65; }
+  .c12 .body .tool-ref {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 0;
+  }
+
+  /* ===== Concept 13: Notion Blocks ===== */
+  .c13 .block {
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-bottom: 4px;
+    transition: background 0.15s;
+  }
+  .c13 .block:hover { background: rgba(255,255,255,0.02); }
+  .c13 .block.user {
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-border);
+  }
+  .c13 .block.user:hover { background: rgba(124,58,237,0.12); }
+  .c13 .block .text { color: var(--text); font-size: 12.5px; line-height: 1.65; }
+  .c13 .block.tool {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+  }
+  .c13 .block.tool .icon-box {
+    width: 18px; height: 18px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .c13 .block.tool .icon-box svg { width: 10px; height: 10px; stroke: var(--text-muted); fill: none; stroke-width: 2; }
+  .c13 .block.tool .detail {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+  }
+  .c13 .block.thinking {
+    border-left: 2px solid var(--border);
+    margin-left: 4px;
+    padding-left: 14px;
+    font-style: italic;
+    color: var(--text-muted);
+    font-size: 11.5px;
+  }
+
+  /* ===== Concept 14: Raycast Dense ===== */
+  .c14 .turn { padding: 6px 0; }
+  .c14 .turn + .turn { border-top: 1px solid var(--border-subtle); }
+  .c14 .row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .c14 .icon-sm {
+    width: 16px; height: 16px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700;
+    margin-top: 1px;
+  }
+  .c14 .icon-sm.u { background: var(--accent); color: white; }
+  .c14 .icon-sm.a { background: rgba(255,255,255,0.08); color: var(--text-muted); }
+  .c14 .text-block { flex: 1; min-width: 0; }
+  .c14 .msg { color: var(--text); font-size: 12px; line-height: 1.6; }
+  .c14 .tools-compact {
+    display: flex;
+    gap: 3px;
+    margin-top: 4px;
+    flex-wrap: wrap;
+  }
+  .c14 .tc {
+    font-size: 9.5px;
+    font-family: var(--font-mono);
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.03);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .c14 .hotkey {
+    float: right;
+    font-size: 9px;
+    font-family: var(--font-mono);
+    padding: 1px 4px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+
+  /* ===== Concept 15: Airy Prose ===== */
+  .c15 .turn { margin-bottom: 28px; }
+  .c15 .user-quote {
+    padding: 12px 20px;
+    background: rgba(255,255,255,0.02);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.6;
+    max-width: 56ch;
+  }
+  .c15 .prose-body {
+    color: var(--text);
+    font-size: 13.5px;
+    line-height: 1.85;
+    max-width: 56ch;
+    letter-spacing: 0.01em;
+  }
+  .c15 .tools-aside {
+    margin-top: 12px;
+    padding: 8px 14px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.015);
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .c15 .tools-aside .t-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .c15 .tools-aside .t-check { color: var(--green); font-size: 10px; }
+  .c15 .duration {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 12px;
+  }
+
+  /* ===== Responsive ===== */
+  @media (max-width: 860px) {
+    .concepts-grid { grid-template-columns: 1fr; padding: 0 20px 40px; }
+    .page-header { padding: 32px 20px 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="tag">Chat Redesign Exploration</div>
+  <h1>Hive Chat — 15 Design Concepts</h1>
+  <p>Each card is a miniature preview of how the conversation area would look. Same content, different visual treatment. Focus: readability, lightness, developer-friendly density.</p>
+</div>
+
+<div class="concepts-grid">
+
+  <!-- ===== 1. Ghostline ===== -->
+  <div class="concept-card">
+    <div class="concept-meta">
+      <div class="number">01</div>
+      <h3>Ghostline</h3>
+      <div class="desc">No bubbles. Flat document flow with hair-thin separators. Roles as discrete labels.</div>
+    </div>
+    <div class="concept-preview c1">
+      <div class="turn">
+        <div class="role">You</div>
+        <div class="msg">Can you refactor the authentication middleware to use JWT instead of session cookies?</div>
+      </div>
+      <div class="turn">
+        <div class="role">Claude</div>
+        <div class="msg">I'll update the auth middleware. Let me first check the current implementation and then make the changes.</div>
+        <div class="tool-line"><span class="tool-dot"></span> Read <span class="mini-code">auth.ts</span></div>
+        <div class="tool-line"><span class="tool-dot"></span> Edit <span class="mini-code">middleware.ts</span></div>
+        <div class="tool-line"><span class="tool-dot"></span> Bash <span class="mini-code">npm test</span></div>
+        <div style="margin-top:8px" class="msg">Done. The middleware now validates JWT tokens from the Authorization header. All 12 tests pass.</div>
+      </div>
+      <div class="turn">
+        <div class="role">You</div>
+        <div class="msg">Perfect, can you also add token refresh?</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 2. Whisper ===== -->
+  <div class="concept-card">
+    <div class="concept-meta">
+      <div class="number">02</div>
+      <h3>Whisper</h3>
+      <div class="desc">Ultra-subtle bubble borders. Asymmetric radius for user messages. Nearly invisible chrome.</div>
+    </div>
+    <div class="concept-preview c2">
+      <div class="turn">
+        <div class="user-bubble">Can you refactor the auth middleware to use JWT?</div>
+        <div style="clear:both"></div>
+      </div>
+      <div class="turn">
+        <div class="assistant-msg">I'll update the auth middleware. Let me check the current implementation first.</div>
+        <div class="tool-row"><span class="tool-icon"></span> Read auth.ts</div>
+        <div class="tool-row"><span class="tool-icon"></span> Edit middleware.ts</div>
+        <div class="tool-row"><span class="tool-icon"></span> Bash npm test</div>
+        <div class="assistant-msg">Done. JWT validation is in place. All 12 tests pass.</div>
+      </div>
+      <div class="turn">
+        <div class="user-bubble">Can you also add token refresh?</div>
+        <div style="clear:both"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 3. Linear ===== -->
+  <div class="concept-card">
+    <div class="concept-meta">
+      <div class="number">03</div>
+      <h3>Linear</h3>
+      <div class="desc">Avatar + name + timestamp header. Clean separation. Collapsed tool chips. Minimal.</div>
+    </div>
+    <div class="concept-preview c3">
+      <div class="turn">
+        <div class="header">
+          <div class="avatar">L</div>
+          <span class="name">You</span>
+          <span class="time">2m ago</span>
+        </div>
+        <div class="msg">Can you refactor the auth middleware to use JWT instead of session cookies?</div>
+      </div>
+      <div class="turn">
+        <div class="header">
+          <div class="avatar ai">C</div>
+          <span class="name">Claude</span>
+          <span class="time">1m ago</span>
+        </div>
+        <div class="msg">I'll update the auth middleware. Let me check the current implementation and make the changes.</div>
+        <div class="tools-bar">
+          <span class="tool-chip">Read auth.ts</span>
+          <span class="tool-chip">Edit middleware.ts</span>
+          <span class="tool-chip">Bash npm test</span>
+        </div>
+        <div class="msg" style="margin-top:8px">Done. JWT validation is in place. All 12 tests pass.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 4. Terminal ===== -->
+  <div class="concept-card">
+    <div class="concept-meta">
+      <div class="number">04</div>
+      <h3>Terminal</h3>
+      <div class="desc">Full monospace. Prompt prefixes. Tool calls as shell commands. Raw and honest.</div>
+    </div>
+    <div class="concept-preview c4">
+      <div class="line"><span class="prompt-char">&gt; </span><span class="user-text">refactor auth middleware to use JWT instead of session cookies</span></div>
+      <div class="separator"></div>
+      <div class="line"><span class="ai-text">I'll update the auth middleware. Checking current implementation.</span></div>
+      <div class="line"><span class="tool-text">$ read auth.ts</span></div>
+      <div class="line"><span class="tool-text">$ edit middleware.ts</span></div>
+      <div class="line"><span class="tool-text">$ bash npm test</span></div>
+      <div class="line"><span class="status-text">  12/12 tests passed</span></div>
+      <div style="height:4px"></div>
+      <div class="line"><span class="ai-text">Done. Middleware now validates JWT tokens from Authorization header.</span></div>
+      <div class="separator"></div>
+      <div class="line"><span class="prompt-char">&gt; </span><span class="user-text">add token refresh too</span></div>
+      <div class="separator"></div>
+      <div class="line"><span class="ai-text">Adding refresh token rotation...</span></div>
+      <div class="line"><span class="tool-text">$ edit auth.ts</span></div>
+      <div class="line"><span class="tool-text">$ write refresh-token.ts</span></div>
+    </div>
+  </div>
+
+  <!-- ===== 5. Newspaper ===== -->
+  <div class="concept-card">
+    <div class="concept-meta">
+      <div class="number">05</div>
+      <h3>Newspaper</h3>
+      <div class="desc">Left accent border for user messages. Wide reading column. Article-like prose flow.</div>
+    </div>
+    <div class="concept-preview c5">
+      <div class="turn">
+        <div class="user-block">Can you refactor the auth middleware to use JWT instead of session cookies?</div>
+      </div>
+      <div class="turn">
+        <div class="prose">I'll update the auth middleware. Let me first check the current implementation and then make the changes across the codebase.</div>
+        <div class="tools-summary">
+          <span>3 tools</span>
+          <span style="color:var(--border)">|</span>
+          <span>Read auth.ts</span>
+          <span style="color:var(--border)">·</span>
+          <span>Edit middleware.ts</span>
+          <span style="color:var(--border)">·</span>
+          <span>Bash</span>
+        </div>
+        <div class="prose" style="margin-top:10px">Done. The middleware now validates JWT tokens from the Authorization header. All 12 tests pass.</div>
+        <div class="meta">32s · Opus 4.6</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 6. Compact Stack ===== -->
+  <div class="concept-card">
+    <div class="concept-meta">
+      <div class="number">06</div>
+      <h3>Compact Stack</h3>
+      <div class="desc">Slack-like density. Tiny avatars, inline timestamps, tight vertical rhythm. Max info per pixel.</div>
+    </div>
+    <div class="concept-preview c6">
+      <div class="turn">
+        <div class="mini-av u">L</div>
+        <div class="content">
+          <div class="top-row"><span class="name">You</span> <span class="ts">14:32</span></div>
+          <div class="msg">Can you refactor the auth middleware to use JWT?</div>
+        </div>
+      </div>
+      <div class="turn">
+        <div class="mini-av a">C</div>
+        <div class="content">
+          <div class="top-row"><span class="name">Claude</span> <span class="ts">14:32</span></div>
+          <div class="msg">I'll update the auth middleware. Checking the current implementation first.</div>
+          <div style="margin-top:4px">
+            <span class="tool-inline">Read auth.ts</span>
+            <span class="tool-inline">Edit middleware.ts</span>
+            <span class="tool-inline">Bash npm test</span>
+          </div>
+          <div class="msg" style="margin-top:4px">Done. JWT validation in place, 12/12 tests pass.</div>
+          <div class="ts" style="margin-top:2px">32s</div>
+        </div>
+      </div>
+      <div class="turn">
+        <div class="mini-av u">L</div>
+        <div class="content">
+          <div class="top-row"><span class="name">You</span> <span class="ts">14:33</span></div>
+          <div class="msg">Add token refresh too</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 7. Thread ===== -->
+  <div class="concept-card">
+    <div class="concept-meta">
+      <div class="number">07</div>
+      <h3>Thread</h3>
+      <div class="desc">Vertical timeline line with dots per turn. Clear visual connection between messages.</div>
+    </div>
+    <div class="concept-preview c7">
+      <div class="turn">
+        <div class="dot user"></div>
+        <div class="role-label">You</div>
+        <div class="msg">Can you refactor the auth middleware to use JWT instead of session cookies?</div>
+      </div>
+      <div class="turn">
+        <div class="dot"></div>
+        <div class="role-label">Claude</div>
+        <div class="msg">I'll update the auth middleware. Let me check the current implementation.</div>
+        <div class="tool-mini">Read auth.ts</div>
+        <div class="tool-mini">Edit middleware.ts</div>
+        <div class="tool-mini">Bash npm test → 12/12 passed</div>
+        <div class="msg" style="margin-top:6px">Done. JWT tokens are now validated from the Authorization header.</div>
+      </div>
+      <div class="turn">
+        <div class="dot user"></div>
+        <div class="role-label">You</div>
+        <div class="msg">Add token refresh too</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 8. Pill Accent ===== -->
+  <div class="concept-card">
+    <div class="concept-meta">
+      <div class="number">08</div>
+      <h3>Pill Accent</h3>
+      <div class="desc">User messages as soft accent pills floating right. Assistant text plain left. Minimal tool crumbs.</div>
+    </div>
+    <div class="concept-preview c8">
+      <div class="turn">
+        <div class="user-pill">Refactor auth middleware to use JWT?</div>
+        <div style="clear:both"></div>
+      </div>
+      <div class="turn">
+        <div class="ai-block">I'll update the auth middleware. Let me check the current implementation and make changes.</div>
+        <div class="tool-crumbs">
+          <span class="crumb">Read auth.ts</span>
+          <span class="crumb">Edit middleware.ts</span>
+          <span class="crumb">Bash npm test</span>
+        </div>
+        <div class="ai-block">Done. JWT validation in place, all 12 tests pass.</div>
+      </div>
+      <div class="turn">
+        <div class="user-pill">Also add token refresh</div>
+        <div style="clear:both"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 9. IDE Panel ===== -->
+  <div class="concept-card">
+    <div class="concept-meta">
+      <div class="number">09</div>
+      <h3>IDE Panel</h3>
+      <div class="desc">Structured sections with headers. Tool calls as a compact list. Output panel aesthetic.</div>
+    </div>
+    <div class="concept-preview c9">
+      <div class="section">
+        <div class="section-header">
+          <span style="color:var(--accent)">&#9654;</span> User Input
+        </div>
+        <div class="section-body">Refactor the auth middleware to use JWT instead of session cookies.</div>
+      </div>
+      <div class="section">
+        <div class="section-header">
+          <span>&#9660;</span> Claude Response
+        </div>
+        <div class="section-body">I'll update the auth middleware. Checking current implementation.</div>
+        <div class="tool-line"><span class="arrow">&#8227;</span> Read <span class="fname">auth.ts</span></div>
+        <div class="tool-line"><span class="arrow">&#8227;</span> Edit <span class="fname">middleware.ts</span></div>
+        <div class="tool-line"><span class="arrow">&#8227;</span> Bash <span class="fname">npm test</span> <span style="color:var(--green);font-size:10px;margin-left:auto">12/12 &#10003;</span></div>
+        <div class="section-body" style="border-top: 1px solid var(--border-subtle)">Done. JWT validation is now in place.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 10. Card Stream ===== -->
+  <div class="concept-card">
+    <div class="concept-meta">
+      <div class="number">10</div>
+      <h3>Card Stream</h3>
+      <div class="desc">Assistant turns wrapped in subtle cards with tool footer. User messages float above.</div>
+    </div>
+    <div class="concept-preview c10">
+      <div class="user-float">
+        <div class="user-text">Refactor auth middleware to use JWT instead of session cookies?</div>
+      </div>
+      <div class="ai-card">
+        <div class="text">I'll update the auth middleware. Let me check the current implementation and make the changes.</div>
+        <div class="tools">
+          <span class="t-pill">Read auth.ts</span>
+          <span class="t-pill">Edit middleware.ts</span>
+          <span class="t-pill">Bash npm test</span>
+        </div>
+        <div class="text" style="margin-top:10px">Done. JWT validation in place. All 12 tests pass.</div>
+        <div class="footer">
+          <span>32s</span>
+          <span>·</span>
+          <span>Opus 4.6</span>
+        </div>
+      </div>
+      <div class="user-float">
+        <div class="user-text">Add token refresh too</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 11. Inline Tags ===== -->
+  <div class="concept-card">
+    <div class="concept-meta">
+      <div class="number">11</div>
+      <h3>Inline Tags</h3>
+      <div class="desc">Tool calls rendered as small inline tags within the text flow. No separate tool block.</div>
+    </div>
+    <div class="concept-preview c11">
+      <div class="turn">
+        <div class="user-line">
+          <span class="user-marker">YOU</span>
+          <span class="msg">Refactor the auth middleware to use JWT instead of session cookies?</span>
+        </div>
+      </div>
+      <div class="turn">
+        <div class="user-line">
+          <span class="ai-marker">AI</span>
+          <div class="msg">
+            <span class="inline-tag thinking-tag">Thinking 4s</span>
+            I'll update the auth middleware. Let me check the current implementation.
+            <span class="inline-tag">Read auth.ts</span>
+            <span class="inline-tag">Edit middleware.ts</span>
+            <span class="inline-tag">Bash npm test</span>
+            <br><br>
+            Done. The middleware now validates JWT tokens from the Authorization header. All 12 tests pass.
+          </div>
+        </div>
+      </div>
+      <div class="turn">
+        <div class="user-line">
+          <span class="user-marker">YOU</span>
+          <span class="msg">Add token refresh too</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 12. Margin Labels ===== -->
+  <div class="concept-card">
+    <div class="concept-meta">
+      <div class="number">12</div>
+      <h3>Margin Labels</h3>
+      <div class="desc">Role labels in left margin column. Content flows in main column. Clean grid alignment.</div>
+    </div>
+    <div class="concept-preview c12">
+      <div class="turn">
+        <div class="label user">YOU</div>
+        <div class="body">Can you refactor the auth middleware to use JWT instead of session cookies?</div>
+      </div>
+      <div class="turn">
+        <div class="label">CLAUDE</div>
+        <div class="body">
+          I'll update the auth middleware. Let me check the current implementation.
+          <div class="tool-ref"><span style="opacity:0.4">&#8227;</span> Read auth.ts</div>
+          <div class="tool-ref"><span style="opacity:0.4">&#8227;</span> Edit middleware.ts</div>
+          <div class="tool-ref"><span style="opacity:0.4">&#8227;</span> Bash npm test <span style="color:var(--green);margin-left:4px">&#10003;</span></div>
+          <div style="margin-top:6px">Done. JWT validation is now in place. All 12 tests pass.</div>
+        </div>
+      </div>
+      <div class="turn">
+        <div class="label user">YOU</div>
+        <div class="body">Add token refresh too</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 13. Notion Blocks ===== -->
+  <div class="concept-card">
+    <div class="concept-meta">
+      <div class="number">13</div>
+      <h3>Notion Blocks</h3>
+      <div class="desc">Every element is a hoverable block. User messages accent-tinted. Tool blocks with mini icons.</div>
+    </div>
+    <div class="concept-preview c13">
+      <div class="block user">
+        <div class="text">Can you refactor the auth middleware to use JWT instead of session cookies?</div>
+      </div>
+      <div class="block thinking">Analyzing current auth flow and dependencies...</div>
+      <div class="block">
+        <div class="text">I'll update the auth middleware. Let me check the current implementation.</div>
+      </div>
+      <div class="block tool">
+        <div class="icon-box"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg></div>
+        <div class="detail">Read auth.ts</div>
+      </div>
+      <div class="block tool">
+        <div class="icon-box"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg></div>
+        <div class="detail">Edit middleware.ts</div>
+      </div>
+      <div class="block tool">
+        <div class="icon-box"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></div>
+        <div class="detail">Bash npm test → 12/12 passed</div>
+      </div>
+      <div class="block">
+        <div class="text">Done. JWT validation is now in place. All 12 tests pass.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 14. Raycast Dense ===== -->
+  <div class="concept-card">
+    <div class="concept-meta">
+      <div class="number">14</div>
+      <h3>Raycast Dense</h3>
+      <div class="desc">Maximum density. Tiny icons, compact text, no wasted space. For power users.</div>
+    </div>
+    <div class="concept-preview c14">
+      <div class="turn">
+        <div class="row">
+          <div class="icon-sm u">U</div>
+          <div class="text-block">
+            <div class="msg">Refactor auth middleware to use JWT instead of session cookies</div>
+          </div>
+        </div>
+      </div>
+      <div class="turn">
+        <div class="row">
+          <div class="icon-sm a">C</div>
+          <div class="text-block">
+            <div class="msg">I'll update the auth middleware. Checking current implementation and making changes.</div>
+            <div class="tools-compact">
+              <span class="tc">Read auth.ts</span>
+              <span class="tc">Edit middleware.ts</span>
+              <span class="tc">Bash npm test</span>
+              <span class="tc" style="color:var(--green)">12/12 &#10003;</span>
+            </div>
+            <div class="msg" style="margin-top:4px">Done. JWT validation in place. All tests pass.</div>
+          </div>
+        </div>
+      </div>
+      <div class="turn">
+        <div class="row">
+          <div class="icon-sm u">U</div>
+          <div class="text-block">
+            <div class="msg">Add token refresh too</div>
+          </div>
+        </div>
+      </div>
+      <div class="turn">
+        <div class="row">
+          <div class="icon-sm a">C</div>
+          <div class="text-block">
+            <div class="msg">Adding refresh token rotation with sliding window...</div>
+            <div class="tools-compact">
+              <span class="tc">Edit auth.ts</span>
+              <span class="tc">Write refresh.ts</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 15. Airy Prose ===== -->
+  <div class="concept-card">
+    <div class="concept-meta">
+      <div class="number">15</div>
+      <h3>Airy Prose</h3>
+      <div class="desc">Maximum readability. Generous line-height, constrained width, book-like typography. Tools as aside.</div>
+    </div>
+    <div class="concept-preview c15">
+      <div class="turn">
+        <div class="user-quote">Can you refactor the auth middleware to use JWT instead of session cookies?</div>
+      </div>
+      <div class="turn">
+        <div class="prose-body">I'll update the auth middleware. Let me first check the current implementation and then make the changes across the codebase to ensure everything is consistent.</div>
+        <div class="tools-aside">
+          <div class="t-item"><span class="t-check">&#10003;</span> Read auth.ts</div>
+          <div class="t-item"><span class="t-check">&#10003;</span> Edit middleware.ts</div>
+          <div class="t-item"><span class="t-check">&#10003;</span> Bash npm test — 12/12 passed</div>
+        </div>
+        <div class="prose-body" style="margin-top:12px">Done. The middleware now validates JWT tokens from the Authorization header. I also updated the error responses to return proper 401 status codes.</div>
+        <div class="duration">32s · Opus 4.6</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
