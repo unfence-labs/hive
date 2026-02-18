@@ -58,7 +58,7 @@ struct Workspace: Codable, Identifiable, Hashable {
     let activeSessionId: String?
     let projectName: String?
     let defaultBranch: String?
-    let sessionCount: Int?
+    var sessionCount: Int? = nil
 }
 
 // MARK: - Branch & PR

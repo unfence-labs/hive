@@ -29,7 +29,7 @@ struct WorkspaceCard: View {
                     .font(.headline)
                     .bold()
                     .lineLimit(2)
-                if let count = sessionCount, count > 0 {
+                if let count = sessionCount {
                     Text("\(count)")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
