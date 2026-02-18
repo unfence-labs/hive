@@ -14,7 +14,7 @@ struct HubView: View {
                 ContentUnavailableView(
                     "No Projects",
                     systemImage: "folder",
-                    description: Text("Connect to your Hive server in Settings (tap the gear icon).")
+                    description: Text("Connect to your Hive server from the Settings tab below.")
                 )
                 .padding(.top, 40)
             } else {
@@ -23,13 +23,6 @@ struct HubView: View {
         }
         .scrollBounceBehavior(.always)
         .navigationTitle("Hub")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink(value: SettingsRoute()) {
-                    Image(systemName: "gear")
-                }
-            }
-        }
         .refreshable {
             // Unstructured Task shields refresh from SwiftUI prematurely
             // cancelling the .refreshable task on ScrollView (known iOS 26 regression).

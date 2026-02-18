@@ -3,24 +3,40 @@ import SwiftUI
 @main
 struct HiveApp: App {
     @State private var projectStore = ProjectStore()
+    @State private var selectedTab: AppTab = .hub
+    @AppStorage("hiveAccent") private var accentId = "violet"
+
+    private var accent: Color {
+        AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
+    }
 
     var body: some Scene {
         WindowGroup {
-            NavigationStack {
-                HubView()
-                    .navigationDestination(for: Workspace.self) { workspace in
-                        ChatView(workspace: workspace)
+            TabView(selection: $selectedTab) {
+                Tab("Hub", systemImage: "square.grid.2x2.fill", value: .hub) {
+                    NavigationStack {
+                        HubView()
+                            .navigationDestination(for: Workspace.self) { workspace in
+                                ChatView(workspace: workspace)
+                                    .toolbar(.hidden, for: .tabBar)
+                            }
                     }
-                    .navigationDestination(for: SettingsRoute.self) { _ in
+                    .tint(.white)
+                }
+                Tab("Settings", systemImage: "gearshape.fill", value: .settings) {
+                    NavigationStack {
                         SettingsView()
                     }
+                    .tint(.white)
+                }
             }
+            .tint(accent)
             .environment(projectStore)
-            .tint(.white)
             .preferredColorScheme(.dark)
         }
     }
 }
 
-/// Empty route type to enable NavigationLink-based push to Settings.
-struct SettingsRoute: Hashable {}
+enum AppTab: Hashable {
+    case hub, settings
+}
