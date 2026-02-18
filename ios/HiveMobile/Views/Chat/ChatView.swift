@@ -75,12 +75,21 @@ struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                VStack(spacing: 2) {
-                    Text(workspace.projectName ?? workspace.name)
-                        .font(.headline)
-                    Text("\(workspace.name) · \(store.branchInfo?.name ?? workspace.branch)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    if let projectId = workspace.projectId {
+                        ProjectAvatar(
+                            id: projectId,
+                            name: workspace.projectName ?? workspace.name,
+                            hasFavicon: workspace.hasFavicon
+                        )
+                    }
+                    VStack(spacing: 2) {
+                        Text(workspace.projectName ?? workspace.name)
+                            .font(.headline)
+                        Text("\(workspace.name) · \(store.branchInfo?.name ?? workspace.branch)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {

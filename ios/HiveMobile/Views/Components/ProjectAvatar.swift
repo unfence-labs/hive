@@ -2,15 +2,32 @@ import SwiftUI
 
 /// Displays a project avatar: favicon from the server if available, otherwise a colored letter.
 struct ProjectAvatar: View {
-    let project: Project
+    let projectId: String
+    let projectName: String
+    let hasFaviconFlag: Bool
+
     @State private var favicon: UIImage?
 
     init(project: Project) {
-        self.project = project
-        if project.hasFavicon == true {
+        self.projectId = project.id
+        self.projectName = project.name
+        self.hasFaviconFlag = project.hasFavicon == true
+        if hasFaviconFlag {
             let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
             let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
             let urlString = "http://\(host):\(port)/api/projects/\(project.id)/favicon"
+            _favicon = State(initialValue: ImageCache.shared.image(forKey: ImageCache.key(for: urlString)))
+        }
+    }
+
+    init(id: String, name: String, hasFavicon: Bool?) {
+        self.projectId = id
+        self.projectName = name
+        self.hasFaviconFlag = hasFavicon == true
+        if hasFaviconFlag {
+            let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
+            let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
+            let urlString = "http://\(host):\(port)/api/projects/\(id)/favicon"
             _favicon = State(initialValue: ImageCache.shared.image(forKey: ImageCache.key(for: urlString)))
         }
     }
@@ -20,15 +37,15 @@ struct ProjectAvatar: View {
     ]
 
     private var fallbackColor: Color {
-        let hash = project.name.unicodeScalars.reduce(0) { (($0 &<< 5) &- $0) &+ Int($1.value) }
+        let hash = projectName.unicodeScalars.reduce(0) { (($0 &<< 5) &- $0) &+ Int($1.value) }
         return Self.palette[abs(hash) % Self.palette.count]
     }
 
     private var faviconURLString: String? {
-        guard project.hasFavicon == true else { return nil }
+        guard hasFaviconFlag else { return nil }
         let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
         let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
-        return "http://\(host):\(port)/api/projects/\(project.id)/favicon"
+        return "http://\(host):\(port)/api/projects/\(projectId)/favicon"
     }
 
     var body: some View {
@@ -43,11 +60,11 @@ struct ProjectAvatar: View {
         }
         .frame(width: 20, height: 20)
         .clipShape(RoundedRectangle(cornerRadius: 4))
-        .task(id: project.id) { await loadFavicon() }
+        .task(id: projectId) { await loadFavicon() }
     }
 
     private var letterFallback: some View {
-        Text(String(project.name.prefix(1)).uppercased())
+        Text(String(projectName.prefix(1)).uppercased())
             .font(.system(size: 11, weight: .bold))
             .foregroundStyle(fallbackColor)
             .frame(width: 20, height: 20)
