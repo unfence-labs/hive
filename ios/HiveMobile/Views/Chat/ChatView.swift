@@ -10,7 +10,7 @@ struct ChatView: View {
     @State private var sessions: [SessionMetadata] = []
     @State private var activeSessionId: String?
     @State private var showSessionSheet = false
-    @State private var thinkingEnabled = false
+    @State private var thinkingEnabled = true
     @State private var planModeEnabled = false
     @State private var selectedModel: ClaudeModel = .opus
 
