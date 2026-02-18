@@ -2,6 +2,7 @@ import { memo } from "react";
 import type { ChatMessage as ChatMessageType, QuestionAnswer } from "@/types";
 import { cn } from "@/lib/utils";
 import { formatElapsed } from "@/lib/time";
+import { resolveImageSrc } from "@/lib/image-url";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { ToolCallList } from "@/components/chat/ToolCallList";
@@ -50,7 +51,7 @@ const ChatMessage = memo(function ChatMessage({
                 {message.images.map((img, i) => (
                   <img
                     key={`${message.id}-img-${i}`}
-                    src={img.dataUrl}
+                    src={resolveImageSrc(img.dataUrl)}
                     alt={img.name}
                     className="max-h-48 max-w-xs rounded-md border border-border/30 object-contain"
                   />

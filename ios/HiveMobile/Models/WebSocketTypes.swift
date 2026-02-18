@@ -84,12 +84,14 @@ enum WsOutgoing: Decodable {
     case history(messages: [ChatMessage], sessionId: String?)
     case branchInfo(info: BranchInfo)
     case diffStats(stats: DiffStatResponse)
+    case scriptStatus(scriptType: String, state: String, exitCode: Int?)
 
     private enum CodingKeys: String, CodingKey {
         case type, sessionId, text, id, name, input, output
         case parentToolUseId, toolUseId, requestId, toolName
         case costUsd, durationMs, message, status, streaming, streamingStartedAt
         case messages, info, stats
+        case scriptType, state, exitCode
     }
 
     init(from decoder: Decoder) throws {
@@ -139,11 +141,18 @@ enum WsOutgoing: Decodable {
                 toolName: toolName, toolUseId: toolUseId, input: inputString
             )
         case "done":
-            self = .done(
-                sessionId: try container.decode(String.self, forKey: .sessionId),
-                costUsd: try container.decodeIfPresent(Double.self, forKey: .costUsd),
-                durationMs: try container.decodeIfPresent(Int.self, forKey: .durationMs)
-            )
+            let doneSessionId = try container.decode(String.self, forKey: .sessionId)
+            let doneCost = try container.decodeIfPresent(Double.self, forKey: .costUsd)
+            // durationMs may be Int or Double from the backend
+            let doneDuration: Int?
+            if let intVal = try? container.decodeIfPresent(Int.self, forKey: .durationMs) {
+                doneDuration = intVal
+            } else if let doubleVal = try? container.decodeIfPresent(Double.self, forKey: .durationMs) {
+                doneDuration = Int(doubleVal)
+            } else {
+                doneDuration = nil
+            }
+            self = .done(sessionId: doneSessionId, costUsd: doneCost, durationMs: doneDuration)
         case "error":
             self = .error(message: try container.decode(String.self, forKey: .message))
         case "cancelled":
@@ -166,11 +175,16 @@ enum WsOutgoing: Decodable {
             self = .branchInfo(info: try container.decode(BranchInfo.self, forKey: .info))
         case "diff_stats":
             self = .diffStats(stats: try container.decode(DiffStatResponse.self, forKey: .stats))
-        default:
-            throw DecodingError.dataCorruptedError(
-                forKey: .type, in: container,
-                debugDescription: "Unknown WsOutgoing type: \(type)"
+        case "script_status":
+            self = .scriptStatus(
+                scriptType: try container.decode(String.self, forKey: .scriptType),
+                state: try container.decode(String.self, forKey: .state),
+                exitCode: try container.decodeIfPresent(Int.self, forKey: .exitCode)
             )
+        default:
+            // Silently ignore unknown types instead of throwing — the backend
+            // may add new event types that the iOS client doesn't handle yet.
+            self = .error(message: "Unknown WS event type: \(type)")
         }
     }
 }

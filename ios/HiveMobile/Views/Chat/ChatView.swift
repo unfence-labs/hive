@@ -126,20 +126,22 @@ struct ChatView: View {
     // MARK: - Setup
 
     private func setup() async {
-        activeSessionId = workspace.activeSessionId
         wsManager.connect(workspaceId: workspace.id)
-        async let messagesLoad: () = loadMessages()
-        async let sessionsLoad: () = loadSessions()
-        await messagesLoad
-        await sessionsLoad
         listenToWebSocket()
+
+        await loadSessions()
+        activeSessionId = workspace.activeSessionId ?? sessions.first?.sessionId
+
+        await loadMessages()
     }
 
     private func loadSessions() async {
         do {
             sessions = try await api.fetchSessions(workspaceId: workspace.id)
+        } catch is CancellationError {
+            // View disappeared
         } catch {
-            // non-critical — chat still works without session list
+            // Non-critical — chat still works without session list
         }
     }
 
@@ -153,8 +155,10 @@ struct ChatView: View {
                 workspaceId: workspace.id,
                 sessionId: sessionId
             )
+        } catch is CancellationError {
+            // View disappeared
         } catch {
-            // empty state for now
+            // Fall through to WS history
         }
         isLoading = false
     }
@@ -174,26 +178,18 @@ struct ChatView: View {
 
     private func createSession() {
         Task {
-            do {
-                let session = try await api.createSession(workspaceId: workspace.id)
-                sessions.append(session)
-                switchSession(session.sessionId)
-            } catch {
-                print("[ChatView] createSession failed:", error)
-            }
+            guard let session = try? await api.createSession(workspaceId: workspace.id) else { return }
+            sessions.append(session)
+            switchSession(session.sessionId)
         }
     }
 
     private func deleteSession(_ sessionId: String) {
         Task {
-            do {
-                try await api.deleteSession(workspaceId: workspace.id, sessionId: sessionId)
-                sessions.removeAll { $0.sessionId == sessionId }
-                if sessionId == activeSessionId, let first = sessions.first {
-                    switchSession(first.sessionId)
-                }
-            } catch {
-                print("[ChatView] deleteSession failed:", error)
+            guard (try? await api.deleteSession(workspaceId: workspace.id, sessionId: sessionId)) != nil else { return }
+            sessions.removeAll { $0.sessionId == sessionId }
+            if sessionId == activeSessionId, let first = sessions.first {
+                switchSession(first.sessionId)
             }
         }
     }

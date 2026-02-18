@@ -119,6 +119,9 @@ final class ConversationStore {
 
         case .diffStats(let stats):
             diffStats = stats
+
+        case .scriptStatus:
+            break // Handled by sidebar, not relevant to chat
         }
     }
 

@@ -36,6 +36,33 @@ struct MessageBubble: View {
 
     @ViewBuilder
     private var messageContent: some View {
+        // Image attachments (user messages only)
+        if message.role == .user, let images = message.images, !images.isEmpty {
+            ForEach(Array(images.enumerated()), id: \.offset) { _, img in
+                if img.dataUrl.hasPrefix("data:"), let uiImage = decodeBase64Image(img.dataUrl) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxHeight: 200)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                } else if let url = resolveImageURL(img.dataUrl) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable().scaledToFit()
+                                .frame(maxHeight: 200)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        case .failure:
+                            Label(img.name, systemImage: "photo")
+                                .font(.caption).foregroundStyle(.secondary)
+                        default:
+                            ProgressView().frame(height: 80)
+                        }
+                    }
+                }
+            }
+        }
+
         if message.content.isEmpty { EmptyView() }
         else {
             switch message.role {
@@ -56,6 +83,26 @@ struct MessageBubble: View {
                     .textSelection(.enabled)
             }
         }
+    }
+
+    private func resolveImageURL(_ dataUrl: String) -> URL? {
+        guard dataUrl.hasPrefix("/api/") else { return nil }
+        let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
+        let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
+        let token = UserDefaults.standard.string(forKey: "authToken") ?? ""
+        var urlString = "http://\(host):\(port)\(dataUrl)"
+        if !token.isEmpty {
+            let sep = dataUrl.contains("?") ? "&" : "?"
+            urlString += "\(sep)token=\(token)"
+        }
+        return URL(string: urlString)
+    }
+
+    private func decodeBase64Image(_ dataUrl: String) -> UIImage? {
+        guard let range = dataUrl.range(of: ";base64,") else { return nil }
+        let base64 = String(dataUrl[range.upperBound...])
+        guard let data = Data(base64Encoded: base64) else { return nil }
+        return UIImage(data: data)
     }
 
     private func formatTimestamp(_ ts: String) -> String {

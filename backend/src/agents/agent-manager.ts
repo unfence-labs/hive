@@ -654,6 +654,18 @@ export async function getSpecificSessionMessages(
   }
 }
 
+/** Resolve the absolute path to a session attachment file. */
+export async function resolveSessionAttachmentPath(
+  wsId: string,
+  sessionId: string,
+  filename: string,
+  dataDir = getDataDir(),
+): Promise<string | null> {
+  const result = await getWorkspace(wsId, dataDir);
+  if (!result) return null;
+  return join(dataDir, result.projectState.id, "sessions", sessionId, "attachments", filename);
+}
+
 /** Return session IDs currently streaming in a workspace. */
 export function getStreamingSessionIds(wsId: string): string[] {
   return getLoadedSessions(wsId)

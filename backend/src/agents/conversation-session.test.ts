@@ -821,21 +821,31 @@ describe("ConversationSession", () => {
 
   // ── Image attachment tests ──────────────────────────────────────────
 
-  it("emits user_message with images field when images are provided", () => {
+  it("emits user_message with URL-based images after saving to disk", async () => {
     const session = createSession({ sessionId: "img-user-msg" });
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
+    const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
     const images = [
-      { name: "screenshot.png", mediaType: "image/png", dataUrl: "data:image/png;base64,iVBOR" },
+      { name: "screenshot.png", mediaType: "image/png", dataUrl: `data:image/png;base64,${pngBase64}` },
     ];
     session.sendMessage("Analyze this", undefined, images);
+
+    // Images are saved to disk before emitting — wait for the async save
+    await new Promise((r) => setTimeout(r, 200));
 
     const userEvents = messages.filter((m) => m.type === "user_message");
     expect(userEvents).toHaveLength(1);
     if (userEvents[0].type === "user_message") {
       expect(userEvents[0].message.content).toBe("Analyze this");
-      expect(userEvents[0].message.images).toEqual(images);
+      expect(userEvents[0].message.images).toHaveLength(1);
+      // dataUrl should be an API path, not the original base64
+      expect(userEvents[0].message.images![0].dataUrl).toMatch(
+        /^\/api\/workspaces\/ws-test\/sessions\/img-user-msg\/attachments\/.+\.png$/,
+      );
+      expect(userEvents[0].message.images![0].name).toBe("screenshot.png");
+      expect(userEvents[0].message.images![0].mediaType).toBe("image/png");
     }
   });
 
@@ -964,11 +974,12 @@ describe("ConversationSession", () => {
     expect(files).toHaveLength(2);
   });
 
-  it("persists user message with images to disk", async () => {
+  it("persists user message with API URL paths instead of base64", async () => {
     const session = createSession({ sessionId: "img-persist" });
 
+    const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
     const images = [
-      { name: "test.png", mediaType: "image/png", dataUrl: "data:image/png;base64,abc123" },
+      { name: "test.png", mediaType: "image/png", dataUrl: `data:image/png;base64,${pngBase64}` },
     ];
 
     session.sendMessage("With image", undefined, images);
@@ -981,7 +992,37 @@ describe("ConversationSession", () => {
     const userMsg = JSON.parse(lines[0]);
     expect(userMsg.role).toBe("user");
     expect(userMsg.content).toBe("With image");
-    expect(userMsg.images).toEqual(images);
+    expect(userMsg.images).toHaveLength(1);
+    expect(userMsg.images[0].name).toBe("test.png");
+    expect(userMsg.images[0].mediaType).toBe("image/png");
+    // dataUrl should be an API path, not base64
+    expect(userMsg.images[0].dataUrl).toMatch(/^\/api\/workspaces\//);
+    expect(userMsg.images[0].dataUrl).not.toContain("base64");
+  });
+
+  it("emitted image URL matches the saved attachment filename on disk", async () => {
+    const session = createSession({ sessionId: "img-url-match" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+    const { readdir } = await import("node:fs/promises");
+
+    const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const images = [
+      { name: "pixel.png", mediaType: "image/png", dataUrl: `data:image/png;base64,${pngBase64}` },
+    ];
+
+    session.sendMessage("Match test", undefined, images);
+    await new Promise((r) => setTimeout(r, 200));
+
+    const attachmentsDir = join(tempDir, "sessions", "img-url-match", "attachments");
+    const files = await readdir(attachmentsDir);
+    expect(files).toHaveLength(1);
+
+    const userEvents = messages.filter((m) => m.type === "user_message");
+    if (userEvents[0].type === "user_message") {
+      // The URL should end with the same filename that's on disk
+      expect(userEvents[0].message.images![0].dataUrl).toContain(files[0]);
+    }
   });
 
   it("persists durationMs from result event in assistant message", async () => {

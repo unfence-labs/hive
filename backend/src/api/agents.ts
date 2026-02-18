@@ -1,3 +1,6 @@
+import { join, basename } from "node:path";
+import { createReadStream, existsSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import type { FastifyInstance } from "fastify";
 import {
   getOrCreateSession,
@@ -9,6 +12,7 @@ import {
   activateSession,
   hardDeleteSession,
   getSpecificSessionMessages,
+  resolveSessionAttachmentPath,
   type SessionOptions,
 } from "../agents/agent-manager.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
@@ -163,6 +167,44 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
         return reply.send(messages);
       } catch (err: unknown) {
         const msg = errorMessage(err, "Failed to load session messages");
+        const code = errorStatus(err);
+        return reply.status(code).send({ error: msg });
+      }
+    },
+  );
+
+  // GET /api/workspaces/:wsId/sessions/:sessionId/attachments/:filename — serve image attachment
+  app.get<{ Params: { wsId: string; sessionId: string; filename: string } }>(
+    "/api/workspaces/:wsId/sessions/:sessionId/attachments/:filename",
+    async (req, reply) => {
+      try {
+        const { filename } = req.params;
+        // Guard against path traversal
+        if (filename !== basename(filename) || filename.includes("..")) {
+          return reply.status(400).send({ error: "Invalid filename" });
+        }
+        const filePath = await resolveSessionAttachmentPath(
+          req.params.wsId,
+          req.params.sessionId,
+          filename,
+          dataDir,
+        );
+        if (!filePath || !existsSync(filePath)) {
+          return reply.status(404).send({ error: "Attachment not found" });
+        }
+        const info = await stat(filePath);
+        const ext = filename.split(".").pop()?.toLowerCase();
+        const mime = ext === "jpg" || ext === "jpeg" ? "image/jpeg"
+          : ext === "png" ? "image/png"
+          : ext === "webp" ? "image/webp"
+          : ext === "gif" ? "image/gif"
+          : "application/octet-stream";
+        reply.header("Content-Type", mime);
+        reply.header("Content-Length", info.size);
+        reply.header("Cache-Control", "public, max-age=31536000, immutable");
+        return reply.send(createReadStream(filePath));
+      } catch (err: unknown) {
+        const msg = errorMessage(err, "Failed to serve attachment");
         const code = errorStatus(err);
         return reply.status(code).send({ error: msg });
       }
