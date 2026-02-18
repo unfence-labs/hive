@@ -5,6 +5,7 @@ struct WorkspaceCard: View {
     var isStreaming: Bool = false
     var diffStats: DiffStatResponse?
     var branchInfo: BranchInfo?
+    var sessionCount: Int?
 
     private var totalAdditions: Int {
         guard let stats = diffStats else { return 0 }
@@ -22,12 +23,17 @@ struct WorkspaceCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: HiveSpacing.sm) {
-            // Header: name + status indicator
+            // Header: name + session count + status indicator
             HStack(alignment: .top) {
                 Text(workspace.name)
                     .font(.headline)
                     .bold()
                     .lineLimit(2)
+                if let count = sessionCount, count > 0 {
+                    Text("\(count)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
                 Spacer()
                 if isStreaming {
                     AgentActivityIndicator(dotSize: 3, spacing: 1.5)
@@ -148,7 +154,8 @@ struct PrBadge: View {
                 name: "0xlny/ios-swift-app", lastSyncedAt: "",
                 pr: PullRequestInfo(number: 47, url: "", state: .open, mergeable: true, mergeableState: .clean, checksStatus: .success),
                 prSyncError: nil
-            )
+            ),
+            sessionCount: 3
         )
         WorkspaceCard(workspace: Workspace(
             id: "2", name: "boston-v3", branch: "main",

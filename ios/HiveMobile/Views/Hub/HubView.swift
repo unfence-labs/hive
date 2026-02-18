@@ -79,7 +79,8 @@ struct HubView: View {
                                 workspace: workspace,
                                 isStreaming: statusMonitor.isStreaming(workspace.id),
                                 diffStats: statusMonitor.diffStats(for: workspace.id),
-                                branchInfo: statusMonitor.branchInfo(for: workspace.id)
+                                branchInfo: statusMonitor.branchInfo(for: workspace.id),
+                                sessionCount: workspace.sessionCount
                             )
                         }
                         .buttonStyle(.plain)
