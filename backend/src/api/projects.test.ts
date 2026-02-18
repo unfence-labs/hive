@@ -117,6 +117,76 @@ describe("GET /api/projects", () => {
     expect(project.hasFavicon).toBe(false);
   });
 
+  it("returns sessionCount=0 for workspaces with no sessions", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { url: fixtureRepoUrl },
+    });
+    const { id } = createRes.json();
+
+    // Create a workspace
+    await app.inject({ method: "POST", url: `/api/projects/${id}/workspaces` });
+
+    const res = await app.inject({ method: "GET", url: "/api/projects" });
+    const [project] = res.json();
+    expect(project.workspaces).toHaveLength(1);
+    expect(project.workspaces[0].sessionCount).toBe(0);
+  });
+
+  it("returns projectName on each workspace", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { url: fixtureRepoUrl },
+    });
+    const { id, name } = createRes.json();
+
+    await app.inject({ method: "POST", url: `/api/projects/${id}/workspaces` });
+    await app.inject({ method: "POST", url: `/api/projects/${id}/workspaces` });
+
+    const res = await app.inject({ method: "GET", url: "/api/projects" });
+    const [project] = res.json();
+    expect(project.workspaces).toHaveLength(2);
+    for (const ws of project.workspaces) {
+      expect(ws.projectName).toBe(name);
+    }
+  });
+
+  it("returns correct sessionCount per workspace", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { url: fixtureRepoUrl },
+    });
+    const { id } = createRes.json();
+
+    // Create two workspaces
+    const ws1Res = await app.inject({ method: "POST", url: `/api/projects/${id}/workspaces` });
+    const ws2Res = await app.inject({ method: "POST", url: `/api/projects/${id}/workspaces` });
+    const ws1Id = ws1Res.json().id;
+    const ws2Id = ws2Res.json().id;
+
+    // Write session fixtures directly on disk
+    const sessionsRoot = join(dataDir, id, "sessions");
+    for (const [sessId, wsId] of [
+      ["sess-a", ws1Id],
+      ["sess-b", ws1Id],
+      ["sess-c", ws1Id],
+      ["sess-d", ws2Id],
+    ]) {
+      const dir = join(sessionsRoot, sessId);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "metadata.json"), JSON.stringify({ sessionId: sessId, workspaceId: wsId }));
+    }
+
+    const res = await app.inject({ method: "GET", url: "/api/projects" });
+    const [project] = res.json();
+    const countByWs = Object.fromEntries(project.workspaces.map((ws: { id: string; sessionCount: number }) => [ws.id, ws.sessionCount]));
+    expect(countByWs[ws1Id]).toBe(3);
+    expect(countByWs[ws2Id]).toBe(1);
+  });
+
   it("returns hasFavicon=true when project repo contains a favicon", async () => {
     const fixtureDir = join(tempDir, "fixtures");
     const repoWithFavicon = await createFixtureRepoWithFile(

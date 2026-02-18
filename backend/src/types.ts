@@ -231,6 +231,7 @@ export interface QuestionInput {
 export interface MessageOptions {
   planMode?: boolean;
   thinkingEnabled?: boolean;
+  model?: string;
 }
 
 /** Frontend -> Backend */

@@ -1,3 +1,5 @@
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import {
   createProject,
@@ -32,12 +34,51 @@ async function hasFaviconFlag(dir: string, projectId: string): Promise<boolean> 
   }
 }
 
+/** Count sessions per workspace by scanning the project's sessions directory once. */
+async function countSessionsPerWorkspace(
+  dir: string,
+  projectId: string,
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  const sessionsRoot = join(dir, projectId, "sessions");
+  try {
+    const entries = await readdir(sessionsRoot, { withFileTypes: true });
+    await Promise.all(
+      entries
+        .filter((e) => e.isDirectory())
+        .map(async (e) => {
+          try {
+            const raw = await readFile(join(sessionsRoot, e.name, "metadata.json"), "utf-8");
+            const meta = JSON.parse(raw) as { workspaceId?: string };
+            if (meta.workspaceId) {
+              counts.set(meta.workspaceId, (counts.get(meta.workspaceId) ?? 0) + 1);
+            }
+          } catch {
+            // Skip unreadable metadata.
+          }
+        }),
+    );
+  } catch {
+    // No sessions directory yet.
+  }
+  return counts;
+}
+
 async function enrichProject(project: ProjectState, dir: string) {
+  const [hasFavicon, sessionCounts] = await Promise.all([
+    hasFaviconFlag(dir, project.id),
+    countSessionsPerWorkspace(dir, project.id),
+  ]);
   return {
     ...project,
     repoPath: bareRepoPath(dir, project.id),
     workspacesPath: workspacesDir(dir, project.id),
-    hasFavicon: await hasFaviconFlag(dir, project.id),
+    hasFavicon,
+    workspaces: project.workspaces.map((ws) => ({
+      ...ws,
+      projectName: project.name,
+      sessionCount: sessionCounts.get(ws.id) ?? 0,
+    })),
   };
 }
 
