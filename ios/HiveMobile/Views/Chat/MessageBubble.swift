@@ -28,31 +28,16 @@ struct MessageBubble: View {
 
     // MARK: - Message Content
 
+    fileprivate static let thumbSize = CGSize(width: 80, height: 60)
+    fileprivate static let thumbRadius: CGFloat = 10
+
     @ViewBuilder
     private var messageContent: some View {
         // Image attachments (user messages only)
         if message.role == .user, let images = message.images, !images.isEmpty {
-            ForEach(Array(images.enumerated()), id: \.offset) { _, img in
-                if img.dataUrl.hasPrefix("data:"), let uiImage = decodeBase64Image(img.dataUrl) {
-                    Image(uiImage: uiImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxHeight: 200)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                } else if let url = resolveImageURL(img.dataUrl) {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image.resizable().scaledToFit()
-                                .frame(maxHeight: 200)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        case .failure:
-                            Label(img.name, systemImage: "photo")
-                                .font(.caption).foregroundStyle(.secondary)
-                        default:
-                            ProgressView().frame(height: 80)
-                        }
-                    }
+            HStack(spacing: 6) {
+                ForEach(Array(images.enumerated()), id: \.offset) { _, img in
+                    ImageThumb(attachment: img, resolveURL: resolveImageURL)
                 }
             }
         }
@@ -135,13 +120,6 @@ struct MessageBubble: View {
         return URL(string: urlString)
     }
 
-    private func decodeBase64Image(_ dataUrl: String) -> UIImage? {
-        guard let range = dataUrl.range(of: ";base64,") else { return nil }
-        let base64 = String(dataUrl[range.upperBound...])
-        guard let data = Data(base64Encoded: base64) else { return nil }
-        return UIImage(data: data)
-    }
-
     private func formatTimestamp(_ ts: String) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -155,6 +133,64 @@ struct MessageBubble: View {
         if ms < 1000 { return "\(ms)ms" }
         let s = Double(ms) / 1000.0
         return String(format: "%.1fs", s)
+    }
+}
+
+// MARK: - Image Thumbnail
+
+private struct ImageThumb: View {
+    let attachment: ImageAttachment
+    let resolveURL: (String) -> URL?
+    @State private var decoded: UIImage?
+    @State private var failed = false
+
+    private static let size = MessageBubble.thumbSize
+    private static let radius = MessageBubble.thumbRadius
+
+    var body: some View {
+        Group {
+            if let decoded {
+                Image(uiImage: decoded)
+                    .resizable()
+                    .scaledToFill()
+            } else if let url = resolveURL(attachment.dataUrl) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFill()
+                    case .failure:
+                        failedPlaceholder
+                    default:
+                        ProgressView()
+                    }
+                }
+            } else if failed {
+                failedPlaceholder
+            } else {
+                ProgressView()
+            }
+        }
+        .frame(width: Self.size.width, height: Self.size.height)
+        .background(WhisperColor.toolIconBg)
+        .clipShape(RoundedRectangle(cornerRadius: Self.radius))
+        .task { decodeBase64IfNeeded() }
+    }
+
+    private var failedPlaceholder: some View {
+        Image(systemName: "photo")
+            .foregroundStyle(WhisperColor.textMuted)
+    }
+
+    private func decodeBase64IfNeeded() {
+        guard attachment.dataUrl.hasPrefix("data:"),
+              let range = attachment.dataUrl.range(of: ";base64,") else { return }
+        let base64 = String(attachment.dataUrl[range.upperBound...])
+        guard let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters),
+              let image = UIImage(data: data) else {
+            failed = true
+            return
+        }
+        decoded = image
     }
 }
 
