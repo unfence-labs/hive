@@ -289,12 +289,17 @@ private struct WhisperThinkingBlock: View {
     let content: String
     @State private var isExpanded = false
 
+    private var preview: String {
+        let first = content.prefix(40).replacingOccurrences(of: "\n", with: " ")
+        return content.count > 40 ? first + "..." : String(first)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                ToolRowLabel(icon: "brain", label: "Thinking")
+                ToolRowLabel(icon: "brain", label: "Thinking", detail: isExpanded ? nil : preview)
             }
             .buttonStyle(.plain)
 
@@ -396,7 +401,7 @@ private struct CollapsedToolSummary: View {
                     ForEach(uniqueIcons, id: \.self) { icon in
                         Image(systemName: icon)
                             .font(.system(size: 9))
-                            .foregroundStyle(WhisperColor.textMuted.opacity(0.5))
+                            .foregroundStyle(WhisperColor.textMuted)
                     }
                 }
             }
@@ -433,7 +438,7 @@ private struct WhisperToolCallRow: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("OUTPUT")
                                     .font(WhisperFont.mono(9))
-                                    .foregroundStyle(WhisperColor.textMuted.opacity(0.5))
+                                    .foregroundStyle(WhisperColor.textMuted)
                                     .tracking(1)
                                 Text(output)
                                     .font(WhisperFont.mono(11))
@@ -487,17 +492,17 @@ private struct ToolRowLabel: View {
             if let detail {
                 Text(detail)
                     .font(WhisperFont.mono(11))
-                    .foregroundStyle(WhisperColor.textMuted)
+                    .foregroundStyle(WhisperColor.textSecondary)
                     .lineLimit(1)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(WhisperColor.toolIconBg, in: RoundedRectangle(cornerRadius: 4))
+                    .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 4))
             }
 
             if let summary {
                 Text(summary)
                     .font(WhisperFont.mono(10))
-                    .foregroundStyle(WhisperColor.textMuted.opacity(0.5))
+                    .foregroundStyle(WhisperColor.textMuted)
                     .lineLimit(1)
             }
         }
@@ -513,24 +518,132 @@ private struct ToolContentPanel<Content: View>: View {
         content
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(WhisperColor.toolIconBg.opacity(0.6), in: RoundedRectangle(cornerRadius: 8))
+            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
             .padding(.top, 2)
     }
 }
 
 // MARK: - Whisper Chat Markdown Theme
 
+private let whisperCodeColor = Color(red: 0.78, green: 0.82, blue: 0.90)
+private let whisperLinkColor = Color(red: 0.231, green: 0.510, blue: 0.965)
+
 private extension Theme {
     static let whisperChat = Theme.gitHub
+        // ── Inline text ──
         .text {
             BackgroundColor(.clear)
-            ForegroundColor(Color(red: 0.91, green: 0.91, blue: 0.94))
+            ForegroundColor(WhisperColor.text)
             FontSize(14)
         }
         .code {
             FontFamilyVariant(.monospaced)
             FontSize(12)
-            BackgroundColor(Color.white.opacity(0.05))
+            ForegroundColor(whisperCodeColor)
+            BackgroundColor(Color.white.opacity(0.10))
+        }
+        .strong {
+            FontWeight(.semibold)
+        }
+        .emphasis {
+            FontStyle(.italic)
+        }
+        .link {
+            ForegroundColor(whisperLinkColor)
+        }
+        .strikethrough {
+            StrikethroughStyle(.single)
+            ForegroundColor(WhisperColor.textSecondary)
+        }
+        // ── Headings ──
+        .heading1 { configuration in
+            configuration.label
+                .relativeLineSpacing(.em(0.04))
+                .markdownMargin(top: .em(1.2), bottom: .em(0.4))
+                .markdownTextStyle {
+                    FontWeight(.semibold)
+                    FontSize(20)
+                }
+        }
+        .heading2 { configuration in
+            configuration.label
+                .relativeLineSpacing(.em(0.04))
+                .markdownMargin(top: .em(1), bottom: .em(0.3))
+                .markdownTextStyle {
+                    FontWeight(.semibold)
+                    FontSize(17)
+                }
+        }
+        .heading3 { configuration in
+            configuration.label
+                .relativeLineSpacing(.em(0.04))
+                .markdownMargin(top: .em(0.8), bottom: .em(0.2))
+                .markdownTextStyle {
+                    FontWeight(.semibold)
+                    FontSize(15)
+                }
+        }
+        .heading4 { configuration in
+            configuration.label
+                .markdownMargin(top: .em(0.6), bottom: .em(0.2))
+                .markdownTextStyle {
+                    FontWeight(.medium)
+                    FontSize(14)
+                }
+        }
+        .heading5 { configuration in
+            configuration.label
+                .markdownMargin(top: .em(0.5), bottom: .em(0.1))
+                .markdownTextStyle {
+                    FontWeight(.medium)
+                    FontSize(13)
+                    ForegroundColor(WhisperColor.textSecondary)
+                }
+        }
+        .heading6 { configuration in
+            configuration.label
+                .markdownMargin(top: .em(0.5), bottom: .em(0.1))
+                .markdownTextStyle {
+                    FontWeight(.medium)
+                    FontSize(12)
+                    ForegroundColor(WhisperColor.textSecondary)
+                }
+        }
+        // ── Code blocks ──
+        .codeBlock { configuration in
+            ScrollView(.horizontal) {
+                configuration.label
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .scrollIndicators(.hidden)
+            .markdownTextStyle {
+                FontFamilyVariant(.monospaced)
+                FontSize(12)
+                ForegroundColor(whisperCodeColor)
+            }
+            .padding(12)
+            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            .markdownMargin(top: .em(0.4), bottom: .em(0.4))
+        }
+        // ── Blockquotes ──
+        .blockquote { configuration in
+            HStack(spacing: 0) {
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(Color.white.opacity(0.15))
+                    .frame(width: 3)
+                configuration.label
+                    .markdownTextStyle {
+                        ForegroundColor(WhisperColor.textSecondary)
+                    }
+                    .padding(.leading, 12)
+            }
+            .markdownMargin(top: .em(0.4), bottom: .em(0.4))
+        }
+        // ── Thematic break ──
+        .thematicBreak {
+            Divider()
+                .overlay(Color.white.opacity(0.10))
+                .markdownMargin(top: .em(0.8), bottom: .em(0.8))
         }
 }
 
@@ -547,7 +660,27 @@ private extension Theme {
             ))
             MessageBubble(message: ChatMessage(
                 id: "2", sessionId: "s1", role: .assistant,
-                content: "I'll look into the **authentication flow**. Let me check the relevant files first.\n\n```swift\nfunc login() { }\n```",
+                content: """
+                I'll look into the **authentication flow**. Let me check the relevant files.
+
+                ### Changes Made
+
+                Updated `auth.swift` with proper error handling:
+
+                ```swift
+                func login() async throws {
+                    let token = getToken()
+                    try await validate(token)
+                }
+                ```
+
+                > Note: The `validate` function now throws on invalid tokens.
+
+                Key improvements:
+                - Added `async/await` support
+                - Proper *error propagation*
+                - See [Swift Concurrency docs](https://docs.swift.org) for details
+                """,
                 images: nil,
                 toolCalls: [
                     ToolCall(id: "t1", name: "Read", input: "{\"file_path\":\"/src/auth.swift\",\"limit\":77}", output: "func login() {\n    let token = getToken()\n    validate(token)\n}", parentToolUseId: nil),
