@@ -144,7 +144,7 @@ struct MessageBubble: View {
 private struct ImageThumb: View {
     let attachment: ImageAttachment
     let resolveURL: (String) -> URL?
-    @State private var decoded: UIImage?
+    @State private var image: UIImage?
     @State private var failed = false
 
     private static let size = MessageBubble.thumbSize
@@ -152,21 +152,10 @@ private struct ImageThumb: View {
 
     var body: some View {
         Group {
-            if let decoded {
-                Image(uiImage: decoded)
+            if let image {
+                Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-            } else if let url = resolveURL(attachment.dataUrl) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFill()
-                    case .failure:
-                        failedPlaceholder
-                    default:
-                        ProgressView()
-                    }
-                }
             } else if failed {
                 failedPlaceholder
             } else {
@@ -176,7 +165,7 @@ private struct ImageThumb: View {
         .frame(width: Self.size.width, height: Self.size.height)
         .background(WhisperColor.toolIconBg)
         .clipShape(RoundedRectangle(cornerRadius: Self.radius))
-        .task { decodeBase64IfNeeded() }
+        .task { await loadImage() }
     }
 
     private var failedPlaceholder: some View {
@@ -184,16 +173,46 @@ private struct ImageThumb: View {
             .foregroundStyle(WhisperColor.textMuted)
     }
 
-    private func decodeBase64IfNeeded() {
-        guard attachment.dataUrl.hasPrefix("data:"),
-              let range = attachment.dataUrl.range(of: ";base64,") else { return }
-        let base64 = String(attachment.dataUrl[range.upperBound...])
-        guard let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters),
-              let image = UIImage(data: data) else {
+    private func loadImage() async {
+        let key = ImageCache.key(for: attachment.dataUrl)
+
+        if let cached = ImageCache.shared.image(forKey: key) {
+            image = cached
+            return
+        }
+
+        if attachment.dataUrl.hasPrefix("data:") {
+            guard let range = attachment.dataUrl.range(of: ";base64,") else {
+                failed = true
+                return
+            }
+            let base64 = String(attachment.dataUrl[range.upperBound...])
+            guard let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters),
+                  let decoded = UIImage(data: data) else {
+                failed = true
+                return
+            }
+            ImageCache.shared.store(decoded, forKey: key)
+            image = decoded
+            return
+        }
+
+        guard let url = resolveURL(attachment.dataUrl) else {
             failed = true
             return
         }
-        decoded = image
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let decoded = UIImage(data: data) else {
+                failed = true
+                return
+            }
+            ImageCache.shared.store(decoded, forKey: key)
+            image = decoded
+        } catch {
+            failed = true
+        }
     }
 }
 
