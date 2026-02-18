@@ -22,7 +22,7 @@ struct HubView: View {
             }
         }
         .scrollBounceBehavior(.always)
-        .navigationTitle("Hub")
+        .toolbar(.hidden, for: .navigationBar)
         .refreshable {
             // Unstructured Task shields refresh from SwiftUI prematurely
             // cancelling the .refreshable task on ScrollView (known iOS 26 regression).

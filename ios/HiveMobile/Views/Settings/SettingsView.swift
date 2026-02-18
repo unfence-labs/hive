@@ -15,7 +15,7 @@ struct SettingsView: View {
             connectionSection
             healthSection
         }
-        .navigationTitle("Settings")
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     // MARK: - Accent Color Picker
