@@ -19,36 +19,38 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 16) {
-                        ForEach(store.displayMessages) { message in
-                            MessageBubble(message: message)
-                                .id(message.id)
-                        }
+            if isLoading {
+                Spacer()
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 16) {
+                            ForEach(store.displayMessages) { message in
+                                MessageBubble(message: message)
+                                    .id(message.id)
+                            }
 
-                        if store.isStreaming && store.streamingMessage == nil {
-                            streamingIndicator
+                            if store.isStreaming && store.streamingMessage == nil {
+                                streamingIndicator
+                            }
                         }
+                        .scrollTargetLayout()
+                        .padding()
                     }
-                    .padding()
-                }
-                .defaultScrollAnchor(.bottom)
-                .scrollDismissesKeyboard(.interactively)
-                .onTapGesture {
-                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                }
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                    scrollToBottom(proxy)
-                }
-                .onChange(of: store.displayMessages.count) {
-                    if !isLoading { scrollToBottom(proxy) }
-                }
-                .onChange(of: store.currentText) {
-                    scrollToBottom(proxy)
-                }
-                .onChange(of: isLoading) {
-                    if !isLoading { scrollToBottom(proxy, animated: false) }
+                    .defaultScrollAnchor(.bottom)
+                    .scrollDismissesKeyboard(.interactively)
+                    .onTapGesture {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                        scrollToBottom(proxy)
+                    }
+                    .onChange(of: store.displayMessages.count) {
+                        scrollToBottom(proxy)
+                    }
+                    .onChange(of: store.currentText) {
+                        scrollToBottom(proxy)
+                    }
                 }
             }
         }
@@ -93,9 +95,6 @@ struct ChatView: View {
                     }
                 }
             }
-        }
-        .overlay {
-            if isLoading { ProgressView() }
         }
         .sheet(isPresented: $showSessionSheet) {
             SessionSheet(

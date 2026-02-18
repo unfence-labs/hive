@@ -158,26 +158,20 @@ private struct ImageThumb: View {
     }
 
     var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else if failed {
-                failedPlaceholder
-            } else {
-                ProgressView()
+        WhisperColor.toolIconBg
+            .frame(width: Self.size.width, height: Self.size.height)
+            .overlay {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else if failed {
+                    Image(systemName: "photo")
+                        .foregroundStyle(WhisperColor.textMuted)
+                }
             }
-        }
-        .frame(width: Self.size.width, height: Self.size.height)
-        .background(WhisperColor.toolIconBg)
-        .clipShape(RoundedRectangle(cornerRadius: Self.radius))
-        .task { await loadImage() }
-    }
-
-    private var failedPlaceholder: some View {
-        Image(systemName: "photo")
-            .foregroundStyle(WhisperColor.textMuted)
+            .clipShape(RoundedRectangle(cornerRadius: Self.radius))
+            .task { await loadImage() }
     }
 
     private func loadImage() async {
