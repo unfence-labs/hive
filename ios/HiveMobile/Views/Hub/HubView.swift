@@ -63,9 +63,12 @@ struct HubView: View {
 
     private func projectSection(_ project: Project) -> some View {
         VStack(alignment: .leading, spacing: HiveSpacing.md) {
-            Text(project.name)
-                .font(.headline)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                ProjectAvatar(project: project)
+                Text(project.name)
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+            }
 
             if project.workspaces.isEmpty {
                 Text("No active workspaces")

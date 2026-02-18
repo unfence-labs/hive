@@ -47,6 +47,7 @@ struct Project: Codable, Identifiable {
     let url: String
     let createdAt: String
     var workspaces: [Workspace]
+    var hasFavicon: Bool? = nil
 }
 
 struct Workspace: Codable, Identifiable, Hashable {
