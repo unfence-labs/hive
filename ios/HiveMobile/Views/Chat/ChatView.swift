@@ -12,6 +12,7 @@ struct ChatView: View {
     @State private var showSessionSheet = false
     @State private var thinkingEnabled = false
     @State private var planModeEnabled = false
+    @State private var selectedModel: ClaudeModel = .opus
 
     private let api = APIClient()
 
@@ -30,7 +31,7 @@ struct ChatView: View {
                         }
                     }
                     .padding()
-                    .padding(.bottom, 60)
+                    .padding(.bottom, 100)
                 }
                 .onChange(of: store.displayMessages.count) {
                     scrollToBottom(proxy)
@@ -46,6 +47,7 @@ struct ChatView: View {
                 isBusy: store.isBusy,
                 thinkingEnabled: $thinkingEnabled,
                 planModeEnabled: $planModeEnabled,
+                selectedModel: $selectedModel,
                 onSend: sendMessage
             )
             .padding(.horizontal, 12)
@@ -208,21 +210,23 @@ struct ChatView: View {
 
     // MARK: - Send
 
-    private func sendMessage() {
+    private func sendMessage(images: [ImageAttachment]) {
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !content.isEmpty else { return }
+        guard !content.isEmpty || !images.isEmpty else { return }
         draft = ""
 
-        let options: MessageOptions? = (thinkingEnabled || planModeEnabled)
-            ? MessageOptions(
-                planMode: planModeEnabled ? true : nil,
-                thinkingEnabled: thinkingEnabled ? true : nil
-            )
-            : nil
+        let options = MessageOptions(
+            planMode: planModeEnabled ? true : nil,
+            thinkingEnabled: thinkingEnabled ? true : nil,
+            model: selectedModel.rawValue
+        )
 
         Task {
             await wsManager.send(.userMessage(
-                content: content, images: nil, options: options, sessionId: nil
+                content: content,
+                images: images.isEmpty ? nil : images,
+                options: options,
+                sessionId: nil
             ))
         }
     }

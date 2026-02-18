@@ -216,6 +216,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       "--print",
       "--output-format", "stream-json",
       "--verbose",
+      ...(msgOptions?.model ? ["--model", msgOptions.model] : []),
       // Plan mode overrides skip-permissions (plan mode is read-only by design)
       ...(msgOptions?.planMode
         ? ["--permission-mode", "plan"]

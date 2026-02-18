@@ -2,6 +2,22 @@ import Foundation
 
 // MARK: - Enums
 
+enum ClaudeModel: String, CaseIterable, Identifiable, Codable {
+    case opus = "claude-opus-4-6"
+    case sonnet = "claude-sonnet-4-5-20250929"
+    case haiku = "claude-haiku-4-5-20251001"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .opus: "Opus 4.6"
+        case .sonnet: "Sonnet 4.5"
+        case .haiku: "Haiku 4.5"
+        }
+    }
+}
+
 enum WorkspaceStatus: String, Codable {
     case idle
     case busy
@@ -167,4 +183,5 @@ struct QuestionInput: Codable {
 struct MessageOptions: Codable {
     let planMode: Bool?
     let thinkingEnabled: Bool?
+    let model: String?
 }
