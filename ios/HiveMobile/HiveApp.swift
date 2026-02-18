@@ -68,10 +68,10 @@ struct HiveApp: App {
         }
     }
 
-    private func workspaceLabel(for id: String) -> String? {
+    private func workspaceLabel(for id: String) -> WorkspaceLabel? {
         for project in projectStore.projects {
             if let ws = project.workspaces.first(where: { $0.id == id }) {
-                return "\(project.name) — \(ws.branch)"
+                return WorkspaceLabel(project: project.name, branch: ws.branch)
             }
         }
         return nil

@@ -16,7 +16,7 @@ final class LiveActivityManager {
 
     // MARK: - Scene Phase Changes
 
-    func didEnterBackground(streamingIds: Set<String>, labelResolver: (String) -> String?) {
+    func didEnterBackground(streamingIds: Set<String>, labelResolver: (String) -> WorkspaceLabel?) {
         isInBackground = true
         guard !streamingIds.isEmpty else { return }
         startActivity(streamingIds: streamingIds, labelResolver: labelResolver)
@@ -31,7 +31,7 @@ final class LiveActivityManager {
 
     // MARK: - Streaming State Changes
 
-    func streamingDidChange(streamingIds: Set<String>, labelResolver: (String) -> String?) {
+    func streamingDidChange(streamingIds: Set<String>, labelResolver: (String) -> WorkspaceLabel?) {
         guard isInBackground else { return }
 
         if streamingIds.isEmpty {
@@ -46,7 +46,7 @@ final class LiveActivityManager {
 
     // MARK: - Activity Lifecycle
 
-    private func startActivity(streamingIds: Set<String>, labelResolver: (String) -> String?) {
+    private func startActivity(streamingIds: Set<String>, labelResolver: (String) -> WorkspaceLabel?) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         guard currentActivity == nil else {
             updateActivity(streamingIds: streamingIds, labelResolver: labelResolver)
@@ -67,7 +67,7 @@ final class LiveActivityManager {
         }
     }
 
-    private func updateActivity(streamingIds: Set<String>, labelResolver: (String) -> String?) {
+    private func updateActivity(streamingIds: Set<String>, labelResolver: (String) -> WorkspaceLabel?) {
         guard let activity = currentActivity else { return }
         let state = contentState(streamingIds: streamingIds, labelResolver: labelResolver)
         let content = ActivityContent(state: state, staleDate: nil)
@@ -99,12 +99,12 @@ final class LiveActivityManager {
 
     private func contentState(
         streamingIds: Set<String>,
-        labelResolver: (String) -> String?
+        labelResolver: (String) -> WorkspaceLabel?
     ) -> StreamingAttributes.ContentState {
         let labels = streamingIds
             .compactMap { labelResolver($0) }
-            .sorted()
+            .sorted { $0.project < $1.project }
             .prefix(3)
-        return .init(activeCount: streamingIds.count, workspaceLabels: Array(labels))
+        return .init(activeCount: streamingIds.count, workspaces: Array(labels))
     }
 }

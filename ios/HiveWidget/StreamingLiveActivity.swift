@@ -16,11 +16,10 @@ struct StreamingLiveActivity: Widget {
                         Text(headerText(context.state))
                             .font(.headline)
                             .lineLimit(1)
-                        if !context.state.workspaceLabels.isEmpty {
-                            Text(context.state.workspaceLabels.joined(separator: "\n"))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(3)
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(context.state.workspaces, id: \.self) { ws in
+                                workspaceLabelView(ws, font: .caption)
+                            }
                         }
                     }
                 }
@@ -37,8 +36,7 @@ struct StreamingLiveActivity: Widget {
                         .symbolEffect(.breathe)
                 }
             } compactTrailing: {
-                Text(compactTrailingText(context.state))
-                    .font(.caption.monospacedDigit())
+                compactTrailingView(context.state)
             } minimal: {
                 Image(systemName: "circle.fill")
                     .font(.system(size: 6))
@@ -57,10 +55,8 @@ struct StreamingLiveActivity: Widget {
             VStack(alignment: .leading, spacing: 2) {
                 Text(headerText(context.state))
                     .font(.subheadline.weight(.semibold))
-                if !context.state.workspaceLabels.isEmpty {
-                    Text(context.state.workspaceLabels.joined(separator: ", "))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if let ws = context.state.workspaces.first {
+                    workspaceLabelView(ws, font: .caption)
                         .lineLimit(1)
                 }
             }
@@ -74,17 +70,30 @@ struct StreamingLiveActivity: Widget {
         .padding(.vertical, 12)
     }
 
+    // MARK: - Workspace Label (bold project · light branch)
+
+    private func workspaceLabelView(_ ws: WorkspaceLabel, font: Font) -> Text {
+        Text(ws.project).font(font.weight(.semibold)) +
+        Text(" · ").font(font).foregroundColor(.secondary) +
+        Text(ws.branch).font(font).foregroundColor(.secondary)
+    }
+
     // MARK: - Helpers
 
     private func headerText(_ state: StreamingAttributes.ContentState) -> String {
-        state.activeCount == 1 ? "Workspace working" : "\(state.activeCount) workspaces working"
+        state.activeCount == 1 ? "Hive agent working" : "\(state.activeCount) Hive agents working"
     }
 
-    private func compactTrailingText(_ state: StreamingAttributes.ContentState) -> String {
-        if state.activeCount == 1, let label = state.workspaceLabels.first {
-            return label
+    @ViewBuilder
+    private func compactTrailingView(_ state: StreamingAttributes.ContentState) -> some View {
+        if state.activeCount == 1, let ws = state.workspaces.first {
+            (Text(ws.project).fontWeight(.semibold) + Text(" · \(ws.branch)"))
+                .font(.caption.monospacedDigit())
+                .lineLimit(1)
+        } else {
+            Text("\(state.activeCount) active")
+                .font(.caption.monospacedDigit())
         }
-        return "\(state.activeCount) active"
     }
 }
 
