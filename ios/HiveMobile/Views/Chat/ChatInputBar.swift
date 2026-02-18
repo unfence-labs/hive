@@ -11,7 +11,6 @@ struct ChatInputBar: View {
 
     @State private var attachedImages: [AttachedImage] = []
     @State private var selectedItems: [PhotosPickerItem] = []
-    @State private var showModelPicker = false
     @FocusState private var isDraftFocused: Bool
 
     var body: some View {
@@ -32,11 +31,6 @@ struct ChatInputBar: View {
         }
         .glassCard(cornerRadius: 20)
         .overlay(planModeOverlay)
-        .confirmationDialog("Model", isPresented: $showModelPicker) {
-            ForEach(ClaudeModel.allCases) { model in
-                Button(model.label) { selectedModel = model }
-            }
-        }
         .onChange(of: selectedItems) {
             loadImages(from: selectedItems)
         }
@@ -46,8 +40,20 @@ struct ChatInputBar: View {
 
     private var controlBar: some View {
         HStack(spacing: 8) {
-            // Model picker chip
-            Button { showModelPicker = true } label: {
+            // Model picker
+            Menu {
+                ForEach(ClaudeModel.allCases) { model in
+                    Button {
+                        selectedModel = model
+                    } label: {
+                        if model == selectedModel {
+                            Label(model.label, systemImage: "checkmark")
+                        } else {
+                            Text(model.label)
+                        }
+                    }
+                }
+            } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "sparkles")
                     Text(selectedModel.label)
