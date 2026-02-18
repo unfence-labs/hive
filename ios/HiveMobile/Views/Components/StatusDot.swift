@@ -5,10 +5,10 @@ struct StatusDot: View {
 
     var body: some View {
         Circle()
-            .fill(isStreaming ? Color.accentColor : .green)
+            .fill(isStreaming ? .white : .green)
             .frame(width: 8, height: 8)
             .shadow(
-                color: isStreaming ? .accentColor.opacity(0.5) : .green.opacity(0.5),
+                color: isStreaming ? .white.opacity(0.5) : .green.opacity(0.5),
                 radius: 4
             )
     }

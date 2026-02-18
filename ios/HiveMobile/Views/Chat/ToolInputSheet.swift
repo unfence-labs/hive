@@ -110,7 +110,7 @@ private struct AskUserQuestionView: View {
                 } label: {
                     HStack {
                         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(isSelected ? .accent : .secondary)
+                            .foregroundStyle(isSelected ? .primary : .secondary)
                         VStack(alignment: .leading) {
                             Text(option.label)
                             if let desc = option.description {

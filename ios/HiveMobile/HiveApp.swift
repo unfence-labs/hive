@@ -2,8 +2,6 @@ import SwiftUI
 
 @main
 struct HiveApp: App {
-    @AppStorage("hiveAccent") private var accentId = "violet"
-
     var body: some Scene {
         WindowGroup {
             NavigationStack {
@@ -15,7 +13,7 @@ struct HiveApp: App {
                         SettingsView()
                     }
             }
-            .tint(AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color)
+            .tint(.white)
             .preferredColorScheme(.dark)
         }
     }

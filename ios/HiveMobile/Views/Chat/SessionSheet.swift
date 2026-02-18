@@ -55,7 +55,7 @@ private struct SessionRow: View {
         HStack(spacing: HiveSpacing.md) {
             if isActive {
                 Circle()
-                    .fill(Color.accentColor)
+                    .fill(.white)
                     .frame(width: 8, height: 8)
             }
 
@@ -79,7 +79,7 @@ private struct SessionRow: View {
             if isActive {
                 Image(systemName: "checkmark")
                     .font(.caption)
-                    .foregroundStyle(.accent)
+                    .foregroundStyle(.primary)
             }
         }
         .padding(.vertical, HiveSpacing.xs)
