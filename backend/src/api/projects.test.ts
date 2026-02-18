@@ -134,6 +134,25 @@ describe("GET /api/projects", () => {
     expect(project.workspaces[0].sessionCount).toBe(0);
   });
 
+  it("returns projectName on each workspace", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { url: fixtureRepoUrl },
+    });
+    const { id, name } = createRes.json();
+
+    await app.inject({ method: "POST", url: `/api/projects/${id}/workspaces` });
+    await app.inject({ method: "POST", url: `/api/projects/${id}/workspaces` });
+
+    const res = await app.inject({ method: "GET", url: "/api/projects" });
+    const [project] = res.json();
+    expect(project.workspaces).toHaveLength(2);
+    for (const ws of project.workspaces) {
+      expect(ws.projectName).toBe(name);
+    }
+  });
+
   it("returns correct sessionCount per workspace", async () => {
     const createRes = await app.inject({
       method: "POST",
