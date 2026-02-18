@@ -42,10 +42,13 @@ struct ChatView: View {
                     scrollToBottom(proxy)
                 }
                 .onChange(of: store.displayMessages.count) {
-                    scrollToBottom(proxy)
+                    if !isLoading { scrollToBottom(proxy) }
                 }
                 .onChange(of: store.currentText) {
                     scrollToBottom(proxy)
+                }
+                .onChange(of: isLoading) {
+                    if !isLoading { scrollToBottom(proxy, animated: false) }
                 }
             }
         }
@@ -247,11 +250,14 @@ struct ChatView: View {
         }
     }
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        if let lastId = store.displayMessages.last?.id {
+    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
+        guard let lastId = store.displayMessages.last?.id else { return }
+        if animated {
             withAnimation(.easeOut(duration: 0.15)) {
                 proxy.scrollTo(lastId, anchor: .bottom)
             }
+        } else {
+            proxy.scrollTo(lastId, anchor: .bottom)
         }
     }
 }
