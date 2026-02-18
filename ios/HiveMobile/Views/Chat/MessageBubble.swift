@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MessageBubble: View {
     let message: ChatMessage
+    var pendingToolUseIds: Set<String> = []
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -14,7 +15,7 @@ struct MessageBubble: View {
                 }
 
                 if let tools = message.toolCalls, !tools.isEmpty {
-                    WhisperToolCallsBlock(toolCalls: tools)
+                    WhisperToolCallsBlock(toolCalls: tools, pendingToolUseIds: pendingToolUseIds)
                 }
 
                 messageContent
@@ -220,6 +221,9 @@ private struct ToolDisplay {
     let label: String
     var detail: String?
     var hideOutput = false
+    var badgeText: String?
+    var badgeIcon: String?
+    var overrideSummary: String?
 }
 
 private func toolIcon(for name: String) -> String {
@@ -230,6 +234,7 @@ private func toolIcon(for name: String) -> String {
     case "Grep", "Glob": return "magnifyingglass"
     case "Task": return "arrow.triangle.branch"
     case "WebSearch", "WebFetch": return "globe"
+    case "AskUserQuestion": return "bubble.left"
     default: return "wrench"
     }
 }
@@ -238,7 +243,7 @@ private func getFilename(_ path: String) -> String {
     (path as NSString).lastPathComponent
 }
 
-private func getToolDisplay(_ tool: ToolCall) -> ToolDisplay {
+private func getToolDisplay(_ tool: ToolCall, isPending: Bool = false) -> ToolDisplay {
     guard let data = tool.input.data(using: .utf8),
           let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return ToolDisplay(icon: toolIcon(for: tool.name), label: tool.name, detail: String(tool.input.prefix(40)))
@@ -285,6 +290,18 @@ private func getToolDisplay(_ tool: ToolCall) -> ToolDisplay {
         let url = input["url"] as? String
         let query = input["query"] as? String
         return ToolDisplay(icon: "globe", label: tool.name, detail: url ?? query)
+
+    case "AskUserQuestion":
+        let questions = (input["questions"] as? [[String: Any]]) ?? []
+        let count = questions.count
+        return ToolDisplay(
+            icon: "bubble.left",
+            label: "User input",
+            hideOutput: true,
+            badgeText: isPending ? "WAITING" : "ANSWERED",
+            badgeIcon: isPending ? "clock" : "checkmark.circle",
+            overrideSummary: count > 0 ? "\(count) question\(count != 1 ? "s" : "")" : nil
+        )
 
     default:
         return ToolDisplay(icon: toolIcon(for: tool.name), label: tool.name)
@@ -339,6 +356,7 @@ private let collapseThreshold = 3
 
 private struct WhisperToolCallsBlock: View {
     let toolCalls: [ToolCall]
+    var pendingToolUseIds: Set<String> = []
     @State private var groupExpanded = false
 
     private var rootTools: [ToolCall] {
@@ -369,7 +387,8 @@ private struct WhisperToolCallsBlock: View {
                 ForEach(rootTools) { tool in
                     WhisperToolCallRow(
                         tool: tool,
-                        children: children(for: tool.id)
+                        children: children(for: tool.id),
+                        isPending: pendingToolUseIds.contains(tool.id)
                     )
                 }
             }
@@ -433,23 +452,26 @@ private struct CollapsedToolSummary: View {
 private struct WhisperToolCallRow: View {
     let tool: ToolCall
     let children: [ToolCall]
+    var isPending = false
     @State private var isExpanded = false
 
     var body: some View {
-        let display = getToolDisplay(tool)
-        let summary = !isExpanded ? getOutputSummary(tool) : nil
+        let display = getToolDisplay(tool, isPending: isPending)
+        let summary = !isExpanded ? (display.overrideSummary ?? getOutputSummary(tool)) : nil
 
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                ToolRowLabel(icon: display.icon, label: display.label, detail: display.detail, summary: summary)
+                ToolRowLabel(icon: display.icon, label: display.label, detail: display.detail, summary: summary, badgeText: display.badgeText, badgeIcon: display.badgeIcon)
             }
             .buttonStyle(.plain)
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 0) {
-                    if let output = tool.output, !output.isEmpty, !display.hideOutput {
+                    if tool.name == "AskUserQuestion" {
+                        AskUserQuestionContent(tool: tool)
+                    } else if let output = tool.output, !output.isEmpty, !display.hideOutput {
                         ToolContentPanel {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("OUTPUT")
@@ -486,6 +508,50 @@ private struct WhisperToolCallRow: View {
     }
 }
 
+// MARK: - AskUserQuestion Expanded Content
+
+private struct AskUserQuestionContent: View {
+    let tool: ToolCall
+
+    private var questions: [(text: String, options: [String])] {
+        guard let data = tool.input.data(using: .utf8),
+              let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let arr = input["questions"] as? [[String: Any]] else {
+            return []
+        }
+        return arr.enumerated().map { idx, q in
+            let text = q["question"] as? String ?? "Question \(idx + 1)"
+            let options = (q["options"] as? [[String: Any]])?.compactMap { $0["label"] as? String } ?? []
+            return (text: text, options: options)
+        }
+    }
+
+    var body: some View {
+        ToolContentPanel {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(questions.enumerated()), id: \.offset) { _, q in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(q.text)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(WhisperColor.textSecondary)
+                        ForEach(q.options, id: \.self) { option in
+                            HStack(spacing: 5) {
+                                Circle()
+                                    .stroke(WhisperColor.textMuted, lineWidth: 1)
+                                    .frame(width: 6, height: 6)
+                                Text(option)
+                                    .font(WhisperFont.mono(11))
+                                    .foregroundStyle(WhisperColor.textMuted)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+}
+
 // MARK: - Shared Tool Row Components
 
 private struct ToolRowLabel: View {
@@ -493,6 +559,8 @@ private struct ToolRowLabel: View {
     let label: String
     var detail: String?
     var summary: String?
+    var badgeText: String?
+    var badgeIcon: String?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -504,6 +572,21 @@ private struct ToolRowLabel: View {
             Text(label)
                 .font(WhisperFont.mono(12))
                 .foregroundStyle(WhisperColor.textMuted)
+
+            if let badgeText {
+                HStack(spacing: 3) {
+                    if let badgeIcon {
+                        Image(systemName: badgeIcon)
+                            .font(.system(size: 8, weight: .medium))
+                    }
+                    Text(badgeText)
+                        .font(WhisperFont.mono(10))
+                }
+                .foregroundStyle(WhisperColor.textMuted)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Color.white.opacity(0.08), in: Capsule())
+            }
 
             if let detail {
                 Text(detail)

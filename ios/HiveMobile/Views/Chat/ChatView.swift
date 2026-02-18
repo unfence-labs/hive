@@ -17,6 +17,10 @@ struct ChatView: View {
 
     private let api = APIClient()
 
+    private var pendingToolUseIds: Set<String> {
+        Set(store.pendingToolInputs.map(\.toolUseId))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if isLoading {
@@ -26,13 +30,17 @@ struct ChatView: View {
                     ScrollView {
                         LazyVStack(spacing: 16) {
                             ForEach(store.displayMessages) { message in
-                                MessageBubble(message: message)
+                                MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds)
                                     .id(message.id)
                             }
 
                             if store.isStreaming && store.streamingMessage == nil {
                                 streamingIndicator
                             }
+
+                            Color.clear
+                                .frame(height: 1)
+                                .id(bottomAnchorID)
                         }
                         .scrollTargetLayout()
                         .padding()
@@ -249,14 +257,16 @@ struct ChatView: View {
         }
     }
 
+    private static let bottomAnchorID = "chat-bottom-anchor"
+    private var bottomAnchorID: String { Self.bottomAnchorID }
+
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
-        guard let lastId = store.displayMessages.last?.id else { return }
         if animated {
             withAnimation(.easeOut(duration: 0.15)) {
-                proxy.scrollTo(lastId, anchor: .bottom)
+                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
             }
         } else {
-            proxy.scrollTo(lastId, anchor: .bottom)
+            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
         }
     }
 }
