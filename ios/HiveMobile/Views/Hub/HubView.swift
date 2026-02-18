@@ -77,7 +77,8 @@ struct HubView: View {
                         NavigationLink(value: workspace) {
                             WorkspaceCard(
                                 workspace: workspace,
-                                isStreaming: statusMonitor.isStreaming(workspace.id)
+                                isStreaming: statusMonitor.isStreaming(workspace.id),
+                                diffStats: statusMonitor.diffStats(for: workspace.id)
                             )
                         }
                         .buttonStyle(.plain)

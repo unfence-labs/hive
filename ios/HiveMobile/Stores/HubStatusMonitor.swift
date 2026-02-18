@@ -1,22 +1,26 @@
 import Foundation
 import Observation
 
-/// Monitors real-time streaming status for all workspaces from the hub.
+/// Monitors real-time streaming status and diff stats for all workspaces from the hub.
 ///
 /// Opens a lightweight WebSocket connection per workspace, listens for `status`
-/// messages, and tracks which workspaces are actively streaming. This mirrors the
-/// React frontend's `useWorkspaceLiveData` approach instead of relying on the
-/// persisted REST `status` field which stays "busy" long after streaming ends.
+/// and `diff_stats` messages. This mirrors the React frontend's `useWorkspaceLiveData`
+/// approach instead of relying on the persisted REST `status` field.
 @MainActor
 @Observable
 final class HubStatusMonitor {
     private(set) var streamingWorkspaces: Set<String> = []
+    private(set) var workspaceDiffStats: [String: DiffStatResponse] = [:]
 
     private var connections: [String: WorkspaceConnection] = [:]
     private let decoder = JSONDecoder()
 
     func isStreaming(_ workspaceId: String) -> Bool {
         streamingWorkspaces.contains(workspaceId)
+    }
+
+    func diffStats(for workspaceId: String) -> DiffStatResponse? {
+        workspaceDiffStats[workspaceId]
     }
 
     /// Sync monitored workspaces — opens new connections, closes stale ones.
@@ -29,6 +33,7 @@ final class HubStatusMonitor {
             connections[id]?.cancel()
             connections.removeValue(forKey: id)
             streamingWorkspaces.remove(id)
+            workspaceDiffStats.removeValue(forKey: id)
         }
 
         // Add connections for new workspaces
@@ -44,6 +49,7 @@ final class HubStatusMonitor {
         for conn in connections.values { conn.cancel() }
         connections.removeAll()
         streamingWorkspaces.removeAll()
+        workspaceDiffStats.removeAll()
     }
 
     // MARK: - Called by WorkspaceConnection
@@ -54,6 +60,10 @@ final class HubStatusMonitor {
         } else {
             streamingWorkspaces.remove(workspaceId)
         }
+    }
+
+    fileprivate func didReceiveDiffStats(_ stats: DiffStatResponse, for workspaceId: String) {
+        workspaceDiffStats[workspaceId] = stats
     }
 }
 
@@ -134,15 +144,25 @@ private final class WorkspaceConnection {
         }
         guard let data else { return }
 
-        // Only decode enough to check for "status" type — avoid full WsOutgoing decode
-        // to keep this as lightweight as possible.
+        // Lightweight selective decode — only handle "status" and "diff_stats" types.
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = json["type"] as? String, type == "status" else {
+              let type = json["type"] as? String else {
             return
         }
 
-        let streaming = json["streaming"] as? Bool ?? false
-        monitor?.didReceiveStreaming(streaming, for: workspaceId)
+        switch type {
+        case "status":
+            let streaming = json["streaming"] as? Bool ?? false
+            monitor?.didReceiveStreaming(streaming, for: workspaceId)
+        case "diff_stats":
+            if let statsJson = json["stats"],
+               let statsData = try? JSONSerialization.data(withJSONObject: statsJson),
+               let stats = try? decoder.decode(DiffStatResponse.self, from: statsData) {
+                monitor?.didReceiveDiffStats(stats, for: workspaceId)
+            }
+        default:
+            break
+        }
     }
 
     private func startPinging() {
