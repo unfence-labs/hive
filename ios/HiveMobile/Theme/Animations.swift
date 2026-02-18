@@ -45,7 +45,7 @@ struct GlowModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .shadow(color: isActive ? color.opacity(0.3) : .clear, radius: radius)
+            .shadow(color: isActive ? color.opacity(0.15) : .clear, radius: radius)
             .animation(.easeInOut(duration: 0.3), value: isActive)
     }
 }
