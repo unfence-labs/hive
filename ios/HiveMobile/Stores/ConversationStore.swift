@@ -4,6 +4,12 @@ import Observation
 @MainActor
 @Observable
 final class ConversationStore {
+    private static let outgoingTimestampFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
     // MARK: - Public state
 
     var messages: [ChatMessage] = []
@@ -41,7 +47,7 @@ final class ConversationStore {
             images: nil,
             toolCalls: activeToolCalls.isEmpty ? nil : activeToolCalls,
             thinkingContent: currentThinking.isEmpty ? nil : currentThinking,
-            timestamp: ISO8601DateFormatter().string(from: Date()),
+            timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
             cancelled: nil,
             durationMs: nil
         )
@@ -101,7 +107,7 @@ final class ConversationStore {
             messages.append(ChatMessage(
                 id: UUID().uuidString, sessionId: "", role: .assistant,
                 content: "Error: \(message)", images: nil, toolCalls: nil,
-                thinkingContent: nil, timestamp: ISO8601DateFormatter().string(from: Date()),
+                thinkingContent: nil, timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
                 cancelled: nil, durationMs: nil
             ))
 
@@ -180,7 +186,7 @@ final class ConversationStore {
                 images: nil,
                 toolCalls: activeToolCalls.isEmpty ? nil : activeToolCalls,
                 thinkingContent: currentThinking.isEmpty ? nil : currentThinking,
-                timestamp: ISO8601DateFormatter().string(from: Date()),
+                timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
                 cancelled: cancelled ? true : nil,
                 durationMs: durationMs
             )
@@ -192,7 +198,7 @@ final class ConversationStore {
                 role: .assistant,
                 content: "",
                 images: nil, toolCalls: nil, thinkingContent: nil,
-                timestamp: ISO8601DateFormatter().string(from: Date()),
+                timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
                 cancelled: true,
                 durationMs: nil
             )
