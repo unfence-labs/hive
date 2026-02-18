@@ -1,24 +1,20 @@
 import SwiftUI
 
 struct HubView: View {
-    @State private var projects: [Project] = []
-    @State private var isLoading = false
-    @State private var errorMessage: String?
-    @State private var statusMonitor = HubStatusMonitor()
+    @Environment(ProjectStore.self) private var store
 
-    private let api = APIClient()
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
     var body: some View {
         ScrollView {
-            if isLoading && projects.isEmpty {
+            if store.isLoading && store.projects.isEmpty {
                 ProgressView()
                     .padding(.top, 80)
-            } else if projects.isEmpty {
+            } else if store.projects.isEmpty && !store.isLoading {
                 ContentUnavailableView(
                     "No Projects",
                     systemImage: "folder",
-                    description: Text("Connect to your Hive server in Settings (tap the gear icon).")
+                    description: Text("Connect to your Hive server from the Settings tab below.")
                 )
                 .padding(.top, 40)
             } else {
@@ -26,25 +22,20 @@ struct HubView: View {
             }
         }
         .scrollBounceBehavior(.always)
-        .navigationTitle("Hub")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink(value: SettingsRoute()) {
-                    Image(systemName: "gear")
-                }
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
         .refreshable {
-            // Unstructured Task shields loadProjects() from SwiftUI prematurely
+            // Unstructured Task shields refresh from SwiftUI prematurely
             // cancelling the .refreshable task on ScrollView (known iOS 26 regression).
             await Task { @MainActor in
-                await loadProjects()
+                await store.refresh()
             }.value
         }
-        .task { await loadProjects() }
-        .onDisappear { statusMonitor.disconnectAll() }
+        .task {
+            // Always safe: existing data stays visible while refresh runs.
+            await store.refresh()
+        }
         .overlay {
-            if let errorMessage {
+            if let errorMessage = store.errorMessage {
                 errorBanner(errorMessage)
             }
         }
@@ -54,7 +45,7 @@ struct HubView: View {
 
     private var projectGrid: some View {
         LazyVStack(alignment: .leading, spacing: HiveSpacing.xxl) {
-            ForEach(projects) { project in
+            ForEach(store.projects) { project in
                 projectSection(project)
             }
         }
@@ -80,9 +71,9 @@ struct HubView: View {
                         NavigationLink(value: workspace) {
                             WorkspaceCard(
                                 workspace: workspace,
-                                isStreaming: statusMonitor.isStreaming(workspace.id),
-                                diffStats: statusMonitor.diffStats(for: workspace.id),
-                                branchInfo: statusMonitor.branchInfo(for: workspace.id),
+                                isStreaming: store.statusMonitor.isStreaming(workspace.id),
+                                diffStats: store.statusMonitor.diffStats(for: workspace.id),
+                                branchInfo: store.statusMonitor.branchInfo(for: workspace.id),
                                 sessionCount: workspace.sessionCount
                             )
                         }
@@ -108,24 +99,7 @@ struct HubView: View {
                 .padding(.bottom, 8)
         }
         .transition(.move(edge: .bottom))
-        .animation(.default, value: errorMessage)
-    }
-
-    // MARK: - Data Loading
-
-    private func loadProjects() async {
-        isLoading = true
-        errorMessage = nil
-        do {
-            projects = try await api.fetchProjects()
-            let allWorkspaceIds = projects.flatMap(\.workspaces).map(\.id)
-            statusMonitor.sync(workspaceIds: allWorkspaceIds)
-        } catch is CancellationError {
-            // Genuine SwiftUI task cancellation (view disappeared) — ignore
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        isLoading = false
+        .animation(.default, value: store.errorMessage)
     }
 }
 
@@ -133,5 +107,6 @@ struct HubView: View {
     NavigationStack {
         HubView()
     }
+    .environment(ProjectStore())
     .preferredColorScheme(.dark)
 }

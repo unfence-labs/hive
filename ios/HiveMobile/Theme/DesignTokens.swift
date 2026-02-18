@@ -31,3 +31,22 @@ enum HiveSpacing {
     static let xl: CGFloat = 24
     static let xxl: CGFloat = 32
 }
+
+// MARK: - Whisper Color Tokens
+
+enum WhisperColor {
+    static let border        = Color.white.opacity(0.08)
+    static let borderSubtle  = Color.white.opacity(0.04)
+    static let toolIconBg    = Color.white.opacity(0.05)
+    static let text          = Color(red: 0.91, green: 0.91, blue: 0.94)
+    static let textSecondary = Color(red: 0.545, green: 0.545, blue: 0.62)
+    static let textMuted     = Color(red: 0.333, green: 0.333, blue: 0.416)
+}
+
+// MARK: - Whisper Font Helpers
+
+enum WhisperFont {
+    static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
+    }
+}

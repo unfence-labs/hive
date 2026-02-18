@@ -110,7 +110,7 @@ private struct AskUserQuestionView: View {
                 } label: {
                     HStack {
                         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(isSelected ? .accent : .secondary)
+                            .foregroundStyle(isSelected ? .primary : .secondary)
                         VStack(alignment: .leading) {
                             Text(option.label)
                             if let desc = option.description {
@@ -122,14 +122,13 @@ private struct AskUserQuestionView: View {
                         Spacer()
                     }
                     .padding(HiveSpacing.md)
-                    .glassEffect(
-                        isSelected ? .regular.interactive() : .regular,
-                        in: RoundedRectangle(cornerRadius: 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(isSelected ? Color.white.opacity(0.06) : Color.white.opacity(0.02))
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(isSelected ? Color.accentColor.opacity(0.08) : .clear)
-                            .allowsHitTesting(false)
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(isSelected ? WhisperColor.border : WhisperColor.borderSubtle, lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)
@@ -259,7 +258,14 @@ private struct ExitPlanModeView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
                     .padding(HiveSpacing.md)
-                    .glassCard(cornerRadius: 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.white.opacity(0.03))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(WhisperColor.borderSubtle, lineWidth: 1)
+                    )
 
                 HStack(spacing: 12) {
                     Button {
@@ -298,9 +304,11 @@ private extension Theme {
     static let planProposal = Theme.gitHub
         .text {
             BackgroundColor(.clear)
-            ForegroundColor(.primary)
+            ForegroundColor(Color(red: 0.91, green: 0.91, blue: 0.94))
         }
         .code {
-            BackgroundColor(Color(.systemFill))
+            FontFamilyVariant(.monospaced)
+            FontSize(13)
+            BackgroundColor(Color.white.opacity(0.05))
         }
 }

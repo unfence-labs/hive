@@ -9,9 +9,14 @@ struct ChatInputBar: View {
     @Binding var selectedModel: ClaudeModel
     let onSend: ([ImageAttachment]) -> Void
 
+    @AppStorage("hiveAccent") private var accentId = "violet"
     @State private var attachedImages: [AttachedImage] = []
     @State private var selectedItems: [PhotosPickerItem] = []
     @FocusState private var isDraftFocused: Bool
+
+    private var hiveAccent: Color {
+        AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -65,8 +70,8 @@ struct ChatInputBar: View {
             }
             .frame(minHeight: 44)
 
-            ModeToggle(systemImage: "brain", label: "Thinking", isActive: $thinkingEnabled)
-            ModeToggle(systemImage: "doc.text", label: "Plan", isActive: $planModeEnabled)
+            ModeToggle(systemImage: "brain", label: "Thinking", isActive: $thinkingEnabled, highlightColor: hiveAccent)
+            ModeToggle(systemImage: "doc.text", label: "Plan", isActive: $planModeEnabled, highlightColor: hiveAccent)
 
             Spacer()
         }
@@ -126,7 +131,7 @@ struct ChatInputBar: View {
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 28))
-                    .foregroundStyle(canSend ? .accent : .secondary)
+                    .foregroundStyle(canSend ? .primary : .tertiary)
             }
             .disabled(!canSend)
         }
@@ -141,7 +146,7 @@ struct ChatInputBar: View {
         if planModeEnabled {
             RoundedRectangle(cornerRadius: 20)
                 .strokeBorder(
-                    Color.accentColor.opacity(0.5),
+                    hiveAccent.opacity(0.5),
                     style: StrokeStyle(lineWidth: 1, dash: [5, 4])
                 )
         }
@@ -196,6 +201,7 @@ private struct ModeToggle: View {
     let systemImage: String
     let label: String
     @Binding var isActive: Bool
+    var highlightColor: Color = .white
 
     var body: some View {
         Button { isActive.toggle() } label: {
@@ -204,14 +210,14 @@ private struct ModeToggle: View {
                 Text(label)
             }
             .font(.caption)
-            .foregroundStyle(isActive ? .primary : .secondary)
+            .foregroundStyle(isActive ? highlightColor : .secondary)
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .background(
-                Capsule().fill(isActive ? Color.primary.opacity(0.1) : .clear)
+                Capsule().fill(isActive ? highlightColor.opacity(0.15) : .clear)
             )
             .overlay(
-                Capsule().stroke(isActive ? Color.primary.opacity(0.2) : .clear, lineWidth: 0.5)
+                Capsule().stroke(isActive ? highlightColor.opacity(0.3) : .clear, lineWidth: 0.5)
             )
         }
         .frame(minHeight: 44)

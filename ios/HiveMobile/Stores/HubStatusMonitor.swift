@@ -13,6 +13,9 @@ final class HubStatusMonitor {
     private(set) var workspaceDiffStats: [String: DiffStatResponse] = [:]
     private(set) var workspaceBranchInfo: [String: BranchInfo] = [:]
 
+    /// Called whenever the streaming workspace set changes.
+    var onStreamingChange: ((Set<String>) -> Void)?
+
     private var connections: [String: WorkspaceConnection] = [:]
     private let decoder = JSONDecoder()
 
@@ -67,6 +70,7 @@ final class HubStatusMonitor {
         } else {
             streamingWorkspaces.remove(workspaceId)
         }
+        onStreamingChange?(streamingWorkspaces)
     }
 
     fileprivate func didReceiveDiffStats(_ stats: DiffStatResponse, for workspaceId: String) {

@@ -87,7 +87,7 @@ struct WorkspaceCard: View {
         .frame(maxWidth: .infinity, minHeight: 140, alignment: .topLeading)
         .contentShape(Rectangle())
         .glassCardInteractive()
-        .accentGlow(color: .accentColor, radius: 6, isActive: isStreaming)
+        .accentGlow(color: .white, radius: 6, isActive: isStreaming)
     }
 }
 

@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 struct ChatView: View {
@@ -16,28 +17,48 @@ struct ChatView: View {
 
     private let api = APIClient()
 
+    private var pendingToolUseIds: Set<String> {
+        Set(store.pendingToolInputs.map(\.toolUseId))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 16) {
-                        ForEach(store.displayMessages) { message in
-                            MessageBubble(message: message)
-                                .id(message.id)
-                        }
+            if isLoading {
+                Spacer()
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 16) {
+                            ForEach(store.displayMessages) { message in
+                                MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds)
+                                    .id(message.id)
+                            }
 
-                        if store.isStreaming && store.streamingMessage == nil {
-                            streamingIndicator
+                            if store.isStreaming && store.streamingMessage == nil {
+                                streamingIndicator
+                            }
+
+                            Color.clear
+                                .frame(height: 1)
+                                .id(bottomAnchorID)
                         }
+                        .scrollTargetLayout()
+                        .padding()
                     }
-                    .padding()
-                    .padding(.bottom, 100)
-                }
-                .onChange(of: store.displayMessages.count) {
-                    scrollToBottom(proxy)
-                }
-                .onChange(of: store.currentText) {
-                    scrollToBottom(proxy)
+                    .defaultScrollAnchor(.bottom)
+                    .scrollDismissesKeyboard(.interactively)
+                    .onTapGesture {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                        scrollToBottom(proxy)
+                    }
+                    .onChange(of: store.displayMessages.count) {
+                        scrollToBottom(proxy)
+                    }
+                    .onChange(of: store.currentText) {
+                        scrollToBottom(proxy)
+                    }
                 }
             }
         }
@@ -53,6 +74,8 @@ struct ChatView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 4)
         }
+        .toolbarBackground(.black, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -83,9 +106,6 @@ struct ChatView: View {
                 }
             }
         }
-        .overlay {
-            if isLoading { ProgressView() }
-        }
         .sheet(isPresented: $showSessionSheet) {
             SessionSheet(
                 sessions: sessions,
@@ -111,15 +131,16 @@ struct ChatView: View {
     // MARK: - Streaming Indicator
 
     private var streamingIndicator: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 3) {
             ForEach(0..<3, id: \.self) { _ in
                 Circle()
-                    .fill(.secondary)
-                    .frame(width: 6, height: 6)
-                    .opacity(0.5)
+                    .fill(WhisperColor.textMuted)
+                    .frame(width: 4, height: 4)
             }
         }
+        .shimmer()
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, 2)
         .id("streaming-indicator")
     }
 
@@ -238,11 +259,16 @@ struct ChatView: View {
         }
     }
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        if let lastId = store.displayMessages.last?.id {
+    private static let bottomAnchorID = "chat-bottom-anchor"
+    private var bottomAnchorID: String { Self.bottomAnchorID }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
+        if animated {
             withAnimation(.easeOut(duration: 0.15)) {
-                proxy.scrollTo(lastId, anchor: .bottom)
+                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
             }
+        } else {
+            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
         }
     }
 }
