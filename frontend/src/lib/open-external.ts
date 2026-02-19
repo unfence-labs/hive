@@ -37,11 +37,12 @@ export async function openExternal(url: string): Promise<void> {
 export function buildVscodeRemoteUri(host: string, remotePath: string): string {
   const normalizedHost = host.trim();
   const normalizedPath = remotePath.trim().replace(/\\/g, "/");
+  const encodedHost = encodeURIComponent(normalizedHost);
   const pathWithLeadingSlash = normalizedPath.startsWith("/") ? normalizedPath : `/${normalizedPath}`;
   const encodedPath = pathWithLeadingSlash
     .split("/")
     .map((segment) => encodeURIComponent(segment))
     .join("/");
 
-  return `vscode://vscode-remote/ssh-remote+${normalizedHost}${encodedPath}`;
+  return `vscode://vscode-remote/ssh-remote+${encodedHost}${encodedPath}`;
 }
