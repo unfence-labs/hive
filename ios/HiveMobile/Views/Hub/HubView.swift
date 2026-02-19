@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HubView: View {
     @Environment(ProjectStore.self) private var store
+    @State private var showAddProject = false
 
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
@@ -14,7 +15,7 @@ struct HubView: View {
                 ContentUnavailableView(
                     "No Projects",
                     systemImage: "folder",
-                    description: Text("Connect to your Hive server from the Settings tab below.")
+                    description: Text("Tap + to add your first project, or connect to your Hive server from Settings.")
                 )
                 .padding(.top, 40)
             } else {
@@ -22,7 +23,9 @@ struct HubView: View {
             }
         }
         .scrollBounceBehavior(.always)
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("Hub")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar { toolbarContent }
         .refreshable {
             // Unstructured Task shields refresh from SwiftUI prematurely
             // cancelling the .refreshable task on ScrollView (known iOS 26 regression).
@@ -38,6 +41,49 @@ struct HubView: View {
             if let errorMessage = store.errorMessage {
                 errorBanner(errorMessage)
             }
+        }
+        .overlay(alignment: .top) {
+            if let repoName = store.cloningRepoName {
+                HStack(spacing: HiveSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Cloning \(repoName)...")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, HiveSpacing.lg)
+                .padding(.vertical, HiveSpacing.sm)
+                .glassPill()
+                .padding(.top, HiveSpacing.sm)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.default, value: store.cloningRepoName != nil)
+        .sheet(isPresented: $showAddProject) {
+            AddProjectSheet { url in
+                Task { await store.createProject(url: url) }
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                showAddProject = true
+            } label: {
+                if store.isCreatingProject {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "plus")
+                        .font(.title2.weight(.semibold))
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(store.isCreatingProject)
+            .accessibilityLabel("Add project")
+            .accessibilityHint("Opens the add project sheet.")
         }
     }
 
@@ -56,9 +102,7 @@ struct HubView: View {
         VStack(alignment: .leading, spacing: HiveSpacing.md) {
             HStack(spacing: 8) {
                 ProjectAvatar(project: project)
-                Text(project.name)
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
+                projectTitle(project)
                 Spacer(minLength: 0)
                 addWorkspaceButton(for: project)
             }
@@ -114,6 +158,52 @@ struct HubView: View {
         Task {
             await store.createWorkspace(in: projectId)
         }
+    }
+
+    @ViewBuilder
+    private func projectTitle(_ project: Project) -> some View {
+        if let parts = ownerAndRepo(from: project.url) ?? ownerAndRepo(from: project.name) {
+            (
+                Text("\(parts.owner)/")
+                    .foregroundStyle(.secondary)
+                +
+                Text(parts.repo)
+                    .foregroundStyle(.white)
+            )
+            .font(.headline)
+        } else {
+            Text(project.name)
+                .font(.headline)
+                .foregroundStyle(.white)
+        }
+    }
+
+    private func ownerAndRepo(from rawInput: String) -> (owner: String, repo: String)? {
+        let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let noTrailingSlash = trimmed.hasSuffix("/") ? String(trimmed.dropLast()) : trimmed
+        let noGitSuffix = noTrailingSlash.hasSuffix(".git") ? String(noTrailingSlash.dropLast(4)) : noTrailingSlash
+
+        // HTTP(S)/SSH URLs with scheme.
+        if let url = URL(string: noGitSuffix), url.scheme != nil {
+            let pathParts = url.pathComponents.filter { $0 != "/" && !$0.isEmpty }
+            if pathParts.count >= 2 {
+                return (pathParts[pathParts.count - 2], pathParts[pathParts.count - 1])
+            }
+        }
+
+        // SCP-like SSH or plain "host/org/repo" inputs.
+        let normalized = noGitSuffix.replacingOccurrences(of: ":", with: "/")
+        let parts = normalized.split(separator: "/").map(String.init)
+        guard parts.count >= 2 else { return nil }
+
+        let repo = parts[parts.count - 1]
+        let owner = parts[parts.count - 2]
+        if owner.contains("@") || owner.contains(".") || repo.isEmpty {
+            return nil
+        }
+        return (owner, repo)
     }
 
     // MARK: - Error Banner

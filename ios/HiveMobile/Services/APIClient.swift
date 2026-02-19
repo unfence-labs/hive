@@ -104,6 +104,11 @@ final class APIClient {
         try await post(path: "/api/projects/\(projectId)/workspaces")
     }
 
+    func createProject(url: String) async throws -> Project {
+        let body = try JSONEncoder().encode(["url": url])
+        return try await post(path: "/api/projects", body: body)
+    }
+
     func fetchSessions(workspaceId: String) async throws -> [SessionMetadata] {
         try await get(path: "/api/workspaces/\(workspaceId)/sessions")
     }
