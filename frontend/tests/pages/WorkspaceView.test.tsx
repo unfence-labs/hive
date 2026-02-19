@@ -2,7 +2,7 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TerminalProvider, useTerminalContext } from "@/contexts/TerminalContext";
 import WorkspaceView from "@/pages/WorkspaceView";
 import type { Workspace, WorkspaceFileTreeNode } from "@/types";
@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   stopScript: vi.fn(),
   connectScriptOutput: vi.fn(),
   disconnectScriptOutput: vi.fn(),
+  openExternal: vi.fn(),
 }));
 
 vi.mock("@/hooks/useApi", () => ({
@@ -56,6 +57,14 @@ vi.mock("@/lib/ws-transport", () => ({
 vi.mock("@/hooks/useScripts", () => ({
   useScripts: mocks.useScripts,
 }));
+
+vi.mock("@/lib/open-external", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/open-external")>("@/lib/open-external");
+  return {
+    ...actual,
+    openExternal: mocks.openExternal,
+  };
+});
 
 vi.mock("@/components/ScriptPanel", () => ({
   default: ({ config }: { config: unknown }) => {
@@ -215,6 +224,18 @@ function renderWorkspace(initialEntry = "/workspaces/ws-1") {
   );
 }
 
+beforeEach(() => {
+  localStorage.removeItem("hive-server-url");
+  localStorage.removeItem("hive-tailscale-ip");
+  localStorage.removeItem("hive-tailscale-port");
+  localStorage.removeItem("hive-ssh-user");
+  mocks.openExternal.mockReset();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("WorkspaceView terminal behavior", () => {
   beforeEach(() => {
     mocks.apiGet.mockReset();
@@ -236,6 +257,7 @@ describe("WorkspaceView terminal behavior", () => {
     mocks.clearCachedData.mockReset();
     mocks.useWorkspaceLiveData.mockReset();
     mocks.useWorkspaceLiveData.mockReturnValue({});
+    mocks.openExternal.mockReset();
 
     mocks.useScripts.mockReturnValue({
       config: null,
@@ -312,6 +334,76 @@ describe("WorkspaceView terminal behavior", () => {
 
     expect(screen.getByTestId("ctx-visible")).toHaveTextContent("none");
     expect(screen.getByTestId("ctx-active")).toHaveTextContent("ws-1");
+  });
+
+  it("disables VS Code button when workspace path is unavailable", async () => {
+    renderWorkspace();
+
+    await screen.findByText("tokyo");
+    expect(screen.getByRole("button", { name: "VS Code" })).toBeDisabled();
+  });
+
+  it("opens VS Code URI with tailscale host and SSH user when configured", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("hive-tailscale-ip", "100.64.0.77");
+    localStorage.setItem("hive-ssh-user", "dev user");
+    localStorage.setItem("hive-server-url", "http://backend.internal:3000");
+
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
+      const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
+      const diffStatsMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
+      if (workspaceMatch) {
+        const workspace = WORKSPACES[workspaceMatch[1]];
+        return workspace ? { ...workspace, worktreePath: "/Users/me/project folder" } : null;
+      }
+      if (filesMatch) return FILE_TREE;
+      if (diffStatsMatch) return DIFF_STATS;
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    renderWorkspace();
+
+    await screen.findByText("tokyo");
+    const vscodeButton = screen.getByRole("button", { name: "VS Code" });
+    expect(vscodeButton).toBeEnabled();
+
+    await user.click(vscodeButton);
+
+    await waitFor(() => {
+      expect(mocks.openExternal).toHaveBeenCalledWith(
+        "vscode://vscode-remote/ssh-remote+dev%20user%40100.64.0.77/Users/me/project%20folder",
+      );
+    });
+  });
+
+  it("falls back to server URL host for VS Code URI when tailscale IP is not set", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("hive-server-url", "backend.internal:4444");
+
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
+      const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
+      const diffStatsMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
+      if (workspaceMatch) {
+        const workspace = WORKSPACES[workspaceMatch[1]];
+        return workspace ? { ...workspace, worktreePath: "/srv/hive/tokyo" } : null;
+      }
+      if (filesMatch) return FILE_TREE;
+      if (diffStatsMatch) return DIFF_STATS;
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    renderWorkspace();
+
+    await screen.findByText("tokyo");
+    await user.click(screen.getByRole("button", { name: "VS Code" }));
+
+    await waitFor(() => {
+      expect(mocks.openExternal).toHaveBeenCalledWith(
+        "vscode://vscode-remote/ssh-remote+backend.internal/srv/hive/tokyo",
+      );
+    });
   });
 
   it("switches back to chatbot view when terminal session exits", async () => {

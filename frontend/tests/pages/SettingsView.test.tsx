@@ -30,6 +30,7 @@ describe("ConnectionSettings", () => {
     localStorage.removeItem("hive-server-url");
     localStorage.removeItem("hive-tailscale-ip");
     localStorage.removeItem("hive-tailscale-port");
+    localStorage.removeItem("hive-ssh-user");
   });
 
   it("shows tailscale placeholders and unknown status when not configured", () => {
@@ -38,6 +39,7 @@ describe("ConnectionSettings", () => {
     expect(screen.getByRole("heading", { name: "Connection" }).closest("div")).toHaveAttribute("data-tauri-drag-region");
     expect(screen.getByPlaceholderText("100.x.x.x")).toHaveValue("");
     expect(screen.getByPlaceholderText("3000")).toHaveValue("");
+    expect(screen.getByPlaceholderText("root")).toHaveValue("");
     expect(screen.getByText("Not configured")).toBeInTheDocument();
   });
 
@@ -87,6 +89,28 @@ describe("ConnectionSettings", () => {
     expect(localStorage.getItem("hive-tailscale-ip")).toBe("100.64.0.11");
     expect(localStorage.getItem("hive-tailscale-port")).toBe("3000");
     expect(localStorage.getItem("hive-server-url")).toBe("http://100.64.0.11:3000");
+  });
+
+  it("persists SSH user on blur without triggering a connection check", async () => {
+    const user = userEvent.setup();
+    render(<ConnectionSettings />);
+
+    const sshUserInput = screen.getByPlaceholderText("root");
+    await user.type(sshUserInput, "  devops  ");
+    await user.tab();
+
+    expect(localStorage.getItem("hive-ssh-user")).toBe("devops");
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  it("persists SSH user on Enter with trimming", async () => {
+    const user = userEvent.setup();
+    render(<ConnectionSettings />);
+
+    const sshUserInput = screen.getByPlaceholderText("root");
+    await user.type(sshUserInput, "  ubuntu  {Enter}");
+
+    expect(localStorage.getItem("hive-ssh-user")).toBe("ubuntu");
   });
 });
 

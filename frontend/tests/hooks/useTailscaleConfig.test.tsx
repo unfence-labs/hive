@@ -6,6 +6,7 @@ describe("useTailscaleConfig", () => {
   beforeEach(() => {
     localStorage.removeItem("hive-tailscale-ip");
     localStorage.removeItem("hive-tailscale-port");
+    localStorage.removeItem("hive-ssh-user");
     localStorage.removeItem("hive-server-url");
   });
 
@@ -14,8 +15,9 @@ describe("useTailscaleConfig", () => {
 
     expect(result.current.ip).toBe("");
     expect(result.current.port).toBe("");
+    expect(result.current.sshUser).toBe("");
     expect(result.current.isConfigured).toBe(false);
-    expect(getTailscaleConfig()).toEqual({ ip: "", port: "", isConfigured: false });
+    expect(getTailscaleConfig()).toEqual({ ip: "", port: "", sshUser: "", isConfigured: false });
   });
 
   it("stores a trimmed IP and keeps server URL empty until port exists", () => {
@@ -43,7 +45,12 @@ describe("useTailscaleConfig", () => {
     expect(localStorage.getItem("hive-server-url")).toBe("http://100.64.0.10:3001");
     expect(result.current.port).toBe("3001");
     expect(result.current.isConfigured).toBe(true);
-    expect(getTailscaleConfig()).toEqual({ ip: "100.64.0.10", port: "3001", isConfigured: true });
+    expect(getTailscaleConfig()).toEqual({
+      ip: "100.64.0.10",
+      port: "3001",
+      sshUser: "",
+      isConfigured: true,
+    });
   });
 
   it("removes IP and computed server URL when IP is set to empty", () => {
@@ -93,5 +100,41 @@ describe("useTailscaleConfig", () => {
     expect(second.result.current.port).toBe("3000");
     expect(second.result.current.isConfigured).toBe(true);
     expect(localStorage.getItem("hive-server-url")).toBe("http://100.64.0.77:3000");
+  });
+
+  it("stores a trimmed SSH user and exposes it through snapshots", () => {
+    const { result } = renderHook(() => useTailscaleConfig());
+
+    act(() => {
+      result.current.setSshUser("  root  ");
+    });
+
+    expect(localStorage.getItem("hive-ssh-user")).toBe("root");
+    expect(result.current.sshUser).toBe("root");
+    expect(getTailscaleConfig()).toEqual({ ip: "", port: "", sshUser: "root", isConfigured: false });
+  });
+
+  it("removes SSH user when set to empty value", () => {
+    localStorage.setItem("hive-ssh-user", "ubuntu");
+    const { result } = renderHook(() => useTailscaleConfig());
+
+    act(() => {
+      result.current.setSshUser("   ");
+    });
+
+    expect(localStorage.getItem("hive-ssh-user")).toBeNull();
+    expect(result.current.sshUser).toBe("");
+    expect(getTailscaleConfig().sshUser).toBe("");
+  });
+
+  it("syncs SSH user updates across multiple hook subscribers", () => {
+    const first = renderHook(() => useTailscaleConfig());
+    const second = renderHook(() => useTailscaleConfig());
+
+    act(() => {
+      first.result.current.setSshUser("developer");
+    });
+
+    expect(second.result.current.sshUser).toBe("developer");
   });
 });
