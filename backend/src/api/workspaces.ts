@@ -12,7 +12,8 @@ import {
   archiveWorkspace,
 } from "../workspaces/workspace-manager.js";
 import { endSession } from "../agents/agent-manager.js";
-import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
+import { join } from "node:path";
+import { bareRepoPath, resolveDefaultBranch, workspacesDir } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
 
@@ -41,13 +42,16 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
     const result = await getWorkspace(req.params.wsId, dataDir);
     if (!result) return reply.status(404).send({ error: "Workspace not found" });
 
-    const bare = bareRepoPath(dataDir ?? getDataDir(), result.projectState.id);
+    const dir = dataDir ?? getDataDir();
+    const bare = bareRepoPath(dir, result.projectState.id);
     const defaultBranch = await resolveDefaultBranch(bare);
+    const worktreePath = join(workspacesDir(dir, result.projectState.id), result.workspace.name);
 
     return reply.send({
       ...result.workspace,
       projectName: result.projectState.name,
       defaultBranch,
+      worktreePath,
     });
   });
 

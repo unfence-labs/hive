@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { MessageSquareIcon, TerminalSquareIcon } from "lucide-react";
+import { MessageSquareIcon, TerminalSquareIcon, CodeXmlIcon } from "lucide-react";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
@@ -25,6 +25,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { Skeleton } from "@/components/ui/skeleton";
+import { openExternal, buildVscodeRemoteUri } from "@/lib/open-external";
+import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
+import { useServerUrl } from "@/hooks/useServerUrl";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
 import { useScripts } from "@/hooks/useScripts";
@@ -72,6 +76,8 @@ export default function WorkspaceView() {
   const { wsId } = useParams();
   const [view, setView] = useState<"chatbot" | "terminal">("chatbot");
   const { activeTerminals, openTerminal, setVisibleTerminal } = useTerminalContext();
+  const { ip: tailscaleIp, sshUser } = useTailscaleConfig();
+  const { serverUrl } = useServerUrl();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [fileTree, setFileTree] = useState<WorkspaceFileTreeNode[]>([]);
   const [fileTreeError, setFileTreeError] = useState<string | null>(null);
@@ -105,6 +111,29 @@ export default function WorkspaceView() {
   const liveData = useWorkspaceLiveData(liveWsIds);
   const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
   const branchInfo = wsId ? liveData[wsId]?.branchInfo : undefined;
+
+  // VS Code Remote SSH
+  const backendHost = useMemo(() => {
+    if (!serverUrl) return "";
+    try {
+      const normalized = serverUrl.includes("://") ? serverUrl : `http://${serverUrl}`;
+      return new URL(normalized).hostname;
+    } catch {
+      return "";
+    }
+  }, [serverUrl]);
+  const fallbackWindowHost = typeof window !== "undefined" ? window.location.hostname : "";
+  const sshBaseHost = tailscaleIp || backendHost || fallbackWindowHost;
+  const sshHost = sshUser && sshBaseHost ? `${sshUser}@${sshBaseHost}` : sshBaseHost;
+  const vscodeUri = workspace?.worktreePath && sshHost
+    ? buildVscodeRemoteUri(sshHost, workspace.worktreePath)
+    : null;
+  const vscodeDisabledReason = !sshBaseHost
+    ? "Configure SSH host in Settings first"
+    : !workspace?.worktreePath
+      ? "Workspace path unavailable. Restart backend and reload this workspace."
+      : null;
+  const canOpenVscode = vscodeUri !== null;
 
   // Diff stats from WebSocket polling
   const diffCommitted = useMemo(
@@ -449,6 +478,27 @@ export default function WorkspaceView() {
                 Terminal
               </Button>
             </ButtonGroup>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      className="ml-2"
+                      onClick={() => { if (vscodeUri) void openExternal(vscodeUri); }}
+                      disabled={!canOpenVscode}
+                    >
+                      <CodeXmlIcon className="mr-1.5 size-3.5" />
+                      VS Code
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {vscodeDisabledReason && (
+                  <TooltipContent>{vscodeDisabledReason}</TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
           </div>
           <ConversationTabs
             sessions={sessions}

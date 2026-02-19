@@ -18,6 +18,7 @@ export interface Workspace {
   activeSessionId?: string;
   projectName?: string;
   defaultBranch?: string;
+  worktreePath?: string;
 }
 
 // ── Completion / autocomplete types ─────────────────────────────────

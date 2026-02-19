@@ -3,6 +3,7 @@ import { useCallback, useSyncExternalStore } from "react";
 const IP_KEY = "hive-tailscale-ip";
 const PORT_KEY = "hive-tailscale-port";
 const SERVER_URL_KEY = "hive-server-url";
+const SSH_USER_KEY = "hive-ssh-user";
 
 const listeners = new Set<() => void>();
 
@@ -23,6 +24,10 @@ function getPortSnapshot(): string {
   return localStorage.getItem(PORT_KEY) ?? "";
 }
 
+function getSshUserSnapshot(): string {
+  return localStorage.getItem(SSH_USER_KEY) ?? "";
+}
+
 function getServerSnapshot(): string {
   return "";
 }
@@ -40,12 +45,14 @@ function syncServerUrl(ip: string, port: string) {
 export function getTailscaleConfig() {
   const ip = localStorage.getItem(IP_KEY) ?? "";
   const port = localStorage.getItem(PORT_KEY) ?? "";
-  return { ip, port, isConfigured: ip !== "" && port !== "" };
+  const sshUser = localStorage.getItem(SSH_USER_KEY) ?? "";
+  return { ip, port, sshUser, isConfigured: ip !== "" && port !== "" };
 }
 
 export function useTailscaleConfig() {
   const ip = useSyncExternalStore(subscribe, getIpSnapshot, getServerSnapshot);
   const port = useSyncExternalStore(subscribe, getPortSnapshot, getServerSnapshot);
+  const sshUser = useSyncExternalStore(subscribe, getSshUserSnapshot, getServerSnapshot);
 
   const setIp = useCallback((value: string) => {
     const trimmed = value.trim();
@@ -69,5 +76,15 @@ export function useTailscaleConfig() {
     notify();
   }, []);
 
-  return { ip, port, setIp, setPort, isConfigured: ip !== "" && port !== "" };
+  const setSshUser = useCallback((value: string) => {
+    const trimmed = value.trim();
+    if (trimmed) {
+      localStorage.setItem(SSH_USER_KEY, trimmed);
+    } else {
+      localStorage.removeItem(SSH_USER_KEY);
+    }
+    notify();
+  }, []);
+
+  return { ip, port, sshUser, setIp, setPort, setSshUser, isConfigured: ip !== "" && port !== "" };
 }
