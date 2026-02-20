@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { TerminalProvider, useTerminalContext } from "@/contexts/TerminalContext";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import WorkspaceView from "@/pages/WorkspaceView";
 import type { Workspace, WorkspaceFileTreeNode } from "@/types";
@@ -215,14 +214,10 @@ const FILE_TREE: WorkspaceFileTreeNode[] = [
 const DIFF_STATS = { committed: [], uncommitted: [] };
 
 function TestControls() {
-  const { activeTerminals, visibleTerminalWsId, closeTerminal } = useTerminalContext();
   const navigate = useNavigate();
   return (
     <div>
-      <button type="button" onClick={() => closeTerminal("ws-1")}>close ws-1</button>
       <button type="button" onClick={() => navigate("/workspaces/ws-2")}>go ws-2</button>
-      <div data-testid="ctx-active">{[...activeTerminals].sort().join(",")}</div>
-      <div data-testid="ctx-visible">{visibleTerminalWsId ?? "none"}</div>
     </div>
   );
 }
@@ -238,12 +233,10 @@ function renderWorkspace(initialEntry = "/workspaces/ws-1") {
     <QueryClientProvider client={queryClient}>
       <WorkspaceLiveDataProvider workspaceIds={wsIds}>
         <MemoryRouter initialEntries={[initialEntry]}>
-          <TerminalProvider>
-            <TestControls />
-            <Routes>
-              <Route path="/workspaces/:wsId" element={<WorkspaceView />} />
-            </Routes>
-          </TerminalProvider>
+          <TestControls />
+          <Routes>
+            <Route path="/workspaces/:wsId" element={<WorkspaceView />} />
+          </Routes>
         </MemoryRouter>
       </WorkspaceLiveDataProvider>
     </QueryClientProvider>,
@@ -265,7 +258,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("WorkspaceView terminal behavior", () => {
+describe("WorkspaceView behavior", () => {
   beforeEach(() => {
     mocks.apiGet.mockReset();
     mocks.useConversation.mockReset();
@@ -338,31 +331,6 @@ describe("WorkspaceView terminal behavior", () => {
       refresh: mocks.refreshSessions,
     });
 
-  });
-
-  it("opens terminal for the active workspace when Terminal toggle is clicked", async () => {
-    const user = userEvent.setup();
-    renderWorkspace();
-
-    await screen.findByText("tokyo");
-    await user.click(screen.getByRole("button", { name: "Terminal" }));
-
-    expect(screen.getByTestId("ctx-active")).toHaveTextContent("ws-1");
-    expect(screen.getByTestId("ctx-visible")).toHaveTextContent("ws-1");
-  });
-
-  it("hides terminal overlay when Chatbot toggle is clicked", async () => {
-    const user = userEvent.setup();
-    renderWorkspace();
-
-    await screen.findByText("tokyo");
-    await user.click(screen.getByRole("button", { name: "Terminal" }));
-    expect(screen.getByTestId("ctx-visible")).toHaveTextContent("ws-1");
-
-    await user.click(screen.getByRole("button", { name: "Chatbot" }));
-
-    expect(screen.getByTestId("ctx-visible")).toHaveTextContent("none");
-    expect(screen.getByTestId("ctx-active")).toHaveTextContent("ws-1");
   });
 
   it("disables VS Code button when workspace path is unavailable", async () => {
@@ -519,38 +487,6 @@ describe("WorkspaceView terminal behavior", () => {
 
     // Should render the simple "VS Code" button, not a dropdown
     expect(screen.getByRole("button", { name: "VS Code" })).toBeInTheDocument();
-  });
-
-  it("switches back to chatbot view when terminal session exits", async () => {
-    const user = userEvent.setup();
-    renderWorkspace();
-
-    await screen.findByText("tokyo");
-    const chatbotButton = screen.getByRole("button", { name: "Chatbot" });
-    const terminalButton = screen.getByRole("button", { name: "Terminal" });
-
-    await user.click(terminalButton);
-    expect(terminalButton.className).toContain("bg-primary/10");
-
-    await user.click(screen.getByRole("button", { name: "close ws-1" }));
-
-    await waitFor(() => {
-      expect(chatbotButton.className).toContain("bg-primary/10");
-    });
-  });
-
-  it("clears visible terminal when navigating to another workspace", async () => {
-    const user = userEvent.setup();
-    renderWorkspace();
-
-    await screen.findByText("tokyo");
-    await user.click(screen.getByRole("button", { name: "Terminal" }));
-    expect(screen.getByTestId("ctx-visible")).toHaveTextContent("ws-1");
-
-    await user.click(screen.getByRole("button", { name: "go ws-2" }));
-
-    await screen.findByText("kyoto");
-    expect(screen.getByTestId("ctx-visible")).toHaveTextContent("none");
   });
 
   it("shows QuestionPanel instead of ChatInput when AskUserQuestion is pending", async () => {
