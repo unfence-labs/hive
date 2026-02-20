@@ -3,6 +3,7 @@ import SwiftUI
 struct HubView: View {
     @Environment(ProjectStore.self) private var store
     @State private var showAddProject = false
+    @State private var workspaceToArchive: Workspace?
 
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
@@ -64,6 +65,21 @@ struct HubView: View {
                 Task { await store.createProject(url: url) }
             }
         }
+        .alert(
+            "Archive workspace?",
+            isPresented: Binding(
+                get: { workspaceToArchive != nil },
+                set: { if !$0 { workspaceToArchive = nil } }
+            ),
+            presenting: workspaceToArchive
+        ) { ws in
+            Button("Archive", role: .destructive) {
+                Task { await store.archiveWorkspace(id: ws.id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { ws in
+            Text("\"\(ws.name)\" will be archived.")
+        }
     }
 
     @ToolbarContentBuilder
@@ -123,8 +139,15 @@ struct HubView: View {
                                 sessionCount: workspace.sessionCount
                             )
                         }
-                        .contentShape(Rectangle())
                         .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                workspaceToArchive = workspace
+                            } label: {
+                                Label("Archive", systemImage: "archivebox")
+                            }
+                            .disabled(store.statusMonitor.isStreaming(workspace.id))
+                        }
                     }
                 }
             }

@@ -106,6 +106,21 @@ final class ProjectStore {
         isCreatingProject = false
     }
 
+    func archiveWorkspace(id: String) async {
+        do {
+            try await api.archiveWorkspace(workspaceId: id)
+            for i in projects.indices {
+                projects[i].workspaces.removeAll { $0.id == id }
+            }
+            let allIds = projects.flatMap(\.workspaces).map(\.id)
+            statusMonitor.sync(workspaceIds: allIds)
+        } catch is CancellationError {
+            // Ignore
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// Refresh projects from the API. Shows existing data while loading.
     func refresh() async {
         isLoading = true
