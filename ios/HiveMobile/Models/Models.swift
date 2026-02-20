@@ -112,7 +112,7 @@ struct SessionMetadata: Codable, Identifiable {
     var id: String { sessionId }
 }
 
-struct ImageAttachment: Codable {
+struct ImageAttachment: Codable, Equatable {
     let name: String
     let mediaType: String
     let dataUrl: String

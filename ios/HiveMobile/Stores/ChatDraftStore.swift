@@ -8,13 +8,21 @@ import Foundation
 final class ChatDraftStore {
     static let shared = ChatDraftStore()
 
+    struct Attachment: Equatable {
+        var name: String
+        var mediaType: String
+        var dataUrl: String
+    }
+
     struct Draft {
         var text: String
         var thinkingEnabled: Bool
         var planModeEnabled: Bool
+        var attachments: [Attachment]
 
         var hasMeaningfulContent: Bool {
             !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !attachments.isEmpty
                 || planModeEnabled
                 || !thinkingEnabled
         }
@@ -38,5 +46,12 @@ final class ChatDraftStore {
 
     func restore(workspaceId: String, sessionId: String) -> Draft? {
         store[workspaceId]?[sessionId]
+    }
+
+    func remove(workspaceId: String, sessionId: String) {
+        store[workspaceId]?[sessionId] = nil
+        if store[workspaceId]?.isEmpty == true {
+            store[workspaceId] = nil
+        }
     }
 }
