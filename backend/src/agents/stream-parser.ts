@@ -47,14 +47,36 @@ export class StreamParser extends EventEmitter<StreamParserEvent> {
   }
 
   private parseLine(line: string): void {
-    let parsed: CliJsonLine;
+    let raw: { type: string; [key: string]: unknown };
     try {
-      parsed = JSON.parse(line) as CliJsonLine;
+      raw = JSON.parse(line) as typeof raw;
     } catch {
       this.emit("error", new Error(`Malformed JSON line: ${line.slice(0, 200)}`));
       return;
     }
 
+    // Handle CLI-internal events before narrowing to CliJsonLine
+    if (raw.type === "rate_limit_event") {
+      const rl = raw.rate_limit as Record<string, unknown> | undefined;
+      if (rl) {
+        const fiveH = rl.five_hour as { utilization?: number; status?: string } | undefined;
+        const sevenD = rl.seven_day as { utilization?: number; status?: string } | undefined;
+        console.log(
+          "[rate-limit] status=%s representative=%s 5h=%s%% (%s) 7d=%s%% (%s)",
+          rl.status ?? "unknown",
+          rl.representative_claim ?? "?",
+          fiveH?.utilization != null ? (fiveH.utilization * 100).toFixed(1) : "?",
+          fiveH?.status ?? "?",
+          sevenD?.utilization != null ? (sevenD.utilization * 100).toFixed(1) : "?",
+          sevenD?.status ?? "?",
+        );
+      } else {
+        console.log("[rate-limit]", JSON.stringify(raw));
+      }
+      return;
+    }
+
+    const parsed = raw as CliJsonLine;
     switch (parsed.type) {
       case "assistant":
         this.emit("assistant", parsed);
