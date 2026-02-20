@@ -105,6 +105,34 @@ npm run tauri build
 
 See [GETTING_STARTED.md](GETTING_STARTED.md) for remote backend setup with Tailscale.
 
+### Production Deployment (pm2)
+
+The backend includes a pm2 ecosystem config at `backend/ecosystem.config.cjs` with two environments:
+
+| Environment | Host | Port | Data Dir |
+|---|---|---|---|
+| `production` | `0.0.0.0` | `69420` | `~/.hive` |
+| `development` | `127.0.0.1` | `3000` | `~/.hive-dev` |
+
+```bash
+cd backend
+npm run build
+
+# Start
+pm2 start ecosystem.config.cjs --env production
+pm2 start ecosystem.config.cjs --env development
+
+# Manage
+pm2 logs hive-backend        # stream logs
+pm2 restart hive-backend     # restart
+pm2 stop hive-backend        # stop
+pm2 delete hive-backend      # remove from pm2
+
+# Persist across reboots
+pm2 save
+pm2 startup
+```
+
 ## Scripts
 
 From repo root:
