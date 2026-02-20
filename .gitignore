@@ -6,3 +6,4 @@ dist/
 .vite/
 backend/.data/
 *.tsbuildinfo
+.claude/
