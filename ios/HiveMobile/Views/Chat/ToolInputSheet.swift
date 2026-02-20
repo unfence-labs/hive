@@ -8,7 +8,7 @@ struct ToolInputSheet: View {
     var body: some View {
         NavigationStack {
             Group {
-                if let askQuestion = pendingInputs.first(where: { $0.toolName == "AskUserQuestion" }) {
+                if pendingInputs.contains(where: { $0.toolName == "AskUserQuestion" }) {
                     AskUserQuestionView(
                         allInputs: pendingInputs.filter { $0.toolName == "AskUserQuestion" },
                         onRespond: onRespond

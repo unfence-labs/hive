@@ -25,6 +25,15 @@ struct ChatView: View {
         VStack(spacing: 0) {
             if isLoading {
                 Spacer()
+            } else if store.displayMessages.isEmpty && !store.isStreaming {
+                Spacer()
+                SessionEmptyState(
+                    projectName: workspace.projectName ?? workspace.name,
+                    workspaceName: workspace.name,
+                    branch: store.branchInfo?.name ?? workspace.branch,
+                    defaultBranch: workspace.defaultBranch ?? "main"
+                )
+                Spacer()
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
