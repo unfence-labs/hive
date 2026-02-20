@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArchiveIcon, FolderPlus, Plus, Settings, TerminalSquareIcon } from "lucide-react";
+import { ArchiveIcon, FolderPlus, Plus, Settings } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,7 +19,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useQueryClient } from "@tanstack/react-query";
-import { useTerminalContext } from "@/contexts/TerminalContext";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import { useProjects } from "@/hooks/useProjects";
 import { BranchLabel } from "@/components/BranchLabel";
@@ -40,7 +39,6 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
   const { wsId: activeWsId } = useParams();
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const { activeTerminals } = useTerminalContext();
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
@@ -159,7 +157,6 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
                           const wsStreaming = wsLive?.streaming ?? false;
                           const wsScriptRunning = wsLive?.scriptRunning ?? false;
                           const displayBranch = wsLive?.branch ?? ws.branch;
-                          const hasTerminal = activeTerminals.has(ws.id);
                           return (
                             <div key={ws.id} className="group/ws relative">
                               <Link
@@ -179,15 +176,12 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
                                   {wsScriptRunning && (
                                     <WaveIndicator className="shrink-0" />
                                   )}
-                                  {hasTerminal && (
-                                    <TerminalSquareIcon className="h-3 w-3 shrink-0 text-primary/70" />
-                                  )}
                                 </div>
                                 <div className="mt-0.5 pl-5 text-[11px] text-muted-foreground">
                                   <span className="truncate">{ws.name}</span>
                                 </div>
                               </Link>
-                              {!hasTerminal && !wsScriptRunning && (
+                              {!wsScriptRunning && (
                                 <button
                                   type="button"
                                   className="absolute right-1.5 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"

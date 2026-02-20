@@ -7,7 +7,6 @@ import { workspaceRoutes } from "./api/workspaces.js";
 import { completionRoutes } from "./api/completions.js";
 import { sessionRoutes } from "./api/agents.js";
 import { streamRoutes } from "./ws/stream.js";
-import { terminalRoutes } from "./ws/terminal.js";
 import { createAuthHook } from "./utils/auth.js";
 import { createRateLimitHook } from "./utils/rate-limit.js";
 import { ensureDataDir, getDataDir } from "./state/state.js";
@@ -87,9 +86,6 @@ export async function buildApp(opts: BuildAppOptions = {}) {
       sessionOptions,
       gitSyncSnapshotProvider: opts.gitSyncSnapshotProvider,
     }),
-  );
-  await app.register((instance: FastifyInstance) =>
-    terminalRoutes(instance, { authToken }),
   );
   await app.register((instance: FastifyInstance) => settingsRoutes(instance));
   await app.register((instance: FastifyInstance) => accountRoutes(instance));
