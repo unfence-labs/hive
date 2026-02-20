@@ -23,6 +23,7 @@ struct HiveApp: App {
                             .navigationDestination(for: Workspace.self) { workspace in
                                 ChatView(workspace: workspace)
                                     .toolbar(.hidden, for: .tabBar)
+                                    .smoothTabBarTransition()
                             }
                     }
                     .toolbarColorScheme(.dark, for: .navigationBar)
