@@ -28,10 +28,11 @@ interface ConnectionSettingsProps {
 }
 
 export default function ConnectionSettings({ onRefreshConnection }: ConnectionSettingsProps) {
-  const { ip, port, setIp, setPort } = useTailscaleConfig();
+  const { ip, port, sshUser, setIp, setPort, setSshUser } = useTailscaleConfig();
   const { status, check } = useConnectionStatus();
   const [ipDraft, setIpDraft] = useState(ip);
   const [portDraft, setPortDraft] = useState(port);
+  const [sshUserDraft, setSshUserDraft] = useState(sshUser);
   const [checking, setChecking] = useState(false);
 
   const save = (nextIp: string, nextPort: string) => {
@@ -41,6 +42,7 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
   };
   const saveIp = () => save(ipDraft, port);
   const savePort = () => save(ip, portDraft);
+  const saveSshUser = () => setSshUser(sshUserDraft);
 
   const handleTest = async () => {
     setChecking(true);
@@ -113,6 +115,24 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
                   className="font-mono text-xs"
                 />
               </div>
+            </div>
+
+            <div>
+              <label htmlFor="ssh-user" className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                SSH User <span className="text-muted-foreground/60">(optional)</span>
+              </label>
+              <Input
+                id="ssh-user"
+                value={sshUserDraft}
+                onChange={(e) => setSshUserDraft(e.target.value)}
+                onBlur={saveSshUser}
+                onKeyDown={(e) => { if (e.key === "Enter") saveSshUser(); }}
+                placeholder="root"
+                className="font-mono text-xs"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground/60">
+                Used for VS Code Remote SSH. Leave blank to use IP only.
+              </p>
             </div>
 
             <button
