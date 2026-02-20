@@ -840,9 +840,9 @@ describe("ConversationSession", () => {
     if (userEvents[0].type === "user_message") {
       expect(userEvents[0].message.content).toBe("Analyze this");
       expect(userEvents[0].message.images).toHaveLength(1);
-      // dataUrl should be an API path, not the original base64
+      // dataUrl should be an API path, not the original base64 (resized to .jpg)
       expect(userEvents[0].message.images![0].dataUrl).toMatch(
-        /^\/api\/workspaces\/ws-test\/sessions\/img-user-msg\/attachments\/.+\.png$/,
+        /^\/api\/workspaces\/ws-test\/sessions\/img-user-msg\/attachments\/.+\.jpg$/,
       );
       expect(userEvents[0].message.images![0].name).toBe("screenshot.png");
       expect(userEvents[0].message.images![0].mediaType).toBe("image/png");
@@ -899,7 +899,7 @@ describe("ConversationSession", () => {
     expect(promptArg).toContain("Look at this");
     expect(promptArg).toContain("image(s)");
     expect(promptArg).toContain("Read tool");
-    expect(promptArg).toContain(".png");
+    expect(promptArg).toContain(".jpg");
   });
 
   it("uses fallback prompt when images are sent without text", async () => {
@@ -942,9 +942,10 @@ describe("ConversationSession", () => {
     const session = createSession({ sessionId: "img-ext" });
     const { readdir } = await import("node:fs/promises");
 
-    const jpgBase64 = "/9j/4AAQSkZJRg=="; // minimal JPEG header
+    // Valid 1x1 JPEG (sharp can process this → outputs .jpg)
+    const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
     const images = [
-      { name: "photo.jpg", mediaType: "image/jpeg", dataUrl: `data:image/jpeg;base64,${jpgBase64}` },
+      { name: "photo.jpg", mediaType: "image/jpeg", dataUrl: `data:image/jpeg;base64,${pngBase64}` },
     ];
 
     session.sendMessage("Photo", undefined, images);
@@ -953,7 +954,7 @@ describe("ConversationSession", () => {
     const attachmentsDir = join(tempDir, "sessions", "img-ext", "attachments");
     const files = await readdir(attachmentsDir);
     expect(files).toHaveLength(1);
-    expect(files[0]).toMatch(/\.jpeg$/);
+    expect(files[0]).toMatch(/\.jpg$/);
   });
 
   it("creates attachments directory for multiple images", async () => {

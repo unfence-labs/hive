@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { mkdir, readFile, appendFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { nanoid } from "nanoid";
+import sharp from "sharp";
 import { StreamParser } from "./stream-parser.js";
 import type {
   ChatMessage,
@@ -185,8 +186,21 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     for (const img of images) {
       const base64Match = img.dataUrl.match(/^data:[^;]+;base64,(.+)$/);
       if (!base64Match) continue;
-      const buffer = Buffer.from(base64Match[1], "base64");
-      const ext = img.mediaType.split("/")[1] || "png";
+      const raw = Buffer.from(base64Match[1], "base64");
+      // Resize to max 1568px on longest edge (Claude API resize threshold)
+      let buffer: Buffer;
+      let ext: string;
+      try {
+        buffer = await sharp(raw)
+          .resize(1568, 1568, { fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 80 })
+          .toBuffer();
+        ext = "jpg";
+      } catch {
+        // Fallback: save original if sharp can't process it
+        buffer = raw;
+        ext = img.mediaType.split("/")[1] || "png";
+      }
       const filename = `${nanoid(8)}.${ext}`;
       const filepath = join(attachmentsDir, filename);
       await writeFile(filepath, buffer);

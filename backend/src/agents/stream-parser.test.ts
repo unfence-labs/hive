@@ -201,6 +201,24 @@ describe("StreamParser", () => {
     expect(errors[0].message).toContain("Unknown message type");
   });
 
+  it("silently ignores rate_limit_event from Claude CLI", () => {
+    const parser = new StreamParser();
+    const errors: Error[] = [];
+    parser.on("error", (e) => errors.push(e));
+
+    parser.write(JSON.stringify({
+      type: "rate_limit_event",
+      rate_limit: {
+        status: "allowed",
+        five_hour: { utilization: 0.018, status: "allowed", reset: 1764554400 },
+        seven_day: { utilization: 0.737, status: "allowed", reset: 1764615600 },
+        representative_claim: "five_hour",
+      },
+    }) + "\n");
+
+    expect(errors).toHaveLength(0);
+  });
+
   it("handles multiple chunks building up multiple lines", () => {
     const parser = new StreamParser();
     const events: unknown[] = [];
