@@ -91,6 +91,8 @@ describe("ConnectionSettings", () => {
     expect(localStorage.getItem("hive-server-url")).toBe("http://100.64.0.11:3000");
   });
 
+  // ── SSH User field ────────────────────────────────────────────────────
+
   it("persists SSH user on blur without triggering a connection check", async () => {
     const user = userEvent.setup();
     render(<ConnectionSettings />);
@@ -111,6 +113,60 @@ describe("ConnectionSettings", () => {
     await user.type(sshUserInput, "  ubuntu  {Enter}");
 
     expect(localStorage.getItem("hive-ssh-user")).toBe("ubuntu");
+  });
+
+  it("shows existing SSH user value from localStorage", () => {
+    localStorage.setItem("hive-ssh-user", "existing-user");
+
+    render(<ConnectionSettings />);
+
+    expect(screen.getByPlaceholderText("root")).toHaveValue("existing-user");
+  });
+
+  it("clears SSH user from localStorage when field is emptied and blurred", async () => {
+    localStorage.setItem("hive-ssh-user", "old-user");
+    const user = userEvent.setup();
+
+    render(<ConnectionSettings />);
+
+    const sshUserInput = screen.getByPlaceholderText("root");
+    await user.clear(sshUserInput);
+    await user.tab();
+
+    expect(localStorage.getItem("hive-ssh-user")).toBeNull();
+  });
+
+  it("renders SSH user label with optional marker", () => {
+    render(<ConnectionSettings />);
+
+    expect(screen.getByText("SSH User")).toBeInTheDocument();
+    expect(screen.getByText("(optional)")).toBeInTheDocument();
+  });
+
+  it("renders SSH user help text about VS Code Remote SSH", () => {
+    render(<ConnectionSettings />);
+
+    expect(screen.getByText(/Used for VS Code Remote SSH/i)).toBeInTheDocument();
+  });
+
+  it("SSH user field has font-mono class for readability", () => {
+    render(<ConnectionSettings />);
+
+    const input = screen.getByPlaceholderText("root");
+    expect(input.className).toContain("font-mono");
+  });
+
+  it("does not affect server URL when SSH user changes", async () => {
+    localStorage.setItem("hive-tailscale-ip", "10.0.0.1");
+    localStorage.setItem("hive-tailscale-port", "3000");
+    localStorage.setItem("hive-server-url", "http://10.0.0.1:3000");
+
+    const user = userEvent.setup();
+    render(<ConnectionSettings />);
+
+    await user.type(screen.getByPlaceholderText("root"), "newuser{Enter}");
+
+    expect(localStorage.getItem("hive-server-url")).toBe("http://10.0.0.1:3000");
   });
 });
 

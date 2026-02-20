@@ -50,4 +50,43 @@ describe("useTerminalApps", () => {
 
     expect(result.current).toEqual([]);
   });
+
+  it("calls detectTerminals exactly once on mount", async () => {
+    mocks.detectTerminals.mockResolvedValue([]);
+
+    renderHook(() => useTerminalApps());
+
+    await waitFor(() => {
+      expect(mocks.detectTerminals).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("does not re-detect on rerender", async () => {
+    mocks.detectTerminals.mockResolvedValue([{ id: "terminal_app", name: "Terminal" }]);
+
+    const { result, rerender } = renderHook(() => useTerminalApps());
+
+    await waitFor(() => {
+      expect(result.current).toHaveLength(1);
+    });
+
+    rerender();
+    rerender();
+
+    expect(mocks.detectTerminals).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps empty array when detectTerminals resolves with empty (simulates internal error handling)", async () => {
+    // detectTerminals handles its own errors and returns []. This test confirms
+    // the hook stays stable when the detection layer resolves with nothing.
+    mocks.detectTerminals.mockResolvedValue([]);
+
+    const { result } = renderHook(() => useTerminalApps());
+
+    await waitFor(() => {
+      expect(mocks.detectTerminals).toHaveBeenCalled();
+    });
+
+    expect(result.current).toEqual([]);
+  });
 });

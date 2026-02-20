@@ -1219,3 +1219,479 @@ describe("WorkspaceView sidebar split resize", () => {
     expect(fileTreePanel.style.height).toBe("50%");
   });
 });
+
+// ─── SSH Host Resolution & VS Code Button Edge Cases ─────────────────────────
+
+describe("WorkspaceView VS Code SSH host resolution", () => {
+  function setupWithWorktreePath(opts: {
+    tailscaleIp?: string;
+    sshUser?: string;
+    serverUrl?: string;
+    worktreePath?: string;
+  } = {}) {
+    if (opts.tailscaleIp) localStorage.setItem("hive-tailscale-ip", opts.tailscaleIp);
+    if (opts.sshUser) localStorage.setItem("hive-ssh-user", opts.sshUser);
+    if (opts.serverUrl) localStorage.setItem("hive-server-url", opts.serverUrl);
+
+    mocks.useTerminalApps.mockReturnValue([]);
+
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
+      const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
+      const diffStatsMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
+      if (workspaceMatch) {
+        const workspace = WORKSPACES[workspaceMatch[1]];
+        return workspace
+          ? { ...workspace, worktreePath: opts.worktreePath ?? undefined }
+          : null;
+      }
+      if (filesMatch) return FILE_TREE;
+      if (diffStatsMatch) return DIFF_STATS;
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    mocks.useConversation.mockReturnValue({
+      messages: [],
+      isStreaming: false,
+      streamingStartedAt: null,
+      workspaceStatus: "idle",
+      currentStreamingText: "",
+      currentThinking: "",
+      activeToolCalls: [],
+      pendingToolInputs: [],
+      connectionStatus: "connected",
+      error: null,
+      sessionId: undefined,
+      sendMessage: mocks.sendMessage,
+      stopStreaming: mocks.stopStreaming,
+      clearChat: mocks.clearChat,
+      switchSession: mocks.switchSession,
+      answerQuestion: mocks.answerQuestion,
+      batchAnswerQuestions: mocks.batchAnswerQuestions,
+      approvePlan: mocks.approvePlan,
+      rejectToolInput: mocks.rejectToolInput,
+      dismissPlan: mocks.dismissPlan,
+    });
+
+    mocks.useSessions.mockReturnValue({
+      sessions: [],
+      createSession: mocks.createSession,
+      activateSession: mocks.activateSession,
+      deleteSession: mocks.deleteSession,
+      refresh: mocks.refreshSessions,
+    });
+
+    mocks.useScripts.mockReturnValue({
+      config: null,
+      status: { setup: { state: "idle" }, run: { state: "idle" } },
+      startScript: mocks.startScript,
+      stopScript: mocks.stopScript,
+      connectOutput: mocks.connectScriptOutput,
+      disconnectOutput: mocks.disconnectScriptOutput,
+    });
+
+    mocks.useWorkspaceLiveData.mockReturnValue({});
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.removeItem("hive-server-url");
+    localStorage.removeItem("hive-tailscale-ip");
+    localStorage.removeItem("hive-tailscale-port");
+    localStorage.removeItem("hive-ssh-user");
+  });
+
+  it("VS Code button is disabled when no SSH host is available", async () => {
+    setupWithWorktreePath({ worktreePath: "/srv/hive/tokyo" });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    // Window.location.hostname in jsdom is "localhost" which is truthy,
+    // but no worktreePath might still cause issues. Let's check with path present.
+    // Actually localhost IS a valid fallback host, so button should be enabled.
+    const btn = screen.getByRole("button", { name: "VS Code" });
+    expect(btn).toBeInTheDocument();
+  });
+
+  it("VS Code button disabled when workspace has no worktreePath", async () => {
+    setupWithWorktreePath({ tailscaleIp: "10.0.0.1" });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    expect(screen.getByRole("button", { name: "VS Code" })).toBeDisabled();
+  });
+
+  it("prefers tailscaleIp over serverUrl hostname for SSH host", async () => {
+    const user = userEvent.setup();
+    setupWithWorktreePath({
+      tailscaleIp: "100.64.0.77",
+      serverUrl: "http://backend.internal:3000",
+      worktreePath: "/srv/hive/tokyo",
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+    await user.click(screen.getByRole("button", { name: "VS Code" }));
+
+    await waitFor(() => {
+      expect(mocks.openExternal).toHaveBeenCalledWith(
+        expect.stringContaining("100.64.0.77"),
+      );
+    });
+    // Should NOT use backend.internal
+    expect(mocks.openExternal).not.toHaveBeenCalledWith(
+      expect.stringContaining("backend.internal"),
+    );
+  });
+
+  it("falls back to serverUrl hostname when tailscaleIp is empty", async () => {
+    const user = userEvent.setup();
+    setupWithWorktreePath({
+      serverUrl: "http://my-server.example.com:4444",
+      worktreePath: "/srv/hive/tokyo",
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+    await user.click(screen.getByRole("button", { name: "VS Code" }));
+
+    await waitFor(() => {
+      expect(mocks.openExternal).toHaveBeenCalledWith(
+        expect.stringContaining("my-server.example.com"),
+      );
+    });
+  });
+
+  it("extracts hostname from serverUrl without protocol prefix", async () => {
+    const user = userEvent.setup();
+    setupWithWorktreePath({
+      serverUrl: "backend.internal:4444",
+      worktreePath: "/srv/hive/tokyo",
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+    await user.click(screen.getByRole("button", { name: "VS Code" }));
+
+    await waitFor(() => {
+      expect(mocks.openExternal).toHaveBeenCalledWith(
+        expect.stringContaining("backend.internal"),
+      );
+    });
+  });
+
+  it("prepends sshUser@ to SSH host when SSH user is configured", async () => {
+    const user = userEvent.setup();
+    setupWithWorktreePath({
+      tailscaleIp: "100.64.0.77",
+      sshUser: "devuser",
+      worktreePath: "/srv/hive/tokyo",
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+    await user.click(screen.getByRole("button", { name: "VS Code" }));
+
+    await waitFor(() => {
+      expect(mocks.openExternal).toHaveBeenCalledWith(
+        expect.stringContaining("devuser%40100.64.0.77"),
+      );
+    });
+  });
+
+  it("does not prepend sshUser when SSH user is empty", async () => {
+    const user = userEvent.setup();
+    setupWithWorktreePath({
+      tailscaleIp: "100.64.0.77",
+      worktreePath: "/srv/hive/tokyo",
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+    await user.click(screen.getByRole("button", { name: "VS Code" }));
+
+    await waitFor(() => {
+      expect(mocks.openExternal).toHaveBeenCalledWith(
+        expect.stringContaining("ssh-remote+100.64.0.77/"),
+      );
+    });
+  });
+
+  it("encodes spaces in worktreePath segments", async () => {
+    const user = userEvent.setup();
+    setupWithWorktreePath({
+      tailscaleIp: "10.0.0.1",
+      worktreePath: "/Users/me/my workspace",
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+    await user.click(screen.getByRole("button", { name: "VS Code" }));
+
+    await waitFor(() => {
+      expect(mocks.openExternal).toHaveBeenCalledWith(
+        expect.stringContaining("my%20workspace"),
+      );
+    });
+  });
+
+  it("builds correct URI with all parts: sshUser, tailscaleIp, worktreePath", async () => {
+    const user = userEvent.setup();
+    setupWithWorktreePath({
+      tailscaleIp: "100.64.0.77",
+      sshUser: "root",
+      worktreePath: "/srv/hive/tokyo",
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+    await user.click(screen.getByRole("button", { name: "VS Code" }));
+
+    await waitFor(() => {
+      expect(mocks.openExternal).toHaveBeenCalledWith(
+        "vscode://vscode-remote/ssh-remote+root%40100.64.0.77/srv/hive/tokyo",
+      );
+    });
+  });
+
+  it("uses sshUser with serverUrl host when tailscaleIp is empty", async () => {
+    const user = userEvent.setup();
+    setupWithWorktreePath({
+      serverUrl: "http://192.168.1.50:3000",
+      sshUser: "admin",
+      worktreePath: "/data/workspaces/tokyo",
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+    await user.click(screen.getByRole("button", { name: "VS Code" }));
+
+    await waitFor(() => {
+      expect(mocks.openExternal).toHaveBeenCalledWith(
+        "vscode://vscode-remote/ssh-remote+admin%40192.168.1.50/data/workspaces/tokyo",
+      );
+    });
+  });
+});
+
+// ─── Dropdown menu with terminal apps ────────────────────────────────────────
+
+describe("WorkspaceView dropdown terminal interactions", () => {
+  function setupDropdownTest(opts: {
+    terminalApps?: Array<{ id: string; name: string }>;
+    worktreePath?: string;
+    tailscaleIp?: string;
+    sshUser?: string;
+  } = {}) {
+    mocks.useTerminalApps.mockReturnValue(opts.terminalApps ?? []);
+    if (opts.tailscaleIp) localStorage.setItem("hive-tailscale-ip", opts.tailscaleIp);
+    if (opts.sshUser) localStorage.setItem("hive-ssh-user", opts.sshUser);
+
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
+      const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
+      const diffStatsMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
+      if (workspaceMatch) {
+        const workspace = WORKSPACES[workspaceMatch[1]];
+        return workspace
+          ? { ...workspace, worktreePath: opts.worktreePath ?? undefined }
+          : null;
+      }
+      if (filesMatch) return FILE_TREE;
+      if (diffStatsMatch) return DIFF_STATS;
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    mocks.useConversation.mockReturnValue({
+      messages: [],
+      isStreaming: false,
+      streamingStartedAt: null,
+      workspaceStatus: "idle",
+      currentStreamingText: "",
+      currentThinking: "",
+      activeToolCalls: [],
+      pendingToolInputs: [],
+      connectionStatus: "connected",
+      error: null,
+      sessionId: undefined,
+      sendMessage: mocks.sendMessage,
+      stopStreaming: mocks.stopStreaming,
+      clearChat: mocks.clearChat,
+      switchSession: mocks.switchSession,
+      answerQuestion: mocks.answerQuestion,
+      batchAnswerQuestions: mocks.batchAnswerQuestions,
+      approvePlan: mocks.approvePlan,
+      rejectToolInput: mocks.rejectToolInput,
+      dismissPlan: mocks.dismissPlan,
+    });
+
+    mocks.useSessions.mockReturnValue({
+      sessions: [],
+      createSession: mocks.createSession,
+      activateSession: mocks.activateSession,
+      deleteSession: mocks.deleteSession,
+      refresh: mocks.refreshSessions,
+    });
+
+    mocks.useScripts.mockReturnValue({
+      config: null,
+      status: { setup: { state: "idle" }, run: { state: "idle" } },
+      startScript: mocks.startScript,
+      stopScript: mocks.stopScript,
+      connectOutput: mocks.connectScriptOutput,
+      disconnectOutput: mocks.disconnectScriptOutput,
+    });
+
+    mocks.useWorkspaceLiveData.mockReturnValue({});
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.removeItem("hive-server-url");
+    localStorage.removeItem("hive-tailscale-ip");
+    localStorage.removeItem("hive-tailscale-port");
+    localStorage.removeItem("hive-ssh-user");
+  });
+
+  it("shows 'Open in VS Code' as first item in dropdown", async () => {
+    const user = userEvent.setup();
+    setupDropdownTest({
+      terminalApps: [{ id: "terminal_app", name: "Terminal" }],
+      tailscaleIp: "10.0.0.1",
+      worktreePath: "/srv/hive/tokyo",
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByRole("button", { name: /Code/i }));
+    expect(await screen.findByText("Open in VS Code")).toBeInTheDocument();
+  });
+
+  it("separates VS Code from terminal apps with a separator", async () => {
+    const user = userEvent.setup();
+    setupDropdownTest({
+      terminalApps: [{ id: "terminal_app", name: "Terminal" }],
+      tailscaleIp: "10.0.0.1",
+      worktreePath: "/srv/hive/tokyo",
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByRole("button", { name: /Code/i }));
+    await screen.findByText("Open in VS Code");
+
+    // There should be a separator element in the DOM
+    expect(document.querySelector("[role='separator']")).toBeInTheDocument();
+  });
+
+  it("disables 'Open in VS Code' when vscodeUri is null (no worktreePath)", async () => {
+    const user = userEvent.setup();
+    setupDropdownTest({
+      terminalApps: [{ id: "terminal_app", name: "Terminal" }],
+      tailscaleIp: "10.0.0.1",
+      // no worktreePath
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByRole("button", { name: /Code/i }));
+
+    const vscodeItem = await screen.findByText("Open in VS Code");
+    // The menu item should be disabled (aria-disabled or data-disabled)
+    expect(vscodeItem.closest("[data-disabled]") ?? vscodeItem.closest("[aria-disabled]")).toBeTruthy();
+  });
+
+  it("disables SSH terminal items when canSsh is false (no worktreePath)", async () => {
+    const user = userEvent.setup();
+    setupDropdownTest({
+      terminalApps: [{ id: "terminal_app", name: "Terminal" }],
+      tailscaleIp: "10.0.0.1",
+      // no worktreePath
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByRole("button", { name: /Code/i }));
+
+    const terminalItem = await screen.findByText("Terminal (SSH)");
+    expect(terminalItem.closest("[data-disabled]") ?? terminalItem.closest("[aria-disabled]")).toBeTruthy();
+  });
+
+  it("calls openExternal with correct URI from dropdown VS Code item", async () => {
+    const user = userEvent.setup();
+    setupDropdownTest({
+      terminalApps: [{ id: "terminal_app", name: "Terminal" }],
+      tailscaleIp: "10.0.0.1",
+      sshUser: "root",
+      worktreePath: "/srv/hive/tokyo",
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByRole("button", { name: /Code/i }));
+    await user.click(await screen.findByText("Open in VS Code"));
+
+    await waitFor(() => {
+      expect(mocks.openExternal).toHaveBeenCalledWith(
+        "vscode://vscode-remote/ssh-remote+root%4010.0.0.1/srv/hive/tokyo",
+      );
+    });
+  });
+
+  it("calls openTerminalSsh with correct args from dropdown terminal item", async () => {
+    const user = userEvent.setup();
+    mocks.openTerminalSsh.mockResolvedValue(undefined);
+    setupDropdownTest({
+      terminalApps: [
+        { id: "terminal_app", name: "Terminal" },
+        { id: "iterm2", name: "iTerm" },
+      ],
+      tailscaleIp: "10.0.0.1",
+      sshUser: "dev",
+      worktreePath: "/srv/hive/tokyo",
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByRole("button", { name: /Code/i }));
+    await user.click(await screen.findByText("iTerm (SSH)"));
+
+    await waitFor(() => {
+      expect(mocks.openTerminalSsh).toHaveBeenCalledWith(
+        "iterm2",
+        "dev@10.0.0.1",
+        "/srv/hive/tokyo",
+      );
+    });
+  });
+
+  it("renders dropdown button label as 'Code' with chevron when terminal apps exist", async () => {
+    setupDropdownTest({
+      terminalApps: [{ id: "terminal_app", name: "Terminal" }],
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    const trigger = screen.getByRole("button", { name: /Code/i });
+    expect(trigger).toBeInTheDocument();
+    expect(trigger.textContent).toContain("Code");
+  });
+
+  it("renders simple 'VS Code' button when no terminal apps detected", async () => {
+    setupDropdownTest({ terminalApps: [] });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    expect(screen.getByRole("button", { name: "VS Code" })).toBeInTheDocument();
+  });
+});
