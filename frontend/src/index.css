@@ -110,16 +110,16 @@
 }
 
 .dark {
-  /* Linear Gradient — deep dark with subtle warmth */
-  --background: #09090f;
+  /* Pill-inspired — slightly elevated base */
+  --background: #111119;
   --foreground: oklch(0.93 0.005 260);
-  --card: #111119;
+  --card: #16161e;
   --card-foreground: oklch(0.93 0.005 260);
-  --popover: #111119;
+  --popover: #16161e;
   --popover-foreground: oklch(0.93 0.005 260);
 
   /* Primary = accent color (set dynamically via useAccentColor) */
-  --primary: var(--hive-accent, #7c3aed);
+  --primary: var(--hive-accent, #635BFF);
   --primary-foreground: #ffffff;
 
   --secondary: oklch(0.22 0.01 270);
@@ -131,9 +131,9 @@
   --destructive: oklch(0.65 0.2 22);
   --border: oklch(1 0 0 / 8%);
   --input: oklch(1 0 0 / 10%);
-  --ring: var(--hive-accent, #7c3aed);
+  --ring: var(--hive-accent, #635BFF);
 
-  --chart-1: var(--hive-accent, #7c3aed);
+  --chart-1: var(--hive-accent, #635BFF);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
@@ -142,15 +142,15 @@
   /* Sidebar: slightly lighter than main bg */
   --sidebar: #0c0c14;
   --sidebar-foreground: oklch(0.93 0.005 260);
-  --sidebar-primary: var(--hive-accent, #7c3aed);
+  --sidebar-primary: var(--hive-accent, #635BFF);
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: oklch(0.2 0.015 270);
   --sidebar-accent-foreground: oklch(0.93 0.005 260);
   --sidebar-border: oklch(1 0 0 / 8%);
-  --sidebar-ring: var(--hive-accent, #7c3aed);
+  --sidebar-ring: var(--hive-accent, #635BFF);
 
   /* Accent glow for focus rings & highlights */
-  --hive-accent-glow: color-mix(in oklch, var(--hive-accent, #7c3aed) 15%, transparent);
+  --hive-accent-glow: color-mix(in oklch, var(--hive-accent, #635BFF) 15%, transparent);
 }
 
 @layer base {
