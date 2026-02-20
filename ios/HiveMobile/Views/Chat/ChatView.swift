@@ -16,6 +16,7 @@ struct ChatView: View {
     @State private var selectedModel: ClaudeModel = .opus
 
     private let api = APIClient()
+    private let draftStore = ChatDraftStore.shared
 
     private var pendingToolUseIds: Set<String> {
         Set(store.pendingToolInputs.map(\.toolUseId))
@@ -128,7 +129,10 @@ struct ChatView: View {
             }
         }
         .task { await setup() }
-        .onDisappear { wsManager.disconnect() }
+        .onDisappear {
+            saveCurrentDraft()
+            wsManager.disconnect()
+        }
     }
 
     // MARK: - Streaming Activity
@@ -153,6 +157,10 @@ struct ChatView: View {
         await loadSessions()
         activeSessionId = workspace.activeSessionId ?? sessions.first?.sessionId
         store.setFocusedSessionId(activeSessionId)
+
+        if let sessionId = activeSessionId {
+            restoreDraft(for: sessionId)
+        }
 
         wsManager.connect(workspaceId: workspace.id)
         listenToWebSocket()
@@ -193,7 +201,9 @@ struct ChatView: View {
 
     private func switchSession(_ sessionId: String) {
         guard sessionId != activeSessionId else { return }
+        saveCurrentDraft()
         activeSessionId = sessionId
+        restoreDraft(for: sessionId)
         store.prepareSessionSwitch(sessionId)
         isLoading = true
         Task {
@@ -261,6 +271,33 @@ struct ChatView: View {
                 result: result,
                 sessionId: pending.sessionId
             ))
+        }
+    }
+
+    // MARK: - Draft Persistence
+
+    private func saveCurrentDraft() {
+        guard let sessionId = activeSessionId else { return }
+        draftStore.save(
+            workspaceId: workspace.id,
+            sessionId: sessionId,
+            draft: .init(
+                text: draft,
+                thinkingEnabled: thinkingEnabled,
+                planModeEnabled: planModeEnabled
+            )
+        )
+    }
+
+    private func restoreDraft(for sessionId: String) {
+        if let saved = draftStore.restore(workspaceId: workspace.id, sessionId: sessionId) {
+            draft = saved.text
+            thinkingEnabled = saved.thinkingEnabled
+            planModeEnabled = saved.planModeEnabled
+        } else {
+            draft = ""
+            thinkingEnabled = true
+            planModeEnabled = false
         }
     }
 
