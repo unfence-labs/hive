@@ -4,6 +4,7 @@ import SwiftUI
 struct HiveApp: App {
     @State private var projectStore = ProjectStore()
     @State private var selectedTab: AppTab = .hub
+    @State private var hubPath = NavigationPath()
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hiveAccent") private var accentId = "violet"
 
@@ -17,14 +18,14 @@ struct HiveApp: App {
         WindowGroup {
             TabView(selection: $selectedTab) {
                 Tab("Hub", systemImage: "square.grid.2x2.fill", value: .hub) {
-                    NavigationStack {
+                    NavigationStack(path: $hubPath) {
                         HubView()
                             .navigationDestination(for: Workspace.self) { workspace in
                                 ChatView(workspace: workspace)
                                     .toolbar(.hidden, for: .tabBar)
                             }
                     }
-                    .tint(.white)
+                    .toolbarColorScheme(.dark, for: .navigationBar)
                 }
                 Tab("Settings", systemImage: "gearshape.fill", value: .settings) {
                     NavigationStack {

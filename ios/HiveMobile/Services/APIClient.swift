@@ -76,6 +76,42 @@ final class APIClient {
         }
     }
 
+    /// Fire-and-forget variant for endpoints that return no body (e.g. 204).
+    private func requestVoid(_ method: String, path: String, body: Data? = nil) async throws {
+        guard let url = URL(string: "\(baseURL)\(path)") else {
+            throw APIError.invalidURL
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = method
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        if !authToken.isEmpty {
+            req.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+        }
+        if let body {
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = body
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            if Task.isCancelled { throw CancellationError() }
+            throw APIError.networkError(urlError)
+        } catch {
+            throw APIError.networkError(error)
+        }
+
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.httpError(statusCode: http.statusCode, message: msg)
+        }
+    }
+
     private func get<T: Decodable>(path: String) async throws -> T {
         try await request("GET", path: path)
     }
@@ -104,6 +140,11 @@ final class APIClient {
         try await post(path: "/api/projects/\(projectId)/workspaces")
     }
 
+    func createProject(url: String) async throws -> Project {
+        let body = try JSONEncoder().encode(["url": url])
+        return try await post(path: "/api/projects", body: body)
+    }
+
     func fetchSessions(workspaceId: String) async throws -> [SessionMetadata] {
         try await get(path: "/api/workspaces/\(workspaceId)/sessions")
     }
@@ -123,6 +164,10 @@ final class APIClient {
     func deleteSession(workspaceId: String, sessionId: String) async throws {
         struct DeleteResponse: Decodable { let success: Bool }
         let _: DeleteResponse = try await delete(path: "/api/workspaces/\(workspaceId)/sessions/\(sessionId)")
+    }
+
+    func archiveWorkspace(workspaceId: String) async throws {
+        try await requestVoid("POST", path: "/api/workspaces/\(workspaceId)/archive")
     }
 
     func fetchDiffStats(workspaceId: String) async throws -> DiffStatResponse {

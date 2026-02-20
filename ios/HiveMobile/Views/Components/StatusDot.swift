@@ -7,10 +7,6 @@ struct StatusDot: View {
         Circle()
             .fill(isStreaming ? .white : .green)
             .frame(width: 8, height: 8)
-            .shadow(
-                color: isStreaming ? .white.opacity(0.5) : .green.opacity(0.5),
-                radius: 4
-            )
     }
 }
 

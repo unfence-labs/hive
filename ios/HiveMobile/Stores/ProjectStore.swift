@@ -13,6 +13,8 @@ final class ProjectStore {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     private(set) var creatingWorkspaceProjectIds: Set<String> = []
+    private(set) var isCreatingProject = false
+    private(set) var cloningRepoName: String?
 
     let statusMonitor = HubStatusMonitor()
 
@@ -63,6 +65,62 @@ final class ProjectStore {
         }
     }
 
+    func createProject(url: String) async {
+        guard !isCreatingProject else { return }
+
+        isCreatingProject = true
+        cloningRepoName = Self.extractRepoName(from: url)
+        errorMessage = nil
+
+        do {
+            let project = try await api.createProject(url: url)
+            let created = try await api.createWorkspace(projectId: project.id)
+
+            let workspace = Workspace(
+                id: created.id,
+                name: created.name,
+                branch: created.branch,
+                status: created.status,
+                createdAt: created.createdAt,
+                activeSessionId: created.activeSessionId,
+                projectName: project.name,
+                defaultBranch: created.defaultBranch,
+                sessionCount: 0,
+                projectId: project.id,
+                hasFavicon: project.hasFavicon
+            )
+
+            var newProject = project
+            newProject.workspaces = [workspace]
+            projects.insert(newProject, at: 0)
+
+            let allWorkspaceIds = projects.flatMap(\.workspaces).map(\.id)
+            statusMonitor.sync(workspaceIds: allWorkspaceIds)
+        } catch is CancellationError {
+            // Ignore
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        cloningRepoName = nil
+        isCreatingProject = false
+    }
+
+    func archiveWorkspace(id: String) async {
+        do {
+            try await api.archiveWorkspace(workspaceId: id)
+            for i in projects.indices {
+                projects[i].workspaces.removeAll { $0.id == id }
+            }
+            let allIds = projects.flatMap(\.workspaces).map(\.id)
+            statusMonitor.sync(workspaceIds: allIds)
+        } catch is CancellationError {
+            // Ignore
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// Refresh projects from the API. Shows existing data while loading.
     func refresh() async {
         isLoading = true
@@ -89,5 +147,13 @@ final class ProjectStore {
             }
         }
         isLoading = false
+    }
+
+    private static func extractRepoName(from url: String) -> String {
+        let trimmed = url.hasSuffix("/") ? String(url.dropLast()) : url
+        guard let last = trimmed.split(separator: "/").last else { return "repository" }
+        var name = String(last)
+        if name.hasSuffix(".git") { name = String(name.dropLast(4)) }
+        return name.isEmpty ? "repository" : name
     }
 }
