@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Eye, EyeOff, Send, Save, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -15,24 +16,25 @@ interface NotificationsConfig {
 }
 
 export default function NotificationSettings() {
-  const [loading, setLoading] = useState(true);
   const [enabled, setEnabled] = useState(false);
   const [botToken, setBotToken] = useState("");
   const [chatId, setChatId] = useState("");
   const [showToken, setShowToken] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
+  const query = useQuery({
+    queryKey: ["settings", "notifications"],
+    queryFn: () => api.get<NotificationsConfig>("/api/settings/notifications"),
+  });
+
+  const seeded = useRef(false);
   useEffect(() => {
-    api.get<NotificationsConfig>("/api/settings/notifications").then((data) => {
-      setEnabled(data.telegram.enabled);
-      setBotToken(data.telegram.botToken);
-      setChatId(data.telegram.chatId);
-    }).catch(() => {
-      // defaults are fine
-    }).finally(() => setLoading(false));
-  }, []);
+    if (!query.data || seeded.current) return;
+    seeded.current = true;
+    setEnabled(query.data.telegram.enabled);
+    setBotToken(query.data.telegram.botToken);
+    setChatId(query.data.telegram.chatId);
+  }, [query.data]);
 
   const clearFeedback = () => setFeedback(null);
   const showFeedback = (fb: { type: "success" | "error"; message: string }) => {
@@ -40,43 +42,37 @@ export default function NotificationSettings() {
     if (fb.type === "success") setTimeout(clearFeedback, 2500);
   };
 
-  const handleSave = async () => {
-    setSaving(true);
-    clearFeedback();
-    try {
-      await api.put("/api/settings/notifications", {
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      api.put("/api/settings/notifications", {
         telegram: { enabled, botToken, chatId },
-      });
-      showFeedback({ type: "success", message: "Saved" });
-    } catch {
-      showFeedback({ type: "error", message: "Failed to save" });
-    } finally {
-      setSaving(false);
-    }
-  };
+      }),
+    onMutate: clearFeedback,
+    onSuccess: () => showFeedback({ type: "success", message: "Saved" }),
+    onError: () => showFeedback({ type: "error", message: "Failed to save" }),
+  });
 
-  const handleTest = async () => {
-    setTesting(true);
-    clearFeedback();
-    try {
-      const result = await api.post<{ ok: boolean; error?: string }>(
+  const testMutation = useMutation({
+    mutationFn: () =>
+      api.post<{ ok: boolean; error?: string }>(
         "/api/settings/notifications/test",
         { botToken, chatId },
-      );
+      ),
+    onMutate: clearFeedback,
+    onSuccess: (result) => {
       if (result.ok) {
         showFeedback({ type: "success", message: "Test message sent!" });
       } else {
         showFeedback({ type: "error", message: result.error ?? "Test failed" });
       }
-    } catch {
-      showFeedback({ type: "error", message: "Could not reach backend" });
-    } finally {
-      setTesting(false);
-    }
-  };
+    },
+    onError: () => showFeedback({ type: "error", message: "Could not reach backend" }),
+  });
 
-  if (loading) return null;
+  if (query.isLoading) return null;
 
+  const saving = saveMutation.isPending;
+  const testing = testMutation.isPending;
   const hasCredentials = botToken.trim() !== "" && chatId.trim() !== "";
 
   return (
@@ -159,7 +155,7 @@ export default function NotificationSettings() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => void handleTest()}
+                onClick={() => testMutation.mutate()}
                 disabled={testing || !hasCredentials}
                 className={cn(
                   "inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
@@ -174,7 +170,7 @@ export default function NotificationSettings() {
 
               <button
                 type="button"
-                onClick={() => void handleSave()}
+                onClick={() => saveMutation.mutate()}
                 disabled={saving}
                 className={cn(
                   "inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import { highlightCode } from "@/lib/shiki";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -45,39 +46,34 @@ interface FileViewerProps {
 }
 
 export function FileViewer({ wsId, filePath }: FileViewerProps) {
-  const [html, setHtml] = useState<string>("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const fileQuery = useQuery({
+    queryKey: ["file", wsId, filePath],
+    queryFn: () =>
+      api.get<{ content: string; path: string }>(
+        `/api/workspaces/${wsId}/file?path=${encodeURIComponent(filePath)}`,
+      ),
+    enabled: !!wsId && !!filePath,
+    staleTime: 2 * 60 * 1000,
+  });
 
+  // Async Shiki highlighting — runs after fetch resolves
+  const [html, setHtml] = useState("");
   useEffect(() => {
+    if (!fileQuery.data) {
+      setHtml("");
+      return;
+    }
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setHtml("");
-
-    (async () => {
-      try {
-        const { content } = await api.get<{ content: string; path: string }>(
-          `/api/workspaces/${wsId}/file?path=${encodeURIComponent(filePath)}`,
-        );
-        if (cancelled) return;
-        const lang = getLang(filePath);
-        const highlighted = await highlightCode(content, lang);
-        if (cancelled) return;
-        setHtml(highlighted);
-      } catch (err: unknown) {
-        if (cancelled) return;
-        const msg = err instanceof Error ? err.message : "Failed to load file";
-        setError(msg);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
+    highlightCode(fileQuery.data.content, getLang(filePath)).then((result) => {
+      if (!cancelled) setHtml(result);
+    });
     return () => {
       cancelled = true;
     };
-  }, [wsId, filePath]);
+  }, [fileQuery.data, filePath]);
+
+  const loading = fileQuery.isLoading || (!!fileQuery.data && !html);
+  const error = fileQuery.error?.message ?? null;
 
   if (loading) {
     return (

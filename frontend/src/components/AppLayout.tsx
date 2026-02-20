@@ -4,14 +4,9 @@ import SettingsSidebar from "./SettingsSidebar";
 import Terminal from "./Terminal";
 import { TerminalProvider, useTerminalContext } from "@/contexts/TerminalContext";
 import { cn } from "@/lib/utils";
-import type { Project } from "@/types";
 
 interface AppLayoutProps {
-  projects: Project[];
-  loading: boolean;
   onAddProject: () => void;
-  onAddWorkspace: (projectId: string) => Promise<unknown>;
-  onArchiveWorkspace: (wsId: string) => Promise<void>;
 }
 
 function TerminalLayer() {
@@ -38,13 +33,7 @@ function TerminalLayer() {
   );
 }
 
-export default function AppLayout({
-  projects,
-  loading,
-  onAddProject,
-  onAddWorkspace,
-  onArchiveWorkspace,
-}: AppLayoutProps) {
+export default function AppLayout({ onAddProject }: AppLayoutProps) {
   const { pathname } = useLocation();
   const isSettings = pathname.startsWith("/settings");
 
@@ -52,15 +41,9 @@ export default function AppLayout({
     <TerminalProvider>
       <div className="flex h-screen">
         {isSettings ? (
-          <SettingsSidebar projects={projects} />
+          <SettingsSidebar />
         ) : (
-          <Sidebar
-            projects={projects}
-            loading={loading}
-            onAddProject={onAddProject}
-            onAddWorkspace={onAddWorkspace}
-            onArchiveWorkspace={onArchiveWorkspace}
-          />
+          <Sidebar onAddProject={onAddProject} />
         )}
         <main className="relative flex flex-1 flex-col overflow-hidden">
           <div className="relative min-h-0 flex-1 overflow-hidden">

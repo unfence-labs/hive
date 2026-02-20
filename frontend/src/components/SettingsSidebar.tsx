@@ -4,13 +4,10 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
-import type { Project } from "@/types";
+import { useProjects } from "@/hooks/useProjects";
 
-interface SettingsSidebarProps {
-  projects: Project[];
-}
-
-export default function SettingsSidebar({ projects }: SettingsSidebarProps) {
+export default function SettingsSidebar() {
+  const { projects } = useProjects();
   const navigate = useNavigate();
   const location = useLocation();
   const { pathname } = location;

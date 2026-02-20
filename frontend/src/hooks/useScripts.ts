@@ -1,22 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import { getServerUrl } from "@/hooks/useServerUrl";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import type {
   ScriptType,
   ScriptStatusInfo,
-  HiveConfig,
   WorkspaceScriptsResponse,
 } from "@/types";
-
-interface ScriptsState {
-  config: HiveConfig | null;
-  status: {
-    setup: ScriptStatusInfo;
-    run: ScriptStatusInfo;
-  };
-  loading: boolean;
-}
 
 const DEFAULT_STATUS: ScriptStatusInfo = { state: "idle" };
 
@@ -36,71 +27,60 @@ function buildWsUrl(workspaceId: string, type: ScriptType): string {
 }
 
 export function useScripts(wsId: string | undefined) {
-  const [state, setState] = useState<ScriptsState>({
-    config: null,
-    status: { setup: DEFAULT_STATUS, run: DEFAULT_STATUS },
-    loading: true,
-  });
-
+  const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
   const connectedTypeRef = useRef<ScriptType | null>(null);
 
-  // Fetch config + status on mount / wsId change
-  const refresh = useCallback(async () => {
-    if (!wsId) {
-      setState({ config: null, status: { setup: DEFAULT_STATUS, run: DEFAULT_STATUS }, loading: false });
-      return;
-    }
-    try {
-      const data = await api.get<WorkspaceScriptsResponse>(`/api/workspaces/${wsId}/scripts`);
-      setState({ config: data.config, status: data.status, loading: false });
-    } catch {
-      setState({ config: null, status: { setup: DEFAULT_STATUS, run: DEFAULT_STATUS }, loading: false });
-    }
-  }, [wsId]);
+  const query = useQuery({
+    queryKey: ["scripts", wsId],
+    queryFn: () => api.get<WorkspaceScriptsResponse>(`/api/workspaces/${wsId}/scripts`),
+    enabled: !!wsId,
+  });
 
+  // Cleanup WS on unmount
   useEffect(() => {
-    refresh();
     return () => {
-      // Cleanup WS on unmount
       wsRef.current?.close();
       wsRef.current = null;
       connectedTypeRef.current = null;
     };
-  }, [refresh]);
+  }, [wsId]);
 
-  const startScript = useCallback(async (type: ScriptType) => {
-    if (!wsId) return;
-    try {
-      await api.post(`/api/workspaces/${wsId}/scripts/${type}/start`);
-      setState((prev) => ({
-        ...prev,
-        status: { ...prev.status, [type]: { state: "running" as const } },
-      }));
-    } catch {
-      // Refresh to get actual status
-      await refresh();
-    }
-  }, [wsId, refresh]);
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ["scripts", wsId] });
 
-  const stopScript = useCallback(async (type: ScriptType) => {
-    if (!wsId) return;
-    // Close WS first so the PTY exit message doesn't override the idle status
-    if (connectedTypeRef.current === type) {
-      wsRef.current?.close();
-      wsRef.current = null;
-      connectedTypeRef.current = null;
-    }
-    try {
-      await api.post(`/api/workspaces/${wsId}/scripts/${type}/stop`);
-      setState((prev) => ({
-        ...prev,
-        status: { ...prev.status, [type]: { state: "idle" as const } },
-      }));
-    } catch {
-      await refresh();
-    }
-  }, [wsId, refresh]);
+  const startScript = useMutation({
+    mutationFn: (type: ScriptType) =>
+      api.post(`/api/workspaces/${wsId}/scripts/${type}/start`),
+    onMutate: (type) => {
+      queryClient.setQueryData<WorkspaceScriptsResponse>(["scripts", wsId], (prev) =>
+        prev
+          ? { ...prev, status: { ...prev.status, [type]: { state: "running" as const } } }
+          : prev,
+      );
+    },
+    onError: invalidate,
+  });
+
+  const stopScript = useMutation({
+    mutationFn: (type: ScriptType) => {
+      // Close WS first so the PTY exit message doesn't override the idle status
+      if (connectedTypeRef.current === type) {
+        wsRef.current?.close();
+        wsRef.current = null;
+        connectedTypeRef.current = null;
+      }
+      return api.post(`/api/workspaces/${wsId}/scripts/${type}/stop`);
+    },
+    onMutate: (type) => {
+      queryClient.setQueryData<WorkspaceScriptsResponse>(["scripts", wsId], (prev) =>
+        prev
+          ? { ...prev, status: { ...prev.status, [type]: { state: "idle" as const } } }
+          : prev,
+      );
+    },
+    onError: invalidate,
+  });
 
   const connectOutput = useCallback((type: ScriptType, term: XTerm) => {
     if (!wsId) return;
@@ -127,13 +107,17 @@ export function useScripts(wsId: string | undefined) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === "exit") {
             const exitCode = msg.code ?? -1;
-            setState((prev) => ({
-              ...prev,
-              status: {
-                ...prev.status,
-                [type]: { state: exitCode === 0 ? "done" : "error", exitCode },
-              },
-            }));
+            queryClient.setQueryData<WorkspaceScriptsResponse>(["scripts", wsId], (prev) =>
+              prev
+                ? {
+                    ...prev,
+                    status: {
+                      ...prev.status,
+                      [type]: { state: exitCode === 0 ? "done" : "error", exitCode },
+                    },
+                  }
+                : prev,
+            );
           }
         } catch {
           // ignore
@@ -166,7 +150,7 @@ export function useScripts(wsId: string | undefined) {
         connectedTypeRef.current = null;
       }
     };
-  }, [wsId]);
+  }, [wsId, queryClient]);
 
   const disconnectOutput = useCallback(() => {
     wsRef.current?.close();
@@ -175,13 +159,13 @@ export function useScripts(wsId: string | undefined) {
   }, []);
 
   return {
-    config: state.config,
-    status: state.status,
-    loading: state.loading,
-    startScript,
-    stopScript,
+    config: query.data?.config ?? null,
+    status: query.data?.status ?? { setup: DEFAULT_STATUS, run: DEFAULT_STATUS },
+    loading: query.isLoading,
+    startScript: (type: ScriptType) => startScript.mutate(type),
+    stopScript: (type: ScriptType) => stopScript.mutate(type),
     connectOutput,
     disconnectOutput,
-    refresh,
+    refresh: invalidate,
   };
 }

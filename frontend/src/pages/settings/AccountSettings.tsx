@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Github, Loader2, LogOut, ExternalLink, Copy, Check, AlertCircle, CheckCircle2, Terminal, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/hooks/useApi";
@@ -39,6 +40,7 @@ type PageState =
   | { kind: "error"; message: string; retryable: boolean };
 
 export default function AccountSettings() {
+  const queryClient = useQueryClient();
   const [state, setState] = useState<PageState>({ kind: "loading" });
   const [disconnecting, setDisconnecting] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -52,9 +54,21 @@ export default function AccountSettings() {
     }
   }, []);
 
-  const checkStatus = useCallback(async () => {
-    try {
-      const status = await api.get<AccountStatus>("/api/account/status");
+  const statusQuery = useQuery({
+    queryKey: ["account", "status"],
+    queryFn: () => api.get<AccountStatus>("/api/account/status"),
+    retry: 0,
+  });
+
+  // Map query result to page state (only when in "loading" state)
+  useEffect(() => {
+    if (state.kind !== "loading") return;
+    if (statusQuery.isFetching) return;
+
+    if (statusQuery.error) {
+      setState({ kind: "error", message: "Could not reach backend", retryable: true });
+    } else if (statusQuery.data) {
+      const status = statusQuery.data;
       if (!status.ghInstalled) {
         setState({ kind: "no-gh" });
       } else if (status.authenticated && status.user) {
@@ -62,15 +76,10 @@ export default function AccountSettings() {
       } else {
         setState({ kind: "disconnected" });
       }
-    } catch {
-      setState({ kind: "error", message: "Could not reach backend", retryable: true });
     }
-  }, []);
+  }, [state.kind, statusQuery.isFetching, statusQuery.data, statusQuery.error]);
 
-  useEffect(() => {
-    void checkStatus();
-    return stopPolling;
-  }, [checkStatus, stopPolling]);
+  useEffect(() => stopPolling, [stopPolling]);
 
   const startPolling = useCallback(
     (userCode: string, verificationUri: string) => {
@@ -86,6 +95,11 @@ export default function AccountSettings() {
             pollTimer.current = setTimeout(poll, pollInterval.current * 1000);
           } else if (res.status === "complete" && res.user) {
             setState({ kind: "connected", user: res.user });
+            queryClient.setQueryData<AccountStatus>(["account", "status"], {
+              ghInstalled: true,
+              authenticated: true,
+              user: res.user,
+            });
           } else if (res.status === "expired") {
             setState({ kind: "error", message: "Authorization timed out. Please try again.", retryable: true });
           } else if (res.status === "denied") {
@@ -104,7 +118,7 @@ export default function AccountSettings() {
       setState({ kind: "connecting", userCode, verificationUri });
       pollTimer.current = setTimeout(poll, pollInterval.current * 1000);
     },
-    [],
+    [queryClient],
   );
 
   const handleConnect = async () => {
@@ -122,6 +136,10 @@ export default function AccountSettings() {
     try {
       await api.post("/api/account/disconnect");
       setState({ kind: "disconnected" });
+      queryClient.setQueryData<AccountStatus>(["account", "status"], {
+        ghInstalled: true,
+        authenticated: false,
+      });
     } catch {
       // stay on connected, will retry
     } finally {
@@ -137,7 +155,7 @@ export default function AccountSettings() {
 
   const handleRetry = () => {
     setState({ kind: "loading" });
-    void checkStatus();
+    void queryClient.resetQueries({ queryKey: ["account", "status"] });
   };
 
   const handleCancelConnect = () => {

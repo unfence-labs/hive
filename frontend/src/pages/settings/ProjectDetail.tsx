@@ -12,15 +12,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
+import { useProjects } from "@/hooks/useProjects";
 import { cn } from "@/lib/utils";
-import type { Project } from "@/types";
 
-interface ProjectDetailProps {
-  projects: Project[];
-  onDeleteProject: (id: string) => Promise<void>;
-}
-
-export default function ProjectDetail({ projects, onDeleteProject }: ProjectDetailProps) {
+export default function ProjectDetail() {
+  const { projects, deleteProject } = useProjects();
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -38,7 +34,7 @@ export default function ProjectDetail({ projects, onDeleteProject }: ProjectDeta
   const workspaceCount = (project.workspaces ?? []).length;
 
   const handleDelete = async () => {
-    await onDeleteProject(project.id);
+    await deleteProject(project.id);
     navigate("/settings/appearance");
   };
 

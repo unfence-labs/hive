@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import type { SessionMetadata } from "@/types";
 
@@ -10,88 +11,72 @@ function sortByCreatedAtAsc(sessions: SessionMetadata[]): SessionMetadata[] {
 }
 
 export function useSessions(workspaceId: string | undefined) {
-  const [sessions, setSessions] = useState<SessionMetadata[]>([]);
-  const [loading, setLoading] = useState(false);
-  const requestTokenRef = useRef(0);
+  const queryClient = useQueryClient();
 
-  const fetchSessions = useCallback(async () => {
-    const requestToken = requestTokenRef.current + 1;
-    requestTokenRef.current = requestToken;
-
-    if (!workspaceId) {
-      setSessions([]);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const result = await api.get<SessionMetadata[]>(
+  const query = useQuery({
+    queryKey: ["sessions", workspaceId],
+    queryFn: () =>
+      api.get<SessionMetadata[]>(
         `/api/workspaces/${workspaceId}/sessions`,
-      );
-      if (requestTokenRef.current === requestToken) {
-        setSessions(result);
-      }
-    } catch {
-      if (requestTokenRef.current === requestToken) {
-        setSessions([]);
-      }
-    } finally {
-      if (requestTokenRef.current === requestToken) {
-        setLoading(false);
-      }
-    }
-  }, [workspaceId]);
+      ),
+    enabled: !!workspaceId,
+  });
 
-  useEffect(() => {
-    fetchSessions();
-  }, [fetchSessions]);
+  const sorted = useMemo(
+    () => sortByCreatedAtAsc(query.data ?? []),
+    [query.data],
+  );
 
-  const createSession = useCallback(async (): Promise<SessionMetadata | null> => {
-    if (!workspaceId) return null;
-    try {
-      const meta = await api.post<SessionMetadata>(
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ["sessions", workspaceId] });
+
+  const createSession = useMutation({
+    mutationFn: () =>
+      api.post<SessionMetadata>(
         `/api/workspaces/${workspaceId}/sessions`,
-      );
-      await fetchSessions();
-      return meta;
-    } catch {
-      return null;
-    }
-  }, [workspaceId, fetchSessions]);
+      ),
+    onSuccess: invalidate,
+  });
 
-  const activateSession = useCallback(async (sessionId: string): Promise<SessionMetadata | null> => {
-    if (!workspaceId) return null;
-    try {
-      const meta = await api.post<SessionMetadata>(
+  const activateSession = useMutation({
+    mutationFn: (sessionId: string) =>
+      api.post<SessionMetadata>(
         `/api/workspaces/${workspaceId}/sessions/${sessionId}/activate`,
-      );
-      await fetchSessions();
-      return meta;
-    } catch {
-      return null;
-    }
-  }, [workspaceId, fetchSessions]);
+      ),
+    onSuccess: invalidate,
+  });
 
-  const deleteSession = useCallback(async (sessionId: string): Promise<boolean> => {
-    if (!workspaceId) return false;
-    try {
-      await api.delete(`/api/workspaces/${workspaceId}/sessions/${sessionId}`);
-      await fetchSessions();
-      return true;
-    } catch {
-      return false;
-    }
-  }, [workspaceId, fetchSessions]);
-
-  const stableSessions = useMemo(() => sortByCreatedAtAsc(sessions), [sessions]);
+  const deleteSession = useMutation({
+    mutationFn: (sessionId: string) =>
+      api.delete(`/api/workspaces/${workspaceId}/sessions/${sessionId}`),
+    onSuccess: invalidate,
+  });
 
   return {
-    sessions: stableSessions,
-    loading,
-    createSession,
-    activateSession,
-    deleteSession,
-    refresh: fetchSessions,
+    sessions: sorted,
+    loading: query.isLoading,
+    createSession: async (): Promise<SessionMetadata | null> => {
+      try {
+        return await createSession.mutateAsync();
+      } catch {
+        return null;
+      }
+    },
+    activateSession: async (sessionId: string): Promise<SessionMetadata | null> => {
+      try {
+        return await activateSession.mutateAsync(sessionId);
+      } catch {
+        return null;
+      }
+    },
+    deleteSession: async (sessionId: string): Promise<boolean> => {
+      try {
+        await deleteSession.mutateAsync(sessionId);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    refresh: invalidate,
   };
 }
