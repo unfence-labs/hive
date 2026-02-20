@@ -25,7 +25,7 @@ struct HiveApp: App {
                                     .toolbar(.hidden, for: .tabBar)
                             }
                     }
-                    .tint(.white)
+                    .toolbarColorScheme(.dark, for: .navigationBar)
                 }
                 Tab("Settings", systemImage: "gearshape.fill", value: .settings) {
                     NavigationStack {

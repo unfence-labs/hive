@@ -141,11 +141,10 @@ struct HubView: View {
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
-                            Button(role: .destructive) {
+                            Button("Archive", systemImage: "archivebox", role: .destructive) {
                                 workspaceToArchive = workspace
-                            } label: {
-                                Label("Archive", systemImage: "archivebox")
                             }
+                            .tint(.red)
                             .disabled(store.statusMonitor.isStreaming(workspace.id))
                         }
                     }
