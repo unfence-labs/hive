@@ -111,7 +111,7 @@ The backend includes a pm2 ecosystem config at `backend/ecosystem.config.cjs` wi
 
 | Environment | Host | Port | Data Dir |
 |---|---|---|---|
-| `production` | `0.0.0.0` | `69420` | `~/.hive` |
+| `production` | `0.0.0.0` | `9420` | `~/.hive` |
 | `development` | `127.0.0.1` | `3000` | `~/.hive-dev` |
 
 ```bash
