@@ -1,0 +1,6 @@
+{
+  "scripts": {
+    "setup": "npm install",
+    "run": "cd backend && PORT=3000 DATA_DIR=~/.hive-dev npm run dev"
+  }
+}
