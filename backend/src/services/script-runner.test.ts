@@ -214,6 +214,17 @@ describe("script-runner", () => {
     expect(mocks.processes[2]?.kill).toHaveBeenCalledTimes(1);
   });
 
+  it("stopAllForWorkspace does not stop scripts from other workspaces", () => {
+    startScript("ws-1", "setup", "npm ci", "/tmp/workspace");
+    startScript("ws-2", "backend", "npm run dev", "/tmp/workspace");
+
+    stopAllForWorkspace("ws-1");
+
+    expect(mocks.processes[0]?.kill).toHaveBeenCalledTimes(1);
+    expect(mocks.processes[1]?.kill).not.toHaveBeenCalled();
+    expect(getScriptStatus("ws-2").backend?.state).toBe("running");
+  });
+
   it("removes stopped script from activeScripts so status returns idle", () => {
     startScript("ws-1", "run", "npm run dev", "/tmp/workspace");
     expect(getScriptStatus("ws-1").run?.state).toBe("running");

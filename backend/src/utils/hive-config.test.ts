@@ -85,6 +85,30 @@ describe("readHiveConfig", () => {
     });
   });
 
+  it("keeps only valid string entries inside run object", async () => {
+    await writeFile(
+      join(wsPath, "hive.json"),
+      JSON.stringify({
+        scripts: {
+          run: {
+            backend: "npm run dev:backend",
+            retries: 3,
+            nested: { cmd: "npm run dev" },
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    await expect(readHiveConfig(wsPath)).resolves.toEqual({
+      scripts: {
+        run: {
+          backend: "npm run dev:backend",
+        },
+      },
+    });
+  });
+
   it("drops invalid port values", async () => {
     await writeFile(
       join(wsPath, "hive.json"),

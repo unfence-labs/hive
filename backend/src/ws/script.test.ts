@@ -172,6 +172,20 @@ describe("script WS routes", () => {
     ws.terminate();
   });
 
+  it("accepts custom script type names in query string", async () => {
+    const proc = createMockProcess({
+      state: "running",
+      type: "backend",
+    });
+    mocks.getScriptProcess.mockReturnValue(proc);
+
+    const { ws, jsonMessages } = await connectScriptWs("/ws/script/ws-1?type=backend");
+    await waitForCondition(() => jsonMessages.some((m) => m.type === "ready"));
+
+    expect(mocks.getScriptProcess).toHaveBeenCalledWith("ws-1", "backend");
+    ws.terminate();
+  });
+
   it("replays buffered output and sends immediate exit for finished scripts", async () => {
     const proc = createMockProcess({
       state: "done",

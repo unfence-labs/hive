@@ -533,6 +533,32 @@ describe("useWorkspaceLiveData", () => {
     expect(result.current["ws-1"]?.scriptRunning).toBe(false);
   });
 
+  it("computes scriptRunning for arbitrary named scripts", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "script_status", scriptType: "backend", state: "running" });
+      __wsMock.emit("ws-1", { type: "script_status", scriptType: "frontend", state: "done", exitCode: 0 });
+    });
+
+    expect(result.current["ws-1"]?.scriptRunning).toBe(true);
+    expect(result.current["ws-1"]?.scriptStates).toEqual({
+      backend: "running",
+      frontend: "done",
+    });
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "script_status", scriptType: "backend", state: "error", exitCode: 1 });
+    });
+
+    expect(result.current["ws-1"]?.scriptRunning).toBe(false);
+    expect(result.current["ws-1"]?.scriptStates).toEqual({
+      backend: "error",
+      frontend: "done",
+    });
+  });
+
   it("does not re-render when same script_status is emitted twice", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));

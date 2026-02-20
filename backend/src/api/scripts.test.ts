@@ -191,6 +191,21 @@ describe("script routes", () => {
     expect(mocks.startScript).toHaveBeenCalledWith(WS_ID, "backend", "npm run dev", wsPath);
   });
 
+  it("POST /api/workspaces/:wsId/scripts/:type/start supports legacy run string via run alias", async () => {
+    await writeHiveJson({
+      scripts: { run: "npm run dev" },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${WS_ID}/scripts/run/start`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ started: true });
+    expect(mocks.startScript).toHaveBeenCalledWith(WS_ID, "run", "npm run dev", wsPath);
+  });
+
   it("broadcasts script_status running on successful start", async () => {
     await writeHiveJson({ scripts: { run: { backend: "npm run dev" } } });
 
@@ -295,6 +310,22 @@ describe("script routes", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ stopped: true });
     expect(mocks.stopScript).toHaveBeenCalledWith(WS_ID, "setup");
+  });
+
+  it("POST /api/workspaces/:wsId/scripts/:type/stop supports named run scripts", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${WS_ID}/scripts/backend/stop`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ stopped: true });
+    expect(mocks.stopScript).toHaveBeenCalledWith(WS_ID, "backend");
+    expect(mocks.broadcastToWorkspace).toHaveBeenCalledWith(WS_ID, {
+      type: "script_status",
+      scriptType: "backend",
+      state: "idle",
+    });
   });
 
   it("broadcasts script_status idle on stop", async () => {

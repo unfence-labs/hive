@@ -2,8 +2,8 @@
   "scripts": {
     "setup": "NODE_ENV=development npm install",
     "run": {
-      "backend": "cd backend && PORT=3000 DATA_DIR=~/.hive-dev npm run dev",
-      "frontend": "cd frontend && npm run dev -- --host"
+      "backend": "cd backend && NODE_ENV=development PORT=3000 DATA_DIR=~/.hive-dev npm run dev",
+      "frontend": "cd frontend && NODE_ENV=development npm run dev -- --host"
     }
   }
 }
