@@ -35,6 +35,12 @@ const DEPENDENCIES: Dependency[] = [
     required: true,
     parseVersion: (out) => out.match(/(\d+\.\d+\.\d+)/)?.[1] ?? null,
   },
+  {
+    name: "codex",
+    command: "codex",
+    versionArgs: ["--version"],
+    required: false,
+  },
 ];
 
 export function meetsMinVersion(version: string, min: [number, number]): boolean {

@@ -11,12 +11,14 @@ import {
   usePromptInputAttachments,
   type AttachmentsContext,
 } from "@/components/ai-elements/prompt-input";
-import type { CompletionItem, ImageAttachment, MessageOptions } from "@/types";
+import type { CompletionItem, ImageAttachment, MessageOptions, ThinkingLevel } from "@/types";
 import { cn } from "@/lib/utils";
-import { BrainIcon, BookOpenIcon, PlusIcon, SparklesIcon } from "lucide-react";
+import { BrainIcon, BookOpenIcon, PlusIcon } from "lucide-react";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
 import { AutocompletePopup } from "@/components/chat/AutocompletePopup";
+import { ModelSelector } from "@/components/chat/ModelSelector";
 import { useCompletions } from "@/hooks/useCompletions";
+import { useModels } from "@/hooks/useModels";
 import { useChatInputDraftPersistence } from "@/hooks/useChatInputDraftPersistence";
 
 interface ChatInputProps {
@@ -36,7 +38,13 @@ interface AutocompleteState {
   triggerIndex: number;
 }
 
-const MODEL_LABEL = "Opus 4.6";
+const THINKING_LEVELS: ThinkingLevel[] = ["low", "medium", "high", "xhigh"];
+const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
+  low: "Low",
+  medium: "Med",
+  high: "High",
+  xhigh: "xHigh",
+};
 
 /** Bridge component: syncs PromptInput's internal attachment state to the parent. */
 function ChatInputAttachments({
@@ -69,6 +77,7 @@ export default function ChatInput({
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [thinkingEnabled, setThinkingEnabled] = useState(true);
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("high");
   const [planMode, setPlanMode] = useState(false);
   const [fileCount, setFileCount] = useState(0);
   const [autocomplete, setAutocomplete] = useState<AutocompleteState | null>(null);
@@ -78,16 +87,26 @@ export default function ChatInput({
   const isInputDisabled = disabled || isStreaming || isDisconnected;
   const canSubmit = !isInputDisabled && (value.trim().length > 0 || fileCount > 0);
 
+  const { models, defaultModelId, selectedModelId, setSelectedModelId, capabilities } = useModels();
+
+  const supportsThinkingToggle = capabilities?.thinking === true;
+  const supportsThinkingLevels = capabilities?.thinking === "levels";
+  const supportsPlanMode = capabilities?.planMode ?? true;
+
   useChatInputDraftPersistence({
     wsId,
     sessionId,
     value,
     thinkingEnabled,
     planMode,
+    selectedModelId,
+    thinkingLevel,
     attachmentsRef,
     setValue,
     setThinkingEnabled,
     setPlanMode,
+    setSelectedModelId,
+    setThinkingLevel,
     setFileCount,
   });
 
@@ -162,6 +181,13 @@ export default function ChatInput({
     [autocomplete, filteredItems, selectedIndex, selectItem],
   );
 
+  const cycleThinkingLevel = useCallback(() => {
+    setThinkingLevel((current) => {
+      const idx = THINKING_LEVELS.indexOf(current);
+      return THINKING_LEVELS[(idx + 1) % THINKING_LEVELS.length];
+    });
+  }, []);
+
   const handleSubmit = ({ text, files }: PromptInputMessage) => {
     const trimmed = text.trim();
     if (!trimmed && files.length === 0) return;
@@ -175,7 +201,14 @@ export default function ChatInput({
         }))
       : undefined;
 
-    const sent = onSend(trimmed, images, { planMode, thinkingEnabled });
+    const options: MessageOptions = {
+      model: selectedModelId || undefined,
+      ...(supportsPlanMode && { planMode }),
+      ...(supportsThinkingToggle && { thinkingEnabled }),
+      ...(supportsThinkingLevels && { thinkingLevel }),
+    };
+
+    const sent = onSend(trimmed, images, options);
     if (!sent) throw new Error("Message send failed");
     setValue("");
     setAutocomplete(null);
@@ -183,13 +216,15 @@ export default function ChatInput({
 
   const showPopup = autocomplete !== null && filteredItems.length > 0;
 
+  const activeStyle = "bg-primary/10 text-primary ring-1 ring-primary/15 hover:bg-primary/15 hover:text-primary dark:hover:bg-primary/15";
+
   return (
     <div className="relative z-50 bg-background p-4">
       <div className={cn(
         "relative rounded-lg border border-transparent [&_[data-slot=input-group]]:!border-border/30 [&_[data-slot=input-group]]:!bg-[#1e1e28]",
         showPopup && "[&_[data-slot=input-group]]:rounded-t-none [&_[data-slot=input-group]]:!border-t-transparent",
-        planMode && "[&_[data-slot=input-group]]:!border-transparent border-dashed border-primary",
-        planMode && showPopup && "rounded-t-none border-t-0",
+        planMode && supportsPlanMode && "[&_[data-slot=input-group]]:!border-transparent border-dashed border-primary",
+        planMode && supportsPlanMode && showPopup && "rounded-t-none border-t-0",
       )}>
         {showPopup && (
           <AutocompletePopup
@@ -197,7 +232,7 @@ export default function ChatInput({
             selectedIndex={selectedIndex}
             onSelect={selectItem}
             onHover={setSelectedIndex}
-            planMode={planMode}
+            planMode={planMode && supportsPlanMode}
           />
         )}
         <PromptInput onSubmit={handleSubmit} accept="image/*" multiple>
@@ -215,36 +250,48 @@ export default function ChatInput({
         </PromptInputBody>
         <PromptInputFooter>
           <PromptInputTools className="gap-2">
-            <PromptInputButton aria-label={`Model ${MODEL_LABEL}`} variant="ghost" size="xs" className="h-5 text-[11px]">
-              <SparklesIcon className="size-3" />
-              {MODEL_LABEL}
-            </PromptInputButton>
-            <PromptInputButton
-              aria-label="Toggle thinking"
-              variant="ghost"
-              size="xs"
-              onClick={() => setThinkingEnabled((v) => !v)}
-              className={cn(
-                "h-5 text-[11px] transition-colors",
-                thinkingEnabled && "bg-primary/10 text-primary ring-1 ring-primary/15 hover:bg-primary/15 hover:text-primary dark:hover:bg-primary/15",
-              )}
-            >
-              <BrainIcon className="size-3" />
-              Thinking
-            </PromptInputButton>
-            <PromptInputButton
-              aria-label="Toggle plan mode"
-              variant="ghost"
-              size="xs"
-              onClick={() => setPlanMode((v) => !v)}
-              className={cn(
-                "h-5 text-[11px] transition-colors",
-                planMode && "bg-primary/10 text-primary ring-1 ring-primary/15 hover:bg-primary/15 hover:text-primary dark:hover:bg-primary/15",
-              )}
-            >
-              <BookOpenIcon className="size-3" />
-              Plan
-            </PromptInputButton>
+            <ModelSelector
+              models={models}
+              selectedModelId={selectedModelId}
+              defaultModelId={defaultModelId}
+              onSelect={setSelectedModelId}
+            />
+            {supportsThinkingToggle && (
+              <PromptInputButton
+                aria-label="Toggle thinking"
+                variant="ghost"
+                size="xs"
+                onClick={() => setThinkingEnabled((v) => !v)}
+                className={cn("h-5 text-[11px] transition-colors", thinkingEnabled && activeStyle)}
+              >
+                <BrainIcon className="size-3" />
+                Thinking
+              </PromptInputButton>
+            )}
+            {supportsThinkingLevels && (
+              <PromptInputButton
+                aria-label={`Thinking: ${THINKING_LEVEL_LABELS[thinkingLevel]}`}
+                variant="ghost"
+                size="xs"
+                onClick={cycleThinkingLevel}
+                className={cn("h-5 text-[11px] transition-colors", activeStyle)}
+              >
+                <BrainIcon className="size-3" />
+                {THINKING_LEVEL_LABELS[thinkingLevel]}
+              </PromptInputButton>
+            )}
+            {supportsPlanMode && (
+              <PromptInputButton
+                aria-label="Toggle plan mode"
+                variant="ghost"
+                size="xs"
+                onClick={() => setPlanMode((v) => !v)}
+                className={cn("h-5 text-[11px] transition-colors", planMode && activeStyle)}
+              >
+                <BookOpenIcon className="size-3" />
+                Plan
+              </PromptInputButton>
+            )}
           </PromptInputTools>
           <PromptInputTools className="gap-2">
             <PromptInputButton

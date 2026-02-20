@@ -224,11 +224,14 @@ export interface QuestionInput {
 
 // ── WebSocket protocol ──────────────────────────────────────────────
 
-/** Per-message options that control Claude CLI behavior. */
+/** Per-message options that control agent CLI behavior. */
 export interface MessageOptions {
   planMode?: boolean;
   thinkingEnabled?: boolean;
+  /** Compound model ID: "provider:model", e.g. "claude:opus-4-6" or "codex:gpt-5.3-codex" */
   model?: string;
+  /** Codex reasoning effort level (ignored by Claude provider). */
+  thinkingLevel?: "low" | "medium" | "high" | "xhigh";
 }
 
 /** Frontend -> Backend */

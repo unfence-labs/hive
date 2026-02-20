@@ -201,11 +201,39 @@ export interface QuestionInput {
 
 // ── Per-message options ──────────────────────────────────────────────
 
-/** Per-message options that control Claude CLI behavior. */
+export type ThinkingLevel = "low" | "medium" | "high" | "xhigh";
+
+/** Per-message options that control agent CLI behavior. */
 export interface MessageOptions {
   planMode?: boolean;
   thinkingEnabled?: boolean;
+  /** Compound model ID: "provider:model", e.g. "claude:opus-4-6" */
   model?: string;
+  /** Codex reasoning effort level (ignored by Claude provider). */
+  thinkingLevel?: ThinkingLevel;
+}
+
+// ── Model catalog types ─────────────────────────────────────────────
+
+export interface ProviderCapabilities {
+  thinking: boolean | "levels";
+  planMode: boolean;
+  blockingTools: boolean;
+}
+
+export interface ModelCatalogEntry {
+  id: string;
+  label: string;
+  provider: string;
+  providerLabel: string;
+  isDefault?: boolean;
+  isNew?: boolean;
+  capabilities: ProviderCapabilities;
+}
+
+export interface ModelCatalogResponse {
+  models: ModelCatalogEntry[];
+  defaultModelId: string;
 }
 
 // ── WebSocket protocol ──────────────────────────────────────────────

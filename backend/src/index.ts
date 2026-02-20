@@ -5,6 +5,7 @@ import websocket from "@fastify/websocket";
 import { projectRoutes } from "./api/projects.js";
 import { workspaceRoutes } from "./api/workspaces.js";
 import { completionRoutes } from "./api/completions.js";
+import { modelRoutes } from "./api/models.js";
 import { sessionRoutes } from "./api/agents.js";
 import { streamRoutes } from "./ws/stream.js";
 import { terminalRoutes } from "./ws/terminal.js";
@@ -21,6 +22,7 @@ import { loadConfig } from "./state/config.js";
 import { broadcastToWorkspace } from "./ws/stream.js";
 import type { StreamRoutesOptions } from "./ws/stream.js";
 import { preflight } from "./utils/preflight.js";
+import { detectAvailableProviders } from "./agents/providers/registry.js";
 
 const HOST = process.env.HOST ?? "127.0.0.1";
 const PORT = Number(process.env.PORT ?? 3000);
@@ -76,6 +78,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register((instance: FastifyInstance) => projectRoutes(instance));
   await app.register((instance: FastifyInstance) => workspaceRoutes(instance));
   await app.register((instance: FastifyInstance) => completionRoutes(instance));
+  await app.register((instance: FastifyInstance) => modelRoutes(instance));
   await app.register((instance: FastifyInstance) =>
     sessionRoutes(instance, {
       sessionOptions,
@@ -105,6 +108,7 @@ const BRANCH_SYNC_INTERVAL_MS = 10_000;
 
 async function main() {
   await preflight();
+  await detectAvailableProviders();
 
   const dataDir = getDataDir();
   await ensureDataDir(dataDir);

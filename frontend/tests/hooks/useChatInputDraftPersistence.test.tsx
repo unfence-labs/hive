@@ -3,6 +3,7 @@ import { useRef, useState, type MutableRefObject, type RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileUIPart } from "ai";
 import type { AttachmentsContext } from "@/components/ai-elements/prompt-input";
+import type { ThinkingLevel } from "@/types";
 import { useChatInputDraftPersistence } from "@/hooks/useChatInputDraftPersistence";
 
 type AttachmentFile = FileUIPart & { id: string };
@@ -45,6 +46,8 @@ function useDraftHarness({ wsId, sessionId }: { wsId?: string; sessionId?: strin
   const [value, setValue] = useState("");
   const [thinkingEnabled, setThinkingEnabled] = useState(true);
   const [planMode, setPlanMode] = useState(false);
+  const [selectedModelId, setSelectedModelId] = useState("");
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("high");
   const [fileCount, setFileCount] = useState(0);
   const attachmentsRef = useRef<AttachmentsContext | null>(null);
 
@@ -64,10 +67,14 @@ function useDraftHarness({ wsId, sessionId }: { wsId?: string; sessionId?: strin
     value,
     thinkingEnabled,
     planMode,
+    selectedModelId,
+    thinkingLevel,
     attachmentsRef: attachmentsRef as MutableRefObject<AttachmentsContext | null>,
     setValue,
     setThinkingEnabled,
     setPlanMode,
+    setSelectedModelId,
+    setThinkingLevel,
     setFileCount,
   });
 
@@ -75,10 +82,14 @@ function useDraftHarness({ wsId, sessionId }: { wsId?: string; sessionId?: strin
     value,
     thinkingEnabled,
     planMode,
+    selectedModelId,
+    thinkingLevel,
     fileCount,
     setValue,
     setThinkingEnabled,
     setPlanMode,
+    setSelectedModelId,
+    setThinkingLevel,
     setFiles,
     attachments: attachmentsRef.current,
   };

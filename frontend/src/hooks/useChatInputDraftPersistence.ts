@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, type MutableRefObject } from "react";
 import type { AttachmentsContext } from "@/components/ai-elements/prompt-input";
+import type { ThinkingLevel } from "@/types";
 
 interface DraftState {
   value: string;
   thinkingEnabled: boolean;
   planMode: boolean;
+  selectedModelId: string;
+  thinkingLevel: ThinkingLevel;
   files: AttachmentsContext["files"];
 }
 
@@ -14,10 +17,14 @@ interface UseChatInputDraftPersistenceParams {
   value: string;
   thinkingEnabled: boolean;
   planMode: boolean;
+  selectedModelId: string;
+  thinkingLevel: ThinkingLevel;
   attachmentsRef: MutableRefObject<AttachmentsContext | null>;
   setValue: (value: string) => void;
   setThinkingEnabled: (value: boolean) => void;
   setPlanMode: (value: boolean) => void;
+  setSelectedModelId: (value: string) => void;
+  setThinkingLevel: (value: ThinkingLevel) => void;
   setFileCount: (count: number) => void;
 }
 
@@ -91,10 +98,14 @@ export function useChatInputDraftPersistence({
   value,
   thinkingEnabled,
   planMode,
+  selectedModelId,
+  thinkingLevel,
   attachmentsRef,
   setValue,
   setThinkingEnabled,
   setPlanMode,
+  setSelectedModelId,
+  setThinkingLevel,
   setFileCount,
 }: UseChatInputDraftPersistenceParams) {
   const prevSessionIdRef = useRef<string | undefined>(sessionId);
@@ -105,6 +116,10 @@ export function useChatInputDraftPersistence({
   thinkingRef.current = thinkingEnabled;
   const planModeRef = useRef(planMode);
   planModeRef.current = planMode;
+  const selectedModelIdRef = useRef(selectedModelId);
+  selectedModelIdRef.current = selectedModelId;
+  const thinkingLevelRef = useRef(thinkingLevel);
+  thinkingLevelRef.current = thinkingLevel;
 
   const saveDraftForSession = useCallback((
     targetSessionId: string | undefined,
@@ -116,6 +131,8 @@ export function useChatInputDraftPersistence({
       value: valueRef.current,
       thinkingEnabled: thinkingRef.current,
       planMode: planModeRef.current,
+      selectedModelId: selectedModelIdRef.current,
+      thinkingLevel: thinkingLevelRef.current,
       files: [...files],
     }, options?.allowDelete ?? true);
   }, [attachmentsRef, wsId]);
@@ -143,6 +160,8 @@ export function useChatInputDraftPersistence({
       setValue(draft.value);
       setThinkingEnabled(draft.thinkingEnabled);
       setPlanMode(draft.planMode);
+      setSelectedModelId(draft.selectedModelId);
+      setThinkingLevel(draft.thinkingLevel);
       attachmentsRef.current?.restore([...draft.files]);
       setFileCount(draft.files.length);
     } else if (sessionId) {
@@ -162,6 +181,8 @@ export function useChatInputDraftPersistence({
     setValue,
     setThinkingEnabled,
     setPlanMode,
+    setSelectedModelId,
+    setThinkingLevel,
     setFileCount,
   ]);
 
@@ -171,4 +192,3 @@ export function useChatInputDraftPersistence({
     };
   }, [saveDraftForSession]);
 }
-
