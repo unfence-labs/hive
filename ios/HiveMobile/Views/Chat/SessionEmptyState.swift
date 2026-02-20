@@ -9,10 +9,7 @@ struct SessionEmptyState: View {
     var body: some View {
         VStack(spacing: HiveSpacing.xl) {
             // Main info card
-            (Text("You're in a new copy of ")
-                + Text(projectName).fontWeight(.semibold)
-                + Text(" called ")
-                + Text(workspaceName).fontWeight(.semibold))
+            Text("You're in a new copy of \(Text(projectName).fontWeight(.semibold)) called \(Text(workspaceName).fontWeight(.semibold))")
                 .font(.subheadline)
                 .foregroundStyle(WhisperColor.text)
                 .multilineTextAlignment(.center)
@@ -24,18 +21,13 @@ struct SessionEmptyState: View {
             // Detail rows
             VStack(alignment: .leading, spacing: HiveSpacing.lg) {
                 infoRow(icon: "arrow.triangle.branch") {
-                    Text("Branched ")
+                    Text("Branched \(Text(branch).foregroundStyle(WhisperColor.text).fontWeight(.medium)) from \(Text("origin/\(defaultBranch)").foregroundStyle(WhisperColor.text).fontWeight(.medium))")
                         .foregroundStyle(WhisperColor.textSecondary)
-                        + Text(branch).foregroundStyle(WhisperColor.text).fontWeight(.medium)
-                        + Text(" from ").foregroundStyle(WhisperColor.textSecondary)
-                        + Text("origin/\(defaultBranch)").foregroundStyle(WhisperColor.text).fontWeight(.medium)
                 }
 
                 infoRow(icon: "folder") {
-                    Text("Workspace ")
+                    Text("Workspace \(Text(workspaceName).foregroundStyle(WhisperColor.text).fontWeight(.medium)) is ready")
                         .foregroundStyle(WhisperColor.textSecondary)
-                        + Text(workspaceName).foregroundStyle(WhisperColor.text).fontWeight(.medium)
-                        + Text(" is ready").foregroundStyle(WhisperColor.textSecondary)
                 }
             }
             .font(.subheadline)

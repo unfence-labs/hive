@@ -264,14 +264,8 @@ struct HubView: View {
     @ViewBuilder
     private func projectTitle(_ project: Project) -> some View {
         if let parts = ownerAndRepo(from: project.url) ?? ownerAndRepo(from: project.name) {
-            (
-                Text("\(parts.owner)/")
-                    .foregroundStyle(.secondary)
-                +
-                Text(parts.repo)
-                    .foregroundStyle(.white)
-            )
-            .font(.headline)
+            Text("\(Text("\(parts.owner)/").foregroundStyle(.secondary))\(Text(parts.repo).foregroundStyle(.white))")
+                .font(.headline)
         } else {
             Text(project.name)
                 .font(.headline)
