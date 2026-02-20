@@ -106,7 +106,7 @@ export function ConversationTabs({
               className={cn(
                 "group relative flex h-7 max-w-48 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
                 isFileActive
-                  ? "bg-accent text-accent-foreground"
+                  ? "text-foreground after:absolute after:bottom-0 after:inset-x-2 after:h-0.5 after:rounded-full after:bg-primary"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
               )}
               onClick={onFileTabClick}
@@ -139,9 +139,9 @@ export function ConversationTabs({
             <button
               type="button"
               className={cn(
-                "flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
+                "relative flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
                 !isFileActive
-                  ? "bg-accent text-accent-foreground"
+                  ? "text-foreground after:absolute after:bottom-0 after:inset-x-2 after:h-0.5 after:rounded-full after:bg-primary"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
               )}
               onClick={onConversationTabClick}
@@ -163,7 +163,7 @@ export function ConversationTabs({
                 className={cn(
                   "group relative flex h-7 max-w-48 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
                   isActive && !isFileActive
-                    ? "bg-accent text-accent-foreground"
+                    ? "text-foreground after:absolute after:bottom-0 after:inset-x-2 after:h-0.5 after:rounded-full after:bg-primary"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                   !isVisible && "hidden",
                 )}

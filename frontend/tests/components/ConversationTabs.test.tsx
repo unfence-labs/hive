@@ -129,10 +129,10 @@ describe("ConversationTabs", () => {
     const activeTab = screen.getByText("First conversation").closest("button")!;
     const inactiveTab = screen.getByText("Second conversation").closest("button")!;
 
-    expect(activeTab.className).toContain("bg-accent ");
-    expect(activeTab.className).toContain("text-accent-foreground");
+    expect(activeTab.className).toContain("text-foreground");
+    expect(activeTab.className).toContain("after:bg-primary");
     expect(inactiveTab.className).toContain("text-muted-foreground");
-    expect(inactiveTab.className).not.toContain("text-accent-foreground");
+    expect(inactiveTab.className).not.toContain("after:bg-primary");
   });
 
   it("renders the + button with 'New conversation' title", () => {
@@ -298,8 +298,8 @@ describe("ConversationTabs — file tab", () => {
   it("applies active styling to file tab when isFileActive is true", () => {
     renderTabs({ openFile: "src/index.ts", isFileActive: true });
     const fileTab = screen.getByText("index.ts").closest("button")!;
-    expect(fileTab.className).toContain("bg-accent");
-    expect(fileTab.className).toContain("text-accent-foreground");
+    expect(fileTab.className).toContain("text-foreground");
+    expect(fileTab.className).toContain("after:bg-primary");
   });
 
   it("applies inactive styling to file tab when isFileActive is false", () => {

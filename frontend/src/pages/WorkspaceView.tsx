@@ -596,6 +596,7 @@ export default function WorkspaceView() {
             ) : (
               <ChatInput
                 wsId={wsId}
+                sessionId={sessionId}
                 onSend={handleSend}
                 onStop={stopStreaming}
                 disabled={false}

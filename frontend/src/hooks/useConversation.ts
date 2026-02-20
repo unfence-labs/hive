@@ -212,7 +212,9 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       return {
         ...state,
         workspaceStatus: action.status,
-        sessionId: action.sessionId ?? (action.status === "idle" ? undefined : state.sessionId),
+        // Keep the current session unless the backend explicitly provides a new one.
+        // Some idle status events don't include sessionId.
+        sessionId: action.sessionId ?? state.sessionId,
         isStreaming: newIsStreaming,
         streamingStartedAt: newIsStreaming
           ? (state.streamingStartedAt ?? action.streamingStartedAt ?? Date.now())

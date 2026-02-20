@@ -34,7 +34,7 @@ const ChatMessage = memo(function ChatMessage({
         className={cn(
           "max-w-[85%] text-sm leading-relaxed",
           isUser
-            ? "group/user-msg relative rounded-lg bg-primary/10 px-3 py-2 text-primary ring-1 ring-primary/15"
+            ? "group/user-msg relative rounded-[10px] rounded-br-[2px] border border-primary/15 bg-primary/20 px-3.5 py-2 text-white"
             : "text-foreground",
         )}
       >
@@ -84,10 +84,10 @@ const ChatMessage = memo(function ChatMessage({
               </div>
             )}
             {message.durationMs != null && (
-              <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <span>{formatElapsed(message.durationMs)}</span>
                 <span>·</span>
-                <CopyButton content={message.content} />
+                <CopyButton content={message.content} className="mb-0.5" />
               </div>
             )}
           </>

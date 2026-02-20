@@ -163,7 +163,7 @@ function TaskNode({
             <div className="my-0.5">
               <button
                 type="button"
-                className="inline-flex w-fit items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                className="inline-flex w-fit items-center gap-2 rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                 onClick={() => setPromptOpen(!promptOpen)}
               >
                 <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -292,7 +292,7 @@ export function ToolCallList({
         <div className="my-0.5">
           <button
             type="button"
-            className="inline-flex w-fit items-center gap-2 rounded-md py-1.5 pr-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+            className="inline-flex w-fit items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
             onClick={() => setExpanded(!expanded)}
           >
             <ChevronRightIcon

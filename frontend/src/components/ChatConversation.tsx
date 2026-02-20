@@ -154,7 +154,7 @@ export default function ChatConversation({
 
         {/* Live elapsed timer while streaming (not while awaiting user input) */}
         {isStreaming && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <AgentActivityPreview size="small" />
             <span>{formatElapsed(elapsed)}</span>
           </div>

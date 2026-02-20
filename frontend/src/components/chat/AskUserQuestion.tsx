@@ -3,6 +3,7 @@ import type { ToolCall } from "@/types";
 import { parseQuestions } from "@/types";
 import { cn } from "@/lib/utils";
 import { MessageSquareIcon, ClockIcon, CheckCircle2Icon } from "lucide-react";
+import { ContentPanel, ContentPanelBody } from "./ContentPanel";
 
 interface AskUserQuestionProps {
   tool: ToolCall;
@@ -38,7 +39,7 @@ export const AskUserQuestion = memo(function AskUserQuestion({
     <div className="my-0.5">
       <button
         type="button"
-        className="inline-flex w-fit items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+        className="inline-flex w-fit items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
         onClick={() => setExpanded(!expanded)}
       >
         <MessageSquareIcon className="size-3.5" />
@@ -54,28 +55,30 @@ export const AskUserQuestion = memo(function AskUserQuestion({
         )}
       </button>
       {expanded && (
-        <div className="mt-1 rounded bg-muted/40 px-3 py-2 text-sm">
-          {questions.map((q, idx) => (
-            <div key={idx} className={cn(idx > 0 && "mt-3 border-t border-border/30 pt-3")}>
-              <div className="mb-1 font-medium text-foreground/80">{q.question}</div>
-              {q.options.length > 0 && (
-                <div className="space-y-0.5">
-                  {q.options.map((opt, i) => (
-                    <div key={i} className="flex items-baseline gap-2 text-xs text-muted-foreground">
-                      <span className="shrink-0 font-mono">{i + 1}.</span>
-                      <span>
-                        {opt.label}
-                        {opt.description && (
-                          <span className="ml-1 text-muted-foreground/60">— {opt.description}</span>
-                        )}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+        <ContentPanel>
+          <ContentPanelBody>
+            {questions.map((q, idx) => (
+              <div key={idx} className={cn(idx > 0 && "mt-3 border-t border-border/30 pt-3")}>
+                <div className="mb-1 text-xs font-medium text-foreground/80">{q.question}</div>
+                {q.options.length > 0 && (
+                  <div className="space-y-0.5">
+                    {q.options.map((opt, i) => (
+                      <div key={i} className="flex items-baseline gap-2 text-xs text-muted-foreground">
+                        <span className="shrink-0 font-mono">{i + 1}.</span>
+                        <span>
+                          {opt.label}
+                          {opt.description && (
+                            <span className="ml-1 text-muted-foreground/60">— {opt.description}</span>
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </ContentPanelBody>
+        </ContentPanel>
       )}
     </div>
   );
