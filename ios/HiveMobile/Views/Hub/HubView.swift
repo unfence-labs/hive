@@ -141,11 +141,12 @@ struct HubView: View {
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
+                            let streaming = store.statusMonitor.isStreaming(workspace.id)
                             Button("Archive", systemImage: "archivebox", role: .destructive) {
                                 workspaceToArchive = workspace
                             }
-                            .tint(.red)
-                            .disabled(store.statusMonitor.isStreaming(workspace.id))
+                            .tint(streaming ? nil : .red)
+                            .disabled(streaming)
                         }
                     }
                 }
