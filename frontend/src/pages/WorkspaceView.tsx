@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageSquareIcon, TerminalSquareIcon, CodeXmlIcon, ChevronDownIcon, TerminalIcon } from "lucide-react";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
-import { useWorkspaceLiveData } from "@/hooks/useWorkspaceLiveData";
+import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import {
   FileTree,
   FileTreeFile,
@@ -88,13 +89,32 @@ export default function WorkspaceView() {
   const { ip: tailscaleIp, sshUser } = useTailscaleConfig();
   const { serverUrl } = useServerUrl();
   const terminalApps = useTerminalApps();
-  const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [fileTree, setFileTree] = useState<WorkspaceFileTreeNode[]>([]);
-  const [fileTreeError, setFileTreeError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  // Server data via TanStack Query
+  const workspaceQuery = useQuery({
+    queryKey: ["workspace", wsId],
+    queryFn: () => api.get<Workspace>(`/api/workspaces/${wsId}`),
+    enabled: !!wsId,
+  });
+  const filesQuery = useQuery({
+    queryKey: ["files", wsId],
+    queryFn: () => api.get<WorkspaceFileTreeNode[]>(`/api/workspaces/${wsId}/files`),
+    enabled: !!wsId,
+  });
+  const diffStatQuery = useQuery({
+    queryKey: ["diff-stat", wsId],
+    queryFn: () => api.get<DiffStatResponse>(`/api/workspaces/${wsId}/diff/stat`),
+    enabled: !!wsId,
+  });
+
+  const workspace = workspaceQuery.data ?? null;
+  const fileTree = filesQuery.data ?? [];
+  const fileTreeError = filesQuery.error?.message ?? null;
+  const initialDiffStats = diffStatQuery.data ?? null;
+
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(DEFAULT_EXPANDED);
-  const [loadedWsId, setLoadedWsId] = useState<string | undefined>(undefined);
   const [selectedPath, setSelectedPath] = useState("");
-  const [initialDiffStats, setInitialDiffStats] = useState<DiffStatResponse | null>(null);
 
   // File viewer state
   const [openFile, setOpenFile] = useState<string | null>(null);
@@ -117,8 +137,7 @@ export default function WorkspaceView() {
   const [diffModalFile, setDiffModalFile] = useState<string | undefined>();
 
   // Live data via WebSocket (branch + diff stats)
-  const liveWsIds = useMemo(() => (wsId ? [wsId] : []), [wsId]);
-  const liveData = useWorkspaceLiveData(liveWsIds);
+  const liveData = useWorkspaceLiveDataContext();
   const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
   const branchInfo = wsId ? liveData[wsId]?.branchInfo : undefined;
 
@@ -178,71 +197,15 @@ export default function WorkspaceView() {
     return count(fileTree);
   }, [fileTree]);
 
-  // Lightweight file tree refresh — preserves expanded/selected state
-  const refreshFileTree = useCallback(async () => {
-    if (!wsId) return;
-    try {
-      const tree = await api.get<WorkspaceFileTreeNode[]>(`/api/workspaces/${wsId}/files`);
-      setFileTree(tree);
-      setFileTreeError(null);
-    } catch {
-      // Silently ignore — stale tree is better than error flash
-    }
-  }, [wsId]);
-
-  const fetchWorkspace = useCallback(async () => {
-    if (!wsId) {
-      setWorkspace(null);
-      setFileTree([]);
-      setInitialDiffStats(null);
-      setLoadedWsId(undefined);
-      return;
-    }
-    try {
-      setInitialDiffStats(null);
-      const [workspaceResult, filesResult, diffStatsResult] = await Promise.allSettled([
-        api.get<Workspace>(`/api/workspaces/${wsId}`),
-        api.get<WorkspaceFileTreeNode[]>(`/api/workspaces/${wsId}/files`),
-        api.get<DiffStatResponse>(`/api/workspaces/${wsId}/diff/stat`),
-      ]);
-
-      if (workspaceResult.status === "fulfilled") {
-        setWorkspace(workspaceResult.value);
-      } else {
-        setWorkspace(null);
-      }
-
-      if (filesResult.status === "fulfilled") {
-        setFileTree(filesResult.value);
-        setFileTreeError(null);
-        setExpandedPaths(buildInitialExpanded(filesResult.value));
-        const firstFilePath = findFirstFilePath(filesResult.value);
-        setSelectedPath(firstFilePath ?? "");
-      } else {
-        setFileTree([]);
-        setFileTreeError("Failed to load file tree.");
-        setExpandedPaths(new Set(DEFAULT_EXPANDED));
-        setSelectedPath("");
-      }
-
-      if (diffStatsResult.status === "fulfilled") {
-        setInitialDiffStats(diffStatsResult.value);
-      } else {
-        setInitialDiffStats(null);
-      }
-    } catch {
-      setWorkspace(null);
-      setFileTree([]);
-      setInitialDiffStats(null);
-      setFileTreeError("Failed to load file tree.");
-    } finally {
-      setLoadedWsId(wsId);
-    }
-  }, [wsId]);
-
+  // Initialize expanded paths and selected file when file tree first loads for a wsId
+  const initializedWsRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    fetchWorkspace();
-  }, [fetchWorkspace]);
+    if (!wsId || !filesQuery.data || initializedWsRef.current === wsId) return;
+    initializedWsRef.current = wsId;
+    setExpandedPaths(buildInitialExpanded(filesQuery.data));
+    const firstFilePath = findFirstFilePath(filesQuery.data);
+    setSelectedPath(firstFilePath ?? "");
+  }, [wsId, filesQuery.data]);
 
   const {
     messages,
@@ -310,16 +273,6 @@ export default function WorkspaceView() {
     [],
   );
 
-  // Refresh file tree when diff stats change (files created/modified/deleted)
-  const diffStatsRef = useRef(liveData[wsId ?? ""]?.diffStats);
-  useEffect(() => {
-    const current = liveData[wsId ?? ""]?.diffStats;
-    if (diffStatsRef.current && current && current !== diffStatsRef.current) {
-      refreshFileTree();
-    }
-    diffStatsRef.current = current;
-  }, [liveData, wsId, refreshFileTree]);
-
   // Reset to chatbot view and hide terminal overlay when switching workspaces
   useEffect(() => {
     setView("chatbot");
@@ -334,15 +287,6 @@ export default function WorkspaceView() {
       setView("chatbot");
     }
   }, [view, wsId, activeTerminals]);
-
-  // Refresh session list when streaming stops
-  const prevStreamingRef = useRef(isStreaming);
-  useEffect(() => {
-    if (prevStreamingRef.current && !isStreaming) {
-      refreshSessions();
-    }
-    prevStreamingRef.current = isStreaming;
-  }, [isStreaming, refreshSessions]);
 
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();
@@ -371,10 +315,10 @@ export default function WorkspaceView() {
       } else {
         clearChat();
         if (wsId) wsTransport.clearCachedData(wsId);
-        await fetchWorkspace();
+        void queryClient.invalidateQueries({ queryKey: ["workspace", wsId] });
       }
     }
-  }, [deleteSession, sessionId, sessions, handleActivateSession, clearChat, fetchWorkspace, wsId]);
+  }, [deleteSession, sessionId, sessions, handleActivateSession, clearChat, wsId, queryClient]);
 
   const handleFileTreeSelect = useCallback((path: string) => {
     setSelectedPath(path);
@@ -424,8 +368,8 @@ export default function WorkspaceView() {
   // sendMessage is already a stable callback from useConversation
   const handleAddToPrompt = sendMessage;
 
-  // Full skeleton only on first ever load (no data yet)
-  if (!loadedWsId) {
+  // Full skeleton on initial load
+  if (workspaceQuery.isLoading) {
     return (
       <div className="space-y-4 p-6">
         <Skeleton className="h-8 w-48" />
@@ -434,7 +378,7 @@ export default function WorkspaceView() {
     );
   }
 
-  if (loadedWsId === wsId && !workspace) {
+  if (workspaceQuery.isSuccess && !workspace) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
         Workspace not found.

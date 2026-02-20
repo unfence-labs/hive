@@ -1,6 +1,20 @@
+import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { FileViewer } from "@/components/FileViewer";
+import type { ComponentProps } from "react";
+
+function renderFileViewer(props: ComponentProps<typeof FileViewer>) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <FileViewer {...props} />
+    </QueryClientProvider>,
+  );
+}
 
 vi.mock("@/hooks/useApi", () => ({
   api: {
@@ -32,7 +46,7 @@ describe("FileViewer", () => {
     // Keep API pending forever
     apiMock.mockReturnValue(new Promise(() => {}));
 
-    render(<FileViewer wsId="ws-1" filePath="src/index.ts" />);
+    renderFileViewer({ wsId: "ws-1", filePath: "src/index.ts" });
 
     // Skeleton elements should be visible
     const skeletons = document.querySelectorAll(".h-4");
@@ -46,7 +60,7 @@ describe("FileViewer", () => {
     apiMock.mockResolvedValue({ content: "const x = 1;", path: "src/app.ts" });
     highlightMock.mockResolvedValue('<pre class="shiki"><code><span class="line">const x = 1;</span></code></pre>');
 
-    render(<FileViewer wsId="ws-1" filePath="src/app.ts" />);
+    renderFileViewer({ wsId: "ws-1", filePath: "src/app.ts" });
 
     await waitFor(() => {
       expect(screen.getByText("const x = 1;")).toBeInTheDocument();
@@ -62,7 +76,7 @@ describe("FileViewer", () => {
     const apiMock = await getApiMock();
     apiMock.mockRejectedValue(new Error("File too large"));
 
-    render(<FileViewer wsId="ws-1" filePath="big-file.bin" />);
+    renderFileViewer({ wsId: "ws-1", filePath: "big-file.bin" });
 
     await waitFor(() => {
       expect(screen.getByText("File too large")).toBeInTheDocument();
@@ -76,7 +90,13 @@ describe("FileViewer", () => {
     apiMock.mockResolvedValue({ content: "first", path: "a.ts" });
     highlightMock.mockResolvedValue('<pre class="shiki"><code><span class="line">first</span></code></pre>');
 
-    const { rerender } = render(<FileViewer wsId="ws-1" filePath="a.ts" />);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { rerender } = render(<FileViewer wsId="ws-1" filePath="a.ts" />, { wrapper });
 
     await waitFor(() => {
       expect(screen.getByText("first")).toBeInTheDocument();
@@ -112,7 +132,7 @@ describe("FileViewer", () => {
       apiMock.mockResolvedValue({ content: "code", path });
       highlightMock.mockResolvedValue(`<pre class="shiki"><code><span class="line">${lang}</span></code></pre>`);
 
-      const { unmount } = render(<FileViewer wsId="ws-1" filePath={path} />);
+      const { unmount } = renderFileViewer({ wsId: "ws-1", filePath: path });
 
       await waitFor(() => {
         expect(highlightMock).toHaveBeenCalledWith("code", lang);
@@ -129,7 +149,7 @@ describe("FileViewer", () => {
     apiMock.mockResolvedValue({ content: "x", path: "f.ts" });
     highlightMock.mockResolvedValue('<pre class="shiki"><code><span class="line">x</span></code></pre>');
 
-    render(<FileViewer wsId="ws-1" filePath="f.ts" />);
+    renderFileViewer({ wsId: "ws-1", filePath: "f.ts" });
 
     await waitFor(() => {
       const container = document.querySelector(".file-viewer");

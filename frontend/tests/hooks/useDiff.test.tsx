@@ -1,8 +1,9 @@
-import { act, renderHook } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parsePatchFiles } from "@pierre/diffs";
 import { useDiff } from "@/hooks/useDiff";
 import { api } from "@/hooks/useApi";
+import { createWrapper } from "../test-utils";
 
 vi.mock("@/hooks/useApi", () => ({
   api: {
@@ -20,10 +21,11 @@ describe("useDiff", () => {
   });
 
   it("does nothing when workspace id is undefined", async () => {
-    const { result } = renderHook(() => useDiff(undefined));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useDiff(undefined), { wrapper });
 
-    await act(async () => {
-      await result.current.fetchDiff();
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
     });
 
     expect(api.get).not.toHaveBeenCalled();
@@ -32,20 +34,32 @@ describe("useDiff", () => {
     expect(result.current.error).toBeNull();
   });
 
-  it("fetches diff and parses patch files", async () => {
+  it("does nothing when enabled is false", async () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useDiff("ws-1", false), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(api.get).not.toHaveBeenCalled();
+    expect(result.current.patchFiles).toEqual([]);
+  });
+
+  it("fetches diff and parses patch files when enabled", async () => {
     const parsed = [{ files: [] }] as never[];
     vi.mocked(api.get).mockResolvedValueOnce({ diff: "patch-content" });
     vi.mocked(parsePatchFiles).mockReturnValueOnce(parsed);
+    const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useDiff("ws-1"));
+    const { result } = renderHook(() => useDiff("ws-1", true), { wrapper });
 
-    await act(async () => {
-      await result.current.fetchDiff();
+    await waitFor(() => {
+      expect(result.current.rawDiff).toBe("patch-content");
     });
 
     expect(api.get).toHaveBeenCalledWith("/api/workspaces/ws-1/diff");
     expect(parsePatchFiles).toHaveBeenCalledWith("patch-content");
-    expect(result.current.rawDiff).toBe("patch-content");
     expect(result.current.patchFiles).toBe(parsed);
     expect(result.current.error).toBeNull();
     expect(result.current.loading).toBe(false);
@@ -53,11 +67,12 @@ describe("useDiff", () => {
 
   it("stores empty parsed files when server returns empty diff", async () => {
     vi.mocked(api.get).mockResolvedValueOnce({ diff: "" });
+    const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useDiff("ws-1"));
+    const { result } = renderHook(() => useDiff("ws-1", true), { wrapper });
 
-    await act(async () => {
-      await result.current.fetchDiff();
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
     });
 
     expect(parsePatchFiles).not.toHaveBeenCalled();
@@ -65,16 +80,16 @@ describe("useDiff", () => {
     expect(result.current.rawDiff).toBe("");
   });
 
-  it("sets fallback error when fetch fails with non-Error value", async () => {
-    vi.mocked(api.get).mockRejectedValueOnce("boom");
+  it("sets error when fetch fails", async () => {
+    vi.mocked(api.get).mockRejectedValueOnce(new Error("boom"));
+    const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useDiff("ws-1"));
+    const { result } = renderHook(() => useDiff("ws-1", true), { wrapper });
 
-    await act(async () => {
-      await result.current.fetchDiff();
+    await waitFor(() => {
+      expect(result.current.error).toBe("boom");
     });
 
-    expect(result.current.error).toBe("Failed to fetch diff");
     expect(result.current.loading).toBe(false);
   });
 });

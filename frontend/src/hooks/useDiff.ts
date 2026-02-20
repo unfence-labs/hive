@@ -1,29 +1,37 @@
-import { useState, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { parsePatchFiles, type ParsedPatch } from "@pierre/diffs";
 import { api } from "./useApi";
 
-export function useDiff(wsId: string | undefined) {
-  const [patchFiles, setPatchFiles] = useState<ParsedPatch[]>([]);
-  const [rawDiff, setRawDiff] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+interface DiffData {
+  rawDiff: string;
+  patchFiles: ParsedPatch[];
+}
 
-  const fetchDiff = useCallback(async () => {
-    if (!wsId) return;
-    setLoading(true);
-    setError(null);
-    try {
+export function useDiff(wsId: string | undefined, enabled = false) {
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: ["diff", wsId],
+    queryFn: async (): Promise<DiffData> => {
       const { diff } = await api.get<{ diff: string }>(
         `/api/workspaces/${wsId}/diff`,
       );
-      setRawDiff(diff);
-      setPatchFiles(diff ? parsePatchFiles(diff) : []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to fetch diff");
-    } finally {
-      setLoading(false);
-    }
-  }, [wsId]);
+      return {
+        rawDiff: diff,
+        patchFiles: diff ? parsePatchFiles(diff) : [],
+      };
+    },
+    enabled: !!wsId && enabled,
+    staleTime: 0, // Diff is volatile — always fetch fresh on demand
+    gcTime: 2 * 60 * 1000,
+  });
 
-  return { patchFiles, rawDiff, loading, error, fetchDiff };
+  return {
+    rawDiff: query.data?.rawDiff ?? "",
+    patchFiles: query.data?.patchFiles ?? [],
+    loading: query.isLoading,
+    error: query.error?.message ?? null,
+    refresh: () =>
+      queryClient.invalidateQueries({ queryKey: ["diff", wsId] }),
+  };
 }

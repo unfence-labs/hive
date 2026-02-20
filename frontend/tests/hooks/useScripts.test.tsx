@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createWrapper } from "../test-utils";
 import type { ScriptType } from "@/types";
 
 const mocks = vi.hoisted(() => ({
@@ -59,7 +60,7 @@ interface MockTerminal {
   write: ReturnType<typeof vi.fn>;
   onData: (handler: (data: string) => void) => { dispose: ReturnType<typeof vi.fn> };
   onResize: (
-    handler: (size: { cols: number; rows: number }) => void
+    handler: (size: { cols: number; rows: number }) => void,
   ) => { dispose: ReturnType<typeof vi.fn> };
   emitData: (data: string) => void;
   emitResize: (cols: number, rows: number) => void;
@@ -127,7 +128,8 @@ describe("useScripts", () => {
   });
 
   it("returns idle defaults when workspace id is undefined", async () => {
-    const { result } = renderHook(() => useScripts(undefined));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts(undefined), { wrapper });
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
@@ -142,7 +144,8 @@ describe("useScripts", () => {
   });
 
   it("fetches script config and status on mount", async () => {
-    const { result } = renderHook(() => useScripts("ws-1"));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
@@ -153,19 +156,22 @@ describe("useScripts", () => {
     expect(result.current.status.setup.state).toBe("idle");
   });
 
-  it("starts a script and sets status to running on success", async () => {
-    const { result } = renderHook(() => useScripts("ws-1"));
+  it("starts a script and sets status to running optimistically", async () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    await act(async () => {
-      await result.current.startScript("run");
+    act(() => {
+      result.current.startScript("run");
     });
 
+    await waitFor(() => {
+      expect(result.current.status.run.state).toBe("running");
+    });
     expect(mocks.apiPost).toHaveBeenCalledWith("/api/workspaces/ws-1/scripts/run/start");
-    expect(result.current.status.run.state).toBe("running");
   });
 
-  it("refreshes from API when start fails", async () => {
+  it("reverts to server state when start fails", async () => {
     mocks.apiGet
       .mockResolvedValueOnce(scriptsResponse())
       .mockResolvedValueOnce({
@@ -177,11 +183,12 @@ describe("useScripts", () => {
       });
     mocks.apiPost.mockRejectedValueOnce(new Error("already running"));
 
-    const { result } = renderHook(() => useScripts("ws-1"));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    await act(async () => {
-      await result.current.startScript("run");
+    act(() => {
+      result.current.startScript("run");
     });
 
     await waitFor(() => {
@@ -191,7 +198,8 @@ describe("useScripts", () => {
   });
 
   it("closes active websocket before stopping a script", async () => {
-    const { result } = renderHook(() => useScripts("ws-1"));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     const term = createTerminal();
@@ -203,13 +211,15 @@ describe("useScripts", () => {
     const ws = MockWebSocket.instances[0];
     if (!ws) throw new Error("expected websocket instance");
 
-    await act(async () => {
-      await result.current.stopScript("run");
+    act(() => {
+      result.current.stopScript("run");
     });
 
-    expect(ws.close).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(ws.close).toHaveBeenCalledTimes(1);
+    });
+
     expect(mocks.apiPost).toHaveBeenCalledWith("/api/workspaces/ws-1/scripts/run/stop");
-    expect(result.current.status.run.state).toBe("idle");
 
     const closeCallOrder = ws.close.mock.invocationCallOrder[0];
     const postCallOrder = mocks.apiPost.mock.invocationCallOrder[0];
@@ -220,7 +230,8 @@ describe("useScripts", () => {
     mocks.getServerUrl.mockReturnValue("http://127.0.0.1:9000");
     import.meta.env.VITE_HIVE_AUTH_TOKEN = "  secret token  ";
 
-    const { result } = renderHook(() => useScripts("ws-1"));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     const term = createTerminal();
@@ -241,8 +252,25 @@ describe("useScripts", () => {
     );
   });
 
+  it("uses VITE_WS_URL fallback when server URL is not configured", async () => {
+    import.meta.env.VITE_WS_URL = "wss://example-ws.acme.dev";
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const term = createTerminal();
+    act(() => {
+      result.current.connectOutput("run", term as unknown as { cols: number; rows: number });
+    });
+
+    const ws = MockWebSocket.instances[0];
+    if (!ws) throw new Error("expected websocket instance");
+    expect(ws.url).toBe("wss://example-ws.acme.dev/ws/script/ws-1?type=run");
+  });
+
   it("forwards terminal input and resize messages over websocket", async () => {
-    const { result } = renderHook(() => useScripts("ws-1"));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     const term = createTerminal();
@@ -260,14 +288,37 @@ describe("useScripts", () => {
 
     const binaryPayload = ws.send.mock.calls.find((call) => ArrayBuffer.isView(call[0]))?.[0];
     expect(binaryPayload).toBeDefined();
-    expect(new TextDecoder().decode(Uint8Array.from(binaryPayload as ArrayLike<number>))).toBe("pwd\n");
+    expect(new TextDecoder().decode(Uint8Array.from(binaryPayload as ArrayLike<number>))).toBe(
+      "pwd\n",
+    );
     expect(ws.send).toHaveBeenCalledWith(
       JSON.stringify({ type: "resize", cols: 88, rows: 33 }),
     );
   });
 
+  it("writes ArrayBuffer websocket output to terminal", async () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const term = createTerminal();
+    act(() => {
+      result.current.connectOutput("run", term as unknown as { cols: number; rows: number });
+    });
+
+    const ws = MockWebSocket.instances[0];
+    if (!ws) throw new Error("expected websocket instance");
+
+    act(() => {
+      ws.fireMessage(new Uint8Array([112, 119, 100, 10]).buffer);
+    });
+
+    expect(term.write).toHaveBeenCalledWith(new Uint8Array([112, 119, 100, 10]));
+  });
+
   it("updates script status when backend sends exit event", async () => {
-    const { result } = renderHook(() => useScripts("ws-1"));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     const term = createTerminal();
@@ -281,16 +332,21 @@ describe("useScripts", () => {
     act(() => {
       ws.fireMessage(JSON.stringify({ type: "exit", code: 0 }));
     });
-    expect(result.current.status.setup).toEqual({ state: "done", exitCode: 0 });
+    await waitFor(() => {
+      expect(result.current.status.setup).toEqual({ state: "done", exitCode: 0 });
+    });
 
     act(() => {
       ws.fireMessage(JSON.stringify({ type: "exit", code: 7 }));
     });
-    expect(result.current.status.setup).toEqual({ state: "error", exitCode: 7 });
+    await waitFor(() => {
+      expect(result.current.status.setup).toEqual({ state: "error", exitCode: 7 });
+    });
   });
 
   it("disposes terminal listeners when websocket closes", async () => {
-    const { result } = renderHook(() => useScripts("ws-1"));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     const term = createTerminal();
@@ -310,7 +366,8 @@ describe("useScripts", () => {
   });
 
   it("disconnectOutput closes the current websocket connection", async () => {
-    const { result } = renderHook(() => useScripts("ws-1"));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     const term = createTerminal();
@@ -328,8 +385,32 @@ describe("useScripts", () => {
     expect(ws.close).toHaveBeenCalledTimes(1);
   });
 
+  it("does not close websocket when stopping a different script type", async () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const term = createTerminal();
+    act(() => {
+      result.current.connectOutput("run", term as unknown as { cols: number; rows: number });
+    });
+
+    const ws = MockWebSocket.instances[0];
+    if (!ws) throw new Error("expected websocket instance");
+
+    act(() => {
+      result.current.stopScript("setup");
+    });
+
+    expect(ws.close).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(mocks.apiPost).toHaveBeenCalledWith("/api/workspaces/ws-1/scripts/setup/stop");
+    });
+  });
+
   it("replaces existing websocket when reconnecting to another script type", async () => {
-    const { result } = renderHook(() => useScripts("ws-1"));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     const term1 = createTerminal();
@@ -349,15 +430,19 @@ describe("useScripts", () => {
   });
 
   it("does nothing for start/stop/connect when wsId is missing", async () => {
-    const { result } = renderHook(() => useScripts(undefined));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts(undefined), { wrapper });
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     const term = createTerminal();
 
-    await act(async () => {
-      await result.current.startScript("setup");
-      await result.current.stopScript("setup");
-      result.current.connectOutput("setup" as ScriptType, term as unknown as { cols: number; rows: number });
+    act(() => {
+      result.current.startScript("setup");
+      result.current.stopScript("setup");
+      result.current.connectOutput(
+        "setup" as ScriptType,
+        term as unknown as { cols: number; rows: number },
+      );
     });
 
     expect(mocks.apiPost).not.toHaveBeenCalled();

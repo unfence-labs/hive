@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
+import { createWrapper } from "../test-utils";
 
 const mocks = vi.hoisted(() => ({
   getServerUrl: vi.fn(),
@@ -18,7 +19,8 @@ describe("useConnectionStatus", () => {
   });
 
   it("stays unknown and does not call health endpoint when server URL is missing", async () => {
-    const { result } = renderHook(() => useConnectionStatus());
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useConnectionStatus(), { wrapper });
 
     await waitFor(() => {
       expect(result.current.status).toBe("unknown");
@@ -30,7 +32,8 @@ describe("useConnectionStatus", () => {
     mocks.getServerUrl.mockReturnValue("http://100.64.0.10:3000");
     vi.mocked(fetch).mockResolvedValue({ ok: true } as Response);
 
-    const { result } = renderHook(() => useConnectionStatus());
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useConnectionStatus(), { wrapper });
 
     await waitFor(() => {
       expect(result.current.status).toBe("connected");
@@ -45,7 +48,8 @@ describe("useConnectionStatus", () => {
     mocks.getServerUrl.mockReturnValue("http://100.64.0.10:3000");
     vi.mocked(fetch).mockResolvedValue({ ok: false } as Response);
 
-    const { result } = renderHook(() => useConnectionStatus());
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useConnectionStatus(), { wrapper });
 
     await waitFor(() => {
       expect(result.current.status).toBe("disconnected");
@@ -56,7 +60,8 @@ describe("useConnectionStatus", () => {
     mocks.getServerUrl.mockReturnValue("http://100.64.0.10:3000");
     vi.mocked(fetch).mockRejectedValue(new Error("network down"));
 
-    const { result } = renderHook(() => useConnectionStatus());
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useConnectionStatus(), { wrapper });
 
     await waitFor(() => {
       expect(result.current.status).toBe("disconnected");
@@ -64,9 +69,13 @@ describe("useConnectionStatus", () => {
   });
 
   it("re-checks manually and updates status", async () => {
-    const { result } = renderHook(() => useConnectionStatus());
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useConnectionStatus(), { wrapper });
 
-    expect(result.current.status).toBe("unknown");
+    // Wait for initial query to settle (resolves to "unknown" since server URL is empty)
+    await waitFor(() => {
+      expect(result.current.status).toBe("unknown");
+    });
     expect(fetch).not.toHaveBeenCalled();
 
     mocks.getServerUrl.mockReturnValue("http://100.64.0.10:3000");

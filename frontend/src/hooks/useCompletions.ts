@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "./useApi";
 import type { CompletionItem } from "@/types";
 
@@ -7,26 +7,14 @@ interface CompletionsResponse {
 }
 
 export function useCompletions(wsId: string | undefined): CompletionItem[] {
-  const [items, setItems] = useState<CompletionItem[]>([]);
+  const query = useQuery({
+    queryKey: ["completions", wsId],
+    queryFn: () =>
+      api.get<CompletionsResponse>(`/api/workspaces/${wsId}/completions`),
+    enabled: !!wsId,
+    staleTime: 10 * 60 * 1000, // Completions rarely change
+    retry: 0, // Optional UX — don't retry
+  });
 
-  useEffect(() => {
-    if (!wsId) {
-      setItems([]);
-      return;
-    }
-    let cancelled = false;
-    api
-      .get<CompletionsResponse>(`/api/workspaces/${wsId}/completions`)
-      .then((res) => {
-        if (!cancelled) setItems(res.items);
-      })
-      .catch(() => {
-        // Autocomplete is optional UX — silently ignore errors
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [wsId]);
-
-  return items;
+  return query.data?.items ?? [];
 }

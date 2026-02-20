@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { ArchiveIcon, FolderPlus, Plus, Settings, TerminalSquareIcon } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -18,40 +18,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTerminalContext } from "@/contexts/TerminalContext";
-import { useWorkspaceLiveData } from "@/hooks/useWorkspaceLiveData";
+import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
+import { useProjects } from "@/hooks/useProjects";
 import { BranchLabel } from "@/components/BranchLabel";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { WaveIndicator } from "@/components/WaveIndicator";
 import { api } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
-import type { DiffStatResponse, Project } from "@/types";
+import type { DiffStatResponse } from "@/types";
 
 interface SidebarProps {
-  projects: Project[];
-  loading: boolean;
   onAddProject: () => void;
-  onAddWorkspace: (projectId: string) => Promise<unknown>;
-  onArchiveWorkspace: (wsId: string) => Promise<void>;
 }
 
-export default function Sidebar({
-  projects,
-  loading,
-  onAddProject,
-  onAddWorkspace,
-  onArchiveWorkspace,
-}: SidebarProps) {
-  const workspaceIds = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          projects.flatMap((project) => (project.workspaces ?? []).map((workspace) => workspace.id)),
-        ),
-      ),
-    [projects],
-  );
+export default function Sidebar({ onAddProject }: SidebarProps) {
+  const { projects, loading, createWorkspace, archiveWorkspace } = useProjects();
+  const queryClient = useQueryClient();
   const { wsId: activeWsId } = useParams();
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -59,7 +44,7 @@ export default function Sidebar({
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
-  const liveData = useWorkspaceLiveData(workspaceIds);
+  const liveData = useWorkspaceLiveDataContext();
 
   const activeProjectId = projects.find((project) =>
     (project.workspaces ?? []).some((workspace) => workspace.id === activeWsId),
@@ -75,7 +60,7 @@ export default function Sidebar({
     if (creatingProjectId) return;
     setCreatingProjectId(projectId);
     try {
-      await onAddWorkspace(projectId);
+      await createWorkspace(projectId);
       setExpandedProjects((prev) => ({ ...prev, [projectId]: true }));
     } finally {
       setCreatingProjectId(null);
@@ -86,7 +71,10 @@ export default function Sidebar({
     let uncommittedCount = liveData[wsId]?.diffStats?.uncommitted?.length;
     if (uncommittedCount === undefined) {
       try {
-        const stats = await api.get<DiffStatResponse>(`/api/workspaces/${wsId}/diff/stat`);
+        const stats = await queryClient.fetchQuery({
+          queryKey: ["diff-stat", wsId],
+          queryFn: () => api.get<DiffStatResponse>(`/api/workspaces/${wsId}/diff/stat`),
+        });
         uncommittedCount = stats.uncommitted.length;
       } catch {
         uncommittedCount = 0;
@@ -101,7 +89,7 @@ export default function Sidebar({
 
   const doArchive = async (wsId: string) => {
     const wasActive = activeWsId === wsId;
-    await onArchiveWorkspace(wsId);
+    await archiveWorkspace(wsId);
     if (wasActive) navigate("/projects");
   };
 

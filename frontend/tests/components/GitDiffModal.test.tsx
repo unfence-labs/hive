@@ -1,9 +1,22 @@
+import type { ComponentProps } from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { parsePatchFiles } from "@pierre/diffs";
 import { GitDiffModal } from "@/components/diff/GitDiffModal";
 import { api } from "@/hooks/useApi";
+
+function renderGitDiffModal(props: ComponentProps<typeof GitDiffModal>) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <GitDiffModal {...props} />
+    </QueryClientProvider>,
+  );
+}
 
 vi.mock("@/hooks/useApi", () => ({
   api: {
@@ -71,37 +84,33 @@ describe("GitDiffModal", () => {
 
   it("loads and renders parsed files", async () => {
     vi.mocked(api.get).mockResolvedValueOnce({ diff: "diff-text" });
-    vi.mocked(parsePatchFiles).mockReturnValueOnce(
+    vi.mocked(parsePatchFiles).mockReturnValue(
       makeParsedPatch(["src/a.ts"]),
     );
 
-    render(
-      <GitDiffModal open onOpenChange={() => {}} wsId="ws-1" />,
-    );
+    renderGitDiffModal({ open: true, onOpenChange: () => {}, wsId: "ws-1" });
 
     await waitFor(() => {
-      expect(api.get).toHaveBeenCalledWith("/api/workspaces/ws-1/diff");
+      expect(screen.getByText("1 file changed")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("1 file changed")).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith("/api/workspaces/ws-1/diff");
     expect(screen.getByText("a.ts")).toBeInTheDocument();
     expect(screen.getByText("FILEDIFF:src/a.ts")).toBeInTheDocument();
   });
 
   it("uses initialFile to preselect the matching file", async () => {
     vi.mocked(api.get).mockResolvedValueOnce({ diff: "diff-text" });
-    vi.mocked(parsePatchFiles).mockReturnValueOnce(
+    vi.mocked(parsePatchFiles).mockReturnValue(
       makeParsedPatch(["src/a.ts", "nested/b.ts"]),
     );
 
-    render(
-      <GitDiffModal
-        open
-        onOpenChange={() => {}}
-        wsId="ws-1"
-        initialFile="b.ts"
-      />,
-    );
+    renderGitDiffModal({
+      open: true,
+      onOpenChange: () => {},
+      wsId: "ws-1",
+      initialFile: "b.ts",
+    });
 
     await waitFor(() => {
       expect(screen.getByText("FILEDIFF:nested/b.ts")).toBeInTheDocument();
@@ -110,9 +119,9 @@ describe("GitDiffModal", () => {
 
   it("shows empty state when diff has no parseable files", async () => {
     vi.mocked(api.get).mockResolvedValueOnce({ diff: "non-empty-diff" });
-    vi.mocked(parsePatchFiles).mockReturnValueOnce([]);
+    vi.mocked(parsePatchFiles).mockReturnValue([]);
 
-    render(<GitDiffModal open onOpenChange={() => {}} wsId="ws-1" />);
+    renderGitDiffModal({ open: true, onOpenChange: () => {}, wsId: "ws-1" });
 
     await waitFor(() => {
       expect(screen.getByText("No changes to display")).toBeInTheDocument();
@@ -121,11 +130,11 @@ describe("GitDiffModal", () => {
 
   it("displays stats from additionLines/deletionLines, not hunk span counts", async () => {
     vi.mocked(api.get).mockResolvedValueOnce({ diff: "diff-text" });
-    vi.mocked(parsePatchFiles).mockReturnValueOnce(
+    vi.mocked(parsePatchFiles).mockReturnValue(
       makeParsedPatch(["src/a.ts"]),
     );
 
-    render(<GitDiffModal open onOpenChange={() => {}} wsId="ws-1" />);
+    renderGitDiffModal({ open: true, onOpenChange: () => {}, wsId: "ws-1" });
 
     await waitFor(() => {
       expect(screen.getByText("a.ts")).toBeInTheDocument();
@@ -141,7 +150,7 @@ describe("GitDiffModal", () => {
 
   it("sums stats across multiple hunks in a single file", async () => {
     vi.mocked(api.get).mockResolvedValueOnce({ diff: "diff-text" });
-    vi.mocked(parsePatchFiles).mockReturnValueOnce([
+    vi.mocked(parsePatchFiles).mockReturnValue([
       {
         files: [
           {
@@ -168,7 +177,7 @@ describe("GitDiffModal", () => {
       },
     ] as never[]);
 
-    render(<GitDiffModal open onOpenChange={() => {}} wsId="ws-1" />);
+    renderGitDiffModal({ open: true, onOpenChange: () => {}, wsId: "ws-1" });
 
     await waitFor(() => {
       expect(screen.getByText("big.ts")).toBeInTheDocument();
@@ -187,7 +196,7 @@ describe("GitDiffModal", () => {
 
   it("shows deletion-only stats correctly", async () => {
     vi.mocked(api.get).mockResolvedValueOnce({ diff: "diff-text" });
-    vi.mocked(parsePatchFiles).mockReturnValueOnce([
+    vi.mocked(parsePatchFiles).mockReturnValue([
       {
         files: [
           {
@@ -207,7 +216,7 @@ describe("GitDiffModal", () => {
       },
     ] as never[]);
 
-    render(<GitDiffModal open onOpenChange={() => {}} wsId="ws-1" />);
+    renderGitDiffModal({ open: true, onOpenChange: () => {}, wsId: "ws-1" });
 
     await waitFor(() => {
       expect(screen.getByText("removed.ts")).toBeInTheDocument();
@@ -222,7 +231,7 @@ describe("GitDiffModal", () => {
 
   it("computes correct totals across multiple files", async () => {
     vi.mocked(api.get).mockResolvedValueOnce({ diff: "diff-text" });
-    vi.mocked(parsePatchFiles).mockReturnValueOnce([
+    vi.mocked(parsePatchFiles).mockReturnValue([
       {
         files: [
           {
@@ -255,7 +264,7 @@ describe("GitDiffModal", () => {
       },
     ] as never[]);
 
-    render(<GitDiffModal open onOpenChange={() => {}} wsId="ws-1" />);
+    renderGitDiffModal({ open: true, onOpenChange: () => {}, wsId: "ws-1" });
 
     await waitFor(() => {
       expect(screen.getByText("2 files changed")).toBeInTheDocument();
@@ -271,7 +280,7 @@ describe("GitDiffModal", () => {
   it("shows error state when loading diff fails", async () => {
     vi.mocked(api.get).mockRejectedValueOnce(new Error("fetch failed"));
 
-    render(<GitDiffModal open onOpenChange={() => {}} wsId="ws-1" />);
+    renderGitDiffModal({ open: true, onOpenChange: () => {}, wsId: "ws-1" });
 
     await waitFor(() => {
       expect(screen.getByText("fetch failed")).toBeInTheDocument();
@@ -283,18 +292,16 @@ describe("GitDiffModal", () => {
     const onAddToPrompt = vi.fn();
     const onOpenChange = vi.fn();
     vi.mocked(api.get).mockResolvedValueOnce({ diff: "diff-text" });
-    vi.mocked(parsePatchFiles).mockReturnValueOnce(
+    vi.mocked(parsePatchFiles).mockReturnValue(
       makeParsedPatch(["src/a.ts"]),
     );
 
-    render(
-      <GitDiffModal
-        open
-        onOpenChange={onOpenChange}
-        wsId="ws-1"
-        onAddToPrompt={onAddToPrompt}
-      />,
-    );
+    renderGitDiffModal({
+      open: true,
+      onOpenChange,
+      wsId: "ws-1",
+      onAddToPrompt,
+    });
 
     await waitFor(() => {
       expect(screen.getByText("FILEDIFF:src/a.ts")).toBeInTheDocument();

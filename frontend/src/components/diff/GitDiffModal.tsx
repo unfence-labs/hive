@@ -39,7 +39,7 @@ import {
 import { cn } from "@/lib/utils";
 import { nanoid } from "nanoid";
 import { useThemeType } from "@/hooks/useThemeType";
-import { api } from "@/hooks/useApi";
+import { useDiff } from "@/hooks/useDiff";
 
 // Stable empty array reference for files without comments
 const EMPTY_ANNOTATIONS: DiffLineAnnotation<DiffComment>[] = [];
@@ -281,9 +281,7 @@ export function GitDiffModal({
   initialFile,
   onAddToPrompt,
 }: GitDiffModalProps) {
-  const [rawDiff, setRawDiff] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const { rawDiff, loading: isLoading, error, refresh: refreshDiff } = useDiff(wsId, open);
   const [diffStyle, setDiffStyle] = useState<DiffStyle>("split");
   const themeType = useThemeType();
 
@@ -304,34 +302,11 @@ export function GitDiffModal({
   const [isSwitching, setIsSwitching] = useState(false);
   const switchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const loadDiff = useCallback(
-    async (isRefresh = false) => {
-      setIsLoading(true);
-      setError(null);
-      if (!isRefresh) setRawDiff("");
-
-      try {
-        const { diff } = await api.get<{ diff: string }>(
-          `/api/workspaces/${wsId}/diff`,
-        );
-        setRawDiff(diff);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [wsId],
-  );
-
+  // Reset UI state when modal closes
   useEffect(() => {
     if (open) {
-      loadDiff();
       setSelectedFileIndex(0);
     } else {
-      setRawDiff("");
-      setError(null);
-      setIsLoading(false);
       setComments([]);
       setSelectedRange(null);
       setActiveFileName(null);
@@ -340,7 +315,7 @@ export function GitDiffModal({
       setIsSwitching(false);
       if (switchTimeoutRef.current) clearTimeout(switchTimeoutRef.current);
     }
-  }, [open, loadDiff]);
+  }, [open]);
 
   const lineSelectedCallbacksRef = useRef<
     Map<string, (range: SelectedLineRange | null) => void>
@@ -556,7 +531,7 @@ export function GitDiffModal({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={() => loadDiff(true)}
+                onClick={() => refreshDiff()}
                 disabled={isLoading}
                 className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
               >

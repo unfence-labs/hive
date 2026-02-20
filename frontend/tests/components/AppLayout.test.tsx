@@ -2,8 +2,17 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useTerminalContext } from "@/contexts/TerminalContext";
 import AppLayout from "@/components/AppLayout";
+
+vi.mock("@/hooks/useApi", () => ({
+  api: {
+    get: vi.fn().mockResolvedValue([]),
+    post: vi.fn(),
+    delete: vi.fn(),
+  },
+}));
 
 const mocks = vi.hoisted(() => ({
   terminalRender: vi.fn(),
@@ -51,24 +60,23 @@ function TerminalControls() {
 }
 
 function renderLayout(initialEntry = "/workspaces/ws-1") {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+
   return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
-      <Routes>
-        <Route
-          element={
-            <AppLayout
-              projects={[]}
-              loading={false}
-              onAddProject={vi.fn()}
-              onAddWorkspace={vi.fn().mockResolvedValue(undefined)}
-            />
-          }
-        >
-          <Route path="/workspaces/:wsId" element={<TerminalControls />} />
-          <Route path="/settings/appearance" element={<div data-testid="settings-content">settings</div>} />
-        </Route>
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <Routes>
+          <Route
+            element={<AppLayout onAddProject={vi.fn()} />}
+          >
+            <Route path="/workspaces/:wsId" element={<TerminalControls />} />
+            <Route path="/settings/appearance" element={<div data-testid="settings-content">settings</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

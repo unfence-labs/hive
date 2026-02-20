@@ -3,7 +3,9 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TerminalProvider, useTerminalContext } from "@/contexts/TerminalContext";
+import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import WorkspaceView from "@/pages/WorkspaceView";
 import type { Workspace, WorkspaceFileTreeNode } from "@/types";
 
@@ -226,15 +228,25 @@ function TestControls() {
 }
 
 function renderWorkspace(initialEntry = "/workspaces/ws-1") {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+
+  const wsIds = Object.keys(WORKSPACES);
+
   return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
-      <TerminalProvider>
-        <TestControls />
-        <Routes>
-          <Route path="/workspaces/:wsId" element={<WorkspaceView />} />
-        </Routes>
-      </TerminalProvider>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceLiveDataProvider workspaceIds={wsIds}>
+        <MemoryRouter initialEntries={[initialEntry]}>
+          <TerminalProvider>
+            <TestControls />
+            <Routes>
+              <Route path="/workspaces/:wsId" element={<WorkspaceView />} />
+            </Routes>
+          </TerminalProvider>
+        </MemoryRouter>
+      </WorkspaceLiveDataProvider>
+    </QueryClientProvider>,
   );
 }
 

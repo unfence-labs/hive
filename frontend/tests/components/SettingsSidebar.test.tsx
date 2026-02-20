@@ -1,33 +1,51 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import SettingsSidebar from "@/components/SettingsSidebar";
-import type { Project } from "@/types";
 
-const projects: Project[] = [
-  {
-    id: "p1",
-    name: "Alpha",
-    url: "https://github.com/acme/alpha.git",
-    createdAt: "2026-02-11T00:00:00.000Z",
-    workspaces: [],
+vi.mock("@/hooks/useApi", () => ({
+  api: {
+    get: vi.fn().mockResolvedValue([
+      {
+        id: "p1",
+        name: "Alpha",
+        url: "https://github.com/acme/alpha.git",
+        createdAt: "2026-02-11T00:00:00.000Z",
+        workspaces: [],
+      },
+    ]),
+    post: vi.fn(),
+    delete: vi.fn(),
   },
-];
+}));
 
 function SettingsShell() {
   return (
     <div>
-      <SettingsSidebar projects={projects} />
+      <SettingsSidebar />
       <Outlet />
     </div>
+  );
+}
+
+function renderWithProviders(ui: React.ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      {ui}
+    </QueryClientProvider>,
   );
 }
 
 describe("SettingsSidebar", () => {
   it("keeps initial return route when navigating inside settings", async () => {
     const user = userEvent.setup();
-    render(
+    renderWithProviders(
       <MemoryRouter initialEntries={[{ pathname: "/settings/appearance", state: { from: "/workspaces/w1" } }]}>
         <Routes>
           <Route path="/settings" element={<SettingsShell />}>
@@ -40,7 +58,7 @@ describe("SettingsSidebar", () => {
       </MemoryRouter>,
     );
 
-    await user.click(screen.getByRole("link", { name: /Alpha/i }));
+    await user.click(await screen.findByRole("link", { name: /Alpha/i }));
     await waitFor(() => {
       expect(screen.getByText("Repository settings")).toBeInTheDocument();
     });
@@ -53,7 +71,7 @@ describe("SettingsSidebar", () => {
 
   it("falls back to /projects when opened directly", async () => {
     const user = userEvent.setup();
-    render(
+    renderWithProviders(
       <MemoryRouter initialEntries={["/settings/appearance"]}>
         <Routes>
           <Route path="/settings" element={<SettingsShell />}>
@@ -73,7 +91,7 @@ describe("SettingsSidebar", () => {
 
   it("navigates to notifications settings", async () => {
     const user = userEvent.setup();
-    render(
+    renderWithProviders(
       <MemoryRouter initialEntries={["/settings/appearance"]}>
         <Routes>
           <Route path="/settings" element={<SettingsShell />}>
