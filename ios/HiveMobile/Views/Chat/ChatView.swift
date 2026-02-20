@@ -14,8 +14,10 @@ struct ChatView: View {
     @State private var thinkingEnabled = true
     @State private var planModeEnabled = false
     @State private var selectedModel: ClaudeModel = .opus
+    @State private var draftAttachments: [ImageAttachment] = []
 
     private let api = APIClient()
+    private let draftStore = ChatDraftStore.shared
 
     private var pendingToolUseIds: Set<String> {
         Set(store.pendingToolInputs.map(\.toolUseId))
@@ -70,10 +72,12 @@ struct ChatView: View {
         .safeAreaInset(edge: .bottom) {
             ChatInputBar(
                 draft: $draft,
+                draftAttachments: draftAttachments,
                 isBusy: store.isBusy,
                 thinkingEnabled: $thinkingEnabled,
                 planModeEnabled: $planModeEnabled,
                 selectedModel: $selectedModel,
+                onDraftAttachmentsChange: { draftAttachments = $0 },
                 onSend: sendMessage,
                 onStop: { Task { await wsManager.send(.stop(sessionId: nil)) } }
             )
@@ -128,7 +132,10 @@ struct ChatView: View {
             }
         }
         .task { await setup() }
-        .onDisappear { wsManager.disconnect() }
+        .onDisappear {
+            saveCurrentDraft()
+            wsManager.disconnect()
+        }
     }
 
     // MARK: - Streaming Activity
@@ -153,6 +160,10 @@ struct ChatView: View {
         await loadSessions()
         activeSessionId = workspace.activeSessionId ?? sessions.first?.sessionId
         store.setFocusedSessionId(activeSessionId)
+
+        if let sessionId = activeSessionId {
+            restoreDraft(for: sessionId)
+        }
 
         wsManager.connect(workspaceId: workspace.id)
         listenToWebSocket()
@@ -193,7 +204,9 @@ struct ChatView: View {
 
     private func switchSession(_ sessionId: String) {
         guard sessionId != activeSessionId else { return }
+        saveCurrentDraft()
         activeSessionId = sessionId
+        restoreDraft(for: sessionId)
         store.prepareSessionSwitch(sessionId)
         isLoading = true
         Task {
@@ -213,6 +226,7 @@ struct ChatView: View {
     private func deleteSession(_ sessionId: String) {
         Task {
             guard (try? await api.deleteSession(workspaceId: workspace.id, sessionId: sessionId)) != nil else { return }
+            draftStore.remove(workspaceId: workspace.id, sessionId: sessionId)
             sessions.removeAll { $0.sessionId == sessionId }
             if sessionId == activeSessionId, let first = sessions.first {
                 switchSession(first.sessionId)
@@ -236,6 +250,7 @@ struct ChatView: View {
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty || !images.isEmpty else { return }
         draft = ""
+        draftAttachments = []
 
         let options = MessageOptions(
             planMode: planModeEnabled ? true : nil,
@@ -261,6 +276,36 @@ struct ChatView: View {
                 result: result,
                 sessionId: pending.sessionId
             ))
+        }
+    }
+
+    // MARK: - Draft Persistence
+
+    private func saveCurrentDraft() {
+        guard let sessionId = activeSessionId else { return }
+        draftStore.save(
+            workspaceId: workspace.id,
+            sessionId: sessionId,
+            draft: .init(
+                text: draft,
+                thinkingEnabled: thinkingEnabled,
+                planModeEnabled: planModeEnabled,
+                attachments: draftAttachments.map(ChatDraftStore.Attachment.init)
+            )
+        )
+    }
+
+    private func restoreDraft(for sessionId: String) {
+        if let saved = draftStore.restore(workspaceId: workspace.id, sessionId: sessionId) {
+            draft = saved.text
+            thinkingEnabled = saved.thinkingEnabled
+            planModeEnabled = saved.planModeEnabled
+            draftAttachments = saved.attachments.map(ImageAttachment.init)
+        } else {
+            draft = ""
+            thinkingEnabled = true
+            planModeEnabled = false
+            draftAttachments = []
         }
     }
 
@@ -302,4 +347,20 @@ struct ChatView: View {
         ))
     }
     .preferredColorScheme(.dark)
+}
+
+private extension ChatDraftStore.Attachment {
+    init(_ image: ImageAttachment) {
+        self.init(name: image.name, mediaType: image.mediaType, dataUrl: image.dataUrl)
+    }
+}
+
+private extension ImageAttachment {
+    init(_ draftAttachment: ChatDraftStore.Attachment) {
+        self.init(
+            name: draftAttachment.name,
+            mediaType: draftAttachment.mediaType,
+            dataUrl: draftAttachment.dataUrl
+        )
+    }
 }
