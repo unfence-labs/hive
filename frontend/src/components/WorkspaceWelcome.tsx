@@ -17,7 +17,7 @@ export function WorkspaceWelcome({
 }: WorkspaceWelcomeProps) {
   return (
     <div className="flex w-full max-w-lg flex-col gap-6">
-      <div className="w-full rounded-xl border border-border/50 bg-card px-5 py-4">
+      <div className="w-full rounded-xl border border-border/50 bg-sidebar px-5 py-4">
         <p className="text-sm text-foreground">
           You're in a new copy of{" "}
           <span className="font-semibold">{projectName}</span> called{" "}

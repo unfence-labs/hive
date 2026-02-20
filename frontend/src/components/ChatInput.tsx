@@ -168,7 +168,7 @@ export default function ChatInput({
   const showPopup = autocomplete !== null && filteredItems.length > 0;
 
   return (
-    <div className="relative z-50 border-t border-border/30 bg-background p-4">
+    <div className="relative z-50 bg-background p-4">
       <div className={cn(
         "relative rounded-lg border border-transparent [&_[data-slot=input-group]]:!border-border/30",
         showPopup && "[&_[data-slot=input-group]]:rounded-t-none [&_[data-slot=input-group]]:!border-t-transparent",
