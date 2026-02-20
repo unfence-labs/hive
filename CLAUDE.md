@@ -75,6 +75,7 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `backend/src/state/config.ts`: file-based app config (`$DATA_DIR/config.json`)
 - `backend/src/utils/preflight.ts`: startup dependency checks (git >= 2.17, claude, gh)
 - `backend/src/utils/hive-config.ts`: `hive.json` parser for workspace scripts
+- `backend/ecosystem.config.cjs`: pm2 ecosystem config (production + development environments)
 
 ### Important backend behavior
 

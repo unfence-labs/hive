@@ -8,7 +8,8 @@ import { DEFAULT_BASE_PROMPT } from "../agents/system-prompt.js";
 const projectLocks = new Map<string, Promise<void>>();
 
 export function getDataDir(): string {
-  return process.env.DATA_DIR ?? join(homedir(), ".hive");
+  const dir = process.env.DATA_DIR ?? join(homedir(), ".hive");
+  return dir.startsWith("~/") ? join(homedir(), dir.slice(2)) : dir;
 }
 
 function stateFilePath(dataDir: string, projectId: string): string {
