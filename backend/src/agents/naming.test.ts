@@ -4,6 +4,7 @@ import type { ChildProcess } from "node:child_process";
 
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(),
+  execFile: vi.fn((_cmd: string, _args: string[], cb: Function) => cb(null, { stdout: "", stderr: "" })),
 }));
 
 vi.mock("../utils/git.js", () => ({

@@ -8,6 +8,7 @@ import type { WsOutgoing } from "../types.js";
 // Mock child_process.spawn before importing the module under test
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(),
+  execFile: vi.fn((_cmd: string, _args: string[], cb: Function) => cb(null, { stdout: "", stderr: "" })),
 }));
 
 import { spawn } from "node:child_process";
