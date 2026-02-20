@@ -38,7 +38,7 @@ export const AskUserQuestion = memo(function AskUserQuestion({
     <div className="my-0.5">
       <button
         type="button"
-        className="inline-flex w-fit items-center gap-2 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+        className="inline-flex w-fit items-center gap-2 rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
         onClick={() => setExpanded(!expanded)}
       >
         <MessageSquareIcon className="size-3.5" />

@@ -61,7 +61,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({
       <button
         type="button"
         className={cn(
-          "inline-flex w-fit max-w-full items-center gap-2 rounded-md py-1.5 pr-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground",
+          "inline-flex w-fit max-w-full items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground",
           streaming && "animate-shimmer",
         )}
         onClick={() => setOpen(!open)}
@@ -69,7 +69,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({
         <BrainIcon className="size-3.5 shrink-0" />
         <span className="shrink-0">{label}</span>
         {!open && preview && (
-          <code className="truncate rounded bg-muted/60 px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+          <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
             {preview}{content.length > 60 ? "..." : ""}
           </code>
         )}
