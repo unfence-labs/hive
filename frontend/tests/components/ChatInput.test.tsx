@@ -1,21 +1,27 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ComponentProps } from "react";
 import ChatInput from "@/components/ChatInput";
 
 function renderChatInput(overrides?: Partial<ComponentProps<typeof ChatInput>>) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   const onSend = overrides?.onSend ?? vi.fn(() => true);
   const onStop = overrides?.onStop ?? vi.fn();
   render(
-    <ChatInput
-      onSend={onSend}
-      onStop={onStop}
-      disabled={false}
-      isStreaming={false}
-      connectionStatus="connected"
-      {...overrides}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <ChatInput
+        onSend={onSend}
+        onStop={onStop}
+        disabled={false}
+        isStreaming={false}
+        connectionStatus="connected"
+        {...overrides}
+      />
+    </QueryClientProvider>,
   );
   return { onSend, onStop };
 }

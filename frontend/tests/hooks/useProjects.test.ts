@@ -1,19 +1,16 @@
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { renderHook } from "@testing-library/react";
 import { useProjects } from "@/hooks/useProjects";
 import { api } from "@/hooks/useApi";
-import { useResource } from "@/hooks/useResource";
+import { createWrapper } from "../test-utils";
 import type { Project, Workspace } from "@/types";
 
 vi.mock("@/hooks/useApi", () => ({
   api: {
+    get: vi.fn(),
     post: vi.fn(),
     delete: vi.fn(),
   },
-}));
-
-vi.mock("@/hooks/useResource", () => ({
-  useResource: vi.fn(),
 }));
 
 function makeProject(id: string): Project {
@@ -37,152 +34,147 @@ function makeWorkspace(id: string): Workspace {
 }
 
 describe("useProjects", () => {
-  const setData = vi.fn();
-
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(useResource).mockReturnValue({
-      data: [makeProject("p1")],
-      loading: false,
-      error: null,
-      refresh: vi.fn(),
-      setData,
-    });
   });
 
-  it("creates project and appends it to local state", async () => {
-    const created = makeProject("p2");
-    vi.mocked(api.post).mockResolvedValueOnce(created);
+  it("fetches projects on mount", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce([makeProject("p1")]);
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
 
-    const { result } = renderHook(() => useProjects());
-    const returned = await result.current.createProject(created.url);
+    await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(returned).toEqual(created);
-    expect(api.post).toHaveBeenCalledWith("/api/projects", { url: created.url });
-    expect(setData).toHaveBeenCalledTimes(1);
-
-    const updater = setData.mock.calls[0]?.[0] as (prev: Project[]) => Project[];
-    expect(updater([makeProject("p1")])).toEqual([makeProject("p1"), created]);
+    expect(result.current.projects).toEqual([makeProject("p1")]);
+    expect(api.get).toHaveBeenCalledWith("/api/projects");
   });
 
-  it("deletes project and removes it from local state", async () => {
-    const { result } = renderHook(() => useProjects());
-    await result.current.deleteProject("p1");
-
-    expect(api.delete).toHaveBeenCalledWith("/api/projects/p1");
-    expect(setData).toHaveBeenCalledTimes(1);
-
-    const updater = setData.mock.calls[0]?.[0] as (prev: Project[]) => Project[];
-    expect(updater([makeProject("p1"), makeProject("p2")]).map((p) => p.id)).toEqual(["p2"]);
-  });
-
-  it("creates workspace and appends it to the project state", async () => {
+  it("creates workspace and appends it to the project cache", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce([makeProject("p1")]);
     const created = makeWorkspace("w1");
     vi.mocked(api.post).mockResolvedValueOnce(created);
 
-    const { result } = renderHook(() => useProjects());
-    const returned = await result.current.createWorkspace("p1");
+    const { queryClient, wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(returned).toEqual(created);
+    await act(async () => {
+      await result.current.createWorkspace("p1");
+    });
+
     expect(api.post).toHaveBeenCalledWith("/api/projects/p1/workspaces");
-    expect(setData).toHaveBeenCalledTimes(1);
+    const cached = queryClient.getQueryData<Project[]>(["projects"]);
+    expect(cached?.[0]?.workspaces).toEqual([created]);
+  });
 
-    const updater = setData.mock.calls[0]?.[0] as (prev: Project[]) => Project[];
-    const updated = updater([makeProject("p1"), makeProject("p2")]);
-    expect(updated[0]?.workspaces).toEqual([created]);
-    expect(updated[1]?.workspaces).toEqual([]);
+  it("deletes project and removes it from cache", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce([makeProject("p1"), makeProject("p2")]);
+    vi.mocked(api.delete).mockResolvedValueOnce(undefined);
+
+    const { queryClient, wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.deleteProject("p1");
+    });
+
+    expect(api.delete).toHaveBeenCalledWith("/api/projects/p1");
+    const cached = queryClient.getQueryData<Project[]>(["projects"]);
+    expect(cached?.map((p) => p.id)).toEqual(["p2"]);
   });
 
   it("creates project and workspace in one flow", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce([makeProject("p1")]);
     const createdProject = makeProject("p2");
     const createdWorkspace = makeWorkspace("w2");
     vi.mocked(api.post)
       .mockResolvedValueOnce(createdProject)
       .mockResolvedValueOnce(createdWorkspace);
 
-    const { result } = renderHook(() => useProjects());
-    const returned = await result.current.createProjectWithWorkspace(createdProject.url);
+    const { queryClient, wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let returned: Workspace | undefined;
+    await act(async () => {
+      returned = await result.current.createProjectWithWorkspace(createdProject.url);
+    });
 
     expect(returned).toEqual(createdWorkspace);
     expect(api.post).toHaveBeenNthCalledWith(1, "/api/projects", { url: createdProject.url });
     expect(api.post).toHaveBeenNthCalledWith(2, "/api/projects/p2/workspaces");
-    expect(setData).toHaveBeenCalledTimes(2);
 
-    const appendProject = setData.mock.calls[0]?.[0] as (prev: Project[]) => Project[];
-    const appendWorkspace = setData.mock.calls[1]?.[0] as (prev: Project[]) => Project[];
-    const withProject = appendProject([makeProject("p1")]);
-    const withWorkspace = appendWorkspace(withProject);
-
-    expect(withProject).toEqual([makeProject("p1"), createdProject]);
-    expect(withWorkspace[1]?.workspaces).toEqual([createdWorkspace]);
+    const cached = queryClient.getQueryData<Project[]>(["projects"]);
+    expect(cached).toHaveLength(2);
+    expect(cached?.[1]?.workspaces).toEqual([createdWorkspace]);
   });
 
-  it("archives workspace and removes it from project state", async () => {
-    vi.mocked(api.post).mockResolvedValueOnce(undefined);
-
+  it("archives workspace and removes it from project cache", async () => {
     const project = makeProject("p1");
     project.workspaces = [makeWorkspace("w1"), makeWorkspace("w2")];
-    vi.mocked(useResource).mockReturnValue({
-      data: [project],
-      loading: false,
-      error: null,
-      refresh: vi.fn(),
-      setData,
+    vi.mocked(api.get).mockResolvedValueOnce([project]);
+    vi.mocked(api.post).mockResolvedValueOnce(undefined);
+
+    const { queryClient, wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.archiveWorkspace("w1");
     });
 
-    const { result } = renderHook(() => useProjects());
-    await result.current.archiveWorkspace("w1");
-
     expect(api.post).toHaveBeenCalledWith("/api/workspaces/w1/archive");
-    expect(setData).toHaveBeenCalledTimes(1);
-
-    const updater = setData.mock.calls[0]?.[0] as (prev: Project[]) => Project[];
-    const updated = updater([project]);
-    expect(updated[0]?.workspaces).toHaveLength(1);
-    expect(updated[0]?.workspaces[0]?.id).toBe("w2");
+    const cached = queryClient.getQueryData<Project[]>(["projects"]);
+    expect(cached?.[0]?.workspaces).toHaveLength(1);
+    expect(cached?.[0]?.workspaces[0]?.id).toBe("w2");
   });
 
   it("archive only removes workspace from its parent project", async () => {
-    vi.mocked(api.post).mockResolvedValueOnce(undefined);
-
     const p1 = makeProject("p1");
     p1.workspaces = [makeWorkspace("w1")];
     const p2 = makeProject("p2");
     p2.workspaces = [makeWorkspace("w2")];
+    vi.mocked(api.get).mockResolvedValueOnce([p1, p2]);
+    vi.mocked(api.post).mockResolvedValueOnce(undefined);
 
-    const { result } = renderHook(() => useProjects());
-    await result.current.archiveWorkspace("w1");
+    const { queryClient, wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
 
-    const updater = setData.mock.calls[0]?.[0] as (prev: Project[]) => Project[];
-    const updated = updater([p1, p2]);
-    expect(updated[0]?.workspaces).toHaveLength(0);
-    expect(updated[1]?.workspaces).toHaveLength(1);
+    await act(async () => {
+      await result.current.archiveWorkspace("w1");
+    });
+
+    const cached = queryClient.getQueryData<Project[]>(["projects"]);
+    expect(cached?.[0]?.workspaces).toHaveLength(0);
+    expect(cached?.[1]?.workspaces).toHaveLength(1);
   });
 
   it("rolls back project when workspace creation fails", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce([makeProject("p1")]);
     const createdProject = makeProject("p2");
-    const createWorkspaceError = new Error("workspace failed");
     vi.mocked(api.post)
       .mockResolvedValueOnce(createdProject)
-      .mockRejectedValueOnce(createWorkspaceError);
+      .mockRejectedValueOnce(new Error("workspace failed"));
     vi.mocked(api.delete).mockResolvedValueOnce(undefined);
 
-    const { result } = renderHook(() => useProjects());
+    const { queryClient, wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
 
-    await expect(result.current.createProjectWithWorkspace(createdProject.url)).rejects.toThrow(
-      "workspace failed",
-    );
-    expect(api.post).toHaveBeenNthCalledWith(1, "/api/projects", { url: createdProject.url });
-    expect(api.post).toHaveBeenNthCalledWith(2, "/api/projects/p2/workspaces");
+    let error: Error | undefined;
+    await act(async () => {
+      try {
+        await result.current.createProjectWithWorkspace(createdProject.url);
+      } catch (e) {
+        error = e as Error;
+      }
+    });
+
+    expect(error?.message).toBe("workspace failed");
     expect(api.delete).toHaveBeenCalledWith("/api/projects/p2");
-    expect(setData).toHaveBeenCalledTimes(2);
-
-    const appendProject = setData.mock.calls[0]?.[0] as (prev: Project[]) => Project[];
-    const rollbackProject = setData.mock.calls[1]?.[0] as (prev: Project[]) => Project[];
-    const withProject = appendProject([makeProject("p1")]);
-    const rolledBack = rollbackProject(withProject);
-
-    expect(withProject).toEqual([makeProject("p1"), createdProject]);
-    expect(rolledBack).toEqual([makeProject("p1")]);
+    const cached = queryClient.getQueryData<Project[]>(["projects"]);
+    expect(cached?.map((p) => p.id)).toEqual(["p1"]);
   });
 });

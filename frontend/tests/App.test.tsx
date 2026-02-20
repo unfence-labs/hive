@@ -1,7 +1,19 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "@/App";
+
+function renderApp() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>,
+  );
+}
 
 const mocks = vi.hoisted(() => ({
   fetchProjects: vi.fn(),
@@ -41,6 +53,7 @@ vi.mock("@/lib/ws-transport", () => ({
   wsTransport: {
     syncWorkspaces: mocks.syncWorkspaces,
     disconnectAll: mocks.disconnectAll,
+    onMessage: vi.fn(() => ({ unsubscribe: vi.fn(), hadBufferedMessages: false })),
   },
 }));
 
@@ -102,7 +115,7 @@ describe("App", () => {
   });
 
   it("syncs unique workspace IDs and disconnects all sockets on unmount", () => {
-    const { unmount } = render(<App />);
+    const { unmount } = renderApp();
 
     expect(mocks.syncWorkspaces).toHaveBeenCalledWith(["w1", "w2"]);
     expect(mocks.disconnectAll).not.toHaveBeenCalled();
@@ -114,7 +127,7 @@ describe("App", () => {
   it("refreshes backend connection from settings route", async () => {
     const user = userEvent.setup();
     window.history.pushState({}, "", "/settings/connection");
-    render(<App />);
+    renderApp();
 
     await user.click(screen.getByRole("button", { name: "refresh connection" }));
 
@@ -125,7 +138,7 @@ describe("App", () => {
   it("renders notification settings route", () => {
     window.history.pushState({}, "", "/settings/notifications");
 
-    render(<App />);
+    renderApp();
 
     expect(screen.getByText("notification settings")).toBeInTheDocument();
   });

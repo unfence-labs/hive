@@ -56,6 +56,7 @@ export function useSessions(workspaceId: string | undefined) {
     sessions: sorted,
     loading: query.isLoading,
     createSession: async (): Promise<SessionMetadata | null> => {
+      if (!workspaceId) return null;
       try {
         return await createSession.mutateAsync();
       } catch {
@@ -63,6 +64,7 @@ export function useSessions(workspaceId: string | undefined) {
       }
     },
     activateSession: async (sessionId: string): Promise<SessionMetadata | null> => {
+      if (!workspaceId) return null;
       try {
         return await activateSession.mutateAsync(sessionId);
       } catch {
@@ -70,6 +72,7 @@ export function useSessions(workspaceId: string | undefined) {
       }
     },
     deleteSession: async (sessionId: string): Promise<boolean> => {
+      if (!workspaceId) return false;
       try {
         await deleteSession.mutateAsync(sessionId);
         return true;

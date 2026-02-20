@@ -1,7 +1,9 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AccountSettings from "@/pages/settings/AccountSettings";
+import type { ReactNode } from "react";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -20,6 +22,19 @@ vi.mock("@/lib/open-external", () => ({
   openExternal: mocks.openExternal,
 }));
 
+function createAccountWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+  const Wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+  return { queryClient, Wrapper };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -29,15 +44,13 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// ── Loading / status check states ────────────────────────────────────
-
 describe("AccountSettings", () => {
   it("renders a loading spinner during initial loading state", () => {
-    // Never resolve the GET call
     mocks.get.mockReturnValue(new Promise(() => {}));
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
-    // The component shows a spinner while loading
+    render(<AccountSettings />, { wrapper: Wrapper });
+
     expect(screen.getByText("Account")).toBeInTheDocument();
     expect(screen.queryByText("Not connected")).not.toBeInTheDocument();
     expect(screen.queryByText("GitHub CLI not found")).not.toBeInTheDocument();
@@ -45,8 +58,9 @@ describe("AccountSettings", () => {
 
   it("shows 'no-gh' state when ghInstalled is false", async () => {
     mocks.get.mockResolvedValue({ ghInstalled: false, authenticated: false });
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
+    render(<AccountSettings />, { wrapper: Wrapper });
 
     expect(await screen.findByText("GitHub CLI not found")).toBeInTheDocument();
     expect(screen.getByText(/Install GitHub CLI/)).toBeInTheDocument();
@@ -55,8 +69,9 @@ describe("AccountSettings", () => {
   it("opens cli.github.com link from no-gh state", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     mocks.get.mockResolvedValue({ ghInstalled: false, authenticated: false });
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
+    render(<AccountSettings />, { wrapper: Wrapper });
 
     await screen.findByText("GitHub CLI not found");
     await user.click(screen.getByText("Install GitHub CLI"));
@@ -66,8 +81,9 @@ describe("AccountSettings", () => {
 
   it("shows disconnected state with Connect button", async () => {
     mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
+    render(<AccountSettings />, { wrapper: Wrapper });
 
     expect(await screen.findByText("Not connected")).toBeInTheDocument();
     expect(screen.getByText("Connect with GitHub")).toBeInTheDocument();
@@ -84,8 +100,9 @@ describe("AccountSettings", () => {
         avatarUrl: "https://avatars.githubusercontent.com/u/1",
       },
     });
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
+    render(<AccountSettings />, { wrapper: Wrapper });
 
     expect(await screen.findByText("Mona Lisa")).toBeInTheDocument();
     expect(screen.getByText("octocat@github.com")).toBeInTheDocument();
@@ -97,39 +114,35 @@ describe("AccountSettings", () => {
     mocks.get.mockResolvedValue({
       ghInstalled: true,
       authenticated: true,
-      user: {
-        login: "bot-user",
-        name: "",
-        email: "",
-        avatarUrl: "",
-      },
+      user: { login: "bot-user", name: "", email: "", avatarUrl: "" },
     });
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
+    render(<AccountSettings />, { wrapper: Wrapper });
 
-    // The h2 should contain the login since name is empty
     const heading = await screen.findByRole("heading", { level: 2, name: "bot-user" });
     expect(heading.textContent).toBe("bot-user");
   });
 
   it("shows error state when backend is unreachable", async () => {
     mocks.get.mockRejectedValue(new Error("fetch failed"));
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
+    render(<AccountSettings />, { wrapper: Wrapper });
 
     expect(await screen.findByText("Something went wrong")).toBeInTheDocument();
     expect(screen.getByText("Could not reach backend")).toBeInTheDocument();
     expect(screen.getByText("Try again")).toBeInTheDocument();
   });
 
-  // ── Connect flow ────────────────────────────────────────────────────
+  // -- Connect flow --
 
   it("starts device flow and shows user code", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
-
+    render(<AccountSettings />, { wrapper: Wrapper });
     await screen.findByText("Connect with GitHub");
 
     mocks.post.mockResolvedValueOnce({
@@ -138,7 +151,6 @@ describe("AccountSettings", () => {
       expiresIn: 900,
       interval: 5,
     });
-    // Mock poll to stay pending
     mocks.post.mockResolvedValue({ status: "pending" });
 
     await user.click(screen.getByText("Connect with GitHub"));
@@ -150,8 +162,9 @@ describe("AccountSettings", () => {
   it("renders copy button alongside user code in connecting state", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
+    render(<AccountSettings />, { wrapper: Wrapper });
     await screen.findByText("Connect with GitHub");
 
     mocks.post.mockResolvedValueOnce({
@@ -165,15 +178,15 @@ describe("AccountSettings", () => {
     await user.click(screen.getByText("Connect with GitHub"));
     await screen.findByText("COPY-ME");
 
-    // The code block is a clickable button with copy label
     expect(screen.getByLabelText("Copy code to clipboard")).toBeInTheDocument();
   });
 
   it("opens GitHub verification URL", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
+    render(<AccountSettings />, { wrapper: Wrapper });
     await screen.findByText("Connect with GitHub");
 
     mocks.post.mockResolvedValueOnce({
@@ -194,8 +207,9 @@ describe("AccountSettings", () => {
   it("transitions to connected after successful poll", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
+    render(<AccountSettings />, { wrapper: Wrapper });
     await screen.findByText("Connect with GitHub");
 
     mocks.post.mockResolvedValueOnce({
@@ -204,8 +218,6 @@ describe("AccountSettings", () => {
       expiresIn: 900,
       interval: 1,
     });
-
-    // First poll: pending, second poll: complete
     mocks.post
       .mockResolvedValueOnce({ status: "pending" })
       .mockResolvedValueOnce({
@@ -221,11 +233,9 @@ describe("AccountSettings", () => {
     await user.click(screen.getByText("Connect with GitHub"));
     await screen.findByText("FLOW-CODE");
 
-    // Advance past poll interval
     await act(async () => {
       vi.advanceTimersByTime(1000);
     });
-    // Advance past second poll
     await act(async () => {
       vi.advanceTimersByTime(1000);
     });
@@ -238,8 +248,9 @@ describe("AccountSettings", () => {
   it("shows error when connect flow initiation fails", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
+    render(<AccountSettings />, { wrapper: Wrapper });
     await screen.findByText("Connect with GitHub");
 
     mocks.post.mockRejectedValueOnce(new Error("network error"));
@@ -252,8 +263,9 @@ describe("AccountSettings", () => {
   it("shows error on expired poll status", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
+    render(<AccountSettings />, { wrapper: Wrapper });
     await screen.findByText("Connect with GitHub");
 
     mocks.post.mockResolvedValueOnce({
@@ -279,8 +291,9 @@ describe("AccountSettings", () => {
   it("shows error on denied poll status", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
+    render(<AccountSettings />, { wrapper: Wrapper });
     await screen.findByText("Connect with GitHub");
 
     mocks.post.mockResolvedValueOnce({
@@ -303,22 +316,18 @@ describe("AccountSettings", () => {
     });
   });
 
-  // ── Disconnect flow ─────────────────────────────────────────────────
+  // -- Disconnect flow --
 
   it("disconnects and returns to disconnected state", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     mocks.get.mockResolvedValue({
       ghInstalled: true,
       authenticated: true,
-      user: {
-        login: "octocat",
-        name: "Mona Lisa",
-        email: "",
-        avatarUrl: "",
-      },
+      user: { login: "octocat", name: "Mona Lisa", email: "", avatarUrl: "" },
     });
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
+    render(<AccountSettings />, { wrapper: Wrapper });
     await screen.findByText("Mona Lisa");
 
     mocks.post.mockResolvedValueOnce({ ok: true });
@@ -335,37 +344,32 @@ describe("AccountSettings", () => {
     mocks.get.mockResolvedValue({
       ghInstalled: true,
       authenticated: true,
-      user: {
-        login: "octocat",
-        name: "Mona Lisa",
-        email: "",
-        avatarUrl: "",
-      },
+      user: { login: "octocat", name: "Mona Lisa", email: "", avatarUrl: "" },
     });
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
+    render(<AccountSettings />, { wrapper: Wrapper });
     await screen.findByText("Mona Lisa");
 
     mocks.post.mockRejectedValueOnce(new Error("server error"));
 
     await user.click(screen.getByText("Disconnect"));
 
-    // Should remain connected
     await waitFor(() => {
       expect(screen.getByText("Mona Lisa")).toBeInTheDocument();
     });
   });
 
-  // ── Retry flow ──────────────────────────────────────────────────────
+  // -- Retry flow --
 
   it("retries status check from error state", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     mocks.get.mockRejectedValueOnce(new Error("network error"));
+    const { Wrapper } = createAccountWrapper();
 
-    render(<AccountSettings />);
+    render(<AccountSettings />, { wrapper: Wrapper });
     await screen.findByText("Try again");
 
-    // Now make the retry succeed
     mocks.get.mockResolvedValueOnce({ ghInstalled: true, authenticated: false });
 
     await user.click(screen.getByText("Try again"));

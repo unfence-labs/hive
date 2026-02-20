@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { useCompletions } from "@/hooks/useCompletions";
 import { api } from "@/hooks/useApi";
 import type { CompletionItem } from "@/types";
+import { createWrapper } from "../test-utils";
 
 vi.mock("@/hooks/useApi", () => ({
   api: {
@@ -35,7 +36,8 @@ describe("useCompletions", () => {
   });
 
   it("returns empty list and skips fetch when workspace id is missing", () => {
-    const { result } = renderHook(() => useCompletions(undefined));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useCompletions(undefined), { wrapper });
 
     expect(result.current).toEqual([]);
     expect(api.get).not.toHaveBeenCalled();
@@ -45,7 +47,8 @@ describe("useCompletions", () => {
     const items = [makeItem("help", "builtin"), makeItem("deploy", "user_skill")];
     vi.mocked(api.get).mockResolvedValueOnce({ items });
 
-    const { result } = renderHook(() => useCompletions("ws-1"));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useCompletions("ws-1"), { wrapper });
 
     await waitFor(() => {
       expect(result.current).toEqual(items);
@@ -59,8 +62,10 @@ describe("useCompletions", () => {
       .mockResolvedValueOnce({ items: [makeItem("help", "builtin")] })
       .mockResolvedValueOnce({ items: [makeItem("local", "project_skill")] });
 
+    const { wrapper } = createWrapper();
     const { result, rerender } = renderHook(({ wsId }: { wsId: string | undefined }) => useCompletions(wsId), {
       initialProps: { wsId: "ws-1" },
+      wrapper,
     });
 
     await waitFor(() => {
@@ -80,8 +85,10 @@ describe("useCompletions", () => {
   it("resets to empty list when workspace id becomes undefined", async () => {
     vi.mocked(api.get).mockResolvedValueOnce({ items: [makeItem("help", "builtin")] });
 
+    const { wrapper } = createWrapper();
     const { result, rerender } = renderHook(({ wsId }: { wsId: string | undefined }) => useCompletions(wsId), {
       initialProps: { wsId: "ws-1" },
+      wrapper,
     });
 
     await waitFor(() => {
@@ -95,13 +102,15 @@ describe("useCompletions", () => {
     });
   });
 
-  it("silently keeps previous value when fetch fails", async () => {
+  it("returns empty list when fetch fails for new workspace", async () => {
     vi.mocked(api.get)
       .mockResolvedValueOnce({ items: [makeItem("help", "builtin")] })
       .mockRejectedValueOnce(new Error("network"));
 
+    const { wrapper } = createWrapper();
     const { result, rerender } = renderHook(({ wsId }: { wsId: string | undefined }) => useCompletions(wsId), {
       initialProps: { wsId: "ws-1" },
+      wrapper,
     });
 
     await waitFor(() => {
@@ -114,7 +123,8 @@ describe("useCompletions", () => {
       expect(api.get).toHaveBeenCalledTimes(2);
     });
 
-    expect(result.current).toEqual([makeItem("help", "builtin")]);
+    // React Query caches per key — ws-2 has no data after failure
+    expect(result.current).toEqual([]);
   });
 
   it("ignores stale responses when workspace changes quickly", async () => {
@@ -125,8 +135,10 @@ describe("useCompletions", () => {
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
 
+    const { wrapper } = createWrapper();
     const { result, rerender } = renderHook(({ wsId }: { wsId: string | undefined }) => useCompletions(wsId), {
       initialProps: { wsId: "ws-1" },
+      wrapper,
     });
 
     rerender({ wsId: "ws-2" });

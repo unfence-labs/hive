@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import NotificationSettings from "@/pages/settings/NotificationSettings";
 
 const mocks = vi.hoisted(() => ({
@@ -35,7 +36,14 @@ async function renderReady(config?: {
     },
   });
 
-  render(<NotificationSettings />);
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <NotificationSettings />
+    </QueryClientProvider>,
+  );
 
   await screen.findByRole("heading", { name: "Notifications" });
 }
@@ -55,7 +63,14 @@ describe("NotificationSettings", () => {
   it("falls back to default values when initial load fails", async () => {
     mocks.get.mockRejectedValueOnce(new Error("offline"));
 
-    render(<NotificationSettings />);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <NotificationSettings />
+      </QueryClientProvider>,
+    );
 
     await screen.findByRole("heading", { name: "Notifications" });
 

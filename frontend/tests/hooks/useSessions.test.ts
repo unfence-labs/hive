@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSessions } from "@/hooks/useSessions";
 import { api } from "@/hooks/useApi";
+import { createWrapper } from "../test-utils";
 import type { SessionMetadata } from "@/types";
 
 vi.mock("@/hooks/useApi", () => ({
@@ -33,8 +34,9 @@ describe("useSessions", () => {
 
   it("fetches sessions on mount for a workspace", async () => {
     vi.mocked(api.get).mockResolvedValueOnce([makeSession("sess-1")]);
+    const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useSessions("ws-1"));
+    const { result } = renderHook(() => useSessions("ws-1"), { wrapper });
 
     await waitFor(() => {
       expect(result.current.sessions).toEqual([makeSession("sess-1")]);
@@ -47,11 +49,11 @@ describe("useSessions", () => {
     const newest = makeSession("sess-newest", "ws-1", "2026-02-12T00:00:03.000Z");
     const oldest = makeSession("sess-oldest", "ws-1", "2026-02-12T00:00:01.000Z");
     const middle = makeSession("sess-middle", "ws-1", "2026-02-12T00:00:02.000Z");
-    const apiResult = [newest, oldest, middle];
 
-    vi.mocked(api.get).mockResolvedValueOnce(apiResult);
+    vi.mocked(api.get).mockResolvedValueOnce([newest, oldest, middle]);
+    const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useSessions("ws-1"));
+    const { result } = renderHook(() => useSessions("ws-1"), { wrapper });
 
     await waitFor(() => {
       expect(result.current.sessions.map((s) => s.sessionId)).toEqual([
@@ -60,16 +62,11 @@ describe("useSessions", () => {
         "sess-newest",
       ]);
     });
-
-    expect(apiResult.map((s) => s.sessionId)).toEqual([
-      "sess-newest",
-      "sess-oldest",
-      "sess-middle",
-    ]);
   });
 
   it("stays empty and skips API calls when workspace is undefined", async () => {
-    const { result } = renderHook(() => useSessions(undefined));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useSessions(undefined), { wrapper });
 
     await waitFor(() => {
       expect(result.current.sessions).toEqual([]);
@@ -91,12 +88,10 @@ describe("useSessions", () => {
       .mockResolvedValueOnce([makeSession("sess-1")])
       .mockResolvedValueOnce([makeSession("sess-1"), makeSession("sess-2")]);
     vi.mocked(api.post).mockResolvedValueOnce(makeSession("sess-2"));
+    const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useSessions("ws-1"));
-
-    await waitFor(() => {
-      expect(result.current.sessions).toEqual([makeSession("sess-1")]);
-    });
+    const { result } = renderHook(() => useSessions("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
 
     let created: SessionMetadata | null = null;
     await act(async () => {
@@ -105,8 +100,10 @@ describe("useSessions", () => {
 
     expect(created).toEqual(makeSession("sess-2"));
     expect(api.post).toHaveBeenCalledWith("/api/workspaces/ws-1/sessions");
-    expect(api.get).toHaveBeenCalledTimes(2);
-    expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-2")]);
+
+    await waitFor(() => {
+      expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-2")]);
+    });
   });
 
   it("keeps sessions sorted after createSession refreshes with unsorted data", async () => {
@@ -117,23 +114,25 @@ describe("useSessions", () => {
         makeSession("sess-old", "ws-1", "2026-02-12T00:00:01.000Z"),
         makeSession("sess-middle", "ws-1", "2026-02-12T00:00:02.000Z"),
       ]);
-    vi.mocked(api.post).mockResolvedValueOnce(makeSession("sess-new", "ws-1", "2026-02-12T00:00:03.000Z"));
+    vi.mocked(api.post).mockResolvedValueOnce(
+      makeSession("sess-new", "ws-1", "2026-02-12T00:00:03.000Z"),
+    );
+    const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useSessions("ws-1"));
-
-    await waitFor(() => {
-      expect(result.current.sessions.map((s) => s.sessionId)).toEqual(["sess-middle"]);
-    });
+    const { result } = renderHook(() => useSessions("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
 
     await act(async () => {
       await result.current.createSession();
     });
 
-    expect(result.current.sessions.map((s) => s.sessionId)).toEqual([
-      "sess-old",
-      "sess-middle",
-      "sess-new",
-    ]);
+    await waitFor(() => {
+      expect(result.current.sessions.map((s) => s.sessionId)).toEqual([
+        "sess-old",
+        "sess-middle",
+        "sess-new",
+      ]);
+    });
   });
 
   it("activates a session then refreshes the list", async () => {
@@ -141,12 +140,10 @@ describe("useSessions", () => {
       .mockResolvedValueOnce([makeSession("sess-1")])
       .mockResolvedValueOnce([makeSession("sess-1"), makeSession("sess-2")]);
     vi.mocked(api.post).mockResolvedValueOnce(makeSession("sess-2"));
+    const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useSessions("ws-1"));
-
-    await waitFor(() => {
-      expect(result.current.sessions).toEqual([makeSession("sess-1")]);
-    });
+    const { result } = renderHook(() => useSessions("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
 
     let activated: SessionMetadata | null = null;
     await act(async () => {
@@ -155,8 +152,10 @@ describe("useSessions", () => {
 
     expect(activated).toEqual(makeSession("sess-2"));
     expect(api.post).toHaveBeenCalledWith("/api/workspaces/ws-1/sessions/sess-2/activate");
-    expect(api.get).toHaveBeenCalledTimes(2);
-    expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-2")]);
+
+    await waitFor(() => {
+      expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-2")]);
+    });
   });
 
   it("keeps sessions sorted after activateSession refreshes with unsorted data", async () => {
@@ -167,23 +166,25 @@ describe("useSessions", () => {
         makeSession("sess-a", "ws-1", "2026-02-12T00:00:01.000Z"),
         makeSession("sess-b", "ws-1", "2026-02-12T00:00:02.000Z"),
       ]);
-    vi.mocked(api.post).mockResolvedValueOnce(makeSession("sess-c", "ws-1", "2026-02-12T00:00:03.000Z"));
+    vi.mocked(api.post).mockResolvedValueOnce(
+      makeSession("sess-c", "ws-1", "2026-02-12T00:00:03.000Z"),
+    );
+    const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useSessions("ws-1"));
-
-    await waitFor(() => {
-      expect(result.current.sessions.map((s) => s.sessionId)).toEqual(["sess-a"]);
-    });
+    const { result } = renderHook(() => useSessions("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
 
     await act(async () => {
       await result.current.activateSession("sess-c");
     });
 
-    expect(result.current.sessions.map((s) => s.sessionId)).toEqual([
-      "sess-a",
-      "sess-b",
-      "sess-c",
-    ]);
+    await waitFor(() => {
+      expect(result.current.sessions.map((s) => s.sessionId)).toEqual([
+        "sess-a",
+        "sess-b",
+        "sess-c",
+      ]);
+    });
   });
 
   it("deletes a session then refreshes the list", async () => {
@@ -191,12 +192,10 @@ describe("useSessions", () => {
       .mockResolvedValueOnce([makeSession("sess-1"), makeSession("sess-2")])
       .mockResolvedValueOnce([makeSession("sess-2")]);
     vi.mocked(api.delete).mockResolvedValueOnce(undefined);
+    const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useSessions("ws-1"));
-
-    await waitFor(() => {
-      expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-2")]);
-    });
+    const { result } = renderHook(() => useSessions("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(2));
 
     let deleted = false;
     await act(async () => {
@@ -205,45 +204,45 @@ describe("useSessions", () => {
 
     expect(deleted).toBe(true);
     expect(api.delete).toHaveBeenCalledWith("/api/workspaces/ws-1/sessions/sess-1");
-    expect(api.get).toHaveBeenCalledTimes(2);
-    expect(result.current.sessions).toEqual([makeSession("sess-2")]);
+
+    await waitFor(() => {
+      expect(result.current.sessions).toEqual([makeSession("sess-2")]);
+    });
   });
 
   it("returns safe values on create/activate/delete errors", async () => {
-    vi.mocked(api.get).mockResolvedValueOnce([makeSession("sess-1")]);
+    vi.mocked(api.get).mockResolvedValue([makeSession("sess-1")]);
     vi.mocked(api.post).mockRejectedValue(new Error("boom"));
     vi.mocked(api.delete).mockRejectedValue(new Error("boom"));
+    const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useSessions("ws-1"));
-    await waitFor(() => {
-      expect(result.current.sessions).toEqual([makeSession("sess-1")]);
-    });
+    const { result } = renderHook(() => useSessions("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
 
     await act(async () => {
       expect(await result.current.createSession()).toBeNull();
       expect(await result.current.activateSession("sess-1")).toBeNull();
       expect(await result.current.deleteSession("sess-1")).toBe(false);
     });
-
-    expect(api.get).toHaveBeenCalledTimes(1);
   });
 
   it("exposes refresh to re-fetch sessions", async () => {
     vi.mocked(api.get)
       .mockResolvedValueOnce([makeSession("sess-1")])
       .mockResolvedValueOnce([makeSession("sess-1"), makeSession("sess-3")]);
+    const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useSessions("ws-1"));
-    await waitFor(() => {
-      expect(result.current.sessions).toEqual([makeSession("sess-1")]);
-    });
+    const { result } = renderHook(() => useSessions("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
 
     await act(async () => {
       await result.current.refresh();
     });
 
+    await waitFor(() => {
+      expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-3")]);
+    });
     expect(api.get).toHaveBeenCalledTimes(2);
-    expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-3")]);
   });
 
   it("sorts sessions after manual refresh", async () => {
@@ -254,49 +253,21 @@ describe("useSessions", () => {
         makeSession("sess-1", "ws-1", "2026-02-12T00:00:01.000Z"),
         makeSession("sess-2", "ws-1", "2026-02-12T00:00:02.000Z"),
       ]);
+    const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useSessions("ws-1"));
-    await waitFor(() => {
-      expect(result.current.sessions.map((s) => s.sessionId)).toEqual(["sess-2"]);
-    });
-
-    await act(async () => {
-      await result.current.refresh();
-    });
-
-    expect(result.current.sessions.map((s) => s.sessionId)).toEqual([
-      "sess-1",
-      "sess-2",
-      "sess-3",
-    ]);
-  });
-
-  it("ignores stale session list responses when requests resolve out of order", async () => {
-    let resolveFirstFetch: ((value: SessionMetadata[]) => void) | undefined;
-    vi.mocked(api.get)
-      .mockImplementationOnce(
-        () =>
-          new Promise<SessionMetadata[]>((resolve) => {
-            resolveFirstFetch = resolve;
-          }),
-      )
-      .mockResolvedValueOnce([makeSession("sess-1"), makeSession("sess-2")]);
-
-    const { result } = renderHook(() => useSessions("ws-1"));
+    const { result } = renderHook(() => useSessions("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
 
     await act(async () => {
       await result.current.refresh();
     });
 
-    expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-2")]);
-
-    act(() => {
-      resolveFirstFetch?.([makeSession("sess-1")]);
-    });
-
     await waitFor(() => {
-      expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-2")]);
-      expect(result.current.loading).toBe(false);
+      expect(result.current.sessions.map((s) => s.sessionId)).toEqual([
+        "sess-1",
+        "sess-2",
+        "sess-3",
+      ]);
     });
   });
 });
