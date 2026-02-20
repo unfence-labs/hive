@@ -155,7 +155,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
 
     case "done": {
       const assistantMsg: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: self.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
         sessionId: action.sessionId,
         role: "assistant",
         content: state.currentText,
@@ -184,7 +184,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         return state;
       }
       const cancelledMsg: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: self.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
         sessionId: action.sessionId,
         role: "assistant",
         content: hasOutput ? state.currentText : CANCELLED_NO_OUTPUT_MESSAGE,
