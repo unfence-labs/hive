@@ -63,10 +63,7 @@ beforeEach(async () => {
   mocks.stopScript.mockReset();
   mocks.getScriptStatus.mockReset();
   mocks.broadcastToWorkspace.mockReset();
-  mocks.getScriptStatus.mockReturnValue({
-    setup: { state: "idle" },
-    run: { state: "idle" },
-  });
+  mocks.getScriptStatus.mockReturnValue({});
   mocks.startScript.mockReturnValue({ exitListeners: new Map() });
   mocks.stopScript.mockReturnValue(true);
 
@@ -89,13 +86,13 @@ describe("script routes", () => {
     await writeHiveJson({
       scripts: {
         setup: "npm ci",
-        run: "npm run dev",
+        run: { dev: "npm run dev" },
       },
       port: 4173,
     });
     mocks.getScriptStatus.mockReturnValue({
       setup: { state: "done", exitCode: 0 },
-      run: { state: "running" },
+      dev: { state: "running" },
     });
 
     const res = await app.inject({
@@ -108,15 +105,29 @@ describe("script routes", () => {
       config: {
         scripts: {
           setup: "npm ci",
-          run: "npm run dev",
+          run: { dev: "npm run dev" },
         },
         port: 4173,
       },
       status: {
         setup: { state: "done", exitCode: 0 },
-        run: { state: "running" },
+        dev: { state: "running" },
       },
     });
+  });
+
+  it("GET /api/workspaces/:wsId/scripts normalizes string run to object", async () => {
+    await writeHiveJson({
+      scripts: { run: "npm run dev" },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${WS_ID}/scripts`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().config.scripts.run).toEqual({ run: "npm run dev" });
   });
 
   it("GET /api/workspaces/:wsId/scripts returns 404 when workspace is missing", async () => {
@@ -129,14 +140,16 @@ describe("script routes", () => {
     expect(res.json()).toEqual({ error: "Workspace not found" });
   });
 
-  it("POST /api/workspaces/:wsId/scripts/:type/start validates script type", async () => {
+  it("POST /api/workspaces/:wsId/scripts/:type/start returns 400 for unknown script name", async () => {
+    await writeHiveJson({ scripts: { setup: "npm ci" } });
+
     const res = await app.inject({
       method: "POST",
       url: `/api/workspaces/${WS_ID}/scripts/build/start`,
     });
 
     expect(res.statusCode).toBe(400);
-    expect(res.json()).toEqual({ error: "Invalid script type (setup|run)" });
+    expect(res.json()).toEqual({ error: 'No "build" script defined in hive.json' });
   });
 
   it("POST /api/workspaces/:wsId/scripts/:type/start returns 404 for unknown workspace", async () => {
@@ -149,46 +162,46 @@ describe("script routes", () => {
     expect(res.json()).toEqual({ error: "Workspace not found" });
   });
 
-  it("POST /api/workspaces/:wsId/scripts/:type/start returns 400 when script is missing in hive.json", async () => {
+  it("POST /api/workspaces/:wsId/scripts/:type/start returns 400 when run script name is missing in hive.json", async () => {
     await writeHiveJson({
-      scripts: { setup: "npm ci" },
+      scripts: { run: { backend: "npm run dev" } },
     });
 
     const res = await app.inject({
       method: "POST",
-      url: `/api/workspaces/${WS_ID}/scripts/run/start`,
+      url: `/api/workspaces/${WS_ID}/scripts/frontend/start`,
     });
 
     expect(res.statusCode).toBe(400);
-    expect(res.json()).toEqual({ error: 'No "run" script defined in hive.json' });
+    expect(res.json()).toEqual({ error: 'No "frontend" script defined in hive.json' });
   });
 
-  it("POST /api/workspaces/:wsId/scripts/:type/start starts the script", async () => {
+  it("POST /api/workspaces/:wsId/scripts/:type/start starts a named run script", async () => {
     await writeHiveJson({
-      scripts: { run: "npm run dev" },
+      scripts: { run: { backend: "npm run dev" } },
     });
 
     const res = await app.inject({
       method: "POST",
-      url: `/api/workspaces/${WS_ID}/scripts/run/start`,
+      url: `/api/workspaces/${WS_ID}/scripts/backend/start`,
     });
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ started: true });
-    expect(mocks.startScript).toHaveBeenCalledWith(WS_ID, "run", "npm run dev", wsPath);
+    expect(mocks.startScript).toHaveBeenCalledWith(WS_ID, "backend", "npm run dev", wsPath);
   });
 
   it("broadcasts script_status running on successful start", async () => {
-    await writeHiveJson({ scripts: { run: "npm run dev" } });
+    await writeHiveJson({ scripts: { run: { backend: "npm run dev" } } });
 
     await app.inject({
       method: "POST",
-      url: `/api/workspaces/${WS_ID}/scripts/run/start`,
+      url: `/api/workspaces/${WS_ID}/scripts/backend/start`,
     });
 
     expect(mocks.broadcastToWorkspace).toHaveBeenCalledWith(WS_ID, {
       type: "script_status",
-      scriptType: "run",
+      scriptType: "backend",
       state: "running",
     });
   });
@@ -225,11 +238,11 @@ describe("script routes", () => {
   it("broadcasts script_status error on non-zero exit", async () => {
     const exitListeners = new Map<string, (code: number) => void>();
     mocks.startScript.mockReturnValue({ exitListeners });
-    await writeHiveJson({ scripts: { run: "npm run dev" } });
+    await writeHiveJson({ scripts: { run: { backend: "npm run dev" } } });
 
     await app.inject({
       method: "POST",
-      url: `/api/workspaces/${WS_ID}/scripts/run/start`,
+      url: `/api/workspaces/${WS_ID}/scripts/backend/start`,
     });
 
     const listener = [...exitListeners.values()][0];
@@ -238,7 +251,7 @@ describe("script routes", () => {
 
     expect(mocks.broadcastToWorkspace).toHaveBeenCalledWith(WS_ID, {
       type: "script_status",
-      scriptType: "run",
+      scriptType: "backend",
       state: "error",
       exitCode: 1,
     });
@@ -259,16 +272,6 @@ describe("script routes", () => {
 
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toContain('Script "setup" is already running');
-  });
-
-  it("POST /api/workspaces/:wsId/scripts/:type/stop validates script type", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/workspaces/${WS_ID}/scripts/build/stop`,
-    });
-
-    expect(res.statusCode).toBe(400);
-    expect(res.json()).toEqual({ error: "Invalid script type (setup|run)" });
   });
 
   it("POST /api/workspaces/:wsId/scripts/:type/stop returns 409 when no script is running", async () => {

@@ -6,13 +6,11 @@ import {
   startScript,
   stopScript,
   getScriptStatus,
-  getScriptProcess,
 } from "../services/script-runner.js";
 import { broadcastToWorkspace } from "../ws/stream.js";
 import { workspacesDir } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
 import { errorMessage } from "../utils/errors.js";
-import type { ScriptType } from "../services/script-runner.js";
 
 export async function scriptRoutes(app: FastifyInstance, dataDir?: string) {
   const dir = dataDir ?? getDataDir();
@@ -45,16 +43,18 @@ export async function scriptRoutes(app: FastifyInstance, dataDir?: string) {
   app.post<{ Params: { wsId: string; type: string } }>(
     "/api/workspaces/:wsId/scripts/:type/start",
     async (req, reply) => {
-      const scriptType = req.params.type as ScriptType;
-      if (scriptType !== "setup" && scriptType !== "run") {
-        return reply.status(400).send({ error: "Invalid script type (setup|run)" });
-      }
+      const scriptType = req.params.type;
 
       const resolved = await resolveWsPath(req.params.wsId);
       if (!resolved) return reply.status(404).send({ error: "Workspace not found" });
 
       const config = await readHiveConfig(resolved.wsPath);
-      const command = config?.scripts?.[scriptType];
+
+      // Resolve command: "setup" is special, everything else is a run script name
+      const command = scriptType === "setup"
+        ? config?.scripts?.setup
+        : config?.scripts?.run?.[scriptType];
+
       if (!command) {
         return reply.status(400).send({ error: `No "${scriptType}" script defined in hive.json` });
       }
@@ -88,10 +88,7 @@ export async function scriptRoutes(app: FastifyInstance, dataDir?: string) {
   app.post<{ Params: { wsId: string; type: string } }>(
     "/api/workspaces/:wsId/scripts/:type/stop",
     async (req, reply) => {
-      const scriptType = req.params.type as ScriptType;
-      if (scriptType !== "setup" && scriptType !== "run") {
-        return reply.status(400).send({ error: "Invalid script type (setup|run)" });
-      }
+      const scriptType = req.params.type;
 
       const stopped = stopScript(req.params.wsId, scriptType);
       if (!stopped) {

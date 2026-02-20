@@ -140,7 +140,7 @@ describe("script WS routes", () => {
 
     expect(jsonMessages[0]).toEqual({
       type: "error",
-      message: "Missing or invalid 'type' query param (setup|run)",
+      message: "Missing 'type' query param",
     });
     expect(result.code).toBe(1008);
     expect(result.reason.toString()).toBe("Invalid type");

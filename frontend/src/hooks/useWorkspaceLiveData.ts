@@ -10,7 +10,7 @@ export interface WorkspaceLiveData {
   branchInfo?: BranchInfo;
   diffStats?: DiffStatResponse;
   scriptRunning?: boolean;
-  scriptStates?: { setup?: ScriptState; run?: ScriptState };
+  scriptStates?: Record<string, ScriptState>;
 }
 
 export function useWorkspaceLiveData(
@@ -103,7 +103,7 @@ export function useWorkspaceLiveData(
             const current = prev[wsId] ?? {};
             const prevScripts = { ...current.scriptStates };
             prevScripts[msg.scriptType] = msg.state;
-            const scriptRunning = prevScripts.setup === "running" || prevScripts.run === "running";
+            const scriptRunning = Object.values(prevScripts).some((s) => s === "running");
             if (current.scriptRunning === scriptRunning && current.scriptStates?.[msg.scriptType] === msg.state) {
               return prev;
             }

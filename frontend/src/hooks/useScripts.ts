@@ -4,14 +4,13 @@ import { api } from "@/hooks/useApi";
 import { getServerUrl } from "@/hooks/useServerUrl";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import type {
-  ScriptType,
   ScriptStatusInfo,
   WorkspaceScriptsResponse,
 } from "@/types";
 
-const DEFAULT_STATUS: ScriptStatusInfo = { state: "idle" };
+const EMPTY_STATUS: Record<string, ScriptStatusInfo> = {};
 
-function buildWsUrl(workspaceId: string, type: ScriptType): string {
+function buildWsUrl(workspaceId: string, type: string): string {
   const serverUrl = getServerUrl();
   let wsHost: string;
   if (serverUrl) {
@@ -29,7 +28,7 @@ function buildWsUrl(workspaceId: string, type: ScriptType): string {
 export function useScripts(wsId: string | undefined) {
   const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
-  const connectedTypeRef = useRef<ScriptType | null>(null);
+  const connectedTypeRef = useRef<string | null>(null);
 
   const query = useQuery({
     queryKey: ["scripts", wsId],
@@ -50,7 +49,7 @@ export function useScripts(wsId: string | undefined) {
     queryClient.invalidateQueries({ queryKey: ["scripts", wsId] });
 
   const startScript = useMutation({
-    mutationFn: (type: ScriptType) =>
+    mutationFn: (type: string) =>
       api.post(`/api/workspaces/${wsId}/scripts/${type}/start`),
     onMutate: (type) => {
       queryClient.setQueryData<WorkspaceScriptsResponse>(["scripts", wsId], (prev) =>
@@ -63,7 +62,7 @@ export function useScripts(wsId: string | undefined) {
   });
 
   const stopScript = useMutation({
-    mutationFn: (type: ScriptType) => {
+    mutationFn: (type: string) => {
       // Close WS first so the PTY exit message doesn't override the idle status
       if (connectedTypeRef.current === type) {
         wsRef.current?.close();
@@ -82,7 +81,7 @@ export function useScripts(wsId: string | undefined) {
     onError: invalidate,
   });
 
-  const connectOutput = useCallback((type: ScriptType, term: XTerm) => {
+  const connectOutput = useCallback((type: string, term: XTerm) => {
     if (!wsId) return;
 
     // Disconnect previous connection if different type
@@ -160,10 +159,10 @@ export function useScripts(wsId: string | undefined) {
 
   return {
     config: query.data?.config ?? null,
-    status: query.data?.status ?? { setup: DEFAULT_STATUS, run: DEFAULT_STATUS },
+    status: query.data?.status ?? EMPTY_STATUS,
     loading: query.isLoading,
-    startScript: (type: ScriptType) => startScript.mutate(type),
-    stopScript: (type: ScriptType) => stopScript.mutate(type),
+    startScript: (type: string) => startScript.mutate(type),
+    stopScript: (type: string) => stopScript.mutate(type),
     connectOutput,
     disconnectOutput,
     refresh: invalidate,

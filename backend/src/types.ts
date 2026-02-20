@@ -167,11 +167,11 @@ export type CliJsonLine =
 
 // ── Script types ─────────────────────────────────────────────────────
 
-export type ScriptType = "setup" | "run";
+export type ScriptType = string;
 export type ScriptState = "idle" | "running" | "done" | "error";
 
 export interface HiveConfig {
-  scripts?: { setup?: string; run?: string };
+  scripts?: { setup?: string; run?: Record<string, string> };
   port?: number;
 }
 
@@ -182,10 +182,7 @@ export interface ScriptStatusInfo {
 
 export interface WorkspaceScriptsResponse {
   config: HiveConfig | null;
-  status: {
-    setup: ScriptStatusInfo;
-    run: ScriptStatusInfo;
-  };
+  status: Record<string, ScriptStatusInfo>;
 }
 
 // ── Diff types ───────────────────────────────────────────────────────
