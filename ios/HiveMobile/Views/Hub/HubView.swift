@@ -4,6 +4,7 @@ struct HubView: View {
     @Environment(ProjectStore.self) private var store
     @State private var showAddProject = false
     @State private var workspaceToArchive: Workspace?
+    @State private var collapsedProjectIds: Set<String> = HubView.loadCollapsedIds()
 
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
@@ -106,7 +107,7 @@ struct HubView: View {
     // MARK: - Project Grid
 
     private var projectGrid: some View {
-        LazyVStack(alignment: .leading, spacing: HiveSpacing.xxl) {
+        LazyVStack(alignment: .leading, spacing: HiveSpacing.lg) {
             ForEach(store.projects) { project in
                 projectSection(project)
             }
@@ -115,42 +116,85 @@ struct HubView: View {
     }
 
     private func projectSection(_ project: Project) -> some View {
-        VStack(alignment: .leading, spacing: HiveSpacing.md) {
-            HStack(spacing: 8) {
-                ProjectAvatar(project: project)
-                projectTitle(project)
-                Spacer(minLength: 0)
-                addWorkspaceButton(for: project)
-            }
+        let isCollapsible = !project.workspaces.isEmpty
+        let isCollapsed = isCollapsible && collapsedProjectIds.contains(project.id)
 
-            if project.workspaces.isEmpty {
-                Text("No active workspaces")
-                    .font(.subheadline)
-                    .foregroundStyle(.tertiary)
-            } else {
-                LazyVGrid(columns: columns, spacing: HiveSpacing.md) {
-                    ForEach(project.workspaces) { workspace in
-                        NavigationLink(value: workspace) {
-                            WorkspaceCard(
-                                workspace: workspace,
-                                isStreaming: store.statusMonitor.isStreaming(workspace.id),
-                                diffStats: store.statusMonitor.diffStats(for: workspace.id),
-                                branchInfo: store.statusMonitor.branchInfo(for: workspace.id),
-                                sessionCount: workspace.sessionCount
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            let streaming = store.statusMonitor.isStreaming(workspace.id)
-                            Button("Archive", systemImage: "archivebox", role: .destructive) {
-                                workspaceToArchive = workspace
+        return VStack(alignment: .leading, spacing: HiveSpacing.md) {
+            projectSectionHeader(project, isCollapsed: isCollapsed, isCollapsible: isCollapsible)
+
+            if !isCollapsed {
+                if project.workspaces.isEmpty {
+                    Text("No active workspaces")
+                        .font(.subheadline)
+                        .foregroundStyle(.tertiary)
+                } else {
+                    LazyVGrid(columns: columns, spacing: HiveSpacing.md) {
+                        ForEach(project.workspaces) { workspace in
+                            NavigationLink(value: workspace) {
+                                WorkspaceCard(
+                                    workspace: workspace,
+                                    isStreaming: store.statusMonitor.isStreaming(workspace.id),
+                                    diffStats: store.statusMonitor.diffStats(for: workspace.id),
+                                    branchInfo: store.statusMonitor.branchInfo(for: workspace.id),
+                                    sessionCount: workspace.sessionCount
+                                )
                             }
-                            .tint(streaming ? nil : .red)
-                            .disabled(streaming)
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                let streaming = store.statusMonitor.isStreaming(workspace.id)
+                                Button("Archive", systemImage: "archivebox", role: .destructive) {
+                                    workspaceToArchive = workspace
+                                }
+                                .tint(streaming ? nil : .red)
+                                .disabled(streaming)
+                            }
                         }
                     }
                 }
             }
+        }
+        .clipped()
+    }
+
+    private func projectSectionHeader(_ project: Project, isCollapsed: Bool, isCollapsible: Bool) -> some View {
+        let hasStreaming = projectHasStreaming(project)
+
+        return HStack(spacing: HiveSpacing.sm) {
+            ProjectAvatar(project: project)
+            projectTitle(project)
+
+            Spacer(minLength: 0)
+
+            if isCollapsed {
+                Text("\(project.workspaces.count)")
+                    .font(.caption2.weight(.medium).monospacedDigit())
+                    .foregroundStyle(hasStreaming ? .white : .secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.white.opacity(0.08), in: Capsule())
+
+                if hasStreaming {
+                    AgentActivityIndicator(dotSize: 2.5, spacing: 1)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            } else {
+                addWorkspaceButton(for: project)
+            }
+        }
+        .padding(.horizontal, HiveSpacing.md)
+        .frame(minHeight: 44)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.white.opacity(0.06))
+                .stroke(.white.opacity(0.08), lineWidth: 0.5)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard isCollapsible else { return }
+            toggleCollapse(project.id)
         }
     }
 
@@ -182,6 +226,40 @@ struct HubView: View {
             await store.createWorkspace(in: projectId)
         }
     }
+
+    // MARK: - Collapse State
+
+    private func toggleCollapse(_ projectId: String) {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            if collapsedProjectIds.contains(projectId) {
+                collapsedProjectIds.remove(projectId)
+            } else {
+                collapsedProjectIds.insert(projectId)
+            }
+        }
+        saveCollapsedIds()
+    }
+
+    private func projectHasStreaming(_ project: Project) -> Bool {
+        project.workspaces.contains { store.statusMonitor.isStreaming($0.id) }
+    }
+
+    private static let collapsedKey = "hub_collapsed_projects"
+
+    private static func loadCollapsedIds() -> Set<String> {
+        guard let data = UserDefaults.standard.data(forKey: collapsedKey),
+              let ids = try? JSONDecoder().decode(Set<String>.self, from: data) else {
+            return []
+        }
+        return ids
+    }
+
+    private func saveCollapsedIds() {
+        guard let data = try? JSONEncoder().encode(collapsedProjectIds) else { return }
+        UserDefaults.standard.set(data, forKey: Self.collapsedKey)
+    }
+
+    // MARK: - Project Title
 
     @ViewBuilder
     private func projectTitle(_ project: Project) -> some View {
