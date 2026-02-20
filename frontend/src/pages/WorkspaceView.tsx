@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { MessageSquareIcon, TerminalSquareIcon, CodeXmlIcon } from "lucide-react";
+import { MessageSquareIcon, TerminalSquareIcon, CodeXmlIcon, ChevronDownIcon, TerminalIcon } from "lucide-react";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
@@ -28,7 +28,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { openExternal, buildVscodeRemoteUri } from "@/lib/open-external";
 import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
 import { useServerUrl } from "@/hooks/useServerUrl";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useTerminalApps } from "@/hooks/useTerminalApps";
+import { openTerminalSsh } from "@/lib/terminal";
 import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
 import { useScripts } from "@/hooks/useScripts";
@@ -78,6 +87,7 @@ export default function WorkspaceView() {
   const { activeTerminals, openTerminal, setVisibleTerminal } = useTerminalContext();
   const { ip: tailscaleIp, sshUser } = useTailscaleConfig();
   const { serverUrl } = useServerUrl();
+  const terminalApps = useTerminalApps();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [fileTree, setFileTree] = useState<WorkspaceFileTreeNode[]>([]);
   const [fileTreeError, setFileTreeError] = useState<string | null>(null);
@@ -134,6 +144,7 @@ export default function WorkspaceView() {
       ? "Workspace path unavailable. Restart backend and reload this workspace."
       : null;
   const canOpenVscode = vscodeUri !== null;
+  const canSsh = !!sshHost && !!workspace?.worktreePath;
 
   // Diff stats from WebSocket polling
   const diffCommitted = useMemo(
@@ -478,27 +489,63 @@ export default function WorkspaceView() {
                 Terminal
               </Button>
             </ButtonGroup>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      variant="outline"
-                      size="xs"
-                      className="ml-2"
-                      onClick={() => { if (vscodeUri) void openExternal(vscodeUri); }}
-                      disabled={!canOpenVscode}
+            {terminalApps.length > 0 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="xs" className="ml-2">
+                    <CodeXmlIcon className="mr-1.5 size-3.5" />
+                    Code
+                    <ChevronDownIcon className="ml-1 size-3" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    disabled={!canOpenVscode}
+                    onSelect={() => { if (vscodeUri) void openExternal(vscodeUri); }}
+                  >
+                    <CodeXmlIcon className="size-3.5" />
+                    Open in VS Code
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {terminalApps.map((t) => (
+                    <DropdownMenuItem
+                      key={t.id}
+                      disabled={!canSsh}
+                      onSelect={() => {
+                        if (canSsh && workspace?.worktreePath) {
+                          void openTerminalSsh(t.id, sshHost, workspace.worktreePath);
+                        }
+                      }}
                     >
-                      <CodeXmlIcon className="mr-1.5 size-3.5" />
-                      VS Code
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                {vscodeDisabledReason && (
-                  <TooltipContent>{vscodeDisabledReason}</TooltipContent>
-                )}
-              </Tooltip>
-            </TooltipProvider>
+                      <TerminalIcon className="size-3.5" />
+                      {t.name} (SSH)
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        className="ml-2"
+                        onClick={() => { if (vscodeUri) void openExternal(vscodeUri); }}
+                        disabled={!canOpenVscode}
+                      >
+                        <CodeXmlIcon className="mr-1.5 size-3.5" />
+                        VS Code
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  {vscodeDisabledReason && (
+                    <TooltipContent>{vscodeDisabledReason}</TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
+            )}
           </div>
           <ConversationTabs
             sessions={sessions}

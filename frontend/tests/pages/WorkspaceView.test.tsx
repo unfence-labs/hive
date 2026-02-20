@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
   connectScriptOutput: vi.fn(),
   disconnectScriptOutput: vi.fn(),
   openExternal: vi.fn(),
+  useTerminalApps: vi.fn().mockReturnValue([]),
+  openTerminalSsh: vi.fn(),
 }));
 
 vi.mock("@/hooks/useApi", () => ({
@@ -65,6 +67,14 @@ vi.mock("@/lib/open-external", async () => {
     openExternal: mocks.openExternal,
   };
 });
+
+vi.mock("@/hooks/useTerminalApps", () => ({
+  useTerminalApps: mocks.useTerminalApps,
+}));
+
+vi.mock("@/lib/terminal", () => ({
+  openTerminalSsh: mocks.openTerminalSsh,
+}));
 
 vi.mock("@/components/ScriptPanel", () => ({
   default: ({ config }: { config: unknown }) => {
@@ -230,6 +240,9 @@ beforeEach(() => {
   localStorage.removeItem("hive-tailscale-port");
   localStorage.removeItem("hive-ssh-user");
   mocks.openExternal.mockReset();
+  mocks.useTerminalApps.mockReset();
+  mocks.useTerminalApps.mockReturnValue([]);
+  mocks.openTerminalSsh.mockReset();
 });
 
 afterEach(() => {
@@ -404,6 +417,92 @@ describe("WorkspaceView terminal behavior", () => {
         "vscode://vscode-remote/ssh-remote+backend.internal/srv/hive/tokyo",
       );
     });
+  });
+
+  it("shows dropdown with terminal options when terminal apps are detected", async () => {
+    const user = userEvent.setup();
+    mocks.useTerminalApps.mockReturnValue([
+      { id: "terminal_app", name: "Terminal" },
+      { id: "iterm2", name: "iTerm" },
+    ]);
+
+    localStorage.setItem("hive-tailscale-ip", "100.64.0.77");
+    localStorage.setItem("hive-ssh-user", "root");
+
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
+      const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
+      const diffStatsMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
+      if (workspaceMatch) {
+        const workspace = WORKSPACES[workspaceMatch[1]];
+        return workspace ? { ...workspace, worktreePath: "/srv/hive/tokyo" } : null;
+      }
+      if (filesMatch) return FILE_TREE;
+      if (diffStatsMatch) return DIFF_STATS;
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    // Should render dropdown trigger, not simple "VS Code" button
+    const trigger = screen.getByRole("button", { name: /Code/i });
+    expect(trigger).toBeInTheDocument();
+
+    await user.click(trigger);
+
+    // Menu items should appear
+    expect(await screen.findByText("Open in VS Code")).toBeInTheDocument();
+    expect(screen.getByText("Terminal (SSH)")).toBeInTheDocument();
+    expect(screen.getByText("iTerm (SSH)")).toBeInTheDocument();
+  });
+
+  it("calls openTerminalSsh when a terminal menu item is clicked", async () => {
+    const user = userEvent.setup();
+    mocks.useTerminalApps.mockReturnValue([
+      { id: "terminal_app", name: "Terminal" },
+    ]);
+    mocks.openTerminalSsh.mockResolvedValue(undefined);
+
+    localStorage.setItem("hive-tailscale-ip", "100.64.0.77");
+    localStorage.setItem("hive-ssh-user", "dev");
+
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
+      const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
+      const diffStatsMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
+      if (workspaceMatch) {
+        const workspace = WORKSPACES[workspaceMatch[1]];
+        return workspace ? { ...workspace, worktreePath: "/srv/hive/tokyo" } : null;
+      }
+      if (filesMatch) return FILE_TREE;
+      if (diffStatsMatch) return DIFF_STATS;
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByRole("button", { name: /Code/i }));
+    await user.click(await screen.findByText("Terminal (SSH)"));
+
+    await waitFor(() => {
+      expect(mocks.openTerminalSsh).toHaveBeenCalledWith(
+        "terminal_app",
+        "dev@100.64.0.77",
+        "/srv/hive/tokyo",
+      );
+    });
+  });
+
+  it("shows simple VS Code button when no terminal apps detected (browser mode)", async () => {
+    mocks.useTerminalApps.mockReturnValue([]);
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    // Should render the simple "VS Code" button, not a dropdown
+    expect(screen.getByRole("button", { name: "VS Code" })).toBeInTheDocument();
   });
 
   it("switches back to chatbot view when terminal session exits", async () => {
