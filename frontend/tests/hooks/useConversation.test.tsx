@@ -1394,6 +1394,7 @@ describe("useConversation", () => {
 
     expect(result.current.workspaceStatus).toBe("idle");
     expect(result.current.isStreaming).toBe(false);
+    expect(result.current.sessionId).toBe("sess-x");
     expect(result.current.streamingStartedAt).toBeNull();
     nowSpy.mockRestore();
   });

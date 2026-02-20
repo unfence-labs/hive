@@ -114,7 +114,11 @@ vi.mock("@/components/ChatConversation", () => ({
 }));
 
 vi.mock("@/components/ChatInput", () => ({
-  default: () => <div data-testid="chat-input">chat-input</div>,
+  default: ({ wsId, sessionId }: { wsId?: string; sessionId?: string }) => (
+    <div data-testid="chat-input" data-ws-id={wsId ?? ""} data-session-id={sessionId ?? ""}>
+      chat-input
+    </div>
+  ),
 }));
 
 vi.mock("@/components/chat/QuestionPanel", () => ({
@@ -656,6 +660,8 @@ describe("WorkspaceView terminal behavior", () => {
 
     expect(screen.getByTestId("chat-is-streaming")).toHaveTextContent("true");
     expect(screen.getByTestId("chat-streaming-started-at")).toHaveTextContent("1700000123456");
+    expect(screen.getByTestId("chat-input")).toHaveAttribute("data-ws-id", "ws-1");
+    expect(screen.getByTestId("chat-input")).toHaveAttribute("data-session-id", "sess-stream");
   });
 
   it("prefers projectName in header and shows origin default branch when provided", async () => {
