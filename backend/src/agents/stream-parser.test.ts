@@ -208,12 +208,16 @@ describe("StreamParser", () => {
 
     parser.write(JSON.stringify({
       type: "rate_limit_event",
-      rate_limit: {
+      rate_limit_info: {
         status: "allowed",
-        five_hour: { utilization: 0.018, status: "allowed", reset: 1764554400 },
-        seven_day: { utilization: 0.737, status: "allowed", reset: 1764615600 },
-        representative_claim: "five_hour",
+        resetsAt: 1771642800,
+        rateLimitType: "five_hour",
+        overageStatus: "rejected",
+        overageDisabledReason: "org_level_disabled_until",
+        isUsingOverage: false,
       },
+      uuid: "5ceca816-9afd-4d1a-a57f-7bc7e117ca0e",
+      session_id: "test-session",
     }) + "\n");
 
     expect(errors).toHaveLength(0);
