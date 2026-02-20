@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -63,6 +63,34 @@ export default function ChatConversation({
     return () => clearInterval(id);
   }, [isStreaming, streamingStartedAt]);
 
+  // Hide the conversation during REST hydration so the user never sees content
+  // flash at the top before StickToBottom repositions the scroll. The sequence:
+  // 1. Messages arrive → render invisible with resize="instant"
+  // 2. StickToBottom's ResizeObserver fires → instant scroll to bottom
+  // 3. Double-rAF ensures scroll is settled → reveal content at correct position
+  const wasEmptyRef = useRef(true);
+  const [hydrated, setHydrated] = useState(false);
+  const isInitialLoad = wasEmptyRef.current && messages.length > 0;
+  const isHydrating = isInitialLoad && !hydrated;
+
+  useEffect(() => {
+    wasEmptyRef.current = messages.length === 0;
+    if (messages.length === 0) setHydrated(false);
+  }, [messages.length]);
+
+  useEffect(() => {
+    if (isInitialLoad) {
+      let raf2: number;
+      const raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => setHydrated(true));
+      });
+      return () => {
+        cancelAnimationFrame(raf1);
+        cancelAnimationFrame(raf2);
+      };
+    }
+  }, [isInitialLoad]);
+
   const hasContent = messages.length > 0 || isStreaming;
 
   // A message is interactive if it contains tool calls that match pending tool inputs.
@@ -96,7 +124,7 @@ export default function ChatConversation({
   };
 
   return (
-    <Conversation className="flex-1">
+    <Conversation className={`flex-1${isHydrating ? " invisible" : ""}`} resize={isHydrating ? "instant" : "smooth"}>
       <ConversationContent className="gap-4 px-8 py-4">
         {!hasContent &&
           (workspaceName && projectName && branch && defaultBranch ? (
