@@ -177,4 +177,46 @@ describe("useProjects", () => {
     const cached = queryClient.getQueryData<Project[]>(["projects"]);
     expect(cached?.map((p) => p.id)).toEqual(["p1"]);
   });
+
+  it("still rolls back when backend cleanup delete fails", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce([makeProject("p1")]);
+    const createdProject = makeProject("p2");
+    vi.mocked(api.post)
+      .mockResolvedValueOnce(createdProject)
+      .mockRejectedValueOnce(new Error("workspace failed"));
+    vi.mocked(api.delete).mockRejectedValueOnce(new Error("delete failed"));
+
+    const { queryClient, wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let error: Error | undefined;
+    await act(async () => {
+      try {
+        await result.current.createProjectWithWorkspace(createdProject.url);
+      } catch (e) {
+        error = e as Error;
+      }
+    });
+
+    expect(error?.message).toBe("workspace failed");
+    expect(api.delete).toHaveBeenCalledWith("/api/projects/p2");
+    const cached = queryClient.getQueryData<Project[]>(["projects"]);
+    expect(cached?.map((p) => p.id)).toEqual(["p1"]);
+  });
+
+  it("invalidates projects query when fetchProjects is called", async () => {
+    vi.mocked(api.get).mockResolvedValue([makeProject("p1")]);
+    const { queryClient, wrapper } = createWrapper();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    const { result } = renderHook(() => useProjects(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.fetchProjects();
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["projects"] });
+  });
 });

@@ -252,6 +252,22 @@ describe("useScripts", () => {
     );
   });
 
+  it("uses VITE_WS_URL fallback when server URL is not configured", async () => {
+    import.meta.env.VITE_WS_URL = "wss://example-ws.acme.dev";
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const term = createTerminal();
+    act(() => {
+      result.current.connectOutput("run", term as unknown as { cols: number; rows: number });
+    });
+
+    const ws = MockWebSocket.instances[0];
+    if (!ws) throw new Error("expected websocket instance");
+    expect(ws.url).toBe("wss://example-ws.acme.dev/ws/script/ws-1?type=run");
+  });
+
   it("forwards terminal input and resize messages over websocket", async () => {
     const { wrapper } = createWrapper();
     const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
@@ -278,6 +294,26 @@ describe("useScripts", () => {
     expect(ws.send).toHaveBeenCalledWith(
       JSON.stringify({ type: "resize", cols: 88, rows: 33 }),
     );
+  });
+
+  it("writes ArrayBuffer websocket output to terminal", async () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const term = createTerminal();
+    act(() => {
+      result.current.connectOutput("run", term as unknown as { cols: number; rows: number });
+    });
+
+    const ws = MockWebSocket.instances[0];
+    if (!ws) throw new Error("expected websocket instance");
+
+    act(() => {
+      ws.fireMessage(new Uint8Array([112, 119, 100, 10]).buffer);
+    });
+
+    expect(term.write).toHaveBeenCalledWith(new Uint8Array([112, 119, 100, 10]));
   });
 
   it("updates script status when backend sends exit event", async () => {
@@ -347,6 +383,29 @@ describe("useScripts", () => {
     });
 
     expect(ws.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not close websocket when stopping a different script type", async () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const term = createTerminal();
+    act(() => {
+      result.current.connectOutput("run", term as unknown as { cols: number; rows: number });
+    });
+
+    const ws = MockWebSocket.instances[0];
+    if (!ws) throw new Error("expected websocket instance");
+
+    act(() => {
+      result.current.stopScript("setup");
+    });
+
+    expect(ws.close).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(mocks.apiPost).toHaveBeenCalledWith("/api/workspaces/ws-1/scripts/setup/stop");
+    });
   });
 
   it("replaces existing websocket when reconnecting to another script type", async () => {

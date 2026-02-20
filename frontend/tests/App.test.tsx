@@ -23,24 +23,43 @@ const mocks = vi.hoisted(() => ({
   archiveWorkspace: vi.fn(),
   syncWorkspaces: vi.fn(),
   disconnectAll: vi.fn(),
+  onMessage: vi.fn(() => ({ unsubscribe: vi.fn(), hadBufferedMessages: false })),
+  projects: [] as Array<{
+    id: string;
+    name: string;
+    url: string;
+    createdAt: string;
+    workspaces: Array<{
+      id: string;
+      name: string;
+      branch: string;
+      status: "idle" | "busy";
+      createdAt: string;
+    }>;
+  }>,
+  loading: false,
 }));
+
+function makeProjects() {
+  return [
+    {
+      id: "p1",
+      name: "project-1",
+      url: "https://github.com/acme/repo.git",
+      createdAt: "2026-02-12T00:00:00.000Z",
+      workspaces: [
+        { id: "w1", name: "w1", branch: "workspace/w1", status: "idle" as const, createdAt: "2026-02-12T00:00:00.000Z" },
+        { id: "w1", name: "w1-duplicate", branch: "workspace/w1", status: "idle" as const, createdAt: "2026-02-12T00:00:00.000Z" },
+        { id: "w2", name: "w2", branch: "workspace/w2", status: "idle" as const, createdAt: "2026-02-12T00:00:00.000Z" },
+      ],
+    },
+  ];
+}
 
 vi.mock("@/hooks/useProjects", () => ({
   useProjects: () => ({
-    projects: [
-      {
-        id: "p1",
-        name: "project-1",
-        url: "https://github.com/acme/repo.git",
-        createdAt: "2026-02-12T00:00:00.000Z",
-        workspaces: [
-          { id: "w1", name: "w1", branch: "workspace/w1", status: "idle", createdAt: "2026-02-12T00:00:00.000Z" },
-          { id: "w1", name: "w1-duplicate", branch: "workspace/w1", status: "idle", createdAt: "2026-02-12T00:00:00.000Z" },
-          { id: "w2", name: "w2", branch: "workspace/w2", status: "idle", createdAt: "2026-02-12T00:00:00.000Z" },
-        ],
-      },
-    ],
-    loading: false,
+    projects: mocks.projects,
+    loading: mocks.loading,
     fetchProjects: mocks.fetchProjects,
     createWorkspace: mocks.createWorkspace,
     createProjectWithWorkspace: mocks.createProjectWithWorkspace,
@@ -53,12 +72,33 @@ vi.mock("@/lib/ws-transport", () => ({
   wsTransport: {
     syncWorkspaces: mocks.syncWorkspaces,
     disconnectAll: mocks.disconnectAll,
-    onMessage: vi.fn(() => ({ unsubscribe: vi.fn(), hadBufferedMessages: false })),
+    onMessage: mocks.onMessage,
   },
 }));
 
 vi.mock("@/components/AddProjectDialog", () => ({
-  default: () => <div data-testid="add-project-dialog" />,
+  default: ({
+    open,
+    onOpenChange,
+    onSubmit,
+  }: {
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
+    onSubmit?: (url: string) => void;
+  }) => (
+    <div data-testid="add-project-dialog">
+      <div data-testid="dialog-open">{String(Boolean(open))}</div>
+      <button type="button" onClick={() => onOpenChange?.(false)}>
+        close dialog
+      </button>
+      <button
+        type="button"
+        onClick={() => onSubmit?.("https://github.com/acme/new-repo.git")}
+      >
+        submit dialog
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/EmptyStateLogo", () => ({
@@ -100,8 +140,11 @@ vi.mock("@/pages/LogoSquareTempPage", () => ({
 vi.mock("@/components/AppLayout", async () => {
   const { Outlet } = await import("react-router-dom");
   return {
-    default: () => (
+    default: ({ onAddProject }: { onAddProject?: () => void }) => (
       <div data-testid="app-layout">
+        <button type="button" onClick={onAddProject}>
+          layout add project
+        </button>
         <Outlet />
       </div>
     ),
@@ -111,17 +154,90 @@ vi.mock("@/components/AppLayout", async () => {
 describe("App", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.projects = makeProjects();
+    mocks.loading = false;
     window.history.pushState({}, "", "/projects");
   });
 
   it("syncs unique workspace IDs and disconnects all sockets on unmount", () => {
     const { unmount } = renderApp();
 
+    const subscribedWorkspaceIds = mocks.onMessage.mock.calls.map((call) => call[0]);
+    expect(new Set(subscribedWorkspaceIds)).toEqual(new Set(["w1", "w2"]));
     expect(mocks.syncWorkspaces).toHaveBeenCalledWith(["w1", "w2"]);
     expect(mocks.disconnectAll).not.toHaveBeenCalled();
 
     unmount();
     expect(mocks.disconnectAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("redirects root index to /projects", () => {
+    window.history.pushState({}, "", "/");
+
+    renderApp();
+
+    expect(screen.getByRole("button", { name: "open add project" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/projects");
+  });
+
+  it("renders workspace route", () => {
+    window.history.pushState({}, "", "/workspaces/w1");
+
+    renderApp();
+
+    expect(screen.getByText("workspace view")).toBeInTheDocument();
+  });
+
+  it("renders temporary logo route", () => {
+    window.history.pushState({}, "", "/tmp/logo-carre");
+
+    renderApp();
+
+    expect(screen.getByText("logo page")).toBeInTheDocument();
+  });
+
+  it("does not sync workspaces while project list is still loading", () => {
+    mocks.loading = true;
+
+    renderApp();
+
+    expect(mocks.syncWorkspaces).not.toHaveBeenCalled();
+  });
+
+  it("syncs an empty workspace list when there are no projects", () => {
+    mocks.projects = [];
+
+    renderApp();
+
+    expect(mocks.syncWorkspaces).toHaveBeenCalledWith([]);
+    expect(mocks.onMessage).not.toHaveBeenCalled();
+  });
+
+  it("opens add-project dialog from empty state and submits project creation", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/projects");
+    renderApp();
+
+    expect(screen.getByTestId("dialog-open")).toHaveTextContent("false");
+
+    await user.click(screen.getByRole("button", { name: "open add project" }));
+    expect(screen.getByTestId("dialog-open")).toHaveTextContent("true");
+
+    await user.click(screen.getByRole("button", { name: "submit dialog" }));
+    expect(mocks.createProjectWithWorkspace).toHaveBeenCalledWith(
+      "https://github.com/acme/new-repo.git",
+    );
+  });
+
+  it("opens add-project dialog from layout action", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/settings/appearance");
+    renderApp();
+
+    expect(screen.getByTestId("dialog-open")).toHaveTextContent("false");
+
+    await user.click(screen.getByRole("button", { name: "layout add project" }));
+    expect(screen.getByTestId("dialog-open")).toHaveTextContent("true");
   });
 
   it("refreshes backend connection from settings route", async () => {
@@ -141,5 +257,23 @@ describe("App", () => {
     renderApp();
 
     expect(screen.getByText("notification settings")).toBeInTheDocument();
+  });
+
+  it("redirects /projects/:id to /projects", () => {
+    window.history.pushState({}, "", "/projects/p1");
+
+    renderApp();
+
+    expect(screen.getByRole("button", { name: "open add project" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/projects");
+  });
+
+  it("redirects /settings to /settings/appearance", () => {
+    window.history.pushState({}, "", "/settings");
+
+    renderApp();
+
+    expect(screen.getByText("appearance settings")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/settings/appearance");
   });
 });
