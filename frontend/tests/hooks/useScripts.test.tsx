@@ -102,13 +102,35 @@ function scriptsResponse() {
     config: {
       scripts: {
         setup: "npm ci",
-        run: "npm run dev",
+        run: {
+          run: "npm run dev",
+        },
       },
       port: 3000,
     },
     status: {
       setup: { state: "idle" as const },
       run: { state: "idle" as const },
+    },
+  };
+}
+
+function namedScriptsResponse() {
+  return {
+    config: {
+      scripts: {
+        setup: "npm ci",
+        run: {
+          backend: "npm run dev:backend",
+          frontend: "npm run dev:frontend",
+        },
+      },
+      port: 3000,
+    },
+    status: {
+      setup: { state: "idle" as const },
+      backend: { state: "running" as const },
+      frontend: { state: "done" as const, exitCode: 0 },
     },
   };
 }
@@ -137,10 +159,7 @@ describe("useScripts", () => {
 
     expect(mocks.apiGet).not.toHaveBeenCalled();
     expect(result.current.config).toBeNull();
-    expect(result.current.status).toEqual({
-      setup: { state: "idle" },
-      run: { state: "idle" },
-    });
+    expect(result.current.status).toEqual({});
   });
 
   it("fetches script config and status on mount", async () => {
@@ -156,6 +175,24 @@ describe("useScripts", () => {
     expect(result.current.status.setup.state).toBe("idle");
   });
 
+  it("returns arbitrary named run script statuses from API response", async () => {
+    mocks.apiGet.mockResolvedValueOnce(namedScriptsResponse());
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(result.current.config?.scripts?.run).toEqual({
+      backend: "npm run dev:backend",
+      frontend: "npm run dev:frontend",
+    });
+    expect(result.current.status.backend).toEqual({ state: "running" });
+    expect(result.current.status.frontend).toEqual({ state: "done", exitCode: 0 });
+  });
+
   it("starts a script and sets status to running optimistically", async () => {
     const { wrapper } = createWrapper();
     const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
@@ -169,6 +206,23 @@ describe("useScripts", () => {
       expect(result.current.status.run.state).toBe("running");
     });
     expect(mocks.apiPost).toHaveBeenCalledWith("/api/workspaces/ws-1/scripts/run/start");
+  });
+
+  it("starts a named script and marks that key as running optimistically", async () => {
+    mocks.apiGet.mockResolvedValueOnce(namedScriptsResponse());
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => {
+      result.current.startScript("backend");
+    });
+
+    await waitFor(() => {
+      expect(result.current.status.backend.state).toBe("running");
+    });
+    expect(mocks.apiPost).toHaveBeenCalledWith("/api/workspaces/ws-1/scripts/backend/start");
   });
 
   it("reverts to server state when start fails", async () => {
@@ -341,6 +395,27 @@ describe("useScripts", () => {
     });
     await waitFor(() => {
       expect(result.current.status.setup).toEqual({ state: "error", exitCode: 7 });
+    });
+  });
+
+  it("marks exit events without code as error with fallback exitCode -1", async () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const term = createTerminal();
+    act(() => {
+      result.current.connectOutput("backend", term as unknown as { cols: number; rows: number });
+    });
+
+    const ws = MockWebSocket.instances[0];
+    if (!ws) throw new Error("expected websocket instance");
+
+    act(() => {
+      ws.fireMessage(JSON.stringify({ type: "exit" }));
+    });
+    await waitFor(() => {
+      expect(result.current.status.backend).toEqual({ state: "error", exitCode: -1 });
     });
   });
 

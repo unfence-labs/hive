@@ -1,7 +1,7 @@
 import * as pty from "node-pty";
 import type { IPty } from "node-pty";
 
-export type ScriptType = "setup" | "run";
+export type ScriptType = string;
 export type ScriptState = "idle" | "running" | "done" | "error";
 
 const MAX_BUFFER_LINES = 200;
@@ -119,7 +119,11 @@ export function stopScript(wsId: string, type: ScriptType): boolean {
 }
 
 export function stopAllForWorkspace(wsId: string): void {
-  for (const type of ["setup", "run"] as ScriptType[]) {
+  const prefix = `${wsId}:`;
+  const types = [...activeScripts.keys()]
+    .filter((k) => k.startsWith(prefix))
+    .map((k) => k.slice(prefix.length));
+  for (const type of types) {
     stopScript(wsId, type);
   }
 }
@@ -129,25 +133,18 @@ export interface ScriptStatusInfo {
   exitCode?: number;
 }
 
-export function getScriptStatus(wsId: string): {
-  setup: ScriptStatusInfo;
-  run: ScriptStatusInfo;
-} {
-  const result = {
-    setup: { state: "idle" as ScriptState } as ScriptStatusInfo,
-    run: { state: "idle" as ScriptState } as ScriptStatusInfo,
-  };
-
-  for (const type of ["setup", "run"] as ScriptType[]) {
-    const proc = activeScripts.get(key(wsId, type));
-    if (proc) {
+export function getScriptStatus(wsId: string): Record<string, ScriptStatusInfo> {
+  const result: Record<string, ScriptStatusInfo> = {};
+  const prefix = `${wsId}:`;
+  for (const [k, proc] of activeScripts) {
+    if (k.startsWith(prefix)) {
+      const type = k.slice(prefix.length);
       result[type] = {
         state: proc.state,
         ...(proc.exitCode !== undefined ? { exitCode: proc.exitCode } : {}),
       };
     }
   }
-
   return result;
 }
 

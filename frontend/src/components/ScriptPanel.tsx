@@ -6,29 +6,45 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { WaveIndicator } from "@/components/WaveIndicator";
 import { cn } from "@/lib/utils";
-import type { ScriptType, ScriptStatusInfo, HiveConfig } from "@/types";
+import type { ScriptStatusInfo, HiveConfig } from "@/types";
 import "@xterm/xterm/css/xterm.css";
 
 interface ScriptPanelProps {
   config: HiveConfig | null;
-  status: {
-    setup: ScriptStatusInfo;
-    run: ScriptStatusInfo;
-  };
-  onStart: (type: ScriptType) => Promise<void> | void;
-  onStop: (type: ScriptType) => Promise<void> | void;
-  onConnectOutput: (type: ScriptType, term: XTerm) => void;
+  status: Record<string, ScriptStatusInfo>;
+  onStart: (type: string) => Promise<void> | void;
+  onStop: (type: string) => Promise<void> | void;
+  onConnectOutput: (type: string, term: XTerm) => void;
   onDisconnectOutput: () => void;
 }
 
-function StatusIndicator({ status, type }: { status: ScriptStatusInfo; type: ScriptType }) {
+interface TabInfo {
+  key: string;
+  label: string;
+  isSetup: boolean;
+}
+
+function StatusIndicator({ status, isSetup }: { status: ScriptStatusInfo; isSetup: boolean }) {
   if (status.state === "running") {
     return <WaveIndicator />;
   }
-  if (type === "setup" && status.state === "done") {
+  if (isSetup && status.state === "done") {
     return <CheckCircle2Icon className="size-3 text-green-400" />;
   }
   return null;
+}
+
+function buildTabs(config: HiveConfig | null): TabInfo[] {
+  const tabs: TabInfo[] = [];
+  if (config?.scripts?.setup) {
+    tabs.push({ key: "setup", label: "Setup", isSetup: true });
+  }
+  if (config?.scripts?.run) {
+    for (const name of Object.keys(config.scripts.run)) {
+      tabs.push({ key: name, label: name.charAt(0).toUpperCase() + name.slice(1), isSetup: false });
+    }
+  }
+  return tabs;
 }
 
 export default function ScriptPanel({
@@ -39,28 +55,24 @@ export default function ScriptPanel({
   onConnectOutput,
   onDisconnectOutput,
 }: ScriptPanelProps) {
-  const hasSetup = !!config?.scripts?.setup;
-  const hasRun = !!config?.scripts?.run;
-  const hasScripts = hasSetup || hasRun;
+  const tabs = buildTabs(config);
+  const hasScripts = tabs.length > 0;
 
-  // Default to the first available tab
-  const defaultTab: ScriptType = hasSetup ? "setup" : "run";
-  const [activeTab, setActiveTab] = useState<ScriptType>(defaultTab);
+  const [activeTab, setActiveTab] = useState<string>(tabs[0]?.key ?? "");
 
-  // If the active tab's script doesn't exist, switch to the other
-  const effectiveTab = (activeTab === "setup" && !hasSetup) ? "run" : (activeTab === "run" && !hasRun) ? "setup" : activeTab;
-  const currentStatus = hasScripts ? status[effectiveTab] : { state: "idle" as const };
+  // If the active tab no longer exists in config, fall back to first
+  const effectiveTab = tabs.find((t) => t.key === activeTab)?.key ?? tabs[0]?.key ?? "";
+  const isSetupTab = tabs.find((t) => t.key === effectiveTab)?.isSetup ?? false;
+  const currentStatus: ScriptStatusInfo = status[effectiveTab] ?? { state: "idle" };
 
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const connectedTabRef = useRef<ScriptType | null>(null);
+  const connectedTabRef = useRef<string | null>(null);
 
   // Incremented on re-run to force the terminal init effect to re-fire
-  // (shouldShowTerminal stays true when going from done/error → running)
   const [runGeneration, setRunGeneration] = useState(0);
 
-  // Create / destroy xterm when the tab changes or when status transitions to running
   const shouldShowTerminal = currentStatus.state !== "idle";
 
   const initTerminal = useCallback(() => {
@@ -85,7 +97,6 @@ export default function ScriptPanel({
     termRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Connect to the script WS
     connectedTabRef.current = effectiveTab;
     onConnectOutput(effectiveTab, term);
   }, [effectiveTab, onConnectOutput]);
@@ -103,7 +114,6 @@ export default function ScriptPanel({
   // Init terminal when needed (runGeneration forces re-fire on restart)
   useEffect(() => {
     if (shouldShowTerminal) {
-      // Small delay to let the DOM container render
       const timer = setTimeout(() => initTerminal(), 50);
       return () => clearTimeout(timer);
     }
@@ -114,7 +124,6 @@ export default function ScriptPanel({
   // Reconnect when tab changes
   useEffect(() => {
     if (shouldShowTerminal && termRef.current && connectedTabRef.current !== effectiveTab) {
-      // Tab changed while terminal is alive — destroy and reinit
       destroyTerminal();
       const timer = setTimeout(() => initTerminal(), 50);
       return () => clearTimeout(timer);
@@ -145,11 +154,8 @@ export default function ScriptPanel({
     if (currentStatus.state === "running") {
       onStop(effectiveTab);
     } else {
-      // Clear terminal before re-run
       destroyTerminal();
-      // Await start so the backend process exists before the WS connects
       await onStart(effectiveTab);
-      // Force the terminal init effect to re-fire
       setRunGeneration((g) => g + 1);
     }
   };
@@ -167,7 +173,7 @@ export default function ScriptPanel({
           <pre className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-left text-[11px] leading-relaxed">{`{
   "scripts": {
     "setup": "npm install",
-    "run": "npm run dev"
+    "run": { "dev": "npm run dev" }
   }
 }`}</pre>
         </div>
@@ -179,36 +185,25 @@ export default function ScriptPanel({
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Tab bar */}
       <div className="flex h-9 items-center gap-3 border-t border-border/50 px-3">
-        {hasSetup && (
-          <button
-            type="button"
-            className={cn(
-              "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
-              effectiveTab === "setup"
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-            onClick={() => setActiveTab("setup")}
-          >
-            <StatusIndicator status={status.setup} type="setup" />
-            Setup
-          </button>
-        )}
-        {hasRun && (
-          <button
-            type="button"
-            className={cn(
-              "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
-              effectiveTab === "run"
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-            onClick={() => setActiveTab("run")}
-          >
-            <StatusIndicator status={status.run} type="run" />
-            Run
-          </button>
-        )}
+        {tabs.map((tab) => {
+          const tabStatus: ScriptStatusInfo = status[tab.key] ?? { state: "idle" };
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              className={cn(
+                "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
+                effectiveTab === tab.key
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              <StatusIndicator status={tabStatus} isSetup={tab.isSetup} />
+              {tab.label}
+            </button>
+          );
+        })}
 
         {/* Action button */}
         <div className="ml-auto">
@@ -221,7 +216,7 @@ export default function ScriptPanel({
               <RotateCcwIcon className="size-3" />
             </Button>
           ) : (
-            <Button variant="ghost" size="icon-xs" onClick={handleAction} title={effectiveTab === "setup" ? "Run setup" : "Run"}>
+            <Button variant="ghost" size="icon-xs" onClick={handleAction} title={isSetupTab ? "Run setup" : "Run"}>
               <PlayIcon className="size-3" />
             </Button>
           )}
@@ -234,7 +229,7 @@ export default function ScriptPanel({
           <>
             <div ref={containerRef} className="h-full w-full bg-background" />
             {/* Port badge */}
-            {effectiveTab === "run" && config.port && currentStatus.state === "running" && (
+            {!isSetupTab && config?.port && currentStatus.state === "running" && (
               <div className="absolute bottom-2 right-2">
                 <Badge variant="secondary" className="text-[10px]">
                   Port {config.port}
@@ -251,10 +246,10 @@ export default function ScriptPanel({
               onClick={handleAction}
             >
               <PlayIcon className="size-3" />
-              {effectiveTab === "setup" ? "Run setup" : "Run workspace"}
+              {isSetupTab ? "Run setup" : "Run"}
             </Button>
             <p className="text-xs text-muted-foreground/60">
-              {effectiveTab === "setup" ? "Install dependencies" : "Test your changes here."}
+              {isSetupTab ? "Install dependencies" : "Start this script"}
             </p>
           </div>
         )}

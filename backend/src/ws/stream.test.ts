@@ -1040,6 +1040,48 @@ describe("WS /ws/session/:wsId", () => {
     ws.close();
   });
 
+  it("sends script_status for each non-idle named script on connect", async () => {
+    const runningScript = join(tempDir, "fake-backend.sh");
+    await writeFile(runningScript, "#!/bin/sh\nsleep 30\n", "utf-8");
+    await chmod(runningScript, 0o755);
+
+    const finishedScript = join(tempDir, "fake-frontend.sh");
+    await writeFile(finishedScript, "#!/bin/sh\nexit 0\n", "utf-8");
+    await chmod(finishedScript, 0o755);
+
+    startScript(wsId, "backend", runningScript, tempDir);
+    const doneProc = startScript(wsId, "frontend", finishedScript, tempDir);
+    await new Promise<void>((resolve) => {
+      const lid = "wait-frontend-done";
+      doneProc.exitListeners.set(lid, () => {
+        doneProc.exitListeners.delete(lid);
+        resolve();
+      });
+    });
+
+    const { wsReady, messages } = connectSessionWs(wsId);
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.filter((m) => m.type === "script_status").length >= 2,
+    );
+
+    expect(messages).toContainEqual({
+      type: "script_status",
+      scriptType: "backend",
+      state: "running",
+    });
+    expect(messages).toContainEqual({
+      type: "script_status",
+      scriptType: "frontend",
+      state: "done",
+      exitCode: 0,
+    });
+
+    ws.close();
+  });
+
   it("sends script_status with exitCode on connect when a script has finished", async () => {
     const fakeScript = join(tempDir, "fake-fail.sh");
     await writeFile(fakeScript, "#!/bin/sh\nexit 1\n", "utf-8");

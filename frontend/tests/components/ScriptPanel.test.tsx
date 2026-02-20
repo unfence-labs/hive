@@ -47,6 +47,9 @@ function renderPanel(
     config: {
       scripts: {
         setup: "npm ci",
+        run: {
+          run: "npm run dev",
+        },
       },
     },
     status: {
@@ -145,7 +148,7 @@ describe("ScriptPanel", () => {
   it("shows check icon for setup done but not for run done", () => {
     const { container } = render(
       <ScriptPanel
-        config={{ scripts: { setup: "npm ci", run: "npm run dev" } }}
+        config={{ scripts: { setup: "npm ci", run: { run: "npm run dev" } } }}
         status={{ setup: { state: "done", exitCode: 0 }, run: { state: "done", exitCode: 0 } }}
         onStart={vi.fn()}
         onStop={vi.fn()}
@@ -207,7 +210,7 @@ describe("ScriptPanel", () => {
     const { onConnectOutput } = renderPanel({
       config: {
         scripts: {
-          run: "npm run dev",
+          run: { run: "npm run dev" },
         },
         port: 3000,
       },
@@ -230,7 +233,7 @@ describe("ScriptPanel", () => {
       config: {
         scripts: {
           setup: "npm ci",
-          run: "npm run dev",
+          run: { run: "npm run dev" },
         },
       },
       status: {
@@ -253,6 +256,49 @@ describe("ScriptPanel", () => {
 
     expect(onDisconnectOutput).toHaveBeenCalled();
     expect(onConnectOutput).toHaveBeenNthCalledWith(2, "run", expect.anything());
+  });
+
+  it("renders tabs for each named run script", () => {
+    renderPanel({
+      config: {
+        scripts: {
+          setup: "npm ci",
+          run: {
+            backend: "npm run dev:backend",
+            frontend: "npm run dev:frontend",
+          },
+        },
+      },
+      status: {
+        setup: { state: "idle" },
+        backend: { state: "idle" },
+        frontend: { state: "idle" },
+      },
+    });
+
+    expect(screen.getByRole("button", { name: "Setup" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Backend" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Frontend" })).toBeInTheDocument();
+  });
+
+  it("starts a named run script when selected", async () => {
+    const { onStart } = renderPanel({
+      config: {
+        scripts: {
+          run: {
+            backend: "npm run dev:backend",
+          },
+        },
+      },
+      status: {},
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Run"));
+      await Promise.resolve();
+    });
+
+    expect(onStart).toHaveBeenCalledWith("backend");
   });
 
   it("disconnects and disposes terminal on unmount", () => {

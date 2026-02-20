@@ -29,13 +29,13 @@ describe("readHiveConfig", () => {
     await expect(readHiveConfig(wsPath)).resolves.toBeNull();
   });
 
-  it("parses valid scripts and port", async () => {
+  it("parses valid scripts (object run) and port", async () => {
     await writeFile(
       join(wsPath, "hive.json"),
       JSON.stringify({
         scripts: {
           setup: "npm ci",
-          run: "npm run dev",
+          run: { backend: "npm run dev", frontend: "npm start" },
         },
         port: 4173,
       }),
@@ -45,9 +45,23 @@ describe("readHiveConfig", () => {
     await expect(readHiveConfig(wsPath)).resolves.toEqual({
       scripts: {
         setup: "npm ci",
-        run: "npm run dev",
+        run: { backend: "npm run dev", frontend: "npm start" },
       },
       port: 4173,
+    });
+  });
+
+  it("normalizes string run to { run: cmd }", async () => {
+    await writeFile(
+      join(wsPath, "hive.json"),
+      JSON.stringify({
+        scripts: { setup: "npm ci", run: "npm run dev" },
+      }),
+      "utf-8",
+    );
+
+    await expect(readHiveConfig(wsPath)).resolves.toEqual({
+      scripts: { setup: "npm ci", run: { run: "npm run dev" } },
     });
   });
 
@@ -71,18 +85,42 @@ describe("readHiveConfig", () => {
     });
   });
 
+  it("keeps only valid string entries inside run object", async () => {
+    await writeFile(
+      join(wsPath, "hive.json"),
+      JSON.stringify({
+        scripts: {
+          run: {
+            backend: "npm run dev:backend",
+            retries: 3,
+            nested: { cmd: "npm run dev" },
+          },
+        },
+      }),
+      "utf-8",
+    );
+
+    await expect(readHiveConfig(wsPath)).resolves.toEqual({
+      scripts: {
+        run: {
+          backend: "npm run dev:backend",
+        },
+      },
+    });
+  });
+
   it("drops invalid port values", async () => {
     await writeFile(
       join(wsPath, "hive.json"),
       JSON.stringify({
-        scripts: { run: "npm run dev" },
+        scripts: { run: { dev: "npm run dev" } },
         port: 70_000,
       }),
       "utf-8",
     );
 
     await expect(readHiveConfig(wsPath)).resolves.toEqual({
-      scripts: { run: "npm run dev" },
+      scripts: { run: { dev: "npm run dev" } },
     });
   });
 
@@ -131,11 +169,11 @@ describe("readHiveConfig", () => {
   it("parses only run script (setup absent)", async () => {
     await writeFile(
       join(wsPath, "hive.json"),
-      JSON.stringify({ scripts: { run: "npm run dev" } }),
+      JSON.stringify({ scripts: { run: { dev: "npm run dev" } } }),
       "utf-8",
     );
     const config = await readHiveConfig(wsPath);
-    expect(config).toEqual({ scripts: { run: "npm run dev" } });
+    expect(config).toEqual({ scripts: { run: { dev: "npm run dev" } } });
   });
 
   it("returns null for root value null", async () => {

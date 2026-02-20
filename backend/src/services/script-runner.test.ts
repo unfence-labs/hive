@@ -108,7 +108,7 @@ describe("script-runner", () => {
       }),
     );
     expect(proc.state).toBe("running");
-    expect(getScriptStatus("ws-1").setup.state).toBe("running");
+    expect(getScriptStatus("ws-1").setup?.state).toBe("running");
   });
 
   it("throws when trying to start the same script while it is already running", () => {
@@ -125,7 +125,7 @@ describe("script-runner", () => {
 
     const second = startScript("ws-1", "setup", "npm ci", "/tmp/workspace");
     expect(second).not.toBe(first);
-    expect(getScriptStatus("ws-1").setup.state).toBe("running");
+    expect(getScriptStatus("ws-1").setup?.state).toBe("running");
   });
 
   it("keeps only the latest 200 output lines in buffer", () => {
@@ -151,6 +151,15 @@ describe("script-runner", () => {
     expect(liveListener).toHaveBeenCalledWith("hello\n");
     expect(exitListener).toHaveBeenCalledWith(2);
     expect(getScriptStatus("ws-1").run).toEqual({ state: "error", exitCode: 2 });
+  });
+
+  it("supports named run scripts", () => {
+    startScript("ws-1", "backend", "npm run dev", "/tmp/workspace");
+    startScript("ws-1", "frontend", "npm run dev", "/tmp/workspace");
+
+    const status = getScriptStatus("ws-1");
+    expect(status.backend?.state).toBe("running");
+    expect(status.frontend?.state).toBe("running");
   });
 
   it("returns false when stopping a non-running script", () => {
@@ -193,23 +202,36 @@ describe("script-runner", () => {
     expect(killSpy).not.toHaveBeenCalled();
   });
 
-  it("stops both setup and run scripts for a workspace", () => {
+  it("stops all scripts for a workspace", () => {
     startScript("ws-1", "setup", "npm ci", "/tmp/workspace");
-    startScript("ws-1", "run", "npm run dev", "/tmp/workspace");
+    startScript("ws-1", "backend", "npm run dev", "/tmp/workspace");
+    startScript("ws-1", "frontend", "npm run dev", "/tmp/workspace");
 
     stopAllForWorkspace("ws-1");
 
     expect(mocks.processes[0]?.kill).toHaveBeenCalledTimes(1);
     expect(mocks.processes[1]?.kill).toHaveBeenCalledTimes(1);
+    expect(mocks.processes[2]?.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it("stopAllForWorkspace does not stop scripts from other workspaces", () => {
+    startScript("ws-1", "setup", "npm ci", "/tmp/workspace");
+    startScript("ws-2", "backend", "npm run dev", "/tmp/workspace");
+
+    stopAllForWorkspace("ws-1");
+
+    expect(mocks.processes[0]?.kill).toHaveBeenCalledTimes(1);
+    expect(mocks.processes[1]?.kill).not.toHaveBeenCalled();
+    expect(getScriptStatus("ws-2").backend?.state).toBe("running");
   });
 
   it("removes stopped script from activeScripts so status returns idle", () => {
     startScript("ws-1", "run", "npm run dev", "/tmp/workspace");
-    expect(getScriptStatus("ws-1").run.state).toBe("running");
+    expect(getScriptStatus("ws-1").run?.state).toBe("running");
 
     stopScript("ws-1", "run");
 
-    expect(getScriptStatus("ws-1").run).toEqual({ state: "idle" });
+    expect(getScriptStatus("ws-1").run).toBeUndefined();
     expect(getScriptProcess("ws-1", "run")).toBeUndefined();
   });
 
@@ -247,16 +269,17 @@ describe("script-runner", () => {
     expect(getScriptProcess("ws-1", "setup")).toBeDefined();
   });
 
-  it("stopAllForWorkspace removes both scripts from activeScripts", () => {
+  it("stopAllForWorkspace removes all scripts from activeScripts", () => {
     startScript("ws-1", "setup", "npm ci", "/tmp/workspace");
-    startScript("ws-1", "run", "npm run dev", "/tmp/workspace");
+    startScript("ws-1", "backend", "npm run dev", "/tmp/workspace");
+    startScript("ws-1", "frontend", "npm run dev", "/tmp/workspace");
 
     stopAllForWorkspace("ws-1");
 
-    expect(getScriptStatus("ws-1").setup).toEqual({ state: "idle" });
-    expect(getScriptStatus("ws-1").run).toEqual({ state: "idle" });
+    expect(Object.keys(getScriptStatus("ws-1"))).toHaveLength(0);
     expect(getScriptProcess("ws-1", "setup")).toBeUndefined();
-    expect(getScriptProcess("ws-1", "run")).toBeUndefined();
+    expect(getScriptProcess("ws-1", "backend")).toBeUndefined();
+    expect(getScriptProcess("ws-1", "frontend")).toBeUndefined();
   });
 
   it("clears all active scripts during test cleanup", () => {

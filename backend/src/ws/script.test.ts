@@ -140,7 +140,7 @@ describe("script WS routes", () => {
 
     expect(jsonMessages[0]).toEqual({
       type: "error",
-      message: "Missing or invalid 'type' query param (setup|run)",
+      message: "Missing 'type' query param",
     });
     expect(result.code).toBe(1008);
     expect(result.reason.toString()).toBe("Invalid type");
@@ -169,6 +169,20 @@ describe("script WS routes", () => {
     });
     expect(result.code).toBe(1008);
     expect(result.reason.toString()).toBe("No script process");
+    ws.terminate();
+  });
+
+  it("accepts custom script type names in query string", async () => {
+    const proc = createMockProcess({
+      state: "running",
+      type: "backend",
+    });
+    mocks.getScriptProcess.mockReturnValue(proc);
+
+    const { ws, jsonMessages } = await connectScriptWs("/ws/script/ws-1?type=backend");
+    await waitForCondition(() => jsonMessages.some((m) => m.type === "ready"));
+
+    expect(mocks.getScriptProcess).toHaveBeenCalledWith("ws-1", "backend");
     ws.terminate();
   });
 

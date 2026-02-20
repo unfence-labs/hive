@@ -3,7 +3,6 @@ import { nanoid } from "nanoid";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { getScriptProcess } from "../services/script-runner.js";
 import { isAuthorized } from "../utils/auth.js";
-import type { ScriptType } from "../services/script-runner.js";
 
 export interface ScriptWsRoutesOptions {
   dataDir?: string;
@@ -32,10 +31,10 @@ export async function scriptWsRoutes(
       }
 
       const { wsId } = req.params;
-      const scriptType = req.query.type as ScriptType | undefined;
-      if (scriptType !== "setup" && scriptType !== "run") {
+      const scriptType = typeof req.query.type === "string" ? req.query.type : undefined;
+      if (!scriptType) {
         socket.send(
-          JSON.stringify({ type: "error", message: "Missing or invalid 'type' query param (setup|run)" }),
+          JSON.stringify({ type: "error", message: "Missing 'type' query param" }),
         );
         socket.close(1008, "Invalid type");
         return;

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export interface HiveConfig {
-  scripts?: { setup?: string; run?: string };
+  scripts?: { setup?: string; run?: Record<string, string> };
   port?: number;
 }
 
@@ -22,9 +22,20 @@ export async function readHiveConfig(wsPath: string): Promise<HiveConfig | null>
     const config: HiveConfig = {};
 
     if (parsed.scripts && typeof parsed.scripts === "object" && !Array.isArray(parsed.scripts)) {
-      const scripts: { setup?: string; run?: string } = {};
+      const scripts: { setup?: string; run?: Record<string, string> } = {};
       if (typeof parsed.scripts.setup === "string") scripts.setup = parsed.scripts.setup;
-      if (typeof parsed.scripts.run === "string") scripts.run = parsed.scripts.run;
+
+      // run: string (backward compat → { run: "<cmd>" }) or Record<string, string>
+      if (typeof parsed.scripts.run === "string") {
+        scripts.run = { run: parsed.scripts.run };
+      } else if (typeof parsed.scripts.run === "object" && parsed.scripts.run !== null && !Array.isArray(parsed.scripts.run)) {
+        const run: Record<string, string> = {};
+        for (const [key, value] of Object.entries(parsed.scripts.run)) {
+          if (typeof value === "string") run[key] = value;
+        }
+        if (Object.keys(run).length > 0) scripts.run = run;
+      }
+
       if (Object.keys(scripts).length > 0) config.scripts = scripts;
     }
 
