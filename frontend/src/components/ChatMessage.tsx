@@ -87,7 +87,7 @@ const ChatMessage = memo(function ChatMessage({
               <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <span>{formatElapsed(message.durationMs)}</span>
                 <span>·</span>
-                <CopyButton content={message.content} />
+                <CopyButton content={message.content} className="mb-0.5" />
               </div>
             )}
           </>
