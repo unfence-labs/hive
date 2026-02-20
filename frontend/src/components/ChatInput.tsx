@@ -17,9 +17,11 @@ import { BrainIcon, BookOpenIcon, PlusIcon, SparklesIcon } from "lucide-react";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
 import { AutocompletePopup } from "@/components/chat/AutocompletePopup";
 import { useCompletions } from "@/hooks/useCompletions";
+import { useChatInputDraftPersistence } from "@/hooks/useChatInputDraftPersistence";
 
 interface ChatInputProps {
   wsId?: string;
+  sessionId?: string;
   onSend: (content: string, images?: ImageAttachment[], options?: MessageOptions) => boolean;
   onStop: () => void;
   disabled: boolean;
@@ -57,6 +59,7 @@ function ChatInputAttachments({
 
 export default function ChatInput({
   wsId,
+  sessionId,
   onSend,
   onStop,
   disabled,
@@ -74,6 +77,19 @@ export default function ChatInput({
   const isDisconnected = connectionStatus === "disconnected";
   const isInputDisabled = disabled || isStreaming || isDisconnected;
   const canSubmit = !isInputDisabled && (value.trim().length > 0 || fileCount > 0);
+
+  useChatInputDraftPersistence({
+    wsId,
+    sessionId,
+    value,
+    thinkingEnabled,
+    planMode,
+    attachmentsRef,
+    setValue,
+    setThinkingEnabled,
+    setPlanMode,
+    setFileCount,
+  });
 
   const completionItems = useCompletions(wsId);
 

@@ -106,6 +106,8 @@ export interface AttachmentsContext {
   add: (files: File[] | FileList) => void;
   remove: (id: string) => void;
   clear: () => void;
+  /** Replace items without revoking blob URLs. Caller owns URL lifecycle. */
+  restore: (files: (FileUIPart & { id: string })[]) => void;
   openFileDialog: () => void;
   fileInputRef: RefObject<HTMLInputElement | null>;
 }
@@ -223,6 +225,13 @@ export const PromptInputProvider = ({
     });
   }, []);
 
+  const restore = useCallback(
+    (files: (FileUIPart & { id: string })[]) => {
+      setAttachmentFiles(files);
+    },
+    [],
+  );
+
   // Keep a ref to attachments for cleanup on unmount (avoids stale closure)
   const attachmentsRef = useRef(attachmentFiles);
 
@@ -254,8 +263,9 @@ export const PromptInputProvider = ({
       files: attachmentFiles,
       openFileDialog,
       remove,
+      restore,
     }),
-    [attachmentFiles, add, remove, clear, openFileDialog]
+    [attachmentFiles, add, remove, clear, restore, openFileDialog]
   );
 
   const __registerFileInput = useCallback(
@@ -579,8 +589,18 @@ export const PromptInput = ({
     []
   );
 
+  const restoreLocal = useCallback(
+    (newFiles: (FileUIPart & { id: string })[]) => {
+      setItems(newFiles);
+    },
+    [],
+  );
+
   const add = usingProvider ? addWithProviderValidation : addLocal;
   const remove = usingProvider ? controller.attachments.remove : removeLocal;
+  const restoreAttachments = usingProvider
+    ? controller.attachments.restore
+    : restoreLocal;
   const openFileDialog = usingProvider
     ? controller.attachments.openFileDialog
     : openFileDialogLocal;
@@ -696,8 +716,9 @@ export const PromptInput = ({
       files: files.map((item) => ({ ...item, id: item.id })),
       openFileDialog,
       remove,
+      restore: restoreAttachments,
     }),
-    [files, add, remove, clearAttachments, openFileDialog]
+    [files, add, remove, clearAttachments, restoreAttachments, openFileDialog]
   );
 
   const refsCtx = useMemo<ReferencedSourcesContext>(
