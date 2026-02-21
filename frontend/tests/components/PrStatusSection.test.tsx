@@ -136,7 +136,7 @@ describe("PrStatusSection", () => {
     expect(screen.getByText(/Draft/)).toBeDefined();
   });
 
-  it("shows 'Checks failing' with counts", () => {
+  it("shows 'Failed' with counts", () => {
     mockUsePrStatus.mockReturnValue({
       pr: makePr({
         checksStatus: "failure",
@@ -147,10 +147,10 @@ describe("PrStatusSection", () => {
       loading: false,
     });
     render(<PrStatusSection wsId="ws-1" />);
-    expect(screen.getByText(/Checks failing \(2\/5\)/)).toBeDefined();
+    expect(screen.getByText(/Failed \(2\/5\)/)).toBeDefined();
   });
 
-  it("shows 'Checks cancelled' for cancelled checks", () => {
+  it("shows 'Cancelled' for cancelled checks", () => {
     mockUsePrStatus.mockReturnValue({
       pr: makePr({
         checksStatus: "cancelled",
@@ -159,10 +159,10 @@ describe("PrStatusSection", () => {
       loading: false,
     });
     render(<PrStatusSection wsId="ws-1" />);
-    expect(screen.getByText(/Checks cancelled/)).toBeDefined();
+    expect(screen.getByText(/Cancelled/)).toBeDefined();
   });
 
-  it("shows 'Checks running' with counts when checks are pending", () => {
+  it("shows 'Checks' with counts when checks are pending", () => {
     mockUsePrStatus.mockReturnValue({
       pr: makePr({
         checksStatus: "pending",
@@ -173,10 +173,10 @@ describe("PrStatusSection", () => {
       loading: false,
     });
     render(<PrStatusSection wsId="ws-1" />);
-    expect(screen.getByText(/Checks running \(1\/4\)/)).toBeDefined();
+    expect(screen.getByText(/Checks \(1\/4\)/)).toBeDefined();
   });
 
-  it("shows 'Changes requested' when review asks for changes", () => {
+  it("shows 'Changes req.' when review asks for changes", () => {
     mockUsePrStatus.mockReturnValue({
       pr: makePr({
         reviewStatus: "changes_requested",
@@ -185,7 +185,7 @@ describe("PrStatusSection", () => {
       loading: false,
     });
     render(<PrStatusSection wsId="ws-1" />);
-    expect(screen.getByText(/Changes requested/)).toBeDefined();
+    expect(screen.getByText(/Changes req\./)).toBeDefined();
   });
 
   it("shows 'Blocked' for blocked mergeable state", () => {
@@ -246,7 +246,7 @@ describe("PrStatusSection", () => {
     });
     render(<PrStatusSection wsId="ws-1" />);
     expect(screen.getByText(/Has conflicts/)).toBeDefined();
-    expect(screen.queryByText(/Checks failing/)).toBeNull();
+    expect(screen.queryByText(/Failed/)).toBeNull();
   });
 
   it("prioritizes checks failure over review status", () => {
@@ -259,8 +259,8 @@ describe("PrStatusSection", () => {
       loading: false,
     });
     render(<PrStatusSection wsId="ws-1" />);
-    expect(screen.getByText(/Checks failing/)).toBeDefined();
-    expect(screen.queryByText(/Changes requested/)).toBeNull();
+    expect(screen.getByText(/Failed/)).toBeDefined();
+    expect(screen.queryByText(/Changes req\./)).toBeNull();
   });
 
   it("prioritizes merged state over all other signals", () => {
@@ -277,7 +277,7 @@ describe("PrStatusSection", () => {
     render(<PrStatusSection wsId="ws-1" />);
     expect(screen.getByText(/Merged/)).toBeDefined();
     expect(screen.queryByText(/Has conflicts/)).toBeNull();
-    expect(screen.queryByText(/Checks failing/)).toBeNull();
+    expect(screen.queryByText(/Failed/)).toBeNull();
   });
 
   it("renders external link with correct href", () => {
