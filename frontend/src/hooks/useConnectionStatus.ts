@@ -3,14 +3,21 @@ import { getServerUrl } from "./useServerUrl";
 
 export type ConnectionStatus = "unknown" | "connected" | "disconnected";
 
-async function checkHealth(): Promise<ConnectionStatus> {
+interface HealthResult {
+  status: ConnectionStatus;
+  backendEnv: string | null;
+}
+
+async function checkHealth(): Promise<HealthResult> {
   const base = getServerUrl();
-  if (!base) return "unknown";
+  if (!base) return { status: "unknown", backendEnv: null };
   try {
     const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(3000) });
-    return res.ok ? "connected" : "disconnected";
+    if (!res.ok) return { status: "disconnected", backendEnv: null };
+    const data = await res.json();
+    return { status: "connected", backendEnv: data.env ?? null };
   } catch {
-    return "disconnected";
+    return { status: "disconnected", backendEnv: null };
   }
 }
 
@@ -26,7 +33,8 @@ export function useConnectionStatus() {
   });
 
   return {
-    status: query.data ?? ("unknown" as ConnectionStatus),
+    status: query.data?.status ?? ("unknown" as ConnectionStatus),
+    backendEnv: query.data?.backendEnv ?? null,
     check: () => queryClient.refetchQueries({ queryKey: ["health"] }),
   };
 }
