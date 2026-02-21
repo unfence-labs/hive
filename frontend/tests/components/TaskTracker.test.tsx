@@ -71,6 +71,15 @@ describe("TaskTracker", () => {
     expect(screen.getByText("1/3")).toBeInTheDocument();
   });
 
+  it("adds shimmer class when current task is streaming", () => {
+    const tasks = [task({ id: "1", subject: "Fix bug", activeForm: "Fixing", status: "in_progress" })];
+    render(
+      <TaskTracker tasks={tasks} currentTask={tasks[0]} counts={counts(tasks)} isStreaming />,
+    );
+
+    expect(screen.getByText("Fixing")).toHaveClass("animate-shimmer");
+  });
+
   it("expands to show all tasks on click", async () => {
     const user = userEvent.setup();
     const tasks = [
@@ -93,5 +102,23 @@ describe("TaskTracker", () => {
     // "Working on second" appears in both collapsed label and expanded list
     expect(screen.getAllByText("Working on second")).toHaveLength(2);
     expect(screen.getByText("Third task")).toBeInTheDocument();
+  });
+
+  it("collapses expanded list on second click", async () => {
+    const user = userEvent.setup();
+    const tasks = [
+      task({ id: "1", subject: "First task", status: "completed" }),
+      task({ id: "2", subject: "Second task", status: "pending" }),
+    ];
+    render(
+      <TaskTracker tasks={tasks} currentTask={undefined} counts={counts(tasks)} />,
+    );
+
+    const toggle = screen.getByRole("button");
+    await user.click(toggle);
+    expect(screen.getByText("First task")).toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(screen.queryByText("First task")).not.toBeInTheDocument();
   });
 });

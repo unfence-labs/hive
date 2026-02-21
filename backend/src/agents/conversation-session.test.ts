@@ -213,6 +213,28 @@ describe("ConversationSession", () => {
     expect(spawnOpts.env!.MAX_THINKING_TOKENS).toBeUndefined();
   });
 
+  it("merges provider env overrides with existing process env", () => {
+    const key = "HIVE_TEST_KEEP_ENV";
+    const previousValue = process.env[key];
+    process.env[key] = "keep-me";
+
+    try {
+      const session = createSession({ sessionId: "sess-env-merge", command: "claude" });
+      session.sendMessage("Hello", { thinkingEnabled: false });
+
+      const spawnOpts = mockSpawn.mock.calls[0]?.[2] as { env?: Record<string, string | undefined> };
+      expect(spawnOpts.env?.[key]).toBe("keep-me");
+      expect(spawnOpts.env?.CLAUDE_CODE_ENABLE_TASKS).toBe("true");
+      expect(spawnOpts.env?.MAX_THINKING_TOKENS).toBe("0");
+    } finally {
+      if (previousValue === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = previousValue;
+      }
+    }
+  });
+
   it("uses --resume with pre-generated session ID on second message", () => {
     const session = createSession({ sessionId: "sess-2" });
 

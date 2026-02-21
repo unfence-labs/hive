@@ -227,4 +227,85 @@ describe("useTasks", () => {
     const { result } = renderHook(() => useTasks(messages, []));
     expect(result.current.tasks[0].status).toBe("pending");
   });
+
+  it("uses fallback indexed id when TaskCreate output has no task number", () => {
+    const messages = [
+      msg([
+        tc({
+          name: "TaskCreate",
+          input: JSON.stringify({ subject: "No numeric id" }),
+          output: "Task created successfully",
+        }),
+      ]),
+    ];
+    const { result } = renderHook(() => useTasks(messages, []));
+    expect(result.current.tasks[0]).toMatchObject({
+      id: "_idx_1",
+      subject: "No numeric id",
+    });
+  });
+
+  it("uses generated subjects when TaskCreate input is invalid JSON", () => {
+    const messages = [
+      msg([
+        tc({ name: "TaskCreate", input: "{invalid-json", output: "Task #1 created" }),
+        tc({ name: "TaskCreate", input: "{invalid-json", output: "Task #2 created" }),
+      ]),
+    ];
+    const { result } = renderHook(() => useTasks(messages, []));
+    expect(result.current.tasks).toHaveLength(2);
+    expect(result.current.tasks[0].subject).toBe("Task 1");
+    expect(result.current.tasks[1].subject).toBe("Task 2");
+  });
+
+  it("updates subject/description/activeForm from TaskUpdate", () => {
+    const messages = [
+      msg([
+        tc({
+          name: "TaskCreate",
+          input: JSON.stringify({ subject: "Old subject", description: "Old description" }),
+          output: "Task #1 created",
+        }),
+        tc({
+          name: "TaskUpdate",
+          input: JSON.stringify({
+            taskId: "1",
+            subject: "New subject",
+            description: "New description",
+            activeForm: "Working on new subject",
+          }),
+          output: "Task #1 updated",
+        }),
+      ]),
+    ];
+    const { result } = renderHook(() => useTasks(messages, []));
+    expect(result.current.tasks[0]).toMatchObject({
+      id: "1",
+      subject: "New subject",
+      description: "New description",
+      activeForm: "Working on new subject",
+    });
+  });
+
+  it("applies active task updates after persisted history", () => {
+    const messages = [
+      msg([
+        tc({
+          name: "TaskCreate",
+          input: JSON.stringify({ subject: "Track me" }),
+          output: "Task #1 created",
+        }),
+      ]),
+    ];
+    const active = [
+      tc({
+        name: "TaskUpdate",
+        input: JSON.stringify({ taskId: "1", status: "in_progress" }),
+        output: "Task #1 updated",
+      }),
+    ];
+    const { result } = renderHook(() => useTasks(messages, active));
+    expect(result.current.tasks[0].status).toBe("in_progress");
+    expect(result.current.currentTask?.id).toBe("1");
+  });
 });

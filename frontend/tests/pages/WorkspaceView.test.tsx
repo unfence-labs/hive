@@ -612,6 +612,63 @@ describe("WorkspaceView behavior", () => {
     expect(screen.getByTestId("chat-input")).toHaveAttribute("data-session-id", "sess-stream");
   });
 
+  it("renders TaskTracker when task tools are present in the conversation", async () => {
+    const user = userEvent.setup();
+    mocks.useConversation.mockReturnValue({
+      messages: [
+        {
+          id: "msg-task-1",
+          sessionId: "sess-task",
+          role: "assistant",
+          content: "",
+          timestamp: "2026-02-12T00:00:00.000Z",
+          toolCalls: [
+            {
+              id: "tc-create",
+              name: "TaskCreate",
+              input: JSON.stringify({ subject: "Implement auth" }),
+              output: "Task #1 created",
+            },
+            {
+              id: "tc-update",
+              name: "TaskUpdate",
+              input: JSON.stringify({ taskId: "1", status: "in_progress", activeForm: "Implementing auth" }),
+              output: "Task #1 updated",
+            },
+          ],
+        },
+      ],
+      isStreaming: true,
+      streamingStartedAt: 1_700_000_123_456,
+      workspaceStatus: "busy",
+      currentStreamingText: "",
+      currentThinking: "",
+      activeToolCalls: [],
+      pendingToolInputs: [],
+      connectionStatus: "connected",
+      error: null,
+      sessionId: "sess-task",
+      sendMessage: mocks.sendMessage,
+      stopStreaming: mocks.stopStreaming,
+      clearChat: mocks.clearChat,
+      switchSession: mocks.switchSession,
+      answerQuestion: mocks.answerQuestion,
+      batchAnswerQuestions: mocks.batchAnswerQuestions,
+      approvePlan: mocks.approvePlan,
+      rejectToolInput: mocks.rejectToolInput,
+      dismissPlan: mocks.dismissPlan,
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    expect(screen.getByText("Implementing auth")).toBeInTheDocument();
+    expect(screen.getByText("0/1")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /implementing auth/i }));
+    expect(screen.getAllByText("Implementing auth")).toHaveLength(2);
+  });
+
   it("prefers projectName in header and shows origin default branch when provided", async () => {
     mocks.apiGet.mockImplementation(async (url: string) => {
       const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
