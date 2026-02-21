@@ -10,6 +10,7 @@ import type {
   ContentBlock,
   ImageAttachment,
   MessageOptions,
+  ServerToolResultType,
   ToolCall,
   ToolInputResult,
   SessionMetadata,
@@ -27,11 +28,7 @@ const serverToolNameMap: Record<string, string> = {
 };
 
 type ServerResultBlock = Extract<ContentBlock,
-  | { type: "web_search_tool_result" }
-  | { type: "web_fetch_tool_result" }
-  | { type: "bash_code_execution_tool_result" }
-  | { type: "text_editor_code_execution_tool_result" }
-  | { type: "mcp_tool_result" }
+  { type: ServerToolResultType } | { type: "mcp_tool_result" }
 >;
 
 /** Format server/MCP tool result content into a readable string. */
@@ -39,35 +36,36 @@ function formatServerToolResult(block: ServerResultBlock): string {
   const { content } = block;
   if (typeof content === "string") return content;
 
-  // web_search_tool_result: extract titles + URLs from results array
-  if (block.type === "web_search_tool_result" && Array.isArray(content)) {
-    const summary = (content as Array<{ type?: string; title?: string; url?: string }>)
-      .filter((r) => r.type === "web_search_result")
-      .map((r) => `${r.title ?? "Result"}\n${r.url ?? ""}`)
-      .join("\n\n");
-    return summary || JSON.stringify(content);
-  }
-
-  // bash_code_execution_tool_result: extract stdout/stderr
-  if (block.type === "bash_code_execution_tool_result" && content && typeof content === "object") {
-    const c = content as { stdout?: string; stderr?: string; return_code?: number };
-    const parts: string[] = [];
-    if (c.stdout) parts.push(c.stdout);
-    if (c.stderr) parts.push(`stderr: ${c.stderr}`);
-    if (c.return_code !== undefined && c.return_code !== 0) parts.push(`exit code: ${c.return_code}`);
-    return parts.join("\n") || JSON.stringify(content);
-  }
-
-  // mcp_tool_result: extract text from content blocks
-  if (block.type === "mcp_tool_result" && Array.isArray(content)) {
-    const texts = (content as Array<{ type?: string; text?: string }>)
-      .filter((b) => b.type === "text" && b.text)
-      .map((b) => b.text!);
-    return texts.join("\n\n") || JSON.stringify(content);
+  switch (block.type) {
+    case "web_search_tool_result": {
+      if (!Array.isArray(content)) break;
+      const summary = (content as Array<{ type?: string; title?: string; url?: string }>)
+        .filter((r) => r.type === "web_search_result")
+        .map((r) => `${r.title ?? "Result"}\n${r.url ?? ""}`)
+        .join("\n\n");
+      return summary || JSON.stringify(content);
+    }
+    case "bash_code_execution_tool_result": {
+      if (!content || typeof content !== "object") break;
+      const c = content as { stdout?: string; stderr?: string; return_code?: number };
+      const parts: string[] = [];
+      if (c.stdout) parts.push(c.stdout);
+      if (c.stderr) parts.push(`stderr: ${c.stderr}`);
+      if (c.return_code !== undefined && c.return_code !== 0) parts.push(`exit code: ${c.return_code}`);
+      return parts.join("\n") || JSON.stringify(content);
+    }
+    case "mcp_tool_result": {
+      if (!Array.isArray(content)) break;
+      const texts = (content as Array<{ type?: string; text?: string }>)
+        .filter((b) => b.type === "text" && b.text)
+        .map((b) => b.text!);
+      return texts.join("\n\n") || JSON.stringify(content);
+    }
   }
 
   return JSON.stringify(content);
 }
+
 type StopReason = "user" | "park";
 
 export interface ConversationSessionConfig {

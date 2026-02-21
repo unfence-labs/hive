@@ -1,7 +1,10 @@
 {
   "name": "hive",
   "private": true,
-  "workspaces": ["backend", "frontend"],
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
   "scripts": {
     "lint": "npm run lint --workspace @hive/backend --workspace @hive/frontend",
     "lint:fix": "npm run lint:fix --workspace @hive/backend --workspace @hive/frontend",
@@ -13,6 +16,7 @@
     "eslint": "^9.21.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "globals": "^16.0.0",
+    "typescript": "^5.9.3",
     "typescript-eslint": "^8.24.0"
   }
 }
