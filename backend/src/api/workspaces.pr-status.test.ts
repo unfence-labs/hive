@@ -1,0 +1,253 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import Fastify, { type FastifyInstance } from "fastify";
+import type { ProjectState, PullRequestInfo, Workspace } from "../types.js";
+
+const mocks = vi.hoisted(() => ({
+  createWorkspace: vi.fn(),
+  listWorkspaces: vi.fn(),
+  getWorkspace: vi.fn(),
+  deleteWorkspace: vi.fn(),
+  getWorkspaceDiff: vi.fn(),
+  getWorkspaceDiffStat: vi.fn(),
+  listWorkspaceFiles: vi.fn(),
+  getWorkspaceFileContent: vi.fn(),
+  mergeWorkspace: vi.fn(),
+  archiveWorkspace: vi.fn(),
+  endSession: vi.fn(),
+  parseGitHubRepo: vi.fn(),
+  fetchPrForBranch: vi.fn(),
+  getBranchName: vi.fn(),
+}));
+
+vi.mock("../workspaces/workspace-manager.js", () => ({
+  createWorkspace: mocks.createWorkspace,
+  listWorkspaces: mocks.listWorkspaces,
+  getWorkspace: mocks.getWorkspace,
+  deleteWorkspace: mocks.deleteWorkspace,
+  getWorkspaceDiff: mocks.getWorkspaceDiff,
+  getWorkspaceDiffStat: mocks.getWorkspaceDiffStat,
+  listWorkspaceFiles: mocks.listWorkspaceFiles,
+  getWorkspaceFileContent: mocks.getWorkspaceFileContent,
+  mergeWorkspace: mocks.mergeWorkspace,
+  archiveWorkspace: mocks.archiveWorkspace,
+}));
+
+vi.mock("../agents/agent-manager.js", () => ({
+  endSession: mocks.endSession,
+}));
+
+vi.mock("../utils/github.js", () => ({
+  parseGitHubRepo: mocks.parseGitHubRepo,
+  fetchPrForBranch: mocks.fetchPrForBranch,
+}));
+
+vi.mock("../services/git-sync.js", () => ({
+  getBranchName: mocks.getBranchName,
+}));
+
+import { join } from "node:path";
+import { workspaceRoutes } from "./workspaces.js";
+
+function makePr(overrides: Partial<PullRequestInfo> = {}): PullRequestInfo {
+  return {
+    number: 42,
+    url: "https://github.com/acme/widget/pull/42",
+    state: "open",
+    mergeable: true,
+    mergeableState: "clean",
+    checksStatus: "success",
+    checksPassed: null,
+    checksTotal: null,
+    reviewStatus: null,
+    ...overrides,
+  };
+}
+
+const DATA_DIR = "/tmp/hive-pr-status-test";
+const PROJECT_ID = "project-1";
+const WORKSPACE_ID = "ws-1";
+const WORKSPACE_NAME = "tokyo";
+
+const workspace: Workspace = {
+  id: WORKSPACE_ID,
+  name: WORKSPACE_NAME,
+  projectId: PROJECT_ID,
+  branch: "workspace/tokyo",
+  status: "idle",
+  createdAt: "2026-02-21T00:00:00.000Z",
+};
+
+const projectState: ProjectState = {
+  id: PROJECT_ID,
+  name: "acme-widget",
+  url: "https://github.com/acme/widget",
+  createdAt: "2026-02-21T00:00:00.000Z",
+  workspaces: [workspace],
+};
+
+let app: ReturnType<typeof Fastify>;
+
+beforeEach(async () => {
+  vi.clearAllMocks();
+
+  mocks.getWorkspace.mockResolvedValue({
+    workspace,
+    projectState,
+  });
+  mocks.parseGitHubRepo.mockReturnValue({ owner: "acme", repo: "widget" });
+  mocks.getBranchName.mockResolvedValue("feature/from-git");
+  mocks.fetchPrForBranch.mockResolvedValue({ pr: makePr() });
+
+  app = Fastify();
+  await app.register((instance: FastifyInstance) => workspaceRoutes(instance, DATA_DIR));
+  await app.ready();
+});
+
+afterEach(async () => {
+  await app.close();
+  vi.restoreAllMocks();
+});
+
+describe("GET /api/workspaces/:wsId/pr-status", () => {
+  it("returns PR status for a GitHub workspace", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ pr: makePr() });
+
+    expect(mocks.getBranchName).toHaveBeenCalledWith(
+      join(DATA_DIR, PROJECT_ID, "workspaces", WORKSPACE_NAME),
+    );
+    expect(mocks.fetchPrForBranch).toHaveBeenCalledWith(
+      "acme",
+      "widget",
+      "feature/from-git",
+    );
+  });
+
+  it("falls back to workspace.branch when getBranchName fails", async () => {
+    mocks.getBranchName.mockRejectedValueOnce(new Error("worktree missing"));
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mocks.fetchPrForBranch).toHaveBeenCalledWith(
+      "acme",
+      "widget",
+      "workspace/tokyo",
+    );
+  });
+
+  it("returns PR errors from gh without failing the endpoint", async () => {
+    mocks.fetchPrForBranch.mockResolvedValueOnce({
+      pr: null,
+      error: "gh not authenticated — run `gh auth login`",
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      pr: null,
+      error: "gh not authenticated — run `gh auth login`",
+    });
+  });
+
+  it("returns 404 when workspace does not exist", async () => {
+    mocks.getWorkspace.mockResolvedValueOnce(null);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/workspaces/missing/pr-status",
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: "Workspace not found" });
+    expect(mocks.fetchPrForBranch).not.toHaveBeenCalled();
+  });
+
+  it("returns pr:null for non-GitHub repositories", async () => {
+    mocks.parseGitHubRepo.mockReturnValueOnce(null);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ pr: null });
+    expect(mocks.getBranchName).not.toHaveBeenCalled();
+    expect(mocks.fetchPrForBranch).not.toHaveBeenCalled();
+  });
+
+  it("uses cache for repeated calls within TTL", async () => {
+    mocks.fetchPrForBranch.mockResolvedValueOnce({ pr: makePr({ number: 1 }) });
+
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(100_000);
+    const first = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,
+    });
+    const second = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(first.json()).toEqual({ pr: makePr({ number: 1 }) });
+    expect(second.json()).toEqual({ pr: makePr({ number: 1 }) });
+    expect(mocks.getWorkspace).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchPrForBranch).toHaveBeenCalledTimes(1);
+
+    nowSpy.mockRestore();
+  });
+
+  it("refreshes cache after TTL expires", async () => {
+    mocks.fetchPrForBranch
+      .mockResolvedValueOnce({ pr: makePr({ number: 1 }) })
+      .mockResolvedValueOnce({ pr: makePr({ number: 2 }) });
+
+    let now = 100_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+
+    const first = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,
+    });
+    now += 15_001;
+    const second = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(first.json()).toEqual({ pr: makePr({ number: 1 }) });
+    expect(second.json()).toEqual({ pr: makePr({ number: 2 }) });
+    expect(mocks.fetchPrForBranch).toHaveBeenCalledTimes(2);
+
+    nowSpy.mockRestore();
+  });
+
+  it("returns 500 when an unexpected error bubbles up", async () => {
+    mocks.fetchPrForBranch.mockRejectedValueOnce(new Error("boom"));
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,
+    });
+
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toEqual({ error: "boom" });
+  });
+});

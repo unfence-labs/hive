@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PrStatusSection } from "@/components/PrStatusSection";
 import type { PullRequestInfo } from "@/types";
 
@@ -18,11 +18,18 @@ function makePr(overrides: Partial<PullRequestInfo> = {}): PullRequestInfo {
     mergeable: null,
     mergeableState: "unknown",
     checksStatus: "success",
+    checksPassed: null,
+    checksTotal: null,
+    reviewStatus: null,
     ...overrides,
   };
 }
 
 describe("PrStatusSection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("shows 'Checking…' while loading", () => {
     mockUsePrStatus.mockReturnValue({ pr: null, error: null, loading: true });
     render(<PrStatusSection wsId="ws-1" />);
@@ -109,14 +116,168 @@ describe("PrStatusSection", () => {
     expect(screen.getByText(/Merged/)).toBeDefined();
   });
 
-  it("shows 'Checking…' for PR with unknown state (not mergeable, not conflicting, not merged)", () => {
+  it("shows 'Closed' for closed PR", () => {
+    mockUsePrStatus.mockReturnValue({
+      pr: makePr({ state: "closed" }),
+      error: null,
+      loading: false,
+    });
+    render(<PrStatusSection wsId="ws-1" />);
+    expect(screen.getByText(/Closed/)).toBeDefined();
+  });
+
+  it("shows 'Draft' for draft PR", () => {
+    mockUsePrStatus.mockReturnValue({
+      pr: makePr({ state: "draft" }),
+      error: null,
+      loading: false,
+    });
+    render(<PrStatusSection wsId="ws-1" />);
+    expect(screen.getByText(/Draft/)).toBeDefined();
+  });
+
+  it("shows 'Checks failing' with counts", () => {
+    mockUsePrStatus.mockReturnValue({
+      pr: makePr({
+        checksStatus: "failure",
+        checksPassed: 2,
+        checksTotal: 5,
+      }),
+      error: null,
+      loading: false,
+    });
+    render(<PrStatusSection wsId="ws-1" />);
+    expect(screen.getByText(/Checks failing \(2\/5\)/)).toBeDefined();
+  });
+
+  it("shows 'Checks cancelled' for cancelled checks", () => {
+    mockUsePrStatus.mockReturnValue({
+      pr: makePr({
+        checksStatus: "cancelled",
+      }),
+      error: null,
+      loading: false,
+    });
+    render(<PrStatusSection wsId="ws-1" />);
+    expect(screen.getByText(/Checks cancelled/)).toBeDefined();
+  });
+
+  it("shows 'Checks running' with counts when checks are pending", () => {
+    mockUsePrStatus.mockReturnValue({
+      pr: makePr({
+        checksStatus: "pending",
+        checksPassed: 1,
+        checksTotal: 4,
+      }),
+      error: null,
+      loading: false,
+    });
+    render(<PrStatusSection wsId="ws-1" />);
+    expect(screen.getByText(/Checks running \(1\/4\)/)).toBeDefined();
+  });
+
+  it("shows 'Changes requested' when review asks for changes", () => {
+    mockUsePrStatus.mockReturnValue({
+      pr: makePr({
+        reviewStatus: "changes_requested",
+      }),
+      error: null,
+      loading: false,
+    });
+    render(<PrStatusSection wsId="ws-1" />);
+    expect(screen.getByText(/Changes requested/)).toBeDefined();
+  });
+
+  it("shows 'Blocked' for blocked mergeable state", () => {
+    mockUsePrStatus.mockReturnValue({
+      pr: makePr({
+        mergeableState: "blocked",
+      }),
+      error: null,
+      loading: false,
+    });
+    render(<PrStatusSection wsId="ws-1" />);
+    expect(screen.getByText(/Blocked/)).toBeDefined();
+  });
+
+  it("shows 'Unstable' for unstable mergeable state", () => {
+    mockUsePrStatus.mockReturnValue({
+      pr: makePr({
+        mergeableState: "unstable",
+      }),
+      error: null,
+      loading: false,
+    });
+    render(<PrStatusSection wsId="ws-1" />);
+    expect(screen.getByText(/Unstable/)).toBeDefined();
+  });
+
+  it("shows 'Review needed' when review is required", () => {
+    mockUsePrStatus.mockReturnValue({
+      pr: makePr({
+        reviewStatus: "review_required",
+      }),
+      error: null,
+      loading: false,
+    });
+    render(<PrStatusSection wsId="ws-1" />);
+    expect(screen.getByText(/Review needed/)).toBeDefined();
+  });
+
+  it("shows 'Open' as fallback when no specific status applies", () => {
     mockUsePrStatus.mockReturnValue({
       pr: makePr({ state: "open", mergeable: null, mergeableState: "unknown" }),
       error: null,
       loading: false,
     });
     render(<PrStatusSection wsId="ws-1" />);
-    expect(screen.getByText(/Checking/)).toBeDefined();
+    expect(screen.getByText(/Open/)).toBeDefined();
+  });
+
+  it("prioritizes conflicts over failing checks", () => {
+    mockUsePrStatus.mockReturnValue({
+      pr: makePr({
+        mergeable: false,
+        mergeableState: "conflict",
+        checksStatus: "failure",
+      }),
+      error: null,
+      loading: false,
+    });
+    render(<PrStatusSection wsId="ws-1" />);
+    expect(screen.getByText(/Has conflicts/)).toBeDefined();
+    expect(screen.queryByText(/Checks failing/)).toBeNull();
+  });
+
+  it("prioritizes checks failure over review status", () => {
+    mockUsePrStatus.mockReturnValue({
+      pr: makePr({
+        checksStatus: "failure",
+        reviewStatus: "changes_requested",
+      }),
+      error: null,
+      loading: false,
+    });
+    render(<PrStatusSection wsId="ws-1" />);
+    expect(screen.getByText(/Checks failing/)).toBeDefined();
+    expect(screen.queryByText(/Changes requested/)).toBeNull();
+  });
+
+  it("prioritizes merged state over all other signals", () => {
+    mockUsePrStatus.mockReturnValue({
+      pr: makePr({
+        state: "merged",
+        mergeable: false,
+        checksStatus: "failure",
+        reviewStatus: "changes_requested",
+      }),
+      error: null,
+      loading: false,
+    });
+    render(<PrStatusSection wsId="ws-1" />);
+    expect(screen.getByText(/Merged/)).toBeDefined();
+    expect(screen.queryByText(/Has conflicts/)).toBeNull();
+    expect(screen.queryByText(/Checks failing/)).toBeNull();
   });
 
   it("renders external link with correct href", () => {
@@ -140,25 +301,5 @@ describe("PrStatusSection", () => {
     });
     render(<PrStatusSection wsId="ws-1" />);
     expect(screen.getByText(/PR #123/)).toBeDefined();
-  });
-
-  it("shows draft PR as 'Checking…' (draft is just an open state variant)", () => {
-    mockUsePrStatus.mockReturnValue({
-      pr: makePr({ state: "draft", mergeable: null, mergeableState: "unknown" }),
-      error: null,
-      loading: false,
-    });
-    render(<PrStatusSection wsId="ws-1" />);
-    expect(screen.getByText(/Checking/)).toBeDefined();
-  });
-
-  it("shows closed PR as 'Checking…' (no special label for closed)", () => {
-    mockUsePrStatus.mockReturnValue({
-      pr: makePr({ state: "closed", mergeable: null, mergeableState: "unknown" }),
-      error: null,
-      loading: false,
-    });
-    render(<PrStatusSection wsId="ws-1" />);
-    expect(screen.getByText(/Checking/)).toBeDefined();
   });
 });

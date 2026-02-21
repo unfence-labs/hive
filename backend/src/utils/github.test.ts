@@ -236,6 +236,25 @@ describe("fetchPrForBranch", () => {
     });
   });
 
+  it("requests closed and merged PRs via --state all and includes reviewDecision field", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(mockExecFileSuccess("[]"));
+    execFileMock.mockClear();
+
+    await fetchPrForBranch("acme", "widget", "feature-x");
+
+    expect(execFileMock).toHaveBeenCalled();
+    const args = execFileMock.mock.calls.at(-1)?.[1] as string[];
+
+    const stateIndex = args.indexOf("--state");
+    expect(stateIndex).toBeGreaterThan(-1);
+    expect(args[stateIndex + 1]).toBe("all");
+
+    const jsonIndex = args.indexOf("--json");
+    expect(jsonIndex).toBeGreaterThan(-1);
+    expect(args[jsonIndex + 1]).toContain("reviewDecision");
+  });
+
   it("returns null PR when gh returns empty array", async () => {
     const execFileMock = await getExecFileMock();
     execFileMock.mockImplementation(mockExecFileSuccess("[]"));
