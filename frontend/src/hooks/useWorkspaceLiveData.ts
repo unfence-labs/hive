@@ -69,18 +69,7 @@ export function useWorkspaceLiveData(
           });
         } else if (msg.type === "branch_info") {
           setLiveData((prev) => {
-            const current = prev[wsId];
-            if (
-              current?.branch === msg.info.name &&
-              current?.branchInfo?.prSyncError === msg.info.prSyncError &&
-              current?.branchInfo?.pr?.number === msg.info.pr?.number &&
-              current?.branchInfo?.pr?.state === msg.info.pr?.state &&
-              current?.branchInfo?.pr?.mergeable === msg.info.pr?.mergeable &&
-              current?.branchInfo?.pr?.mergeableState === msg.info.pr?.mergeableState &&
-              current?.branchInfo?.pr?.checksStatus === msg.info.pr?.checksStatus
-            ) {
-              return prev;
-            }
+            if (prev[wsId]?.branch === msg.info.name) return prev;
             return {
               ...prev,
               [wsId]: {

@@ -173,4 +173,8 @@ final class APIClient {
     func fetchModels() async throws -> ModelCatalogResponse {
         try await get(path: "/api/models")
     }
+
+    func fetchPrStatus(workspaceId: String) async throws -> PrStatusResponse {
+        try await get(path: "/api/workspaces/\(workspaceId)/pr-status")
+    }
 }

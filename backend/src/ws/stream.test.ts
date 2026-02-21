@@ -18,7 +18,10 @@ import {
 } from "../agents/agent-manager.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
 import { streamRoutes, broadcastToWorkspace, _getChannelsForTests } from "./stream.js";
-import { startScript, _clearAll as clearScripts } from "../services/script-runner.js";
+import {
+  _setScriptStatusForTests,
+  _clearAll as clearScripts,
+} from "../services/script-runner.js";
 import type { WsOutgoing } from "../types.js";
 
 const CONV_CMD = { command: "bash" };
@@ -26,7 +29,6 @@ const CONV_CMD = { command: "bash" };
 let tempDir: string;
 let dataDir: string;
 let app: FastifyInstance;
-let address: string;
 let projectId: string;
 let wsId: string;
 
@@ -48,7 +50,7 @@ beforeEach(async () => {
   await app.register((instance: FastifyInstance) =>
     streamRoutes(instance, { dataDir, sessionOptions: CONV_CMD }),
   );
-  address = await app.listen({ port: 0, host: "127.0.0.1" });
+  await app.ready();
 });
 
 afterEach(async () => {
@@ -62,24 +64,57 @@ afterEach(async () => {
 /** Connect a WebSocket and start collecting messages immediately. */
 function connectSessionWs(
   workspaceId: string,
-  opts?: { address?: string; headers?: Record<string, string> },
+  opts?: {
+    app?: FastifyInstance;
+    headers?: Record<string, string>;
+    query?: Record<string, string>;
+  },
 ): {
   wsReady: Promise<WebSocket>;
   messages: WsOutgoing[];
 } {
-  const wsUrl = (opts?.address ?? address).replace("http://", "ws://");
+  const queryString = opts?.query
+    ? `?${new URLSearchParams(opts.query).toString()}`
+    : "";
+  const path = `/ws/session/${workspaceId}${queryString}`;
   const messages: WsOutgoing[] = [];
-  const ws = new WebSocket(`${wsUrl}/ws/session/${workspaceId}`, {
-    headers: opts?.headers,
-  });
-  ws.on("message", (data) => {
+  const wsReady = (opts?.app ?? app).injectWS(
+    path,
+    { headers: opts?.headers },
+    {
+      onInit: (ws) => {
+        ws.on("message", (data: Buffer) => {
+          messages.push(JSON.parse(data.toString()) as WsOutgoing);
+        });
+      },
+    },
+  ) as Promise<WebSocket>;
+  return { wsReady, messages };
+}
+
+/** Connect a WebSocket and attach listeners after injectWS resolves. */
+async function connectSessionWsLateListener(
+  workspaceId: string,
+  opts?: {
+    app?: FastifyInstance;
+    headers?: Record<string, string>;
+    query?: Record<string, string>;
+  },
+): Promise<{ ws: WebSocket; messages: WsOutgoing[] }> {
+  const queryString = opts?.query
+    ? `?${new URLSearchParams(opts.query).toString()}`
+    : "";
+  const path = `/ws/session/${workspaceId}${queryString}`;
+  const ws = (await (opts?.app ?? app).injectWS(path, { headers: opts?.headers })) as WebSocket;
+  const messages: WsOutgoing[] = [];
+
+  // Simulate clients that install message handlers right after websocket init.
+  await Promise.resolve();
+  ws.on("message", (data: Buffer) => {
     messages.push(JSON.parse(data.toString()) as WsOutgoing);
   });
-  const wsReady = new Promise<WebSocket>((resolve, reject) => {
-    ws.on("open", () => resolve(ws));
-    ws.on("error", reject);
-  });
-  return { wsReady, messages };
+
+  return { ws, messages };
 }
 
 async function startWsApp(
@@ -93,7 +128,7 @@ async function startWsApp(
       workspaceId: string,
     ) => Extract<WsOutgoing, { type: "diff_stats" }>["stats"] | undefined;
   },
-): Promise<{ app: FastifyInstance; address: string }> {
+): Promise<{ app: FastifyInstance }> {
   const localApp = Fastify();
   await localApp.register(websocket, { options: { maxPayload: 10 * 1024 * 1024 } });
   await localApp.register((instance: FastifyInstance) =>
@@ -104,8 +139,8 @@ async function startWsApp(
       gitSyncSnapshotProvider,
     }),
   );
-  const localAddress = await localApp.listen({ port: 0, host: "127.0.0.1" });
-  return { app: localApp, address: localAddress };
+  await localApp.ready();
+  return { app: localApp };
 }
 
 /** Wait until a condition is met on the collected messages. */
@@ -160,6 +195,15 @@ describe("WS /ws/session/:wsId", () => {
     ws.close();
   });
 
+  it("delivers bootstrap status when listener is attached after injectWS resolves", async () => {
+    const { ws, messages } = await connectSessionWsLateListener(wsId);
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+
+    expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
+    ws.close();
+  });
+
   it("sends persisted history even when no active session exists", async () => {
     const sessionId = "sess-persisted";
     const sessionDir = join(dataDir, projectId, "sessions", sessionId);
@@ -206,6 +250,51 @@ describe("WS /ws/session/:wsId", () => {
     ws.close();
   });
 
+  it("delivers persisted history when listener is attached after injectWS resolves", async () => {
+    const sessionId = "sess-persisted-late";
+    const sessionDir = join(dataDir, projectId, "sessions", sessionId);
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      join(sessionDir, "metadata.json"),
+      JSON.stringify({
+        sessionId,
+        workspaceId: wsId,
+        createdAt: "2026-02-11T00:00:00.000Z",
+        updatedAt: "2026-02-11T00:00:01.000Z",
+        messageCount: 1,
+      }),
+      "utf-8",
+    );
+    await writeFile(
+      join(sessionDir, "messages.jsonl"),
+      JSON.stringify({
+        id: "m-1",
+        sessionId,
+        role: "assistant",
+        content: "persisted response late listener",
+        timestamp: "2026-02-11T00:00:00.000Z",
+      }) + "\n",
+      "utf-8",
+    );
+
+    const { ws, messages } = await connectSessionWsLateListener(wsId);
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "history"));
+
+    const history = messages.find((m) => m.type === "history");
+    expect(history).toBeDefined();
+    if (history?.type === "history") {
+      expect(history.messages).toEqual([
+        expect.objectContaining({
+          content: "persisted response late listener",
+          role: "assistant",
+        }),
+      ]);
+    }
+
+    ws.close();
+  });
+
   it("sends idle status + history when session exists but is not streaming", async () => {
     await getOrCreateSession(wsId, dataDir, CONV_CMD);
 
@@ -235,7 +324,7 @@ describe("WS /ws/session/:wsId", () => {
     const { session } = await getOrCreateSession(wsId, dataDir, slowCmd);
     session.sendMessage("bootstrap busy");
 
-    const { wsReady, messages } = connectSessionWs(wsId, { address: local.address });
+    const { wsReady, messages } = connectSessionWs(wsId, { app: local.app });
     const ws = await wsReady;
 
     await waitForMessage(
@@ -432,7 +521,7 @@ describe("WS /ws/session/:wsId", () => {
     const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
 
     const local = await startWsApp(undefined, slowCmd);
-    const { wsReady, messages } = connectSessionWs(wsId, { address: local.address });
+    const { wsReady, messages } = connectSessionWs(wsId, { app: local.app });
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.length >= 1);
@@ -700,8 +789,8 @@ describe("WS /ws/session/:wsId", () => {
     const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
 
     const local = await startWsApp(undefined, slowCmd);
-    const first = connectSessionWs(wsId, { address: local.address });
-    const second = connectSessionWs(wsId, { address: local.address });
+    const first = connectSessionWs(wsId, { app: local.app });
+    const second = connectSessionWs(wsId, { app: local.app });
     const ws1 = await first.wsReady;
     const ws2 = await second.wsReady;
 
@@ -821,11 +910,19 @@ describe("WS /ws/session/:wsId", () => {
     await waitForMessage(second.messages, (msgs) => msgs.some((m) => m.type === "status"));
     await waitForCondition(() => _getChannelsForTests().get(wsId)?.sockets.size === 2);
 
-    ws1.close();
+    const ws1Closed = new Promise<void>((resolve) => {
+      ws1.once("close", () => resolve());
+    });
+    ws1.terminate();
+    await ws1Closed;
     await waitForCondition(() => _getChannelsForTests().get(wsId)?.sockets.size === 1);
     expect(_getChannelsForTests().has(wsId)).toBe(true);
 
-    ws2.close();
+    const ws2Closed = new Promise<void>((resolve) => {
+      ws2.once("close", () => resolve());
+    });
+    ws2.terminate();
+    await ws2Closed;
     await waitForCondition(() => !_getChannelsForTests().has(wsId));
   });
 
@@ -835,7 +932,7 @@ describe("WS /ws/session/:wsId", () => {
     await chmod(fakeClaudePath, 0o755);
 
     const local = await startWsApp(undefined, { command: fakeClaudePath, systemPrompt: false });
-    const { wsReady, messages } = connectSessionWs(wsId, { address: local.address });
+    const { wsReady, messages } = connectSessionWs(wsId, { app: local.app });
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.length >= 1);
@@ -864,8 +961,7 @@ describe("WS /ws/session/:wsId", () => {
 
   it("rejects unauthorized websocket connections when auth token is configured", async () => {
     const secure = await startWsApp("secret");
-    const wsUrl = secure.address.replace("http://", "ws://");
-    const ws = new WebSocket(`${wsUrl}/ws/session/${wsId}`);
+    const ws = await secure.app.injectWS(`/ws/session/${wsId}`);
 
     const closeCode = await new Promise<number>((resolve, reject) => {
       ws.on("close", (code) => resolve(code));
@@ -879,7 +975,7 @@ describe("WS /ws/session/:wsId", () => {
   it("accepts websocket connections with a valid auth token", async () => {
     const secure = await startWsApp("secret");
     const { wsReady, messages } = connectSessionWs(wsId, {
-      address: secure.address,
+      app: secure.app,
       headers: { authorization: "Bearer secret" },
     });
     const ws = await wsReady;
@@ -893,17 +989,11 @@ describe("WS /ws/session/:wsId", () => {
 
   it("accepts websocket connections with a valid token query parameter", async () => {
     const secure = await startWsApp("secret");
-    const wsUrl = secure.address.replace("http://", "ws://");
-    const messages: WsOutgoing[] = [];
-    const ws = new WebSocket(`${wsUrl}/ws/session/${wsId}?token=secret`);
-    ws.on("message", (data) => {
-      messages.push(JSON.parse(data.toString()) as WsOutgoing);
+    const { wsReady, messages } = connectSessionWs(wsId, {
+      app: secure.app,
+      query: { token: "secret" },
     });
-
-    await new Promise<void>((resolve, reject) => {
-      ws.on("open", () => resolve());
-      ws.on("error", reject);
-    });
+    const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.length >= 1);
     expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
@@ -967,17 +1057,8 @@ describe("WS /ws/session/:wsId", () => {
       ),
     };
     const local = await startWsApp(undefined, CONV_CMD, provider);
-    const localWsUrl = local.address.replace("http://", "ws://");
-    const messages: WsOutgoing[] = [];
-    const ws = new WebSocket(`${localWsUrl}/ws/session/${wsId}`);
-    ws.on("message", (data) => {
-      messages.push(JSON.parse(data.toString()) as WsOutgoing);
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      ws.on("open", () => resolve());
-      ws.on("error", reject);
-    });
+    const { wsReady, messages } = connectSessionWs(wsId, { app: local.app });
+    const ws = await wsReady;
 
     await waitForMessage(
       messages,
@@ -993,13 +1074,56 @@ describe("WS /ws/session/:wsId", () => {
     await local.app.close();
   });
 
+  it("delivers snapshots and script_status to listeners attached after injectWS resolves", async () => {
+    const branchInfo = { name: "workspace/late-listener", lastSyncedAt: "2026-02-18T10:00:00.000Z" };
+    const diffStats = {
+      committed: [{ file: "c.ts", additions: 2, deletions: 0, status: "added" as const }],
+      uncommitted: [{ file: "d.ts", additions: 0, deletions: 3, status: "modified" as const }],
+    };
+    _setScriptStatusForTests(wsId, "backend", "running");
+
+    const provider = {
+      getCachedBranchInfo: vi.fn((workspaceId: string) =>
+        workspaceId === wsId ? branchInfo : undefined,
+      ),
+      getCachedDiffStats: vi.fn((workspaceId: string) =>
+        workspaceId === wsId ? diffStats : undefined,
+      ),
+    };
+    const local = await startWsApp(undefined, CONV_CMD, provider);
+
+    const { ws, messages } = await connectSessionWsLateListener(wsId, { app: local.app });
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some((m) => m.type === "status") &&
+        msgs.some((m) => m.type === "branch_info") &&
+        msgs.some((m) => m.type === "diff_stats") &&
+        msgs.some((m) => m.type === "script_status"),
+    );
+
+    expect(messages).toContainEqual({ type: "branch_info", info: branchInfo });
+    expect(messages).toContainEqual({ type: "diff_stats", stats: diffStats });
+    expect(messages).toContainEqual({
+      type: "script_status",
+      scriptType: "backend",
+      state: "running",
+    });
+    expect(provider.getCachedBranchInfo).toHaveBeenCalledWith(wsId);
+    expect(provider.getCachedDiffStats).toHaveBeenCalledWith(wsId);
+
+    ws.close();
+    await local.app.close();
+  });
+
   it("does not send snapshots when provider returns undefined for workspace", async () => {
     const provider = {
       getCachedBranchInfo: vi.fn(() => undefined),
       getCachedDiffStats: vi.fn(() => undefined),
     };
     const local = await startWsApp(undefined, CONV_CMD, provider);
-    const { wsReady, messages } = connectSessionWs(wsId, { address: local.address });
+    const { wsReady, messages } = connectSessionWs(wsId, { app: local.app });
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
@@ -1016,11 +1140,7 @@ describe("WS /ws/session/:wsId", () => {
   });
 
   it("sends script_status on connect when a script is running", async () => {
-    const fakeScript = join(tempDir, "fake-run.sh");
-    await writeFile(fakeScript, "#!/bin/sh\nsleep 30\n", "utf-8");
-    await chmod(fakeScript, 0o755);
-
-    startScript(wsId, "run", fakeScript, tempDir);
+    _setScriptStatusForTests(wsId, "run", "running");
 
     const { wsReady, messages } = connectSessionWs(wsId);
     const ws = await wsReady;
@@ -1041,23 +1161,8 @@ describe("WS /ws/session/:wsId", () => {
   });
 
   it("sends script_status for each non-idle named script on connect", async () => {
-    const runningScript = join(tempDir, "fake-backend.sh");
-    await writeFile(runningScript, "#!/bin/sh\nsleep 30\n", "utf-8");
-    await chmod(runningScript, 0o755);
-
-    const finishedScript = join(tempDir, "fake-frontend.sh");
-    await writeFile(finishedScript, "#!/bin/sh\nexit 0\n", "utf-8");
-    await chmod(finishedScript, 0o755);
-
-    startScript(wsId, "backend", runningScript, tempDir);
-    const doneProc = startScript(wsId, "frontend", finishedScript, tempDir);
-    await new Promise<void>((resolve) => {
-      const lid = "wait-frontend-done";
-      doneProc.exitListeners.set(lid, () => {
-        doneProc.exitListeners.delete(lid);
-        resolve();
-      });
-    });
+    _setScriptStatusForTests(wsId, "backend", "running");
+    _setScriptStatusForTests(wsId, "frontend", "done", 0);
 
     const { wsReady, messages } = connectSessionWs(wsId);
     const ws = await wsReady;
@@ -1083,20 +1188,7 @@ describe("WS /ws/session/:wsId", () => {
   });
 
   it("sends script_status with exitCode on connect when a script has finished", async () => {
-    const fakeScript = join(tempDir, "fake-fail.sh");
-    await writeFile(fakeScript, "#!/bin/sh\nexit 1\n", "utf-8");
-    await chmod(fakeScript, 0o755);
-
-    const proc = startScript(wsId, "setup", fakeScript, tempDir);
-
-    // Wait for the script to actually exit
-    await new Promise<void>((resolve) => {
-      const lid = "test-wait-exit";
-      proc.exitListeners.set(lid, () => {
-        proc.exitListeners.delete(lid);
-        resolve();
-      });
-    });
+    _setScriptStatusForTests(wsId, "setup", "error", 1);
 
     const { wsReady, messages } = connectSessionWs(wsId);
     const ws = await wsReady;
@@ -1141,7 +1233,7 @@ describe("WS /ws/session/:wsId", () => {
     // Create a session first so the WS connect path hits the "busy" branch
     await getOrCreateSession(wsId, dataDir, CONV_CMD);
 
-    const { wsReady, messages } = connectSessionWs(wsId, { address: local.address });
+    const { wsReady, messages } = connectSessionWs(wsId, { app: local.app });
     const ws = await wsReady;
 
     await waitForMessage(

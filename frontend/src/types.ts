@@ -48,15 +48,21 @@ export interface PullRequestInfo {
   url: string;
   state: "open" | "draft" | "merged" | "closed";
   mergeable: boolean | null;
-  mergeableState: "clean" | "conflict" | "unstable" | "unknown";
-  checksStatus: "pending" | "success" | "failure";
+  mergeableState: "clean" | "conflict" | "blocked" | "unstable" | "unknown";
+  checksStatus: "pending" | "success" | "failure" | "cancelled";
+  checksPassed: number | null;
+  checksTotal: number | null;
+  reviewStatus: "approved" | "changes_requested" | "review_required" | null;
 }
 
 export interface BranchInfo {
   name: string;
   lastSyncedAt: string;
-  pr?: PullRequestInfo | null;
-  prSyncError?: string;
+}
+
+export interface PrStatusResponse {
+  pr: PullRequestInfo | null;
+  error?: string;
 }
 
 export interface WorkspaceFileTreeNode {

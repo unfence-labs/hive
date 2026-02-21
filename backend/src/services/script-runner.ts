@@ -163,3 +163,29 @@ export function _clearAll(): void {
   }
   activeScripts.clear();
 }
+
+/** Test helper to seed script status without spawning a PTY process. */
+export function _setScriptStatusForTests(
+  wsId: string,
+  type: ScriptType,
+  state: ScriptState,
+  exitCode?: number,
+): void {
+  const proc: ScriptProcess = {
+    pty: {
+      pid: 0,
+      write: () => {},
+      resize: () => {},
+      kill: () => {},
+      onData: () => ({ dispose: () => {} }),
+      onExit: () => ({ dispose: () => {} }),
+    } as unknown as IPty,
+    type,
+    state,
+    ...(exitCode !== undefined ? { exitCode } : {}),
+    outputBuffer: [],
+    listeners: new Map(),
+    exitListeners: new Map(),
+  };
+  activeScripts.set(key(wsId, type), proc);
+}

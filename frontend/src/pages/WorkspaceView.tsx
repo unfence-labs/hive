@@ -105,7 +105,7 @@ export default function WorkspaceView() {
   });
 
   const workspace = workspaceQuery.data ?? null;
-  const fileTree = filesQuery.data ?? [];
+  const fileTree = useMemo(() => filesQuery.data ?? [], [filesQuery.data]);
   const fileTreeError = filesQuery.error?.message ?? null;
   const initialDiffStats = diffStatQuery.data ?? null;
 
@@ -135,7 +135,6 @@ export default function WorkspaceView() {
   // Live data via WebSocket (branch + diff stats)
   const liveData = useWorkspaceLiveDataContext();
   const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
-  const branchInfo = wsId ? liveData[wsId]?.branchInfo : undefined;
 
   // VS Code Remote SSH
   const backendHost = useMemo(() => {
@@ -607,7 +606,7 @@ export default function WorkspaceView() {
               onDisconnectOutput={disconnectScriptOutput}
             />
           </div>
-          <PrStatusSection branchInfo={branchInfo} />
+          <PrStatusSection wsId={wsId} />
         </aside>
       </div>
 

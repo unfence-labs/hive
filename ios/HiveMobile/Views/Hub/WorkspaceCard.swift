@@ -5,6 +5,7 @@ struct WorkspaceCard: View {
     var isStreaming: Bool = false
     var diffStats: DiffStatResponse?
     var branchInfo: BranchInfo?
+    var prStatus: PrStatusResponse?
     var sessionCount: Int?
 
     private var totalAdditions: Int {
@@ -59,7 +60,7 @@ struct WorkspaceCard: View {
 
             // Bottom: PR status + sessions
             HStack(spacing: 6) {
-                if let pr = branchInfo?.pr {
+                if let pr = prStatus?.pr {
                     PrBadge(pr: pr)
                 } else {
                     HStack(spacing: 3) {
@@ -119,42 +120,72 @@ struct LineDiffBadge: View {
 struct PrBadge: View {
     let pr: PullRequestInfo
 
-    private var isMerged: Bool { pr.state == .merged }
-    private var isDraft: Bool { pr.state == .draft }
-    private var isMergeable: Bool { pr.mergeable == true || pr.mergeableState == .clean }
-    private var hasConflicts: Bool { pr.mergeable == false || pr.mergeableState == .conflict }
-
-    private var icon: String {
-        if isMerged { return "arrow.triangle.merge" }
-        if isDraft { return "pencil.circle" }
-        if isMergeable { return "checkmark.circle" }
-        if hasConflicts { return "exclamationmark.triangle" }
-        return "arrow.triangle.pull"
+    private var checksCountLabel: String {
+        guard let passed = pr.checksPassed, let total = pr.checksTotal else { return "" }
+        return " (\(passed)/\(total))"
     }
 
-    private var label: String {
-        if isMerged { return "Merged" }
-        if isDraft { return "Draft" }
-        if isMergeable { return "Ready" }
-        if hasConflicts { return "Conflicts" }
-        return "Open"
-    }
-
-    private var color: Color {
-        if isMerged { return .purple }
-        if isDraft { return .secondary }
-        if isMergeable { return .green }
-        if hasConflicts { return .orange }
-        return .blue
+    private var displayState: (icon: String, label: String, color: Color) {
+        // 1. Merged
+        if pr.state == .merged {
+            return ("arrow.triangle.merge", "Merged", .purple)
+        }
+        // 2. Closed
+        if pr.state == .closed {
+            return ("xmark.circle", "Closed", .secondary)
+        }
+        // 3. Draft
+        if pr.state == .draft {
+            return ("pencil.circle", "Draft", .secondary)
+        }
+        // 4. Conflicts
+        if pr.mergeable == false || pr.mergeableState == .conflict {
+            return ("exclamationmark.triangle", "Conflicts", .orange)
+        }
+        // 5. Checks failing
+        if pr.checksStatus == .failure {
+            return ("xmark.circle", "Checks failing\(checksCountLabel)", .red)
+        }
+        // 6. Checks cancelled
+        if pr.checksStatus == .cancelled {
+            return ("nosign", "Checks cancelled", .orange)
+        }
+        // 7. Checks pending
+        if pr.checksStatus == .pending {
+            return ("clock", "Checks running\(checksCountLabel)", .yellow)
+        }
+        // 8. Changes requested
+        if pr.reviewStatus == .changes_requested {
+            return ("exclamationmark.triangle", "Changes requested", .orange)
+        }
+        // 9. Blocked (branch protection)
+        if pr.mergeableState == .blocked {
+            return ("nosign", "Blocked", .orange)
+        }
+        // 10. Unstable
+        if pr.mergeableState == .unstable {
+            return ("exclamationmark.triangle", "Unstable", .yellow)
+        }
+        // 11. Review needed
+        if pr.reviewStatus == .review_required {
+            return ("eye", "Review needed", .blue)
+        }
+        // 12. Ready to merge
+        if pr.mergeable == true || pr.mergeableState == .clean {
+            return ("checkmark.circle", "Ready", .green)
+        }
+        // 13. Fallback
+        return ("arrow.triangle.pull", "Open", .blue)
     }
 
     var body: some View {
+        let state = displayState
         HStack(spacing: 3) {
-            Image(systemName: icon)
-            Text("#\(pr.number) \u{00B7} \(label)")
+            Image(systemName: state.icon)
+            Text("#\(pr.number) \u{00B7} \(state.label)")
         }
         .font(.caption2)
-        .foregroundStyle(color)
+        .foregroundStyle(state.color)
     }
 }
 
@@ -173,10 +204,10 @@ struct PrBadge: View {
                 committed: [DiffFileStat(file: "a.swift", additions: 42, deletions: 16, status: .modified, renamedFrom: nil)],
                 uncommitted: []
             ),
-            branchInfo: BranchInfo(
-                name: "0xlny/ios-swift-app", lastSyncedAt: "",
-                pr: PullRequestInfo(number: 47, url: "", state: .open, mergeable: true, mergeableState: .clean, checksStatus: .success),
-                prSyncError: nil
+            branchInfo: BranchInfo(name: "0xlny/ios-swift-app", lastSyncedAt: ""),
+            prStatus: PrStatusResponse(
+                pr: PullRequestInfo(number: 47, url: "", state: .open, mergeable: true, mergeableState: .clean, checksStatus: .success, checksPassed: nil, checksTotal: nil, reviewStatus: .approved),
+                error: nil
             ),
             sessionCount: 3
         )
@@ -186,10 +217,10 @@ struct PrBadge: View {
                 status: .idle, createdAt: "", activeSessionId: nil,
                 projectName: "hive", defaultBranch: "main"
             ),
-            branchInfo: BranchInfo(
-                name: "feat/long-branch", lastSyncedAt: "",
-                pr: PullRequestInfo(number: 12, url: "", state: .merged, mergeable: nil, mergeableState: .unknown, checksStatus: .success),
-                prSyncError: nil
+            branchInfo: BranchInfo(name: "feat/long-branch", lastSyncedAt: ""),
+            prStatus: PrStatusResponse(
+                pr: PullRequestInfo(number: 12, url: "", state: .merged, mergeable: nil, mergeableState: .unknown, checksStatus: .success, checksPassed: nil, checksTotal: nil, reviewStatus: nil),
+                error: nil
             ),
             sessionCount: 1
         )
