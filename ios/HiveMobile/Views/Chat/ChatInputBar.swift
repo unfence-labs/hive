@@ -380,10 +380,10 @@ private extension ImageAttachment {
     let sampleModels: [ModelCatalogEntry] = [
         .init(id: "claude:opus-4-6", label: "Opus 4.6", provider: "claude", providerLabel: "Claude Code",
               isDefault: true, isNew: nil,
-              capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true)),
+              capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true)),
         .init(id: "claude:sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code",
               isDefault: nil, isNew: true,
-              capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true)),
+              capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true)),
     ]
     let grouped = [ModelProviderGroup(provider: "claude", providerLabel: "Claude Code", models: sampleModels)]
 
