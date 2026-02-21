@@ -171,6 +171,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           status: "idle",
           sessionId: session.sessionId,
           streaming: false,
+          lockedProvider: session.metadata.lockedProvider,
         });
       }
     };
@@ -185,6 +186,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         status: "idle",
         sessionId: session.sessionId,
         streaming: false,
+        lockedProvider: session.metadata.lockedProvider,
       });
       const live = getSessionById(workspaceId, session.sessionId);
       if (!live) {

@@ -20,7 +20,7 @@ const MOCK_CATALOG: ModelCatalogResponse = {
       provider: "claude",
       providerLabel: "Claude Code",
       isDefault: true,
-      capabilities: { thinking: true, planMode: true, blockingTools: true },
+      capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },
     },
     {
       id: "claude:sonnet-4-6",
@@ -28,7 +28,7 @@ const MOCK_CATALOG: ModelCatalogResponse = {
       provider: "claude",
       providerLabel: "Claude Code",
       isNew: true,
-      capabilities: { thinking: true, planMode: true, blockingTools: true },
+      capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },
     },
     {
       id: "codex:gpt-5.3-codex",
@@ -36,7 +36,7 @@ const MOCK_CATALOG: ModelCatalogResponse = {
       provider: "codex",
       providerLabel: "Codex",
       isDefault: true,
-      capabilities: { thinking: "levels", planMode: false, blockingTools: false },
+      capabilities: { thinking: "levels", planMode: false, blockingTools: false, completions: false },
     },
   ],
   defaultModelId: "claude:opus-4-6",
@@ -121,6 +121,7 @@ describe("useModels", () => {
       thinking: true,
       planMode: true,
       blockingTools: true,
+      completions: true,
     });
 
     act(() => {
@@ -131,6 +132,7 @@ describe("useModels", () => {
       thinking: "levels",
       planMode: false,
       blockingTools: false,
+      completions: false,
     });
   });
 
@@ -143,6 +145,7 @@ describe("useModels", () => {
       thinking: true,
       planMode: true,
       blockingTools: true,
+      completions: true,
     });
   });
 
@@ -182,5 +185,24 @@ describe("useModels", () => {
 
     expect(result.current.selectedModelId).toBe("claude:sonnet-4-6");
     expect(result.current.selectedModel?.label).toBe("Sonnet 4.6");
+  });
+
+  it("selects locked provider default when lockedProvider is set", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    const { result } = renderHook(() => useModels("codex"));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.selectedModelId).toBe("codex:gpt-5.3-codex");
+    expect(result.current.selectedModel?.provider).toBe("codex");
+  });
+
+  it("falls back to global default when lockedProvider has no models", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    const { result } = renderHook(() => useModels("unknown-provider"));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.selectedModelId).toBe("claude:opus-4-6");
   });
 });

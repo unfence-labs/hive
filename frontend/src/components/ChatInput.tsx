@@ -89,11 +89,12 @@ export default function ChatInput({
   const isInputDisabled = disabled || isStreaming || isDisconnected;
   const canSubmit = !isInputDisabled && (value.trim().length > 0 || fileCount > 0);
 
-  const { models, defaultModelId, selectedModelId, setSelectedModelId, capabilities } = useModels();
+  const { models, defaultModelId, selectedModelId, setSelectedModelId, capabilities } = useModels(lockedProvider);
 
   const supportsThinkingToggle = capabilities?.thinking === true;
   const supportsThinkingLevels = capabilities?.thinking === "levels";
   const supportsPlanMode = capabilities?.planMode ?? true;
+  const supportsCompletions = capabilities?.completions ?? true;
 
   useChatInputDraftPersistence({
     wsId,
@@ -102,6 +103,7 @@ export default function ChatInput({
     thinkingEnabled,
     planMode,
     selectedModelId,
+    defaultModelId,
     thinkingLevel,
     attachmentsRef,
     setValue,
@@ -146,7 +148,7 @@ export default function ChatInput({
       const beforeCursor = text.slice(0, cursor);
       const match = beforeCursor.match(/(^|[\s])([/@])(\S*)$/);
 
-      if (match) {
+      if (match && supportsCompletions) {
         const trigger = match[2] as "/" | "@";
         const query = match[3];
         const triggerIndex = beforeCursor.length - match[2].length - match[3].length;
@@ -156,7 +158,7 @@ export default function ChatInput({
         setAutocomplete(null);
       }
     },
-    [],
+    [supportsCompletions],
   );
 
   const selectItem = useCallback(

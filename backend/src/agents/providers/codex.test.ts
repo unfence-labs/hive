@@ -55,6 +55,10 @@ describe("CodexProvider", () => {
     expect(provider.capabilities.blockingTools).toBe(false);
   });
 
+  it("does not support completions", () => {
+    expect(provider.capabilities.completions).toBe(false);
+  });
+
   // ── buildArgs ──────────────────────────────────────────────────────
 
   it("starts with 'exec' for first message", () => {

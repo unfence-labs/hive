@@ -18,6 +18,7 @@ const CLAUDE_CAPABILITIES: ProviderCapabilities = {
   thinking: true,
   planMode: true,
   blockingTools: true,
+  completions: true,
 };
 
 export class ClaudeProvider implements AgentProvider {

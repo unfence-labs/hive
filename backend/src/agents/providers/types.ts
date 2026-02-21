@@ -22,6 +22,7 @@ export interface ProviderCapabilities {
   thinking: boolean | "levels";
   planMode: boolean;
   blockingTools: boolean;
+  completions: boolean;
 }
 
 // ── Session state passed to arg builders ────────────────────────────

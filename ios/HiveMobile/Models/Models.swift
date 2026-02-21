@@ -30,6 +30,7 @@ struct ProviderCapabilities: Codable, Equatable {
     let thinking: ThinkingCapability
     let planMode: Bool
     let blockingTools: Bool
+    let completions: Bool
 }
 
 struct ModelCatalogEntry: Codable, Identifiable, Equatable {

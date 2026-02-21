@@ -63,6 +63,10 @@ describe("ClaudeProvider", () => {
     expect(provider.capabilities.blockingTools).toBe(true);
   });
 
+  it("supports completions", () => {
+    expect(provider.capabilities.completions).toBe(true);
+  });
+
   // ── buildArgs ──────────────────────────────────────────────────────
 
   it("includes --print and --output-format stream-json", () => {

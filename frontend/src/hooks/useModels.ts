@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/hooks/useApi";
 import type { ModelCatalogEntry, ModelCatalogResponse, ProviderCapabilities } from "@/types";
 
@@ -16,13 +16,19 @@ const FALLBACK_CAPABILITIES: ProviderCapabilities = {
   thinking: true,
   planMode: true,
   blockingTools: true,
+  completions: true,
 };
 
-export function useModels(): UseModelsReturn {
+export function useModels(lockedProvider?: string): UseModelsReturn {
   const [models, setModels] = useState<ModelCatalogEntry[]>([]);
   const [defaultModelId, setDefaultModelId] = useState("");
   const [selectedModelId, setSelectedModelId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+
+  // Track latest lockedProvider so the API callback reads the current value,
+  // not the one captured at mount time (which is often undefined).
+  const lockedProviderRef = useRef(lockedProvider);
+  lockedProviderRef.current = lockedProvider;
 
   useEffect(() => {
     let cancelled = false;
@@ -31,8 +37,16 @@ export function useModels(): UseModelsReturn {
         if (cancelled) return;
         setModels(data.models);
         setDefaultModelId(data.defaultModelId);
-        // Only set if no model was previously selected
-        setSelectedModelId((prev) => prev || data.defaultModelId);
+        setSelectedModelId((prev) => {
+          if (prev) return prev;
+          const lp = lockedProviderRef.current;
+          if (lp) {
+            const providerDefault = data.models.find((m) => m.provider === lp && m.isDefault)
+              ?? data.models.find((m) => m.provider === lp);
+            if (providerDefault) return providerDefault.id;
+          }
+          return data.defaultModelId;
+        });
         setIsLoading(false);
       })
       .catch(() => {

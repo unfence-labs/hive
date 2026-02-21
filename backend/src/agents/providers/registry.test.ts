@@ -167,6 +167,7 @@ describe("getModelCatalog", () => {
       expect(typeof model.capabilities.thinking).toBeDefined();
       expect(typeof model.capabilities.planMode).toBe("boolean");
       expect(typeof model.capabilities.blockingTools).toBe("boolean");
+      expect(typeof model.capabilities.completions).toBe("boolean");
     }
   });
 

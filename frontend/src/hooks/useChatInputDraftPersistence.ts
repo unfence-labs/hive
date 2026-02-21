@@ -18,6 +18,7 @@ interface UseChatInputDraftPersistenceParams {
   thinkingEnabled: boolean;
   planMode: boolean;
   selectedModelId: string;
+  defaultModelId: string;
   thinkingLevel: ThinkingLevel;
   attachmentsRef: MutableRefObject<AttachmentsContext | null>;
   setValue: (value: string) => void;
@@ -99,6 +100,7 @@ export function useChatInputDraftPersistence({
   thinkingEnabled,
   planMode,
   selectedModelId,
+  defaultModelId,
   thinkingLevel,
   attachmentsRef,
   setValue,
@@ -120,6 +122,8 @@ export function useChatInputDraftPersistence({
   selectedModelIdRef.current = selectedModelId;
   const thinkingLevelRef = useRef(thinkingLevel);
   thinkingLevelRef.current = thinkingLevel;
+  const defaultModelIdRef = useRef(defaultModelId);
+  defaultModelIdRef.current = defaultModelId;
 
   const saveDraftForSession = useCallback((
     targetSessionId: string | undefined,
@@ -168,6 +172,7 @@ export function useChatInputDraftPersistence({
       setValue("");
       setThinkingEnabled(true);
       setPlanMode(false);
+      if (defaultModelIdRef.current) setSelectedModelId(defaultModelIdRef.current);
       attachmentsRef.current?.restore([]);
       setFileCount(0);
     }

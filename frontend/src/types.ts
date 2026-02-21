@@ -220,6 +220,7 @@ export interface ProviderCapabilities {
   thinking: boolean | "levels";
   planMode: boolean;
   blockingTools: boolean;
+  completions: boolean;
 }
 
 export interface ModelCatalogEntry {

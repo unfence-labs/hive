@@ -8,13 +8,13 @@ import ChatInput from "@/components/ChatInput";
 vi.mock("@/hooks/useModels", () => ({
   useModels: () => ({
     models: [
-      { id: "claude:opus-4-6", modelId: "opus-4-6", label: "Opus 4.6", provider: "claude", providerLabel: "Claude Code", isNew: false, capabilities: { thinking: true, planMode: true, blockingTools: true } },
-      { id: "claude:sonnet-4-6", modelId: "sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code", isNew: true, capabilities: { thinking: true, planMode: true, blockingTools: true } },
+      { id: "claude:opus-4-6", modelId: "opus-4-6", label: "Opus 4.6", provider: "claude", providerLabel: "Claude Code", isNew: false, capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true } },
+      { id: "claude:sonnet-4-6", modelId: "sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code", isNew: true, capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true } },
     ],
     defaultModelId: "claude:opus-4-6",
     selectedModelId: "claude:opus-4-6",
-    selectedModel: { id: "claude:opus-4-6", modelId: "opus-4-6", label: "Opus 4.6", provider: "claude", providerLabel: "Claude Code", isNew: false, capabilities: { thinking: true, planMode: true, blockingTools: true } },
-    capabilities: { thinking: true, planMode: true, blockingTools: true },
+    selectedModel: { id: "claude:opus-4-6", modelId: "opus-4-6", label: "Opus 4.6", provider: "claude", providerLabel: "Claude Code", isNew: false, capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true } },
+    capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },
     setSelectedModelId: vi.fn(),
     isLoading: false,
   }),
