@@ -65,7 +65,9 @@ describe("buildApp", () => {
     app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ status: "ok" });
+    const body = res.json();
+    expect(body.status).toBe("ok");
+    expect(body).toHaveProperty("env");
   });
 
   it("registers project routes", async () => {
@@ -220,7 +222,9 @@ describe("buildApp", () => {
 
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ status: "ok" });
+    const body = res.json();
+    expect(body.status).toBe("ok");
+    expect(body).toHaveProperty("env");
   });
 
   it("rate-limits API requests when threshold is exceeded", async () => {
