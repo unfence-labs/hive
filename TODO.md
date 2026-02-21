@@ -1,6 +1,6 @@
 # Hive — TODO
 
-_Last cleanup: February 17, 2026._
+_Last cleanup: February 21, 2026._
 
 This list only contains open items. Completed and obsolete items were removed.
 
@@ -38,15 +38,22 @@ This list only contains open items. Completed and obsolete items were removed.
 - [ ] **Mobile sidebar behavior**
   Add collapse/drawer behavior for smaller viewports.
 
+- [ ] **Codex session resume verification**
+  Verify that Codex thread IDs are correctly persisted and resumed across session reloads. Currently best-effort.
+
+- [ ] **Distinguish redacted thinking in UI**
+  `redacted_thinking` blocks are logged as `[redacted]` but rendered identically to regular thinking. Add visual distinction.
+
 ## P2 (Infra + Platform)
 
 - [ ] Add `.env.example` for backend/frontend env vars.
 - [ ] Add retention/cleanup policy for old sessions/logs/archives.
 - [ ] Add system status endpoint (disk usage, project/workspace/session counts).
+- [ ] iOS file viewer/diff viewer (currently tool output is shown as raw text).
 
 ## P3 (Security + Extensibility)
 
 - [ ] Add optional per-user auth model (current token is global/shared).
-- [ ] Add session/terminal access audit trail.
+- [ ] Add session access audit trail.
 - [ ] Add optional execution sandbox policy beyond CLI permission flags.
 - [ ] Add plugin command scanning in completions (`~/.claude/plugins/installed_plugins.json`).
