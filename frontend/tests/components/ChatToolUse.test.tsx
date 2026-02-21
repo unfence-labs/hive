@@ -128,6 +128,40 @@ describe("ChatToolUse", () => {
     expect(screen.getByText("Second finding")).toBeInTheDocument();
   });
 
+  it("renders TaskCreate with subject as detail badge", async () => {
+    const user = userEvent.setup();
+    render(
+      <ChatToolUse
+        tool={tool({
+          name: "TaskCreate",
+          input: JSON.stringify({ subject: "Fix login bug", description: "Auth fails on mobile" }),
+          output: "Task #1 created successfully: Fix login bug",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("TaskCreate")).toBeInTheDocument();
+    expect(screen.getByText("Fix login bug")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /taskcreate/i }));
+    expect(screen.getByText(/Auth fails on mobile/)).toBeInTheDocument();
+  });
+
+  it("renders TaskUpdate with task ID and status", async () => {
+    render(
+      <ChatToolUse
+        tool={tool({
+          name: "TaskUpdate",
+          input: JSON.stringify({ taskId: "3", status: "in_progress" }),
+          output: "Task #3 updated",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("TaskUpdate")).toBeInTheDocument();
+    expect(screen.getByText("#3 → in_progress")).toBeInTheDocument();
+  });
+
   it("delegates click handling when onClick is provided without toggling local expansion", async () => {
     const user = userEvent.setup();
     const onClick = vi.fn();

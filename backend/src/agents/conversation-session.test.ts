@@ -202,13 +202,15 @@ describe("ConversationSession", () => {
     expect(spawnOpts.env?.MAX_THINKING_TOKENS).toBe("31999");
   });
 
-  it("does not override env when thinking option is omitted", () => {
+  it("passes env with CLAUDE_CODE_ENABLE_TASKS even when thinking is omitted", () => {
     const session = createSession({ sessionId: "sess-think-default", command: "claude" });
 
     session.sendMessage("Hello");
 
-    const spawnOpts = mockSpawn.mock.calls[0]?.[2] as { env?: NodeJS.ProcessEnv };
-    expect(spawnOpts).not.toHaveProperty("env");
+    const spawnOpts = mockSpawn.mock.calls[0]?.[2] as { env?: Record<string, string> };
+    expect(spawnOpts.env).toBeDefined();
+    expect(spawnOpts.env!.CLAUDE_CODE_ENABLE_TASKS).toBe("true");
+    expect(spawnOpts.env!.MAX_THINKING_TOKENS).toBeUndefined();
   });
 
   it("uses --resume with pre-generated session ID on second message", () => {

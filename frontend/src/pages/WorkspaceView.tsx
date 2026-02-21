@@ -21,6 +21,8 @@ import { GitDiffModal } from "@/components/diff/GitDiffModal";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { PrStatusSection } from "@/components/PrStatusSection";
 import ScriptPanel from "@/components/ScriptPanel";
+import TaskTracker from "@/components/TaskTracker";
+import { useTasks } from "@/hooks/useTasks";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -224,6 +226,8 @@ export default function WorkspaceView() {
     dismissPlan,
     lockedProvider,
   } = useConversation(wsId);
+
+  const { tasks, currentTask, counts: taskCounts } = useTasks(messages, activeToolCalls);
 
   const { sessions, createSession, activateSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
 
@@ -489,6 +493,14 @@ export default function WorkspaceView() {
               defaultBranch={workspace?.defaultBranch}
               fileCount={fileCount}
             />
+            {tasks.length > 0 && (
+              <TaskTracker
+                tasks={tasks}
+                currentTask={currentTask}
+                counts={taskCounts}
+                isStreaming={isStreaming}
+              />
+            )}
             {pendingToolInputs.some((p) => p.toolName === "AskUserQuestion") ? (
               <QuestionPanel
                 pendingToolInputs={pendingToolInputs}

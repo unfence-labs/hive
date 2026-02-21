@@ -48,6 +48,16 @@ const icons = {
       <path d="M9 13v2" />
     </svg>
   ),
+  listChecks: (
+    <svg {...svgProps}>
+      <path d="M10 6h11" />
+      <path d="M10 12h11" />
+      <path d="M10 18h11" />
+      <polyline points="3 6 4 7 6 5" />
+      <polyline points="3 12 4 13 6 11" />
+      <polyline points="3 18 4 19 6 17" />
+    </svg>
+  ),
   wrench: (
     <svg {...svgProps}>
       <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z" />
@@ -62,6 +72,7 @@ export function getToolIcon(toolName: string): ReactNode {
     case "Bash": return icons.terminal;
     case "Grep": case "Glob": return icons.search;
     case "Task": return icons.bot;
+    case "TaskCreate": case "TaskUpdate": case "TaskList": case "TaskGet": return icons.listChecks;
     case "WebFetch": case "WebSearch": return icons.globe;
     default: return icons.wrench;
   }
@@ -228,6 +239,48 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
         expandedContent: url
           ? `URL: ${url}${prompt ? `\n\nPrompt: ${prompt}` : ""}`
           : `Query: ${query ?? "(none)"}`,
+      };
+    }
+
+    case "TaskCreate": {
+      const subject = input.subject as string | undefined;
+      const description = input.description as string | undefined;
+      return {
+        icon: icons.listChecks,
+        label: "TaskCreate",
+        detail: subject,
+        expandedContent: description
+          ? `Subject: ${subject}\n\nDescription:\n${description}`
+          : `Subject: ${subject ?? "(none)"}`,
+      };
+    }
+
+    case "TaskUpdate": {
+      const taskId = input.taskId as string | undefined;
+      const status = input.status as string | undefined;
+      const detail = [taskId && `#${taskId}`, status].filter(Boolean).join(" → ");
+      return {
+        icon: icons.listChecks,
+        label: "TaskUpdate",
+        detail: detail || undefined,
+        expandedContent: JSON.stringify(input, null, 2),
+      };
+    }
+
+    case "TaskList":
+      return {
+        icon: icons.listChecks,
+        label: "TaskList",
+        expandedContent: "Lists all active tasks",
+      };
+
+    case "TaskGet": {
+      const taskId = input.taskId as string | undefined;
+      return {
+        icon: icons.listChecks,
+        label: "TaskGet",
+        detail: taskId ? `#${taskId}` : undefined,
+        expandedContent: taskId ? `Task ID: ${taskId}` : "No task ID specified",
       };
     }
 
