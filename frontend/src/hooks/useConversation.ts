@@ -21,6 +21,7 @@ interface ConversationState {
   pendingToolInputs: PendingToolInput[];
   error?: string;
   sessionId?: string;
+  lockedProvider?: string;
 }
 
 const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
@@ -219,6 +220,8 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         streamingStartedAt: newIsStreaming
           ? (state.streamingStartedAt ?? action.streamingStartedAt ?? Date.now())
           : null,
+        // Only update lockedProvider when explicitly present (idle broadcasts omit it).
+        ...(action.lockedProvider !== undefined ? { lockedProvider: action.lockedProvider } : {}),
       };
     }
 
@@ -271,6 +274,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         activeToolCalls: [],
         pendingToolInputs: [],
         error: undefined,
+        lockedProvider: undefined,
       };
 
     case "clear_chat":
@@ -504,6 +508,7 @@ export function useConversation(workspaceId: string | undefined) {
     connectionStatus,
     error: state.error,
     sessionId: state.sessionId,
+    lockedProvider: state.lockedProvider,
     sendMessage,
     stopStreaming,
     clearChat,
