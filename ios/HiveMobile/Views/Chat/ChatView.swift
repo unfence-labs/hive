@@ -13,6 +13,7 @@ struct ChatView: View {
     @State private var showSessionSheet = false
     @State private var thinkingEnabled = true
     @State private var planModeEnabled = false
+    @State private var thinkingLevel: ThinkingLevel = .high
     @State private var selectedModelId: String = ""
     @State private var draftAttachments: [ImageAttachment] = []
 
@@ -23,6 +24,10 @@ struct ChatView: View {
 
     private var lockedProvider: String? {
         store.lockedProvider ?? sessions.first { $0.sessionId == activeSessionId }?.lockedProvider
+    }
+
+    private var selectedCapabilities: ProviderCapabilities? {
+        modelCatalog.models.first { $0.id == selectedModelId }?.capabilities
     }
 
     private var pendingToolUseIds: Set<String> {
@@ -82,11 +87,13 @@ struct ChatView: View {
                 isBusy: store.isBusy,
                 thinkingEnabled: $thinkingEnabled,
                 planModeEnabled: $planModeEnabled,
+                thinkingLevel: $thinkingLevel,
                 models: modelCatalog.models,
                 groupedModels: modelCatalog.groupedByProvider,
                 selectedModelId: selectedModelId,
                 defaultModelId: modelCatalog.defaultModelId,
                 lockedProvider: lockedProvider,
+                capabilities: selectedCapabilities,
                 onModelSelect: { selectedModelId = $0 },
                 onDraftAttachmentsChange: { draftAttachments = $0 },
                 onSend: sendMessage,
@@ -281,10 +288,16 @@ struct ChatView: View {
         draft = ""
         draftAttachments = []
 
+        let caps = selectedCapabilities
+        let supportsThinkingToggle = caps?.thinking == .boolean(true)
+        let supportsThinkingLevels = caps?.thinking == .levels
+        let supportsPlanMode = caps?.planMode ?? true
+
         let options = MessageOptions(
-            planMode: planModeEnabled ? true : nil,
-            thinkingEnabled: thinkingEnabled ? true : nil,
-            model: selectedModelId.isEmpty ? nil : selectedModelId
+            planMode: supportsPlanMode ? (planModeEnabled ? true : nil) : nil,
+            thinkingEnabled: supportsThinkingToggle ? (thinkingEnabled ? true : nil) : nil,
+            model: selectedModelId.isEmpty ? nil : selectedModelId,
+            thinkingLevel: supportsThinkingLevels ? thinkingLevel : nil
         )
 
         Task {
@@ -319,6 +332,7 @@ struct ChatView: View {
                 text: draft,
                 thinkingEnabled: thinkingEnabled,
                 planModeEnabled: planModeEnabled,
+                thinkingLevel: thinkingLevel,
                 selectedModelId: selectedModelId.isEmpty ? nil : selectedModelId,
                 attachments: draftAttachments.map(ChatDraftStore.Attachment.init)
             )
@@ -330,6 +344,7 @@ struct ChatView: View {
             draft = saved.text
             thinkingEnabled = saved.thinkingEnabled
             planModeEnabled = saved.planModeEnabled
+            thinkingLevel = saved.thinkingLevel
             if let modelId = saved.selectedModelId {
                 selectedModelId = modelId
             }
@@ -338,6 +353,7 @@ struct ChatView: View {
             draft = ""
             thinkingEnabled = true
             planModeEnabled = false
+            thinkingLevel = .high
             selectedModelId = modelCatalog.defaultModelId
             draftAttachments = []
         }

@@ -284,8 +284,28 @@ struct QuestionInput: Codable {
     let multiSelect: Bool?
 }
 
+enum ThinkingLevel: String, Codable, CaseIterable {
+    case low, medium, high, xhigh
+
+    var label: String {
+        switch self {
+        case .low: "Low"
+        case .medium: "Med"
+        case .high: "High"
+        case .xhigh: "xHigh"
+        }
+    }
+
+    func next() -> ThinkingLevel {
+        let all = Self.allCases
+        let idx = all.firstIndex(of: self)!
+        return all[(idx + 1) % all.count]
+    }
+}
+
 struct MessageOptions: Codable {
     let planMode: Bool?
     let thinkingEnabled: Bool?
     let model: String?
+    let thinkingLevel: ThinkingLevel?
 }
