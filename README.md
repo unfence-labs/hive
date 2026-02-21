@@ -1,11 +1,11 @@
 # Hive
 
-Hive is an orchestrator for running multiple Claude Code conversations in parallel across isolated Git workspaces. It can run locally or as a remote backend with a Tauri desktop client connected over Tailscale.
+Hive is an orchestrator for running multiple AI agent conversations (Claude, Codex) in parallel across isolated Git workspaces. It can run locally or as a remote backend with a Tauri desktop client connected over Tailscale.
 
 It manages:
 - projects as bare repositories,
 - workspaces as Git worktrees/branches,
-- sessions as persistent Claude conversations with WebSocket streaming.
+- sessions as persistent agent conversations with WebSocket streaming.
 
 ## Current Capabilities
 
@@ -15,13 +15,23 @@ It manages:
 - Multi-session support per workspace (create, list, activate, delete, switch, replay history).
 - Conversation WebSocket with session focus, history replay, buffered event replay, and per-session streaming status.
 - Interactive Claude tool loop for `AskUserQuestion` and `ExitPlanMode` with plan proposal cards.
-- Image attachments persisted per session (paste, drag-drop, file picker).
-- Per-workspace PTY terminal (`/ws/terminal/:wsId`) with resize and binary I/O.
+- Image attachments resized via sharp (max 1568px, JPEG q80) and persisted per session.
+- SSH terminal access via external terminal apps (replaces previous in-app terminal).
 - File tree + file content viewer with Shiki syntax highlighting.
 - Unified diff + committed/uncommitted/untracked diff stats.
 
+**Multi-provider support**
+- Provider abstraction layer: `AgentProvider` interface with CLI arg building, env config, and stream adapters.
+- Claude provider (streaming JSON) and Codex provider (JSONL with stream adapter normalization).
+- Model catalog API (`GET /api/models`) for frontend/iOS model discovery, grouped by provider.
+- Model selector UI with provider icons, default badges, and NEW indicators.
+- Provider locked per session after first message — prevents mid-conversation provider switches.
+- Provider-aware controls: thinking toggle (Claude) vs thinking level cycling (Codex), plan mode gating, completions gating.
+
 **Live sync**
-- Real-time branch name, PR status, and diff-stat snapshots via background git polling over WebSocket.
+- Real-time branch name and diff-stat snapshots via background git polling over WebSocket.
+- PR status via on-demand REST endpoint (`GET /api/workspaces/:wsId/pr-status`) with 15s TTL cache, reducing GitHub API rate limit consumption.
+- Enriched PR display: review state (approved/changes_requested), checks counts (passed/total), mergeable state (13-state priority ladder including draft, closed, blocked, unstable).
 - Script execution status broadcasting (`script_status` WS messages).
 
 **Automation**
@@ -31,7 +41,7 @@ It manages:
 **Integrations**
 - GitHub OAuth device flow for `gh` CLI authentication and git credential setup.
 - Telegram notifications on agent turn completion (UI-configurable bot token + chat ID).
-- Preflight dependency checks on startup (git, claude, gh).
+- Preflight dependency checks on startup (git, claude, gh required; codex optional).
 
 **Settings**
 - Tailscale connection config (IP + port) with health check indicator.
@@ -44,6 +54,11 @@ It manages:
 - Tauri v2 desktop app (macOS `.dmg`, Windows `.exe`) with native titlebar integration.
 - macOS traffic light positioning, drag regions, and App Transport Security exceptions for Tailscale HTTP.
 
+**iOS**
+- Native SwiftUI app with chat, model selection, session switching, and Live Activity.
+- Dynamic model catalog from API with provider-grouped picker and session locking.
+- PR status polling with enriched display matching the web frontend.
+
 **Security**
 - Optional auth token + in-memory request rate limiting.
 - File content API with path traversal protection and 1 MB size cap.
@@ -54,6 +69,7 @@ It manages:
 - Git >= 2.20
 - Claude CLI installed and authenticated (`claude` command)
 - Optional: GitHub CLI (`gh`) for PR status in the UI
+- Optional: Codex CLI (`codex`) for OpenAI model support
 - Optional (desktop app): Rust >= 1.77 for Tauri builds
 - Optional (remote setup): Tailscale for secure backend connectivity
 
@@ -210,6 +226,13 @@ npm test
 | `POST` | `/api/workspaces/:wsId/merge` | Merge workspace branch into default branch |
 | `POST` | `/api/workspaces/:wsId/archive` | Archive workspace and remove worktree |
 | `GET` | `/api/workspaces/:wsId/completions` | Completion items for `/` and `@` autocomplete |
+| `GET` | `/api/workspaces/:wsId/pr-status` | PR status (state, checks, reviews, mergeable) with 15s cache |
+
+### Models
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/models` | Model catalog (providers, capabilities, defaults) |
 
 ### Sessions
 
@@ -259,12 +282,12 @@ npm test
 
 Client -> server:
 - `{ "type": "switch_session", "sessionId": "..." }`
-- `{ "type": "user_message", "content": "...", "images": [...], "options": { "planMode": boolean, "thinkingEnabled": boolean }, "sessionId": "..." }`
+- `{ "type": "user_message", "content": "...", "images": [...], "options": { "planMode": boolean, "thinkingEnabled": boolean, "thinkingLevel": "low"|"medium"|"high"|"xhigh", "modelId": "provider:model" }, "sessionId": "..." }`
 - `{ "type": "stop", "sessionId": "..." }`
 - `{ "type": "tool_input_response", "requestId": "...", "toolName": "AskUserQuestion|ExitPlanMode", "result": ... , "sessionId": "..." }`
 
 Server -> client (main types):
-- `status`, `history`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `tool_input_required`, `done`, `cancelled`, `error`, `branch_info`, `diff_stats`, `script_status`
+- `status` (includes `lockedProvider` when set), `history`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `tool_input_required`, `done`, `cancelled`, `error`, `branch_info`, `diff_stats`, `script_status`
 
 ### Script stream
 
@@ -272,48 +295,45 @@ Server -> client (main types):
 - Binary frames: PTY output bytes from the running script
 - Server control messages: `ready`, `exit`, `error`
 
-### Terminal stream
-
-- Endpoint: `ws://<host>/ws/terminal/:wsId`
-- Binary frames: PTY input/output bytes
-- JSON control frames: `{ "type": "resize", "cols": number, "rows": number }`
-- Server control messages: `ready`, `exit`, `error`
-
 ## Architecture
 
 Hierarchy:
 - **Project**: bare Git repo
 - **Workspace**: worktree + branch (`workspace/<city-name>`)
-- **Session**: Claude conversation persisted under the project
+- **Session**: agent conversation persisted under the project
 
 Backend key modules:
 - `backend/src/api/projects.ts` project CRUD + fetch
-- `backend/src/api/workspaces.ts` workspace CRUD + diff/stat + files + merge + archive
+- `backend/src/api/workspaces.ts` workspace CRUD + diff/stat + files + merge + archive + PR status
 - `backend/src/api/agents.ts` session routes (single + multi-session)
 - `backend/src/api/completions.ts` completion scanning endpoint
+- `backend/src/api/models.ts` model catalog endpoint
 - `backend/src/api/settings.ts` notification config CRUD
 - `backend/src/api/account.ts` GitHub OAuth device flow + CLI integration
 - `backend/src/api/scripts.ts` setup/run script lifecycle
 - `backend/src/ws/stream.ts` conversation WebSocket protocol
-- `backend/src/ws/terminal.ts` PTY terminal WebSocket
 - `backend/src/ws/script.ts` script execution WebSocket
 - `backend/src/agents/agent-manager.ts` in-memory session registry, persistence, switching
-- `backend/src/agents/conversation-session.ts` Claude process lifecycle per turn
+- `backend/src/agents/conversation-session.ts` agent process lifecycle per turn (provider-aware)
 - `backend/src/agents/naming.ts` branch + session auto-naming via dedicated Claude subprocess
-- `backend/src/services/git-sync.ts` branch/PR/diff polling and workspace broadcasts
+- `backend/src/agents/providers/` provider abstraction (types, registry, claude, codex, codex-stream-adapter)
+- `backend/src/services/git-sync.ts` branch/diff polling and workspace broadcasts
 - `backend/src/services/script-runner.ts` PTY-based script execution with status broadcasting
 - `backend/src/notifications/` Telegram notification channel + event dispatcher
 - `backend/src/state/state.ts` JSON persistence + per-project locks
 - `backend/src/state/config.ts` file-based app config (`config.json`)
-- `backend/src/utils/preflight.ts` startup dependency checks (git, claude, gh)
+- `backend/src/utils/preflight.ts` startup dependency checks (git, claude, gh; codex optional)
+- `backend/src/utils/github.ts` GitHub URL parsing, `gh` CLI wrapper, PR status fetching
 - `backend/src/utils/hive-config.ts` `hive.json` parser for workspace scripts
 
 Frontend key modules:
-- `frontend/src/pages/WorkspaceView.tsx` main chat/terminal/file tree/diff/scripts UI
+- `frontend/src/pages/WorkspaceView.tsx` main chat/file tree/diff/scripts/PR status UI
 - `frontend/src/pages/settings/` settings pages (Appearance, Connection, Account, Notifications, ProjectDetail)
-- `frontend/src/hooks/useConversation.ts` reducer-driven conversation state + tool responses
+- `frontend/src/hooks/useConversation.ts` reducer-driven conversation state + tool responses + lockedProvider
 - `frontend/src/hooks/useSessions.ts` multi-session operations
 - `frontend/src/hooks/useWorkspaceLiveData.ts` live status/branch/diff/script data from WS
+- `frontend/src/hooks/useModels.ts` model catalog fetch + selection + provider lock
+- `frontend/src/hooks/usePrStatus.ts` PR status REST polling (15s)
 - `frontend/src/hooks/useProjects.ts` project/workspace state
 - `frontend/src/hooks/useScripts.ts` script start/stop/status
 - `frontend/src/hooks/useConnectionStatus.ts` backend health check
@@ -321,7 +341,8 @@ Frontend key modules:
 - `frontend/src/hooks/useServerUrl.ts` configurable backend URL resolution
 - `frontend/src/lib/ws-transport.ts` resilient WS transport + replay buffer
 - `frontend/src/components/Sidebar.tsx` project/workspace nav + archive/delete
-- `frontend/src/components/Terminal.tsx` xterm + `/ws/terminal/:wsId`
+- `frontend/src/components/chat/ModelSelector.tsx` provider-grouped model picker
+- `frontend/src/components/PrStatusSection.tsx` enriched PR status display
 - `frontend/src-tauri/` Tauri v2 desktop app (Rust shell, config, icons)
 
 ## Data Layout
@@ -354,6 +375,7 @@ $DATA_DIR/
 - Frontend tests: `frontend/tests/**/*.test.ts(x)`
 - Framework: Vitest
 - CI (`.github/workflows/ci.yml`) runs lint, typecheck, build, and tests on push/PR to `main`
+- CI sets `NODE_ENV=test` explicitly (React 19 only exports `act()` in development bundle)
 
 ## License
 

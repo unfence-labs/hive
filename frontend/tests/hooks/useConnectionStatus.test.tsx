@@ -30,7 +30,7 @@ describe("useConnectionStatus", () => {
 
   it("becomes connected when health endpoint replies with ok=true", async () => {
     mocks.getServerUrl.mockReturnValue("http://100.64.0.10:3000");
-    vi.mocked(fetch).mockResolvedValue({ ok: true } as Response);
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: () => Promise.resolve({ status: "ok", env: "development" }) } as unknown as Response);
 
     const { wrapper } = createWrapper();
     const { result } = renderHook(() => useConnectionStatus(), { wrapper });
@@ -38,6 +38,7 @@ describe("useConnectionStatus", () => {
     await waitFor(() => {
       expect(result.current.status).toBe("connected");
     });
+    expect(result.current.backendEnv).toBe("development");
     expect(fetch).toHaveBeenCalledWith(
       "http://100.64.0.10:3000/health",
       expect.objectContaining({ signal: expect.anything() }),
@@ -79,7 +80,7 @@ describe("useConnectionStatus", () => {
     expect(fetch).not.toHaveBeenCalled();
 
     mocks.getServerUrl.mockReturnValue("http://100.64.0.10:3000");
-    vi.mocked(fetch).mockResolvedValue({ ok: true } as Response);
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: () => Promise.resolve({ status: "ok", env: "production" }) } as unknown as Response);
 
     await act(async () => {
       await result.current.check();

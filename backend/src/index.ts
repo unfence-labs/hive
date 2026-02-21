@@ -72,7 +72,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     }),
   );
 
-  app.get("/health", async () => ({ status: "ok" }));
+  app.get("/health", async () => ({ status: "ok", env: process.env.NODE_ENV ?? "development" }));
 
   await app.register((instance: FastifyInstance) => projectRoutes(instance));
   await app.register((instance: FastifyInstance) => workspaceRoutes(instance));
