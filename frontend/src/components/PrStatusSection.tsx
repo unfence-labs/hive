@@ -74,7 +74,7 @@ function computePrDisplay(pr: PullRequestInfo): {
       Icon: XCircle,
       iconClass: "text-red-500",
       textClass: "text-red-600 dark:text-red-400",
-      label: checksLabel("Failed"),
+      label: checksLabel("Checks failing"),
     };
 
   // 6. Checks cancelled
@@ -83,7 +83,7 @@ function computePrDisplay(pr: PullRequestInfo): {
       Icon: Ban,
       iconClass: "text-orange-500",
       textClass: "text-orange-600 dark:text-orange-400",
-      label: "Cancelled",
+      label: "Checks cancelled",
     };
 
   // 7. Checks pending
@@ -92,7 +92,7 @@ function computePrDisplay(pr: PullRequestInfo): {
       Icon: Clock,
       iconClass: "text-yellow-500",
       textClass: "text-yellow-600 dark:text-yellow-400",
-      label: checksLabel("Checks"),
+      label: checksLabel("Checks running"),
     };
 
   // 8. Changes requested
@@ -101,7 +101,7 @@ function computePrDisplay(pr: PullRequestInfo): {
       Icon: AlertTriangle,
       iconClass: "text-orange-500",
       textClass: "text-orange-600 dark:text-orange-400",
-      label: "Changes req.",
+      label: "Changes requested",
     };
 
   // 9. Blocked (branch protection)
