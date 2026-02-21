@@ -38,18 +38,19 @@ export class CodexProvider implements AgentProvider {
     const thinkingLevel = options.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
 
     // Codex uses `codex exec` for non-interactive mode with `--json` for JSONL streaming.
-    // Session continuity: `codex exec resume <thread_id> -p "msg"` on subsequent turns.
-    const baseArgs = session.isFirstMessage
-      ? ["exec", "--json"]
-      : ["exec", "resume", session.sessionId, "--json"];
-
-    return [
-      ...baseArgs,
+    // Session continuity: `codex exec resume <thread_id> "msg"` on subsequent turns.
+    // NOTE: The prompt is a positional arg (not -p, which is --profile in codex CLI).
+    const flags = [
+      "--json",
       ...(model ? ["--model", model.cliValue] : []),
       "--full-auto",
       "--config", `model_reasoning_effort=${thinkingLevel}`,
-      "-p", content,
     ];
+
+    if (session.isFirstMessage) {
+      return ["exec", ...flags, content];
+    }
+    return ["exec", "resume", ...flags, session.sessionId, content];
   }
 
   buildEnv(_options: ProviderMessageOptions): Record<string, string> | undefined {
