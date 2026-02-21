@@ -7,6 +7,7 @@ import sharp from "sharp";
 import { StreamParser } from "./stream-parser.js";
 import type {
   ChatMessage,
+  ContentBlock,
   ImageAttachment,
   MessageOptions,
   ToolCall,
@@ -16,6 +17,57 @@ import type {
 } from "../types.js";
 
 const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
+
+/** Map Anthropic server_tool_use names to their Claude Code display names. */
+const serverToolNameMap: Record<string, string> = {
+  web_search: "WebSearch",
+  web_fetch: "WebFetch",
+  bash_code_execution: "Bash",
+  text_editor_code_execution: "Edit",
+};
+
+type ServerResultBlock = Extract<ContentBlock,
+  | { type: "web_search_tool_result" }
+  | { type: "web_fetch_tool_result" }
+  | { type: "bash_code_execution_tool_result" }
+  | { type: "text_editor_code_execution_tool_result" }
+  | { type: "mcp_tool_result" }
+>;
+
+/** Format server/MCP tool result content into a readable string. */
+function formatServerToolResult(block: ServerResultBlock): string {
+  const { content } = block;
+  if (typeof content === "string") return content;
+
+  // web_search_tool_result: extract titles + URLs from results array
+  if (block.type === "web_search_tool_result" && Array.isArray(content)) {
+    const summary = (content as Array<{ type?: string; title?: string; url?: string }>)
+      .filter((r) => r.type === "web_search_result")
+      .map((r) => `${r.title ?? "Result"}\n${r.url ?? ""}`)
+      .join("\n\n");
+    return summary || JSON.stringify(content);
+  }
+
+  // bash_code_execution_tool_result: extract stdout/stderr
+  if (block.type === "bash_code_execution_tool_result" && content && typeof content === "object") {
+    const c = content as { stdout?: string; stderr?: string; return_code?: number };
+    const parts: string[] = [];
+    if (c.stdout) parts.push(c.stdout);
+    if (c.stderr) parts.push(`stderr: ${c.stderr}`);
+    if (c.return_code !== undefined && c.return_code !== 0) parts.push(`exit code: ${c.return_code}`);
+    return parts.join("\n") || JSON.stringify(content);
+  }
+
+  // mcp_tool_result: extract text from content blocks
+  if (block.type === "mcp_tool_result" && Array.isArray(content)) {
+    const texts = (content as Array<{ type?: string; text?: string }>)
+      .filter((b) => b.type === "text" && b.text)
+      .map((b) => b.text!);
+    return texts.join("\n\n") || JSON.stringify(content);
+  }
+
+  return JSON.stringify(content);
+}
 type StopReason = "user" | "park";
 
 export interface ConversationSessionConfig {
@@ -290,11 +342,13 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             this.emit("message", { type: "thinking", sessionId: this.sessionId, text: block.thinking });
             break;
           case "tool_use":
-          case "server_tool_use": {
-            // server_tool_use is emitted for Anthropic server-side tools (e.g. web_search).
-            // Map server tool names to their Claude Code equivalents for the frontend.
-            const displayName = block.type === "server_tool_use" && block.name === "web_search"
-              ? "WebSearch"
+          case "server_tool_use":
+          case "mcp_tool_use": {
+            // server_tool_use is emitted for Anthropic server-side tools (web_search, web_fetch, etc.).
+            // mcp_tool_use is emitted for MCP server tools.
+            // Map server/mcp tool names to their Claude Code equivalents for the frontend.
+            const displayName = block.type === "server_tool_use"
+              ? (serverToolNameMap[block.name] ?? block.name)
               : block.name;
             const inputStr = typeof block.input === "string"
               ? block.input
@@ -324,22 +378,25 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             }
             break;
           }
-          case "web_search_tool_result": {
-            // Server-side web search results arrive as assistant content blocks,
+          case "redacted_thinking":
+            // Safety-redacted thinking — opaque encrypted data, just note it happened.
+            thinkingText += "[redacted]\n";
+            break;
+          case "web_search_tool_result":
+          case "web_fetch_tool_result":
+          case "bash_code_execution_tool_result":
+          case "text_editor_code_execution_tool_result":
+          case "mcp_tool_result": {
+            // Server-side and MCP tool results arrive as assistant content blocks,
             // not as user tool_result messages. Forward them as tool_result events.
-            const resultContent = Array.isArray(block.content)
-              ? (block.content as Array<{ type?: string; title?: string; url?: string }>)
-                  .filter((r) => r.type === "web_search_result")
-                  .map((r) => `${r.title ?? "Result"}\n${r.url ?? ""}`)
-                  .join("\n\n") || JSON.stringify(block.content)
-              : String(block.content);
+            const output = formatServerToolResult(block);
             const tc = toolCalls.find((t) => t.id === block.tool_use_id);
-            if (tc) tc.output = resultContent;
+            if (tc) tc.output = output;
             this.emit("message", {
               type: "tool_result",
               sessionId: this.sessionId,
               toolUseId: block.tool_use_id,
-              output: resultContent,
+              output,
             });
             break;
           }
