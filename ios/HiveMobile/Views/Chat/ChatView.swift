@@ -23,7 +23,15 @@ struct ChatView: View {
     private let draftStore = ChatDraftStore.shared
 
     private var lockedProvider: String? {
-        store.lockedProvider ?? sessions.first { $0.sessionId == activeSessionId }?.lockedProvider
+        if let provider = store.lockedProvider ?? sessions.first(where: { $0.sessionId == activeSessionId })?.lockedProvider {
+            return provider
+        }
+        // Backfill: pre-multi-model sessions have no lockedProvider but were always Claude.
+        let session = sessions.first { $0.sessionId == activeSessionId }
+        if let session, session.messageCount > 0 {
+            return "claude"
+        }
+        return nil
     }
 
     private var selectedCapabilities: ProviderCapabilities? {
