@@ -87,6 +87,17 @@ struct ChatView: View {
                     }
                 }
             }
+
+            // Task tracker — between conversation scroll and input bar
+            let tasksState = store.tasksState
+            if !tasksState.tasks.isEmpty {
+                TaskTrackerView(
+                    tasks: tasksState.tasks,
+                    currentTask: tasksState.currentTask,
+                    counts: tasksState.counts,
+                    isStreaming: store.isStreaming
+                )
+            }
         }
         .safeAreaInset(edge: .bottom) {
             ChatInputBar(

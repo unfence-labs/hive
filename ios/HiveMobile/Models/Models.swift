@@ -324,3 +324,39 @@ struct MessageOptions: Codable {
     let model: String?
     let thinkingLevel: ThinkingLevel?
 }
+
+// MARK: - Task Tracking
+
+enum TaskStatus: String {
+    case pending
+    case inProgress = "in_progress"
+    case completed
+}
+
+struct TrackedTask: Identifiable {
+    let id: String
+    var subject: String
+    var description: String?
+    var activeForm: String?
+    var status: TaskStatus
+    var isCreating: Bool
+}
+
+struct TaskCounts {
+    let total: Int
+    let completed: Int
+    let inProgress: Int
+    let pending: Int
+}
+
+struct TasksState {
+    let tasks: [TrackedTask]
+    let currentTask: TrackedTask?
+    let counts: TaskCounts
+
+    static let empty = TasksState(
+        tasks: [],
+        currentTask: nil,
+        counts: TaskCounts(total: 0, completed: 0, inProgress: 0, pending: 0)
+    )
+}
