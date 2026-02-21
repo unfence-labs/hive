@@ -68,6 +68,7 @@ function useDraftHarness({ wsId, sessionId }: { wsId?: string; sessionId?: strin
     thinkingEnabled,
     planMode,
     selectedModelId,
+    defaultModelId: "claude:opus-4-6",
     thinkingLevel,
     attachmentsRef: attachmentsRef as MutableRefObject<AttachmentsContext | null>,
     setValue,

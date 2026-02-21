@@ -401,7 +401,7 @@ private extension ImageAttachment {
             selectedModelId: "claude:opus-4-6",
             defaultModelId: "claude:opus-4-6",
             lockedProvider: nil,
-            capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true),
+            capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true),
             onModelSelect: { _ in },
             onDraftAttachmentsChange: { _ in },
             onSend: { _ in }
@@ -418,7 +418,7 @@ private extension ImageAttachment {
             selectedModelId: "claude:sonnet-4-6",
             defaultModelId: "claude:opus-4-6",
             lockedProvider: "claude",
-            capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true),
+            capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true),
             onModelSelect: { _ in },
             onDraftAttachmentsChange: { _ in },
             onSend: { _ in },

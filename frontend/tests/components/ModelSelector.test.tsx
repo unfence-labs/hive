@@ -11,7 +11,7 @@ const CLAUDE_MODELS: ModelCatalogEntry[] = [
     provider: "claude",
     providerLabel: "Claude Code",
     isDefault: true,
-    capabilities: { thinking: true, planMode: true, blockingTools: true },
+    capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },
   },
   {
     id: "claude:sonnet-4-6",
@@ -19,7 +19,7 @@ const CLAUDE_MODELS: ModelCatalogEntry[] = [
     provider: "claude",
     providerLabel: "Claude Code",
     isNew: true,
-    capabilities: { thinking: true, planMode: true, blockingTools: true },
+    capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },
   },
 ];
 
@@ -30,7 +30,7 @@ const CODEX_MODELS: ModelCatalogEntry[] = [
     provider: "codex",
     providerLabel: "Codex",
     isDefault: true,
-    capabilities: { thinking: "levels", planMode: false, blockingTools: false },
+    capabilities: { thinking: "levels", planMode: false, blockingTools: false, completions: false },
   },
 ];
 
