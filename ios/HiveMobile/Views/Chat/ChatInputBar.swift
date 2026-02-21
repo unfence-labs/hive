@@ -8,7 +8,7 @@ struct ChatInputBar: View {
     @Binding var thinkingEnabled: Bool
     @Binding var planModeEnabled: Bool
     let models: [ModelCatalogEntry]
-    let groupedModels: [(provider: String, providerLabel: String, models: [ModelCatalogEntry])]
+    let groupedModels: [ModelProviderGroup]
     let selectedModelId: String
     let defaultModelId: String
     let lockedProvider: String?
@@ -63,7 +63,7 @@ struct ChatInputBar: View {
     private var controlBar: some View {
         HStack(spacing: 8) {
             Menu {
-                ForEach(groupedModels, id: \.provider) { group in
+                ForEach(groupedModels) { group in
                     Section(group.providerLabel) {
                         ForEach(group.models) { model in
                             let isLocked = lockedProvider != nil && model.provider != lockedProvider
@@ -341,7 +341,7 @@ private extension ImageAttachment {
               isDefault: nil, isNew: true,
               capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true)),
     ]
-    let grouped = [("claude", "Claude Code", sampleModels)]
+    let grouped = [ModelProviderGroup(provider: "claude", providerLabel: "Claude Code", models: sampleModels)]
 
     VStack {
         Spacer()

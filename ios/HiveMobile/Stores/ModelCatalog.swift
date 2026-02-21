@@ -1,6 +1,14 @@
 import Foundation
 import Observation
 
+struct ModelProviderGroup: Identifiable {
+    let provider: String
+    let providerLabel: String
+    var models: [ModelCatalogEntry]
+
+    var id: String { provider }
+}
+
 @MainActor
 @Observable
 final class ModelCatalog {
@@ -32,15 +40,15 @@ final class ModelCatalog {
         models.first { $0.id == id }
     }
 
-    var groupedByProvider: [(provider: String, providerLabel: String, models: [ModelCatalogEntry])] {
+    var groupedByProvider: [ModelProviderGroup] {
         var seen: [String: Int] = [:]
-        var groups: [(provider: String, providerLabel: String, models: [ModelCatalogEntry])] = []
+        var groups: [ModelProviderGroup] = []
         for model in models {
             if let idx = seen[model.provider] {
                 groups[idx].models.append(model)
             } else {
                 seen[model.provider] = groups.count
-                groups.append((model.provider, model.providerLabel, [model]))
+                groups.append(ModelProviderGroup(provider: model.provider, providerLabel: model.providerLabel, models: [model]))
             }
         }
         return groups

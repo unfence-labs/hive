@@ -143,6 +143,11 @@ struct ChatView: View {
             }
         }
         .task { await setup() }
+        .onChange(of: modelCatalog.isLoaded) {
+            if selectedModelId.isEmpty, !modelCatalog.defaultModelId.isEmpty {
+                selectedModelId = modelCatalog.defaultModelId
+            }
+        }
         .onChange(of: lockedProvider) { _, newProvider in
             guard let newProvider, !selectedModelId.isEmpty else { return }
             let currentProvider = selectedModelId.split(separator: ":").first.map(String.init) ?? ""
