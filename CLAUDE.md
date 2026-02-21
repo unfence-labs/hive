@@ -3,6 +3,7 @@
 This repository is a monorepo:
 - `backend/`: Fastify API + WebSocket server
 - `frontend/`: React + Vite UI + Tauri desktop app (`frontend/src-tauri/`)
+- `ios/`: SwiftUI iOS app + Live Activity widget
 
 Hive runs Claude conversations in isolated Git workspaces (worktrees) created from a project's bare repo.
 
@@ -67,6 +68,7 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `backend/src/services/git-sync.ts`: branch/PR/diff polling and workspace broadcasts
 - `backend/src/services/script-runner.ts`: PTY-based script execution with status broadcasting
 - `backend/src/agents/conversation-session.ts`: Claude process lifecycle per turn
+- `backend/src/agents/stream-parser.ts`: NDJSON parser for Claude CLI `--output-format stream-json --verbose`
 - `backend/src/agents/agent-manager.ts`: in-memory session registry, persistence, switching, notification dispatch
 - `backend/src/agents/naming.ts`: branch + session auto-naming via dedicated Claude subprocess
 - `backend/src/notifications/notifier.ts`: event dispatcher for notification channels
@@ -91,6 +93,10 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - Preflight checks run at startup and exit with clear errors if git/claude/gh are missing.
 - Notification config is persisted in `$DATA_DIR/config.json` and hot-reloaded when settings change (no restart needed).
 - Script runner spawns PTY processes for `hive.json` setup/run commands, buffers last 200 lines, and broadcasts status via the workspace WS channel.
+- Stream parser silences `rate_limit_event` CLI events (logged server-side, not forwarded to clients).
+- Server-side tool blocks (`server_tool_use`, `web_search_tool_result`, `web_fetch_tool_result`, `bash_code_execution_tool_result`, `text_editor_code_execution_tool_result`) are mapped to standard `tool_use`/`tool_result` WS events with display-name normalization (`web_search`→`WebSearch`, `web_fetch`→`WebFetch`, `bash_code_execution`→`Bash`, `text_editor_code_execution`→`Edit`).
+- MCP tool blocks (`mcp_tool_use`, `mcp_tool_result`) and `redacted_thinking` are also handled.
+- Image attachments are resized via sharp and stored as files on disk, served via HTTP (`/api/workspaces/:wsId/sessions/:sessionId/attachments/:filename`).
 
 ## Frontend Architecture
 
@@ -114,6 +120,9 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `frontend/src/components/Sidebar.tsx`: project/workspace nav + archive/delete + activity preview
 - `frontend/src/components/Terminal.tsx`: xterm + `/ws/terminal/:wsId`
 - `frontend/src/components/chat/PlanProposal.tsx`: plan mode proposal card with accept/handoff/copy
+- `frontend/src/lib/terminal.ts`: SSH command builder + terminal app detection (Tauri)
+- `frontend/src/lib/open-external.ts`: VS Code remote SSH URI builder + external app launcher
+- `frontend/src/hooks/useTerminalApps.ts`: detect available terminal emulators (Tauri)
 - `frontend/src-tauri/`: Tauri v2 desktop app (Rust shell, config, icons)
 
 ### Important frontend behavior
@@ -128,6 +137,41 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - Workspace sidebar shows script panel with live PTY output when `hive.json` defines setup/run commands.
 - Connection health is checked via `useConnectionStatus`; the "Add Repository" button is gated until a valid connection is configured.
 - File viewer uses Shiki syntax highlighting with github-dark theme and line numbers.
+- VS Code remote SSH: workspace can be opened in VS Code via `vscode://vscode-remote/ssh-remote+` URIs (Tauri desktop only).
+
+## iOS App (`ios/`)
+
+- `HiveMobile/HiveApp.swift`: app entry point
+- `HiveMobile/Models/Models.swift`: data models (ChatMessage, ToolCall, Workspace, etc.)
+- `HiveMobile/Models/WebSocketTypes.swift`: WS protocol types (mirrors `backend/src/types.ts`)
+- `HiveMobile/Models/StreamingAttributes.swift`: Live Activity attributes
+- `HiveMobile/Services/APIClient.swift`: REST API client
+- `HiveMobile/Services/WebSocketManager.swift`: WS connection handler
+- `HiveMobile/Services/LiveActivityManager.swift`: iOS 16+ Live Activity (streaming indicator on lock screen)
+- `HiveMobile/Services/ImageCache.swift`: image caching
+- `HiveMobile/Stores/ConversationStore.swift`: chat state (mirrors `useConversation.ts`)
+- `HiveMobile/Stores/ChatDraftStore.swift`: draft message persistence
+- `HiveMobile/Stores/ProjectStore.swift`: project list state
+- `HiveMobile/Stores/HubStatusMonitor.swift`: connectivity monitoring
+- `HiveMobile/Views/Chat/ChatView.swift`: conversation UI
+- `HiveMobile/Views/Chat/MessageBubble.swift`: message + tool call rendering
+- `HiveMobile/Views/Chat/ToolInputSheet.swift`: AskUserQuestion + ExitPlanMode interactive sheets
+- `HiveMobile/Views/Chat/SessionSheet.swift`: session switching
+- `HiveMobile/Views/Hub/HubView.swift`: project/workspace navigation
+- `HiveMobile/Views/Hub/AddProjectSheet.swift`: new project creation
+- `HiveMobile/Views/Hub/WorkspaceCard.swift`: workspace cards with activity preview
+- `HiveMobile/Theme/DesignTokens.swift`: design tokens (WhisperColor, WhisperFont)
+- `HiveWidget/`: iOS Live Activity widget (streaming status on lock screen)
+
+### Important iOS behavior
+
+- Connects to the same backend as web/desktop via configurable host/port (Settings).
+- Auth token stored in UserDefaults, passed as query param on WS connections.
+- Tool rendering mirrors the frontend: same tool names, same icon mapping, same hierarchical display (parentToolUseId).
+- AskUserQuestion renders as a paginated form sheet with multi-select support.
+- ExitPlanMode renders as a markdown preview with approve/reject actions.
+- Chat drafts are persisted per-workspace and restored on app relaunch.
+- Live Activity shows streaming status on lock screen when a turn is in progress.
 
 ## Coding Rules
 
@@ -143,10 +187,13 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - Keep WebSocket protocol types in sync between:
   - `backend/src/types.ts`
   - `frontend/src/types.ts`
+  - `ios/HiveMobile/Models/WebSocketTypes.swift`
 - When adding new WS message types, update:
   - backend stream dispatch,
   - frontend reducers/hooks (`useConversation`, `useWorkspaceLiveData`, `ws-transport` cache),
+  - iOS stores (`ConversationStore`, `WebSocketManager`),
   - corresponding tests.
+- When Claude CLI adds new content block types, update `ContentBlock` in `backend/src/types.ts` and the switch in `conversation-session.ts`.
 
 ## Testing
 
@@ -173,3 +220,7 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - Completion scanner does not yet include plugin commands (`~/.claude/plugins`).
 - No manual workspace rename/alias UI (auto-naming exists via `naming.ts`).
 - No explicit light/dark theme toggle in settings (only accent color picker).
+- iOS app has no terminal emulator (chat-only, no PTY access).
+- iOS app has no file viewer/diff viewer (tool output shown as raw text).
+- VS Code remote SSH opening is Tauri-desktop only (not available in web or iOS).
+- `redacted_thinking` blocks are logged as `[redacted]` but not visually distinguished from regular thinking in the UI.

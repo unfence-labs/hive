@@ -1,11 +1,9 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { useEffect } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Sidebar from "@/components/Sidebar";
-import { TerminalProvider, useTerminalContext } from "@/contexts/TerminalContext";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { api } from "@/hooks/useApi";
 import type { Project, WsOutgoing } from "@/types";
@@ -60,14 +58,6 @@ const getWsMock = async () =>
     };
   };
 
-function ActivateTerminals({ workspaceIds }: { workspaceIds: string[] }) {
-  const { openTerminal } = useTerminalContext();
-  useEffect(() => {
-    for (const workspaceId of workspaceIds) openTerminal(workspaceId);
-  }, [workspaceIds, openTerminal]);
-  return null;
-}
-
 function SettingsStateProbe() {
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from ?? "none";
@@ -77,7 +67,6 @@ function SettingsStateProbe() {
 function renderSidebar(
   path: string,
   projects: Project[],
-  activeTerminalWorkspaceIds: string[] = [],
   apiOverrides?: {
     diffStat?: Record<string, unknown> | Error;
   },
@@ -103,22 +92,19 @@ function renderSidebar(
   return render(
     <QueryClientProvider client={queryClient}>
       <WorkspaceLiveDataProvider workspaceIds={workspaceIds}>
-        <TerminalProvider>
-          <ActivateTerminals workspaceIds={activeTerminalWorkspaceIds} />
-          <MemoryRouter initialEntries={[path]}>
-            <Routes>
-              <Route
-                path="/projects"
-                element={<Sidebar onAddProject={vi.fn()} />}
-              />
-              <Route
-                path="/workspaces/:wsId"
-                element={<Sidebar onAddProject={vi.fn()} />}
-              />
-              <Route path="/settings" element={<SettingsStateProbe />} />
-            </Routes>
-          </MemoryRouter>
-        </TerminalProvider>
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route
+              path="/projects"
+              element={<Sidebar onAddProject={vi.fn()} />}
+            />
+            <Route
+              path="/workspaces/:wsId"
+              element={<Sidebar onAddProject={vi.fn()} />}
+            />
+            <Route path="/settings" element={<SettingsStateProbe />} />
+          </Routes>
+        </MemoryRouter>
       </WorkspaceLiveDataProvider>
     </QueryClientProvider>,
   );
@@ -299,22 +285,6 @@ describe("Sidebar", () => {
     expect(orbitLoaders).toHaveLength(1);
   });
 
-  it("shows terminal badge icon for workspaces with an active terminal", async () => {
-    renderSidebar("/workspaces/w1", projects, ["w1"]);
-
-    await screen.findByText("workspace/tokyo");
-    const workspaceLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
-    expect(workspaceLink.querySelectorAll("svg")).toHaveLength(2);
-  });
-
-  it("does not show terminal badge icon when workspace has no active terminal", async () => {
-    renderSidebar("/workspaces/w1", projects);
-
-    await screen.findByText("workspace/tokyo");
-    const workspaceLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
-    expect(workspaceLink.querySelectorAll("svg")).toHaveLength(1);
-  });
-
   it("displays live branch name from branch_info WS message", async () => {
     const { __wsMock } = await getWsMock();
     renderSidebar("/workspaces/w1", projects);
@@ -338,13 +308,6 @@ describe("Sidebar", () => {
     await screen.findByText("workspace/tokyo");
     const archiveBtn = screen.getByRole("button", { name: /archive workspace/i });
     expect(archiveBtn).toBeInTheDocument();
-  });
-
-  it("hides archive button when terminal is active", async () => {
-    renderSidebar("/workspaces/w1", projects, ["w1"]);
-
-    await screen.findByText("workspace/tokyo");
-    expect(screen.queryByRole("button", { name: /archive workspace/i })).not.toBeInTheDocument();
   });
 
   it("shows wave indicator when script is running", async () => {
@@ -423,7 +386,7 @@ describe("Sidebar", () => {
     const user = userEvent.setup();
     vi.mocked(api.post).mockResolvedValue(undefined);
 
-    renderSidebar("/workspaces/w1", projects, [], {
+    renderSidebar("/workspaces/w1", projects, {
       diffStat: { committed: [], uncommitted: [] },
     });
 
@@ -442,7 +405,7 @@ describe("Sidebar", () => {
   it("shows confirmation dialog for dirty workspace", async () => {
     const user = userEvent.setup();
 
-    renderSidebar("/workspaces/w1", projects, [], {
+    renderSidebar("/workspaces/w1", projects, {
       diffStat: {
         committed: [],
         uncommitted: [{ file: "dirty.txt", additions: 1, deletions: 0, status: "added" }],
@@ -465,7 +428,7 @@ describe("Sidebar", () => {
     const user = userEvent.setup();
     vi.mocked(api.post).mockResolvedValue(undefined);
 
-    renderSidebar("/workspaces/w1", projects, [], {
+    renderSidebar("/workspaces/w1", projects, {
       diffStat: {
         committed: [],
         uncommitted: [{ file: "dirty.txt", additions: 1, deletions: 0, status: "added" }],
@@ -490,7 +453,7 @@ describe("Sidebar", () => {
   it("cancels archive of dirty workspace via dialog", async () => {
     const user = userEvent.setup();
 
-    renderSidebar("/workspaces/w1", projects, [], {
+    renderSidebar("/workspaces/w1", projects, {
       diffStat: {
         committed: [],
         uncommitted: [{ file: "dirty.txt", additions: 1, deletions: 0, status: "added" }],
@@ -549,7 +512,7 @@ describe("Sidebar", () => {
     const user = userEvent.setup();
     vi.mocked(api.post).mockResolvedValue(undefined);
 
-    renderSidebar("/workspaces/w1", projects, [], {
+    renderSidebar("/workspaces/w1", projects, {
       diffStat: new Error("network error"),
     });
 

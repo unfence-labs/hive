@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquareIcon, TerminalSquareIcon, CodeXmlIcon, ChevronDownIcon, TerminalIcon } from "lucide-react";
+import { CodeXmlIcon, ChevronDownIcon, TerminalIcon } from "lucide-react";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
@@ -17,14 +17,12 @@ import QuestionPanel from "@/components/chat/QuestionPanel";
 import { ConversationTabs } from "@/components/ConversationTabs";
 import { FileViewer } from "@/components/FileViewer";
 import { BranchLabel } from "@/components/BranchLabel";
-import { useTerminalContext } from "@/contexts/TerminalContext";
 import { GitDiffModal } from "@/components/diff/GitDiffModal";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { PrStatusSection } from "@/components/PrStatusSection";
 import ScriptPanel from "@/components/ScriptPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ButtonGroup } from "@/components/ui/button-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { openExternal, buildVscodeRemoteUri } from "@/lib/open-external";
 import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
@@ -84,8 +82,6 @@ function renderFileTreeNodes(nodes: WorkspaceFileTreeNode[]) {
 
 export default function WorkspaceView() {
   const { wsId } = useParams();
-  const [view, setView] = useState<"chatbot" | "terminal">("chatbot");
-  const { activeTerminals, openTerminal, setVisibleTerminal } = useTerminalContext();
   const { ip: tailscaleIp, sshUser } = useTailscaleConfig();
   const { serverUrl } = useServerUrl();
   const terminalApps = useTerminalApps();
@@ -275,20 +271,11 @@ export default function WorkspaceView() {
     [],
   );
 
-  // Reset to chatbot view and hide terminal overlay when switching workspaces
+  // Reset file viewer when switching workspaces
   useEffect(() => {
-    setView("chatbot");
     setOpenFile(null);
     setActiveTab("conversation");
-    return () => setVisibleTerminal(null);
-  }, [wsId, setVisibleTerminal]);
-
-  // Switch to chatbot when terminal exits (e.g. user types "exit")
-  useEffect(() => {
-    if (view === "terminal" && wsId && !activeTerminals.has(wsId)) {
-      setView("chatbot");
-    }
-  }, [view, wsId, activeTerminals]);
+  }, [wsId]);
 
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();
@@ -326,7 +313,6 @@ export default function WorkspaceView() {
     setSelectedPath(path);
     setOpenFile(path);
     setActiveTab("file");
-    setView("chatbot");
   }, []);
 
   const handleModifiedFileClick = useCallback((filePath: string) => {
@@ -408,39 +394,7 @@ export default function WorkspaceView() {
             {workspace?.defaultBranch && (
               <span className="truncate text-xs text-muted-foreground/60">{"> origin/"}{workspace.defaultBranch}</span>
             )}
-            <ButtonGroup className="ml-auto">
-              <Button
-                variant="outline"
-                size="xs"
-                className={view === "chatbot"
-                  ? "relative z-10 border-primary/40 bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary dark:border-primary/40 dark:bg-primary/10"
-                  : "hover:bg-transparent hover:text-current"}
-                onClick={() => {
-                  setView("chatbot");
-                  setVisibleTerminal(null);
-                }}
-              >
-                <MessageSquareIcon className="mr-1.5 size-3.5" />
-                Chatbot
-              </Button>
-              <Button
-                variant="outline"
-                size="xs"
-                className={cn(
-                  "!border-l -ml-px",
-                  view === "terminal"
-                    ? "relative z-10 border-primary/40 bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary dark:border-primary/40 dark:bg-primary/10"
-                    : "hover:bg-transparent hover:text-current",
-                )}
-                onClick={() => {
-                  setView("terminal");
-                  if (wsId) openTerminal(wsId);
-                }}
-              >
-                <TerminalSquareIcon className="mr-1.5 size-3.5" />
-                Terminal
-              </Button>
-            </ButtonGroup>
+            <div className="ml-auto" />
             {terminalApps.length > 0 ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -516,7 +470,7 @@ export default function WorkspaceView() {
             }}
             onConversationTabClick={() => setActiveTab("conversation")}
           />
-          <div className={view === "chatbot" && activeTab === "conversation" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+          <div className={activeTab === "conversation" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
             {error && (
               <div className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
                 {error}
@@ -559,13 +513,10 @@ export default function WorkspaceView() {
               />
             )}
           </div>
-          {view === "chatbot" && activeTab === "file" && openFile && wsId && (
+          {activeTab === "file" && openFile && wsId && (
             <div className="flex min-h-0 flex-1 flex-col">
               <FileViewer wsId={wsId} filePath={openFile} />
             </div>
-          )}
-          {view === "terminal" && (
-            <div className="min-h-0 flex-1" />
           )}
         </div>
 

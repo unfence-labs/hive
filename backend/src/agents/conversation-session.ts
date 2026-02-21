@@ -10,8 +10,10 @@ import { CodexStreamAdapter } from "./providers/codex-stream-adapter.js";
 import type { AgentProvider, StreamAdapter } from "./providers/types.js";
 import type {
   ChatMessage,
+  ContentBlock,
   ImageAttachment,
   MessageOptions,
+  ServerToolResultType,
   ToolCall,
   ToolInputResult,
   SessionMetadata,
@@ -19,6 +21,54 @@ import type {
 } from "../types.js";
 
 const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
+
+/** Map Anthropic server_tool_use names to their Claude Code display names. */
+const serverToolNameMap: Record<string, string> = {
+  web_search: "WebSearch",
+  web_fetch: "WebFetch",
+  bash_code_execution: "Bash",
+  text_editor_code_execution: "Edit",
+};
+
+type ServerResultBlock = Extract<ContentBlock,
+  { type: ServerToolResultType } | { type: "mcp_tool_result" }
+>;
+
+/** Format server/MCP tool result content into a readable string. */
+function formatServerToolResult(block: ServerResultBlock): string {
+  const { content } = block;
+  if (typeof content === "string") return content;
+
+  switch (block.type) {
+    case "web_search_tool_result": {
+      if (!Array.isArray(content)) break;
+      const summary = (content as Array<{ type?: string; title?: string; url?: string }>)
+        .filter((r) => r.type === "web_search_result")
+        .map((r) => `${r.title ?? "Result"}\n${r.url ?? ""}`)
+        .join("\n\n");
+      return summary || JSON.stringify(content);
+    }
+    case "bash_code_execution_tool_result": {
+      if (!content || typeof content !== "object") break;
+      const c = content as { stdout?: string; stderr?: string; return_code?: number };
+      const parts: string[] = [];
+      if (c.stdout) parts.push(c.stdout);
+      if (c.stderr) parts.push(`stderr: ${c.stderr}`);
+      if (c.return_code !== undefined && c.return_code !== 0) parts.push(`exit code: ${c.return_code}`);
+      return parts.join("\n") || JSON.stringify(content);
+    }
+    case "mcp_tool_result": {
+      if (!Array.isArray(content)) break;
+      const texts = (content as Array<{ type?: string; text?: string }>)
+        .filter((b) => b.type === "text" && b.text)
+        .map((b) => b.text!);
+      return texts.join("\n\n") || JSON.stringify(content);
+    }
+  }
+
+  return JSON.stringify(content);
+}
+
 type StopReason = "user" | "park";
 
 export interface ConversationSessionConfig {
@@ -299,19 +349,27 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             thinkingText += block.thinking;
             this.emit("message", { type: "thinking", sessionId: this.sessionId, text: block.thinking });
             break;
-          case "tool_use": {
+          case "tool_use":
+          case "server_tool_use":
+          case "mcp_tool_use": {
+            // server_tool_use is emitted for Anthropic server-side tools (web_search, web_fetch, etc.).
+            // mcp_tool_use is emitted for MCP server tools.
+            // Map server/mcp tool names to their Claude Code equivalents for the frontend.
+            const displayName = block.type === "server_tool_use"
+              ? (serverToolNameMap[block.name] ?? block.name)
+              : block.name;
             const inputStr = typeof block.input === "string"
               ? block.input
               : JSON.stringify(block.input, null, 2);
             const parentToolUseId = pendingTaskStack.length > 0
               ? pendingTaskStack[pendingTaskStack.length - 1]
               : undefined;
-            toolCalls.push({ id: block.id, name: block.name, input: inputStr, parentToolUseId });
+            toolCalls.push({ id: block.id, name: displayName, input: inputStr, parentToolUseId });
             this.emit("message", {
               type: "tool_use",
               sessionId: this.sessionId,
               id: block.id,
-              name: block.name,
+              name: displayName,
               input: inputStr,
               parentToolUseId,
             });
@@ -325,6 +383,28 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
               killedForBlockingTool = true;
               this.process.kill("SIGKILL");
             }
+            break;
+          }
+          case "redacted_thinking":
+            // Safety-redacted thinking — opaque encrypted data, just note it happened.
+            thinkingText += "[redacted]\n";
+            break;
+          case "web_search_tool_result":
+          case "web_fetch_tool_result":
+          case "bash_code_execution_tool_result":
+          case "text_editor_code_execution_tool_result":
+          case "mcp_tool_result": {
+            // Server-side and MCP tool results arrive as assistant content blocks,
+            // not as user tool_result messages. Forward them as tool_result events.
+            const output = formatServerToolResult(block);
+            const tc = toolCalls.find((t) => t.id === block.tool_use_id);
+            if (tc) tc.output = output;
+            this.emit("message", {
+              type: "tool_result",
+              sessionId: this.sessionId,
+              toolUseId: block.tool_use_id,
+              output,
+            });
             break;
           }
         }
