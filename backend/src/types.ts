@@ -96,6 +96,8 @@ export interface SessionMetadata {
   createdAt: string;
   updatedAt: string;
   messageCount: number;
+  /** Provider ID locked on first message (e.g. "claude" or "codex"). */
+  lockedProvider?: string;
 }
 
 export interface ToolCall {

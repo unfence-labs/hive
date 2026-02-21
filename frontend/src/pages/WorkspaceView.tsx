@@ -231,6 +231,8 @@ export default function WorkspaceView() {
 
   const { sessions, createSession, activateSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
 
+  const lockedProvider = sessions.find((s) => s.sessionId === sessionId)?.lockedProvider;
+
   // Scripts (hive.json setup/run)
   const {
     config: scriptsConfig,
@@ -360,9 +362,15 @@ export default function WorkspaceView() {
         rejectToolInput(content);
         return true;
       }
-      return sendMessage(content, images, options);
+      const isFirstMessage = messages.length === 0;
+      const sent = sendMessage(content, images, options);
+      if (sent && isFirstMessage) {
+        // Refresh sessions to pick up lockedProvider set by the backend
+        void refreshSessions();
+      }
+      return sent;
     },
-    [hasPendingPlan, pendingToolInputs, rejectToolInput, sendMessage],
+    [hasPendingPlan, pendingToolInputs, rejectToolInput, sendMessage, messages.length, refreshSessions],
   );
 
   // sendMessage is already a stable callback from useConversation
@@ -541,6 +549,7 @@ export default function WorkspaceView() {
               <ChatInput
                 wsId={wsId}
                 sessionId={sessionId}
+                lockedProvider={lockedProvider}
                 onSend={handleSend}
                 onStop={stopStreaming}
                 disabled={false}

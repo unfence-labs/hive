@@ -128,6 +128,18 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       throw new Error("Already streaming — wait for current message to complete or stop it");
     }
 
+    // Lock provider on first message, validate on subsequent messages
+    if (!this.testCommand) {
+      const model = msgOptions?.model;
+      const providerId = model && model.includes(":") ? model.slice(0, model.indexOf(":")) : "claude";
+
+      if (!this._metadata.lockedProvider) {
+        this._metadata.lockedProvider = providerId;
+      } else if (this._metadata.lockedProvider !== providerId) {
+        throw new Error(`Provider mismatch: session locked to "${this._metadata.lockedProvider}"`);
+      }
+    }
+
     this._status = "streaming";
     this._streamingStartedAt = Date.now();
     this.stopReason = null;

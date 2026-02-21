@@ -9,6 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { PromptInputButton } from "@/components/ai-elements/prompt-input";
 import type { ModelCatalogEntry } from "@/types";
 import { cn } from "@/lib/utils";
@@ -31,9 +32,10 @@ interface ModelSelectorProps {
   selectedModelId: string;
   defaultModelId: string;
   onSelect: (modelId: string) => void;
+  lockedProvider?: string;
 }
 
-export function ModelSelector({ models, selectedModelId, defaultModelId, onSelect }: ModelSelectorProps) {
+export function ModelSelector({ models, selectedModelId, defaultModelId, onSelect, lockedProvider }: ModelSelectorProps) {
   const selected = models.find((m) => m.id === selectedModelId);
   const label = selected?.label ?? "Select model";
 
@@ -59,39 +61,65 @@ export function ModelSelector({ models, selectedModelId, defaultModelId, onSelec
         </PromptInputButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="start" className="w-64">
-        {grouped.map((group, groupIdx) => (
-          <div key={group.provider}>
-            {groupIdx > 0 && <DropdownMenuSeparator />}
-            <DropdownMenuLabel className="text-[11px] text-muted-foreground/60 uppercase tracking-wider font-normal">
-              {group.providerLabel}
-            </DropdownMenuLabel>
-            <DropdownMenuGroup>
-              {group.models.map((model) => {
-                const isSelected = model.id === selectedModelId;
-                const isDefault = model.id === defaultModelId;
-                return (
-                  <DropdownMenuItem
-                    key={model.id}
-                    onClick={() => onSelect(model.id)}
-                    className={cn("gap-2", isSelected && "bg-accent/50")}
-                  >
-                    <ProviderIcon provider={model.provider} className="size-3.5 shrink-0" />
-                    <span className="flex-1">{model.label}</span>
-                    {model.isNew && (
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                        NEW
-                      </span>
-                    )}
-                    {isDefault && !isSelected && (
-                      <StarIcon className="size-3 text-muted-foreground/50" />
-                    )}
-                    {isSelected && <CheckIcon className="size-3.5 text-primary" />}
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuGroup>
-          </div>
-        ))}
+        <TooltipProvider>
+          {grouped.map((group, groupIdx) => {
+            const isGroupLocked = !!lockedProvider && group.provider !== lockedProvider;
+            return (
+              <div key={group.provider}>
+                {groupIdx > 0 && <DropdownMenuSeparator />}
+                <DropdownMenuLabel className={cn(
+                  "text-[11px] text-muted-foreground/60 uppercase tracking-wider font-normal",
+                  isGroupLocked && "opacity-40",
+                )}>
+                  {group.providerLabel}
+                </DropdownMenuLabel>
+                <DropdownMenuGroup>
+                  {group.models.map((model) => {
+                    const isSelected = model.id === selectedModelId;
+                    const isDefault = model.id === defaultModelId;
+                    const isLocked = !!lockedProvider && model.provider !== lockedProvider;
+
+                    if (isLocked) {
+                      return (
+                        <Tooltip key={model.id}>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center gap-2 px-2 py-1.5 text-sm opacity-40 cursor-not-allowed select-none">
+                              <ProviderIcon provider={model.provider} className="size-3.5 shrink-0" />
+                              <span className="flex-1">{model.label}</span>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="right">
+                            Cannot switch provider mid-session
+                          </TooltipContent>
+                        </Tooltip>
+                      );
+                    }
+
+                    return (
+                      <DropdownMenuItem
+                        key={model.id}
+                        onClick={() => onSelect(model.id)}
+                        className={cn("gap-2", isSelected && "bg-accent/50")}
+                      >
+                        <ProviderIcon provider={model.provider} className="size-3.5 shrink-0" />
+                        <span className="flex-1">{model.label}</span>
+                        {model.isNew && (
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                            NEW
+                          </span>
+                        )}
+                        {isDefault && !isSelected && (
+                          <StarIcon className="size-3 text-muted-foreground/50" />
+                        )}
+                        {isSelected && <CheckIcon className="size-3.5 text-primary" />}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuGroup>
+              </div>
+            );
+          })}
+        </TooltipProvider>
       </DropdownMenuContent>
     </DropdownMenu>
   );

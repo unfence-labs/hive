@@ -88,6 +88,7 @@ export interface SessionMetadata {
   createdAt: string;
   updatedAt: string;
   messageCount: number;
+  lockedProvider?: string;
 }
 
 export interface ToolCall {

@@ -24,6 +24,7 @@ import { useChatInputDraftPersistence } from "@/hooks/useChatInputDraftPersisten
 interface ChatInputProps {
   wsId?: string;
   sessionId?: string;
+  lockedProvider?: string;
   onSend: (content: string, images?: ImageAttachment[], options?: MessageOptions) => boolean;
   onStop: () => void;
   disabled: boolean;
@@ -68,6 +69,7 @@ function ChatInputAttachments({
 export default function ChatInput({
   wsId,
   sessionId,
+  lockedProvider,
   onSend,
   onStop,
   disabled,
@@ -109,6 +111,17 @@ export default function ChatInput({
     setThinkingLevel,
     setFileCount,
   });
+
+  // Auto-correct model if it conflicts with the session's locked provider
+  useEffect(() => {
+    if (!lockedProvider || !selectedModelId) return;
+    const currentProvider = selectedModelId.split(":")[0];
+    if (currentProvider !== lockedProvider) {
+      const fallback = models.find((m) => m.provider === lockedProvider && m.isDefault)
+        ?? models.find((m) => m.provider === lockedProvider);
+      if (fallback) setSelectedModelId(fallback.id);
+    }
+  }, [lockedProvider, selectedModelId, models, setSelectedModelId]);
 
   const completionItems = useCompletions(wsId);
 
@@ -255,6 +268,7 @@ export default function ChatInput({
               selectedModelId={selectedModelId}
               defaultModelId={defaultModelId}
               onSelect={setSelectedModelId}
+              lockedProvider={lockedProvider}
             />
             {supportsThinkingToggle && (
               <PromptInputButton
