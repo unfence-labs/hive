@@ -269,6 +269,13 @@ struct ChatView: View {
         Task {
             for await event in wsManager.messages {
                 store.handle(event)
+
+                // When the server echoes back a user_message, the backend has
+                // already set lockedProvider in memory. Refresh sessions to
+                // pick it up so the model picker disables other providers.
+                if case .userMessage = event, lockedProvider == nil {
+                    Task { await loadSessions() }
+                }
             }
         }
     }
@@ -278,7 +285,6 @@ struct ChatView: View {
     private func sendMessage(images: [ImageAttachment]) {
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty || !images.isEmpty else { return }
-        let isFirstMessage = store.messages.isEmpty && !store.isStreaming
         draft = ""
         draftAttachments = []
 
@@ -295,10 +301,6 @@ struct ChatView: View {
                 options: options,
                 sessionId: nil
             ))
-
-            if isFirstMessage {
-                await loadSessions()
-            }
         }
     }
 
