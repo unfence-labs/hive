@@ -18,6 +18,7 @@ final class ChatDraftStore {
         var text: String
         var thinkingEnabled: Bool
         var planModeEnabled: Bool
+        var selectedModelId: String?
         var attachments: [Attachment]
 
         var hasMeaningfulContent: Bool {
@@ -25,6 +26,7 @@ final class ChatDraftStore {
                 || !attachments.isEmpty
                 || planModeEnabled
                 || !thinkingEnabled
+                || selectedModelId != nil
         }
     }
 

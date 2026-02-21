@@ -7,7 +7,12 @@ struct ChatInputBar: View {
     let isBusy: Bool
     @Binding var thinkingEnabled: Bool
     @Binding var planModeEnabled: Bool
-    @Binding var selectedModel: ClaudeModel
+    let models: [ModelCatalogEntry]
+    let groupedModels: [(provider: String, providerLabel: String, models: [ModelCatalogEntry])]
+    let selectedModelId: String
+    let defaultModelId: String
+    let lockedProvider: String?
+    let onModelSelect: (String) -> Void
     let onDraftAttachmentsChange: ([ImageAttachment]) -> Void
     let onSend: ([ImageAttachment]) -> Void
     var onStop: (() -> Void)?
@@ -51,25 +56,38 @@ struct ChatInputBar: View {
 
     // MARK: - Control Bar
 
+    private var selectedModelLabel: String {
+        models.first { $0.id == selectedModelId }?.label ?? "Model"
+    }
+
     private var controlBar: some View {
         HStack(spacing: 8) {
-            // Model picker
             Menu {
-                ForEach(ClaudeModel.allCases) { model in
-                    Button {
-                        selectedModel = model
-                    } label: {
-                        if model == selectedModel {
-                            Label(model.label, systemImage: "checkmark")
-                        } else {
-                            Text(model.label)
+                ForEach(groupedModels, id: \.provider) { group in
+                    Section(group.providerLabel) {
+                        ForEach(group.models) { model in
+                            let isLocked = lockedProvider != nil && model.provider != lockedProvider
+                            Button {
+                                onModelSelect(model.id)
+                            } label: {
+                                HStack {
+                                    Text(model.label)
+                                    if model.isNew == true {
+                                        Text("NEW")
+                                    }
+                                    if model.id == selectedModelId {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                            .disabled(isLocked)
                         }
                     }
                 }
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "sparkles")
-                    Text(selectedModel.label)
+                    Text(selectedModelLabel)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8))
                 }
@@ -315,6 +333,16 @@ private extension ImageAttachment {
 // MARK: - Preview
 
 #Preview {
+    let sampleModels: [ModelCatalogEntry] = [
+        .init(id: "claude:opus-4-6", label: "Opus 4.6", provider: "claude", providerLabel: "Claude Code",
+              isDefault: true, isNew: nil,
+              capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true)),
+        .init(id: "claude:sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code",
+              isDefault: nil, isNew: true,
+              capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true)),
+    ]
+    let grouped = [("claude", "Claude Code", sampleModels)]
+
     VStack {
         Spacer()
         ChatInputBar(
@@ -323,7 +351,12 @@ private extension ImageAttachment {
             isBusy: false,
             thinkingEnabled: .constant(true),
             planModeEnabled: .constant(false),
-            selectedModel: .constant(.opus),
+            models: sampleModels,
+            groupedModels: grouped,
+            selectedModelId: "claude:opus-4-6",
+            defaultModelId: "claude:opus-4-6",
+            lockedProvider: nil,
+            onModelSelect: { _ in },
             onDraftAttachmentsChange: { _ in },
             onSend: { _ in }
         )
@@ -333,7 +366,12 @@ private extension ImageAttachment {
             isBusy: true,
             thinkingEnabled: .constant(false),
             planModeEnabled: .constant(true),
-            selectedModel: .constant(.sonnet),
+            models: sampleModels,
+            groupedModels: grouped,
+            selectedModelId: "claude:sonnet-4-6",
+            defaultModelId: "claude:opus-4-6",
+            lockedProvider: "claude",
+            onModelSelect: { _ in },
             onDraftAttachmentsChange: { _ in },
             onSend: { _ in },
             onStop: {}

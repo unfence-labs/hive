@@ -1,22 +1,53 @@
 import Foundation
 
-// MARK: - Enums
+// MARK: - Model Catalog
 
-enum ClaudeModel: String, CaseIterable, Identifiable, Codable {
-    case opus = "claude-opus-4-6"
-    case sonnet = "claude-sonnet-4-5-20250929"
-    case haiku = "claude-haiku-4-5-20251001"
+enum ThinkingCapability: Codable, Equatable {
+    case boolean(Bool)
+    case levels
 
-    var id: String { rawValue }
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let boolVal = try? container.decode(Bool.self) {
+            self = .boolean(boolVal)
+        } else if let strVal = try? container.decode(String.self), strVal == "levels" {
+            self = .levels
+        } else {
+            self = .boolean(false)
+        }
+    }
 
-    var label: String {
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
         switch self {
-        case .opus: "Opus 4.6"
-        case .sonnet: "Sonnet 4.5"
-        case .haiku: "Haiku 4.5"
+        case .boolean(let val): try container.encode(val)
+        case .levels: try container.encode("levels")
         }
     }
 }
+
+struct ProviderCapabilities: Codable, Equatable {
+    let thinking: ThinkingCapability
+    let planMode: Bool
+    let blockingTools: Bool
+}
+
+struct ModelCatalogEntry: Codable, Identifiable, Equatable {
+    let id: String
+    let label: String
+    let provider: String
+    let providerLabel: String
+    let isDefault: Bool?
+    let isNew: Bool?
+    let capabilities: ProviderCapabilities
+}
+
+struct ModelCatalogResponse: Codable {
+    let models: [ModelCatalogEntry]
+    let defaultModelId: String
+}
+
+// MARK: - Enums
 
 enum WorkspaceStatus: String, Codable {
     case idle
@@ -108,6 +139,7 @@ struct SessionMetadata: Codable, Identifiable {
     let createdAt: String
     let updatedAt: String
     let messageCount: Int
+    let lockedProvider: String?
 
     var id: String { sessionId }
 }

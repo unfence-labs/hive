@@ -13,11 +13,17 @@ struct ChatView: View {
     @State private var showSessionSheet = false
     @State private var thinkingEnabled = true
     @State private var planModeEnabled = false
-    @State private var selectedModel: ClaudeModel = .opus
+    @State private var selectedModelId: String = ""
     @State private var draftAttachments: [ImageAttachment] = []
+
+    @Environment(ModelCatalog.self) private var modelCatalog
 
     private let api = APIClient()
     private let draftStore = ChatDraftStore.shared
+
+    private var lockedProvider: String? {
+        sessions.first { $0.sessionId == activeSessionId }?.lockedProvider
+    }
 
     private var pendingToolUseIds: Set<String> {
         Set(store.pendingToolInputs.map(\.toolUseId))
@@ -76,7 +82,12 @@ struct ChatView: View {
                 isBusy: store.isBusy,
                 thinkingEnabled: $thinkingEnabled,
                 planModeEnabled: $planModeEnabled,
-                selectedModel: $selectedModel,
+                models: modelCatalog.models,
+                groupedModels: modelCatalog.groupedByProvider,
+                selectedModelId: selectedModelId,
+                defaultModelId: modelCatalog.defaultModelId,
+                lockedProvider: lockedProvider,
+                onModelSelect: { selectedModelId = $0 },
                 onDraftAttachmentsChange: { draftAttachments = $0 },
                 onSend: sendMessage,
                 onStop: { Task { await wsManager.send(.stop(sessionId: nil)) } }
@@ -132,6 +143,15 @@ struct ChatView: View {
             }
         }
         .task { await setup() }
+        .onChange(of: lockedProvider) { _, newProvider in
+            guard let newProvider, !selectedModelId.isEmpty else { return }
+            let currentProvider = selectedModelId.split(separator: ":").first.map(String.init) ?? ""
+            if currentProvider != newProvider {
+                let fallback = modelCatalog.models.first { $0.provider == newProvider && $0.isDefault == true }
+                    ?? modelCatalog.models.first { $0.provider == newProvider }
+                if let fallback { selectedModelId = fallback.id }
+            }
+        }
         .onDisappear {
             saveCurrentDraft()
             wsManager.disconnect()
@@ -163,6 +183,10 @@ struct ChatView: View {
 
         if let sessionId = activeSessionId {
             restoreDraft(for: sessionId)
+        }
+
+        if selectedModelId.isEmpty {
+            selectedModelId = modelCatalog.defaultModelId
         }
 
         wsManager.connect(workspaceId: workspace.id)
@@ -249,13 +273,14 @@ struct ChatView: View {
     private func sendMessage(images: [ImageAttachment]) {
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty || !images.isEmpty else { return }
+        let isFirstMessage = store.messages.isEmpty && !store.isStreaming
         draft = ""
         draftAttachments = []
 
         let options = MessageOptions(
             planMode: planModeEnabled ? true : nil,
             thinkingEnabled: thinkingEnabled ? true : nil,
-            model: selectedModel.rawValue
+            model: selectedModelId.isEmpty ? nil : selectedModelId
         )
 
         Task {
@@ -265,6 +290,10 @@ struct ChatView: View {
                 options: options,
                 sessionId: nil
             ))
+
+            if isFirstMessage {
+                await loadSessions()
+            }
         }
     }
 
@@ -290,6 +319,7 @@ struct ChatView: View {
                 text: draft,
                 thinkingEnabled: thinkingEnabled,
                 planModeEnabled: planModeEnabled,
+                selectedModelId: selectedModelId.isEmpty ? nil : selectedModelId,
                 attachments: draftAttachments.map(ChatDraftStore.Attachment.init)
             )
         )
@@ -300,11 +330,15 @@ struct ChatView: View {
             draft = saved.text
             thinkingEnabled = saved.thinkingEnabled
             planModeEnabled = saved.planModeEnabled
+            if let modelId = saved.selectedModelId {
+                selectedModelId = modelId
+            }
             draftAttachments = saved.attachments.map(ImageAttachment.init)
         } else {
             draft = ""
             thinkingEnabled = true
             planModeEnabled = false
+            selectedModelId = modelCatalog.defaultModelId
             draftAttachments = []
         }
     }
@@ -346,6 +380,7 @@ struct ChatView: View {
             projectName: "hive", defaultBranch: "main"
         ))
     }
+    .environment(ModelCatalog())
     .preferredColorScheme(.dark)
 }
 
