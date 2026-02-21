@@ -165,6 +165,8 @@ export async function fetchPrForBranch(
       branch,
       "--repo",
       `${owner}/${repo}`,
+      "--state",
+      "all",
       "--json",
       "number,url,state,isDraft,mergeable,mergeStateStatus,statusCheckRollup,reviewDecision",
       "--limit",
