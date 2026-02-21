@@ -149,6 +149,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       session._metadata = meta;
       session.cliSessionId = meta.claudeSessionId;
       session.messageCount = meta.messageCount;
+      // Backfill lockedProvider for sessions created before multi-model support.
+      // All pre-existing sessions were Claude-only, so default to "claude".
+      if (!meta.lockedProvider && meta.messageCount > 0) {
+        session._metadata.lockedProvider = "claude";
+      }
     } catch {
       // No persisted metadata — fresh session
     }
