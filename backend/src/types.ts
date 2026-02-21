@@ -125,6 +125,8 @@ export interface ChatMessage {
 export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
+  | { type: "server_tool_use"; id: string; name: string; input: unknown }
+  | { type: "web_search_tool_result"; tool_use_id: string; content: unknown }
   | { type: "thinking"; thinking: string };
 
 /** Tool result block within a user message */

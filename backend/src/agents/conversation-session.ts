@@ -289,19 +289,25 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             thinkingText += block.thinking;
             this.emit("message", { type: "thinking", sessionId: this.sessionId, text: block.thinking });
             break;
-          case "tool_use": {
+          case "tool_use":
+          case "server_tool_use": {
+            // server_tool_use is emitted for Anthropic server-side tools (e.g. web_search).
+            // Map server tool names to their Claude Code equivalents for the frontend.
+            const displayName = block.type === "server_tool_use" && block.name === "web_search"
+              ? "WebSearch"
+              : block.name;
             const inputStr = typeof block.input === "string"
               ? block.input
               : JSON.stringify(block.input, null, 2);
             const parentToolUseId = pendingTaskStack.length > 0
               ? pendingTaskStack[pendingTaskStack.length - 1]
               : undefined;
-            toolCalls.push({ id: block.id, name: block.name, input: inputStr, parentToolUseId });
+            toolCalls.push({ id: block.id, name: displayName, input: inputStr, parentToolUseId });
             this.emit("message", {
               type: "tool_use",
               sessionId: this.sessionId,
               id: block.id,
-              name: block.name,
+              name: displayName,
               input: inputStr,
               parentToolUseId,
             });
@@ -316,6 +322,25 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
               killedForBlockingTool = true;
               this.process.kill("SIGKILL");
             }
+            break;
+          }
+          case "web_search_tool_result": {
+            // Server-side web search results arrive as assistant content blocks,
+            // not as user tool_result messages. Forward them as tool_result events.
+            const resultContent = Array.isArray(block.content)
+              ? (block.content as Array<{ type?: string; title?: string; url?: string }>)
+                  .filter((r) => r.type === "web_search_result")
+                  .map((r) => `${r.title ?? "Result"}\n${r.url ?? ""}`)
+                  .join("\n\n") || JSON.stringify(block.content)
+              : String(block.content);
+            const tc = toolCalls.find((t) => t.id === block.tool_use_id);
+            if (tc) tc.output = resultContent;
+            this.emit("message", {
+              type: "tool_result",
+              sessionId: this.sessionId,
+              toolUseId: block.tool_use_id,
+              output: resultContent,
+            });
             break;
           }
         }
