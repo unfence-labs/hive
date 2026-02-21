@@ -122,10 +122,21 @@ export interface ChatMessage {
 // ── Claude CLI NDJSON types (--print --output-format stream-json --verbose) ──
 
 /** Content block within an assistant message */
+export type ServerToolResultType =
+  | "web_search_tool_result"
+  | "web_fetch_tool_result"
+  | "bash_code_execution_tool_result"
+  | "text_editor_code_execution_tool_result";
+
 export type ContentBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
-  | { type: "thinking"; thinking: string };
+  | { type: "server_tool_use"; id: string; name: string; input: unknown }
+  | { type: "mcp_tool_use"; id: string; name: string; server_name: string; input: unknown }
+  | { type: ServerToolResultType; tool_use_id: string; content: unknown }
+  | { type: "mcp_tool_result"; tool_use_id: string; is_error: boolean; content: unknown }
+  | { type: "thinking"; thinking: string }
+  | { type: "redacted_thinking"; data: string };
 
 /** Tool result block within a user message */
 export interface ToolResultBlock {
