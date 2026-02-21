@@ -70,6 +70,7 @@ enum PRState: String, Codable {
 enum MergeableState: String, Codable {
     case clean
     case conflict
+    case blocked
     case unstable
     case unknown
 }
@@ -78,6 +79,13 @@ enum ChecksStatus: String, Codable {
     case pending
     case success
     case failure
+    case cancelled
+}
+
+enum ReviewStatus: String, Codable {
+    case approved
+    case changes_requested
+    case review_required
 }
 
 enum DiffFileStatus: String, Codable {
@@ -121,6 +129,9 @@ struct PullRequestInfo: Codable {
     let mergeable: Bool?
     let mergeableState: MergeableState
     let checksStatus: ChecksStatus
+    let checksPassed: Int?
+    let checksTotal: Int?
+    let reviewStatus: ReviewStatus?
 }
 
 struct BranchInfo: Codable {

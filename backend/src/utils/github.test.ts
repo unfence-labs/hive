@@ -214,6 +214,7 @@ describe("fetchPrForBranch", () => {
             mergeable: "MERGEABLE",
             mergeStateStatus: "CLEAN",
             statusCheckRollup: [],
+            reviewDecision: "",
           },
         ]),
       ),
@@ -229,6 +230,9 @@ describe("fetchPrForBranch", () => {
       mergeable: true,
       mergeableState: "clean",
       checksStatus: "success",
+      checksPassed: null,
+      checksTotal: null,
+      reviewStatus: null,
     });
   });
 
@@ -255,6 +259,7 @@ describe("fetchPrForBranch", () => {
             mergeable: "UNKNOWN",
             mergeStateStatus: "UNKNOWN",
             statusCheckRollup: [],
+            reviewDecision: "",
           },
         ]),
       ),
@@ -277,6 +282,7 @@ describe("fetchPrForBranch", () => {
             mergeable: "UNKNOWN",
             mergeStateStatus: "UNKNOWN",
             statusCheckRollup: [],
+            reviewDecision: "",
           },
         ]),
       ),
@@ -299,6 +305,7 @@ describe("fetchPrForBranch", () => {
             mergeable: "UNKNOWN",
             mergeStateStatus: "UNKNOWN",
             statusCheckRollup: [],
+            reviewDecision: "",
           },
         ]),
       ),
@@ -321,6 +328,7 @@ describe("fetchPrForBranch", () => {
             mergeable: "CONFLICTING",
             mergeStateStatus: "DIRTY",
             statusCheckRollup: [],
+            reviewDecision: "",
           },
         ]),
       ),
@@ -331,7 +339,7 @@ describe("fetchPrForBranch", () => {
     expect(pr!.mergeableState).toBe("conflict");
   });
 
-  it("maps BLOCKED mergeStateStatus to conflict", async () => {
+  it("maps BLOCKED mergeStateStatus to blocked", async () => {
     const execFileMock = await getExecFileMock();
     execFileMock.mockImplementation(
       mockExecFileSuccess(
@@ -344,13 +352,14 @@ describe("fetchPrForBranch", () => {
             mergeable: "MERGEABLE",
             mergeStateStatus: "BLOCKED",
             statusCheckRollup: [],
+            reviewDecision: "",
           },
         ]),
       ),
     );
 
     const { pr } = await fetchPrForBranch("acme", "widget", "blocked-branch");
-    expect(pr!.mergeableState).toBe("conflict");
+    expect(pr!.mergeableState).toBe("blocked");
   });
 
   it("maps UNSTABLE mergeStateStatus correctly", async () => {
@@ -366,6 +375,7 @@ describe("fetchPrForBranch", () => {
             mergeable: "MERGEABLE",
             mergeStateStatus: "UNSTABLE",
             statusCheckRollup: [{ conclusion: "FAILURE" }],
+            reviewDecision: "",
           },
         ]),
       ),
@@ -389,6 +399,7 @@ describe("fetchPrForBranch", () => {
             mergeable: "UNKNOWN",
             mergeStateStatus: "UNKNOWN",
             statusCheckRollup: [],
+            reviewDecision: "",
           },
         ]),
       ),
@@ -412,6 +423,7 @@ describe("fetchPrForBranch", () => {
             mergeable: "MERGEABLE",
             mergeStateStatus: "CLEAN",
             statusCheckRollup: [{ state: "PENDING" }],
+            reviewDecision: "",
           },
         ]),
       ),
@@ -434,6 +446,7 @@ describe("fetchPrForBranch", () => {
             mergeable: "MERGEABLE",
             mergeStateStatus: "CLEAN",
             statusCheckRollup: [{}],
+            reviewDecision: "",
           },
         ]),
       ),
@@ -459,6 +472,7 @@ describe("fetchPrForBranch", () => {
               { conclusion: "SUCCESS" },
               { state: "FAILURE" },
             ],
+            reviewDecision: "",
           },
         ]),
       ),
@@ -544,6 +558,7 @@ describe("fetchPrForBranch", () => {
               { conclusion: "SUCCESS" },
               { conclusion: "SUCCESS" },
             ],
+            reviewDecision: "",
           },
         ]),
       ),
@@ -565,5 +580,284 @@ describe("fetchPrForBranch", () => {
     const { pr, error } = await fetchPrForBranch("acme", "widget", "branch-b");
     expect(pr).toBeNull();
     expect(error).toBeUndefined();
+  });
+
+  // ── Checks: cancelled status ──────────────────────────────────────
+
+  it("maps checksStatus to cancelled when a check has CANCELLED conclusion", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(
+      mockExecFileSuccess(
+        JSON.stringify([
+          {
+            number: 30,
+            url: "https://github.com/acme/widget/pull/30",
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+            statusCheckRollup: [
+              { conclusion: "SUCCESS" },
+              { conclusion: "CANCELLED" },
+            ],
+            reviewDecision: "",
+          },
+        ]),
+      ),
+    );
+
+    const { pr } = await fetchPrForBranch("acme", "widget", "cancelled-check");
+    expect(pr!.checksStatus).toBe("cancelled");
+  });
+
+  it("maps checksStatus to cancelled for SKIPPED conclusion", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(
+      mockExecFileSuccess(
+        JSON.stringify([
+          {
+            number: 31,
+            url: "https://github.com/acme/widget/pull/31",
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+            statusCheckRollup: [{ conclusion: "SKIPPED" }],
+            reviewDecision: "",
+          },
+        ]),
+      ),
+    );
+
+    const { pr } = await fetchPrForBranch("acme", "widget", "skipped-check");
+    expect(pr!.checksStatus).toBe("cancelled");
+  });
+
+  it("maps checksStatus to cancelled for TIMED_OUT conclusion", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(
+      mockExecFileSuccess(
+        JSON.stringify([
+          {
+            number: 32,
+            url: "https://github.com/acme/widget/pull/32",
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+            statusCheckRollup: [{ conclusion: "TIMED_OUT" }],
+            reviewDecision: "",
+          },
+        ]),
+      ),
+    );
+
+    const { pr } = await fetchPrForBranch("acme", "widget", "timed-out-check");
+    expect(pr!.checksStatus).toBe("cancelled");
+  });
+
+  it("failure takes priority over cancelled in checksStatus", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(
+      mockExecFileSuccess(
+        JSON.stringify([
+          {
+            number: 33,
+            url: "https://github.com/acme/widget/pull/33",
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+            statusCheckRollup: [
+              { conclusion: "CANCELLED" },
+              { conclusion: "FAILURE" },
+              { conclusion: "SUCCESS" },
+            ],
+            reviewDecision: "",
+          },
+        ]),
+      ),
+    );
+
+    const { pr } = await fetchPrForBranch("acme", "widget", "fail-over-cancel");
+    expect(pr!.checksStatus).toBe("failure");
+  });
+
+  // ── Checks: passed/total counts ───────────────────────────────────
+
+  it("returns correct checksPassed and checksTotal counts", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(
+      mockExecFileSuccess(
+        JSON.stringify([
+          {
+            number: 34,
+            url: "https://github.com/acme/widget/pull/34",
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+            statusCheckRollup: [
+              { conclusion: "SUCCESS" },
+              { conclusion: "SUCCESS" },
+              { conclusion: "FAILURE" },
+            ],
+            reviewDecision: "",
+          },
+        ]),
+      ),
+    );
+
+    const { pr } = await fetchPrForBranch("acme", "widget", "counts-branch");
+    expect(pr!.checksPassed).toBe(2);
+    expect(pr!.checksTotal).toBe(3);
+  });
+
+  it("returns null checksPassed/checksTotal when no checks exist", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(
+      mockExecFileSuccess(
+        JSON.stringify([
+          {
+            number: 35,
+            url: "https://github.com/acme/widget/pull/35",
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+            statusCheckRollup: [],
+            reviewDecision: "",
+          },
+        ]),
+      ),
+    );
+
+    const { pr } = await fetchPrForBranch("acme", "widget", "no-checks");
+    expect(pr!.checksPassed).toBeNull();
+    expect(pr!.checksTotal).toBeNull();
+    expect(pr!.checksStatus).toBe("success");
+  });
+
+  it("counts NEUTRAL conclusion as passed", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(
+      mockExecFileSuccess(
+        JSON.stringify([
+          {
+            number: 36,
+            url: "https://github.com/acme/widget/pull/36",
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+            statusCheckRollup: [
+              { conclusion: "SUCCESS" },
+              { conclusion: "NEUTRAL" },
+            ],
+            reviewDecision: "",
+          },
+        ]),
+      ),
+    );
+
+    const { pr } = await fetchPrForBranch("acme", "widget", "neutral-check");
+    expect(pr!.checksPassed).toBe(2);
+    expect(pr!.checksTotal).toBe(2);
+    expect(pr!.checksStatus).toBe("success");
+  });
+
+  // ── Review status ─────────────────────────────────────────────────
+
+  it("maps reviewDecision APPROVED correctly", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(
+      mockExecFileSuccess(
+        JSON.stringify([
+          {
+            number: 37,
+            url: "https://github.com/acme/widget/pull/37",
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+            statusCheckRollup: [],
+            reviewDecision: "APPROVED",
+          },
+        ]),
+      ),
+    );
+
+    const { pr } = await fetchPrForBranch("acme", "widget", "approved-branch");
+    expect(pr!.reviewStatus).toBe("approved");
+  });
+
+  it("maps reviewDecision CHANGES_REQUESTED correctly", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(
+      mockExecFileSuccess(
+        JSON.stringify([
+          {
+            number: 38,
+            url: "https://github.com/acme/widget/pull/38",
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "BLOCKED",
+            statusCheckRollup: [],
+            reviewDecision: "CHANGES_REQUESTED",
+          },
+        ]),
+      ),
+    );
+
+    const { pr } = await fetchPrForBranch("acme", "widget", "changes-requested");
+    expect(pr!.reviewStatus).toBe("changes_requested");
+    expect(pr!.mergeableState).toBe("blocked");
+  });
+
+  it("maps reviewDecision REVIEW_REQUIRED correctly", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(
+      mockExecFileSuccess(
+        JSON.stringify([
+          {
+            number: 39,
+            url: "https://github.com/acme/widget/pull/39",
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+            statusCheckRollup: [],
+            reviewDecision: "REVIEW_REQUIRED",
+          },
+        ]),
+      ),
+    );
+
+    const { pr } = await fetchPrForBranch("acme", "widget", "review-required");
+    expect(pr!.reviewStatus).toBe("review_required");
+  });
+
+  it("maps empty reviewDecision to null", async () => {
+    const execFileMock = await getExecFileMock();
+    execFileMock.mockImplementation(
+      mockExecFileSuccess(
+        JSON.stringify([
+          {
+            number: 40,
+            url: "https://github.com/acme/widget/pull/40",
+            state: "OPEN",
+            isDraft: false,
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+            statusCheckRollup: [],
+            reviewDecision: "",
+          },
+        ]),
+      ),
+    );
+
+    const { pr } = await fetchPrForBranch("acme", "widget", "no-review");
+    expect(pr!.reviewStatus).toBeNull();
   });
 });

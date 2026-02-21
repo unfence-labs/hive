@@ -64,6 +64,7 @@ interface GhPrItem {
   isDraft: boolean;
   mergeable: string;
   mergeStateStatus: string;
+  reviewDecision: string;
   statusCheckRollup: Array<{
     state?: string;
     status?: string;
@@ -90,23 +91,60 @@ function mapMergeableState(
   value: string,
 ): PullRequestInfo["mergeableState"] {
   if (value === "CLEAN") return "clean";
-  if (value === "DIRTY" || value === "BLOCKED") return "conflict";
+  if (value === "DIRTY") return "conflict";
+  if (value === "BLOCKED") return "blocked";
   if (value === "UNSTABLE") return "unstable";
   return "unknown";
 }
 
-function mapChecksStatus(
-  checks: GhPrItem["statusCheckRollup"],
-): PullRequestInfo["checksStatus"] {
-  if (!checks?.length) return "success";
+function mapChecks(checks: GhPrItem["statusCheckRollup"]): {
+  status: PullRequestInfo["checksStatus"];
+  passed: number | null;
+  total: number | null;
+} {
+  if (!checks?.length) return { status: "success", passed: null, total: null };
+
+  const total = checks.length;
+  let passed = 0;
+  let hasFailure = false;
+  let hasCancelled = false;
+  let hasPending = false;
+
   for (const c of checks) {
-    if (c.conclusion === "FAILURE" || c.state === "FAILURE") return "failure";
+    const { conclusion, state } = c;
+    if (conclusion === "FAILURE" || state === "FAILURE") {
+      hasFailure = true;
+    } else if (
+      conclusion === "CANCELLED" ||
+      conclusion === "SKIPPED" ||
+      conclusion === "ACTION_REQUIRED" ||
+      conclusion === "TIMED_OUT" ||
+      conclusion === "STALE"
+    ) {
+      hasCancelled = true;
+    } else if (state === "PENDING" || (!conclusion && !state)) {
+      hasPending = true;
+    } else if (conclusion === "SUCCESS" || conclusion === "NEUTRAL") {
+      passed++;
+    }
   }
-  for (const c of checks) {
-    if (!c.conclusion && !c.state) return "pending";
-    if (c.state === "PENDING") return "pending";
-  }
-  return "success";
+
+  let status: PullRequestInfo["checksStatus"];
+  if (hasFailure) status = "failure";
+  else if (hasCancelled) status = "cancelled";
+  else if (hasPending) status = "pending";
+  else status = "success";
+
+  return { status, passed, total };
+}
+
+function mapReviewStatus(
+  value: string,
+): PullRequestInfo["reviewStatus"] {
+  if (value === "APPROVED") return "approved";
+  if (value === "CHANGES_REQUESTED") return "changes_requested";
+  if (value === "REVIEW_REQUIRED") return "review_required";
+  return null;
 }
 
 export async function fetchPrForBranch(
@@ -128,7 +166,7 @@ export async function fetchPrForBranch(
       "--repo",
       `${owner}/${repo}`,
       "--json",
-      "number,url,state,isDraft,mergeable,mergeStateStatus,statusCheckRollup",
+      "number,url,state,isDraft,mergeable,mergeStateStatus,statusCheckRollup,reviewDecision",
       "--limit",
       "1",
     ]);
@@ -139,6 +177,7 @@ export async function fetchPrForBranch(
     if (!items.length) return { pr: null };
 
     const item = items[0];
+    const checks = mapChecks(item.statusCheckRollup);
     return {
       pr: {
         number: item.number,
@@ -146,7 +185,10 @@ export async function fetchPrForBranch(
         state: mapPrState(item),
         mergeable: mapMergeable(item.mergeable),
         mergeableState: mapMergeableState(item.mergeStateStatus),
-        checksStatus: mapChecksStatus(item.statusCheckRollup),
+        checksStatus: checks.status,
+        checksPassed: checks.passed,
+        checksTotal: checks.total,
+        reviewStatus: mapReviewStatus(item.reviewDecision),
       },
     };
   } catch (err: unknown) {
