@@ -3,10 +3,23 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ChatInput from "@/components/ChatInput";
 import { useCompletions } from "@/hooks/useCompletions";
+import { useModels } from "@/hooks/useModels";
 import type { CompletionItem } from "@/types";
 
 vi.mock("@/hooks/useCompletions", () => ({
   useCompletions: vi.fn(),
+}));
+
+vi.mock("@/hooks/useModels", () => ({
+  useModels: vi.fn(() => ({
+    models: [],
+    defaultModelId: "",
+    selectedModelId: "",
+    selectedModel: undefined,
+    capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },
+    setSelectedModelId: vi.fn(),
+    isLoading: false,
+  })),
 }));
 
 function makeItem(
@@ -175,6 +188,38 @@ describe("ChatInput autocomplete", () => {
     );
 
     await user.type(screen.getByPlaceholderText("Send a message..."), "abc/help");
+
+    expect(screen.queryByRole("button", { name: /\/help/i })).not.toBeInTheDocument();
+  });
+
+  it("suppresses autocomplete when provider does not support completions", async () => {
+    vi.mocked(useModels).mockReturnValue({
+      models: [],
+      defaultModelId: "",
+      selectedModelId: "codex:gpt-5.3-codex",
+      selectedModel: undefined,
+      capabilities: { thinking: "levels", planMode: false, blockingTools: false, completions: false },
+      setSelectedModelId: vi.fn(),
+      isLoading: false,
+    });
+    vi.mocked(useCompletions).mockReturnValue([
+      makeItem("help", "slash_command", "builtin"),
+      makeItem("clear", "slash_command", "builtin"),
+    ]);
+
+    const user = userEvent.setup();
+    render(
+      <ChatInput
+        wsId="ws-1"
+        onSend={vi.fn(() => true)}
+        onStop={vi.fn()}
+        disabled={false}
+        isStreaming={false}
+        connectionStatus="connected"
+      />,
+    );
+
+    await user.type(screen.getByPlaceholderText("Send a message..."), "/he");
 
     expect(screen.queryByRole("button", { name: /\/help/i })).not.toBeInTheDocument();
   });

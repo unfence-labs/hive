@@ -223,9 +223,14 @@ export default function WorkspaceView() {
     approvePlan,
     rejectToolInput,
     dismissPlan,
+    lockedProvider,
   } = useConversation(wsId);
 
   const { sessions, createSession, activateSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
+
+  // Mirror iOS: fall back to session metadata when WS hasn't delivered lockedProvider yet.
+  const effectiveLockedProvider = lockedProvider
+    ?? sessions.find((s) => s.sessionId === sessionId)?.lockedProvider;
 
   // Scripts (hive.json setup/run)
   const {
@@ -495,6 +500,7 @@ export default function WorkspaceView() {
               <ChatInput
                 wsId={wsId}
                 sessionId={sessionId}
+                lockedProvider={effectiveLockedProvider}
                 onSend={handleSend}
                 onStop={stopStreaming}
                 disabled={false}

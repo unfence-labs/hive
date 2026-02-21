@@ -96,6 +96,8 @@ export interface SessionMetadata {
   createdAt: string;
   updatedAt: string;
   messageCount: number;
+  /** Provider ID locked on first message (e.g. "claude" or "codex"). */
+  lockedProvider?: string;
 }
 
 export interface ToolCall {
@@ -235,12 +237,17 @@ export interface QuestionInput {
 
 // ── WebSocket protocol ──────────────────────────────────────────────
 
-/** Per-message options that control Claude CLI behavior. */
+/** Per-message options that control agent CLI behavior. */
 export interface MessageOptions {
   planMode?: boolean;
   thinkingEnabled?: boolean;
+  /** Compound model ID: "provider:model", e.g. "claude:opus-4-6" or "codex:gpt-5.3-codex" */
   model?: string;
+  /** Codex reasoning effort level (ignored by Claude provider). */
+  thinkingLevel?: ThinkingLevel;
 }
+
+export type ThinkingLevel = "low" | "medium" | "high" | "xhigh";
 
 /** Frontend -> Backend */
 export type WsIncoming =
@@ -259,7 +266,7 @@ export type WsOutgoing =
   | { type: "done"; sessionId: string; costUsd?: number; durationMs?: number }
   | { type: "error"; message: string }
   | { type: "cancelled"; sessionId: string }
-  | { type: "status"; status: WorkspaceStatus; sessionId?: string; streaming?: boolean; streamingStartedAt?: number }
+  | { type: "status"; status: WorkspaceStatus; sessionId?: string; streaming?: boolean; streamingStartedAt?: number; lockedProvider?: string }
   | { type: "user_message"; message: ChatMessage }
   | { type: "history"; messages: ChatMessage[]; sessionId?: string }
   | { type: "branch_info"; info: BranchInfo }

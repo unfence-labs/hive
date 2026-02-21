@@ -88,6 +88,7 @@ export interface SessionMetadata {
   createdAt: string;
   updatedAt: string;
   messageCount: number;
+  lockedProvider?: string;
 }
 
 export interface ToolCall {
@@ -201,11 +202,40 @@ export interface QuestionInput {
 
 // ── Per-message options ──────────────────────────────────────────────
 
-/** Per-message options that control Claude CLI behavior. */
+export type ThinkingLevel = "low" | "medium" | "high" | "xhigh";
+
+/** Per-message options that control agent CLI behavior. */
 export interface MessageOptions {
   planMode?: boolean;
   thinkingEnabled?: boolean;
+  /** Compound model ID: "provider:model", e.g. "claude:opus-4-6" */
   model?: string;
+  /** Codex reasoning effort level (ignored by Claude provider). */
+  thinkingLevel?: ThinkingLevel;
+}
+
+// ── Model catalog types ─────────────────────────────────────────────
+
+export interface ProviderCapabilities {
+  thinking: boolean | "levels";
+  planMode: boolean;
+  blockingTools: boolean;
+  completions: boolean;
+}
+
+export interface ModelCatalogEntry {
+  id: string;
+  label: string;
+  provider: string;
+  providerLabel: string;
+  isDefault?: boolean;
+  isNew?: boolean;
+  capabilities: ProviderCapabilities;
+}
+
+export interface ModelCatalogResponse {
+  models: ModelCatalogEntry[];
+  defaultModelId: string;
 }
 
 // ── WebSocket protocol ──────────────────────────────────────────────
@@ -227,7 +257,7 @@ export type WsOutgoing =
   | { type: "done"; sessionId: string; costUsd?: number; durationMs?: number }
   | { type: "error"; message: string }
   | { type: "cancelled"; sessionId: string }
-  | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean; streamingStartedAt?: number }
+  | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean; streamingStartedAt?: number; lockedProvider?: string }
   | { type: "user_message"; message: ChatMessage }
   | { type: "history"; messages: ChatMessage[]; sessionId?: string }
   | { type: "branch_info"; info: BranchInfo }

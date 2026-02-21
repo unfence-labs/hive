@@ -7,7 +7,14 @@ struct ChatInputBar: View {
     let isBusy: Bool
     @Binding var thinkingEnabled: Bool
     @Binding var planModeEnabled: Bool
-    @Binding var selectedModel: ClaudeModel
+    @Binding var thinkingLevel: ThinkingLevel
+    let models: [ModelCatalogEntry]
+    let groupedModels: [ModelProviderGroup]
+    let selectedModelId: String
+    let defaultModelId: String
+    let lockedProvider: String?
+    let capabilities: ProviderCapabilities?
+    let onModelSelect: (String) -> Void
     let onDraftAttachmentsChange: ([ImageAttachment]) -> Void
     let onSend: ([ImageAttachment]) -> Void
     var onStop: (() -> Void)?
@@ -51,25 +58,42 @@ struct ChatInputBar: View {
 
     // MARK: - Control Bar
 
+    private var selectedModelLabel: String {
+        models.first { $0.id == selectedModelId }?.label ?? "Model"
+    }
+
+    private var supportsThinkingToggle: Bool { capabilities?.thinking == .boolean(true) }
+    private var supportsThinkingLevels: Bool { capabilities?.thinking == .levels }
+    private var supportsPlanMode: Bool { capabilities?.planMode ?? true }
+
     private var controlBar: some View {
         HStack(spacing: 8) {
-            // Model picker
             Menu {
-                ForEach(ClaudeModel.allCases) { model in
-                    Button {
-                        selectedModel = model
-                    } label: {
-                        if model == selectedModel {
-                            Label(model.label, systemImage: "checkmark")
-                        } else {
-                            Text(model.label)
+                ForEach(groupedModels) { group in
+                    Section(group.providerLabel) {
+                        ForEach(group.models) { model in
+                            let isLocked = lockedProvider != nil && model.provider != lockedProvider
+                            Button {
+                                onModelSelect(model.id)
+                            } label: {
+                                HStack {
+                                    Text(model.label)
+                                    if model.isNew == true {
+                                        Text("NEW")
+                                    }
+                                    if model.id == selectedModelId {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                            .disabled(isLocked)
                         }
                     }
                 }
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "sparkles")
-                    Text(selectedModel.label)
+                    Text(selectedModelLabel)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 8))
                 }
@@ -78,8 +102,17 @@ struct ChatInputBar: View {
             }
             .frame(minHeight: 44)
 
-            ModeToggle(systemImage: "brain", label: "Thinking", isActive: $thinkingEnabled, highlightColor: hiveAccent)
-            ModeToggle(systemImage: "doc.text", label: "Plan", isActive: $planModeEnabled, highlightColor: hiveAccent)
+            if supportsThinkingToggle {
+                ModeToggle(systemImage: "brain", label: "Thinking", isActive: $thinkingEnabled, highlightColor: hiveAccent)
+            }
+            if supportsThinkingLevels {
+                LevelCycleButton(systemImage: "brain", label: thinkingLevel.label, highlightColor: hiveAccent) {
+                    thinkingLevel = thinkingLevel.next()
+                }
+            }
+            if supportsPlanMode {
+                ModeToggle(systemImage: "doc.text", label: "Plan", isActive: $planModeEnabled, highlightColor: hiveAccent)
+            }
 
             Spacer()
         }
@@ -249,6 +282,35 @@ private struct ModeToggle: View {
     }
 }
 
+// MARK: - Level Cycle Button
+
+private struct LevelCycleButton: View {
+    let systemImage: String
+    let label: String
+    var highlightColor: Color = .white
+    let action: () -> Void
+
+    var body: some View {
+        Button { action() } label: {
+            HStack(spacing: 4) {
+                Image(systemName: systemImage)
+                Text(label)
+            }
+            .font(.caption)
+            .foregroundStyle(highlightColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(
+                Capsule().fill(highlightColor.opacity(0.15))
+            )
+            .overlay(
+                Capsule().stroke(highlightColor.opacity(0.3), lineWidth: 0.5)
+            )
+        }
+        .frame(minHeight: 44)
+    }
+}
+
 // MARK: - Attachment Chip
 
 private struct AttachmentChip: View {
@@ -315,6 +377,16 @@ private extension ImageAttachment {
 // MARK: - Preview
 
 #Preview {
+    let sampleModels: [ModelCatalogEntry] = [
+        .init(id: "claude:opus-4-6", label: "Opus 4.6", provider: "claude", providerLabel: "Claude Code",
+              isDefault: true, isNew: nil,
+              capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true)),
+        .init(id: "claude:sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code",
+              isDefault: nil, isNew: true,
+              capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true)),
+    ]
+    let grouped = [ModelProviderGroup(provider: "claude", providerLabel: "Claude Code", models: sampleModels)]
+
     VStack {
         Spacer()
         ChatInputBar(
@@ -323,7 +395,14 @@ private extension ImageAttachment {
             isBusy: false,
             thinkingEnabled: .constant(true),
             planModeEnabled: .constant(false),
-            selectedModel: .constant(.opus),
+            thinkingLevel: .constant(.high),
+            models: sampleModels,
+            groupedModels: grouped,
+            selectedModelId: "claude:opus-4-6",
+            defaultModelId: "claude:opus-4-6",
+            lockedProvider: nil,
+            capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true),
+            onModelSelect: { _ in },
             onDraftAttachmentsChange: { _ in },
             onSend: { _ in }
         )
@@ -333,7 +412,14 @@ private extension ImageAttachment {
             isBusy: true,
             thinkingEnabled: .constant(false),
             planModeEnabled: .constant(true),
-            selectedModel: .constant(.sonnet),
+            thinkingLevel: .constant(.high),
+            models: sampleModels,
+            groupedModels: grouped,
+            selectedModelId: "claude:sonnet-4-6",
+            defaultModelId: "claude:opus-4-6",
+            lockedProvider: "claude",
+            capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true),
+            onModelSelect: { _ in },
             onDraftAttachmentsChange: { _ in },
             onSend: { _ in },
             onStop: {}

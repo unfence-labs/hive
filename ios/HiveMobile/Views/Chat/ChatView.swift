@@ -13,11 +13,22 @@ struct ChatView: View {
     @State private var showSessionSheet = false
     @State private var thinkingEnabled = true
     @State private var planModeEnabled = false
-    @State private var selectedModel: ClaudeModel = .opus
+    @State private var thinkingLevel: ThinkingLevel = .high
+    @State private var selectedModelId: String = ""
     @State private var draftAttachments: [ImageAttachment] = []
+
+    @Environment(ModelCatalog.self) private var modelCatalog
 
     private let api = APIClient()
     private let draftStore = ChatDraftStore.shared
+
+    private var lockedProvider: String? {
+        store.lockedProvider ?? sessions.first { $0.sessionId == activeSessionId }?.lockedProvider
+    }
+
+    private var selectedCapabilities: ProviderCapabilities? {
+        modelCatalog.models.first { $0.id == selectedModelId }?.capabilities
+    }
 
     private var pendingToolUseIds: Set<String> {
         Set(store.pendingToolInputs.map(\.toolUseId))
@@ -76,7 +87,14 @@ struct ChatView: View {
                 isBusy: store.isBusy,
                 thinkingEnabled: $thinkingEnabled,
                 planModeEnabled: $planModeEnabled,
-                selectedModel: $selectedModel,
+                thinkingLevel: $thinkingLevel,
+                models: modelCatalog.models,
+                groupedModels: modelCatalog.groupedByProvider,
+                selectedModelId: selectedModelId,
+                defaultModelId: modelCatalog.defaultModelId,
+                lockedProvider: lockedProvider,
+                capabilities: selectedCapabilities,
+                onModelSelect: { selectedModelId = $0 },
                 onDraftAttachmentsChange: { draftAttachments = $0 },
                 onSend: sendMessage,
                 onStop: { Task { await wsManager.send(.stop(sessionId: nil)) } }
@@ -132,6 +150,20 @@ struct ChatView: View {
             }
         }
         .task { await setup() }
+        .onChange(of: modelCatalog.isLoaded) {
+            if selectedModelId.isEmpty, !modelCatalog.defaultModelId.isEmpty {
+                selectedModelId = modelCatalog.defaultModelId
+            }
+        }
+        .onChange(of: lockedProvider) { _, newProvider in
+            guard let newProvider, !selectedModelId.isEmpty else { return }
+            let currentProvider = selectedModelId.split(separator: ":").first.map(String.init) ?? ""
+            if currentProvider != newProvider {
+                let fallback = modelCatalog.models.first { $0.provider == newProvider && $0.isDefault == true }
+                    ?? modelCatalog.models.first { $0.provider == newProvider }
+                if let fallback { selectedModelId = fallback.id }
+            }
+        }
         .onDisappear {
             saveCurrentDraft()
             wsManager.disconnect()
@@ -163,6 +195,10 @@ struct ChatView: View {
 
         if let sessionId = activeSessionId {
             restoreDraft(for: sessionId)
+        }
+
+        if selectedModelId.isEmpty {
+            selectedModelId = modelCatalog.defaultModelId
         }
 
         wsManager.connect(workspaceId: workspace.id)
@@ -252,10 +288,16 @@ struct ChatView: View {
         draft = ""
         draftAttachments = []
 
+        let caps = selectedCapabilities
+        let supportsThinkingToggle = caps?.thinking == .boolean(true)
+        let supportsThinkingLevels = caps?.thinking == .levels
+        let supportsPlanMode = caps?.planMode ?? true
+
         let options = MessageOptions(
-            planMode: planModeEnabled ? true : nil,
-            thinkingEnabled: thinkingEnabled ? true : nil,
-            model: selectedModel.rawValue
+            planMode: supportsPlanMode ? (planModeEnabled ? true : nil) : nil,
+            thinkingEnabled: supportsThinkingToggle ? (thinkingEnabled ? true : nil) : nil,
+            model: selectedModelId.isEmpty ? nil : selectedModelId,
+            thinkingLevel: supportsThinkingLevels ? thinkingLevel : nil
         )
 
         Task {
@@ -290,6 +332,8 @@ struct ChatView: View {
                 text: draft,
                 thinkingEnabled: thinkingEnabled,
                 planModeEnabled: planModeEnabled,
+                thinkingLevel: thinkingLevel,
+                selectedModelId: selectedModelId.isEmpty ? nil : selectedModelId,
                 attachments: draftAttachments.map(ChatDraftStore.Attachment.init)
             )
         )
@@ -300,11 +344,17 @@ struct ChatView: View {
             draft = saved.text
             thinkingEnabled = saved.thinkingEnabled
             planModeEnabled = saved.planModeEnabled
+            thinkingLevel = saved.thinkingLevel
+            if let modelId = saved.selectedModelId {
+                selectedModelId = modelId
+            }
             draftAttachments = saved.attachments.map(ImageAttachment.init)
         } else {
             draft = ""
             thinkingEnabled = true
             planModeEnabled = false
+            thinkingLevel = .high
+            selectedModelId = modelCatalog.defaultModelId
             draftAttachments = []
         }
     }
@@ -346,6 +396,7 @@ struct ChatView: View {
             projectName: "hive", defaultBranch: "main"
         ))
     }
+    .environment(ModelCatalog())
     .preferredColorScheme(.dark)
 }
 

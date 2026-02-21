@@ -79,7 +79,7 @@ enum WsOutgoing: Decodable {
     case done(sessionId: String, costUsd: Double?, durationMs: Int?)
     case error(message: String)
     case cancelled(sessionId: String)
-    case status(status: WorkspaceStatus, sessionId: String?, streaming: Bool?, streamingStartedAt: Double?)
+    case status(status: WorkspaceStatus, sessionId: String?, streaming: Bool?, streamingStartedAt: Double?, lockedProvider: String?)
     case userMessage(message: ChatMessage)
     case history(messages: [ChatMessage], sessionId: String?)
     case branchInfo(info: BranchInfo)
@@ -89,7 +89,7 @@ enum WsOutgoing: Decodable {
     private enum CodingKeys: String, CodingKey {
         case type, sessionId, text, id, name, input, output
         case parentToolUseId, toolUseId, requestId, toolName
-        case costUsd, durationMs, message, status, streaming, streamingStartedAt
+        case costUsd, durationMs, message, status, streaming, streamingStartedAt, lockedProvider
         case messages, info, stats
         case scriptType, state, exitCode
     }
@@ -162,7 +162,8 @@ enum WsOutgoing: Decodable {
                 status: try container.decode(WorkspaceStatus.self, forKey: .status),
                 sessionId: try container.decodeIfPresent(String.self, forKey: .sessionId),
                 streaming: try container.decodeIfPresent(Bool.self, forKey: .streaming),
-                streamingStartedAt: try container.decodeIfPresent(Double.self, forKey: .streamingStartedAt)
+                streamingStartedAt: try container.decodeIfPresent(Double.self, forKey: .streamingStartedAt),
+                lockedProvider: try container.decodeIfPresent(String.self, forKey: .lockedProvider)
             )
         case "user_message":
             self = .userMessage(message: try container.decode(ChatMessage.self, forKey: .message))

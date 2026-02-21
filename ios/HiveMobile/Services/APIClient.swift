@@ -169,4 +169,8 @@ final class APIClient {
     func archiveWorkspace(workspaceId: String) async throws {
         try await requestVoid("POST", path: "/api/workspaces/\(workspaceId)/archive")
     }
+
+    func fetchModels() async throws -> ModelCatalogResponse {
+        try await get(path: "/api/models")
+    }
 }

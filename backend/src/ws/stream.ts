@@ -104,6 +104,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       ...(session.status === "streaming" && session.streamingStartedAt
         ? { streamingStartedAt: session.streamingStartedAt }
         : {}),
+      lockedProvider: session.metadata.lockedProvider,
     });
     try {
       const messages = await session.getMessages();
@@ -170,6 +171,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           status: "idle",
           sessionId: session.sessionId,
           streaming: false,
+          lockedProvider: session.metadata.lockedProvider,
         });
       }
     };
@@ -184,6 +186,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         status: "idle",
         sessionId: session.sessionId,
         streaming: false,
+        lockedProvider: session.metadata.lockedProvider,
       });
       const live = getSessionById(workspaceId, session.sessionId);
       if (!live) {
@@ -383,6 +386,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
                 sessionId: targetSession.sessionId,
                 streaming: true,
                 streamingStartedAt: targetSession.streamingStartedAt ?? undefined,
+                lockedProvider: targetSession.metadata.lockedProvider,
               });
             } catch (err: unknown) {
               sendOutgoing(socket, { type: "error", message: errorMessage(err, "Failed to send message") });

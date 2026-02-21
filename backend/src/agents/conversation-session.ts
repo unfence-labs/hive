@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { StreamParser } from "./stream-parser.js";
+import { resolveProvider } from "./providers/registry.js";
+import { CodexStreamAdapter } from "./providers/codex-stream-adapter.js";
+import type { AgentProvider, StreamAdapter } from "./providers/types.js";
 import type {
   ChatMessage,
   ContentBlock,
@@ -88,17 +91,17 @@ export type ConversationSessionEvent = {
 export class ConversationSession extends EventEmitter<ConversationSessionEvent> {
   readonly sessionId: string;
   private readonly cwd: string;
-  private readonly command: string;
+  private readonly testCommand: string | undefined;
   private readonly systemPrompt: string | undefined;
   private readonly skipPermissions: boolean;
   private readonly sessionDir: string;
   private readonly workspaceId: string;
   private process: ChildProcess | null = null;
-  private parser: StreamParser | null = null;
+  private parser: StreamAdapter | null = null;
   private _status: "idle" | "streaming" | "error" = "idle";
   private _streamingStartedAt: number | null = null;
   private messageCount = 0;
-  private claudeSessionId: string | undefined;
+  private cliSessionId: string | undefined;
   private persistQueue: Promise<void> = Promise.resolve();
   private _lastPlanMode = false;
   private _metadata: SessionMetadata;
@@ -108,7 +111,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     super();
     this.sessionId = config.sessionId ?? nanoid(12);
     this.cwd = config.cwd;
-    this.command = config.command ?? "claude";
+    // testCommand is only used for tests (command = "bash") — providers handle real commands
+    this.testCommand = config.command !== undefined && config.command !== "claude" ? config.command : undefined;
     this.systemPrompt = config.systemPrompt;
     this.skipPermissions = config.skipPermissions ?? true;
     this.workspaceId = config.workspaceId;
@@ -143,7 +147,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       const raw = await readFile(metaPath, "utf-8");
       const meta = JSON.parse(raw) as SessionMetadata;
       session._metadata = meta;
-      session.claudeSessionId = meta.claudeSessionId;
+      session.cliSessionId = meta.claudeSessionId;
       session.messageCount = meta.messageCount;
     } catch {
       // No persisted metadata — fresh session
@@ -166,12 +170,23 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     }
   }
 
-  /** Send a user message. Spawns a new claude process for this turn.
+  /** Send a user message. Spawns a CLI process for this turn.
    *  When `cliContent` is provided, it is sent to the CLI instead of `content`
    *  while the displayed/persisted message remains `content`. */
   sendMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[], cliContent?: string): void {
     if (this._status === "streaming") {
       throw new Error("Already streaming — wait for current message to complete or stop it");
+    }
+
+    // Lock provider on first message, validate on subsequent messages
+    if (!this.testCommand) {
+      const { provider: resolvedProvider } = resolveProvider(msgOptions?.model);
+
+      if (!this._metadata.lockedProvider) {
+        this._metadata.lockedProvider = resolvedProvider.id;
+      } else if (this._metadata.lockedProvider !== resolvedProvider.id) {
+        throw new Error(`Provider mismatch: session locked to "${this._metadata.lockedProvider}"`);
+      }
     }
 
     this._status = "streaming";
@@ -182,7 +197,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     const promptContent = cliContent ?? content;
 
     if (images?.length) {
-      // Save images to disk first, then emit/persist with lightweight URL references
       void this.saveImagesToDisk(images).then((saved) => {
         const urlImages = saved.map((s, i) => ({
           name: images[i].name,
@@ -202,7 +216,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     }
   }
 
-  /** Emit, persist and count a user message. */
   private emitUserMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[]): void {
     const userMsg: ChatMessage = {
       id: nanoid(12),
@@ -226,8 +239,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     }
   }
 
-  /** Save base64 image data to disk so Claude can read them.
-   *  Returns both the absolute file path (for CLI) and the filename (for URL references). */
   private async saveImagesToDisk(images: ImageAttachment[]): Promise<{ path: string; filename: string }[]> {
     const attachmentsDir = join(this.sessionDir, "attachments");
     await mkdir(attachmentsDir, { recursive: true });
@@ -259,7 +270,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     return results;
   }
 
-  /** Build a prompt that includes image file paths for Claude to read. */
   private buildPromptWithImages(userText: string, imagePaths: string[]): string {
     const pathList = imagePaths.map((p) => `- ${p}`).join("\n");
     const instruction = `\n\nThe user has attached ${imagePaths.length} image(s). Use the Read tool to view them:\n${pathList}`;
@@ -268,47 +278,53 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       : `Please analyze the attached image(s). Use the Read tool to view them:\n${pathList}`;
   }
 
-  /** Spawn a Claude CLI process for a single turn. */
+  /** Spawn a CLI process for a single turn, delegating to the resolved provider. */
   private spawnCli(content: string, msgOptions?: MessageOptions): void {
-    // Pre-generate a Claude session ID so --resume works even after SIGKILL.
-    // On the first message we pass --session-id to tell the CLI what ID to use;
-    // on subsequent messages we --resume that same ID.
     const isFirstMessage = this.messageCount === 1;
-    if (!this.claudeSessionId) {
-      this.claudeSessionId = crypto.randomUUID();
-      this._metadata.claudeSessionId = this.claudeSessionId;
+
+    // Resolve which provider handles this model
+    const { provider, modelId } = this.testCommand
+      ? { provider: null as AgentProvider | null, modelId: "" }
+      : resolveProvider(msgOptions?.model);
+
+    // Pre-generate a session ID for CLI continuity
+    if (!this.cliSessionId) {
+      this.cliSessionId = crypto.randomUUID();
+      this._metadata.claudeSessionId = this.cliSessionId;
     }
 
-    // Control thinking via MAX_THINKING_TOKENS env var (default 31999 = on, 0 = off)
-    const env = msgOptions?.thinkingEnabled !== undefined
-      ? { ...process.env, MAX_THINKING_TOKENS: msgOptions.thinkingEnabled ? "31999" : "0" }
-      : undefined;
+    let command: string;
+    let args: string[];
+    let env: Record<string, string> | undefined;
 
-    const args = [
-      "--print",
-      "--output-format", "stream-json",
-      "--verbose",
-      ...(msgOptions?.model ? ["--model", msgOptions.model] : []),
-      // Plan mode overrides skip-permissions (plan mode is read-only by design)
-      ...(msgOptions?.planMode
-        ? ["--permission-mode", "plan"]
-        : this.skipPermissions ? ["--dangerously-skip-permissions"] : []),
-      ...(isFirstMessage && this.systemPrompt
-        ? ["--append-system-prompt", this.systemPrompt]
-        : []),
-      ...(isFirstMessage
-        ? ["--session-id", this.claudeSessionId]
-        : ["--resume", this.claudeSessionId]),
-      "-p", content,
-    ];
+    if (this.testCommand) {
+      // Test mode: use raw command (e.g. "bash") — no provider
+      command = this.testCommand;
+      args = ["-c", `echo '{"type":"result","session_id":"test","duration_ms":0}'`];
+      env = undefined;
+    } else {
+      command = provider!.command;
+      args = provider!.buildArgs(content, { ...msgOptions, model: modelId }, {
+        isFirstMessage,
+        sessionId: this.cliSessionId,
+        systemPrompt: this.systemPrompt,
+        skipPermissions: this.skipPermissions,
+      });
+      env = provider!.buildEnv({ ...msgOptions, model: modelId });
+    }
 
-    console.log("[session] spawn claude", {
+    const supportsBlockingTools = provider?.capabilities.blockingTools ?? false;
+
+    console.log(`[session] spawn ${command}`, {
+      provider: provider?.id ?? "test",
+      model: modelId || undefined,
       msgOptions,
-      thinkingTokens: env?.MAX_THINKING_TOKENS ?? "default",
       args: args.filter((a) => a !== content && !a.includes("You are")),
     });
 
-    this.parser = new StreamParser();
+    this.parser = this.testCommand
+      ? new StreamParser()
+      : provider!.createStreamAdapter();
 
     // Accumulators for building the assistant ChatMessage
     let assistantText = "";
@@ -316,13 +332,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     const toolCalls: ToolCall[] = [];
     let resultDurationMs: number | undefined;
 
-    // Stack of pending Task (subagent) tool IDs so we can mark child tools
-    // with parentToolUseId for hierarchical rendering in the frontend.
     const pendingTaskStack: string[] = [];
-
-    // Track blocking tools detected in the stream so the close handler can emit
-    // tool_input_required events. We kill the process immediately when we see one
-    // to prevent the CLI from auto-executing the tool.
     const blockingToolNames = new Set(["AskUserQuestion", "ExitPlanMode"]);
     let killedForBlockingTool = false;
 
@@ -364,13 +374,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
               parentToolUseId,
             });
 
-            // Push Task tools onto the stack so their sub-tools get marked as children
             if (block.name === "Task") {
               pendingTaskStack.push(block.id);
             }
 
-            // Kill immediately to prevent CLI from auto-executing the blocking tool
-            if (blockingToolNames.has(block.name) && this.process) {
+            // Only intercept blocking tools for providers that support them
+            if (supportsBlockingTools && blockingToolNames.has(block.name) && this.process) {
               killedForBlockingTool = true;
               this.process.kill("SIGKILL");
             }
@@ -403,16 +412,13 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     });
 
     this.parser.on("user", (data) => {
-      // User messages in the stream are tool results
       for (const block of data.message.content) {
         if (block.type === "tool_result") {
-          // Pop the Task stack when a Task tool completes
           const stackTop = pendingTaskStack[pendingTaskStack.length - 1];
           if (stackTop && stackTop === block.tool_use_id) {
             pendingTaskStack.pop();
           }
 
-          // Update the matching tool call's output
           const tc = toolCalls.find((t) => t.id === block.tool_use_id);
           if (tc) tc.output = block.content;
           this.emit("message", {
@@ -426,33 +432,30 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     });
 
     this.parser.on("result", (data) => {
-      // Capture Claude's session ID from the first result
-      if (data.session_id && !this.claudeSessionId) {
-        this.claudeSessionId = data.session_id;
+      // Capture session/thread ID from first result for continuity
+      if (data.session_id && !this.cliSessionId) {
+        this.cliSessionId = data.session_id;
         this._metadata.claudeSessionId = data.session_id;
       }
       if (data.duration_ms != null) {
         resultDurationMs = data.duration_ms;
       }
-      // done event is emitted on process close (after flush)
     });
 
-    this.parser.on("system", (_data) => {
-      // System messages (compaction etc.) — no action needed
+    this.parser.on("system", () => {
+      // System messages — no action needed
     });
 
     this.parser.on("error", (err) => {
       this.emit("error", err);
     });
 
-    this.process = spawn(this.command, args, {
+    this.process = spawn(command, args, {
       cwd: this.cwd,
       stdio: ["pipe", "pipe", "pipe"],
       ...(env && { env }),
     });
 
-    // Claude can wait indefinitely when stdin is a pipe left open.
-    // We only send prompt via args (`-p`), so close stdin immediately.
     this.process.stdin?.end();
 
     this.process.stdout?.on("data", (chunk: Buffer) => {
@@ -476,8 +479,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     this.process.on("close", (code) => {
       this.parser?.flush();
+
+      // For Codex: capture thread_id from the stream adapter for session continuity
+      if (this.parser instanceof CodexStreamAdapter && this.parser.capturedThreadId) {
+        this.cliSessionId = this.parser.capturedThreadId;
+        this._metadata.claudeSessionId = this.parser.capturedThreadId;
+      }
+
       const exitCode = code ?? 1;
-      // SIGKILL for blocking tools is NOT a cancellation — it's an intentional pause
       const wasCancelled = exitCode !== 0 && this._status === "streaming" && !killedForBlockingTool;
       const cancelledByPark = wasCancelled && this.stopReason === "park";
       const shouldSurfaceCancelled = wasCancelled && !cancelledByPark;
@@ -488,8 +497,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       this.process = null;
       this.parser = null;
 
-      // Persist assistant message. For cancelled turns without any output,
-      // persist a synthetic message so session history still explains what happened.
       if (assistantText || toolCalls.length > 0 || thinkingText || shouldSurfaceCancelled) {
         const assistantMsg: ChatMessage = {
           id: nanoid(12),
@@ -509,13 +516,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       this._metadata.updatedAt = new Date().toISOString();
       this.persistQueue = this.persistQueue
         .then(() => this.saveMetadata())
-        .catch(() => {
-          // Non-fatal: metadata persistence failure should not break the session.
-        });
+        .catch(() => {});
 
-      // When we killed the process for a blocking tool, those tools will have
-      // no output (we killed before the CLI could execute them). Use the flag
-      // directly instead of checking tc.output.
       const unansweredBlockingTools = killedForBlockingTool
         ? toolCalls.filter((tc) => blockingToolNames.has(tc.name))
         : [];
@@ -532,8 +534,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           });
         }
 
-        // Emit tool_input_required for each unanswered blocking tool
-        // so the frontend can render interactive controls
         for (const tool of unansweredBlockingTools) {
           let input: unknown;
           try {
@@ -600,9 +600,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     } else if (toolName === "ExitPlanMode" && result.type === "approve") {
       this.sendMessage("approved");
     } else if (toolName === "ExitPlanMode" && result.type === "dismiss") {
-      // Persist a user message without spawning a new CLI turn or emitting WS events.
-      // Used by "hand off" to record plan acknowledgment in the old session
-      // so the plan shows "approved" when the session is loaded later.
       const userMsg: ChatMessage = {
         id: nanoid(12),
         sessionId: this.sessionId,
@@ -620,7 +617,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     }
   }
 
-  /** Update the session title externally (e.g. from the naming task). */
   setTitle(title: string): void {
     this._metadata.title = title;
     this._metadata.updatedAt = new Date().toISOString();
@@ -629,33 +625,27 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       .catch(() => {});
   }
 
-  /** Append a ChatMessage to the session's messages.jsonl */
   private async appendMessage(msg: ChatMessage): Promise<void> {
     try {
       await mkdir(this.sessionDir, { recursive: true });
       const messagesPath = join(this.sessionDir, "messages.jsonl");
       await appendFile(messagesPath, JSON.stringify(msg) + "\n", "utf-8");
     } catch {
-      // Non-fatal — messages may not persist if disk fails
+      // Non-fatal
     }
   }
 
-  /** Serialize message persistence to preserve order under fast process exits. */
   private enqueuePersist(msg: ChatMessage): Promise<void> {
     this.persistQueue = this.persistQueue
       .then(() => this.appendMessage(msg))
-      .catch(() => {
-        // Non-fatal: keep queue alive for subsequent writes.
-      });
+      .catch(() => {});
     return this.persistQueue;
   }
 
-  /** Persist metadata to disk immediately (e.g. right after creation). */
   async persistMetadata(): Promise<void> {
     await this.saveMetadata();
   }
 
-  /** Save session metadata to disk. */
   private async saveMetadata(): Promise<void> {
     try {
       await mkdir(this.sessionDir, { recursive: true });

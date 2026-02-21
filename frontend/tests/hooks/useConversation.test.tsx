@@ -1462,4 +1462,103 @@ describe("useConversation", () => {
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.streamingStartedAt).toBeNull();
   });
+
+  // ── lockedProvider tests ──────────────────────────────────────────
+
+  it("extracts lockedProvider from status event", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    expect(result.current.lockedProvider).toBeUndefined();
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-1",
+        streaming: true,
+        lockedProvider: "codex",
+      });
+    });
+
+    expect(result.current.lockedProvider).toBe("codex");
+  });
+
+  it("does not clear lockedProvider when status event omits it", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-1",
+        streaming: true,
+        lockedProvider: "claude",
+      });
+    });
+
+    expect(result.current.lockedProvider).toBe("claude");
+
+    // Idle status without lockedProvider should not clear it
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "idle",
+        sessionId: "sess-1",
+        streaming: false,
+      });
+    });
+
+    expect(result.current.lockedProvider).toBe("claude");
+  });
+
+  it("clears lockedProvider on session switch", async () => {
+    const { __wsMock } = await getWsMock();
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock.mockResolvedValueOnce([]);
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-1",
+        streaming: true,
+        lockedProvider: "codex",
+      });
+    });
+
+    expect(result.current.lockedProvider).toBe("codex");
+
+    await act(async () => {
+      await result.current.switchSession("sess-2");
+    });
+
+    expect(result.current.lockedProvider).toBeUndefined();
+  });
+
+  it("picks up lockedProvider from bootstrap status on session switch", async () => {
+    const { __wsMock } = await getWsMock();
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock.mockResolvedValueOnce([]);
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    await act(async () => {
+      await result.current.switchSession("sess-2");
+    });
+
+    // Simulates the bootstrap status event from sendSessionBootstrap
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "idle",
+        sessionId: "sess-2",
+        streaming: false,
+        lockedProvider: "claude",
+      });
+    });
+
+    expect(result.current.lockedProvider).toBe("claude");
+  });
 });

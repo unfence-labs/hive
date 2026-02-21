@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct HiveApp: App {
     @State private var projectStore = ProjectStore()
+    @State private var modelCatalog = ModelCatalog()
     @State private var selectedTab: AppTab = .hub
     @State private var hubPath = NavigationPath()
     @Environment(\.scenePhase) private var scenePhase
@@ -37,7 +38,9 @@ struct HiveApp: App {
             }
             .tint(accent)
             .environment(projectStore)
+            .environment(modelCatalog)
             .preferredColorScheme(.dark)
+            .task { await modelCatalog.loadIfNeeded() }
             .onChange(of: scenePhase) { _, phase in
                 handleScenePhase(phase)
             }
