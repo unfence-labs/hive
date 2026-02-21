@@ -144,19 +144,19 @@ struct PrBadge: View {
         }
         // 5. Checks failing
         if pr.checksStatus == .failure {
-            return ("xmark.circle", "Checks failing\(checksCountLabel)", .red)
+            return ("xmark.circle", "Failed\(checksCountLabel)", .red)
         }
         // 6. Checks cancelled
         if pr.checksStatus == .cancelled {
-            return ("nosign", "Checks cancelled", .orange)
+            return ("nosign", "Cancelled", .orange)
         }
         // 7. Checks pending
         if pr.checksStatus == .pending {
-            return ("clock", "Checks running\(checksCountLabel)", .yellow)
+            return ("clock", "Checks\(checksCountLabel)", .yellow)
         }
         // 8. Changes requested
         if pr.reviewStatus == .changes_requested {
-            return ("exclamationmark.triangle", "Changes requested", .orange)
+            return ("exclamationmark.triangle", "Changes req.", .orange)
         }
         // 9. Blocked (branch protection)
         if pr.mergeableState == .blocked {
