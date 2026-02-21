@@ -22,7 +22,7 @@ struct ChatView: View {
     private let draftStore = ChatDraftStore.shared
 
     private var lockedProvider: String? {
-        sessions.first { $0.sessionId == activeSessionId }?.lockedProvider
+        store.lockedProvider ?? sessions.first { $0.sessionId == activeSessionId }?.lockedProvider
     }
 
     private var pendingToolUseIds: Set<String> {
@@ -269,13 +269,6 @@ struct ChatView: View {
         Task {
             for await event in wsManager.messages {
                 store.handle(event)
-
-                // When the server echoes back a user_message, the backend has
-                // already set lockedProvider in memory. Refresh sessions to
-                // pick it up so the model picker disables other providers.
-                if case .userMessage = event, lockedProvider == nil {
-                    Task { await loadSessions() }
-                }
             }
         }
     }

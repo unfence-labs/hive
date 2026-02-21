@@ -32,6 +32,9 @@ final class ConversationStore {
     var branchInfo: BranchInfo?
     var diffStats: DiffStatResponse?
 
+    /// Provider locked for this session (pushed via WS status events).
+    var lockedProvider: String?
+
     // MARK: - Computed
 
     /// The in-progress assistant message shown during streaming
@@ -111,7 +114,7 @@ final class ConversationStore {
                 cancelled: nil, durationMs: nil
             ))
 
-        case .status(let status, let incomingSessionId, let streaming, let startedAt):
+        case .status(let status, let incomingSessionId, let streaming, let startedAt, let provider):
             // Ignore status updates for non-focused sessions.
             if let current = sessionId,
                let incomingSessionId,
@@ -121,6 +124,10 @@ final class ConversationStore {
 
             if let incomingSessionId {
                 sessionId = incomingSessionId
+            }
+
+            if let provider {
+                lockedProvider = provider
             }
 
             let newIsStreaming = streaming ?? (status == .idle ? false : isStreaming)

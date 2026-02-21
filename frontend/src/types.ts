@@ -256,7 +256,7 @@ export type WsOutgoing =
   | { type: "done"; sessionId: string; costUsd?: number; durationMs?: number }
   | { type: "error"; message: string }
   | { type: "cancelled"; sessionId: string }
-  | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean; streamingStartedAt?: number }
+  | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean; streamingStartedAt?: number; lockedProvider?: string }
   | { type: "user_message"; message: ChatMessage }
   | { type: "history"; messages: ChatMessage[]; sessionId?: string }
   | { type: "branch_info"; info: BranchInfo }
