@@ -87,7 +87,7 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
 
   // ── PR status (on-demand, cached) ─────────────────────────────────
   const prCache = new Map<string, { data: PrStatusResponse; at: number }>();
-  const PR_TTL = 30_000;
+  const PR_TTL = 15_000;
 
   app.get<{ Params: { wsId: string } }>("/api/workspaces/:wsId/pr-status", async (req, reply) => {
     try {

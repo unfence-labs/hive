@@ -8,8 +8,8 @@ export function usePrStatus(wsId: string | undefined) {
     queryFn: (): Promise<PrStatusResponse> =>
       api.get<PrStatusResponse>(`/api/workspaces/${wsId}/pr-status`),
     enabled: !!wsId,
-    refetchInterval: 30_000,
-    staleTime: 25_000,
+    refetchInterval: 15_000,
+    staleTime: 10_000,
     gcTime: 5 * 60_000,
   });
 

@@ -98,7 +98,7 @@ final class HubStatusMonitor {
                     } catch {
                         // Silently ignore — card shows stale or "No PR"
                     }
-                    try? await Task.sleep(for: .seconds(30))
+                    try? await Task.sleep(for: .seconds(15))
                 }
             }
             prPollTasks[id] = task
