@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
-import WebSocket from "ws";
+import type WebSocket from "ws";
 import { rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -19,7 +19,6 @@ let tempDir: string;
 let dataDir: string;
 let fixtureRepoUrl: string;
 let app: ReturnType<typeof Fastify>;
-let address: string;
 
 beforeEach(async () => {
   tempDir = await createTempDir("hive-e2e-test-");
@@ -42,7 +41,7 @@ beforeEach(async () => {
   );
 
   app.get("/health", async () => ({ status: "ok" }));
-  address = await app.listen({ port: 0, host: "127.0.0.1" });
+  await app.ready();
 });
 
 afterEach(async () => {
@@ -51,6 +50,20 @@ afterEach(async () => {
   await app.close();
   await rm(tempDir, { recursive: true, force: true });
 });
+
+async function connectSessionWs(
+  workspaceId: string,
+): Promise<{ ws: WebSocket; messages: WsOutgoing[] }> {
+  const messages: WsOutgoing[] = [];
+  const ws = await app.injectWS(`/ws/session/${workspaceId}`, {}, {
+    onInit: (clientWs) => {
+      clientWs.on("message", (data: Buffer) => {
+        messages.push(JSON.parse(data.toString()) as WsOutgoing);
+      });
+    },
+  });
+  return { ws, messages };
+}
 
 describe("E2E: conversation-only lifecycle", () => {
   it("creates project -> workspace -> session -> WS connect -> end session -> workspace idle", async () => {
@@ -101,18 +114,7 @@ describe("E2E: conversation-only lifecycle", () => {
     expect(sessGetRes.json().sessionId).toBe(sessionMeta.sessionId);
 
     // 7. Connect WebSocket
-    const wsUrl = address.replace("http://", "ws://");
-    const wsClient = new WebSocket(`${wsUrl}/ws/session/${workspace.id}`);
-    const messages: WsOutgoing[] = [];
-
-    wsClient.on("message", (data) => {
-      messages.push(JSON.parse(data.toString()));
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      wsClient.on("open", resolve);
-      wsClient.on("error", reject);
-    });
+    const { ws: wsClient, messages } = await connectSessionWs(workspace.id);
 
     // Wait for initial status message
     await new Promise<void>((resolve) => {
@@ -174,18 +176,8 @@ describe("E2E: conversation-only lifecycle", () => {
     const workspace = wsRes.json();
 
     // Connect WS directly (no session created yet)
-    const wsUrl = address.replace("http://", "ws://");
-    const wsClient = new WebSocket(`${wsUrl}/ws/session/${workspace.id}`);
-    const messages: WsOutgoing[] = [];
+    const { ws: wsClient, messages } = await connectSessionWs(workspace.id);
 
-    wsClient.on("message", (data) => {
-      messages.push(JSON.parse(data.toString()));
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      wsClient.on("open", resolve);
-      wsClient.on("error", reject);
-    });
 
     // Should get initial idle status
     await new Promise<void>((resolve) => {
@@ -247,18 +239,8 @@ describe("E2E: conversation-only lifecycle", () => {
     });
 
     // Connect WS
-    const wsUrl = address.replace("http://", "ws://");
-    const wsClient = new WebSocket(`${wsUrl}/ws/session/${workspace.id}`);
-    const messages: WsOutgoing[] = [];
+    const { ws: wsClient, messages } = await connectSessionWs(workspace.id);
 
-    wsClient.on("message", (data) => {
-      messages.push(JSON.parse(data.toString()));
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      wsClient.on("open", resolve);
-      wsClient.on("error", reject);
-    });
 
     // Wait for initial status from existing, non-streaming session
     await new Promise<void>((resolve) => {

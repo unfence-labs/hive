@@ -243,65 +243,67 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       channel.sockets.add(socket);
       channel.socketStates.set(socket, {});
 
-      const session = getSession(wsId);
+      const sendBootstrap = async (): Promise<void> => {
+        const session = getSession(wsId);
 
-      if (session) {
-        attachSessionListeners(wsId, channel, session);
-        setSocketFocus(channel, socket, session.sessionId);
-        await sendSessionBootstrap(socket, session);
-        // Send status for other sessions that are currently streaming
-        for (const streamingId of getStreamingSessionIds(wsId)) {
-          if (streamingId !== session.sessionId) {
-            const streamingSession = getSessionById(wsId, streamingId);
+        if (session) {
+          attachSessionListeners(wsId, channel, session);
+          setSocketFocus(channel, socket, session.sessionId);
+          await sendSessionBootstrap(socket, session);
+          // Send status for other sessions that are currently streaming
+          for (const streamingId of getStreamingSessionIds(wsId)) {
+            if (streamingId !== session.sessionId) {
+              const streamingSession = getSessionById(wsId, streamingId);
+              sendOutgoing(socket, {
+                type: "status",
+                status: "busy",
+                sessionId: streamingId,
+                streaming: true,
+                ...(streamingSession?.streamingStartedAt
+                  ? { streamingStartedAt: streamingSession.streamingStartedAt }
+                  : {}),
+              });
+            }
+          }
+        } else {
+          sendOutgoing(socket, { type: "status", status: "idle", streaming: false });
+          try {
+            const messages = await getSessionMessages(wsId, dataDir);
+            if (messages.length > 0) {
+              const firstSessionId = messages[0]?.sessionId;
+              if (firstSessionId) {
+                setSocketFocus(channel, socket, firstSessionId);
+              }
+              sendOutgoing(socket, { type: "history", sessionId: firstSessionId, messages });
+            }
+          } catch {
+            // Ignore missing/corrupt persisted history.
+          }
+        }
+
+        const branchInfo = gitSyncSnapshotProvider?.getCachedBranchInfo(wsId);
+        if (branchInfo) {
+          sendOutgoing(socket, { type: "branch_info", info: branchInfo });
+        }
+
+        const diffStats = gitSyncSnapshotProvider?.getCachedDiffStats(wsId);
+        if (diffStats) {
+          sendOutgoing(socket, { type: "diff_stats", stats: diffStats });
+        }
+
+        // Bootstrap script running state so sidebar indicators survive reconnects.
+        const scriptStatus = getScriptStatus(wsId);
+        for (const [scriptType, info] of Object.entries(scriptStatus)) {
+          if (info.state !== "idle") {
             sendOutgoing(socket, {
-              type: "status",
-              status: "busy",
-              sessionId: streamingId,
-              streaming: true,
-              ...(streamingSession?.streamingStartedAt
-                ? { streamingStartedAt: streamingSession.streamingStartedAt }
-                : {}),
+              type: "script_status",
+              scriptType,
+              state: info.state,
+              ...(info.exitCode !== undefined ? { exitCode: info.exitCode } : {}),
             });
           }
         }
-      } else {
-        sendOutgoing(socket, { type: "status", status: "idle", streaming: false });
-        try {
-          const messages = await getSessionMessages(wsId, dataDir);
-          if (messages.length > 0) {
-            const firstSessionId = messages[0]?.sessionId;
-            if (firstSessionId) {
-              setSocketFocus(channel, socket, firstSessionId);
-            }
-            sendOutgoing(socket, { type: "history", sessionId: firstSessionId, messages });
-          }
-        } catch {
-          // Ignore missing/corrupt persisted history.
-        }
-      }
-
-      const branchInfo = gitSyncSnapshotProvider?.getCachedBranchInfo(wsId);
-      if (branchInfo) {
-        sendOutgoing(socket, { type: "branch_info", info: branchInfo });
-      }
-
-      const diffStats = gitSyncSnapshotProvider?.getCachedDiffStats(wsId);
-      if (diffStats) {
-        sendOutgoing(socket, { type: "diff_stats", stats: diffStats });
-      }
-
-      // Bootstrap script running state so sidebar indicators survive reconnects.
-      const scriptStatus = getScriptStatus(wsId);
-      for (const [scriptType, info] of Object.entries(scriptStatus)) {
-        if (info.state !== "idle") {
-          sendOutgoing(socket, {
-            type: "script_status",
-            scriptType,
-            state: info.state,
-            ...(info.exitCode !== undefined ? { exitCode: info.exitCode } : {}),
-          });
-        }
-      }
+      };
 
       socket.on("close", () => {
         channel.sockets.delete(socket);
@@ -472,6 +474,12 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             break;
           }
         }
+      });
+
+      // Defer bootstrap messages one tick so test injectors and real clients
+      // consistently attach message listeners before the initial status/history burst.
+      setImmediate(() => {
+        void sendBootstrap();
       });
     },
   );
