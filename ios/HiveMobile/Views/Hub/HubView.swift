@@ -113,6 +113,10 @@ struct HubView: View {
             }
         }
         .padding()
+        .task(id: store.projects.flatMap { $0.workspaces.map(\.id) }) {
+            let ids = store.projects.flatMap { $0.workspaces.map(\.id) }
+            store.statusMonitor.syncPrPolling(visibleWorkspaceIds: ids)
+        }
     }
 
     private func projectSection(_ project: Project) -> some View {
@@ -136,6 +140,7 @@ struct HubView: View {
                                     isStreaming: store.statusMonitor.isStreaming(workspace.id),
                                     diffStats: store.statusMonitor.diffStats(for: workspace.id),
                                     branchInfo: store.statusMonitor.branchInfo(for: workspace.id),
+                                    prStatus: store.statusMonitor.prStatus(for: workspace.id),
                                     sessionCount: workspace.sessionCount
                                 )
                             }

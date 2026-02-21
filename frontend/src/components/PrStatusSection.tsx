@@ -6,15 +6,25 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { BranchInfo } from "@/types";
+import { usePrStatus } from "@/hooks/usePrStatus";
 
 interface PrStatusSectionProps {
-  branchInfo?: BranchInfo;
+  wsId?: string;
 }
 
-export function PrStatusSection({ branchInfo }: PrStatusSectionProps) {
-  const pr = branchInfo?.pr;
-  const error = branchInfo?.prSyncError;
+export function PrStatusSection({ wsId }: PrStatusSectionProps) {
+  const { pr, error, loading } = usePrStatus(wsId);
+
+  if (loading) {
+    return (
+      <div className="border-t border-border/50 px-4 py-2.5">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <GitPullRequest className="size-3.5 shrink-0" />
+          <span>Checking&hellip;</span>
+        </div>
+      </div>
+    );
+  }
 
   // Error state: gh unavailable / not authenticated
   if (error) {

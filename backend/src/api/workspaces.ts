@@ -16,6 +16,9 @@ import { join } from "node:path";
 import { bareRepoPath, resolveDefaultBranch, workspacesDir } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
+import { parseGitHubRepo, fetchPrForBranch } from "../utils/github.js";
+import { getBranchName } from "../services/git-sync.js";
+import type { PrStatusResponse } from "../types.js";
 
 export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
   app.post<{ Params: { id: string } }>("/api/projects/:id/workspaces", async (req, reply) => {
@@ -79,6 +82,52 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
       return reply.send(stats);
     } catch (err: unknown) {
       return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });
+    }
+  });
+
+  // ── PR status (on-demand, cached) ─────────────────────────────────
+  const prCache = new Map<string, { data: PrStatusResponse; at: number }>();
+  const PR_TTL = 30_000;
+
+  app.get<{ Params: { wsId: string } }>("/api/workspaces/:wsId/pr-status", async (req, reply) => {
+    try {
+      const { wsId } = req.params;
+
+      const cached = prCache.get(wsId);
+      if (cached && Date.now() - cached.at < PR_TTL) {
+        return reply.send(cached.data);
+      }
+
+      const result = await getWorkspace(wsId, dataDir);
+      if (!result) return reply.status(404).send({ error: "Workspace not found" });
+
+      const ghRepo = parseGitHubRepo(result.projectState.url);
+      if (!ghRepo) {
+        const data: PrStatusResponse = { pr: null };
+        prCache.set(wsId, { data, at: Date.now() });
+        return reply.send(data);
+      }
+
+      const dir = dataDir ?? getDataDir();
+      const wsPath = join(workspacesDir(dir, result.projectState.id), result.workspace.name);
+      let branch: string;
+      try {
+        branch = await getBranchName(wsPath);
+      } catch {
+        branch = result.workspace.branch;
+      }
+
+      const prResult = await fetchPrForBranch(ghRepo.owner, ghRepo.repo, branch);
+      const data: PrStatusResponse = {
+        pr: prResult.pr,
+        ...(prResult.error ? { error: prResult.error } : {}),
+      };
+      prCache.set(wsId, { data, at: Date.now() });
+      return reply.send(data);
+    } catch (err: unknown) {
+      return reply
+        .status(errorStatus(err))
+        .send({ error: errorMessage(err, "Failed to fetch PR status") });
     }
   });
 

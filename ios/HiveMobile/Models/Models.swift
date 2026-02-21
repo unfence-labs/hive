@@ -126,8 +126,11 @@ struct PullRequestInfo: Codable {
 struct BranchInfo: Codable {
     let name: String
     let lastSyncedAt: String
+}
+
+struct PrStatusResponse: Codable {
     let pr: PullRequestInfo?
-    let prSyncError: String?
+    let error: String?
 }
 
 // MARK: - Session & Chat

@@ -5,6 +5,7 @@ struct WorkspaceCard: View {
     var isStreaming: Bool = false
     var diffStats: DiffStatResponse?
     var branchInfo: BranchInfo?
+    var prStatus: PrStatusResponse?
     var sessionCount: Int?
 
     private var totalAdditions: Int {
@@ -59,7 +60,7 @@ struct WorkspaceCard: View {
 
             // Bottom: PR status + sessions
             HStack(spacing: 6) {
-                if let pr = branchInfo?.pr {
+                if let pr = prStatus?.pr {
                     PrBadge(pr: pr)
                 } else {
                     HStack(spacing: 3) {
@@ -173,10 +174,10 @@ struct PrBadge: View {
                 committed: [DiffFileStat(file: "a.swift", additions: 42, deletions: 16, status: .modified, renamedFrom: nil)],
                 uncommitted: []
             ),
-            branchInfo: BranchInfo(
-                name: "0xlny/ios-swift-app", lastSyncedAt: "",
+            branchInfo: BranchInfo(name: "0xlny/ios-swift-app", lastSyncedAt: ""),
+            prStatus: PrStatusResponse(
                 pr: PullRequestInfo(number: 47, url: "", state: .open, mergeable: true, mergeableState: .clean, checksStatus: .success),
-                prSyncError: nil
+                error: nil
             ),
             sessionCount: 3
         )
@@ -186,10 +187,10 @@ struct PrBadge: View {
                 status: .idle, createdAt: "", activeSessionId: nil,
                 projectName: "hive", defaultBranch: "main"
             ),
-            branchInfo: BranchInfo(
-                name: "feat/long-branch", lastSyncedAt: "",
+            branchInfo: BranchInfo(name: "feat/long-branch", lastSyncedAt: ""),
+            prStatus: PrStatusResponse(
                 pr: PullRequestInfo(number: 12, url: "", state: .merged, mergeable: nil, mergeableState: .unknown, checksStatus: .success),
-                prSyncError: nil
+                error: nil
             ),
             sessionCount: 1
         )

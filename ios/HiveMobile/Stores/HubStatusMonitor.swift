@@ -12,11 +12,14 @@ final class HubStatusMonitor {
     private(set) var streamingWorkspaces: Set<String> = []
     private(set) var workspaceDiffStats: [String: DiffStatResponse] = [:]
     private(set) var workspaceBranchInfo: [String: BranchInfo] = [:]
+    private(set) var workspacePrStatus: [String: PrStatusResponse] = [:]
 
     /// Called whenever the streaming workspace set changes.
     var onStreamingChange: ((Set<String>) -> Void)?
 
     private var connections: [String: WorkspaceConnection] = [:]
+    private var prPollTasks: [String: Task<Void, Never>] = [:]
+    private let apiClient = APIClient()
     private let decoder = JSONDecoder()
 
     func isStreaming(_ workspaceId: String) -> Bool {
@@ -31,6 +34,10 @@ final class HubStatusMonitor {
         workspaceBranchInfo[workspaceId]
     }
 
+    func prStatus(for workspaceId: String) -> PrStatusResponse? {
+        workspacePrStatus[workspaceId]
+    }
+
     /// Sync monitored workspaces — opens new connections, closes stale ones.
     func sync(workspaceIds: [String]) {
         let desired = Set(workspaceIds)
@@ -43,6 +50,9 @@ final class HubStatusMonitor {
             streamingWorkspaces.remove(id)
             workspaceDiffStats.removeValue(forKey: id)
             workspaceBranchInfo.removeValue(forKey: id)
+            prPollTasks[id]?.cancel()
+            prPollTasks.removeValue(forKey: id)
+            workspacePrStatus.removeValue(forKey: id)
         }
 
         // Add connections for new workspaces
@@ -60,6 +70,39 @@ final class HubStatusMonitor {
         streamingWorkspaces.removeAll()
         workspaceDiffStats.removeAll()
         workspaceBranchInfo.removeAll()
+        for task in prPollTasks.values { task.cancel() }
+        prPollTasks.removeAll()
+        workspacePrStatus.removeAll()
+    }
+
+    // MARK: - PR Status Polling
+
+    /// Start/stop PR status polling to match the given workspace IDs.
+    func syncPrPolling(visibleWorkspaceIds: [String]) {
+        let desired = Set(visibleWorkspaceIds)
+        let current = Set(prPollTasks.keys)
+
+        for id in current.subtracting(desired) {
+            prPollTasks[id]?.cancel()
+            prPollTasks.removeValue(forKey: id)
+            workspacePrStatus.removeValue(forKey: id)
+        }
+
+        for id in desired.subtracting(current) {
+            let task = Task { [weak self] in
+                guard let self else { return }
+                while !Task.isCancelled {
+                    do {
+                        let status = try await self.apiClient.fetchPrStatus(workspaceId: id)
+                        self.workspacePrStatus[id] = status
+                    } catch {
+                        // Silently ignore — card shows stale or "No PR"
+                    }
+                    try? await Task.sleep(for: .seconds(30))
+                }
+            }
+            prPollTasks[id] = task
+        }
     }
 
     // MARK: - Called by WorkspaceConnection

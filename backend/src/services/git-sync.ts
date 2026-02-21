@@ -8,7 +8,6 @@ import {
 } from "../state/state.js";
 import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/paths.js";
 import { computeDiffStat } from "../workspaces/workspace-manager.js";
-import { parseGitHubRepo, fetchPrForBranch } from "../utils/github.js";
 import type { BranchInfo, DiffStatResponse, Workspace } from "../types.js";
 
 type BranchChangeCallback = (wsId: string, info: BranchInfo) => void;
@@ -83,7 +82,6 @@ export class GitSyncService {
             workspace,
             bare,
             defaultBranch,
-            project.url,
           );
         }
       }
@@ -97,7 +95,6 @@ export class GitSyncService {
     workspace: Workspace,
     bare: string,
     defaultBranch: string,
-    projectUrl: string,
   ): Promise<void> {
     const wsPath = join(workspacesDir(this.dataDir, projectId), workspace.name);
 
@@ -125,34 +122,16 @@ export class GitSyncService {
       );
     }
 
-    // Build BranchInfo with PR data
+    // Build BranchInfo (PR status is fetched on-demand via REST)
     const info: BranchInfo = {
       name: currentBranch,
       lastSyncedAt: new Date().toISOString(),
     };
-
-    const ghRepo = parseGitHubRepo(projectUrl);
-    if (ghRepo) {
-      const result = await fetchPrForBranch(
-        ghRepo.owner,
-        ghRepo.repo,
-        currentBranch,
-      );
-      info.pr = result.pr;
-      if (result.error) {
-        info.prSyncError = result.error;
-      }
-    }
     this.latestBranchInfo.set(workspace.id, info);
 
-    // Emit only when branch name or PR state changed (exclude lastSyncedAt)
-    const cacheKey = JSON.stringify({
-      name: currentBranch,
-      pr: info.pr,
-      prSyncError: info.prSyncError,
-    });
-    if (cacheKey !== this.branchInfoCache.get(workspace.id)) {
-      this.branchInfoCache.set(workspace.id, cacheKey);
+    // Emit only when branch name changed (exclude lastSyncedAt)
+    if (currentBranch !== this.branchInfoCache.get(workspace.id)) {
+      this.branchInfoCache.set(workspace.id, currentBranch);
       for (const cb of this.branchCallbacks) {
         cb(workspace.id, info);
       }
