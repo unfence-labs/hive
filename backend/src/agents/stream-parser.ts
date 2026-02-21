@@ -57,18 +57,23 @@ export class StreamParser extends EventEmitter<StreamParserEvent> {
 
     // Handle CLI-internal events before narrowing to CliJsonLine
     if (raw.type === "rate_limit_event") {
-      const rl = raw.rate_limit as Record<string, unknown> | undefined;
-      if (rl) {
-        const fiveH = rl.five_hour as { utilization?: number; status?: string } | undefined;
-        const sevenD = rl.seven_day as { utilization?: number; status?: string } | undefined;
+      const info = raw.rate_limit_info as {
+        status?: string;
+        rateLimitType?: string;
+        resetsAt?: number;
+        overageStatus?: string;
+        isUsingOverage?: boolean;
+      } | undefined;
+      if (info) {
+        const resetsIn = info.resetsAt
+          ? `${Math.max(0, Math.round((info.resetsAt * 1000 - Date.now()) / 60_000))}min`
+          : "?";
         console.log(
-          "[rate-limit] status=%s representative=%s 5h=%s%% (%s) 7d=%s%% (%s)",
-          rl.status ?? "unknown",
-          rl.representative_claim ?? "?",
-          fiveH?.utilization != null ? (fiveH.utilization * 100).toFixed(1) : "?",
-          fiveH?.status ?? "?",
-          sevenD?.utilization != null ? (sevenD.utilization * 100).toFixed(1) : "?",
-          sevenD?.status ?? "?",
+          "[rate-limit] status=%s window=%s resets_in=%s overage=%s",
+          info.status ?? "unknown",
+          info.rateLimitType ?? "?",
+          resetsIn,
+          info.overageStatus ?? "?",
         );
       } else {
         console.log("[rate-limit]", JSON.stringify(raw));
