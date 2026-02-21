@@ -92,6 +92,31 @@ function connectSessionWs(
   return { wsReady, messages };
 }
 
+/** Connect a WebSocket and attach listeners after injectWS resolves. */
+async function connectSessionWsLateListener(
+  workspaceId: string,
+  opts?: {
+    app?: FastifyInstance;
+    headers?: Record<string, string>;
+    query?: Record<string, string>;
+  },
+): Promise<{ ws: WebSocket; messages: WsOutgoing[] }> {
+  const queryString = opts?.query
+    ? `?${new URLSearchParams(opts.query).toString()}`
+    : "";
+  const path = `/ws/session/${workspaceId}${queryString}`;
+  const ws = (await (opts?.app ?? app).injectWS(path, { headers: opts?.headers })) as WebSocket;
+  const messages: WsOutgoing[] = [];
+
+  // Simulate clients that install message handlers right after websocket init.
+  await Promise.resolve();
+  ws.on("message", (data: Buffer) => {
+    messages.push(JSON.parse(data.toString()) as WsOutgoing);
+  });
+
+  return { ws, messages };
+}
+
 async function startWsApp(
   authToken?: string,
   sessionOptions: SessionOptions = CONV_CMD,
@@ -170,6 +195,15 @@ describe("WS /ws/session/:wsId", () => {
     ws.close();
   });
 
+  it("delivers bootstrap status when listener is attached after injectWS resolves", async () => {
+    const { ws, messages } = await connectSessionWsLateListener(wsId);
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+
+    expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
+    ws.close();
+  });
+
   it("sends persisted history even when no active session exists", async () => {
     const sessionId = "sess-persisted";
     const sessionDir = join(dataDir, projectId, "sessions", sessionId);
@@ -208,6 +242,51 @@ describe("WS /ws/session/:wsId", () => {
       expect(history.messages).toEqual([
         expect.objectContaining({
           content: "persisted response",
+          role: "assistant",
+        }),
+      ]);
+    }
+
+    ws.close();
+  });
+
+  it("delivers persisted history when listener is attached after injectWS resolves", async () => {
+    const sessionId = "sess-persisted-late";
+    const sessionDir = join(dataDir, projectId, "sessions", sessionId);
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      join(sessionDir, "metadata.json"),
+      JSON.stringify({
+        sessionId,
+        workspaceId: wsId,
+        createdAt: "2026-02-11T00:00:00.000Z",
+        updatedAt: "2026-02-11T00:00:01.000Z",
+        messageCount: 1,
+      }),
+      "utf-8",
+    );
+    await writeFile(
+      join(sessionDir, "messages.jsonl"),
+      JSON.stringify({
+        id: "m-1",
+        sessionId,
+        role: "assistant",
+        content: "persisted response late listener",
+        timestamp: "2026-02-11T00:00:00.000Z",
+      }) + "\n",
+      "utf-8",
+    );
+
+    const { ws, messages } = await connectSessionWsLateListener(wsId);
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "history"));
+
+    const history = messages.find((m) => m.type === "history");
+    expect(history).toBeDefined();
+    if (history?.type === "history") {
+      expect(history.messages).toEqual([
+        expect.objectContaining({
+          content: "persisted response late listener",
           role: "assistant",
         }),
       ]);
@@ -988,6 +1067,49 @@ describe("WS /ws/session/:wsId", () => {
     expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
     expect(messages).toContainEqual({ type: "branch_info", info: branchInfo });
     expect(messages).toContainEqual({ type: "diff_stats", stats: diffStats });
+    expect(provider.getCachedBranchInfo).toHaveBeenCalledWith(wsId);
+    expect(provider.getCachedDiffStats).toHaveBeenCalledWith(wsId);
+
+    ws.close();
+    await local.app.close();
+  });
+
+  it("delivers snapshots and script_status to listeners attached after injectWS resolves", async () => {
+    const branchInfo = { name: "workspace/late-listener", lastSyncedAt: "2026-02-18T10:00:00.000Z" };
+    const diffStats = {
+      committed: [{ file: "c.ts", additions: 2, deletions: 0, status: "added" as const }],
+      uncommitted: [{ file: "d.ts", additions: 0, deletions: 3, status: "modified" as const }],
+    };
+    _setScriptStatusForTests(wsId, "backend", "running");
+
+    const provider = {
+      getCachedBranchInfo: vi.fn((workspaceId: string) =>
+        workspaceId === wsId ? branchInfo : undefined,
+      ),
+      getCachedDiffStats: vi.fn((workspaceId: string) =>
+        workspaceId === wsId ? diffStats : undefined,
+      ),
+    };
+    const local = await startWsApp(undefined, CONV_CMD, provider);
+
+    const { ws, messages } = await connectSessionWsLateListener(wsId, { app: local.app });
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some((m) => m.type === "status") &&
+        msgs.some((m) => m.type === "branch_info") &&
+        msgs.some((m) => m.type === "diff_stats") &&
+        msgs.some((m) => m.type === "script_status"),
+    );
+
+    expect(messages).toContainEqual({ type: "branch_info", info: branchInfo });
+    expect(messages).toContainEqual({ type: "diff_stats", stats: diffStats });
+    expect(messages).toContainEqual({
+      type: "script_status",
+      scriptType: "backend",
+      state: "running",
+    });
     expect(provider.getCachedBranchInfo).toHaveBeenCalledWith(wsId);
     expect(provider.getCachedDiffStats).toHaveBeenCalledWith(wsId);
 

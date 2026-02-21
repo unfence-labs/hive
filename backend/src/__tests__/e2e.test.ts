@@ -56,7 +56,7 @@ async function connectSessionWs(
 ): Promise<{ ws: WebSocket; messages: WsOutgoing[] }> {
   const messages: WsOutgoing[] = [];
   const ws = await app.injectWS(`/ws/session/${workspaceId}`, {}, {
-    onInit: (clientWs) => {
+    onInit: (clientWs: WebSocket) => {
       clientWs.on("message", (data: Buffer) => {
         messages.push(JSON.parse(data.toString()) as WsOutgoing);
       });

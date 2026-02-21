@@ -1,4 +1,4 @@
-import { join, basename } from "node:path";
+import { basename } from "node:path";
 import { createReadStream, existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import type { FastifyInstance } from "fastify";

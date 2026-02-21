@@ -105,7 +105,7 @@ export default function WorkspaceView() {
   });
 
   const workspace = workspaceQuery.data ?? null;
-  const fileTree = filesQuery.data ?? [];
+  const fileTree = useMemo(() => filesQuery.data ?? [], [filesQuery.data]);
   const fileTreeError = filesQuery.error?.message ?? null;
   const initialDiffStats = diffStatQuery.data ?? null;
 
