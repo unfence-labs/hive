@@ -233,8 +233,10 @@ export interface MessageOptions {
   /** Compound model ID: "provider:model", e.g. "claude:opus-4-6" or "codex:gpt-5.3-codex" */
   model?: string;
   /** Codex reasoning effort level (ignored by Claude provider). */
-  thinkingLevel?: "low" | "medium" | "high" | "xhigh";
+  thinkingLevel?: ThinkingLevel;
 }
+
+export type ThinkingLevel = "low" | "medium" | "high" | "xhigh";
 
 /** Frontend -> Backend */
 export type WsIncoming =

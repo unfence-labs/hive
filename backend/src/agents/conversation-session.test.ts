@@ -1237,4 +1237,150 @@ describe("ConversationSession", () => {
 
     vi.useRealTimers();
   });
+
+  // ── Provider locking tests ───────────────────────────────────────
+
+  it("locks provider on first sendMessage based on model prefix", () => {
+    const session = createSession({ sessionId: "lock-test" });
+
+    session.sendMessage("Hello", { model: "codex:gpt-5.3-codex" });
+    expect(session.metadata.lockedProvider).toBe("codex");
+  });
+
+  it("defaults to claude provider when model has no prefix", () => {
+    const session = createSession({ sessionId: "lock-default" });
+
+    session.sendMessage("Hello", { model: "opus-4-6" });
+    expect(session.metadata.lockedProvider).toBe("claude");
+  });
+
+  it("defaults to claude provider when no model specified", () => {
+    const session = createSession({ sessionId: "lock-no-model" });
+
+    session.sendMessage("Hello");
+    expect(session.metadata.lockedProvider).toBe("claude");
+  });
+
+  it("throws when trying to switch providers mid-session", () => {
+    const session = createSession({ sessionId: "lock-switch" });
+
+    session.sendMessage("First", { model: "claude:opus-4-6" });
+
+    mockProc._stdout.push(assistantLine("OK"));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    const mockProc2 = createMockProcess();
+    mockSpawn.mockReturnValue(mockProc2);
+
+    expect(() => session.sendMessage("Second", { model: "codex:gpt-5.3-codex" }))
+      .toThrow('Provider mismatch: session locked to "claude"');
+  });
+
+  it("allows same provider on subsequent messages", () => {
+    const session = createSession({ sessionId: "lock-same" });
+
+    session.sendMessage("First", { model: "claude:opus-4-6" });
+
+    mockProc._stdout.push(assistantLine("OK"));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    const mockProc2 = createMockProcess();
+    mockSpawn.mockReturnValue(mockProc2);
+
+    expect(() => session.sendMessage("Second", { model: "claude:sonnet-4-6" }))
+      .not.toThrow();
+  });
+
+  it("skips provider locking in test mode (command=bash)", () => {
+    const session = createSession({ sessionId: "lock-test-mode", command: "bash" });
+
+    session.sendMessage("First", { model: "codex:gpt-5.3-codex" });
+    expect(session.metadata.lockedProvider).toBeUndefined();
+  });
+
+  it("persists lockedProvider in metadata.json", async () => {
+    const session = createSession({ sessionId: "lock-persist" });
+
+    session.sendMessage("Hello", { model: "claude:opus-4-6" });
+    mockProc._stdout.push(assistantLine("OK"));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const metaPath = join(tempDir, "sessions", "lock-persist", "metadata.json");
+    const raw = await readFile(metaPath, "utf-8");
+    const meta = JSON.parse(raw);
+    expect(meta.lockedProvider).toBe("claude");
+  });
+
+  // ── ExitPlanMode dismiss and reject responses ──────────────────────
+
+  it("respondToToolInput ExitPlanMode dismiss persists a user message", async () => {
+    const session = createSession({ sessionId: "plan-dismiss" });
+
+    session.sendMessage("Plan this");
+    mockProc._stdout.push(assistantLine("Planning"));
+    mockProc._emitClose(0);
+    await new Promise((r) => setTimeout(r, 100));
+
+    session.respondToToolInput("ExitPlanMode", { type: "dismiss", message: "OK got it" });
+    await new Promise((r) => setTimeout(r, 100));
+
+    const messagesPath = join(tempDir, "sessions", "plan-dismiss", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+    const dismissMsg = JSON.parse(lines[lines.length - 1]);
+    expect(dismissMsg.role).toBe("user");
+    expect(dismissMsg.content).toBe("OK got it");
+  });
+
+  it("respondToToolInput ExitPlanMode reject sends message with planMode", () => {
+    const session = createSession({ sessionId: "plan-reject" });
+    const sendSpy = vi.spyOn(session, "sendMessage").mockImplementation(() => {});
+
+    session.respondToToolInput("ExitPlanMode", { type: "reject", message: "Change approach" });
+
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+    expect(sendSpy).toHaveBeenCalledWith(
+      "Change approach",
+      { planMode: true },
+      undefined,
+      expect.stringContaining("IMPORTANT: You are still in plan mode"),
+    );
+  });
+
+  it("respondToToolInput with AskUserQuestion answer preserves planMode from last message", () => {
+    const session = createSession({ sessionId: "ask-plan" });
+    const sendSpy = vi.spyOn(session, "sendMessage").mockImplementation(() => {});
+
+    // Simulate that the last message was sent with planMode
+    // The _lastPlanMode is set in sendMessage, but since we mock it after, we need to call it first
+    // Actually, let's test the real flow
+    sendSpy.mockRestore();
+
+    session.sendMessage("Question", { planMode: true });
+
+    mockProc._stdout.push(assistantLine("I need info"));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    const mockProc2 = createMockProcess();
+    mockSpawn.mockReturnValue(mockProc2);
+
+    const sendSpy2 = vi.spyOn(session, "sendMessage").mockImplementation(() => {});
+
+    session.respondToToolInput("AskUserQuestion", {
+      type: "answer",
+      answers: [{ questionIndex: 0, selectedOptions: [0] }],
+    });
+
+    // Should carry forward planMode
+    expect(sendSpy2).toHaveBeenCalledWith(
+      expect.any(String),
+      { planMode: true },
+    );
+  });
 });

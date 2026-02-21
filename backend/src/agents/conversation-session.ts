@@ -130,12 +130,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     // Lock provider on first message, validate on subsequent messages
     if (!this.testCommand) {
-      const model = msgOptions?.model;
-      const providerId = model && model.includes(":") ? model.slice(0, model.indexOf(":")) : "claude";
+      const { provider: resolvedProvider } = resolveProvider(msgOptions?.model);
 
       if (!this._metadata.lockedProvider) {
-        this._metadata.lockedProvider = providerId;
-      } else if (this._metadata.lockedProvider !== providerId) {
+        this._metadata.lockedProvider = resolvedProvider.id;
+      } else if (this._metadata.lockedProvider !== resolvedProvider.id) {
         throw new Error(`Provider mismatch: session locked to "${this._metadata.lockedProvider}"`);
       }
     }

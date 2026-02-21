@@ -1,9 +1,8 @@
 import type { EventEmitter } from "node:events";
 import type { StreamParserEvent } from "../stream-parser.js";
+import type { ThinkingLevel } from "../../types.js";
 
-// ── Thinking ────────────────────────────────────────────────────────
-
-export type ThinkingLevel = "low" | "medium" | "high" | "xhigh";
+export type { ThinkingLevel };
 
 // ── Model & capability definitions ──────────────────────────────────
 
