@@ -56,6 +56,7 @@ struct TaskTrackerView: View {
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.tertiary)
                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                .frame(width: 14, alignment: .center)
 
             Group {
                 if currentTask != nil && isStreaming {
@@ -95,7 +96,6 @@ struct TaskTrackerView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
-        .padding(.leading, 20)
         .padding(.vertical, 1)
     }
 
