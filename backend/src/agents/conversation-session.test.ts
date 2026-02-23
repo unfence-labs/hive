@@ -218,7 +218,7 @@ describe("ConversationSession", () => {
   });
 
   it("merges provider env overrides with existing process env", () => {
-    const key = "HIVE_TEST_KEEP_ENV";
+    const key = "TEST_KEEP_ENV";
     const previousValue = process.env[key];
     process.env[key] = "keep-me";
 

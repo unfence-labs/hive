@@ -1,5 +1,6 @@
 import * as pty from "node-pty";
 import type { IPty } from "node-pty";
+import { buildWorkspaceEnv } from "../utils/env.js";
 
 export type ScriptType = string;
 export type ScriptState = "idle" | "running" | "done" | "error";
@@ -44,7 +45,7 @@ export function startScript(
   const shell = process.env.SHELL || "/bin/sh";
   const ptyProcess = pty.spawn(shell, ["-c", command], {
     cwd,
-    env: { ...process.env, TERM: "xterm-256color" } as Record<string, string>,
+    env: buildWorkspaceEnv({ TERM: "xterm-256color" }),
     cols: 80,
     rows: 24,
     name: "xterm-256color",

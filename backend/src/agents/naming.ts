@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { git } from "../utils/git.js";
+import { buildWorkspaceEnv } from "../utils/env.js";
 
 export interface NamingContext {
   userMessage: string;
@@ -121,6 +122,7 @@ export async function generateNames(ctx: NamingContext): Promise<NamingResult> {
     const proc = spawn(command, args, {
       cwd: ctx.cwd,
       stdio: ["pipe", "pipe", "pipe"],
+      env: buildWorkspaceEnv(),
     });
 
     proc.stdin?.end();

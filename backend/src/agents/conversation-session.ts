@@ -9,6 +9,7 @@ import { resolveProvider } from "./providers/registry.js";
 import { CodexStreamAdapter } from "./providers/codex-stream-adapter.js";
 import { GeminiStreamAdapter } from "./providers/gemini-stream-adapter.js";
 import type { AgentProvider, StreamAdapter } from "./providers/types.js";
+import { buildWorkspaceEnv } from "../utils/env.js";
 import type {
   ChatMessage,
   ContentBlock,
@@ -467,7 +468,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.process = spawn(command, args, {
       cwd: this.cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      ...(env && { env: { ...process.env, ...env } }),
+      ...(this.testCommand ? {} : { env: buildWorkspaceEnv(env) }),
     });
 
     this.process.stdin?.end();
