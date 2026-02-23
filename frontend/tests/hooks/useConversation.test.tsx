@@ -1559,6 +1559,50 @@ describe("useConversation", () => {
     expect(result.current.isStreaming).toBe(false);
   });
 
+  it("finalizes assistant message when done arrives via buffer after workspace switch", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result, rerender } = renderHook(
+      ({ wsId }) => useConversation(wsId),
+      { initialProps: { wsId: "ws-1" } },
+    );
+
+    // Start streaming on ws-1
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "hello",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Before " });
+    });
+
+    expect(result.current.currentStreamingText).toBe("Before ");
+
+    // Switch to ws-2 while streaming is in progress
+    rerender({ wsId: "ws-2" });
+
+    // Switch back — buffer replays remaining deltas + done
+    __wsMock.setReplay("ws-1", [
+      { type: "status", status: "busy", sessionId: "sess-1", streaming: true },
+      { type: "text_delta", sessionId: "sess-1", text: "after" },
+      { type: "done", sessionId: "sess-1", durationMs: 1234 },
+    ]);
+    rerender({ wsId: "ws-1" });
+
+    // The done event should have finalized an assistant message with full content
+    expect(result.current.isStreaming).toBe(false);
+    expect(result.current.currentStreamingText).toBe("");
+    const assistantMsg = result.current.messages.find((m) => m.role === "assistant");
+    expect(assistantMsg).toBeDefined();
+    expect(assistantMsg!.content).toBe("Before after");
+    expect(assistantMsg!.durationMs).toBe(1234);
+  });
+
   it("status event updates workspace status, streaming flag, and streamingStartedAt", async () => {
     const { __wsMock } = await getWsMock();
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_001_444);
