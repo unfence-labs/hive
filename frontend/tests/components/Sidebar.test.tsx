@@ -64,6 +64,16 @@ function SettingsStateProbe() {
   return <div data-testid="settings-from">{from}</div>;
 }
 
+function SidebarRoute() {
+  const location = useLocation();
+  return (
+    <>
+      <Sidebar onAddProject={vi.fn()} />
+      <div data-testid="location-path">{location.pathname}</div>
+    </>
+  );
+}
+
 function renderSidebar(
   path: string,
   projects: Project[],
@@ -96,11 +106,11 @@ function renderSidebar(
           <Routes>
             <Route
               path="/projects"
-              element={<Sidebar onAddProject={vi.fn()} />}
+              element={<SidebarRoute />}
             />
             <Route
               path="/workspaces/:wsId"
-              element={<Sidebar onAddProject={vi.fn()} />}
+              element={<SidebarRoute />}
             />
             <Route path="/settings" element={<SettingsStateProbe />} />
           </Routes>
@@ -190,6 +200,26 @@ describe("Sidebar", () => {
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith("/api/projects/p1/workspaces");
+    });
+  });
+
+  it("navigates to the new workspace after creation", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.post).mockResolvedValue({
+      id: "w-new",
+      name: "osaka",
+      branch: "workspace/osaka",
+      status: "idle",
+      createdAt: "2026-02-12T00:00:00.000Z",
+    });
+
+    renderSidebar("/projects", projects);
+    await screen.findByText("Alpha");
+
+    await user.click(screen.getByRole("button", { name: "Add workspace to Alpha" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location-path")).toHaveTextContent("/workspaces/w-new");
     });
   });
 

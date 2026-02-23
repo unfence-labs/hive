@@ -16,6 +16,9 @@ final class ProjectStore {
     private(set) var isCreatingProject = false
     private(set) var cloningRepoName: String?
 
+    /// Set after workspace creation so HiveApp can navigate to it.
+    var pendingNavigation: Workspace?
+
     let statusMonitor = HubStatusMonitor()
 
     private let api = APIClient()
@@ -58,6 +61,7 @@ final class ProjectStore {
 
             let allWorkspaceIds = projects.flatMap(\.workspaces).map(\.id)
             statusMonitor.sync(workspaceIds: allWorkspaceIds)
+            pendingNavigation = workspace
         } catch is CancellationError {
             // Ignore cancelled create requests when leaving the screen.
         } catch {
@@ -96,6 +100,7 @@ final class ProjectStore {
 
             let allWorkspaceIds = projects.flatMap(\.workspaces).map(\.id)
             statusMonitor.sync(workspaceIds: allWorkspaceIds)
+            pendingNavigation = workspace
         } catch is CancellationError {
             // Ignore
         } catch {
