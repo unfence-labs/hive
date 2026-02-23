@@ -35,6 +35,7 @@ interface ConversationState {
   error?: string;
   sessionId?: string;
   lockedProvider?: string;
+  switchCounter: number;
 }
 
 const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
@@ -54,6 +55,7 @@ const initialState: ConversationState = {
   workspaceStatus: undefined,
   error: undefined,
   sessionId: undefined,
+  switchCounter: 0,
 };
 
 function parseToolInput(input: string): unknown {
@@ -371,6 +373,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         workspaceStatus: undefined,
         error: undefined,
         lockedProvider: undefined,
+        switchCounter: state.switchCounter + 1,
         // sessionStreams is untouched — all sessions keep accumulating
       };
 
@@ -611,6 +614,7 @@ export function useConversation(workspaceId: string | undefined) {
     error: state.error,
     sessionId: state.sessionId,
     lockedProvider: state.lockedProvider,
+    switchCounter: state.switchCounter,
     sendMessage,
     stopStreaming,
     clearChat,

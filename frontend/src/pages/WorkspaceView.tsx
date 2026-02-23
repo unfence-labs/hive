@@ -225,6 +225,7 @@ export default function WorkspaceView() {
     rejectToolInput,
     dismissPlan,
     lockedProvider,
+    switchCounter,
   } = useConversation(wsId);
 
   const { tasks, currentTask, counts: taskCounts } = useTasks(messages, activeToolCalls);
@@ -492,6 +493,7 @@ export default function WorkspaceView() {
               branch={displayBranch}
               defaultBranch={workspace?.defaultBranch}
               fileCount={fileCount}
+              switchCounter={switchCounter}
             />
             {tasks.length > 0 && (
               <TaskTracker

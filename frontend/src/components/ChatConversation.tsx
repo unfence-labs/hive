@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -32,6 +32,7 @@ interface ChatConversationProps {
   branch?: string;
   defaultBranch?: string;
   fileCount?: number;
+  switchCounter: number;
 }
 
 export default function ChatConversation({
@@ -50,6 +51,7 @@ export default function ChatConversation({
   branch,
   defaultBranch,
   fileCount,
+  switchCounter,
 }: ChatConversationProps) {
   const [elapsed, setElapsed] = useState(0);
 
@@ -63,23 +65,28 @@ export default function ChatConversation({
     return () => clearInterval(id);
   }, [isStreaming, streamingStartedAt]);
 
-  // Hide the conversation during REST hydration so the user never sees content
+  // Hide the conversation during hydration so the user never sees content
   // flash at the top before StickToBottom repositions the scroll. The sequence:
-  // 1. Messages arrive → render invisible with resize="instant"
-  // 2. StickToBottom's ResizeObserver fires → instant scroll to bottom
-  // 3. Double-rAF ensures scroll is settled → reveal content at correct position
-  const wasEmptyRef = useRef(true);
+  // 1. switchCounter changes → reset hydrated synchronously during render
+  // 2. Messages arrive → render invisible with resize="instant"
+  // 3. StickToBottom's ResizeObserver fires → instant scroll to bottom
+  // 4. Double-rAF ensures scroll is settled → reveal content at correct position
+  //
+  // Uses React's "set state during render" pattern to detect workspace switches
+  // synchronously, even when React 18 batches the switch dispatch with the WS
+  // history replay into a single render (which broke the old useEffect approach).
+  const [prevSwitchCounter, setPrevSwitchCounter] = useState(switchCounter);
   const [hydrated, setHydrated] = useState(false);
-  const isInitialLoad = wasEmptyRef.current && messages.length > 0;
-  const isHydrating = isInitialLoad && !hydrated;
+
+  if (switchCounter !== prevSwitchCounter) {
+    setPrevSwitchCounter(switchCounter);
+    setHydrated(false);
+  }
+
+  const isHydrating = !hydrated && messages.length > 0;
 
   useEffect(() => {
-    wasEmptyRef.current = messages.length === 0;
-    if (messages.length === 0) setHydrated(false);
-  }, [messages.length]);
-
-  useEffect(() => {
-    if (isInitialLoad) {
+    if (isHydrating) {
       let raf2: number;
       const raf1 = requestAnimationFrame(() => {
         raf2 = requestAnimationFrame(() => setHydrated(true));
@@ -89,7 +96,7 @@ export default function ChatConversation({
         cancelAnimationFrame(raf2);
       };
     }
-  }, [isInitialLoad]);
+  }, [isHydrating]);
 
   const hasContent = messages.length > 0 || isStreaming;
 

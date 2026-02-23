@@ -48,6 +48,7 @@ const baseConversationProps: ComponentProps<typeof ChatConversation> = {
   currentStreamingText: "",
   currentThinking: "",
   activeToolCalls: [],
+  switchCounter: 0,
 };
 
 function renderConversation(props?: Partial<ComponentProps<typeof ChatConversation>>) {

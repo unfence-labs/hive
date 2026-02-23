@@ -1472,6 +1472,21 @@ describe("useConversation", () => {
     nowSpy.mockRestore();
   });
 
+  it("increments switchCounter on workspace switch", async () => {
+    const { result, rerender } = renderHook(
+      ({ wsId }) => useConversation(wsId),
+      { initialProps: { wsId: "ws-1" } },
+    );
+
+    const initial = result.current.switchCounter;
+
+    rerender({ wsId: "ws-2" });
+    expect(result.current.switchCounter).toBe(initial + 1);
+
+    rerender({ wsId: "ws-1" });
+    expect(result.current.switchCounter).toBe(initial + 2);
+  });
+
   it("preserves streaming data across workspace switch", async () => {
     const { __wsMock } = await getWsMock();
     const { result, rerender } = renderHook(
