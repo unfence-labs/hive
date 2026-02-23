@@ -1,4 +1,4 @@
-/** Exact env vars set by pm2 / the Hive backend that should not leak into workspace child processes. */
+/** Exact env vars set by pm2 / the Hive backend / Claude Code that should not leak into workspace child processes. */
 const STRIPPED_VARS = [
   "NODE_ENV",
   "PORT",
@@ -8,10 +8,19 @@ const STRIPPED_VARS = [
   "TELEGRAM_CHAT_ID",
   "GITHUB_CLIENT_ID",
   "MAX_THINKING_TOKENS",
+  "CLAUDECODE",
+  "NODE_APP_INSTANCE",
+  "GIT_EDITOR",
 ] as const;
 
 /** Prefixes — any env var starting with these is stripped automatically. */
-const STRIPPED_PREFIXES = ["HIVE_"] as const;
+const STRIPPED_PREFIXES = [
+  "HIVE_",
+  "PM2_",
+  "pm_",
+  "axm_",
+  "CLAUDE_CODE_",
+] as const;
 
 /**
  * Build a clean environment for workspace child processes.

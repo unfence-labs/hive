@@ -12,9 +12,19 @@ describe("buildWorkspaceEnv()", () => {
     "TELEGRAM_CHAT_ID",
     "GITHUB_CLIENT_ID",
     "MAX_THINKING_TOKENS",
+    "CLAUDECODE",
+    "NODE_APP_INSTANCE",
+    "GIT_EDITOR",
     "HIVE_AUTH_TOKEN",
     "HIVE_RATE_LIMIT_MAX",
     "HIVE_CUSTOM_FUTURE_VAR",
+    "PM2_HOME",
+    "PM2_USAGE",
+    "pm_cwd",
+    "pm_exec_path",
+    "axm_monitor",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_ENABLE_TASKS",
     "SAFE_VAR",
   ];
 
@@ -30,9 +40,19 @@ describe("buildWorkspaceEnv()", () => {
     process.env.TELEGRAM_CHAT_ID = "12345";
     process.env.GITHUB_CLIENT_ID = "gh-client-id";
     process.env.MAX_THINKING_TOKENS = "31999";
+    process.env.CLAUDECODE = "1";
+    process.env.NODE_APP_INSTANCE = "0";
+    process.env.GIT_EDITOR = "true";
     process.env.HIVE_AUTH_TOKEN = "secret-auth";
     process.env.HIVE_RATE_LIMIT_MAX = "100";
     process.env.HIVE_CUSTOM_FUTURE_VAR = "whatever";
+    process.env.PM2_HOME = "/home/user/.pm2";
+    process.env.PM2_USAGE = "CLI";
+    process.env.pm_cwd = "/home/user/app";
+    process.env.pm_exec_path = "/home/user/app/index.js";
+    process.env.axm_monitor = "[object Object]";
+    process.env.CLAUDE_CODE_ENTRYPOINT = "sdk-cli";
+    process.env.CLAUDE_CODE_ENABLE_TASKS = "true";
     process.env.SAFE_VAR = "keep-me";
   });
 
@@ -56,6 +76,9 @@ describe("buildWorkspaceEnv()", () => {
     expect(env.TELEGRAM_CHAT_ID).toBeUndefined();
     expect(env.GITHUB_CLIENT_ID).toBeUndefined();
     expect(env.MAX_THINKING_TOKENS).toBeUndefined();
+    expect(env.CLAUDECODE).toBeUndefined();
+    expect(env.NODE_APP_INSTANCE).toBeUndefined();
+    expect(env.GIT_EDITOR).toBeUndefined();
   });
 
   it("strips HIVE_ prefixed vars", () => {
@@ -63,6 +86,21 @@ describe("buildWorkspaceEnv()", () => {
     expect(env.HIVE_AUTH_TOKEN).toBeUndefined();
     expect(env.HIVE_RATE_LIMIT_MAX).toBeUndefined();
     expect(env.HIVE_CUSTOM_FUTURE_VAR).toBeUndefined();
+  });
+
+  it("strips PM2_ and pm_ prefixed vars", () => {
+    const env = buildWorkspaceEnv();
+    expect(env.PM2_HOME).toBeUndefined();
+    expect(env.PM2_USAGE).toBeUndefined();
+    expect(env.pm_cwd).toBeUndefined();
+    expect(env.pm_exec_path).toBeUndefined();
+  });
+
+  it("strips axm_ and CLAUDE_CODE_ prefixed vars", () => {
+    const env = buildWorkspaceEnv();
+    expect(env.axm_monitor).toBeUndefined();
+    expect(env.CLAUDE_CODE_ENTRYPOINT).toBeUndefined();
+    expect(env.CLAUDE_CODE_ENABLE_TASKS).toBeUndefined();
   });
 
   it("preserves other vars", () => {
