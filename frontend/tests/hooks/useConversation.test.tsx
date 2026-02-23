@@ -228,6 +228,39 @@ describe("useConversation", () => {
     nowSpy.mockRestore();
   });
 
+  it("does not change active session when user_message arrives for another session", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "active",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u2",
+          sessionId: "sess-2",
+          role: "user",
+          content: "background",
+          timestamp: "2026-02-12T00:00:01.000Z",
+        },
+      });
+    });
+
+    expect(result.current.sessionId).toBe("sess-1");
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ id: "u1", sessionId: "sess-1", content: "active" }),
+    ]);
+  });
+
   it("does not add user message when transport send fails", async () => {
     const { __wsMock } = await getWsMock();
     __wsMock.sendMock.mockReturnValueOnce(false);
@@ -455,8 +488,10 @@ describe("useConversation", () => {
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
       __wsMock.emit("ws-1", {
         type: "tool_input_required",
+        sessionId: "sess-1",
         requestId: "req-123",
         toolName: "AskUserQuestion",
         toolUseId: "tool-1",
@@ -477,6 +512,7 @@ describe("useConversation", () => {
         type: "answer",
         answers: [{ questionIndex: 0, selectedOptions: [0] }],
       },
+      sessionId: "sess-1",
     });
     expect(result.current.pendingToolInputs).toEqual([]);
   });
@@ -486,8 +522,10 @@ describe("useConversation", () => {
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
       __wsMock.emit("ws-1", {
         type: "tool_input_required",
+        sessionId: "sess-1",
         requestId: "req-1",
         toolName: "AskUserQuestion",
         toolUseId: "tool-1",
@@ -499,6 +537,7 @@ describe("useConversation", () => {
       });
       __wsMock.emit("ws-1", {
         type: "tool_input_required",
+        sessionId: "sess-1",
         requestId: "req-2",
         toolName: "AskUserQuestion",
         toolUseId: "tool-2",
@@ -526,6 +565,7 @@ describe("useConversation", () => {
         answers: [{ questionIndex: 0, selectedOptions: [1] }],
         questions: [{ question: "Pick color", options: [{ label: "Red" }, { label: "Blue" }] }],
       },
+      sessionId: "sess-1",
     });
     expect(__wsMock.sendMock).toHaveBeenNthCalledWith(2, "ws-1", {
       type: "tool_input_response",
@@ -536,6 +576,7 @@ describe("useConversation", () => {
         answers: [{ questionIndex: 0, selectedOptions: [], customText: "detail" }],
         questions: [{ question: "Add note", options: [] }],
       },
+      sessionId: "sess-1",
     });
     expect(result.current.pendingToolInputs).toEqual([]);
   });
@@ -822,6 +863,50 @@ describe("useConversation", () => {
     );
   });
 
+  it("clears stale pending tool inputs when history has no pending prompts", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
+      __wsMock.emit("ws-1", {
+        type: "tool_input_required",
+        sessionId: "sess-1",
+        requestId: "req-stale",
+        toolName: "AskUserQuestion",
+        toolUseId: "tool-stale",
+        input: {},
+      });
+    });
+    expect(result.current.pendingToolInputs).toHaveLength(1);
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-1", streaming: false });
+      __wsMock.emit("ws-1", {
+        type: "history",
+        sessionId: "sess-1",
+        messages: [
+          {
+            id: "u1",
+            sessionId: "sess-1",
+            role: "user",
+            content: "done",
+            timestamp: "2026-02-12T00:00:00.000Z",
+          },
+          {
+            id: "a1",
+            sessionId: "sess-1",
+            role: "assistant",
+            content: "completed",
+            timestamp: "2026-02-12T00:00:01.000Z",
+          },
+        ],
+      });
+    });
+
+    expect(result.current.pendingToolInputs).toEqual([]);
+  });
+
   it("switches sessions and loads specific session history", async () => {
     const { __apiMock } = await getApiMock();
     const { __wsMock } = await getWsMock();
@@ -929,7 +1014,7 @@ describe("useConversation", () => {
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
-      __wsMock.emit("ws-1", { type: "status", status: "busy", streaming: true });
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-x", streaming: true });
     });
 
     expect(result.current.workspaceStatus).toBe("busy");
@@ -1205,8 +1290,10 @@ describe("useConversation", () => {
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
       __wsMock.emit("ws-1", {
         type: "tool_input_required",
+        sessionId: "sess-1",
         requestId: "req-rej",
         toolName: "AskUserQuestion",
         toolUseId: "tool-rej",
@@ -1223,6 +1310,7 @@ describe("useConversation", () => {
       requestId: "req-rej",
       toolName: "AskUserQuestion",
       result: { type: "reject", message: "I disagree" },
+      sessionId: "sess-1",
     });
     expect(result.current.pendingToolInputs).toEqual([]);
   });
@@ -1244,8 +1332,10 @@ describe("useConversation", () => {
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
       __wsMock.emit("ws-1", {
         type: "tool_input_required",
+        sessionId: "sess-1",
         requestId: "req-dismiss",
         toolName: "ExitPlanMode",
         toolUseId: "tool-dismiss",
@@ -1262,6 +1352,7 @@ describe("useConversation", () => {
       requestId: "req-dismiss",
       toolName: "ExitPlanMode",
       result: { type: "dismiss", message: "Plan handed off to a new session." },
+      sessionId: "sess-1",
     });
   });
 
@@ -1313,7 +1404,42 @@ describe("useConversation", () => {
     expect(__wsMock.sendMock).toHaveBeenCalledWith("ws-1", { type: "stop" });
   });
 
-  it("resets state on workspace change", async () => {
+  it("keeps stop routing on the active session when background user_message events arrive", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-active",
+        streaming: true,
+      });
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u-bg",
+          sessionId: "sess-bg",
+          role: "user",
+          content: "background session",
+          timestamp: "2026-02-12T00:00:05.000Z",
+        },
+      });
+    });
+
+    expect(result.current.sessionId).toBe("sess-active");
+
+    act(() => {
+      result.current.stopStreaming();
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
+      type: "stop",
+      sessionId: "sess-active",
+    });
+  });
+
+  it("clears visible state on workspace change", async () => {
     const { __wsMock } = await getWsMock();
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_001_333);
     const { result, rerender } = renderHook(
@@ -1344,6 +1470,137 @@ describe("useConversation", () => {
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.streamingStartedAt).toBeNull();
     nowSpy.mockRestore();
+  });
+
+  it("preserves streaming data across workspace switch", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result, rerender } = renderHook(
+      ({ wsId }) => useConversation(wsId),
+      { initialProps: { wsId: "ws-1" } },
+    );
+
+    // Start streaming on ws-1
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "hello",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Hello " });
+    });
+
+    expect(result.current.currentStreamingText).toBe("Hello ");
+    expect(result.current.isStreaming).toBe(true);
+
+    // Switch to ws-2 — visible state clears
+    rerender({ wsId: "ws-2" });
+
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.currentStreamingText).toBe("");
+    expect(result.current.isStreaming).toBe(false);
+
+    // Switch back to ws-1 — transport replays status, then we get more deltas
+    __wsMock.setReplay("ws-1", [
+      { type: "status", status: "busy", sessionId: "sess-1", streaming: true },
+    ]);
+    rerender({ wsId: "ws-1" });
+
+    // Simulate deltas that were buffered while on ws-2
+    act(() => {
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "World" });
+    });
+
+    // Pre-switch + post-switch text are both present
+    expect(result.current.sessionId).toBe("sess-1");
+    expect(result.current.currentStreamingText).toBe("Hello World");
+    expect(result.current.isStreaming).toBe(true);
+  });
+
+  it("full reset clears sessionStreams when workspaceId becomes undefined", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result, rerender } = renderHook(
+      ({ wsId }) => useConversation(wsId),
+      { initialProps: { wsId: "ws-1" as string | undefined } },
+    );
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "start",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "data" });
+    });
+
+    expect(result.current.currentStreamingText).toBe("data");
+
+    // Deselect workspace entirely — full reset
+    rerender({ wsId: undefined });
+
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.currentStreamingText).toBe("");
+    expect(result.current.isStreaming).toBe(false);
+
+    // Switch back — no preserved data (was a full reset, not workspace switch)
+    __wsMock.setReplay("ws-1", []);
+    rerender({ wsId: "ws-1" });
+
+    expect(result.current.currentStreamingText).toBe("");
+    expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("finalizes assistant message when done arrives via buffer after workspace switch", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result, rerender } = renderHook(
+      ({ wsId }) => useConversation(wsId),
+      { initialProps: { wsId: "ws-1" } },
+    );
+
+    // Start streaming on ws-1
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "hello",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Before " });
+    });
+
+    expect(result.current.currentStreamingText).toBe("Before ");
+
+    // Switch to ws-2 while streaming is in progress
+    rerender({ wsId: "ws-2" });
+
+    // Switch back — buffer replays remaining deltas + done
+    __wsMock.setReplay("ws-1", [
+      { type: "status", status: "busy", sessionId: "sess-1", streaming: true },
+      { type: "text_delta", sessionId: "sess-1", text: "after" },
+      { type: "done", sessionId: "sess-1", durationMs: 1234 },
+    ]);
+    rerender({ wsId: "ws-1" });
+
+    // The done event should have finalized an assistant message with full content
+    expect(result.current.isStreaming).toBe(false);
+    expect(result.current.currentStreamingText).toBe("");
+    const assistantMsg = result.current.messages.find((m) => m.role === "assistant");
+    expect(assistantMsg).toBeDefined();
+    expect(assistantMsg!.content).toBe("Before after");
+    expect(assistantMsg!.durationMs).toBe(1234);
   });
 
   it("status event updates workspace status, streaming flag, and streamingStartedAt", async () => {
@@ -1384,7 +1641,7 @@ describe("useConversation", () => {
       __wsMock.emit("ws-1", { type: "status", status: "busy", streaming: true, sessionId: "sess-y" });
     });
 
-    // Different session status is ignored while sess-x is focused.
+    // sess-y status creates a background stream slot, but the active session stays sess-x.
     expect(result.current.sessionId).toBe("sess-x");
     expect(result.current.streamingStartedAt).toBe(1_700_000_009_999);
 
@@ -1461,6 +1718,20 @@ describe("useConversation", () => {
     expect(result.current.error).toBe("Connection lost");
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.streamingStartedAt).toBeNull();
+  });
+
+  it("ignores session-scoped error for a background session", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-active", streaming: true });
+      __wsMock.emit("ws-1", { type: "error", sessionId: "sess-bg", message: "Background error" });
+    });
+
+    expect(result.current.sessionId).toBe("sess-active");
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.isStreaming).toBe(true);
   });
 
   // ── lockedProvider tests ──────────────────────────────────────────

@@ -35,13 +35,8 @@ function sendOutgoing(socket: WebSocket, msg: WsOutgoing): void {
 
 type ActiveSession = NonNullable<ReturnType<typeof getSession>>;
 
-interface SocketState {
-  focusedSessionId?: string;
-}
-
 interface WorkspaceChannel {
   sockets: Set<WebSocket>;
-  socketStates: Map<WebSocket, SocketState>;
   detachBySessionId: Map<string, () => void>;
   pendingToolRequests: Map<string, string>;
 }
@@ -74,7 +69,6 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     if (existing) return existing;
     const created: WorkspaceChannel = {
       sockets: new Set<WebSocket>(),
-      socketStates: new Map<WebSocket, SocketState>(),
       detachBySessionId: new Map<string, () => void>(),
       pendingToolRequests: new Map<string, string>(),
     };
@@ -82,17 +76,10 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     return created;
   };
 
-  const sendToSession = (channel: WorkspaceChannel, sessionId: string, msg: WsOutgoing): void => {
-    for (const [socket, state] of channel.socketStates) {
-      if (state.focusedSessionId !== sessionId) continue;
+  const broadcastToChannel = (channel: WorkspaceChannel, msg: WsOutgoing): void => {
+    for (const socket of channel.sockets) {
       sendOutgoing(socket, msg);
     }
-  };
-
-  const setSocketFocus = (channel: WorkspaceChannel, socket: WebSocket, sessionId: string): void => {
-    const state = channel.socketStates.get(socket);
-    if (!state) return;
-    state.focusedSessionId = sessionId;
   };
 
   const sendSessionBootstrap = async (socket: WebSocket, session: ActiveSession): Promise<void> => {
@@ -125,11 +112,6 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         channel.pendingToolRequests.delete(requestId);
       }
     }
-    for (const state of channel.socketStates.values()) {
-      if (state.focusedSessionId === sessionId) {
-        state.focusedSessionId = undefined;
-      }
-    }
   };
 
   const detachAllSessionListeners = (channel: WorkspaceChannel): void => {
@@ -138,15 +120,6 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     }
     channel.detachBySessionId.clear();
     channel.pendingToolRequests.clear();
-  };
-
-  const broadcastStatusToChannel = (
-    channel: WorkspaceChannel,
-    msg: Extract<WsOutgoing, { type: "status" }>,
-  ): void => {
-    for (const socket of channel.sockets) {
-      sendOutgoing(socket, msg);
-    }
   };
 
   const attachSessionListeners = (
@@ -162,26 +135,15 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       if (msg.type === "tool_input_required") {
         channel.pendingToolRequests.set(msg.requestId, session.sessionId);
       }
-      sendToSession(channel, session.sessionId, msg);
-      // Broadcast streaming-stopped to ALL sockets so non-focused clients
-      // can update per-session streaming state.
-      if (msg.type === "done" || msg.type === "cancelled") {
-        broadcastStatusToChannel(channel, {
-          type: "status",
-          status: "idle",
-          sessionId: session.sessionId,
-          streaming: false,
-          lockedProvider: session.metadata.lockedProvider,
-        });
-      }
+      broadcastToChannel(channel, msg);
     };
     const onError = (err: Error) => {
-      sendToSession(channel, session.sessionId, { type: "error", message: err.message });
+      broadcastToChannel(channel, { type: "error", message: err.message, sessionId: session.sessionId });
     };
     const onExit = (_code: number) => {
       // Always broadcast idle status so all clients clear streaming state,
       // even if the session was already removed from memory (e.g. deletion).
-      broadcastStatusToChannel(channel, {
+      broadcastToChannel(channel, {
         type: "status",
         status: "idle",
         sessionId: session.sessionId,
@@ -241,14 +203,12 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       const { wsId } = req.params;
       const channel = getOrCreateChannel(wsId);
       channel.sockets.add(socket);
-      channel.socketStates.set(socket, {});
 
       const sendBootstrap = async (): Promise<void> => {
         const session = getSession(wsId);
 
         if (session) {
           attachSessionListeners(wsId, channel, session);
-          setSocketFocus(channel, socket, session.sessionId);
           await sendSessionBootstrap(socket, session);
           // Send status for other sessions that are currently streaming
           for (const streamingId of getStreamingSessionIds(wsId)) {
@@ -271,9 +231,6 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             const messages = await getSessionMessages(wsId, dataDir);
             if (messages.length > 0) {
               const firstSessionId = messages[0]?.sessionId;
-              if (firstSessionId) {
-                setSocketFocus(channel, socket, firstSessionId);
-              }
               sendOutgoing(socket, { type: "history", sessionId: firstSessionId, messages });
             }
           } catch {
@@ -307,7 +264,6 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
       socket.on("close", () => {
         channel.sockets.delete(socket);
-        channel.socketStates.delete(socket);
         if (channel.sockets.size === 0) {
           detachAllSessionListeners(channel);
           channels.delete(wsId);
@@ -325,12 +281,6 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
         switch (incoming.type) {
           case "switch_session": {
-            const state = channel.socketStates.get(socket);
-            const previousFocusSessionId = state?.focusedSessionId;
-            if (state) {
-              // Prevent stale events from the previous session while switch is in-flight.
-              state.focusedSessionId = incoming.sessionId;
-            }
             try {
               const session = await activateSession(
                 wsId,
@@ -339,27 +289,19 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
                 sessionOptions,
               );
               attachSessionListeners(wsId, channel, session);
-              setSocketFocus(channel, socket, session.sessionId);
               await sendSessionBootstrap(socket, session);
             } catch (err: unknown) {
-              if (state) {
-                state.focusedSessionId = previousFocusSessionId;
-              }
               sendOutgoing(socket, { type: "error", message: errorMessage(err, "Failed to switch session") });
             }
             break;
           }
           case "user_message": {
             try {
-              const state = channel.socketStates.get(socket);
-              const explicitSessionRequested = typeof incoming.sessionId === "string";
-              const requestedSessionId = incoming.sessionId ?? state?.focusedSessionId;
-
               let targetSession: ActiveSession | undefined;
-              if (requestedSessionId) {
-                targetSession = await resolveSessionById(wsId, channel, requestedSessionId);
-                if (!targetSession && explicitSessionRequested) {
-                  throw new Error(`Session ${requestedSessionId} not found`);
+              if (incoming.sessionId) {
+                targetSession = await resolveSessionById(wsId, channel, incoming.sessionId);
+                if (!targetSession) {
+                  throw new Error(`Session ${incoming.sessionId} not found`);
                 }
               }
 
@@ -374,15 +316,8 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
               }
 
               attachSessionListeners(wsId, channel, targetSession);
-              setSocketFocus(channel, socket, targetSession.sessionId);
-              for (const state of channel.socketStates.values()) {
-                if (!state.focusedSessionId) {
-                  state.focusedSessionId = targetSession.sessionId;
-                }
-              }
-
               targetSession.sendMessage(incoming.content, incoming.options, incoming.images);
-              broadcastStatusToChannel(channel, {
+              broadcastToChannel(channel, {
                 type: "status",
                 status: "busy",
                 sessionId: targetSession.sessionId,
@@ -397,8 +332,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           }
           case "stop": {
             try {
-              const state = channel.socketStates.get(socket);
-              const targetSessionId = incoming.sessionId ?? state?.focusedSessionId;
+              const targetSessionId = incoming.sessionId;
               if (targetSessionId) {
                 stopStreaming(wsId, targetSessionId);
               } else {
@@ -439,14 +373,6 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
               }
 
               if (!targetSession) {
-                const state = channel.socketStates.get(socket);
-                const focusedId = state?.focusedSessionId;
-                if (focusedId) {
-                  targetSession = await resolveSessionById(wsId, channel, focusedId);
-                }
-              }
-
-              if (!targetSession) {
                 let activeSession = getSession(wsId);
                 if (!activeSession) {
                   const result = await getOrCreateSession(wsId, dataDir, sessionOptions);
@@ -456,11 +382,10 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
               }
 
               attachSessionListeners(wsId, channel, targetSession);
-              setSocketFocus(channel, socket, targetSession.sessionId);
               targetSession.respondToToolInput(incoming.toolName, incoming.result);
               // Dismiss persists a message without spawning a CLI — no streaming.
               if (incoming.result.type !== "dismiss") {
-                broadcastStatusToChannel(channel, {
+                broadcastToChannel(channel, {
                   type: "status",
                   status: "busy",
                   sessionId: targetSession.sessionId,

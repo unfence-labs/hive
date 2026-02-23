@@ -26,30 +26,8 @@ interface WorkspaceConnection {
   lastHistory?: HistoryMessage;
   lastDiffStats?: DiffStatsMessage;
   lastBranchInfo?: BranchInfoMessage;
-  replaySessionId?: string;
   /** Messages received while no handler was subscribed. Replayed on next onMessage(). */
   messageBuffer: WsOutgoing[];
-}
-
-function messageSessionId(msg: WsOutgoing): string | undefined {
-  switch (msg.type) {
-    case "user_message":
-      return msg.message.sessionId;
-    case "history":
-      return msg.sessionId ?? msg.messages[0]?.sessionId;
-    case "status":
-      return msg.sessionId;
-    case "text_delta":
-    case "thinking":
-    case "tool_use":
-    case "tool_result":
-    case "tool_input_required":
-    case "done":
-    case "cancelled":
-      return msg.sessionId;
-    default:
-      return undefined;
-  }
 }
 
 class WsTransport {
@@ -97,7 +75,6 @@ class WsTransport {
     connection.lastStatusBySession.clear();
     connection.lastHistory = undefined;
     connection.lastBranchInfo = undefined;
-    connection.replaySessionId = undefined;
     connection.messageBuffer = [];
   }
 
@@ -151,19 +128,8 @@ class WsTransport {
       handler(connection.lastBranchInfo);
     }
 
-    const replaySessionId = connection.replaySessionId
-      ?? connection.lastStatus?.sessionId
-      ?? connection.lastHistory?.sessionId
-      ?? connection.lastHistory?.messages[0]?.sessionId;
-    const replayableMessages = replaySessionId
-      ? connection.messageBuffer.filter((msg) => {
-        const sid = messageSessionId(msg);
-        return !sid || sid === replaySessionId;
-      })
-      : connection.messageBuffer;
-
-    const hadBufferedMessages = replayableMessages.length > 0;
-    for (const msg of replayableMessages) {
+    const hadBufferedMessages = connection.messageBuffer.length > 0;
+    for (const msg of connection.messageBuffer) {
       handler(msg);
     }
     connection.messageBuffer = [];
@@ -200,7 +166,6 @@ class WsTransport {
       messageHandlers: new Set<MessageHandler>(),
       statusListeners: new Set<StatusListener>(),
       lastStatusBySession: new Map(),
-      replaySessionId: undefined,
       messageBuffer: [],
     };
     this.connections.set(workspaceId, created);
@@ -237,7 +202,6 @@ class WsTransport {
     connection.lastHistory = undefined;
     connection.lastDiffStats = undefined;
     connection.lastBranchInfo = undefined;
-    connection.replaySessionId = undefined;
     connection.messageBuffer = [];
     this.connections.delete(workspaceId);
   }
@@ -273,17 +237,11 @@ class WsTransport {
           connection.lastStatus = msg;
           if (msg.sessionId) {
             connection.lastStatusBySession.set(msg.sessionId, msg);
-            connection.replaySessionId = msg.sessionId;
           } else if (msg.status === "idle") {
             connection.lastStatusBySession.clear();
-            connection.replaySessionId = undefined;
           }
         } else if (msg.type === "history") {
           connection.lastHistory = msg;
-          const historySessionId = msg.sessionId ?? msg.messages[0]?.sessionId;
-          if (historySessionId) {
-            connection.replaySessionId = historySessionId;
-          }
         } else if (msg.type === "diff_stats") {
           connection.lastDiffStats = msg;
         } else if (msg.type === "branch_info") {
@@ -293,10 +251,6 @@ class WsTransport {
         if (connection.messageHandlers.size > 0) {
           for (const handler of connection.messageHandlers) handler(msg);
         } else {
-          const sid = messageSessionId(msg);
-          if (sid && connection.replaySessionId && sid !== connection.replaySessionId) {
-            return;
-          }
           connection.messageBuffer.push(msg);
         }
       } catch {
