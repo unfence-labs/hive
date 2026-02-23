@@ -10,40 +10,34 @@ struct TaskTrackerView: View {
 
     var body: some View {
         if !tasks.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-                // Collapsed header row
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isExpanded.toggle()
-                    }
-                } label: {
-                    collapsedRow
-                }
-                .buttonStyle(.plain)
-
-                // Expanded task list
-                if isExpanded {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(tasks) { task in
-                            taskRow(task)
+            GlassEffectContainer {
+                VStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            isExpanded.toggle()
                         }
+                    } label: {
+                        collapsedRow
                     }
-                    .padding(.top, 4)
-                    .padding(.bottom, 2)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .buttonStyle(.plain)
+
+                    if isExpanded {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(tasks) { task in
+                                taskRow(task)
+                            }
+                        }
+                        .padding(.top, 6)
+                        .padding(.bottom, 2)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
                 }
+                .padding(.horizontal, HiveSpacing.lg)
+                .padding(.vertical, HiveSpacing.sm)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
             }
-            .padding(.horizontal, HiveSpacing.lg)
-            .padding(.vertical, HiveSpacing.sm)
-            .background(
-                Rectangle()
-                    .fill(Color.black.opacity(0.3))
-                    .overlay(alignment: .top) {
-                        Rectangle()
-                            .fill(WhisperColor.border)
-                            .frame(height: 0.5)
-                    }
-            )
+            .padding(.horizontal, HiveSpacing.md)
+            .padding(.vertical, HiveSpacing.xs)
         }
     }
 
@@ -60,7 +54,7 @@ struct TaskTrackerView: View {
         HStack(spacing: HiveSpacing.sm) {
             Image(systemName: "chevron.right")
                 .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(WhisperColor.textMuted)
+                .foregroundStyle(.tertiary)
                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
 
             Group {
@@ -72,14 +66,14 @@ struct TaskTrackerView: View {
                 }
             }
             .font(WhisperFont.mono(12))
-            .foregroundStyle(WhisperColor.textSecondary)
+            .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.tail)
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Text("\(counts.completed)/\(counts.total)")
                 .font(WhisperFont.mono(11))
-                .foregroundStyle(WhisperColor.textMuted.opacity(0.5))
+                .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())
         .padding(.vertical, 2)
@@ -96,9 +90,8 @@ struct TaskTrackerView: View {
                  ? (task.activeForm ?? task.subject)
                  : task.subject)
                 .font(WhisperFont.mono(12))
-                .foregroundStyle(foregroundColor(for: task.status))
-                .strikethrough(task.status == .completed,
-                               color: WhisperColor.textMuted.opacity(0.5))
+                .foregroundStyle(textStyle(for: task.status))
+                .strikethrough(task.status == .completed)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
@@ -122,16 +115,16 @@ struct TaskTrackerView: View {
                 .modifier(PulsingDotModifier())
         case .pending:
             Circle()
-                .stroke(WhisperColor.textMuted.opacity(0.4), lineWidth: 1)
+                .stroke(.tertiary, lineWidth: 1)
                 .frame(width: 9, height: 9)
         }
     }
 
-    private func foregroundColor(for status: TaskStatus) -> Color {
+    private func textStyle(for status: TaskStatus) -> HierarchicalShapeStyle {
         switch status {
-        case .completed: WhisperColor.textMuted.opacity(0.5)
-        case .inProgress: WhisperColor.text
-        case .pending: WhisperColor.textMuted
+        case .completed: .tertiary
+        case .inProgress: .primary
+        case .pending: .secondary
         }
     }
 }
