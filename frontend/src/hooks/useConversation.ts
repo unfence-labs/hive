@@ -140,7 +140,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
           },
         },
         error: isActive ? undefined : state.error,
-        sessionId: sid,
+        sessionId: state.sessionId ?? sid,
       };
     }
 

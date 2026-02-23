@@ -142,8 +142,12 @@ final class ConversationStore {
             if let sid = incomingSessionId, let newIsStreaming {
                 if newIsStreaming {
                     ensureStream(for: sid)
-                    if sessionStreams[sid]?.streamingStartedAt == nil {
-                        sessionStreams[sid]?.streamingStartedAt = parseStartedAt(startedAt)
+                    if var stream = sessionStreams[sid] {
+                        stream.isStreaming = true
+                        if stream.streamingStartedAt == nil {
+                            stream.streamingStartedAt = parseStartedAt(startedAt)
+                        }
+                        sessionStreams[sid] = stream
                     }
                 } else if var stream = sessionStreams[sid] {
                     // Session stopped streaming. Clean up if no content.

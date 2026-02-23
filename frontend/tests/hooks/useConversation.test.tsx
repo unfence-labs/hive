@@ -228,6 +228,39 @@ describe("useConversation", () => {
     nowSpy.mockRestore();
   });
 
+  it("does not change active session when user_message arrives for another session", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "active",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u2",
+          sessionId: "sess-2",
+          role: "user",
+          content: "background",
+          timestamp: "2026-02-12T00:00:01.000Z",
+        },
+      });
+    });
+
+    expect(result.current.sessionId).toBe("sess-1");
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ id: "u1", sessionId: "sess-1", content: "active" }),
+    ]);
+  });
+
   it("does not add user message when transport send fails", async () => {
     const { __wsMock } = await getWsMock();
     __wsMock.sendMock.mockReturnValueOnce(false);
@@ -1325,6 +1358,41 @@ describe("useConversation", () => {
     });
 
     expect(__wsMock.sendMock).toHaveBeenCalledWith("ws-1", { type: "stop" });
+  });
+
+  it("keeps stop routing on the active session when background user_message events arrive", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-active",
+        streaming: true,
+      });
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u-bg",
+          sessionId: "sess-bg",
+          role: "user",
+          content: "background session",
+          timestamp: "2026-02-12T00:00:05.000Z",
+        },
+      });
+    });
+
+    expect(result.current.sessionId).toBe("sess-active");
+
+    act(() => {
+      result.current.stopStreaming();
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
+      type: "stop",
+      sessionId: "sess-active",
+    });
   });
 
   it("resets state on workspace change", async () => {

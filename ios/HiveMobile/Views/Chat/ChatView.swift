@@ -116,7 +116,7 @@ struct ChatView: View {
                     onModelSelect: { selectedModelId = $0 },
                     onDraftAttachmentsChange: { draftAttachments = $0 },
                     onSend: sendMessage,
-                    onStop: { Task { await wsManager.send(.stop(sessionId: nil)) } }
+                    onStop: { Task { await wsManager.send(.stop(sessionId: activeSessionId)) } }
                 )
                 .padding(.horizontal, 12)
                 .padding(.bottom, 4)
@@ -325,7 +325,7 @@ struct ChatView: View {
                 content: content,
                 images: images.isEmpty ? nil : images,
                 options: options,
-                sessionId: nil
+                sessionId: activeSessionId
             ))
         }
     }
