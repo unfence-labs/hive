@@ -232,6 +232,7 @@ private func toolIcon(for name: String) -> String {
     case "Bash": return "terminal"
     case "Grep", "Glob": return "magnifyingglass"
     case "Task": return "arrow.triangle.branch"
+    case "TaskCreate", "TaskUpdate", "TaskList", "TaskGet": return "checklist"
     case "WebSearch", "WebFetch": return "globe"
     case "AskUserQuestion": return "bubble.left"
     default: return "wrench"
@@ -302,6 +303,24 @@ private func getToolDisplay(_ tool: ToolCall, isPending: Bool = false) -> ToolDi
             overrideSummary: count > 0 ? "\(count) question\(count != 1 ? "s" : "")" : nil
         )
 
+    case "TaskCreate":
+        let subject = input["subject"] as? String
+        return ToolDisplay(icon: "checklist", label: "TaskCreate", detail: subject)
+
+    case "TaskUpdate":
+        let taskId = input["taskId"] as? String
+        let status = input["status"] as? String
+        let parts = [taskId.map { "#\($0)" }, status].compactMap { $0 }
+        let detail = parts.isEmpty ? nil : parts.joined(separator: " → ")
+        return ToolDisplay(icon: "checklist", label: "TaskUpdate", detail: detail)
+
+    case "TaskList":
+        return ToolDisplay(icon: "checklist", label: "TaskList")
+
+    case "TaskGet":
+        let taskId = input["taskId"] as? String
+        return ToolDisplay(icon: "checklist", label: "TaskGet", detail: taskId.map { "#\($0)" })
+
     default:
         return ToolDisplay(icon: toolIcon(for: tool.name), label: tool.name)
     }
@@ -358,12 +377,18 @@ private struct WhisperToolCallsBlock: View {
     var pendingToolUseIds: Set<String> = []
     @State private var groupExpanded = false
 
+    private static let hiddenTaskTools: Set<String> = ["TaskUpdate"]
+
+    private var visibleTools: [ToolCall] {
+        toolCalls.filter { !Self.hiddenTaskTools.contains($0.name) }
+    }
+
     private var rootTools: [ToolCall] {
-        toolCalls.filter { $0.parentToolUseId == nil }
+        visibleTools.filter { $0.parentToolUseId == nil }
     }
 
     private func children(for parentId: String) -> [ToolCall] {
-        toolCalls.filter { $0.parentToolUseId == parentId }
+        visibleTools.filter { $0.parentToolUseId == parentId }
     }
 
     private var shouldCollapse: Bool {

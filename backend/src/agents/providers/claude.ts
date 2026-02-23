@@ -51,12 +51,14 @@ export class ClaudeProvider implements AgentProvider {
     ];
   }
 
-  buildEnv(options: ProviderMessageOptions): Record<string, string> | undefined {
-    if (options.thinkingEnabled === undefined) return undefined;
-    return {
-      ...process.env as Record<string, string>,
-      MAX_THINKING_TOKENS: options.thinkingEnabled ? "31999" : "0",
+  buildEnv(options: ProviderMessageOptions): Record<string, string> {
+    const env: Record<string, string> = {
+      CLAUDE_CODE_ENABLE_TASKS: "true",
     };
+    if (options.thinkingEnabled !== undefined) {
+      env.MAX_THINKING_TOKENS = options.thinkingEnabled ? "31999" : "0";
+    }
+    return env;
   }
 
   createStreamAdapter(): StreamAdapter {

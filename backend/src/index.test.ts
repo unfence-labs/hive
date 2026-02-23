@@ -16,9 +16,10 @@ vi.mock("fastify", async (importOriginal) => {
       const instance = originalDefault();
       const originalListen = instance.listen.bind(instance);
       instance.listen = (async (...listenArgs: unknown[]) => {
-        // Only block the main() auto-listen (which uses port 3000)
+        // Only block the main() auto-listen (uses PORT env var or defaults to 3000)
         const opts = listenArgs[0] as { port?: number } | undefined;
-        if (opts?.port === 3000) {
+        const mainPort = Number(process.env.PORT ?? 3000);
+        if (opts?.port === mainPort) {
           return "mocked";
         }
         return originalListen(opts as Parameters<typeof originalListen>[0]);

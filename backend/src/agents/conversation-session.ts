@@ -458,7 +458,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.process = spawn(command, args, {
       cwd: this.cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      ...(env && { env }),
+      ...(env && { env: { ...process.env, ...env } }),
     });
 
     this.process.stdin?.end();

@@ -258,10 +258,13 @@ export function ToolCallList({
   const planData = hasExitPlanMode ? findPlanContent(toolCalls) : undefined;
   const planContent = planData?.content;
 
+  const HIDDEN_TASK_TOOLS = new Set(["TaskUpdate"]);
+
   const regularTools = toolCalls.filter(
     (t) =>
       !isAskUserQuestion(t) &&
       !isExitPlanMode(t) &&
+      !HIDDEN_TASK_TOOLS.has(t.name) &&
       !(planData?.writeToolId && t.id === planData.writeToolId),
   );
 

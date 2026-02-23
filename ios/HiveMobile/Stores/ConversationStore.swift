@@ -56,6 +56,11 @@ final class ConversationStore {
         )
     }
 
+    /// Derived task tracking state from all TaskCreate/TaskUpdate tool calls.
+    var tasksState: TasksState {
+        deriveTasks(from: messages, activeToolCalls: activeToolCalls)
+    }
+
     /// All messages to display: history + streaming message if active
     var displayMessages: [ChatMessage] {
         if let streaming = streamingMessage {

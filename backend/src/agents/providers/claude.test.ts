@@ -157,20 +157,22 @@ describe("ClaudeProvider", () => {
 
   // ── buildEnv ───────────────────────────────────────────────────────
 
-  it("returns undefined when thinkingEnabled is not specified", () => {
-    expect(provider.buildEnv({})).toBeUndefined();
+  it("always includes CLAUDE_CODE_ENABLE_TASKS", () => {
+    const env = provider.buildEnv({});
+    expect(env.CLAUDE_CODE_ENABLE_TASKS).toBe("true");
+    expect(env.MAX_THINKING_TOKENS).toBeUndefined();
   });
 
   it("sets MAX_THINKING_TOKENS=31999 when thinking is enabled", () => {
     const env = provider.buildEnv({ thinkingEnabled: true });
-    expect(env).toBeDefined();
-    expect(env!.MAX_THINKING_TOKENS).toBe("31999");
+    expect(env.MAX_THINKING_TOKENS).toBe("31999");
+    expect(env.CLAUDE_CODE_ENABLE_TASKS).toBe("true");
   });
 
   it("sets MAX_THINKING_TOKENS=0 when thinking is disabled", () => {
     const env = provider.buildEnv({ thinkingEnabled: false });
-    expect(env).toBeDefined();
-    expect(env!.MAX_THINKING_TOKENS).toBe("0");
+    expect(env.MAX_THINKING_TOKENS).toBe("0");
+    expect(env.CLAUDE_CODE_ENABLE_TASKS).toBe("true");
   });
 
   // ── createStreamAdapter ────────────────────────────────────────────
