@@ -377,12 +377,18 @@ private struct WhisperToolCallsBlock: View {
     var pendingToolUseIds: Set<String> = []
     @State private var groupExpanded = false
 
+    private static let hiddenTaskTools: Set<String> = ["TaskUpdate"]
+
+    private var visibleTools: [ToolCall] {
+        toolCalls.filter { !Self.hiddenTaskTools.contains($0.name) }
+    }
+
     private var rootTools: [ToolCall] {
-        toolCalls.filter { $0.parentToolUseId == nil }
+        visibleTools.filter { $0.parentToolUseId == nil }
     }
 
     private func children(for parentId: String) -> [ToolCall] {
-        toolCalls.filter { $0.parentToolUseId == parentId }
+        visibleTools.filter { $0.parentToolUseId == parentId }
     }
 
     private var shouldCollapse: Bool {
