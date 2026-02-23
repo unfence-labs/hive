@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { CheckIcon, SparklesIcon, StarIcon } from "lucide-react";
+import { CheckIcon, StarIcon } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,8 +30,12 @@ function ProviderIcon({ provider, className }: { provider: string; className?: s
       </svg>
     );
   }
-  // Claude: use sparkles as a proxy for the Anthropic asterisk
-  return <SparklesIcon className={cn("size-3.5", className)} />;
+  // Claude: Anthropic asterisk
+  return (
+    <svg className={cn("size-3.5", className)} viewBox="0 0 256 256" fill="currentColor">
+      <path d="M177.888 112.776 128.555 4H100.453l72.238 196.714h28.096L177.888 112.776ZM83.209 200.714 155.447 4h-28.102L55.107 200.714h28.102Z" />
+    </svg>
+  );
 }
 
 interface ModelSelectorProps {

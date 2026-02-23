@@ -23,8 +23,13 @@ import type {
 
 const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
 
-/** Gemini CLI writes informational messages to stderr; suppress these from error events. */
-const GEMINI_STDERR_NOISE = ["Loaded cached credentials", "YOLO mode is enabled"];
+/** Gemini CLI writes informational/retry messages to stderr; suppress these from error events. */
+const GEMINI_STDERR_NOISE = [
+  "Loaded cached credentials",
+  "YOLO mode is enabled",
+  "Retrying with backoff",
+  "GaxiosError",
+];
 
 /** Map Anthropic server_tool_use names to their Claude Code display names. */
 const serverToolNameMap: Record<string, string> = {
