@@ -43,6 +43,7 @@ type LocalAction =
   | { type: "reset" }
   | { type: "clear_chat" }
   | { type: "prepare_session_switch"; sessionId: string }
+  | { type: "prepare_workspace_switch" }
   | { type: "clear_pending_tool_inputs" };
 
 type Action = WsOutgoing | LocalAction;
@@ -362,6 +363,17 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         // sessionStreams is untouched — background sessions keep accumulating
       };
 
+    case "prepare_workspace_switch":
+      return {
+        ...state,
+        messages: [],
+        sessionId: undefined,
+        workspaceStatus: undefined,
+        error: undefined,
+        lockedProvider: undefined,
+        // sessionStreams is untouched — all sessions keep accumulating
+      };
+
     case "clear_chat": {
       const sid = state.sessionId;
       return {
@@ -416,7 +428,7 @@ export function useConversation(workspaceId: string | undefined) {
     const historyRequestToken = historyRequestTokenRef.current + 1;
     historyRequestTokenRef.current = historyRequestToken;
 
-    dispatch({ type: "reset" });
+    dispatch({ type: "prepare_workspace_switch" });
     wsTransport.connect(workspaceId);
 
     const { unsubscribe, hadBufferedMessages } = wsTransport.onMessage(workspaceId, (msg) => {

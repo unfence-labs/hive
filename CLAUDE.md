@@ -257,3 +257,5 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `redacted_thinking` blocks are logged as `[redacted]` but not visually distinguished from regular thinking in the UI.
 - Codex provider integration is functional but less battle-tested than Claude. Stream adapter edge cases may surface.
 - No Codex session resume verification (thread ID persistence is best-effort).
+- iOS workspace-level streaming persistence: iOS creates a fresh `ConversationStore` per `ChatView`. Preserving streaming state across workspace switches requires a shared stream cache at the app level.
+- Stale `lastHistory` on workspace switch-back: the transport's cached `lastHistory` is from WS bootstrap. Turns completed between bootstrap and switch-away aren't in `lastHistory`; when `hadBufferedMessages` skips the REST fetch, those turns are missing from `messages`.

@@ -1439,7 +1439,7 @@ describe("useConversation", () => {
     });
   });
 
-  it("resets state on workspace change", async () => {
+  it("clears visible state on workspace change", async () => {
     const { __wsMock } = await getWsMock();
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_001_333);
     const { result, rerender } = renderHook(
@@ -1470,6 +1470,93 @@ describe("useConversation", () => {
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.streamingStartedAt).toBeNull();
     nowSpy.mockRestore();
+  });
+
+  it("preserves streaming data across workspace switch", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result, rerender } = renderHook(
+      ({ wsId }) => useConversation(wsId),
+      { initialProps: { wsId: "ws-1" } },
+    );
+
+    // Start streaming on ws-1
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "hello",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Hello " });
+    });
+
+    expect(result.current.currentStreamingText).toBe("Hello ");
+    expect(result.current.isStreaming).toBe(true);
+
+    // Switch to ws-2 — visible state clears
+    rerender({ wsId: "ws-2" });
+
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.currentStreamingText).toBe("");
+    expect(result.current.isStreaming).toBe(false);
+
+    // Switch back to ws-1 — transport replays status, then we get more deltas
+    __wsMock.setReplay("ws-1", [
+      { type: "status", status: "busy", sessionId: "sess-1", streaming: true },
+    ]);
+    rerender({ wsId: "ws-1" });
+
+    // Simulate deltas that were buffered while on ws-2
+    act(() => {
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "World" });
+    });
+
+    // Pre-switch + post-switch text are both present
+    expect(result.current.sessionId).toBe("sess-1");
+    expect(result.current.currentStreamingText).toBe("Hello World");
+    expect(result.current.isStreaming).toBe(true);
+  });
+
+  it("full reset clears sessionStreams when workspaceId becomes undefined", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result, rerender } = renderHook(
+      ({ wsId }) => useConversation(wsId),
+      { initialProps: { wsId: "ws-1" as string | undefined } },
+    );
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "start",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "data" });
+    });
+
+    expect(result.current.currentStreamingText).toBe("data");
+
+    // Deselect workspace entirely — full reset
+    rerender({ wsId: undefined });
+
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.currentStreamingText).toBe("");
+    expect(result.current.isStreaming).toBe(false);
+
+    // Switch back — no preserved data (was a full reset, not workspace switch)
+    __wsMock.setReplay("ws-1", []);
+    rerender({ wsId: "ws-1" });
+
+    expect(result.current.currentStreamingText).toBe("");
+    expect(result.current.isStreaming).toBe(false);
   });
 
   it("status event updates workspace status, streaming flag, and streamingStartedAt", async () => {
