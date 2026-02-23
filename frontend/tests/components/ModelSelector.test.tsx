@@ -34,6 +34,16 @@ const CODEX_MODELS: ModelCatalogEntry[] = [
   },
 ];
 
+const GEMINI_MODELS: ModelCatalogEntry[] = [
+  {
+    id: "gemini:gemini-2.5-pro",
+    label: "Gemini 2.5 Pro",
+    provider: "gemini",
+    providerLabel: "Gemini CLI",
+    capabilities: { thinking: false, planMode: false, blockingTools: false, completions: false },
+  },
+];
+
 const ALL_MODELS = [...CLAUDE_MODELS, ...CODEX_MODELS];
 
 describe("ModelSelector", () => {
@@ -67,7 +77,7 @@ describe("ModelSelector", () => {
     const user = userEvent.setup();
     render(
       <ModelSelector
-        models={ALL_MODELS}
+        models={[...ALL_MODELS, ...GEMINI_MODELS]}
         selectedModelId="claude:opus-4-6"
         defaultModelId="claude:opus-4-6"
         onSelect={vi.fn()}
@@ -79,10 +89,12 @@ describe("ModelSelector", () => {
     // Provider labels
     expect(screen.getByText("Claude Code")).toBeInTheDocument();
     expect(screen.getByText("Codex")).toBeInTheDocument();
+    expect(screen.getByText("Gemini CLI")).toBeInTheDocument();
 
     // Model labels
     expect(screen.getByText("Sonnet 4.6")).toBeInTheDocument();
     expect(screen.getByText("GPT-5.3-Codex")).toBeInTheDocument();
+    expect(screen.getByText("Gemini 2.5 Pro")).toBeInTheDocument();
   });
 
   it("shows NEW badge for models with isNew flag", async () => {
@@ -212,5 +224,50 @@ describe("ModelSelector", () => {
     );
 
     expect(screen.getByRole("button", { name: /Model: Sonnet 4.6/i })).toBeInTheDocument();
+  });
+
+  it("renders Gemini icon when Gemini is selected", () => {
+    render(
+      <ModelSelector
+        models={[...ALL_MODELS, ...GEMINI_MODELS]}
+        selectedModelId="gemini:gemini-2.5-pro"
+        defaultModelId="claude:opus-4-6"
+        onSelect={vi.fn()}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: /Model: Gemini 2.5 Pro/i });
+    const iconPath = trigger.querySelector("svg path")?.getAttribute("d");
+    expect(iconPath).toContain("M12 0C12 6.627");
+  });
+
+  it("renders Anthropic asterisk icon for Claude", () => {
+    render(
+      <ModelSelector
+        models={ALL_MODELS}
+        selectedModelId="claude:opus-4-6"
+        defaultModelId="claude:opus-4-6"
+        onSelect={vi.fn()}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: /Model: Opus 4.6/i });
+    const iconPath = trigger.querySelector("svg path")?.getAttribute("d");
+    expect(iconPath).toContain("M177.888 112.776");
+  });
+
+  it("falls back to Claude icon when selected model is missing", () => {
+    render(
+      <ModelSelector
+        models={[...ALL_MODELS, ...GEMINI_MODELS]}
+        selectedModelId="missing:model"
+        defaultModelId="claude:opus-4-6"
+        onSelect={vi.fn()}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: /Model: Select model/i });
+    const iconPath = trigger.querySelector("svg path")?.getAttribute("d");
+    expect(iconPath).toContain("M177.888 112.776");
   });
 });

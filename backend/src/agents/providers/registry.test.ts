@@ -58,6 +58,12 @@ describe("resolveProvider", () => {
     expect(modelId).toBe("gpt-5.3-codex");
   });
 
+  it("resolves gemini:model-id correctly", () => {
+    const { provider, modelId } = resolveProvider("gemini:gemini-2.5-pro");
+    expect(provider.id).toBe("gemini");
+    expect(modelId).toBe("gemini-2.5-pro");
+  });
+
   it("throws for unknown provider prefix", () => {
     expect(() => resolveProvider("unknown:some-model")).toThrow("Unknown provider: unknown");
   });
@@ -81,6 +87,12 @@ describe("getProvider", () => {
     const provider = getProvider("codex");
     expect(provider).toBeDefined();
     expect(provider!.id).toBe("codex");
+  });
+
+  it("returns gemini provider by ID", () => {
+    const provider = getProvider("gemini");
+    expect(provider).toBeDefined();
+    expect(provider!.id).toBe("gemini");
   });
 
   it("returns undefined for unknown provider", () => {
@@ -132,6 +144,18 @@ describe("getModelCatalog", () => {
     }
   });
 
+  it("includes gemini models when gemini is available", () => {
+    markProviderAvailable("gemini");
+    const catalog = getModelCatalog();
+
+    const geminiModels = catalog.models.filter((m) => m.provider === "gemini");
+    expect(geminiModels.length).toBeGreaterThan(0);
+
+    for (const model of geminiModels) {
+      expect(model.id).toMatch(/^gemini:/);
+    }
+  });
+
   it("sets defaultModelId to claude default when available", () => {
     markProviderAvailable("claude");
     const catalog = getModelCatalog();
@@ -158,6 +182,14 @@ describe("getModelCatalog", () => {
     expect(claudeModel?.providerLabel).toBe("Claude Code");
   });
 
+  it("uses Gemini CLI label for gemini models", () => {
+    markProviderAvailable("gemini");
+    const catalog = getModelCatalog();
+
+    const geminiModel = catalog.models.find((m) => m.provider === "gemini");
+    expect(geminiModel?.providerLabel).toBe("Gemini CLI");
+  });
+
   it("includes capabilities for each model", () => {
     markProviderAvailable("claude");
     const catalog = getModelCatalog();
@@ -169,6 +201,20 @@ describe("getModelCatalog", () => {
       expect(typeof model.capabilities.blockingTools).toBe("boolean");
       expect(typeof model.capabilities.completions).toBe("boolean");
     }
+  });
+
+  it("exposes gemini capabilities with thinking disabled", () => {
+    markProviderAvailable("gemini");
+    const catalog = getModelCatalog();
+
+    const geminiModel = catalog.models.find((m) => m.provider === "gemini");
+    expect(geminiModel).toBeDefined();
+    expect(geminiModel?.capabilities).toEqual({
+      thinking: false,
+      planMode: false,
+      blockingTools: false,
+      completions: false,
+    });
   });
 
   it("includes isNew flag from model definition", () => {
@@ -208,6 +254,7 @@ describe("detectAvailableProviders", () => {
     const providers = new Set(catalog.models.map((m) => m.provider));
     expect(providers.has("claude")).toBe(true);
     expect(providers.has("codex")).toBe(true);
+    expect(providers.has("gemini")).toBe(true);
   });
 
   it("ignores providers whose CLI is not found", async () => {

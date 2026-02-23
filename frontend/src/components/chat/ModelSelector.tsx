@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { CheckIcon, SparklesIcon, StarIcon } from "lucide-react";
+import { CheckIcon, StarIcon } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,7 +14,7 @@ import { PromptInputButton } from "@/components/ai-elements/prompt-input";
 import type { ModelCatalogEntry } from "@/types";
 import { cn } from "@/lib/utils";
 
-/** Provider icon: Anthropic asterisk for Claude, OpenAI swirl for Codex. */
+/** Provider icon: Anthropic asterisk for Claude, OpenAI swirl for Codex, Gemini star for Gemini. */
 function ProviderIcon({ provider, className }: { provider: string; className?: string }) {
   if (provider === "codex") {
     return (
@@ -23,8 +23,19 @@ function ProviderIcon({ provider, className }: { provider: string; className?: s
       </svg>
     );
   }
-  // Claude: use sparkles as a proxy for the Anthropic asterisk
-  return <SparklesIcon className={cn("size-3.5", className)} />;
+  if (provider === "gemini") {
+    return (
+      <svg className={cn("size-3.5", className)} viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 0C12 6.627 6.627 12 0 12c6.627 0 12 5.373 12 12 0-6.627 5.373-12 12-12-6.627 0-12-5.373-12-12Z" />
+      </svg>
+    );
+  }
+  // Claude: Anthropic asterisk
+  return (
+    <svg className={cn("size-3.5", className)} viewBox="0 0 256 256" fill="currentColor">
+      <path d="M177.888 112.776 128.555 4H100.453l72.238 196.714h28.096L177.888 112.776ZM83.209 200.714 155.447 4h-28.102L55.107 200.714h28.102Z" />
+    </svg>
+  );
 }
 
 interface ModelSelectorProps {

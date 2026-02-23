@@ -1,5 +1,17 @@
-import { describe, it, expect } from "vitest";
-import { meetsMinVersion } from "./preflight.js";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+vi.mock("node:child_process", () => ({
+  execFile: vi.fn(
+    (_cmd: string, _args: string[], cb: (...cbArgs: unknown[]) => void) => {
+      cb(null, { stdout: "ok", stderr: "" });
+    },
+  ),
+}));
+
+import { execFile } from "node:child_process";
+import { meetsMinVersion, preflight } from "./preflight.js";
+
+const mockExecFile = execFile as unknown as ReturnType<typeof vi.fn>;
 
 describe("meetsMinVersion()", () => {
   it("accepts exact match", () => {
@@ -20,5 +32,106 @@ describe("meetsMinVersion()", () => {
 
   it("rejects lower major", () => {
     expect(meetsMinVersion("1.99.0", [2, 17])).toBe(false);
+  });
+});
+
+describe("preflight()", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("continues when optional dependencies (codex, gemini) are missing", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
+      throw new Error(`exit-${String(code)}`);
+    }) as never);
+
+    mockExecFile.mockImplementation(
+      (cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
+        if (cmd === "codex" || cmd === "gemini") {
+          cb(new Error("not found"), { stdout: "", stderr: "" });
+          return;
+        }
+        if (cmd === "git") {
+          cb(null, { stdout: "git version 2.44.0", stderr: "" });
+          return;
+        }
+        cb(null, { stdout: "1.0.0", stderr: "" });
+      },
+    );
+
+    await preflight();
+
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("optional: 'codex' not found"));
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("optional: 'gemini' not found"));
+  });
+
+  it("exits when a required dependency is missing", async () => {
+    vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
+      throw new Error(`exit-${String(code)}`);
+    }) as never);
+
+    mockExecFile.mockImplementation(
+      (cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
+        if (cmd === "claude") {
+          cb(new Error("not found"), { stdout: "", stderr: "" });
+          return;
+        }
+        if (cmd === "git") {
+          cb(null, { stdout: "git version 2.44.0", stderr: "" });
+          return;
+        }
+        cb(null, { stdout: "1.0.0", stderr: "" });
+      },
+    );
+
+    await expect(preflight()).rejects.toThrow("exit-1");
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("'claude' not found"));
+  });
+
+  it("exits when git version is below minimum", async () => {
+    vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
+      throw new Error(`exit-${String(code)}`);
+    }) as never);
+
+    mockExecFile.mockImplementation(
+      (cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
+        if (cmd === "git") {
+          cb(null, { stdout: "git version 2.16.9", stderr: "" });
+          return;
+        }
+        cb(null, { stdout: "1.0.0", stderr: "" });
+      },
+    );
+
+    await expect(preflight()).rejects.toThrow("exit-1");
+    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("git 2.16.9 is too old (need >= 2.17)"));
+  });
+
+  it("does not warn for gemini when gemini CLI exists", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
+      throw new Error(`exit-${String(code)}`);
+    }) as never);
+
+    mockExecFile.mockImplementation(
+      (cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
+        if (cmd === "git") {
+          cb(null, { stdout: "git version 2.44.0", stderr: "" });
+          return;
+        }
+        cb(null, { stdout: "1.0.0", stderr: "" });
+      },
+    );
+
+    await preflight();
+
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining("'gemini' not found"));
   });
 });
