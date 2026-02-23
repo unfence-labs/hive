@@ -88,38 +88,39 @@ struct ChatView: View {
                 }
             }
 
-            // Task tracker — between conversation scroll and input bar
-            let tasksState = store.tasksState
-            if !tasksState.tasks.isEmpty {
-                TaskTrackerView(
-                    tasks: tasksState.tasks,
-                    currentTask: tasksState.currentTask,
-                    counts: tasksState.counts,
-                    isStreaming: store.isStreaming
-                )
-            }
         }
         .safeAreaInset(edge: .bottom) {
-            ChatInputBar(
-                draft: $draft,
-                draftAttachments: draftAttachments,
-                isBusy: store.isBusy,
-                thinkingEnabled: $thinkingEnabled,
-                planModeEnabled: $planModeEnabled,
-                thinkingLevel: $thinkingLevel,
-                models: modelCatalog.models,
-                groupedModels: modelCatalog.groupedByProvider,
-                selectedModelId: selectedModelId,
-                defaultModelId: modelCatalog.defaultModelId,
-                lockedProvider: lockedProvider,
-                capabilities: selectedCapabilities,
-                onModelSelect: { selectedModelId = $0 },
-                onDraftAttachmentsChange: { draftAttachments = $0 },
-                onSend: sendMessage,
-                onStop: { Task { await wsManager.send(.stop(sessionId: nil)) } }
-            )
-            .padding(.horizontal, 12)
-            .padding(.bottom, 4)
+            VStack(spacing: 0) {
+                let tasksState = store.tasksState
+                if !tasksState.tasks.isEmpty {
+                    TaskTrackerView(
+                        tasks: tasksState.tasks,
+                        currentTask: tasksState.currentTask,
+                        counts: tasksState.counts,
+                        isStreaming: store.isStreaming
+                    )
+                }
+                ChatInputBar(
+                    draft: $draft,
+                    draftAttachments: draftAttachments,
+                    isBusy: store.isBusy,
+                    thinkingEnabled: $thinkingEnabled,
+                    planModeEnabled: $planModeEnabled,
+                    thinkingLevel: $thinkingLevel,
+                    models: modelCatalog.models,
+                    groupedModels: modelCatalog.groupedByProvider,
+                    selectedModelId: selectedModelId,
+                    defaultModelId: modelCatalog.defaultModelId,
+                    lockedProvider: lockedProvider,
+                    capabilities: selectedCapabilities,
+                    onModelSelect: { selectedModelId = $0 },
+                    onDraftAttachmentsChange: { draftAttachments = $0 },
+                    onSend: sendMessage,
+                    onStop: { Task { await wsManager.send(.stop(sessionId: nil)) } }
+                )
+                .padding(.horizontal, 12)
+                .padding(.bottom, 4)
+            }
         }
         .toolbarBackground(.black, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
