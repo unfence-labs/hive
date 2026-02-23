@@ -7,6 +7,7 @@ import sharp from "sharp";
 import { StreamParser } from "./stream-parser.js";
 import { resolveProvider } from "./providers/registry.js";
 import { CodexStreamAdapter } from "./providers/codex-stream-adapter.js";
+import { GeminiStreamAdapter } from "./providers/gemini-stream-adapter.js";
 import type { AgentProvider, StreamAdapter } from "./providers/types.js";
 import type {
   ChatMessage,
@@ -21,6 +22,9 @@ import type {
 } from "../types.js";
 
 const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
+
+/** Gemini CLI writes informational messages to stderr; suppress these from error events. */
+const GEMINI_STDERR_NOISE = ["Loaded cached credentials", "YOLO mode is enabled"];
 
 /** Map Anthropic server_tool_use names to their Claude Code display names. */
 const serverToolNameMap: Record<string, string> = {
@@ -469,9 +473,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     this.process.stderr?.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf-8").trim();
-      if (text) {
-        this.emit("message", { type: "error", message: `stderr: ${text}` } as WsOutgoing);
-      }
+      if (!text) return;
+      // Skip known informational stderr noise from Gemini CLI
+      if (GEMINI_STDERR_NOISE.some((n) => text.includes(n))) return;
+      this.emit("message", { type: "error", message: `stderr: ${text}` } as WsOutgoing);
     });
 
     this.process.on("error", (err) => {
@@ -489,6 +494,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       if (this.parser instanceof CodexStreamAdapter && this.parser.capturedThreadId) {
         this.cliSessionId = this.parser.capturedThreadId;
         this._metadata.claudeSessionId = this.parser.capturedThreadId;
+      }
+
+      // For Gemini: capture session_id from the init event for --resume continuity
+      if (this.parser instanceof GeminiStreamAdapter && this.parser.capturedSessionId) {
+        this.cliSessionId = this.parser.capturedSessionId;
+        this._metadata.claudeSessionId = this.parser.capturedSessionId;
       }
 
       const exitCode = code ?? 1;
