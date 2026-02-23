@@ -863,6 +863,50 @@ describe("useConversation", () => {
     );
   });
 
+  it("clears stale pending tool inputs when history has no pending prompts", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
+      __wsMock.emit("ws-1", {
+        type: "tool_input_required",
+        sessionId: "sess-1",
+        requestId: "req-stale",
+        toolName: "AskUserQuestion",
+        toolUseId: "tool-stale",
+        input: {},
+      });
+    });
+    expect(result.current.pendingToolInputs).toHaveLength(1);
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-1", streaming: false });
+      __wsMock.emit("ws-1", {
+        type: "history",
+        sessionId: "sess-1",
+        messages: [
+          {
+            id: "u1",
+            sessionId: "sess-1",
+            role: "user",
+            content: "done",
+            timestamp: "2026-02-12T00:00:00.000Z",
+          },
+          {
+            id: "a1",
+            sessionId: "sess-1",
+            role: "assistant",
+            content: "completed",
+            timestamp: "2026-02-12T00:00:01.000Z",
+          },
+        ],
+      });
+    });
+
+    expect(result.current.pendingToolInputs).toEqual([]);
+  });
+
   it("switches sessions and loads specific session history", async () => {
     const { __apiMock } = await getApiMock();
     const { __wsMock } = await getWsMock();
@@ -1543,6 +1587,20 @@ describe("useConversation", () => {
     expect(result.current.error).toBe("Connection lost");
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.streamingStartedAt).toBeNull();
+  });
+
+  it("ignores session-scoped error for a background session", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-active", streaming: true });
+      __wsMock.emit("ws-1", { type: "error", sessionId: "sess-bg", message: "Background error" });
+    });
+
+    expect(result.current.sessionId).toBe("sess-active");
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.isStreaming).toBe(true);
   });
 
   // ── lockedProvider tests ──────────────────────────────────────────

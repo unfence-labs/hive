@@ -77,7 +77,7 @@ enum WsOutgoing: Decodable {
     case toolResult(sessionId: String, toolUseId: String, output: String)
     case toolInputRequired(sessionId: String, requestId: String, toolName: String, toolUseId: String, input: String)
     case done(sessionId: String, costUsd: Double?, durationMs: Int?)
-    case error(message: String)
+    case error(message: String, sessionId: String?)
     case cancelled(sessionId: String)
     case status(status: WorkspaceStatus, sessionId: String?, streaming: Bool?, streamingStartedAt: Double?, lockedProvider: String?)
     case userMessage(message: ChatMessage)
@@ -154,7 +154,10 @@ enum WsOutgoing: Decodable {
             }
             self = .done(sessionId: doneSessionId, costUsd: doneCost, durationMs: doneDuration)
         case "error":
-            self = .error(message: try container.decode(String.self, forKey: .message))
+            self = .error(
+                message: try container.decode(String.self, forKey: .message),
+                sessionId: try container.decodeIfPresent(String.self, forKey: .sessionId)
+            )
         case "cancelled":
             self = .cancelled(sessionId: try container.decode(String.self, forKey: .sessionId))
         case "status":
@@ -185,7 +188,7 @@ enum WsOutgoing: Decodable {
         default:
             // Silently ignore unknown types instead of throwing — the backend
             // may add new event types that the iOS client doesn't handle yet.
-            self = .error(message: "Unknown WS event type: \(type)")
+            self = .error(message: "Unknown WS event type: \(type)", sessionId: nil)
         }
     }
 }

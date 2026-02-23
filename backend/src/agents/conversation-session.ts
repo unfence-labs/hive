@@ -481,7 +481,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       if (!text) return;
       // Skip known informational stderr noise from Gemini CLI
       if (GEMINI_STDERR_NOISE.some((n) => text.includes(n))) return;
-      this.emit("message", { type: "error", message: `stderr: ${text}` } as WsOutgoing);
+      this.emit("message", { type: "error", message: `stderr: ${text}`, sessionId: this.sessionId } as WsOutgoing);
     });
 
     this.process.on("error", (err) => {

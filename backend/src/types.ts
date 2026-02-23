@@ -270,7 +270,7 @@ export type WsOutgoing =
   | { type: "tool_result"; sessionId: string; toolUseId: string; output: string }
   | { type: "tool_input_required"; sessionId: string; requestId: string; toolName: string; toolUseId: string; input: unknown }
   | { type: "done"; sessionId: string; costUsd?: number; durationMs?: number }
-  | { type: "error"; message: string }
+  | { type: "error"; message: string; sessionId?: string }
   | { type: "cancelled"; sessionId: string }
   | { type: "status"; status: WorkspaceStatus; sessionId?: string; streaming?: boolean; streamingStartedAt?: number; lockedProvider?: string }
   | { type: "user_message"; message: ChatMessage }

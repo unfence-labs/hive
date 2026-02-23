@@ -138,7 +138,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       broadcastToChannel(channel, msg);
     };
     const onError = (err: Error) => {
-      broadcastToChannel(channel, { type: "error", message: err.message });
+      broadcastToChannel(channel, { type: "error", message: err.message, sessionId: session.sessionId });
     };
     const onExit = (_code: number) => {
       // Always broadcast idle status so all clients clear streaming state,

@@ -128,7 +128,10 @@ final class ConversationStore {
         case .cancelled(let sid):
             finalizeMessage(sessionId: sid, durationMs: nil, cancelled: true)
 
-        case .error(let message):
+        case .error(let message, let errorSessionId):
+            if let errorSessionId, let currentSessionId = sessionId, errorSessionId != currentSessionId {
+                return
+            }
             messages.append(ChatMessage(
                 id: UUID().uuidString, sessionId: "", role: .assistant,
                 content: "Error: \(message)", images: nil, toolCalls: nil,
@@ -198,9 +201,11 @@ final class ConversationStore {
                 sessionId = historySessionId ?? sessionId
                 // Derive pending tool inputs from history
                 let derived = derivePendingToolInputsFromHistory(msgs)
-                if !derived.isEmpty, let sid = historySessionId {
-                    ensureStream(for: sid, streaming: false)
-                    sessionStreams[sid]?.pendingToolInputs = derived
+                if let sid = historySessionId {
+                    if activeStream != nil || !derived.isEmpty {
+                        ensureStream(for: sid, streaming: false)
+                        sessionStreams[sid]?.pendingToolInputs = derived
+                    }
                 }
             }
 

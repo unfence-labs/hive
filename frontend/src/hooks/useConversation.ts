@@ -247,6 +247,9 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     }
 
     case "error":
+      if (action.sessionId && state.sessionId && action.sessionId !== state.sessionId) {
+        return state;
+      }
       return { ...state, error: action.message };
 
     case "status": {
@@ -309,14 +312,16 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         : derivePendingToolInputsFromHistory(action.messages);
 
       let newStreams = state.sessionStreams;
-      if (historySessionId && hydratedPendingToolInputs.length > 0 && !activeStream?.isStreaming) {
-        newStreams = {
-          ...state.sessionStreams,
-          [historySessionId]: {
-            ...(activeStream ?? { ...emptyStreamState }),
-            pendingToolInputs: hydratedPendingToolInputs,
-          },
-        };
+      if (historySessionId && !activeStream?.isStreaming) {
+        if (activeStream || hydratedPendingToolInputs.length > 0) {
+          newStreams = {
+            ...state.sessionStreams,
+            [historySessionId]: {
+              ...(activeStream ?? { ...emptyStreamState }),
+              pendingToolInputs: hydratedPendingToolInputs,
+            },
+          };
+        }
       }
 
       return {
