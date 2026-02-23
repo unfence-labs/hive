@@ -1,6 +1,17 @@
 import Foundation
 import Observation
 
+// MARK: - Per-session streaming state
+
+struct SessionStreamState {
+    var currentText = ""
+    var currentThinking = ""
+    var activeToolCalls: [ToolCall] = []
+    var isStreaming = false
+    var streamingStartedAt: Date?
+    var pendingToolInputs: [PendingToolInput] = []
+}
+
 @MainActor
 @Observable
 final class ConversationStore {
@@ -13,20 +24,13 @@ final class ConversationStore {
     // MARK: - Public state
 
     var messages: [ChatMessage] = []
-    var isStreaming = false
-    var streamingStartedAt: Date?
     var isBusy = false
 
     /// Session currently displayed in chat.
     var sessionId: String?
 
-    // Transient streaming accumulators — exposed for the view to render live
-    var currentText = ""
-    var currentThinking = ""
-    var activeToolCalls: [ToolCall] = []
-
-    // Pending tool inputs (AskUserQuestion / ExitPlanMode) — can be multiple
-    var pendingToolInputs: [PendingToolInput] = []
+    /// Per-session transient streaming state. Keyed by session ID.
+    var sessionStreams: [String: SessionStreamState] = [:]
 
     // Branch & diff info (pushed via WS)
     var branchInfo: BranchInfo?
@@ -37,19 +41,33 @@ final class ConversationStore {
 
     // MARK: - Computed
 
+    /// The active session's stream state (convenience accessor).
+    var activeStream: SessionStreamState? {
+        sessionId.flatMap { sessionStreams[$0] }
+    }
+
+    var isStreaming: Bool { activeStream?.isStreaming ?? false }
+    var streamingStartedAt: Date? { activeStream?.streamingStartedAt }
+    var currentText: String { activeStream?.currentText ?? "" }
+    var currentThinking: String { activeStream?.currentThinking ?? "" }
+    var activeToolCalls: [ToolCall] { activeStream?.activeToolCalls ?? [] }
+    var pendingToolInputs: [PendingToolInput] { activeStream?.pendingToolInputs ?? [] }
+
     /// The in-progress assistant message shown during streaming
     var streamingMessage: ChatMessage? {
-        guard isStreaming, !currentText.isEmpty || !currentThinking.isEmpty || !activeToolCalls.isEmpty else {
+        guard let stream = activeStream,
+              stream.isStreaming,
+              !stream.currentText.isEmpty || !stream.currentThinking.isEmpty || !stream.activeToolCalls.isEmpty else {
             return nil
         }
         return ChatMessage(
             id: "streaming",
             sessionId: "",
             role: .assistant,
-            content: currentText,
+            content: stream.currentText,
             images: nil,
-            toolCalls: activeToolCalls.isEmpty ? nil : activeToolCalls,
-            thinkingContent: currentThinking.isEmpty ? nil : currentThinking,
+            toolCalls: stream.activeToolCalls.isEmpty ? nil : stream.activeToolCalls,
+            thinkingContent: stream.currentThinking.isEmpty ? nil : stream.currentThinking,
             timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
             cancelled: nil,
             durationMs: nil
@@ -58,7 +76,7 @@ final class ConversationStore {
 
     /// Derived task tracking state from all TaskCreate/TaskUpdate tool calls.
     var tasksState: TasksState {
-        deriveTasks(from: messages, activeToolCalls: activeToolCalls)
+        deriveTasks(from: messages, activeToolCalls: activeStream?.activeToolCalls ?? [])
     }
 
     /// All messages to display: history + streaming message if active
@@ -73,43 +91,42 @@ final class ConversationStore {
 
     func handle(_ event: WsOutgoing) {
         switch event {
-        case .textDelta(_, let text):
-            beginStreamingIfNeeded(startedAt: nil)
-            currentText += text
+        case .textDelta(let sid, let text):
+            ensureStream(for: sid)
+            sessionStreams[sid]?.currentText += text
 
-        case .thinking(_, let text):
-            beginStreamingIfNeeded(startedAt: nil)
-            currentThinking += text
+        case .thinking(let sid, let text):
+            ensureStream(for: sid)
+            sessionStreams[sid]?.currentThinking += text
 
-        case .toolUse(_, let id, let name, let input, let parentToolUseId):
-            beginStreamingIfNeeded(startedAt: nil)
-            activeToolCalls.append(ToolCall(
+        case .toolUse(let sid, let id, let name, let input, let parentToolUseId):
+            ensureStream(for: sid)
+            sessionStreams[sid]?.activeToolCalls.append(ToolCall(
                 id: id, name: name, input: input,
                 output: nil, parentToolUseId: parentToolUseId
             ))
 
-        case .toolResult(_, let toolUseId, let output):
-            if let idx = activeToolCalls.firstIndex(where: { $0.id == toolUseId }) {
-                let tc = activeToolCalls[idx]
-                activeToolCalls[idx] = ToolCall(
-                    id: tc.id, name: tc.name, input: tc.input,
-                    output: output, parentToolUseId: tc.parentToolUseId
-                )
-            }
+        case .toolResult(let sid, let toolUseId, let output):
+            guard let stream = sessionStreams[sid],
+                  let idx = stream.activeToolCalls.firstIndex(where: { $0.id == toolUseId }) else { return }
+            let tc = stream.activeToolCalls[idx]
+            sessionStreams[sid]?.activeToolCalls[idx] = ToolCall(
+                id: tc.id, name: tc.name, input: tc.input,
+                output: output, parentToolUseId: tc.parentToolUseId
+            )
 
-        case .toolInputRequired(let sessionId, let requestId, let toolName, let toolUseId, let input):
-            pendingToolInputs.append(PendingToolInput(
-                sessionId: sessionId, requestId: requestId,
+        case .toolInputRequired(let sid, let requestId, let toolName, let toolUseId, let input):
+            ensureStream(for: sid)
+            sessionStreams[sid]?.pendingToolInputs.append(PendingToolInput(
+                sessionId: sid, requestId: requestId,
                 toolName: toolName, toolUseId: toolUseId, input: input
             ))
 
-        case .done(let sessionId, _, let durationMs):
-            self.sessionId = sessionId
-            finalizeMessage(sessionId: sessionId, durationMs: durationMs, cancelled: false)
+        case .done(let sid, _, let durationMs):
+            finalizeMessage(sessionId: sid, durationMs: durationMs, cancelled: false)
 
-        case .cancelled(let sessionId):
-            self.sessionId = sessionId
-            finalizeMessage(sessionId: sessionId, durationMs: nil, cancelled: true)
+        case .cancelled(let sid):
+            finalizeMessage(sessionId: sid, durationMs: nil, cancelled: true)
 
         case .error(let message):
             messages.append(ChatMessage(
@@ -120,43 +137,67 @@ final class ConversationStore {
             ))
 
         case .status(let status, let incomingSessionId, let streaming, let startedAt, let provider):
-            // Ignore status updates for non-focused sessions.
-            if let current = sessionId,
-               let incomingSessionId,
-               incomingSessionId != current {
-                return
+            let newIsStreaming = streaming ?? (status == .idle ? false : nil)
+
+            if let sid = incomingSessionId, let newIsStreaming {
+                if newIsStreaming {
+                    ensureStream(for: sid)
+                    if sessionStreams[sid]?.streamingStartedAt == nil {
+                        sessionStreams[sid]?.streamingStartedAt = parseStartedAt(startedAt)
+                    }
+                } else if var stream = sessionStreams[sid] {
+                    // Session stopped streaming. Clean up if no content.
+                    if stream.currentText.isEmpty && stream.currentThinking.isEmpty
+                        && stream.activeToolCalls.isEmpty && stream.pendingToolInputs.isEmpty {
+                        sessionStreams.removeValue(forKey: sid)
+                    } else {
+                        stream.isStreaming = false
+                        stream.streamingStartedAt = nil
+                        sessionStreams[sid] = stream
+                    }
+                }
             }
 
-            if let incomingSessionId {
-                sessionId = incomingSessionId
-            }
-
-            if let provider {
+            // Only update lockedProvider for the active session
+            if let provider, incomingSessionId == sessionId {
                 lockedProvider = provider
             }
 
-            let newIsStreaming = streaming ?? (status == .idle ? false : isStreaming)
-            isBusy = status == .busy || streaming == true
-
-            if newIsStreaming {
-                beginStreamingIfNeeded(startedAt: startedAt)
-            } else {
-                resetStreaming()
+            // Only adopt sessionId from status if we don't have one yet
+            if sessionId == nil, let incomingSessionId {
+                sessionId = incomingSessionId
             }
 
+            isBusy = status == .busy || streaming == true
+
         case .userMessage(let msg):
-            messages.append(msg)
-            sessionId = msg.sessionId
-            beginStreamingIfNeeded(startedAt: nil)
-            // Clear pending tool inputs when user sends a new message (like frontend)
-            pendingToolInputs = []
+            let sid = msg.sessionId
+            let isActive = sessionId == nil || sid == sessionId
+            if isActive {
+                messages.append(msg)
+            }
+            sessionId = sessionId ?? sid
+            ensureStream(for: sid)
+            sessionStreams[sid]?.currentText = ""
+            sessionStreams[sid]?.currentThinking = ""
+            sessionStreams[sid]?.activeToolCalls = []
+            sessionStreams[sid]?.pendingToolInputs = []
 
         case .history(let msgs, let incomingSessionId):
-            if !isStreaming {
+            let historySessionId = incomingSessionId ?? msgs.first?.sessionId ?? sessionId
+            // Only update messages for the active session
+            guard historySessionId == nil || sessionId == nil || historySessionId == sessionId else { return }
+
+            let activeStream = historySessionId.flatMap { sessionStreams[$0] }
+            if activeStream?.isStreaming != true {
                 messages = msgs
-                sessionId = incomingSessionId ?? msgs.first?.sessionId
+                sessionId = historySessionId ?? sessionId
                 // Derive pending tool inputs from history
-                pendingToolInputs = derivePendingToolInputsFromHistory(msgs)
+                let derived = derivePendingToolInputsFromHistory(msgs)
+                if !derived.isEmpty, let sid = historySessionId {
+                    ensureStream(for: sid, streaming: false)
+                    sessionStreams[sid]?.pendingToolInputs = derived
+                }
             }
 
         case .branchInfo(let info):
@@ -171,7 +212,8 @@ final class ConversationStore {
     }
 
     func clearPendingToolInputs() {
-        pendingToolInputs = []
+        guard let sid = sessionId else { return }
+        sessionStreams[sid]?.pendingToolInputs = []
     }
 
     func setFocusedSessionId(_ value: String?) {
@@ -181,63 +223,67 @@ final class ConversationStore {
     func prepareSessionSwitch(_ newSessionId: String) {
         sessionId = newSessionId
         messages = []
-        pendingToolInputs = []
-        resetStreaming()
+        lockedProvider = nil
+        // sessionStreams is untouched — background sessions keep accumulating
     }
 
     // MARK: - Private
 
-    private func finalizeMessage(sessionId: String, durationMs: Int?, cancelled: Bool) {
-        let hasContent = !currentText.isEmpty || !activeToolCalls.isEmpty || !currentThinking.isEmpty
-        if hasContent {
-            let msg = ChatMessage(
-                id: UUID().uuidString,
-                sessionId: sessionId,
-                role: .assistant,
-                content: currentText,
-                images: nil,
-                toolCalls: activeToolCalls.isEmpty ? nil : activeToolCalls,
-                thinkingContent: currentThinking.isEmpty ? nil : currentThinking,
-                timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
-                cancelled: cancelled ? true : nil,
-                durationMs: durationMs
-            )
-            messages.append(msg)
-        } else if cancelled {
-            let msg = ChatMessage(
-                id: UUID().uuidString,
-                sessionId: sessionId,
-                role: .assistant,
-                content: "",
-                images: nil, toolCalls: nil, thinkingContent: nil,
-                timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
-                cancelled: true,
-                durationMs: nil
-            )
-            messages.append(msg)
+    /// Ensure a stream slot exists for the given session, defaulting to streaming state.
+    private func ensureStream(for sid: String, streaming: Bool = true) {
+        if sessionStreams[sid] == nil {
+            var stream = SessionStreamState()
+            stream.isStreaming = streaming
+            if streaming {
+                stream.streamingStartedAt = Date()
+            }
+            sessionStreams[sid] = stream
         }
-        resetStreaming()
     }
 
-    private func resetStreaming() {
-        isStreaming = false
-        streamingStartedAt = nil
-        currentText = ""
-        currentThinking = ""
-        activeToolCalls = []
+    private func parseStartedAt(_ rawStartedAt: Double?) -> Date {
+        guard let rawStartedAt else { return Date() }
+        let seconds = rawStartedAt > 10_000_000_000 ? rawStartedAt / 1000 : rawStartedAt
+        return Date(timeIntervalSince1970: seconds)
     }
 
-    private func beginStreamingIfNeeded(startedAt rawStartedAt: Double?) {
-        isStreaming = true
-        guard streamingStartedAt == nil else { return }
+    private func finalizeMessage(sessionId sid: String, durationMs: Int?, cancelled: Bool) {
+        guard let stream = sessionStreams[sid] else { return }
 
-        if let rawStartedAt {
-            // Backend sends Unix milliseconds; accept seconds defensively.
-            let seconds = rawStartedAt > 10_000_000_000 ? rawStartedAt / 1000 : rawStartedAt
-            streamingStartedAt = Date(timeIntervalSince1970: seconds)
-        } else {
-            streamingStartedAt = Date()
+        let isActive = sid == sessionId
+        let hasContent = !stream.currentText.isEmpty || !stream.activeToolCalls.isEmpty || !stream.currentThinking.isEmpty
+
+        if isActive {
+            if hasContent {
+                let msg = ChatMessage(
+                    id: UUID().uuidString,
+                    sessionId: sid,
+                    role: .assistant,
+                    content: stream.currentText,
+                    images: nil,
+                    toolCalls: stream.activeToolCalls.isEmpty ? nil : stream.activeToolCalls,
+                    thinkingContent: stream.currentThinking.isEmpty ? nil : stream.currentThinking,
+                    timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
+                    cancelled: cancelled ? true : nil,
+                    durationMs: durationMs
+                )
+                messages.append(msg)
+            } else if cancelled {
+                let msg = ChatMessage(
+                    id: UUID().uuidString,
+                    sessionId: sid,
+                    role: .assistant,
+                    content: "",
+                    images: nil, toolCalls: nil, thinkingContent: nil,
+                    timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
+                    cancelled: true,
+                    durationMs: nil
+                )
+                messages.append(msg)
+            }
         }
+        // Clean up the slot — REST fetch on switch-back will include the completed message.
+        sessionStreams.removeValue(forKey: sid)
     }
 
     /// Derive pending tool inputs from history — mirrors frontend's derivePendingToolInputsFromHistory.

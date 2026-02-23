@@ -782,7 +782,7 @@ describe("WS /ws/session/:wsId", () => {
     await endSession(wsId, dataDir);
   });
 
-  it("broadcasts session status to all sockets but keeps content scoped to focused session", async () => {
+  it("broadcasts all session events to all sockets regardless of which session each socket initiated", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-focus.sh");
     await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 6\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);

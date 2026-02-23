@@ -299,7 +299,7 @@ describe("wsTransport", () => {
     ]);
   });
 
-  it("replays only buffered events matching the latest replay session", () => {
+  it("replays all buffered events from any session", () => {
     wsTransport.connect("ws-1");
     const socket = MockWebSocket.instances[0]!;
     socket.open();
@@ -322,7 +322,7 @@ describe("wsTransport", () => {
     }));
     unsubscribe();
 
-    // Buffer stale + fresh events while no message handlers are attached.
+    // Buffer events from multiple sessions while no message handlers are attached.
     socket.message(JSON.stringify({ type: "text_delta", sessionId: "s-old", text: "stale" }));
     socket.message(JSON.stringify({ type: "done", sessionId: "s-old" }));
     socket.message(JSON.stringify({ type: "text_delta", sessionId: "s-new", text: "fresh" }));
@@ -331,10 +331,13 @@ describe("wsTransport", () => {
     const replayed: WsOutgoing[] = [];
     const result = wsTransport.onMessage("ws-1", (msg) => replayed.push(msg));
 
+    // All buffered events are replayed regardless of session — the reducer routes them.
     expect(result.hadBufferedMessages).toBe(true);
     expect(replayed).toEqual([
       { type: "status", status: "busy", streaming: true, sessionId: "s-new" },
       { type: "history", sessionId: "s-new", messages: [] },
+      { type: "text_delta", sessionId: "s-old", text: "stale" },
+      { type: "done", sessionId: "s-old" },
       { type: "text_delta", sessionId: "s-new", text: "fresh" },
       { type: "done", sessionId: "s-new" },
     ]);

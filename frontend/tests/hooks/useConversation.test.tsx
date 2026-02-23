@@ -455,8 +455,10 @@ describe("useConversation", () => {
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
       __wsMock.emit("ws-1", {
         type: "tool_input_required",
+        sessionId: "sess-1",
         requestId: "req-123",
         toolName: "AskUserQuestion",
         toolUseId: "tool-1",
@@ -477,6 +479,7 @@ describe("useConversation", () => {
         type: "answer",
         answers: [{ questionIndex: 0, selectedOptions: [0] }],
       },
+      sessionId: "sess-1",
     });
     expect(result.current.pendingToolInputs).toEqual([]);
   });
@@ -486,8 +489,10 @@ describe("useConversation", () => {
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
       __wsMock.emit("ws-1", {
         type: "tool_input_required",
+        sessionId: "sess-1",
         requestId: "req-1",
         toolName: "AskUserQuestion",
         toolUseId: "tool-1",
@@ -499,6 +504,7 @@ describe("useConversation", () => {
       });
       __wsMock.emit("ws-1", {
         type: "tool_input_required",
+        sessionId: "sess-1",
         requestId: "req-2",
         toolName: "AskUserQuestion",
         toolUseId: "tool-2",
@@ -526,6 +532,7 @@ describe("useConversation", () => {
         answers: [{ questionIndex: 0, selectedOptions: [1] }],
         questions: [{ question: "Pick color", options: [{ label: "Red" }, { label: "Blue" }] }],
       },
+      sessionId: "sess-1",
     });
     expect(__wsMock.sendMock).toHaveBeenNthCalledWith(2, "ws-1", {
       type: "tool_input_response",
@@ -536,6 +543,7 @@ describe("useConversation", () => {
         answers: [{ questionIndex: 0, selectedOptions: [], customText: "detail" }],
         questions: [{ question: "Add note", options: [] }],
       },
+      sessionId: "sess-1",
     });
     expect(result.current.pendingToolInputs).toEqual([]);
   });
@@ -929,7 +937,7 @@ describe("useConversation", () => {
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
-      __wsMock.emit("ws-1", { type: "status", status: "busy", streaming: true });
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-x", streaming: true });
     });
 
     expect(result.current.workspaceStatus).toBe("busy");
@@ -1205,8 +1213,10 @@ describe("useConversation", () => {
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
       __wsMock.emit("ws-1", {
         type: "tool_input_required",
+        sessionId: "sess-1",
         requestId: "req-rej",
         toolName: "AskUserQuestion",
         toolUseId: "tool-rej",
@@ -1223,6 +1233,7 @@ describe("useConversation", () => {
       requestId: "req-rej",
       toolName: "AskUserQuestion",
       result: { type: "reject", message: "I disagree" },
+      sessionId: "sess-1",
     });
     expect(result.current.pendingToolInputs).toEqual([]);
   });
@@ -1244,8 +1255,10 @@ describe("useConversation", () => {
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
       __wsMock.emit("ws-1", {
         type: "tool_input_required",
+        sessionId: "sess-1",
         requestId: "req-dismiss",
         toolName: "ExitPlanMode",
         toolUseId: "tool-dismiss",
@@ -1262,6 +1275,7 @@ describe("useConversation", () => {
       requestId: "req-dismiss",
       toolName: "ExitPlanMode",
       result: { type: "dismiss", message: "Plan handed off to a new session." },
+      sessionId: "sess-1",
     });
   });
 
@@ -1384,7 +1398,7 @@ describe("useConversation", () => {
       __wsMock.emit("ws-1", { type: "status", status: "busy", streaming: true, sessionId: "sess-y" });
     });
 
-    // Different session status is ignored while sess-x is focused.
+    // sess-y status creates a background stream slot, but the active session stays sess-x.
     expect(result.current.sessionId).toBe("sess-x");
     expect(result.current.streamingStartedAt).toBe(1_700_000_009_999);
 

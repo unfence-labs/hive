@@ -10,15 +10,28 @@ export interface PendingToolInput {
   input: unknown;
 }
 
-interface ConversationState {
-  messages: ChatMessage[];
-  isStreaming: boolean;
-  streamingStartedAt: number | null;
-  workspaceStatus?: "idle" | "busy";
+interface SessionStreamState {
   currentText: string;
   currentThinking: string;
   activeToolCalls: ToolCall[];
+  isStreaming: boolean;
+  streamingStartedAt: number | null;
   pendingToolInputs: PendingToolInput[];
+}
+
+const emptyStreamState: SessionStreamState = {
+  currentText: "",
+  currentThinking: "",
+  activeToolCalls: [],
+  isStreaming: false,
+  streamingStartedAt: null,
+  pendingToolInputs: [],
+};
+
+interface ConversationState {
+  messages: ChatMessage[];
+  sessionStreams: Record<string, SessionStreamState>;
+  workspaceStatus?: "idle" | "busy";
   error?: string;
   sessionId?: string;
   lockedProvider?: string;
@@ -36,13 +49,8 @@ type Action = WsOutgoing | LocalAction;
 
 const initialState: ConversationState = {
   messages: [],
-  isStreaming: false,
-  streamingStartedAt: null,
+  sessionStreams: {},
   workspaceStatus: undefined,
-  currentText: "",
-  currentThinking: "",
-  activeToolCalls: [],
-  pendingToolInputs: [],
   error: undefined,
   sessionId: undefined,
 };
@@ -81,215 +89,284 @@ function derivePendingToolInputsFromHistory(messages: ChatMessage[]): PendingToo
     }));
 }
 
-function getActionSessionId(action: Action): string | undefined {
-  switch (action.type) {
-    case "user_message":
-      return action.message.sessionId;
-    case "text_delta":
-    case "thinking":
-    case "tool_use":
-    case "tool_result":
-    case "tool_input_required":
-    case "done":
-    case "cancelled":
-    case "status":
-      return action.sessionId;
-    case "history":
-      return action.sessionId ?? action.messages[0]?.sessionId;
-    default:
-      return undefined;
-  }
+/** Return or create the stream slot for a session, defaulting to streaming state. */
+function getOrInitStream(streams: Record<string, SessionStreamState>, sid: string): SessionStreamState {
+  return streams[sid] ?? { ...emptyStreamState, isStreaming: true, streamingStartedAt: Date.now() };
+}
+
+function updateStream(
+  state: ConversationState,
+  sid: string,
+  patch: Partial<SessionStreamState>,
+): ConversationState {
+  const stream = state.sessionStreams[sid] ?? { ...emptyStreamState, isStreaming: true, streamingStartedAt: Date.now() };
+  return {
+    ...state,
+    sessionStreams: {
+      ...state.sessionStreams,
+      [sid]: { ...stream, ...patch },
+    },
+  };
+}
+
+function deleteStream(state: ConversationState, sid: string): Record<string, SessionStreamState> {
+  const copy = { ...state.sessionStreams };
+  delete copy[sid];
+  return copy;
 }
 
 function reducer(state: ConversationState, action: Action): ConversationState {
-  if (
-    action.type !== "reset" &&
-    action.type !== "clear_chat" &&
-    action.type !== "clear_pending_tool_inputs" &&
-    action.type !== "prepare_session_switch"
-  ) {
-    const actionSessionId = getActionSessionId(action);
-    if (actionSessionId && state.sessionId && actionSessionId !== state.sessionId) {
-      return state;
-    }
-  }
-
   switch (action.type) {
-    case "user_message":
-      if (state.messages.some((message) => message.id === action.message.id)) {
-        return state;
-      }
+    case "user_message": {
+      const sid = action.message.sessionId || state.sessionId;
+      if (!sid) return state;
+      // Only add to messages if this is the active session
+      const isActive = !state.sessionId || sid === state.sessionId;
+      const alreadyExists = state.messages.some((m) => m.id === action.message.id);
+      const stream = getOrInitStream(state.sessionStreams, sid);
       return {
         ...state,
-        messages: [...state.messages, action.message],
-        isStreaming: true,
-        streamingStartedAt: Date.now(),
-        currentText: "",
-        currentThinking: "",
-        activeToolCalls: [],
-        pendingToolInputs: [],
-        error: undefined,
-        sessionId: action.message.sessionId || state.sessionId,
+        messages: isActive && !alreadyExists ? [...state.messages, action.message] : state.messages,
+        sessionStreams: {
+          ...state.sessionStreams,
+          [sid]: {
+            ...stream,
+            isStreaming: true,
+            streamingStartedAt: stream.streamingStartedAt ?? Date.now(),
+            currentText: "",
+            currentThinking: "",
+            activeToolCalls: [],
+            pendingToolInputs: [],
+          },
+        },
+        error: isActive ? undefined : state.error,
+        sessionId: sid,
       };
+    }
 
-    case "text_delta":
-      return { ...state, currentText: state.currentText + action.text };
+    case "text_delta": {
+      const sid = action.sessionId || state.sessionId;
+      if (!sid) return state;
+      const stream = getOrInitStream(state.sessionStreams, sid);
+      return updateStream(state, sid, { currentText: stream.currentText + action.text });
+    }
 
-    case "thinking":
-      return { ...state, currentThinking: state.currentThinking + action.text };
+    case "thinking": {
+      const sid = action.sessionId || state.sessionId;
+      if (!sid) return state;
+      const stream = getOrInitStream(state.sessionStreams, sid);
+      return updateStream(state, sid, { currentThinking: stream.currentThinking + action.text });
+    }
 
-    case "tool_use":
-      return {
-        ...state,
+    case "tool_use": {
+      const sid = action.sessionId || state.sessionId;
+      if (!sid) return state;
+      const stream = getOrInitStream(state.sessionStreams, sid);
+      return updateStream(state, sid, {
         activeToolCalls: [
-          ...state.activeToolCalls,
+          ...stream.activeToolCalls,
           { id: action.id, name: action.name, input: action.input, parentToolUseId: action.parentToolUseId },
         ],
-      };
+      });
+    }
 
     case "tool_result": {
-      const tools = state.activeToolCalls.map((t) =>
+      const sid = action.sessionId || state.sessionId;
+      if (!sid) return state;
+      const stream = state.sessionStreams[sid];
+      if (!stream) return state;
+      const tools = stream.activeToolCalls.map((t) =>
         t.id === action.toolUseId ? { ...t, output: action.output } : t,
       );
-      return { ...state, activeToolCalls: tools };
+      return updateStream(state, sid, { activeToolCalls: tools });
     }
 
     case "done": {
-      const assistantMsg: ChatMessage = {
-        id: self.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
-        sessionId: action.sessionId,
-        role: "assistant",
-        content: state.currentText,
-        toolCalls: state.activeToolCalls.length > 0 ? state.activeToolCalls : undefined,
-        thinkingContent: state.currentThinking || undefined,
-        timestamp: new Date().toISOString(),
-        durationMs: action.durationMs,
-      };
-      return {
-        ...state,
-        messages: [...state.messages, assistantMsg],
-        isStreaming: false,
-        streamingStartedAt: null,
-        currentText: "",
-        currentThinking: "",
-        activeToolCalls: [],
-        sessionId: action.sessionId,
-      };
+      const sid = action.sessionId || state.sessionId;
+      if (!sid) return state;
+      const stream = state.sessionStreams[sid];
+      if (!stream) return state;
+
+      const isActive = sid === state.sessionId;
+      const newStreams = deleteStream(state, sid);
+
+      if (isActive) {
+        const assistantMsg: ChatMessage = {
+          id: self.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
+          sessionId: sid,
+          role: "assistant",
+          content: stream.currentText,
+          toolCalls: stream.activeToolCalls.length > 0 ? stream.activeToolCalls : undefined,
+          thinkingContent: stream.currentThinking || undefined,
+          timestamp: new Date().toISOString(),
+          durationMs: action.durationMs,
+        };
+        return {
+          ...state,
+          messages: [...state.messages, assistantMsg],
+          sessionStreams: newStreams,
+        };
+      }
+      // Background session: just clean up the slot. REST fetch on switch-back
+      // will include the completed message.
+      return { ...state, sessionStreams: newStreams };
     }
 
     case "cancelled": {
-      const hasOutput = state.currentText.length > 0 || state.activeToolCalls.length > 0;
-      const hasThinking = state.currentThinking.length > 0;
-      // Ignore stale cancelled events from a previous session after a fast switch.
-      if (!state.isStreaming && !hasOutput && !hasThinking) {
-        return state;
+      const sid = action.sessionId || state.sessionId;
+      if (!sid) return state;
+      const stream = state.sessionStreams[sid];
+      const isActive = sid === state.sessionId;
+
+      // Ignore stale cancelled events when there's no stream data.
+      if (!stream) return state;
+      const hasOutput = stream.currentText.length > 0 || stream.activeToolCalls.length > 0;
+      const hasThinking = stream.currentThinking.length > 0;
+      if (!stream.isStreaming && !hasOutput && !hasThinking) return state;
+
+      const newStreams = deleteStream(state, sid);
+
+      if (isActive) {
+        const cancelledMsg: ChatMessage = {
+          id: self.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
+          sessionId: sid,
+          role: "assistant",
+          content: hasOutput ? stream.currentText : CANCELLED_NO_OUTPUT_MESSAGE,
+          toolCalls: stream.activeToolCalls.length > 0 ? stream.activeToolCalls : undefined,
+          thinkingContent: stream.currentThinking || undefined,
+          timestamp: new Date().toISOString(),
+          cancelled: true,
+        };
+        return {
+          ...state,
+          messages: [...state.messages, cancelledMsg],
+          sessionStreams: newStreams,
+        };
       }
-      const cancelledMsg: ChatMessage = {
-        id: self.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
-        sessionId: action.sessionId,
-        role: "assistant",
-        content: hasOutput ? state.currentText : CANCELLED_NO_OUTPUT_MESSAGE,
-        toolCalls: state.activeToolCalls.length > 0 ? state.activeToolCalls : undefined,
-        thinkingContent: state.currentThinking || undefined,
-        timestamp: new Date().toISOString(),
-        cancelled: true,
-      };
-      return {
-        ...state,
-        messages: [...state.messages, cancelledMsg],
-        isStreaming: false,
-        streamingStartedAt: null,
-        currentText: "",
-        currentThinking: "",
-        activeToolCalls: [],
-      };
+      return { ...state, sessionStreams: newStreams };
     }
 
     case "error":
-      return { ...state, error: action.message, isStreaming: false, streamingStartedAt: null };
+      return { ...state, error: action.message };
 
     case "status": {
-      const newIsStreaming = action.streaming ?? (action.status === "idle" ? false : state.isStreaming);
+      const sid = action.sessionId ?? state.sessionId;
+      const newIsStreaming = action.streaming ?? (action.status === "idle" ? false : undefined);
+
+      let newStreams = state.sessionStreams;
+      if (sid && newIsStreaming !== undefined) {
+        const stream = state.sessionStreams[sid];
+        if (newIsStreaming) {
+          // Session started or is streaming — ensure a slot exists
+          const existing = stream ?? { ...emptyStreamState };
+          newStreams = {
+            ...state.sessionStreams,
+            [sid]: {
+              ...existing,
+              isStreaming: true,
+              streamingStartedAt: existing.streamingStartedAt ?? action.streamingStartedAt ?? Date.now(),
+            },
+          };
+        } else if (stream) {
+          // Session stopped streaming. If slot has no content, clean up.
+          if (!stream.currentText && !stream.currentThinking && stream.activeToolCalls.length === 0 && stream.pendingToolInputs.length === 0) {
+            newStreams = deleteStream(state, sid);
+          } else {
+            newStreams = {
+              ...state.sessionStreams,
+              [sid]: { ...stream, isStreaming: false, streamingStartedAt: null },
+            };
+          }
+        }
+      }
+
+      // Only adopt sessionId from status if we don't have one yet
+      const newSessionId = (!state.sessionId && sid) ? sid : state.sessionId;
+
       return {
         ...state,
         workspaceStatus: action.status,
-        // Keep the current session unless the backend explicitly provides a new one.
-        // Some idle status events don't include sessionId.
-        sessionId: action.sessionId ?? state.sessionId,
-        isStreaming: newIsStreaming,
-        streamingStartedAt: newIsStreaming
-          ? (state.streamingStartedAt ?? action.streamingStartedAt ?? Date.now())
-          : null,
-        // Only update lockedProvider when explicitly present (idle broadcasts omit it).
-        ...(action.lockedProvider !== undefined ? { lockedProvider: action.lockedProvider } : {}),
+        sessionId: newSessionId,
+        sessionStreams: newStreams,
+        // Only update lockedProvider when explicitly present and for the active session.
+        ...(action.lockedProvider !== undefined && sid === newSessionId
+          ? { lockedProvider: action.lockedProvider }
+          : {}),
       };
     }
 
     case "history": {
       const historySessionId = action.sessionId ?? action.messages[0]?.sessionId ?? state.sessionId;
-      const preserveTransient = Boolean(
-        historySessionId &&
-        state.sessionId === historySessionId &&
-        state.isStreaming,
-      );
-      const hydratedPendingToolInputs = preserveTransient
-        ? state.pendingToolInputs
+      // Only update messages for the active session
+      if (historySessionId && state.sessionId && historySessionId !== state.sessionId) {
+        return state;
+      }
+
+      // Derive pending tool inputs from history, unless the session has an active stream
+      const activeStream = historySessionId ? state.sessionStreams[historySessionId] : undefined;
+      const hydratedPendingToolInputs = activeStream?.isStreaming
+        ? activeStream.pendingToolInputs
         : derivePendingToolInputsFromHistory(action.messages);
+
+      let newStreams = state.sessionStreams;
+      if (historySessionId && hydratedPendingToolInputs.length > 0 && !activeStream?.isStreaming) {
+        newStreams = {
+          ...state.sessionStreams,
+          [historySessionId]: {
+            ...(activeStream ?? { ...emptyStreamState }),
+            pendingToolInputs: hydratedPendingToolInputs,
+          },
+        };
+      }
+
       return {
         ...state,
         messages: action.messages,
-        isStreaming: preserveTransient ? state.isStreaming : false,
-        streamingStartedAt: preserveTransient ? state.streamingStartedAt : null,
-        currentText: preserveTransient ? state.currentText : "",
-        currentThinking: preserveTransient ? state.currentThinking : "",
-        activeToolCalls: preserveTransient ? state.activeToolCalls : [],
-        pendingToolInputs: hydratedPendingToolInputs,
         error: undefined,
-        sessionId: historySessionId,
+        sessionId: historySessionId ?? state.sessionId,
+        sessionStreams: newStreams,
       };
     }
 
-    case "tool_input_required":
-      return {
-        ...state,
-        pendingToolInputs: [...state.pendingToolInputs, {
+    case "tool_input_required": {
+      const sid = action.sessionId || state.sessionId;
+      if (!sid) return state;
+      const stream = getOrInitStream(state.sessionStreams, sid);
+      return updateStream(state, sid, {
+        pendingToolInputs: [...stream.pendingToolInputs, {
           requestId: action.requestId,
           toolName: action.toolName,
           toolUseId: action.toolUseId,
           input: action.input,
         }],
-      };
+      });
+    }
 
-    case "clear_pending_tool_inputs":
-      return { ...state, pendingToolInputs: [] };
+    case "clear_pending_tool_inputs": {
+      const sid = state.sessionId;
+      if (!sid || !state.sessionStreams[sid]) return state;
+      return updateStream(state, sid, { pendingToolInputs: [] });
+    }
 
     case "prepare_session_switch":
       return {
         ...state,
         sessionId: action.sessionId,
-        isStreaming: false,
-        streamingStartedAt: null,
-        currentText: "",
-        currentThinking: "",
-        activeToolCalls: [],
-        pendingToolInputs: [],
         error: undefined,
         lockedProvider: undefined,
+        // sessionStreams is untouched — background sessions keep accumulating
       };
 
-    case "clear_chat":
+    case "clear_chat": {
+      const sid = state.sessionId;
       return {
         ...state,
         messages: [],
-        isStreaming: false,
-        streamingStartedAt: null,
-        currentText: "",
-        currentThinking: "",
-        activeToolCalls: [],
-        pendingToolInputs: [],
+        sessionStreams: sid ? deleteStream(state, sid) : {},
         error: undefined,
         sessionId: undefined,
       };
+    }
 
     case "reset":
       return initialState;
@@ -418,9 +495,13 @@ export function useConversation(workspaceId: string | undefined) {
     }
   }, [workspaceId]);
 
+  // Derive active session's stream state for the public API
+  const activeStream = state.sessionId ? state.sessionStreams[state.sessionId] : undefined;
+
   const answerQuestion = useCallback((toolCallId: string, answers: QuestionAnswer[]) => {
     if (!workspaceId) return;
-    const pending = state.pendingToolInputs.find((p) => p.toolUseId === toolCallId);
+    const pendingInputs = activeStream?.pendingToolInputs ?? [];
+    const pending = pendingInputs.find((p) => p.toolUseId === toolCallId);
     wsTransport.send(workspaceId, {
       type: "tool_input_response",
       requestId: pending?.requestId ?? toolCallId,
@@ -430,13 +511,14 @@ export function useConversation(workspaceId: string | undefined) {
     });
     dispatch({ type: "clear_pending_tool_inputs" });
     historyRequestTokenRef.current += 1;
-  }, [workspaceId, state.pendingToolInputs, state.sessionId]);
+  }, [workspaceId, activeStream?.pendingToolInputs, state.sessionId]);
 
   const batchAnswerQuestions = useCallback(
     (responses: Array<{ toolUseId: string; answers: QuestionAnswer[] }>) => {
       if (!workspaceId) return;
+      const pendingInputs = activeStream?.pendingToolInputs ?? [];
       for (const { toolUseId, answers } of responses) {
-        const pending = state.pendingToolInputs.find((p) => p.toolUseId === toolUseId);
+        const pending = pendingInputs.find((p) => p.toolUseId === toolUseId);
         const input = pending?.input as { questions?: QuestionInput[] } | undefined;
         wsTransport.send(workspaceId, {
           type: "tool_input_response",
@@ -449,12 +531,13 @@ export function useConversation(workspaceId: string | undefined) {
       dispatch({ type: "clear_pending_tool_inputs" });
       historyRequestTokenRef.current += 1;
     },
-    [workspaceId, state.pendingToolInputs, state.sessionId],
+    [workspaceId, activeStream?.pendingToolInputs, state.sessionId],
   );
 
   const approvePlan = useCallback(() => {
     if (!workspaceId) return;
-    const pending = state.pendingToolInputs.find((p) => p.toolName === "ExitPlanMode");
+    const pendingInputs = activeStream?.pendingToolInputs ?? [];
+    const pending = pendingInputs.find((p) => p.toolName === "ExitPlanMode");
     wsTransport.send(workspaceId, {
       type: "tool_input_response",
       requestId: pending?.requestId ?? "",
@@ -464,11 +547,12 @@ export function useConversation(workspaceId: string | undefined) {
     });
     dispatch({ type: "clear_pending_tool_inputs" });
     historyRequestTokenRef.current += 1;
-  }, [workspaceId, state.pendingToolInputs, state.sessionId]);
+  }, [workspaceId, activeStream?.pendingToolInputs, state.sessionId]);
 
   const rejectToolInput = useCallback((message?: string) => {
-    if (!workspaceId || state.pendingToolInputs.length === 0) return;
-    const pending = state.pendingToolInputs[0];
+    const pendingInputs = activeStream?.pendingToolInputs ?? [];
+    if (!workspaceId || pendingInputs.length === 0) return;
+    const pending = pendingInputs[0];
     wsTransport.send(workspaceId, {
       type: "tool_input_response",
       requestId: pending.requestId,
@@ -478,11 +562,12 @@ export function useConversation(workspaceId: string | undefined) {
     });
     dispatch({ type: "clear_pending_tool_inputs" });
     historyRequestTokenRef.current += 1;
-  }, [workspaceId, state.pendingToolInputs, state.sessionId]);
+  }, [workspaceId, activeStream?.pendingToolInputs, state.sessionId]);
 
   const dismissPlan = useCallback((message?: string) => {
     if (!workspaceId) return;
-    const pending = state.pendingToolInputs.find((p) => p.toolName === "ExitPlanMode");
+    const pendingInputs = activeStream?.pendingToolInputs ?? [];
+    const pending = pendingInputs.find((p) => p.toolName === "ExitPlanMode");
     wsTransport.send(workspaceId, {
       type: "tool_input_response",
       requestId: pending?.requestId ?? "",
@@ -494,17 +579,17 @@ export function useConversation(workspaceId: string | undefined) {
       dispatch({ type: "clear_pending_tool_inputs" });
     }
     historyRequestTokenRef.current += 1;
-  }, [workspaceId, state.pendingToolInputs, state.sessionId]);
+  }, [workspaceId, activeStream?.pendingToolInputs, state.sessionId]);
 
   return {
     messages: state.messages,
-    isStreaming: state.isStreaming,
-    streamingStartedAt: state.streamingStartedAt,
+    isStreaming: activeStream?.isStreaming ?? false,
+    streamingStartedAt: activeStream?.streamingStartedAt ?? null,
     workspaceStatus: state.workspaceStatus,
-    currentStreamingText: state.currentText,
-    currentThinking: state.currentThinking,
-    activeToolCalls: state.activeToolCalls,
-    pendingToolInputs: state.pendingToolInputs,
+    currentStreamingText: activeStream?.currentText ?? "",
+    currentThinking: activeStream?.currentThinking ?? "",
+    activeToolCalls: activeStream?.activeToolCalls ?? [],
+    pendingToolInputs: activeStream?.pendingToolInputs ?? [],
     connectionStatus,
     error: state.error,
     sessionId: state.sessionId,
