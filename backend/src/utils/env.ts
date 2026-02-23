@@ -2,7 +2,6 @@
 const STRIPPED_VARS = [
   "NODE_ENV",
   "PORT",
-  "HOST",
   "DATA_DIR",
   "TELEGRAM_BOT_TOKEN",
   "TELEGRAM_CHAT_ID",

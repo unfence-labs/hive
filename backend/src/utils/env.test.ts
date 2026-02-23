@@ -70,7 +70,6 @@ describe("buildWorkspaceEnv()", () => {
     const env = buildWorkspaceEnv();
     expect(env.NODE_ENV).toBeUndefined();
     expect(env.PORT).toBeUndefined();
-    expect(env.HOST).toBeUndefined();
     expect(env.DATA_DIR).toBeUndefined();
     expect(env.TELEGRAM_BOT_TOKEN).toBeUndefined();
     expect(env.TELEGRAM_CHAT_ID).toBeUndefined();
