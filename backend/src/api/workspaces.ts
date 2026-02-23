@@ -18,12 +18,44 @@ import { getDataDir } from "../state/state.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
 import { parseGitHubRepo, fetchPrForBranch } from "../utils/github.js";
 import { getBranchName } from "../services/git-sync.js";
+import { readHiveConfig } from "../utils/hive-config.js";
+import { startScript } from "../services/script-runner.js";
+import { broadcastToWorkspace } from "../ws/stream.js";
 import type { PrStatusResponse } from "../types.js";
 
 export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
   app.post<{ Params: { id: string } }>("/api/projects/:id/workspaces", async (req, reply) => {
     try {
       const workspace = await createWorkspace(req.params.id, dataDir);
+
+      // Auto-start setup script if hive.json defines one
+      const dir = dataDir ?? getDataDir();
+      const wsPath = join(workspacesDir(dir, req.params.id), workspace.name);
+      try {
+        const config = await readHiveConfig(wsPath);
+        const setupCmd = config?.scripts?.setup;
+        if (setupCmd) {
+          const proc = startScript(workspace.id, "setup", setupCmd, wsPath);
+          broadcastToWorkspace(workspace.id, {
+            type: "script_status",
+            scriptType: "setup",
+            state: "running",
+          });
+          const listenerId = `auto-setup-${Date.now()}`;
+          proc.exitListeners.set(listenerId, (code) => {
+            broadcastToWorkspace(workspace.id, {
+              type: "script_status",
+              scriptType: "setup",
+              state: code === 0 ? "done" : "error",
+              exitCode: code,
+            });
+            proc.exitListeners.delete(listenerId);
+          });
+        }
+      } catch (err) {
+        app.log.warn({ err, wsId: workspace.id }, "Auto-start setup script failed");
+      }
+
       return reply.status(201).send(workspace);
     } catch (err: unknown) {
       return reply

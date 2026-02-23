@@ -58,8 +58,9 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
     if (creatingProjectId) return;
     setCreatingProjectId(projectId);
     try {
-      await createWorkspace(projectId);
+      const workspace = await createWorkspace(projectId);
       setExpandedProjects((prev) => ({ ...prev, [projectId]: true }));
+      navigate(`/workspaces/${workspace.id}`);
     } finally {
       setCreatingProjectId(null);
     }

@@ -44,6 +44,12 @@ struct HiveApp: App {
             .onChange(of: scenePhase) { _, phase in
                 handleScenePhase(phase)
             }
+            .onChange(of: projectStore.pendingNavigation) { _, workspace in
+                guard let workspace else { return }
+                selectedTab = .hub
+                hubPath.append(workspace)
+                projectStore.pendingNavigation = nil
+            }
             .onAppear {
                 setupStreamingCallback()
             }
