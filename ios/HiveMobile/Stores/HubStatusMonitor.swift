@@ -21,7 +21,7 @@ final class HubStatusMonitor {
     let storeCache: ConversationStoreCache
 
     private var hubConnection: HubConnection?
-    private var subscribedWorkspaceIds: Set<String> = []
+    fileprivate var subscribedWorkspaceIds: Set<String> = []
     private var prPollTasks: [String: Task<Void, Never>] = [:]
     private let apiClient = APIClient()
 
