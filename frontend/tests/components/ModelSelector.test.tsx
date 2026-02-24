@@ -52,7 +52,7 @@ describe("ModelSelector", () => {
       <ModelSelector
         models={ALL_MODELS}
         selectedModelId="claude:opus-4-6"
-        defaultModelId="claude:opus-4-6"
+
         onSelect={vi.fn()}
       />,
     );
@@ -65,7 +65,7 @@ describe("ModelSelector", () => {
       <ModelSelector
         models={ALL_MODELS}
         selectedModelId="nonexistent"
-        defaultModelId="claude:opus-4-6"
+
         onSelect={vi.fn()}
       />,
     );
@@ -79,7 +79,7 @@ describe("ModelSelector", () => {
       <ModelSelector
         models={[...ALL_MODELS, ...GEMINI_MODELS]}
         selectedModelId="claude:opus-4-6"
-        defaultModelId="claude:opus-4-6"
+
         onSelect={vi.fn()}
       />,
     );
@@ -107,7 +107,7 @@ describe("ModelSelector", () => {
       <ModelSelector
         models={modelsWithNew}
         selectedModelId="claude:opus-4-6"
-        defaultModelId="claude:opus-4-6"
+
         onSelect={vi.fn()}
       />,
     );
@@ -124,7 +124,7 @@ describe("ModelSelector", () => {
       <ModelSelector
         models={ALL_MODELS}
         selectedModelId="claude:opus-4-6"
-        defaultModelId="claude:opus-4-6"
+
         onSelect={onSelect}
       />,
     );
@@ -141,7 +141,7 @@ describe("ModelSelector", () => {
       <ModelSelector
         models={ALL_MODELS}
         selectedModelId="claude:opus-4-6"
-        defaultModelId="claude:opus-4-6"
+
         onSelect={vi.fn()}
         lockedProvider="claude"
       />,
@@ -163,7 +163,7 @@ describe("ModelSelector", () => {
       <ModelSelector
         models={ALL_MODELS}
         selectedModelId="claude:opus-4-6"
-        defaultModelId="claude:opus-4-6"
+
         onSelect={onSelect}
         lockedProvider="claude"
       />,
@@ -187,7 +187,7 @@ describe("ModelSelector", () => {
       <ModelSelector
         models={ALL_MODELS}
         selectedModelId="claude:opus-4-6"
-        defaultModelId="claude:opus-4-6"
+
         onSelect={onSelect}
         lockedProvider="claude"
       />,
@@ -206,7 +206,7 @@ describe("ModelSelector", () => {
       <ModelSelector
         models={ALL_MODELS}
         selectedModelId="claude:opus-4-6"
-        defaultModelId="claude:opus-4-6"
+
         onSelect={onSelect}
       />,
     );
@@ -222,7 +222,7 @@ describe("ModelSelector", () => {
       <ModelSelector
         models={ALL_MODELS}
         selectedModelId="claude:sonnet-4-6"
-        defaultModelId="claude:opus-4-6"
+
         onSelect={vi.fn()}
       />,
     );
@@ -235,7 +235,7 @@ describe("ModelSelector", () => {
       <ModelSelector
         models={[...ALL_MODELS, ...GEMINI_MODELS]}
         selectedModelId="gemini:gemini-3.1-pro-preview"
-        defaultModelId="claude:opus-4-6"
+
         onSelect={vi.fn()}
       />,
     );
@@ -250,7 +250,7 @@ describe("ModelSelector", () => {
       <ModelSelector
         models={ALL_MODELS}
         selectedModelId="claude:opus-4-6"
-        defaultModelId="claude:opus-4-6"
+
         onSelect={vi.fn()}
       />,
     );
@@ -265,7 +265,7 @@ describe("ModelSelector", () => {
       <ModelSelector
         models={[...ALL_MODELS, ...GEMINI_MODELS]}
         selectedModelId="missing:model"
-        defaultModelId="claude:opus-4-6"
+
         onSelect={vi.fn()}
       />,
     );

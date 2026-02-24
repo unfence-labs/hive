@@ -40,12 +40,11 @@ function ProviderIcon({ provider, className }: { provider: string; className?: s
 interface ModelSelectorProps {
   models: ModelCatalogEntry[];
   selectedModelId: string;
-  defaultModelId: string;
   onSelect: (modelId: string) => void;
   lockedProvider?: string;
 }
 
-export function ModelSelector({ models, selectedModelId, defaultModelId, onSelect, lockedProvider }: ModelSelectorProps) {
+export function ModelSelector({ models, selectedModelId, onSelect, lockedProvider }: ModelSelectorProps) {
   const selected = models.find((m) => m.id === selectedModelId);
   const label = selected?.label ?? "Select model";
 
@@ -124,8 +123,10 @@ export function ModelSelector({ models, selectedModelId, defaultModelId, onSelec
                         key={model.id}
                         onClick={() => onSelect(model.id)}
                         className={cn(
-                          "gap-2 rounded-sm focus:bg-white/[0.04]",
-                          isSelected && "bg-primary/10 text-primary focus:bg-primary/10",
+                          "gap-2 rounded-sm",
+                          isSelected
+                            ? "bg-primary/10 text-primary focus:bg-primary/10 focus:text-primary"
+                            : "focus:bg-white/[0.04]",
                         )}
                       >
                         <span className="flex-1">{model.label}</span>

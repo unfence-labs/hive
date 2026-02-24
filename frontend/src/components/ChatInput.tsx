@@ -268,7 +268,6 @@ export default function ChatInput({
             <ModelSelector
               models={models}
               selectedModelId={selectedModelId}
-              defaultModelId={defaultModelId}
               onSelect={setSelectedModelId}
               lockedProvider={lockedProvider}
             />
