@@ -28,6 +28,17 @@ final class HubStatusMonitor {
 
     init(storeCache: ConversationStoreCache) {
         self.storeCache = storeCache
+        storeCache.onStoreCreated = { [weak self] workspaceId, store in
+            self?.wireSendClosure(for: workspaceId, on: store)
+        }
+    }
+
+    /// Wire (or re-wire) the send closure for a workspace's store.
+    private func wireSendClosure(for workspaceId: String, on store: ConversationStore) {
+        guard let conn = connections[workspaceId] else { return }
+        store.send = { [weak conn] message in
+            await conn?.send(message)
+        }
     }
 
     // MARK: - Public accessors
@@ -212,7 +223,9 @@ private final class WorkspaceConnection {
         backoff = 1
 
         // Re-wire send closure on existing store (handles reconnects)
-        wireSendClosure()
+        if let store = monitor?.storeCache.stores[workspaceId] {
+            monitor?.wireSendClosure(for: workspaceId, on: store)
+        }
 
         startReceiving()
         startPinging()
@@ -279,22 +292,11 @@ private final class WorkspaceConnection {
 
     // MARK: - Send closure wiring
 
-    /// Ensure a ConversationStore exists for this workspace and wire its send closure.
+    /// Ensure a ConversationStore exists for this workspace.
+    /// The send closure is wired automatically via `onStoreCreated` callback.
     private func ensureStoreExists() {
         guard let cache = monitor?.storeCache else { return }
-        let store = cache.getOrCreate(workspaceId)
-        if store.send == nil {
-            wireSendClosure(store: store)
-        }
-    }
-
-    /// Wire (or re-wire) the send closure on the store for this workspace.
-    private func wireSendClosure(store: ConversationStore? = nil) {
-        guard let cache = monitor?.storeCache else { return }
-        let target = store ?? cache.stores[workspaceId]
-        target?.send = { [weak self] message in
-            await self?.send(message)
-        }
+        _ = cache.getOrCreate(workspaceId)
     }
 
     // MARK: - Ping keepalive
