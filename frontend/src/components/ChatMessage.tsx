@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import type { ChatMessage as ChatMessageType, QuestionAnswer } from "@/types";
 import { cn } from "@/lib/utils";
 import { formatElapsed } from "@/lib/time";
@@ -7,6 +7,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { ToolCallList } from "@/components/chat/ToolCallList";
 import { CopyButton } from "@/components/chat/CopyButton";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
 
 interface ChatMessageProps {
@@ -27,6 +28,7 @@ const ChatMessage = memo(function ChatMessage({
   onHandOff,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   return (
     <div className={cn("flex w-full items-start", isUser ? "justify-end" : "justify-start")}>
@@ -47,16 +49,45 @@ const ChatMessage = memo(function ChatMessage({
               />
             )}
             {message.images && message.images.length > 0 && (
-              <div className="mb-2 flex flex-wrap gap-2">
-                {message.images.map((img, i) => (
-                  <img
-                    key={`${message.id}-img-${i}`}
-                    src={resolveImageSrc(img.dataUrl)}
-                    alt={img.name}
-                    className="max-h-48 max-w-xs rounded-md border border-border/30 object-contain"
-                  />
-                ))}
-              </div>
+              <>
+                <div className={cn("flex flex-wrap justify-end gap-1.5", message.content && "mb-1.5")}>
+                  {message.images.map((img, i) => (
+                    <button
+                      key={`${message.id}-img-${i}`}
+                      type="button"
+                      onClick={() => setLightboxIndex(i)}
+                      className="h-10 w-14 flex-none cursor-pointer overflow-hidden rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <img
+                        src={resolveImageSrc(img.dataUrl)}
+                        alt={img.name}
+                        className="h-full w-full object-cover"
+                      />
+                    </button>
+                  ))}
+                </div>
+                <Dialog
+                  open={lightboxIndex !== null}
+                  onOpenChange={(open) => { if (!open) setLightboxIndex(null); }}
+                >
+                  <DialogContent
+                    showCloseButton={false}
+                    overlayClassName="bg-black/80 backdrop-blur-sm"
+                    className="flex items-center justify-center border-none bg-transparent p-0 shadow-none sm:max-w-[90vw]"
+                    onClick={() => setLightboxIndex(null)}
+                  >
+                    <DialogTitle className="sr-only">Image preview</DialogTitle>
+                    <DialogDescription className="sr-only">Full size image preview</DialogDescription>
+                    {lightboxIndex !== null && message.images[lightboxIndex] && (
+                      <img
+                        src={resolveImageSrc(message.images[lightboxIndex].dataUrl)}
+                        alt={message.images[lightboxIndex].name}
+                        className="mx-auto max-h-[85vh] w-auto rounded-lg object-contain"
+                      />
+                    )}
+                  </DialogContent>
+                </Dialog>
+              </>
             )}
             {message.content && <p className="whitespace-pre-wrap">{message.content}</p>}
           </>
