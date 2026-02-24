@@ -379,15 +379,20 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             const parentToolUseId = pendingTaskStack.length > 0
               ? pendingTaskStack[pendingTaskStack.length - 1]
               : undefined;
-            toolCalls.push({ id: block.id, name: displayName, input: inputStr, parentToolUseId });
-            this.emit("message", {
-              type: "tool_use",
-              sessionId: this.sessionId,
-              id: block.id,
-              name: displayName,
-              input: inputStr,
-              parentToolUseId,
-            });
+            const existingTool = toolCalls.find((t) => t.id === block.id);
+            if (existingTool) {
+              existingTool.input = inputStr;
+            } else {
+              toolCalls.push({ id: block.id, name: displayName, input: inputStr, parentToolUseId });
+              this.emit("message", {
+                type: "tool_use",
+                sessionId: this.sessionId,
+                id: block.id,
+                name: displayName,
+                input: inputStr,
+                parentToolUseId,
+              });
+            }
 
             if (block.name === "Task") {
               pendingTaskStack.push(block.id);
