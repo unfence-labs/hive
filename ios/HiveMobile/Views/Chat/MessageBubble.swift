@@ -589,7 +589,9 @@ private struct WhisperToolCallRow: View {
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 0) {
-                    if tool.name == "AskUserQuestion" {
+                    if tool.name == "Edit" {
+                        DiffContentView(tool: tool)
+                    } else if tool.name == "AskUserQuestion" {
                         AskUserQuestionContent(tool: tool)
                     } else if let output = tool.output, !output.isEmpty, !display.hideOutput {
                         ToolContentPanel {
@@ -624,6 +626,168 @@ private struct WhisperToolCallRow: View {
                 }
                 .transition(.opacity)
             }
+        }
+    }
+}
+
+// MARK: - Diff Content View (Edit tool expanded)
+
+private struct DiffLine: Identifiable {
+    enum Kind { case context, added, removed }
+    let id: Int
+    let kind: Kind
+    let text: String
+
+    var prefix: String {
+        switch kind {
+        case .context: return " "
+        case .added:   return "+"
+        case .removed: return "-"
+        }
+    }
+}
+
+/// Compute display-ready diff lines from old/new strings (Claude/Gemini format).
+private func computeDiffLines(oldString: String, newString: String) -> [DiffLine] {
+    let oldLines = oldString.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    let newLines = newString.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+
+    // Common prefix
+    var pfx = 0
+    while pfx < oldLines.count && pfx < newLines.count && oldLines[pfx] == newLines[pfx] {
+        pfx += 1
+    }
+    // Common suffix (not overlapping with prefix)
+    var sfx = 0
+    while sfx < oldLines.count - pfx && sfx < newLines.count - pfx
+            && oldLines[oldLines.count - 1 - sfx] == newLines[newLines.count - 1 - sfx] {
+        sfx += 1
+    }
+
+    var result: [DiffLine] = []
+    var idx = 0
+
+    // Prefix context (show last 3 lines max)
+    let ctxBefore = max(0, pfx - 3)
+    for i in ctxBefore..<pfx {
+        result.append(DiffLine(id: idx, kind: .context, text: oldLines[i])); idx += 1
+    }
+    // Removed lines
+    for i in pfx..<(oldLines.count - sfx) {
+        result.append(DiffLine(id: idx, kind: .removed, text: oldLines[i])); idx += 1
+    }
+    // Added lines
+    for i in pfx..<(newLines.count - sfx) {
+        result.append(DiffLine(id: idx, kind: .added, text: newLines[i])); idx += 1
+    }
+    // Suffix context (show first 3 lines max)
+    let ctxAfter = min(sfx, 3)
+    for i in 0..<ctxAfter {
+        let lineIdx = oldLines.count - sfx + i
+        result.append(DiffLine(id: idx, kind: .context, text: oldLines[lineIdx])); idx += 1
+    }
+
+    return result
+}
+
+/// Parse a unified diff string (Codex format) into display-ready lines.
+private func parseUnifiedDiffLines(_ diff: String) -> [DiffLine] {
+    var result: [DiffLine] = []
+    var idx = 0
+    for raw in diff.split(separator: "\n", omittingEmptySubsequences: false) {
+        let line = String(raw)
+        if line.hasPrefix("+++") || line.hasPrefix("---") || line.hasPrefix("@@") { continue }
+        if line.hasPrefix("+") {
+            result.append(DiffLine(id: idx, kind: .added, text: String(line.dropFirst()))); idx += 1
+        } else if line.hasPrefix("-") {
+            result.append(DiffLine(id: idx, kind: .removed, text: String(line.dropFirst()))); idx += 1
+        } else {
+            let text = line.hasPrefix(" ") ? String(line.dropFirst()) : line
+            result.append(DiffLine(id: idx, kind: .context, text: text)); idx += 1
+        }
+    }
+    return result
+}
+
+private struct DiffContentView: View {
+    let tool: ToolCall
+
+    private var parsed: (filePath: String?, lines: [DiffLine]) {
+        guard let data = tool.input.data(using: .utf8),
+              let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return (nil, [])
+        }
+        let filePath = resolveFilePath(input)
+
+        // Codex format: unified diff string
+        if let diff = input["diff"] as? String, !diff.isEmpty {
+            return (filePath, parseUnifiedDiffLines(diff))
+        }
+        // Claude/Gemini format: old_string + new_string
+        let oldString = input["old_string"] as? String ?? ""
+        let newString = input["new_string"] as? String ?? ""
+        return (filePath, computeDiffLines(oldString: oldString, newString: newString))
+    }
+
+    private static let maxLines = 80
+
+    var body: some View {
+        let result = parsed
+        let lines = Array(result.lines.prefix(Self.maxLines))
+        let truncated = result.lines.count > Self.maxLines
+
+        ToolContentPanel {
+            VStack(alignment: .leading, spacing: 0) {
+                if let path = result.filePath {
+                    Text(path)
+                        .font(WhisperFont.mono(10))
+                        .foregroundStyle(WhisperColor.textMuted)
+                        .lineLimit(1)
+                        .padding(.bottom, 6)
+                }
+
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(lines) { line in
+                        HStack(spacing: 0) {
+                            Text(line.prefix)
+                                .frame(width: 14, alignment: .center)
+                                .foregroundStyle(prefixColor(line.kind).opacity(0.6))
+                            Text(line.text.isEmpty ? " " : line.text)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .foregroundStyle(prefixColor(line.kind))
+                        }
+                        .font(WhisperFont.mono(11))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(bgColor(line.kind))
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                if truncated {
+                    Text("… \(result.lines.count - Self.maxLines) more lines")
+                        .font(WhisperFont.mono(10))
+                        .foregroundStyle(WhisperColor.textMuted)
+                        .padding(.top, 4)
+                }
+            }
+        }
+        .transition(.opacity)
+    }
+
+    private func prefixColor(_ kind: DiffLine.Kind) -> Color {
+        switch kind {
+        case .context: return WhisperColor.textSecondary
+        case .added:   return .green
+        case .removed: return .red
+        }
+    }
+
+    private func bgColor(_ kind: DiffLine.Kind) -> Color {
+        switch kind {
+        case .context: return .clear
+        case .added:   return Color.green.opacity(0.12)
+        case .removed: return Color.red.opacity(0.12)
         }
     }
 }
