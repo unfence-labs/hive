@@ -34,6 +34,7 @@ interface ChatConversationProps {
   defaultBranch?: string;
   fileCount?: number;
   switchCounter: number;
+  error?: string;
 }
 
 export default function ChatConversation({
@@ -53,6 +54,7 @@ export default function ChatConversation({
   defaultBranch,
   fileCount,
   switchCounter,
+  error,
 }: ChatConversationProps) {
   const [elapsed, setElapsed] = useState(0);
 
@@ -145,6 +147,11 @@ export default function ChatConversation({
 
   return (
     <Conversation className={`flex-1${isHydrating ? " invisible" : ""}`} resize={settled ? "smooth" : "instant"}>
+      {error && (
+        <div className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      )}
       <ConversationContent className="gap-4 px-8 py-4">
         {!hasContent &&
           (workspaceName && projectName && branch && defaultBranch ? (

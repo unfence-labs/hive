@@ -455,12 +455,20 @@ export function useConversation(workspaceId: string | undefined) {
 
     wsTransport.connect(workspaceId);
 
+    // Skip session-less errors during the synchronous buffer replay — they may be
+    // stale from a previous visit (buffered while the user was on another workspace).
+    // After onMessage() returns, the flag is cleared and live errors pass through.
+    let replayingBuffer = true;
     const { unsubscribe, hadBufferedMessages } = wsTransport.onMessage(workspaceId, (msg) => {
+      if (replayingBuffer && msg.type === "error" && !msg.sessionId) {
+        return;
+      }
       dispatch(msg);
       if ((msg.type === "done" || msg.type === "cancelled") && msg.sessionId) {
         void syncSessionHistory(msg.sessionId);
       }
     });
+    replayingBuffer = false;
 
     // Tell the backend to activate the saved session and send its bootstrap.
     if (savedSession) {
@@ -507,8 +515,16 @@ export function useConversation(workspaceId: string | undefined) {
 
   // Keep the transport's cached history fresh so switch-back replays are current.
   // Fires on history/done/cancelled/user_message — NOT on streaming deltas.
-  // Guard: don't write empty messages (prepare_workspace_switch clears them).
+  // Guard: skip writes when workspaceId just changed — React 18 batching means
+  // state.messages may transiently hold the *previous* workspace's messages before
+  // prepare_workspace_switch commits. Without this, ws-A's messages get written
+  // into ws-B's cache, causing residual chat on switch-back.
+  const prevCacheWorkspaceRef = useRef(workspaceId);
   useEffect(() => {
+    if (prevCacheWorkspaceRef.current !== workspaceId) {
+      prevCacheWorkspaceRef.current = workspaceId;
+      return;
+    }
     if (!workspaceId || !state.sessionId || state.messages.length === 0) return;
     const historyMsg: HistoryMessage = {
       type: "history",
