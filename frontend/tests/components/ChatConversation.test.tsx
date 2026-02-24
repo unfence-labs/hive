@@ -5,7 +5,19 @@ import ChatConversation from "@/components/ChatConversation";
 import type { ChatMessage } from "@/types";
 
 vi.mock("@/components/ai-elements/conversation", () => ({
-  Conversation: ({ children }: { children: ReactNode }) => <div data-testid="conversation">{children}</div>,
+  Conversation: ({
+    children,
+    className,
+    resize,
+  }: {
+    children: ReactNode;
+    className?: string;
+    resize?: "smooth" | "instant";
+  }) => (
+    <div data-testid="conversation" data-resize={resize} className={className}>
+      {children}
+    </div>
+  ),
   ConversationContent: ({ children }: { children: ReactNode }) => (
     <div data-testid="conversation-content">{children}</div>
   ),
@@ -178,5 +190,130 @@ describe("ChatConversation streaming timer", () => {
     });
     expect(screen.getByText("0.0s")).toBeInTheDocument();
     vi.useRealTimers();
+  });
+});
+
+describe("ChatConversation hydration on session/workspace switch", () => {
+  it("keeps resize instant during hydration, then switches to smooth after settling", () => {
+    vi.useFakeTimers();
+    const rafQueue: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", vi.fn((cb: FrameRequestCallback) => {
+      rafQueue.push(cb);
+      return rafQueue.length;
+    }));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
+    renderConversation({
+      messages: [{
+        id: "a1",
+        sessionId: "sess-1",
+        role: "assistant",
+        content: "hydrating",
+        timestamp: "2026-02-20T00:00:00.000Z",
+      }],
+      switchCounter: 1,
+    });
+
+    const conversation = screen.getByTestId("conversation");
+    expect(conversation.className).toContain("invisible");
+    expect(conversation).toHaveAttribute("data-resize", "instant");
+
+    act(() => {
+      const raf1 = rafQueue.shift();
+      raf1?.(16);
+    });
+    expect(conversation.className).toContain("invisible");
+
+    act(() => {
+      const raf2 = rafQueue.shift();
+      raf2?.(32);
+    });
+    expect(conversation.className).not.toContain("invisible");
+    expect(conversation).toHaveAttribute("data-resize", "instant");
+
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(conversation).toHaveAttribute("data-resize", "smooth");
+
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("reveals content after 200ms fallback when requestAnimationFrame stalls", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
+    renderConversation({
+      messages: [{
+        id: "a1",
+        sessionId: "sess-1",
+        role: "assistant",
+        content: "fallback reveal",
+        timestamp: "2026-02-20T00:00:00.000Z",
+      }],
+      switchCounter: 1,
+    });
+
+    const conversation = screen.getByTestId("conversation");
+    expect(conversation.className).toContain("invisible");
+    expect(conversation).toHaveAttribute("data-resize", "instant");
+
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(conversation.className).not.toContain("invisible");
+
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("resets hydration immediately when switchCounter changes", () => {
+    vi.useFakeTimers();
+    const rafQueue: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", vi.fn((cb: FrameRequestCallback) => {
+      rafQueue.push(cb);
+      return rafQueue.length;
+    }));
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+
+    const message: ChatMessage = {
+      id: "a1",
+      sessionId: "sess-1",
+      role: "assistant",
+      content: "ready",
+      timestamp: "2026-02-20T00:00:00.000Z",
+    };
+
+    const { rerender } = renderConversation({ messages: [message], switchCounter: 1 });
+    const conversation = screen.getByTestId("conversation");
+
+    act(() => {
+      const raf1 = rafQueue.shift();
+      raf1?.(16);
+      const raf2 = rafQueue.shift();
+      raf2?.(32);
+    });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(conversation.className).not.toContain("invisible");
+    expect(conversation).toHaveAttribute("data-resize", "smooth");
+
+    rerender(
+      <ChatConversation
+        {...baseConversationProps}
+        messages={[message]}
+        switchCounter={2}
+      />,
+    );
+
+    expect(conversation.className).toContain("invisible");
+    expect(conversation).toHaveAttribute("data-resize", "instant");
+
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 });

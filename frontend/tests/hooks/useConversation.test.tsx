@@ -846,6 +846,40 @@ describe("useConversation", () => {
     );
   });
 
+  it("falls back to empty object when history tool input is not valid JSON", async () => {
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock.mockResolvedValueOnce([
+      {
+        id: "u1",
+        sessionId: "sess-q",
+        role: "user",
+        content: "ask me",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      },
+      {
+        id: "a1",
+        sessionId: "sess-q",
+        role: "assistant",
+        content: "",
+        timestamp: "2026-02-12T00:00:01.000Z",
+        toolCalls: [
+          {
+            id: "tool-q1",
+            name: "AskUserQuestion",
+            input: "{not-json",
+          },
+        ],
+      },
+    ]);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    await waitFor(() => {
+      expect(result.current.pendingToolInputs).toHaveLength(1);
+    });
+    expect(result.current.pendingToolInputs[0]?.input).toEqual({});
+  });
+
   it("rehydrates ExitPlanMode pending input from history when WS request event was missed", async () => {
     const { __apiMock } = await getApiMock();
     __apiMock.getMock.mockResolvedValueOnce([
@@ -930,6 +964,59 @@ describe("useConversation", () => {
     expect(result.current.pendingToolInputs).toEqual([]);
   });
 
+  it("keeps active pending tool inputs when a history event arrives during streaming", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
+      __wsMock.emit("ws-1", {
+        type: "tool_input_required",
+        sessionId: "sess-1",
+        requestId: "req-live",
+        toolName: "AskUserQuestion",
+        toolUseId: "tool-live",
+        input: { questions: [{ question: "Live?" }] },
+      });
+    });
+    expect(result.current.pendingToolInputs).toEqual([
+      expect.objectContaining({
+        requestId: "req-live",
+        toolUseId: "tool-live",
+      }),
+    ]);
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "history",
+        sessionId: "sess-1",
+        messages: [
+          {
+            id: "a1",
+            sessionId: "sess-1",
+            role: "assistant",
+            content: "",
+            timestamp: "2026-02-12T00:00:01.000Z",
+            toolCalls: [
+              {
+                id: "tool-history",
+                name: "AskUserQuestion",
+                input: JSON.stringify({ questions: [{ question: "stale history" }] }),
+              },
+            ],
+          },
+        ],
+      });
+    });
+
+    expect(result.current.pendingToolInputs).toEqual([
+      expect.objectContaining({
+        requestId: "req-live",
+        toolUseId: "tool-live",
+      }),
+    ]);
+  });
+
   it("switches sessions and loads specific session history", async () => {
     const { __apiMock } = await getApiMock();
     const { __wsMock } = await getWsMock();
@@ -963,6 +1050,42 @@ describe("useConversation", () => {
     ]);
     expect(result.current.sessionId).toBe("sess-2");
     expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("keeps target session visible and sets an error when switch_session send fails", async () => {
+    const { __wsMock } = await getWsMock();
+    __wsMock.sendMock.mockReturnValueOnce(false);
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "history",
+        sessionId: "sess-old",
+        messages: [
+          {
+            id: "m-old",
+            sessionId: "sess-old",
+            role: "assistant",
+            content: "old",
+            timestamp: "2026-02-12T00:00:00.000Z",
+          },
+        ],
+      });
+    });
+    expect(result.current.messages).toHaveLength(1);
+
+    await act(async () => {
+      await result.current.switchSession("sess-fail");
+    });
+
+    expect(__wsMock.sendMock).toHaveBeenCalledWith("ws-1", {
+      type: "switch_session",
+      sessionId: "sess-fail",
+    });
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.sessionId).toBe("sess-fail");
+    expect(result.current.workspaceStatus).toBe("busy");
+    expect(result.current.error).toBe("Session switch failed: disconnected from server.");
   });
 
   it("keeps selected session id when switched session has no messages", async () => {

@@ -565,6 +565,16 @@ describe("WorkspaceView behavior", () => {
     expect(mocks.rejectToolInput).toHaveBeenCalledWith("cancel");
   });
 
+  it("activates a session by calling switchSession directly", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByTestId("activate-session-btn"));
+
+    expect(mocks.switchSession).toHaveBeenCalledWith("sess-2");
+  });
+
   it("displays live branch name from useWorkspaceLiveData when available", async () => {
     mocks.useWorkspaceLiveData.mockReturnValue({
       "ws-1": { branch: "feature/live-branch", branchInfo: { name: "feature/live-branch", lastSyncedAt: "2026-02-13T00:00:00.000Z" } },

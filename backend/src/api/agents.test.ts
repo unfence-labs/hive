@@ -342,6 +342,19 @@ describe("POST /api/workspaces/:wsId/sessions", () => {
   });
 });
 
+describe("POST /api/workspaces/:wsId/sessions/:sessionId/activate", () => {
+  it("returns 404 because activation is handled over websocket switch_session", async () => {
+    await writeSessionFixture("sess-activate", wsId, { messageCount: 3 });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${wsId}/sessions/sess-activate/activate`,
+    });
+
+    expect(res.statusCode).toBe(404);
+  });
+});
+
 describe("DELETE /api/workspaces/:wsId/sessions/:sessionId", () => {
   it("hard deletes an inactive session", async () => {
     await writeSessionFixture("sess-delete", wsId);
