@@ -12,6 +12,7 @@ import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { ToolCallList } from "@/components/chat/ToolCallList";
 import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
+import { getFallbackInteractiveAssistantIndex, hasExitPlanModeTool } from "@/lib/plan-state";
 import type { ChatMessage as ChatMessageType, ToolCall, QuestionAnswer } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
@@ -123,28 +124,21 @@ export default function ChatConversation({
   // Fallback to the old heuristic (last assistant message, no user after) when no pending inputs.
   const hasPendingInputs = pendingToolInputs.length > 0;
   const pendingToolUseIds = new Set(pendingToolInputs.map((p) => p.toolUseId));
-
-  const lastAssistantIdx = isStreaming
-    ? -1
-    : messages.reduce((acc, msg, i) => (msg.role === "assistant" ? i : acc), -1);
-  const hasUserAfterLast =
-    lastAssistantIdx >= 0 &&
-    messages.slice(lastAssistantIdx + 1).some((m) => m.role === "user");
+  const fallbackInteractiveAssistantIdx = getFallbackInteractiveAssistantIndex(messages, isStreaming);
 
   const isMessageInteractive = (msg: ChatMessageType, idx: number): boolean => {
     if (hasPendingInputs) {
       return msg.toolCalls?.some((tc) => pendingToolUseIds.has(tc.id)) ?? false;
     }
-    return idx === lastAssistantIdx && !hasUserAfterLast;
+    return idx === fallbackInteractiveAssistantIdx;
   };
 
   const getPlanStatus = (msg: ChatMessageType, idx: number): PlanStatus | undefined => {
-    const hasExitPlanMode = msg.toolCalls?.some((tc) => tc.name === "ExitPlanMode");
-    if (!hasExitPlanMode) return undefined;
+    if (!hasExitPlanModeTool(msg)) return undefined;
     if (isMessageInteractive(msg, idx)) return "interactive";
     // "Revised" only if a later assistant message also proposes a plan
     const hasLaterPlan = messages.slice(idx + 1).some(
-      (m) => m.role === "assistant" && m.toolCalls?.some((tc) => tc.name === "ExitPlanMode"),
+      (m) => m.role === "assistant" && hasExitPlanModeTool(m),
     );
     return hasLaterPlan ? "revised" : "approved";
   };

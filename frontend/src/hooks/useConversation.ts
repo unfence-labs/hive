@@ -556,7 +556,7 @@ export function useConversation(workspaceId: string | undefined) {
     dispatch({ type: "clear_chat" });
   }, []);
 
-  const switchSession = useCallback(async (sessionId: string) => {
+  const switchSession = useCallback((sessionId: string) => {
     if (!workspaceId) return;
     dispatch({ type: "prepare_session_switch", sessionId });
     dispatch({ type: "status", status: "busy", sessionId, streaming: false });
