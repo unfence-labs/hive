@@ -38,14 +38,6 @@ export function useSessions(workspaceId: string | undefined) {
     onSuccess: invalidate,
   });
 
-  const activateSession = useMutation({
-    mutationFn: (sessionId: string) =>
-      api.post<SessionMetadata>(
-        `/api/workspaces/${workspaceId}/sessions/${sessionId}/activate`,
-      ),
-    onSuccess: invalidate,
-  });
-
   const deleteSession = useMutation({
     mutationFn: (sessionId: string) =>
       api.delete(`/api/workspaces/${workspaceId}/sessions/${sessionId}`),
@@ -59,14 +51,6 @@ export function useSessions(workspaceId: string | undefined) {
       if (!workspaceId) return null;
       try {
         return await createSession.mutateAsync();
-      } catch {
-        return null;
-      }
-    },
-    activateSession: async (sessionId: string): Promise<SessionMetadata | null> => {
-      if (!workspaceId) return null;
-      try {
-        return await activateSession.mutateAsync(sessionId);
       } catch {
         return null;
       }

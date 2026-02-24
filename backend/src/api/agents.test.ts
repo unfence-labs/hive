@@ -342,41 +342,6 @@ describe("POST /api/workspaces/:wsId/sessions", () => {
   });
 });
 
-describe("POST /api/workspaces/:wsId/sessions/:sessionId/activate", () => {
-  it("activates a persisted session", async () => {
-    await writeSessionFixture("sess-activate", wsId, { messageCount: 3 });
-
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/workspaces/${wsId}/sessions/sess-activate/activate`,
-    });
-
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({
-      sessionId: "sess-activate",
-      workspaceId: wsId,
-      messageCount: 3,
-    });
-
-    const wsRes = await app.inject({
-      method: "GET",
-      url: `/api/workspaces/${wsId}`,
-    });
-    expect(wsRes.json()).toMatchObject({
-      status: "busy",
-      activeSessionId: "sess-activate",
-    });
-  });
-
-  it("returns 404 for missing session id", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/workspaces/${wsId}/sessions/missing/activate`,
-    });
-    expect(res.statusCode).toBe(404);
-  });
-});
-
 describe("DELETE /api/workspaces/:wsId/sessions/:sessionId", () => {
   it("hard deletes an inactive session", async () => {
     await writeSessionFixture("sess-delete", wsId);

@@ -157,10 +157,6 @@ final class APIClient {
         try await post(path: "/api/workspaces/\(workspaceId)/sessions")
     }
 
-    func activateSession(workspaceId: String, sessionId: String) async throws -> SessionMetadata {
-        try await post(path: "/api/workspaces/\(workspaceId)/sessions/\(sessionId)/activate")
-    }
-
     func deleteSession(workspaceId: String, sessionId: String) async throws {
         struct DeleteResponse: Decodable { let success: Bool }
         let _: DeleteResponse = try await delete(path: "/api/workspaces/\(workspaceId)/sessions/\(sessionId)")

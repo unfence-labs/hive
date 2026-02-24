@@ -23,7 +23,6 @@ const mocks = vi.hoisted(() => ({
   rejectToolInput: vi.fn(),
   dismissPlan: vi.fn(),
   createSession: vi.fn(),
-  activateSession: vi.fn(),
   deleteSession: vi.fn(),
   refreshSessions: vi.fn(),
   clearCachedData: vi.fn(),
@@ -273,7 +272,6 @@ describe("WorkspaceView behavior", () => {
     mocks.rejectToolInput.mockReset();
     mocks.dismissPlan.mockReset();
     mocks.createSession.mockReset();
-    mocks.activateSession.mockReset();
     mocks.deleteSession.mockReset();
     mocks.refreshSessions.mockReset();
     mocks.clearCachedData.mockReset();
@@ -326,7 +324,6 @@ describe("WorkspaceView behavior", () => {
     mocks.useSessions.mockReturnValue({
       sessions: [],
       createSession: mocks.createSession,
-      activateSession: mocks.activateSession,
       deleteSession: mocks.deleteSession,
       refresh: mocks.refreshSessions,
     });
@@ -822,7 +819,6 @@ describe("WorkspaceView session delete behavior", () => {
     mocks.rejectToolInput.mockReset();
     mocks.dismissPlan.mockReset();
     mocks.createSession.mockReset();
-    mocks.activateSession.mockReset();
     mocks.deleteSession.mockReset();
     mocks.refreshSessions.mockReset();
     mocks.clearCachedData.mockReset();
@@ -881,13 +877,6 @@ describe("WorkspaceView session delete behavior", () => {
         { sessionId: "sess-other", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:00.000Z", messageCount: 2 },
       ],
       createSession: mocks.createSession,
-      activateSession: mocks.activateSession.mockResolvedValue({
-        sessionId: "sess-other",
-        workspaceId: "ws-1",
-        createdAt: "2026-02-12T00:00:00.000Z",
-        updatedAt: "2026-02-12T00:00:00.000Z",
-        messageCount: 2,
-      }),
       deleteSession: mocks.deleteSession.mockResolvedValue(true),
       refresh: mocks.refreshSessions,
     });
@@ -899,7 +888,6 @@ describe("WorkspaceView session delete behavior", () => {
 
     await waitFor(() => {
       expect(mocks.deleteSession).toHaveBeenCalledWith("sess-active");
-      expect(mocks.activateSession).toHaveBeenCalledWith("sess-other");
       expect(mocks.switchSession).toHaveBeenCalledWith("sess-other");
     });
 
@@ -915,7 +903,6 @@ describe("WorkspaceView session delete behavior", () => {
         { sessionId: "sess-active", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:01.000Z", messageCount: 5 },
       ],
       createSession: mocks.createSession,
-      activateSession: mocks.activateSession,
       deleteSession: mocks.deleteSession.mockResolvedValue(true),
       refresh: mocks.refreshSessions,
     });
@@ -932,7 +919,7 @@ describe("WorkspaceView session delete behavior", () => {
     });
 
     // Should NOT have tried to activate another session
-    expect(mocks.activateSession).not.toHaveBeenCalled();
+
   });
 
   it("does nothing when delete fails", async () => {
@@ -943,7 +930,6 @@ describe("WorkspaceView session delete behavior", () => {
         { sessionId: "sess-other", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:00.000Z", messageCount: 2 },
       ],
       createSession: mocks.createSession,
-      activateSession: mocks.activateSession,
       deleteSession: mocks.deleteSession.mockResolvedValue(false),
       refresh: mocks.refreshSessions,
     });
@@ -959,7 +945,7 @@ describe("WorkspaceView session delete behavior", () => {
 
     // Nothing else should happen
     expect(mocks.clearChat).not.toHaveBeenCalled();
-    expect(mocks.activateSession).not.toHaveBeenCalled();
+
     expect(mocks.switchSession).not.toHaveBeenCalled();
     expect(mocks.clearCachedData).not.toHaveBeenCalled();
   });
@@ -972,7 +958,6 @@ describe("WorkspaceView session delete behavior", () => {
         { sessionId: "sess-inactive", workspaceId: "ws-1", createdAt: "2026-02-12T00:00:00.000Z", updatedAt: "2026-02-12T00:00:00.000Z", messageCount: 2 },
       ],
       createSession: mocks.createSession,
-      activateSession: mocks.activateSession,
       deleteSession: mocks.deleteSession.mockResolvedValue(true),
       refresh: mocks.refreshSessions,
     });
@@ -988,7 +973,7 @@ describe("WorkspaceView session delete behavior", () => {
 
     // Should NOT switch, clear, or do anything else — inactive session delete is silent
     expect(mocks.clearChat).not.toHaveBeenCalled();
-    expect(mocks.activateSession).not.toHaveBeenCalled();
+
     expect(mocks.switchSession).not.toHaveBeenCalled();
     expect(mocks.clearCachedData).not.toHaveBeenCalled();
   });
@@ -1034,7 +1019,6 @@ describe("WorkspaceView sidebar split resize", () => {
     mocks.useSessions.mockReturnValue({
       sessions: [],
       createSession: mocks.createSession,
-      activateSession: mocks.activateSession,
       deleteSession: mocks.deleteSession,
       refresh: mocks.refreshSessions,
     });
@@ -1287,7 +1271,6 @@ describe("WorkspaceView VS Code SSH host resolution", () => {
     mocks.useSessions.mockReturnValue({
       sessions: [],
       createSession: mocks.createSession,
-      activateSession: mocks.activateSession,
       deleteSession: mocks.deleteSession,
       refresh: mocks.refreshSessions,
     });
@@ -1541,7 +1524,6 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     mocks.useSessions.mockReturnValue({
       sessions: [],
       createSession: mocks.createSession,
-      activateSession: mocks.activateSession,
       deleteSession: mocks.deleteSession,
       refresh: mocks.refreshSessions,
     });

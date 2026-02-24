@@ -230,7 +230,7 @@ export default function WorkspaceView() {
 
   const { tasks, currentTask, counts: taskCounts } = useTasks(messages, activeToolCalls);
 
-  const { sessions, createSession, activateSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
+  const { sessions, createSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
 
   // Mirror iOS: fall back to session metadata when WS hasn't delivered lockedProvider yet.
   const effectiveLockedProvider = lockedProvider
@@ -291,13 +291,10 @@ export default function WorkspaceView() {
     }
   }, [createSession, switchSession]);
 
-  const handleActivateSession = useCallback(async (targetSessionId: string) => {
+  const handleActivateSession = useCallback((targetSessionId: string) => {
     setActiveTab("conversation");
-    const meta = await activateSession(targetSessionId);
-    if (meta) {
-      await switchSession(meta.sessionId);
-    }
-  }, [activateSession, switchSession]);
+    switchSession(targetSessionId);
+  }, [switchSession]);
 
   const handleDeleteSession = useCallback(async (targetSessionId: string) => {
     const isActive = targetSessionId === sessionId;
