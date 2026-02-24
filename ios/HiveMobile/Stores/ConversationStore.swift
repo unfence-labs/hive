@@ -21,15 +21,30 @@ final class ConversationStore {
         return formatter
     }()
 
+    /// ISO8601 timestamp for the current moment (shared formatter).
+    static func timestamp() -> String {
+        outgoingTimestampFormatter.string(from: Date())
+    }
+
     // MARK: - Public state
 
     /// Send closure wired by HubStatusMonitor to the workspace's WS connection.
-    var send: ((WsIncoming) async -> Void)?
+    /// Returns `true` if the message was handed to the WebSocket, `false` otherwise.
+    var send: ((WsIncoming) async -> Bool)?
 
     var messages: [ChatMessage] = []
 
     /// Session currently displayed in chat.
     var sessionId: String?
+
+    /// Monotonically increasing tokens keyed by session ID.
+    /// Used to discard stale REST history fetches on a per-session basis.
+    private var historyTokenBySession: [String: Int] = [:]
+
+    /// Called when a turn finishes (done/cancelled) with the session ID.
+    /// ChatView wires this to re-fetch messages from REST so client-generated
+    /// UUIDs are replaced with backend-assigned IDs.
+    var onTurnCompleted: ((String) -> Void)?
 
     /// Per-session transient streaming state. Keyed by session ID.
     var sessionStreams: [String: SessionStreamState] = [:]
@@ -128,9 +143,11 @@ final class ConversationStore {
 
         case .done(let sid, _, let durationMs):
             finalizeMessage(sessionId: sid, durationMs: durationMs, cancelled: false)
+            onTurnCompleted?(sid)
 
         case .cancelled(let sid):
             finalizeMessage(sessionId: sid, durationMs: nil, cancelled: true)
+            onTurnCompleted?(sid)
 
         case .error(let message, let errorSessionId):
             if let errorSessionId, let currentSessionId = sessionId, errorSessionId != currentSessionId {
@@ -185,7 +202,8 @@ final class ConversationStore {
         case .userMessage(let msg):
             let sid = msg.sessionId
             let isActive = sessionId == nil || sid == sessionId
-            if isActive {
+            let alreadyExists = messages.contains { $0.id == msg.id }
+            if isActive && !alreadyExists {
                 messages.append(msg)
             }
             sessionId = sessionId ?? sid
@@ -203,6 +221,7 @@ final class ConversationStore {
             let activeStream = historySessionId.flatMap { sessionStreams[$0] }
             if activeStream?.isStreaming != true {
                 messages = msgs
+                bumpHistoryToken(for: historySessionId)
                 sessionId = historySessionId ?? sessionId
                 // Derive pending tool inputs from history
                 let derived = derivePendingToolInputsFromHistory(msgs)
@@ -230,14 +249,38 @@ final class ConversationStore {
         sessionStreams[sid]?.pendingToolInputs = []
     }
 
+    /// Current history token for a given session.
+    func historyToken(for sessionId: String?) -> Int {
+        guard let sessionId else { return 0 }
+        return historyTokenBySession[sessionId] ?? 0
+    }
+
+    /// Begin a new REST history request for a session.
+    /// Returns the request token that must still match when applying results.
+    @discardableResult
+    func beginHistoryRequest(for sessionId: String?) -> Int {
+        guard let sessionId else { return 0 }
+        let next = (historyTokenBySession[sessionId] ?? 0) + 1
+        historyTokenBySession[sessionId] = next
+        return next
+    }
+
+    /// Invalidate in-flight REST history requests for a session.
+    func bumpHistoryToken(for sessionId: String?) {
+        _ = beginHistoryRequest(for: sessionId)
+    }
+
     func setFocusedSessionId(_ value: String?) {
         sessionId = value
     }
 
     func prepareSessionSwitch(_ newSessionId: String) {
+        let previousSessionId = sessionId
         sessionId = newSessionId
         messages = []
         lockedProvider = nil
+        bumpHistoryToken(for: previousSessionId)
+        bumpHistoryToken(for: newSessionId)
         // sessionStreams is untouched — background sessions keep accumulating
     }
 

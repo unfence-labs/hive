@@ -35,7 +35,7 @@ final class HubStatusMonitor {
     /// Wire (or re-wire) the send closure for a workspace's store via the hub connection.
     fileprivate func wireSendClosure(for workspaceId: String, on store: ConversationStore) {
         store.send = { [weak self] message in
-            await self?.hubConnection?.send(.workspaceEvent(workspaceId: workspaceId, event: message))
+            await self?.hubConnection?.send(.workspaceEvent(workspaceId: workspaceId, event: message)) ?? false
         }
     }
 
@@ -212,11 +212,18 @@ private final class HubConnection {
     }
 
     /// Send a hub-level message (sync_workspaces or workspace event).
-    func send(_ message: HubIncoming) async {
-        guard let wsTask else { return }
+    /// Returns `true` if the message was successfully handed to the WebSocket.
+    @discardableResult
+    func send(_ message: HubIncoming) async -> Bool {
+        guard let wsTask else { return false }
         guard let data = try? encoder.encode(message),
-              let string = String(data: data, encoding: .utf8) else { return }
-        try? await wsTask.send(.string(string))
+              let string = String(data: data, encoding: .utf8) else { return false }
+        do {
+            try await wsTask.send(.string(string))
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Send sync_workspaces with the given workspace IDs.
@@ -230,8 +237,18 @@ private final class HubConnection {
         let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
         let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
         let token = UserDefaults.standard.string(forKey: "authToken") ?? ""
+        guard !host.isEmpty, let portInt = Int(port) else { return }
 
-        guard let url = URL(string: "ws://\(host):\(port)/ws/hub?token=\(token)") else {
+        var components = URLComponents()
+        components.scheme = "ws"
+        components.host = host
+        components.port = portInt
+        components.path = "/ws/hub"
+        if !token.isEmpty {
+            components.queryItems = [URLQueryItem(name: "token", value: token)]
+        }
+
+        guard let url = components.url else {
             return
         }
 
