@@ -35,11 +35,9 @@ struct WorkspaceCard: View {
                 if isStreaming {
                     AgentActivityIndicator(dotSize: 3, spacing: 1.5)
                 } else if turnCompleted {
-                    Circle()
-                        .fill(.green)
-                        .frame(width: 6, height: 6)
+                    CompletedDot()
                 } else {
-                    StatusDot(isStreaming: false)
+                    StatusDot()
                 }
             }
 
@@ -222,6 +220,7 @@ struct PrBadge: View {
                 status: .idle, createdAt: "", activeSessionId: nil,
                 projectName: "hive", defaultBranch: "main"
             ),
+            turnCompleted: true,
             branchInfo: BranchInfo(name: "feat/long-branch", lastSyncedAt: ""),
             prStatus: PrStatusResponse(
                 pr: PullRequestInfo(number: 12, url: "", state: .merged, mergeable: nil, mergeableState: .unknown, checksStatus: .success, checksPassed: nil, checksTotal: nil, reviewStatus: nil),
