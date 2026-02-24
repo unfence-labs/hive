@@ -66,6 +66,10 @@ struct HiveApp: App {
                 setupStreamingCallback()
                 mergePushCompletions()
             }
+            .onChange(of: CompletedWorkspacesStore.shared.pending) { _, pending in
+                guard !pending.isEmpty else { return }
+                mergePushCompletions()
+            }
         }
     }
 
