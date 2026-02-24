@@ -173,4 +173,9 @@ final class APIClient {
     func fetchPrStatus(workspaceId: String) async throws -> PrStatusResponse {
         try await get(path: "/api/workspaces/\(workspaceId)/pr-status")
     }
+
+    func registerDeviceToken(_ token: String) async throws {
+        let body = try JSONEncoder().encode(["token": token])
+        try await requestVoid("POST", path: "/api/devices/apns", body: body)
+    }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct HiveApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var storeCache: ConversationStoreCache
     @State private var projectStore: ProjectStore
     @State private var modelCatalog = ModelCatalog()
@@ -63,6 +64,7 @@ struct HiveApp: App {
             }
             .onAppear {
                 setupStreamingCallback()
+                mergePushCompletions()
             }
         }
     }
@@ -88,6 +90,15 @@ struct HiveApp: App {
                 labelResolver: workspaceLabel(for:)
             )
         }
+    }
+
+    /// Merge workspace IDs delivered via push notification taps into the hub status monitor.
+    private func mergePushCompletions() {
+        let store = CompletedWorkspacesStore.shared
+        for wsId in store.pending {
+            projectStore.statusMonitor.markCompletedFromPush(wsId)
+        }
+        store.clearAll()
     }
 
     private func workspaceLabel(for id: String) -> WorkspaceLabel? {

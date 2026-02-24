@@ -4,9 +4,12 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadConfig, saveConfig, type AppConfig } from "./config.js";
 
+const DEFAULT_APNS = { enabled: false, teamId: "", keyId: "", keyContent: "", bundleId: "", sandbox: false, deviceTokens: [] as string[] };
+
 const DEFAULT_CONFIG: AppConfig = {
   notifications: {
     telegram: { enabled: false, botToken: "", chatId: "" },
+    apns: { ...DEFAULT_APNS },
   },
 };
 
@@ -45,11 +48,8 @@ describe("loadConfig", () => {
 
     expect(config).toEqual({
       notifications: {
-        telegram: {
-          enabled: true,
-          botToken: "",
-          chatId: "",
-        },
+        telegram: { enabled: true, botToken: "", chatId: "" },
+        apns: { ...DEFAULT_APNS },
       },
     });
   });
@@ -67,6 +67,7 @@ describe("loadConfig", () => {
     const full: AppConfig = {
       notifications: {
         telegram: { enabled: true, botToken: "tok", chatId: "cid" },
+        apns: { enabled: true, teamId: "T", keyId: "K", keyContent: "PEM", bundleId: "com.x", sandbox: true, deviceTokens: ["abc"] },
       },
     };
     await writeFile(join(dataDir, "config.json"), JSON.stringify(full), "utf-8");
@@ -89,6 +90,7 @@ describe("loadConfig", () => {
     expect(config).toEqual({
       notifications: {
         telegram: { enabled: true, botToken: "t", chatId: "c" },
+        apns: { ...DEFAULT_APNS },
       },
     });
     expect((config as unknown as Record<string, unknown>)["unknownKey"]).toBeUndefined();
@@ -104,29 +106,42 @@ describe("loadConfig", () => {
     const config = await loadConfig(dataDir);
     expect(config).toEqual(DEFAULT_CONFIG);
   });
+
+  it("fills missing apns fields with defaults when only some are present", async () => {
+    await writeFile(
+      join(dataDir, "config.json"),
+      JSON.stringify({ notifications: { telegram: { enabled: false, botToken: "", chatId: "" }, apns: { enabled: true, teamId: "T1" } } }),
+      "utf-8",
+    );
+
+    const config = await loadConfig(dataDir);
+    expect(config.notifications.apns).toEqual({
+      enabled: true,
+      teamId: "T1",
+      keyId: "",
+      keyContent: "",
+      bundleId: "",
+      sandbox: false,
+      deviceTokens: [],
+    });
+  });
 });
 
 describe("saveConfig", () => {
   it("creates dataDir recursively if it does not exist", async () => {
     const nestedDir = join(dataDir, "nested", "deep");
-    const config: AppConfig = {
-      notifications: { telegram: { enabled: false, botToken: "", chatId: "" } },
-    };
 
-    await saveConfig(config, nestedDir);
+    await saveConfig(DEFAULT_CONFIG, nestedDir);
 
     const loaded = await loadConfig(nestedDir);
-    expect(loaded).toEqual(config);
+    expect(loaded).toEqual(DEFAULT_CONFIG);
   });
 
   it("writes pretty JSON and round-trips through loadConfig", async () => {
     const config: AppConfig = {
       notifications: {
-        telegram: {
-          enabled: true,
-          botToken: "bot-token",
-          chatId: "chat-id",
-        },
+        telegram: { enabled: true, botToken: "bot-token", chatId: "chat-id" },
+        apns: { enabled: true, teamId: "T", keyId: "K", keyContent: "PEM", bundleId: "com.x", sandbox: false, deviceTokens: ["deadbeef"] },
       },
     };
 

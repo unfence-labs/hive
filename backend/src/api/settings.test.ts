@@ -6,15 +6,19 @@ import { tmpdir } from "node:os";
 
 const mocks = vi.hoisted(() => ({
   rebuildNotifier: vi.fn(),
+  updateLiveApnsToken: vi.fn(),
 }));
 
 vi.mock("../agents/agent-manager.js", () => ({
   rebuildNotifier: mocks.rebuildNotifier,
+  updateLiveApnsToken: mocks.updateLiveApnsToken,
 }));
 
 import { settingsRoutes } from "./settings.js";
 import { loadConfig } from "../state/config.js";
 import { TelegramChannel } from "../notifications/telegram.js";
+
+const DEFAULT_APNS = { enabled: false, teamId: "", keyId: "", keyContent: "", bundleId: "", sandbox: false, deviceTokens: [] as string[] };
 
 let tempDir: string;
 let app: ReturnType<typeof Fastify>;
@@ -52,11 +56,8 @@ describe("settings routes", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
-      telegram: {
-        enabled: false,
-        botToken: "",
-        chatId: "",
-      },
+      telegram: { enabled: false, botToken: "", chatId: "" },
+      apns: { ...DEFAULT_APNS },
     });
   });
 
@@ -90,11 +91,8 @@ describe("settings routes", () => {
     const config = await loadConfig(tempDir);
     expect(config).toEqual({
       notifications: {
-        telegram: {
-          enabled: true,
-          botToken: "bot-token",
-          chatId: "chat-id",
-        },
+        telegram: { enabled: true, botToken: "bot-token", chatId: "chat-id" },
+        apns: { ...DEFAULT_APNS },
       },
     });
 
@@ -102,7 +100,7 @@ describe("settings routes", () => {
     expect(mocks.rebuildNotifier).toHaveBeenCalledWith(config);
   });
 
-  it("PUT /api/settings/notifications returns 400 when telegram field is missing", async () => {
+  it("PUT /api/settings/notifications returns 400 when neither telegram nor apns field is present", async () => {
     const res = await app.inject({
       method: "PUT",
       url: "/api/settings/notifications",
@@ -144,7 +142,76 @@ describe("settings routes", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
       telegram: { enabled: true, botToken: "saved-token", chatId: "saved-chat" },
+      apns: { ...DEFAULT_APNS },
     });
+  });
+
+  it("PUT /api/settings/notifications with apns preserves existing device tokens", async () => {
+    // Pre-seed config with a registered device token
+    const { saveConfig } = await import("../state/config.js");
+    await saveConfig({
+      notifications: {
+        telegram: { enabled: false, botToken: "", chatId: "" },
+        apns: { ...DEFAULT_APNS, deviceTokens: ["deadbeef"] },
+      },
+    }, tempDir);
+
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings/notifications",
+      payload: {
+        apns: { enabled: true, teamId: "T", keyId: "K", keyContent: "PEM", bundleId: "com.x", sandbox: false },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+
+    const config = await loadConfig(tempDir);
+    expect(config.notifications.apns.enabled).toBe(true);
+    expect(config.notifications.apns.deviceTokens).toEqual(["deadbeef"]);
+  });
+
+  it("POST /api/devices/apns registers a new device token", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/devices/apns",
+      payload: { token: "AABBCCDD11223344AABBCCDD11223344" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, added: true });
+
+    const config = await loadConfig(tempDir);
+    expect(config.notifications.apns.deviceTokens).toContain("aabbccdd11223344aabbccdd11223344");
+  });
+
+  it("POST /api/devices/apns deduplicates existing tokens", async () => {
+    const { saveConfig } = await import("../state/config.js");
+    await saveConfig({
+      notifications: {
+        telegram: { enabled: false, botToken: "", chatId: "" },
+        apns: { ...DEFAULT_APNS, deviceTokens: ["aabbccdd11223344aabbccdd11223344"] },
+      },
+    }, tempDir);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/devices/apns",
+      payload: { token: "AABBCCDD11223344AABBCCDD11223344" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, added: false });
+  });
+
+  it("POST /api/devices/apns rejects invalid tokens", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/devices/apns",
+      payload: { token: "short" },
+    });
+
+    expect(res.statusCode).toBe(400);
   });
 
   it("POST /api/settings/notifications/test returns 400 when chatId is empty", async () => {

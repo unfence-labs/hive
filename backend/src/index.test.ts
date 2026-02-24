@@ -94,6 +94,15 @@ describe("buildApp", () => {
         botToken: expect.any(String),
         chatId: expect.any(String),
       },
+      apns: {
+        enabled: expect.any(Boolean),
+        teamId: expect.any(String),
+        keyId: expect.any(String),
+        keyContent: expect.any(String),
+        bundleId: expect.any(String),
+        sandbox: expect.any(Boolean),
+        deviceTokens: expect.any(Array),
+      },
     });
   });
 

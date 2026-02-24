@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import NotificationSettings from "@/pages/settings/NotificationSettings";
@@ -23,6 +23,10 @@ beforeEach(() => {
   vi.useRealTimers();
 });
 
+const defaultApns = {
+  enabled: false, teamId: "", keyId: "", keyContent: "", bundleId: "", sandbox: false, deviceTokens: [] as string[],
+};
+
 async function renderReady(config?: {
   enabled?: boolean;
   botToken?: string;
@@ -34,6 +38,7 @@ async function renderReady(config?: {
       botToken: config?.botToken ?? "",
       chatId: config?.chatId ?? "",
     },
+    apns: { ...defaultApns },
   });
 
   const queryClient = new QueryClient({
@@ -48,6 +53,12 @@ async function renderReady(config?: {
   await screen.findByRole("heading", { name: "Notifications" });
 }
 
+/** Return the Telegram `<section>` element for scoped queries. */
+function telegramSection() {
+  const heading = screen.getByRole("heading", { name: "Telegram" });
+  return within(heading.closest("section")!);
+}
+
 describe("NotificationSettings", () => {
   it("loads and displays Telegram settings from backend", async () => {
     await renderReady({ enabled: true, botToken: "token-1", chatId: "chat-1" });
@@ -57,7 +68,7 @@ describe("NotificationSettings", () => {
     expect(screen.getByRole("switch", { name: "Telegram" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByLabelText("Bot Token")).toHaveValue("token-1");
     expect(screen.getByLabelText("Chat ID")).toHaveValue("chat-1");
-    expect(screen.getByRole("button", { name: "Test" })).toBeEnabled();
+    expect(telegramSection().getByRole("button", { name: "Test" })).toBeEnabled();
   });
 
   it("falls back to default values when initial load fails", async () => {
@@ -77,7 +88,7 @@ describe("NotificationSettings", () => {
     expect(screen.getByRole("switch", { name: "Telegram" })).toHaveAttribute("aria-checked", "false");
     expect(screen.getByLabelText("Bot Token")).toHaveValue("");
     expect(screen.getByLabelText("Chat ID")).toHaveValue("");
-    expect(screen.getByRole("button", { name: "Test" })).toBeDisabled();
+    expect(telegramSection().getByRole("button", { name: "Test" })).toBeDisabled();
   });
 
   it("toggles token visibility", async () => {
@@ -99,7 +110,8 @@ describe("NotificationSettings", () => {
     const user = userEvent.setup();
     await renderReady();
 
-    const testButton = screen.getByRole("button", { name: "Test" });
+    const tg = telegramSection();
+    const testButton = tg.getByRole("button", { name: "Test" });
     expect(testButton).toBeDisabled();
 
     await user.type(screen.getByLabelText("Bot Token"), "   ");
@@ -124,7 +136,7 @@ describe("NotificationSettings", () => {
     await user.click(screen.getByRole("switch", { name: "Telegram" }));
     await user.type(screen.getByLabelText("Bot Token"), "token-abc");
     await user.type(screen.getByLabelText("Chat ID"), "-100123");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(telegramSection().getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(mocks.put).toHaveBeenCalledWith("/api/settings/notifications", {
@@ -135,7 +147,7 @@ describe("NotificationSettings", () => {
         },
       });
     });
-    expect(screen.getByText("Saved")).toBeInTheDocument();
+    expect(telegramSection().getByText("Saved")).toBeInTheDocument();
   });
 
   it("shows save error and clears feedback on input change", async () => {
@@ -144,7 +156,7 @@ describe("NotificationSettings", () => {
 
     await renderReady({ botToken: "token", chatId: "chat" });
 
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(telegramSection().getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Failed to save")).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Chat ID"), "1");
@@ -157,7 +169,7 @@ describe("NotificationSettings", () => {
 
     await renderReady({ botToken: "token", chatId: "chat" });
 
-    await user.click(screen.getByRole("button", { name: "Test" }));
+    await user.click(telegramSection().getByRole("button", { name: "Test" }));
 
     await waitFor(() => {
       expect(mocks.post).toHaveBeenCalledWith("/api/settings/notifications/test", {
@@ -174,7 +186,7 @@ describe("NotificationSettings", () => {
 
     await renderReady({ botToken: "token", chatId: "chat" });
 
-    await user.click(screen.getByRole("button", { name: "Test" }));
+    await user.click(telegramSection().getByRole("button", { name: "Test" }));
 
     expect(await screen.findByText("chat not found")).toBeInTheDocument();
   });
@@ -185,7 +197,7 @@ describe("NotificationSettings", () => {
 
     await renderReady({ botToken: "token", chatId: "chat" });
 
-    await user.click(screen.getByRole("button", { name: "Test" }));
+    await user.click(telegramSection().getByRole("button", { name: "Test" }));
 
     expect(await screen.findByText("Could not reach backend")).toBeInTheDocument();
   });
