@@ -115,6 +115,8 @@ export interface ChatMessage {
   thinkingContent?: string;
   timestamp: string;
   cancelled?: boolean;
+  /** Extra diagnostics for interrupted turns (stderr summary, exit code). */
+  errorDetail?: string;
   durationMs?: number;
 }
 

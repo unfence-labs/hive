@@ -668,6 +668,31 @@ describe("ConversationSession", () => {
       cancelled: true,
       content: "Generation interrupted before any output.",
     });
+    expect(assistantMsg.errorDetail).toContain("exit code 1");
+  });
+
+  it("persists stderr in cancellation diagnostics", async () => {
+    const session = createSession({ sessionId: "cancel-with-stderr" });
+
+    session.sendMessage("Hi");
+    mockProc._stderr.push("permission denied");
+    mockProc._emitClose(1); // non-zero = cancelled
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const messagesPath = join(tempDir, "sessions", "cancel-with-stderr", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+
+    expect(lines.length).toBe(2);
+    const assistantMsg = JSON.parse(lines[1]);
+    expect(assistantMsg).toMatchObject({
+      role: "assistant",
+      cancelled: true,
+      content: "Generation interrupted before any output.",
+    });
+    expect(assistantMsg.errorDetail).toContain("exit code 1");
+    expect(assistantMsg.errorDetail).toContain("stderr: permission denied");
   });
 
   it("persists user message on send", async () => {

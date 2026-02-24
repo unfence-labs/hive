@@ -79,8 +79,13 @@ const ChatMessage = memo(function ChatMessage({
               />
             )}
             {message.cancelled && (
-              <div className="mt-2 text-xs italic text-muted-foreground">
-                (cancelled)
+              <div className="mt-2 space-y-1 text-xs">
+                <div className="italic text-muted-foreground">(cancelled)</div>
+                {message.errorDetail && (
+                  <div className="break-words font-mono text-[11px] text-destructive/90">
+                    {message.errorDetail}
+                  </div>
+                )}
               </div>
             )}
             {message.durationMs != null && (

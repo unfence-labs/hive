@@ -70,6 +70,21 @@ describe("ChatMessage", () => {
     expect(screen.getByTestId("copy-button")).toBeInTheDocument();
   });
 
+  it("renders cancellation diagnostics when provided", () => {
+    render(
+      <ChatMessage
+        message={assistantMessage({
+          cancelled: true,
+          errorDetail: "exit code 1 | stderr: permission denied",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("(cancelled)")).toBeInTheDocument();
+    expect(screen.getByText(/exit code 1/)).toBeInTheDocument();
+    expect(screen.getByText(/permission denied/)).toBeInTheDocument();
+  });
+
   it("does not render assistant-only affordances for user messages", () => {
     render(
       <ChatMessage
