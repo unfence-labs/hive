@@ -116,7 +116,7 @@ struct ChatView: View {
                     onModelSelect: { selectedModelId = $0 },
                     onDraftAttachmentsChange: { draftAttachments = $0 },
                     onSend: sendMessage,
-                    onStop: { Task { await store.send?(.stop(sessionId: activeSessionId)) } }
+                    onStop: { Task { _ = await store.send?(.stop(sessionId: activeSessionId)) } }
                 )
                 .padding(.horizontal, 12)
                 .padding(.bottom, 4)
@@ -224,7 +224,6 @@ struct ChatView: View {
                         workspaceId: workspace.id,
                         sessionId: sessionId
                     )
-                    guard let store else { return }
                     guard store.sessionId == sessionId else { return }
                     guard store.historyToken(for: sessionId) == requestToken else { return }
                     if store.sessionStreams[sessionId]?.isStreaming != true {
@@ -327,7 +326,7 @@ struct ChatView: View {
         store.prepareSessionSwitch(sessionId)
         isLoading = true
         Task {
-            await store.send?(.switchSession(sessionId: sessionId))
+            _ = await store.send?(.switchSession(sessionId: sessionId))
             await loadMessages()
         }
     }
