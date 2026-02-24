@@ -193,6 +193,38 @@ describe("ChatConversation streaming timer", () => {
   });
 });
 
+describe("ChatConversation error banner", () => {
+  it("renders error banner when error prop is provided", () => {
+    renderConversation({ error: "Something went wrong" });
+
+    const banner = screen.getByText("Something went wrong");
+    expect(banner).toBeInTheDocument();
+    expect(banner.closest("div")).toHaveClass("text-destructive");
+  });
+
+  it("does not render error banner when error is undefined", () => {
+    renderConversation({ error: undefined });
+
+    expect(screen.queryByText(/went wrong/i)).not.toBeInTheDocument();
+  });
+
+  it("renders both error banner and messages together", () => {
+    renderConversation({
+      error: "Connection lost",
+      messages: [{
+        id: "u1",
+        sessionId: "sess-1",
+        role: "user",
+        content: "hello",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      }],
+    });
+
+    expect(screen.getByText("Connection lost")).toBeInTheDocument();
+    expect(screen.getByTestId("msg-u1")).toHaveTextContent("hello");
+  });
+});
+
 describe("ChatConversation hydration on session/workspace switch", () => {
   it("keeps resize instant during hydration, then switches to smooth after settling", () => {
     vi.useFakeTimers();
