@@ -524,4 +524,71 @@ describe("wsTransport", () => {
       expect(replayed).toEqual([{ type: "status", status: "idle", streaming: false }]);
     });
   });
+
+  describe("updateCachedHistory / hasCachedHistory", () => {
+    it("replays updated history to next handler", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+
+      // Bootstrap caches original history
+      const first: WsOutgoing[] = [];
+      const { unsubscribe } = wsTransport.onMessage("ws-1", (msg) => first.push(msg));
+      socket.message(JSON.stringify({ type: "history", messages: [{ id: "old" }] }));
+      unsubscribe();
+
+      // Update cache with fresh messages
+      wsTransport.updateCachedHistory("ws-1", {
+        type: "history",
+        sessionId: "s1",
+        messages: [{ id: "old" }, { id: "new" }] as never[],
+      });
+
+      // New handler should receive updated history, not the bootstrap version
+      const replayed: WsOutgoing[] = [];
+      wsTransport.onMessage("ws-1", (msg) => replayed.push(msg));
+      const history = replayed.find((m) => m.type === "history");
+      expect(history).toBeDefined();
+      expect((history as { messages: { id: string }[] }).messages).toEqual([
+        { id: "old" },
+        { id: "new" },
+      ]);
+    });
+
+    it("hasCachedHistory returns false when no history was received", () => {
+      wsTransport.connect("ws-1");
+      MockWebSocket.instances[0]!.open();
+      expect(wsTransport.hasCachedHistory("ws-1")).toBe(false);
+    });
+
+    it("hasCachedHistory returns true after updateCachedHistory", () => {
+      wsTransport.connect("ws-1");
+      MockWebSocket.instances[0]!.open();
+      wsTransport.updateCachedHistory("ws-1", {
+        type: "history",
+        messages: [],
+      });
+      expect(wsTransport.hasCachedHistory("ws-1")).toBe(true);
+    });
+
+    it("hasCachedHistory returns false after clearCachedData", () => {
+      wsTransport.connect("ws-1");
+      MockWebSocket.instances[0]!.open();
+      wsTransport.updateCachedHistory("ws-1", {
+        type: "history",
+        messages: [],
+      });
+      wsTransport.clearCachedData("ws-1");
+      expect(wsTransport.hasCachedHistory("ws-1")).toBe(false);
+    });
+
+    it("is a no-op for unknown workspace", () => {
+      // Should not throw
+      wsTransport.updateCachedHistory("unknown", {
+        type: "history",
+        messages: [],
+      });
+      expect(wsTransport.hasCachedHistory("unknown")).toBe(false);
+    });
+  });
 });

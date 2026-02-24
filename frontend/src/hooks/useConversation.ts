@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useReducer, useRef, useSyncExternalStore } from "react";
 import type { ChatMessage, ImageAttachment, MessageOptions, ToolCall, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
 import { wsTransport } from "@/lib/ws-transport";
+import type { HistoryMessage } from "@/lib/ws-transport";
 import { api } from "@/hooks/useApi";
 
 export interface PendingToolInput {
@@ -474,21 +475,23 @@ export function useConversation(workspaceId: string | undefined) {
       historyRequestTokenRef.current += 1;
     }
 
-    // REST fallback — use session-specific endpoint when we have a saved preference.
-    // Compare against the original historyRequestToken so bumps from
-    // hadBufferedMessages / switch_session correctly invalidate a stale REST response.
-    void (async () => {
-      try {
-        const url = savedSession
-          ? `/api/workspaces/${workspaceId}/sessions/${savedSession}/messages`
-          : `/api/workspaces/${workspaceId}/session/messages`;
-        const messages = await api.get<ChatMessage[]>(url);
-        if (historyRequestTokenRef.current !== historyRequestToken) return;
-        dispatch({ type: "history", sessionId: savedSession, messages });
-      } catch {
-        // History is still best-effort via websocket replay if API fetch fails.
-      }
-    })();
+    // REST fallback — only needed on first visit when no cached history exists.
+    // On switch-back the transport cache is kept fresh (see effect below), so
+    // the WS replay already provides current messages.
+    if (!wsTransport.hasCachedHistory(workspaceId)) {
+      void (async () => {
+        try {
+          const url = savedSession
+            ? `/api/workspaces/${workspaceId}/sessions/${savedSession}/messages`
+            : `/api/workspaces/${workspaceId}/session/messages`;
+          const messages = await api.get<ChatMessage[]>(url);
+          if (historyRequestTokenRef.current !== historyRequestToken) return;
+          dispatch({ type: "history", sessionId: savedSession, messages });
+        } catch {
+          // History is still best-effort via websocket replay if API fetch fails.
+        }
+      })();
+    }
 
     return () => {
       // Remember which session was active before leaving this workspace.
@@ -501,6 +504,19 @@ export function useConversation(workspaceId: string | undefined) {
       unsubscribe();
     };
   }, [workspaceId, syncSessionHistory]);
+
+  // Keep the transport's cached history fresh so switch-back replays are current.
+  // Fires on history/done/cancelled/user_message — NOT on streaming deltas.
+  // Guard: don't write empty messages (prepare_workspace_switch clears them).
+  useEffect(() => {
+    if (!workspaceId || !state.sessionId || state.messages.length === 0) return;
+    const historyMsg: HistoryMessage = {
+      type: "history",
+      sessionId: state.sessionId,
+      messages: state.messages,
+    };
+    wsTransport.updateCachedHistory(workspaceId, historyMsg);
+  }, [workspaceId, state.sessionId, state.messages]);
 
   const sendMessage = useCallback((
     content: string,
