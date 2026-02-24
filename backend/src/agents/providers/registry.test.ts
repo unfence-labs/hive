@@ -59,9 +59,9 @@ describe("resolveProvider", () => {
   });
 
   it("resolves gemini:model-id correctly", () => {
-    const { provider, modelId } = resolveProvider("gemini:gemini-2.5-pro");
+    const { provider, modelId } = resolveProvider("gemini:gemini-3.1-pro-preview");
     expect(provider.id).toBe("gemini");
-    expect(modelId).toBe("gemini-2.5-pro");
+    expect(modelId).toBe("gemini-3.1-pro-preview");
   });
 
   it("throws for unknown provider prefix", () => {
@@ -221,8 +221,9 @@ describe("getModelCatalog", () => {
     markProviderAvailable("claude");
     const catalog = getModelCatalog();
 
-    const sonnet = catalog.models.find((m) => m.id === "claude:sonnet-4-6");
-    expect(sonnet?.isNew).toBe(true);
+    // No models currently marked as new
+    const newModels = catalog.models.filter((m) => m.isNew);
+    expect(newModels).toHaveLength(0);
   });
 });
 

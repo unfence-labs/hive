@@ -10,7 +10,7 @@ import type {
 
 const CLAUDE_MODELS: ModelDefinition[] = [
   { id: "opus-4-6", label: "Opus 4.6", cliValue: "opus", isDefault: true },
-  { id: "sonnet-4-6", label: "Sonnet 4.6", cliValue: "sonnet", isNew: true },
+  { id: "sonnet-4-6", label: "Sonnet 4.6", cliValue: "sonnet" },
   { id: "haiku-4-5", label: "Haiku 4.5", cliValue: "haiku" },
 ];
 

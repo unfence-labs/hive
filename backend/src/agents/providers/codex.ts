@@ -10,9 +10,7 @@ import type {
 } from "./types.js";
 
 const CODEX_MODELS: ModelDefinition[] = [
-  { id: "gpt-5.3-codex-spark", label: "GPT-5.3-Codex-Spark", cliValue: "gpt-5.3-codex-spark", isNew: true },
   { id: "gpt-5.3-codex", label: "GPT-5.3-Codex", cliValue: "gpt-5.3-codex", isDefault: true },
-  { id: "gpt-5.2-codex", label: "GPT-5.2-Codex", cliValue: "gpt-5.2-codex" },
 ];
 
 const CODEX_CAPABILITIES: ProviderCapabilities = {

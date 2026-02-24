@@ -34,15 +34,12 @@ describe("GeminiProvider", () => {
   it("has exactly one default model", () => {
     const defaults = provider.models.filter((m) => m.isDefault);
     expect(defaults).toHaveLength(1);
-    expect(defaults[0]?.id).toBe("gemini-2.5-pro");
+    expect(defaults[0]?.id).toBe("gemini-3.1-pro-preview");
   });
 
-  it("includes Gemini 3 preview models marked as new", () => {
+  it("has no models marked as new", () => {
     const newModels = provider.models.filter((m) => m.isNew);
-    expect(newModels.map((m) => m.id)).toEqual([
-      "gemini-3-pro-preview",
-      "gemini-3-flash-preview",
-    ]);
+    expect(newModels).toHaveLength(0);
   });
 
   // ── Capabilities ───────────────────────────────────────────────────
@@ -68,7 +65,7 @@ describe("GeminiProvider", () => {
   it("builds first-message args with prompt, output format, yolo, and model", () => {
     const args = provider.buildArgs(
       "Hello Gemini",
-      { model: "gemini-2.5-flash" },
+      { model: "gemini-3-flash-preview" },
       baseSession({ isFirstMessage: true }),
     );
 
@@ -77,7 +74,7 @@ describe("GeminiProvider", () => {
     expect(args).toContain("-o");
     expect(args).toContain("stream-json");
     expect(args).toContain("-m");
-    expect(args).toContain("gemini-2.5-flash");
+    expect(args).toContain("gemini-3-flash-preview");
     expect(args).toContain("-y");
     expect(args).not.toContain("-r");
   });
@@ -90,7 +87,7 @@ describe("GeminiProvider", () => {
   it("adds resume flag on subsequent messages", () => {
     const args = provider.buildArgs(
       "Continue",
-      { model: "gemini-2.5-pro" },
+      { model: "gemini-3.1-pro-preview" },
       baseSession({ isFirstMessage: false, sessionId: "gem-sess-123" }),
     );
 
