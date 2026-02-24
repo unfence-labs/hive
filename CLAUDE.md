@@ -63,7 +63,7 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `backend/src/api/settings.ts`: notification config CRUD + test message
 - `backend/src/api/account.ts`: GitHub OAuth device flow + `gh` CLI integration
 - `backend/src/api/scripts.ts`: workspace setup/run script lifecycle (start/stop/status)
-- `backend/src/ws/stream.ts`: conversation WebSocket protocol (deferred bootstrap via `setImmediate`)
+- `backend/src/ws/stream.ts`: multiplexed hub WebSocket protocol (`/ws/hub`; `sync_workspaces` subscription, `HubOutgoing` envelopes)
 - `backend/src/ws/script.ts`: script execution WebSocket (PTY output streaming)
 - `backend/src/services/git-sync.ts`: branch/diff polling and workspace broadcasts (PR status moved to REST)
 - `backend/src/services/script-runner.ts`: PTY-based script execution with status broadcasting
@@ -99,7 +99,7 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - Workspace merge is executed in a temporary worktree on default branch, then default-branch ref is updated.
 - `archiveWorkspace()` removes worktree and moves matching session folders under `archive/<ws-id>/sessions`.
 - Git sync pushes cached `branch_info` + `diff_stats` snapshots to new WS clients. PR status is no longer polled here — moved to on-demand `GET /api/workspaces/:wsId/pr-status` with 15s TTL cache.
-- WS bootstrap messages (status, history, branch_info, diff_stats, script_status) are deferred via `setImmediate` so client listeners attach before the initial burst.
+- WS uses a single multiplexed hub endpoint (`/ws/hub`). Clients send `sync_workspaces` with workspace ID lists to subscribe/unsubscribe. All outgoing messages are wrapped in `HubOutgoing` envelopes (`{ workspaceId, event }`). Bootstrap (status, history, branch_info, diff_stats, script_status) is sent per workspace on subscribe.
 - Preflight checks run at startup and exit with clear errors if git/claude/gh are missing. Codex is optional.
 - Notification config is persisted in `$DATA_DIR/config.json` and hot-reloaded when settings change (no restart needed).
 - Script runner spawns PTY processes for `hive.json` setup/run commands, buffers last 200 lines, and broadcasts status via the workspace WS channel.
@@ -130,7 +130,7 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `frontend/src/hooks/useAccentColor.ts`: theme accent color persistence
 - `frontend/src/hooks/useCompletions.ts`: autocomplete scanning
 - `frontend/src/hooks/useChatInputDraftPersistence.ts`: draft persistence (message, images, thinking, planMode, selectedModelId, thinkingLevel)
-- `frontend/src/lib/ws-transport.ts`: reconnecting WS transport + replay buffer
+- `frontend/src/lib/ws-transport.ts`: single multiplexed hub WS transport (`/ws/hub`; `sync_workspaces`, envelope demux, per-workspace caches + replay buffer)
 - `frontend/src/components/Sidebar.tsx`: project/workspace nav + archive/delete + activity preview
 - `frontend/src/components/ChatInput.tsx`: message input with provider-adaptive controls (thinking toggle/levels, plan mode gating, completions gating)
 - `frontend/src/components/ChatConversation.tsx`: conversation display with hydration flash fix (visibility:hidden + double-rAF settle)
@@ -145,7 +145,7 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 ### Important frontend behavior
 
 - The frontend supports a configurable server URL (Settings > Connection) for remote backend connectivity. All API calls (`useApi.ts`) and WebSockets (`ws-transport.ts`) resolve the base URL via `getServerUrl()` from `useServerUrl.ts`.
-- The app keeps WS channels synced for all known workspace IDs (`wsTransport.syncWorkspaces`).
+- The app maintains a single hub WS connection; `wsTransport.syncWorkspaces` sends `sync_workspaces` with the full workspace ID set to the backend.
 - `useConversation` hydrates from REST history and resolves stale replay races with request tokens. It also tracks `lockedProvider` from WS status events.
 - Session tabs support create/switch/delete with live message replay and per-session streaming indicators.
 - Chat input dynamically adapts controls based on the selected provider's capabilities: thinking toggle for Claude, thinking level cycling (Low/Med/High/xHigh) for Codex, plan mode hidden when unsupported, `/` and `@` autocomplete gated by `completions` capability.
@@ -173,7 +173,7 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `HiveMobile/Stores/ChatDraftStore.swift`: draft message persistence (includes `selectedModelId`, `thinkingLevel`)
 - `HiveMobile/Stores/ProjectStore.swift`: project list state (accepts `ConversationStoreCache` at init)
 - `HiveMobile/Stores/ModelCatalog.swift`: dynamic model catalog from API, grouped by provider
-- `HiveMobile/Stores/HubStatusMonitor.swift`: single WS per workspace (full event decode + routing to ConversationStore) + PR status REST polling (15s) + turn-completed tracking
+- `HiveMobile/Stores/HubStatusMonitor.swift`: single multiplexed hub WS (`/ws/hub`; `sync_workspaces`, `HubOutgoing` envelope demux, routing to ConversationStore) + PR status REST polling (15s) + turn-completed tracking
 - `HiveMobile/Views/Chat/ChatView.swift`: conversation UI + provider locking + model selection
 - `HiveMobile/Views/Chat/ChatInputBar.swift`: input bar with provider-adaptive controls (thinking toggle vs level picker)
 - `HiveMobile/Views/Chat/MessageBubble.swift`: message + tool call rendering
@@ -189,7 +189,7 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 
 - Connects to the same backend as web/desktop via configurable host/port (Settings).
 - Auth token stored in UserDefaults, passed as query param on WS connections.
-- **Single WS per workspace**: `HubStatusMonitor.WorkspaceConnection` opens one full-event WS per workspace. Hub-level events (status, diff_stats, branch_info) update monitor properties. ALL events are forwarded to the workspace's `ConversationStore` in the `ConversationStoreCache`.
+- **Single multiplexed hub WS**: `HubStatusMonitor.HubConnection` opens one WS to `/ws/hub` for all workspaces. Sends `sync_workspaces` on connect. Incoming `HubOutgoing` envelopes are demuxed by `workspaceId`. Hub-level events (status, diff_stats, branch_info) update monitor properties. ALL events are forwarded to the workspace's `ConversationStore` in the `ConversationStoreCache`.
 - **ConversationStoreCache** (`@Environment`): app-level cache of `ConversationStore` instances keyed by workspace ID. Stores survive `ChatView` mount/unmount, preserving streaming state across navigation. Stores are eagerly created when streaming starts (even if ChatView isn't open). Evicted on workspace archive/delete.
 - **ChatView receives its store as a parameter** from the cache (via `HiveApp`'s `navigationDestination`). No per-view WS — all sends go through `store.send` closure wired to `WorkspaceConnection`.
 - **Turn-completed badge**: `HubStatusMonitor.completedWorkspaces` tracks workspaces where a `done` event fired. `WorkspaceCard` shows a green dot. Cleared when `ChatView` opens (via `clearCompleted`).
@@ -261,4 +261,3 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `redacted_thinking` blocks are logged as `[redacted]` but not visually distinguished from regular thinking in the UI.
 - Codex provider integration is functional but less battle-tested than Claude. Stream adapter edge cases may surface.
 - No Codex session resume verification (thread ID persistence is best-effort).
-- No WS multiplexing — one WebSocket per workspace (N connections). Consider multiplexing all workspace events over a single "hub" WS to reduce proxy/network overhead and simplify connection lifecycle. Would require a new hub endpoint, workspaceId-tagged messages, frontend transport rewrite, and iOS `HubStatusMonitor` rewrite.

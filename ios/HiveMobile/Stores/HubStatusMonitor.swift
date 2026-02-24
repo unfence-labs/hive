@@ -1,13 +1,11 @@
 import Foundation
 import Observation
 
-/// Monitors real-time status for all workspaces via a single WebSocket per workspace.
+/// Monitors real-time status for all workspaces via a single multiplexed hub WebSocket.
 ///
-/// Each `WorkspaceConnection` fully decodes ALL WS events:
+/// A single `HubConnection` fully decodes ALL WS events wrapped in `HubOutgoing` envelopes:
 /// - Hub-level events (status, diff_stats, branch_info) update monitor properties.
 /// - ALL events are forwarded to the workspace's `ConversationStore` (via `ConversationStoreCache`).
-///
-/// This eliminates the need for a separate `WebSocketManager` in `ChatView`.
 @MainActor
 @Observable
 final class HubStatusMonitor {
@@ -22,7 +20,8 @@ final class HubStatusMonitor {
 
     let storeCache: ConversationStoreCache
 
-    private var connections: [String: WorkspaceConnection] = [:]
+    private var hubConnection: HubConnection?
+    private var subscribedWorkspaceIds: Set<String> = []
     private var prPollTasks: [String: Task<Void, Never>] = [:]
     private let apiClient = APIClient()
 
@@ -33,11 +32,17 @@ final class HubStatusMonitor {
         }
     }
 
-    /// Wire (or re-wire) the send closure for a workspace's store.
+    /// Wire (or re-wire) the send closure for a workspace's store via the hub connection.
     fileprivate func wireSendClosure(for workspaceId: String, on store: ConversationStore) {
-        guard let conn = connections[workspaceId] else { return }
-        store.send = { [weak conn] message in
-            await conn?.send(message)
+        store.send = { [weak self] message in
+            await self?.hubConnection?.send(.workspaceEvent(workspaceId: workspaceId, event: message))
+        }
+    }
+
+    /// Re-wire send closures on all existing stores (e.g. after hub reconnect).
+    fileprivate func rewireAllSendClosures() {
+        for (workspaceId, store) in storeCache.stores {
+            wireSendClosure(for: workspaceId, on: store)
         }
     }
 
@@ -69,15 +74,12 @@ final class HubStatusMonitor {
 
     // MARK: - Sync
 
-    /// Sync monitored workspaces — opens new connections, closes stale ones.
+    /// Sync monitored workspaces — manages hub connection and subscriptions.
     func sync(workspaceIds: [String]) {
         let desired = Set(workspaceIds)
-        let current = Set(connections.keys)
 
-        // Remove connections for workspaces no longer in the list
-        for id in current.subtracting(desired) {
-            connections[id]?.cancel()
-            connections.removeValue(forKey: id)
+        // Clean up removed workspaces
+        for id in subscribedWorkspaceIds.subtracting(desired) {
             streamingWorkspaces.remove(id)
             workspaceDiffStats.removeValue(forKey: id)
             workspaceBranchInfo.removeValue(forKey: id)
@@ -88,18 +90,25 @@ final class HubStatusMonitor {
             completedWorkspaces.remove(id)
         }
 
-        // Add connections for new workspaces
-        for id in desired.subtracting(current) {
-            let conn = WorkspaceConnection(workspaceId: id, monitor: self)
-            connections[id] = conn
+        subscribedWorkspaceIds = desired
+
+        if desired.isEmpty {
+            hubConnection?.cancel()
+            hubConnection = nil
+        } else if hubConnection == nil {
+            let conn = HubConnection(monitor: self)
+            hubConnection = conn
             conn.connect()
+        } else {
+            hubConnection?.sendSyncWorkspaces(Array(subscribedWorkspaceIds))
         }
     }
 
     /// Disconnect everything.
     func disconnectAll() {
-        for conn in connections.values { conn.cancel() }
-        connections.removeAll()
+        hubConnection?.cancel()
+        hubConnection = nil
+        subscribedWorkspaceIds.removeAll()
         streamingWorkspaces.removeAll()
         workspaceDiffStats.removeAll()
         workspaceBranchInfo.removeAll()
@@ -139,7 +148,7 @@ final class HubStatusMonitor {
         }
     }
 
-    // MARK: - Called by WorkspaceConnection
+    // MARK: - Called by HubConnection
 
     fileprivate func didReceiveStreaming(_ streaming: Bool, for workspaceId: String) {
         if streaming {
@@ -161,13 +170,17 @@ final class HubStatusMonitor {
     fileprivate func didReceiveDone(for workspaceId: String) {
         completedWorkspaces.insert(workspaceId)
     }
+
+    /// Ensure a ConversationStore exists for a workspace (eager creation on streaming).
+    fileprivate func ensureStoreExists(for workspaceId: String) {
+        _ = storeCache.getOrCreate(workspaceId)
+    }
 }
 
-// MARK: - Per-workspace full connection
+// MARK: - Single hub WebSocket connection
 
 @MainActor
-private final class WorkspaceConnection {
-    let workspaceId: String
+private final class HubConnection {
     private weak var monitor: HubStatusMonitor?
 
     private var wsTask: URLSessionWebSocketTask?
@@ -180,8 +193,7 @@ private final class WorkspaceConnection {
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
-    init(workspaceId: String, monitor: HubStatusMonitor) {
-        self.workspaceId = workspaceId
+    init(monitor: HubStatusMonitor) {
         self.monitor = monitor
     }
 
@@ -199,12 +211,19 @@ private final class WorkspaceConnection {
         wsTask = nil
     }
 
-    /// Send a message to the backend via this workspace's WS connection.
-    func send(_ message: WsIncoming) async {
+    /// Send a hub-level message (sync_workspaces or workspace event).
+    func send(_ message: HubIncoming) async {
         guard let wsTask else { return }
         guard let data = try? encoder.encode(message),
               let string = String(data: data, encoding: .utf8) else { return }
         try? await wsTask.send(.string(string))
+    }
+
+    /// Send sync_workspaces with the given workspace IDs.
+    func sendSyncWorkspaces(_ workspaceIds: [String]) {
+        Task {
+            await send(.syncWorkspaces(workspaceIds: workspaceIds))
+        }
     }
 
     private func performConnect() {
@@ -212,23 +231,26 @@ private final class WorkspaceConnection {
         let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
         let token = UserDefaults.standard.string(forKey: "authToken") ?? ""
 
-        guard let url = URL(string: "ws://\(host):\(port)/ws/session/\(workspaceId)?token=\(token)") else {
+        guard let url = URL(string: "ws://\(host):\(port)/ws/hub?token=\(token)") else {
             return
         }
 
         let task = URLSession.shared.webSocketTask(with: url)
-        task.maximumMessageSize = 10 * 1024 * 1024 // 10 MB — match backend maxPayload
+        task.maximumMessageSize = 10 * 1024 * 1024
         self.wsTask = task
         task.resume()
         backoff = 1
 
-        // Re-wire send closure on existing store (handles reconnects)
-        if let store = monitor?.storeCache.stores[workspaceId] {
-            monitor?.wireSendClosure(for: workspaceId, on: store)
-        }
+        // Re-wire send closures on all existing stores (handles reconnects)
+        monitor?.rewireAllSendClosures()
 
         startReceiving()
         startPinging()
+
+        // Send sync_workspaces to subscribe to all tracked workspaces
+        if let workspaceIds = monitor?.subscribedWorkspaceIds {
+            sendSyncWorkspaces(Array(workspaceIds))
+        }
     }
 
     // MARK: - Receive loop
@@ -258,19 +280,19 @@ private final class WorkspaceConnection {
         }
         guard let data else { return }
 
-        // Full decode — all event types are parsed.
-        guard let event = try? decoder.decode(WsOutgoing.self, from: data) else { return }
+        // Decode hub envelope
+        guard let envelope = try? decoder.decode(HubOutgoing.self, from: data) else { return }
+
+        let workspaceId = envelope.workspaceId
+        let event = envelope.event
 
         // Hub-level processing
         switch event {
         case .status(_, _, let streaming, _, _):
             let isStreaming = streaming ?? false
             monitor?.didReceiveStreaming(isStreaming, for: workspaceId)
-
-            // Eager store creation: when streaming starts, ensure a ConversationStore
-            // exists so it accumulates events even if ChatView isn't open.
             if isStreaming {
-                ensureStoreExists()
+                monitor?.ensureStoreExists(for: workspaceId)
             }
 
         case .diffStats(let stats):
@@ -288,15 +310,6 @@ private final class WorkspaceConnection {
 
         // Forward ALL events to the ConversationStore (if one exists).
         monitor?.storeCache.stores[workspaceId]?.handle(event)
-    }
-
-    // MARK: - Send closure wiring
-
-    /// Ensure a ConversationStore exists for this workspace.
-    /// The send closure is wired automatically via `onStoreCreated` callback.
-    private func ensureStoreExists() {
-        guard let cache = monitor?.storeCache else { return }
-        _ = cache.getOrCreate(workspaceId)
     }
 
     // MARK: - Ping keepalive

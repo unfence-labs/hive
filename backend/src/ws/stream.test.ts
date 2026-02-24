@@ -17,12 +17,12 @@ import {
   _clearActiveSessions,
 } from "../agents/agent-manager.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
-import { streamRoutes, broadcastToWorkspace, _getChannelsForTests } from "./stream.js";
+import { streamRoutes, broadcastToWorkspace, _getChannelsForTests, _getHubSocketsForTests } from "./stream.js";
 import {
   _setScriptStatusForTests,
   _clearAll as clearScripts,
 } from "../services/script-runner.js";
-import type { WsOutgoing } from "../types.js";
+import type { WsOutgoing, HubOutgoing, HubIncoming } from "../types.js";
 
 const CONV_CMD = { command: "bash" };
 
@@ -61,60 +61,98 @@ afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
 });
 
-/** Connect a WebSocket and start collecting messages immediately. */
-function connectSessionWs(
-  workspaceId: string,
+// ── Hub connection helpers ──────────────────────────────────────────
+
+/** Wrap a WsIncoming as a hub envelope message. */
+function hubEvent(workspaceId: string, event: object): string {
+  return JSON.stringify({ workspaceId, event });
+}
+
+/** Send sync_workspaces via a hub WebSocket. */
+function syncWorkspaces(ws: WebSocket, workspaceIds: string[]): void {
+  ws.send(JSON.stringify({ type: "sync_workspaces", workspaceIds }));
+}
+
+/**
+ * Connect to the hub WS and subscribe to workspace(s).
+ * Messages are unwrapped from HubOutgoing envelopes for easy assertions.
+ * Returns messages filtered to the target workspace by default.
+ */
+function connectHub(
+  workspaceIds: string[],
   opts?: {
     app?: FastifyInstance;
     headers?: Record<string, string>;
     query?: Record<string, string>;
+    /** If set, collect ALL workspace messages (unfiltered). Default: first workspace. */
+    collectAll?: boolean;
   },
 ): {
   wsReady: Promise<WebSocket>;
   messages: WsOutgoing[];
+  allEnvelopes: HubOutgoing[];
 } {
   const queryString = opts?.query
     ? `?${new URLSearchParams(opts.query).toString()}`
     : "";
-  const path = `/ws/session/${workspaceId}${queryString}`;
+  const path = `/ws/hub${queryString}`;
   const messages: WsOutgoing[] = [];
+  const allEnvelopes: HubOutgoing[] = [];
+  const targetWsId = workspaceIds[0];
   const wsReady = (opts?.app ?? app).injectWS(
     path,
     { headers: opts?.headers },
     {
       onInit: (ws) => {
         ws.on("message", (data: Buffer) => {
-          messages.push(JSON.parse(data.toString()) as WsOutgoing);
+          const envelope = JSON.parse(data.toString()) as HubOutgoing;
+          allEnvelopes.push(envelope);
+          if (opts?.collectAll || envelope.workspaceId === targetWsId) {
+            messages.push(envelope.event);
+          }
+        });
+        // Subscribe to workspaces after the connection is established
+        ws.on("open", () => {
+          syncWorkspaces(ws, workspaceIds);
         });
       },
     },
   ) as Promise<WebSocket>;
-  return { wsReady, messages };
+  return { wsReady, messages, allEnvelopes };
 }
 
-/** Connect a WebSocket and attach listeners after injectWS resolves. */
-async function connectSessionWsLateListener(
-  workspaceId: string,
+/** Connect to hub and attach listeners after injectWS resolves. */
+async function connectHubLateListener(
+  workspaceIds: string[],
   opts?: {
     app?: FastifyInstance;
     headers?: Record<string, string>;
     query?: Record<string, string>;
   },
-): Promise<{ ws: WebSocket; messages: WsOutgoing[] }> {
+): Promise<{ ws: WebSocket; messages: WsOutgoing[]; allEnvelopes: HubOutgoing[] }> {
   const queryString = opts?.query
     ? `?${new URLSearchParams(opts.query).toString()}`
     : "";
-  const path = `/ws/session/${workspaceId}${queryString}`;
+  const path = `/ws/hub${queryString}`;
   const ws = (await (opts?.app ?? app).injectWS(path, { headers: opts?.headers })) as WebSocket;
   const messages: WsOutgoing[] = [];
+  const allEnvelopes: HubOutgoing[] = [];
+  const targetWsId = workspaceIds[0];
 
   // Simulate clients that install message handlers right after websocket init.
   await Promise.resolve();
   ws.on("message", (data: Buffer) => {
-    messages.push(JSON.parse(data.toString()) as WsOutgoing);
+    const envelope = JSON.parse(data.toString()) as HubOutgoing;
+    allEnvelopes.push(envelope);
+    if (envelope.workspaceId === targetWsId) {
+      messages.push(envelope.event);
+    }
   });
 
-  return { ws, messages };
+  // Subscribe after listener is attached
+  syncWorkspaces(ws, workspaceIds);
+
+  return { ws, messages, allEnvelopes };
 }
 
 async function startWsApp(
@@ -184,9 +222,9 @@ function waitForCondition(
   });
 }
 
-describe("WS /ws/session/:wsId", () => {
+describe("WS /ws/hub", () => {
   it("sends idle status when no session exists", async () => {
-    const { wsReady, messages } = connectSessionWs(wsId);
+    const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.length >= 1);
@@ -196,7 +234,7 @@ describe("WS /ws/session/:wsId", () => {
   });
 
   it("delivers bootstrap status when listener is attached after injectWS resolves", async () => {
-    const { ws, messages } = await connectSessionWsLateListener(wsId);
+    const { ws, messages } = await connectHubLateListener([wsId]);
 
     await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
 
@@ -231,7 +269,7 @@ describe("WS /ws/session/:wsId", () => {
       "utf-8",
     );
 
-    const { wsReady, messages } = connectSessionWs(wsId);
+    const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "history"));
@@ -277,7 +315,7 @@ describe("WS /ws/session/:wsId", () => {
       "utf-8",
     );
 
-    const { ws, messages } = await connectSessionWsLateListener(wsId);
+    const { ws, messages } = await connectHubLateListener([wsId]);
 
     await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "history"));
 
@@ -298,7 +336,7 @@ describe("WS /ws/session/:wsId", () => {
   it("sends idle status + history when session exists but is not streaming", async () => {
     await getOrCreateSession(wsId, dataDir, CONV_CMD);
 
-    const { wsReady, messages } = connectSessionWs(wsId);
+    const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.length >= 1);
@@ -324,7 +362,7 @@ describe("WS /ws/session/:wsId", () => {
     const { session } = await getOrCreateSession(wsId, dataDir, slowCmd);
     session.sendMessage("bootstrap busy");
 
-    const { wsReady, messages } = connectSessionWs(wsId, { app: local.app });
+    const { wsReady, messages } = connectHub([wsId], { app: local.app });
     const ws = await wsReady;
 
     await waitForMessage(
@@ -359,21 +397,18 @@ describe("WS /ws/session/:wsId", () => {
   });
 
   it("auto-creates session on user_message", async () => {
-    const { wsReady, messages } = connectSessionWs(wsId);
+    const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.length >= 1); // initial status
 
-    // Send user message — auto-creates session
-    ws.send(JSON.stringify({ type: "user_message", content: "Hello" }));
+    ws.send(hubEvent(wsId, { type: "user_message", content: "Hello" }));
 
-    // Should get a status update with sessionId
     await waitForMessage(
       messages,
       (msgs) => msgs.some((m) => m.type === "status" && "sessionId" in m && m.sessionId),
     ).catch(() => {});
 
-    // Session should exist now
     const statusMsgs = messages.filter(
       (m) => m.type === "status" && "sessionId" in m && m.sessionId,
     );
@@ -390,7 +425,7 @@ describe("WS /ws/session/:wsId", () => {
     const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
     const deletedSessionId = session.sessionId;
 
-    const { wsReady, messages } = connectSessionWs(wsId);
+    const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
     await waitForMessage(
@@ -404,7 +439,7 @@ describe("WS /ws/session/:wsId", () => {
     await hardDeleteSession(wsId, deletedSessionId, dataDir);
 
     const marker = messages.length;
-    ws.send(JSON.stringify({
+    ws.send(hubEvent(wsId, {
       type: "user_message",
       content: "should fail",
       sessionId: deletedSessionId,
@@ -438,7 +473,7 @@ describe("WS /ws/session/:wsId", () => {
     const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
     const deletedSessionId = session.sessionId;
 
-    const { wsReady, messages } = connectSessionWs(wsId);
+    const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
     await waitForMessage(
@@ -452,7 +487,7 @@ describe("WS /ws/session/:wsId", () => {
     await hardDeleteSession(wsId, deletedSessionId, dataDir);
 
     const marker = messages.length;
-    ws.send(JSON.stringify({
+    ws.send(hubEvent(wsId, {
       type: "tool_input_response",
       requestId: "req-missing-session",
       toolName: "ExitPlanMode",
@@ -485,12 +520,12 @@ describe("WS /ws/session/:wsId", () => {
   });
 
   it("accepts user_message options and keeps stream status busy", async () => {
-    const { wsReady, messages } = connectSessionWs(wsId);
+    const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.length >= 1);
 
-    ws.send(JSON.stringify({
+    ws.send(hubEvent(wsId, {
       type: "user_message",
       content: "Hello with options",
       options: { planMode: true, thinkingEnabled: false },
@@ -521,12 +556,12 @@ describe("WS /ws/session/:wsId", () => {
     const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
 
     const local = await startWsApp(undefined, slowCmd);
-    const { wsReady, messages } = connectSessionWs(wsId, { app: local.app });
+    const { wsReady, messages } = connectHub([wsId], { app: local.app });
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.length >= 1);
 
-    ws.send(JSON.stringify({ type: "user_message", content: "first in session A" }));
+    ws.send(hubEvent(wsId, { type: "user_message", content: "first in session A" }));
     await waitForMessage(
       messages,
       (msgs) => msgs.some(
@@ -552,7 +587,7 @@ describe("WS /ws/session/:wsId", () => {
     const firstSessionId = firstBusy.sessionId;
 
     const secondSession = await createNewSession(wsId, dataDir, slowCmd);
-    ws.send(JSON.stringify({ type: "switch_session", sessionId: secondSession.sessionId }));
+    ws.send(hubEvent(wsId, { type: "switch_session", sessionId: secondSession.sessionId }));
     await waitForMessage(
       messages,
       (msgs) =>
@@ -564,7 +599,7 @@ describe("WS /ws/session/:wsId", () => {
         ),
     );
 
-    ws.send(JSON.stringify({
+    ws.send(hubEvent(wsId, {
       type: "user_message",
       content: "second in session B",
       sessionId: secondSession.sessionId,
@@ -590,12 +625,12 @@ describe("WS /ws/session/:wsId", () => {
   });
 
   it("accepts tool_input_response and keeps stream status busy", async () => {
-    const { wsReady, messages } = connectSessionWs(wsId);
+    const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.length >= 1);
 
-    ws.send(JSON.stringify({
+    ws.send(hubEvent(wsId, {
       type: "tool_input_response",
       requestId: "req-1",
       toolName: "ExitPlanMode",
@@ -624,7 +659,7 @@ describe("WS /ws/session/:wsId", () => {
     const { session: oldSession } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
     const oldRespondSpy = vi.spyOn(oldSession, "respondToToolInput");
 
-    const { wsReady, messages } = connectSessionWs(wsId);
+    const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
     await waitForMessage(
@@ -655,7 +690,7 @@ describe("WS /ws/session/:wsId", () => {
     const newSession = await createNewSession(wsId, dataDir, CONV_CMD);
     const newRespondSpy = vi.spyOn(newSession, "respondToToolInput");
 
-    ws.send(JSON.stringify({
+    ws.send(hubEvent(wsId, {
       type: "tool_input_response",
       requestId: "req-dismiss",
       toolName: "ExitPlanMode",
@@ -675,16 +710,16 @@ describe("WS /ws/session/:wsId", () => {
     await endSession(wsId, dataDir).catch(() => {});
   });
 
-  it("broadcasts user_message event to all connected clients", async () => {
-    const first = connectSessionWs(wsId);
-    const second = connectSessionWs(wsId);
+  it("broadcasts user_message event to all connected hub clients", async () => {
+    const first = connectHub([wsId]);
+    const second = connectHub([wsId]);
     const ws1 = await first.wsReady;
     const ws2 = await second.wsReady;
 
     await waitForMessage(first.messages, (msgs) => msgs.length >= 1);
     await waitForMessage(second.messages, (msgs) => msgs.length >= 1);
 
-    ws1.send(JSON.stringify({ type: "user_message", content: "cross-client-sync" }));
+    ws1.send(hubEvent(wsId, { type: "user_message", content: "cross-client-sync" }));
 
     await waitForMessage(
       first.messages,
@@ -716,19 +751,21 @@ describe("WS /ws/session/:wsId", () => {
 
   it("handles invalid JSON from client", async () => {
     await getOrCreateSession(wsId, dataDir, CONV_CMD);
-    const { wsReady, messages } = connectSessionWs(wsId);
+    const { wsReady, allEnvelopes } = connectHub([wsId]);
     const ws = await wsReady;
 
-    await waitForMessage(messages, (msgs) => msgs.length >= 1);
+    await waitForCondition(() => allEnvelopes.length >= 1);
 
     ws.send("not json at all");
 
-    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "error"));
+    await waitForCondition(() =>
+      allEnvelopes.some((e) => e.event.type === "error"),
+    );
 
-    const errorMsg = messages.find((m) => m.type === "error");
-    expect(errorMsg).toBeDefined();
-    if (errorMsg?.type === "error") {
-      expect(errorMsg.message).toContain("Invalid JSON");
+    const errorEnvelope = allEnvelopes.find((e) => e.event.type === "error");
+    expect(errorEnvelope).toBeDefined();
+    if (errorEnvelope?.event.type === "error") {
+      expect(errorEnvelope.event.message).toContain("Invalid JSON");
     }
 
     ws.close();
@@ -737,13 +774,12 @@ describe("WS /ws/session/:wsId", () => {
 
   it("handles stop command without error", async () => {
     await getOrCreateSession(wsId, dataDir, CONV_CMD);
-    const { wsReady, messages } = connectSessionWs(wsId);
+    const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.length >= 1);
 
-    // Stop when not streaming — no-op, no error
-    ws.send(JSON.stringify({ type: "stop" }));
+    ws.send(hubEvent(wsId, { type: "stop" }));
 
     await new Promise((r) => setTimeout(r, 100));
 
@@ -756,8 +792,8 @@ describe("WS /ws/session/:wsId", () => {
   it("broadcasts session events to multiple connected clients", async () => {
     await getOrCreateSession(wsId, dataDir, CONV_CMD);
 
-    const first = connectSessionWs(wsId);
-    const second = connectSessionWs(wsId);
+    const first = connectHub([wsId]);
+    const second = connectHub([wsId]);
     const ws1 = await first.wsReady;
     const ws2 = await second.wsReady;
 
@@ -782,22 +818,22 @@ describe("WS /ws/session/:wsId", () => {
     await endSession(wsId, dataDir);
   });
 
-  it("broadcasts all session events to all sockets regardless of which session each socket initiated", async () => {
+  it("broadcasts all session events to all hub sockets regardless of which session each initiated", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-focus.sh");
     await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 6\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);
     const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
 
     const local = await startWsApp(undefined, slowCmd);
-    const first = connectSessionWs(wsId, { app: local.app });
-    const second = connectSessionWs(wsId, { app: local.app });
+    const first = connectHub([wsId], { app: local.app });
+    const second = connectHub([wsId], { app: local.app });
     const ws1 = await first.wsReady;
     const ws2 = await second.wsReady;
 
     await waitForMessage(first.messages, (msgs) => msgs.some((m) => m.type === "status"));
     await waitForMessage(second.messages, (msgs) => msgs.some((m) => m.type === "status"));
 
-    ws1.send(JSON.stringify({ type: "user_message", content: "session-a" }));
+    ws1.send(hubEvent(wsId, { type: "user_message", content: "session-a" }));
     await waitForMessage(
       first.messages,
       (msgs) => msgs.some(
@@ -823,7 +859,7 @@ describe("WS /ws/session/:wsId", () => {
     const firstSessionId = firstBusy.sessionId;
 
     const secondSession = await createNewSession(wsId, dataDir, slowCmd);
-    ws2.send(JSON.stringify({ type: "switch_session", sessionId: secondSession.sessionId }));
+    ws2.send(hubEvent(wsId, { type: "switch_session", sessionId: secondSession.sessionId }));
     await waitForMessage(
       second.messages,
       (msgs) => msgs.some(
@@ -833,7 +869,7 @@ describe("WS /ws/session/:wsId", () => {
 
     const firstMarker = first.messages.length;
     const secondMarker = second.messages.length;
-    ws2.send(JSON.stringify({
+    ws2.send(hubEvent(wsId, {
       type: "user_message",
       content: "session-b",
       sessionId: secondSession.sessionId,
@@ -852,8 +888,6 @@ describe("WS /ws/session/:wsId", () => {
     );
     await new Promise((resolve) => setTimeout(resolve, 120));
 
-    // Status messages are now broadcast to ALL sockets so every client
-    // can track per-session streaming state (e.g. tab loaders, sidebar).
     const statusReachedFirstSocket = first.messages.slice(firstMarker).some(
       (m) =>
         m.type === "status" &&
@@ -870,52 +904,63 @@ describe("WS /ws/session/:wsId", () => {
     await endSession(wsId, dataDir).catch(() => {});
   });
 
-  it("keeps workspace channels isolated across concurrent workspace streams", async () => {
+  it("keeps workspace channels isolated across workspaces on the same hub", async () => {
     const otherWorkspace = await createWorkspace(projectId, dataDir);
-    const first = connectSessionWs(wsId);
-    const second = connectSessionWs(otherWorkspace.id);
-    const ws1 = await first.wsReady;
-    const ws2 = await second.wsReady;
 
-    await waitForMessage(first.messages, (msgs) => msgs.some((m) => m.type === "status"));
-    await waitForMessage(second.messages, (msgs) => msgs.some((m) => m.type === "status"));
+    // Subscribe a single hub socket to both workspaces
+    const { wsReady, messages, allEnvelopes } = connectHub([wsId], { collectAll: true });
+    const ws = await wsReady;
 
-    const secondStartCount = second.messages.length;
-    ws1.send(JSON.stringify({ type: "user_message", content: "workspace-one-message" }));
+    // Also subscribe to the other workspace
+    syncWorkspaces(ws, [wsId, otherWorkspace.id]);
 
-    await waitForMessage(
-      first.messages,
-      (msgs) => msgs.some((m) => m.type === "user_message"),
+    await waitForCondition(() =>
+      allEnvelopes.some((e) => e.workspaceId === wsId && e.event.type === "status") &&
+      allEnvelopes.some((e) => e.workspaceId === otherWorkspace.id && e.event.type === "status"),
+    );
+
+    const wsIdEnvelopes = allEnvelopes.filter((e) => e.workspaceId === wsId);
+    const otherEnvelopes = allEnvelopes.filter((e) => e.workspaceId === otherWorkspace.id);
+    const otherStartCount = otherEnvelopes.length;
+
+    ws.send(hubEvent(wsId, { type: "user_message", content: "workspace-one-message" }));
+
+    await waitForCondition(() =>
+      allEnvelopes.some(
+        (e) => e.workspaceId === wsId && e.event.type === "user_message",
+      ),
     );
     await new Promise((resolve) => setTimeout(resolve, 150));
 
-    const leakedToOtherWorkspace = second.messages.slice(secondStartCount).some(
-      (m) => m.type === "user_message" || (m.type === "status" && m.status === "busy"),
-    );
+    const leakedToOtherWorkspace = allEnvelopes
+      .filter((e) => e.workspaceId === otherWorkspace.id)
+      .slice(otherStartCount)
+      .some(
+        (e) => e.event.type === "user_message" || (e.event.type === "status" && e.event.status === "busy"),
+      );
     expect(leakedToOtherWorkspace).toBe(false);
 
-    ws1.close();
-    ws2.close();
+    ws.close();
     await endSession(wsId, dataDir).catch(() => {});
     await endSession(otherWorkspace.id, dataDir).catch(() => {});
   });
 
-  it("keeps a workspace channel until the last socket closes, then removes it", async () => {
-    const first = connectSessionWs(wsId);
-    const second = connectSessionWs(wsId);
+  it("keeps a workspace channel until the last hub socket unsubscribes, then removes it", async () => {
+    const first = connectHub([wsId]);
+    const second = connectHub([wsId]);
     const ws1 = await first.wsReady;
     const ws2 = await second.wsReady;
 
     await waitForMessage(first.messages, (msgs) => msgs.some((m) => m.type === "status"));
     await waitForMessage(second.messages, (msgs) => msgs.some((m) => m.type === "status"));
-    await waitForCondition(() => _getChannelsForTests().get(wsId)?.sockets.size === 2);
+    await waitForCondition(() => _getChannelsForTests().get(wsId)?.hubSockets.size === 2);
 
     const ws1Closed = new Promise<void>((resolve) => {
       ws1.once("close", () => resolve());
     });
     ws1.terminate();
     await ws1Closed;
-    await waitForCondition(() => _getChannelsForTests().get(wsId)?.sockets.size === 1);
+    await waitForCondition(() => _getChannelsForTests().get(wsId)?.hubSockets.size === 1);
     expect(_getChannelsForTests().has(wsId)).toBe(true);
 
     const ws2Closed = new Promise<void>((resolve) => {
@@ -932,7 +977,7 @@ describe("WS /ws/session/:wsId", () => {
     await chmod(fakeClaudePath, 0o755);
 
     const local = await startWsApp(undefined, { command: fakeClaudePath, systemPrompt: false });
-    const { wsReady, messages } = connectSessionWs(wsId, { app: local.app });
+    const { wsReady, messages } = connectHub([wsId], { app: local.app });
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.length >= 1);
@@ -940,7 +985,7 @@ describe("WS /ws/session/:wsId", () => {
       (m) => m.type === "status" && m.status === "idle",
     ).length;
 
-    ws.send(JSON.stringify({ type: "user_message", content: "replace me" }));
+    ws.send(hubEvent(wsId, { type: "user_message", content: "replace me" }));
     await waitForMessage(
       messages,
       (msgs) => msgs.some((m) => m.type === "status" && m.status === "busy" && m.streaming === true),
@@ -961,7 +1006,7 @@ describe("WS /ws/session/:wsId", () => {
 
   it("rejects unauthorized websocket connections when auth token is configured", async () => {
     const secure = await startWsApp("secret");
-    const ws = await secure.app.injectWS(`/ws/session/${wsId}`);
+    const ws = await secure.app.injectWS(`/ws/hub`);
 
     const closeCode = await new Promise<number>((resolve, reject) => {
       ws.on("close", (code) => resolve(code));
@@ -974,7 +1019,7 @@ describe("WS /ws/session/:wsId", () => {
 
   it("accepts websocket connections with a valid auth token", async () => {
     const secure = await startWsApp("secret");
-    const { wsReady, messages } = connectSessionWs(wsId, {
+    const { wsReady, messages } = connectHub([wsId], {
       app: secure.app,
       headers: { authorization: "Bearer secret" },
     });
@@ -989,7 +1034,7 @@ describe("WS /ws/session/:wsId", () => {
 
   it("accepts websocket connections with a valid token query parameter", async () => {
     const secure = await startWsApp("secret");
-    const { wsReady, messages } = connectSessionWs(wsId, {
+    const { wsReady, messages } = connectHub([wsId], {
       app: secure.app,
       query: { token: "secret" },
     });
@@ -1002,9 +1047,9 @@ describe("WS /ws/session/:wsId", () => {
     await secure.app.close();
   });
 
-  it("broadcastToWorkspace sends a message to all connected sockets", async () => {
-    const first = connectSessionWs(wsId);
-    const second = connectSessionWs(wsId);
+  it("broadcastToWorkspace sends a message to all hub sockets subscribed to the workspace", async () => {
+    const first = connectHub([wsId]);
+    const second = connectHub([wsId]);
     const ws1 = await first.wsReady;
     const ws2 = await second.wsReady;
 
@@ -1035,14 +1080,13 @@ describe("WS /ws/session/:wsId", () => {
   });
 
   it("broadcastToWorkspace is a no-op for unknown workspace", () => {
-    // Should not throw
     broadcastToWorkspace("ws-nonexistent", {
       type: "branch_info",
       info: { name: "test", lastSyncedAt: "2026-02-13T00:00:00.000Z" },
     });
   });
 
-  it("sends cached branch_info and diff_stats on connect", async () => {
+  it("sends cached branch_info and diff_stats on subscribe", async () => {
     const branchInfo = { name: "workspace/tokyo", lastSyncedAt: "2026-02-15T10:00:00.000Z" };
     const diffStats = {
       committed: [{ file: "a.ts", additions: 1, deletions: 0, status: "added" as const }],
@@ -1057,7 +1101,7 @@ describe("WS /ws/session/:wsId", () => {
       ),
     };
     const local = await startWsApp(undefined, CONV_CMD, provider);
-    const { wsReady, messages } = connectSessionWs(wsId, { app: local.app });
+    const { wsReady, messages } = connectHub([wsId], { app: local.app });
     const ws = await wsReady;
 
     await waitForMessage(
@@ -1092,7 +1136,7 @@ describe("WS /ws/session/:wsId", () => {
     };
     const local = await startWsApp(undefined, CONV_CMD, provider);
 
-    const { ws, messages } = await connectSessionWsLateListener(wsId, { app: local.app });
+    const { ws, messages } = await connectHubLateListener([wsId], { app: local.app });
 
     await waitForMessage(
       messages,
@@ -1123,11 +1167,10 @@ describe("WS /ws/session/:wsId", () => {
       getCachedDiffStats: vi.fn(() => undefined),
     };
     const local = await startWsApp(undefined, CONV_CMD, provider);
-    const { wsReady, messages } = connectSessionWs(wsId, { app: local.app });
+    const { wsReady, messages } = connectHub([wsId], { app: local.app });
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
-    // Give a small window for any extra messages to arrive
     await new Promise((r) => setTimeout(r, 100));
 
     expect(messages).toHaveLength(1);
@@ -1139,10 +1182,10 @@ describe("WS /ws/session/:wsId", () => {
     await local.app.close();
   });
 
-  it("sends script_status on connect when a script is running", async () => {
+  it("sends script_status on subscribe when a script is running", async () => {
     _setScriptStatusForTests(wsId, "run", "running");
 
-    const { wsReady, messages } = connectSessionWs(wsId);
+    const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
     await waitForMessage(
@@ -1160,11 +1203,11 @@ describe("WS /ws/session/:wsId", () => {
     ws.close();
   });
 
-  it("sends script_status for each non-idle named script on connect", async () => {
+  it("sends script_status for each non-idle named script on subscribe", async () => {
     _setScriptStatusForTests(wsId, "backend", "running");
     _setScriptStatusForTests(wsId, "frontend", "done", 0);
 
-    const { wsReady, messages } = connectSessionWs(wsId);
+    const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
     await waitForMessage(
@@ -1187,10 +1230,10 @@ describe("WS /ws/session/:wsId", () => {
     ws.close();
   });
 
-  it("sends script_status with exitCode on connect when a script has finished", async () => {
+  it("sends script_status with exitCode on subscribe when a script has finished", async () => {
     _setScriptStatusForTests(wsId, "setup", "error", 1);
 
-    const { wsReady, messages } = connectSessionWs(wsId);
+    const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
     await waitForMessage(
@@ -1209,8 +1252,8 @@ describe("WS /ws/session/:wsId", () => {
     ws.close();
   });
 
-  it("does not send script_status on connect when all scripts are idle", async () => {
-    const { wsReady, messages } = connectSessionWs(wsId);
+  it("does not send script_status on subscribe when all scripts are idle", async () => {
+    const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
@@ -1230,10 +1273,9 @@ describe("WS /ws/session/:wsId", () => {
     };
     const local = await startWsApp(undefined, CONV_CMD, provider);
 
-    // Create a session first so the WS connect path hits the "busy" branch
     await getOrCreateSession(wsId, dataDir, CONV_CMD);
 
-    const { wsReady, messages } = connectSessionWs(wsId, { app: local.app });
+    const { wsReady, messages } = connectHub([wsId], { app: local.app });
     const ws = await wsReady;
 
     await waitForMessage(
@@ -1253,5 +1295,37 @@ describe("WS /ws/session/:wsId", () => {
     ws.close();
     await local.app.close();
     await endSession(wsId, dataDir).catch(() => {});
+  });
+
+  it("sync_workspaces adds and removes workspace subscriptions dynamically", async () => {
+    const otherWorkspace = await createWorkspace(projectId, dataDir);
+
+    const { wsReady, allEnvelopes } = connectHub([wsId], { collectAll: true });
+    const ws = await wsReady;
+
+    // Wait for initial bootstrap
+    await waitForCondition(() =>
+      allEnvelopes.some((e) => e.workspaceId === wsId && e.event.type === "status"),
+    );
+
+    // Add second workspace
+    syncWorkspaces(ws, [wsId, otherWorkspace.id]);
+    await waitForCondition(() =>
+      allEnvelopes.some((e) => e.workspaceId === otherWorkspace.id && e.event.type === "status"),
+    );
+
+    // Remove first workspace
+    syncWorkspaces(ws, [otherWorkspace.id]);
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Channel for wsId should be cleaned up (no hub sockets left)
+    const wsChannel = _getChannelsForTests().get(wsId);
+    expect(!wsChannel || wsChannel.hubSockets.size === 0).toBe(true);
+
+    // Channel for other workspace should still exist
+    const otherChannel = _getChannelsForTests().get(otherWorkspace.id);
+    expect(otherChannel?.hubSockets.size).toBe(1);
+
+    ws.close();
   });
 });

@@ -12,7 +12,7 @@ import {
 } from "../agents/agent-manager.js";
 import { errorMessage } from "../utils/errors.js";
 import { isAuthorized } from "../utils/auth.js";
-import type { WsIncoming, WsOutgoing } from "../types.js";
+import type { WsIncoming, WsOutgoing, HubIncoming, HubOutgoing } from "../types.js";
 import { getScriptStatus } from "../services/script-runner.js";
 
 interface GitSyncSnapshotProvider {
@@ -27,16 +27,17 @@ export interface StreamRoutesOptions {
   gitSyncSnapshotProvider?: GitSyncSnapshotProvider;
 }
 
-function sendOutgoing(socket: WebSocket, msg: WsOutgoing): void {
-  if (socket.readyState === socket.OPEN) {
-    socket.send(JSON.stringify(msg));
-  }
-}
-
 type ActiveSession = NonNullable<ReturnType<typeof getSession>>;
 
+// ── Hub socket tracking ─────────────────────────────────────────────
+
+interface HubSocket {
+  ws: WebSocket;
+  subscribedWorkspaces: Set<string>;
+}
+
 interface WorkspaceChannel {
-  sockets: Set<WebSocket>;
+  hubSockets: Set<HubSocket>;
   detachBySessionId: Map<string, () => void>;
   pendingToolRequests: Map<string, string>;
 }
@@ -44,20 +45,40 @@ interface WorkspaceChannel {
 const PING_INTERVAL_MS = 30_000;
 
 const channels = new Map<string, WorkspaceChannel>();
-const socketPingTimers = new Map<WebSocket, NodeJS.Timeout>();
+const hubSockets = new Set<HubSocket>();
+const hubPingTimers = new Map<HubSocket, NodeJS.Timeout>();
 
-/** Send a message to all sockets connected to a workspace channel. */
+// ── Sending helpers ─────────────────────────────────────────────────
+
+function sendToHub(hub: HubSocket, workspaceId: string, msg: WsOutgoing): void {
+  if (hub.ws.readyState === hub.ws.OPEN) {
+    const envelope: HubOutgoing = { workspaceId, event: msg };
+    hub.ws.send(JSON.stringify(envelope));
+  }
+}
+
+/** Send a message to all hub sockets subscribed to a workspace channel. */
 export function broadcastToWorkspace(workspaceId: string, msg: WsOutgoing): void {
   const channel = channels.get(workspaceId);
   if (!channel) return;
-  for (const socket of channel.sockets) {
-    sendOutgoing(socket, msg);
+  const envelope: HubOutgoing = { workspaceId, event: msg };
+  const serialized = JSON.stringify(envelope);
+  for (const hub of channel.hubSockets) {
+    if (hub.ws.readyState === hub.ws.OPEN) {
+      hub.ws.send(serialized);
+    }
   }
 }
 
 export function _getChannelsForTests(): Map<string, WorkspaceChannel> {
   return channels;
 }
+
+export function _getHubSocketsForTests(): Set<HubSocket> {
+  return hubSockets;
+}
+
+// ── Route registration ──────────────────────────────────────────────
 
 export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptions = {}) {
   const {
@@ -67,11 +88,13 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     gitSyncSnapshotProvider,
   } = opts;
 
+  // ── Channel helpers ───────────────────────────────────────────────
+
   const getOrCreateChannel = (workspaceId: string): WorkspaceChannel => {
     const existing = channels.get(workspaceId);
     if (existing) return existing;
     const created: WorkspaceChannel = {
-      sockets: new Set<WebSocket>(),
+      hubSockets: new Set<HubSocket>(),
       detachBySessionId: new Map<string, () => void>(),
       pendingToolRequests: new Map<string, string>(),
     };
@@ -79,14 +102,20 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     return created;
   };
 
-  const broadcastToChannel = (channel: WorkspaceChannel, msg: WsOutgoing): void => {
-    for (const socket of channel.sockets) {
-      sendOutgoing(socket, msg);
+  const broadcastToChannel = (channel: WorkspaceChannel, workspaceId: string, msg: WsOutgoing): void => {
+    const envelope: HubOutgoing = { workspaceId, event: msg };
+    const serialized = JSON.stringify(envelope);
+    for (const hub of channel.hubSockets) {
+      if (hub.ws.readyState === hub.ws.OPEN) {
+        hub.ws.send(serialized);
+      }
     }
   };
 
-  const sendSessionBootstrap = async (socket: WebSocket, session: ActiveSession): Promise<void> => {
-    sendOutgoing(socket, {
+  // ── Session helpers (unchanged logic) ─────────────────────────────
+
+  const sendSessionBootstrap = async (hub: HubSocket, workspaceId: string, session: ActiveSession): Promise<void> => {
+    sendToHub(hub, workspaceId, {
       type: "status",
       status: session.status === "streaming" ? "busy" : "idle",
       sessionId: session.sessionId,
@@ -98,7 +127,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     });
     try {
       const messages = await session.getMessages();
-      sendOutgoing(socket, { type: "history", sessionId: session.sessionId, messages });
+      sendToHub(hub, workspaceId, { type: "history", sessionId: session.sessionId, messages });
     } catch {
       // History load failure is non-fatal.
     }
@@ -138,15 +167,13 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       if (msg.type === "tool_input_required") {
         channel.pendingToolRequests.set(msg.requestId, session.sessionId);
       }
-      broadcastToChannel(channel, msg);
+      broadcastToChannel(channel, workspaceId, msg);
     };
     const onError = (err: Error) => {
-      broadcastToChannel(channel, { type: "error", message: err.message, sessionId: session.sessionId });
+      broadcastToChannel(channel, workspaceId, { type: "error", message: err.message, sessionId: session.sessionId });
     };
     const onExit = (_code: number) => {
-      // Always broadcast idle status so all clients clear streaming state,
-      // even if the session was already removed from memory (e.g. deletion).
-      broadcastToChannel(channel, {
+      broadcastToChannel(channel, workspaceId, {
         type: "status",
         status: "idle",
         sessionId: session.sessionId,
@@ -192,231 +219,280 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     }
   };
 
-  app.get<{ Params: { wsId: string }; Querystring: { token?: string } }>(
-    "/ws/session/:wsId",
+  // ── Workspace bootstrap (sent to one hub socket on subscribe) ─────
+
+  const sendWorkspaceBootstrap = async (hub: HubSocket, wsId: string, channel: WorkspaceChannel): Promise<void> => {
+    const session = getSession(wsId);
+
+    if (session) {
+      attachSessionListeners(wsId, channel, session);
+      await sendSessionBootstrap(hub, wsId, session);
+      for (const streamingId of getStreamingSessionIds(wsId)) {
+        if (streamingId !== session.sessionId) {
+          const streamingSession = getSessionById(wsId, streamingId);
+          sendToHub(hub, wsId, {
+            type: "status",
+            status: "busy",
+            sessionId: streamingId,
+            streaming: true,
+            ...(streamingSession?.streamingStartedAt
+              ? { streamingStartedAt: streamingSession.streamingStartedAt }
+              : {}),
+          });
+        }
+      }
+    } else {
+      sendToHub(hub, wsId, { type: "status", status: "idle", streaming: false });
+      try {
+        const messages = await getSessionMessages(wsId, dataDir);
+        if (messages.length > 0) {
+          const firstSessionId = messages[0]?.sessionId;
+          sendToHub(hub, wsId, { type: "history", sessionId: firstSessionId, messages });
+        }
+      } catch {
+        // Ignore missing/corrupt persisted history.
+      }
+    }
+
+    const branchInfo = gitSyncSnapshotProvider?.getCachedBranchInfo(wsId);
+    if (branchInfo) {
+      sendToHub(hub, wsId, { type: "branch_info", info: branchInfo });
+    }
+
+    const diffStats = gitSyncSnapshotProvider?.getCachedDiffStats(wsId);
+    if (diffStats) {
+      sendToHub(hub, wsId, { type: "diff_stats", stats: diffStats });
+    }
+
+    const scriptStatus = getScriptStatus(wsId);
+    for (const [scriptType, info] of Object.entries(scriptStatus)) {
+      if (info.state !== "idle") {
+        sendToHub(hub, wsId, {
+          type: "script_status",
+          scriptType,
+          state: info.state,
+          ...(info.exitCode !== undefined ? { exitCode: info.exitCode } : {}),
+        });
+      }
+    }
+  };
+
+  // ── sync_workspaces handler ───────────────────────────────────────
+
+  const handleSyncWorkspaces = async (hub: HubSocket, workspaceIds: string[]): Promise<void> => {
+    const desired = new Set(workspaceIds);
+
+    // Unsubscribe from removed workspaces
+    for (const wsId of hub.subscribedWorkspaces) {
+      if (!desired.has(wsId)) {
+        const channel = channels.get(wsId);
+        if (channel) {
+          channel.hubSockets.delete(hub);
+          if (channel.hubSockets.size === 0) {
+            detachAllSessionListeners(channel);
+            channels.delete(wsId);
+          }
+        }
+      }
+    }
+
+    // Subscribe to new workspaces and bootstrap
+    for (const wsId of desired) {
+      if (!hub.subscribedWorkspaces.has(wsId)) {
+        const channel = getOrCreateChannel(wsId);
+        channel.hubSockets.add(hub);
+        await sendWorkspaceBootstrap(hub, wsId, channel);
+      }
+    }
+
+    hub.subscribedWorkspaces = desired;
+  };
+
+  // ── Workspace message handler ─────────────────────────────────────
+
+  const handleWorkspaceMessage = async (hub: HubSocket, wsId: string, incoming: WsIncoming): Promise<void> => {
+    const channel = channels.get(wsId);
+    if (!channel || !channel.hubSockets.has(hub)) {
+      sendToHub(hub, wsId, { type: "error", message: `Not subscribed to workspace ${wsId}` });
+      return;
+    }
+
+    switch (incoming.type) {
+      case "switch_session": {
+        try {
+          const session = await activateSession(
+            wsId,
+            incoming.sessionId,
+            dataDir,
+            sessionOptions,
+          );
+          attachSessionListeners(wsId, channel, session);
+          await sendSessionBootstrap(hub, wsId, session);
+        } catch (err: unknown) {
+          sendToHub(hub, wsId, { type: "error", message: errorMessage(err, "Failed to switch session") });
+        }
+        break;
+      }
+      case "user_message": {
+        try {
+          let targetSession: ActiveSession | undefined;
+          if (incoming.sessionId) {
+            targetSession = await resolveSessionById(wsId, channel, incoming.sessionId);
+            if (!targetSession) {
+              throw new Error(`Session ${incoming.sessionId} not found`);
+            }
+          }
+
+          if (!targetSession) {
+            const active = getSession(wsId);
+            if (active) {
+              targetSession = active;
+            } else {
+              const result = await getOrCreateSession(wsId, dataDir, sessionOptions);
+              targetSession = result.session;
+            }
+          }
+
+          attachSessionListeners(wsId, channel, targetSession);
+          targetSession.sendMessage(incoming.content, incoming.options, incoming.images);
+          broadcastToChannel(channel, wsId, {
+            type: "status",
+            status: "busy",
+            sessionId: targetSession.sessionId,
+            streaming: true,
+            streamingStartedAt: targetSession.streamingStartedAt ?? undefined,
+            lockedProvider: targetSession.metadata.lockedProvider,
+          });
+        } catch (err: unknown) {
+          sendToHub(hub, wsId, { type: "error", message: errorMessage(err, "Failed to send message") });
+        }
+        break;
+      }
+      case "stop": {
+        try {
+          const targetSessionId = incoming.sessionId;
+          if (targetSessionId) {
+            stopStreaming(wsId, targetSessionId);
+          } else {
+            const active = getSession(wsId);
+            if (!active) throw new Error(`No active session for workspace ${wsId}`);
+            stopStreaming(wsId, active.sessionId);
+          }
+        } catch (err: unknown) {
+          sendToHub(hub, wsId, { type: "error", message: errorMessage(err, "Failed to stop") });
+        }
+        break;
+      }
+      case "tool_input_response": {
+        try {
+          const requestSessionId = channel.pendingToolRequests.get(incoming.requestId);
+          if (requestSessionId) {
+            channel.pendingToolRequests.delete(incoming.requestId);
+          }
+
+          const sessionById = incoming.sessionId
+            ? await resolveSessionById(wsId, channel, incoming.sessionId)
+            : undefined;
+          const requestSession = requestSessionId
+            ? await resolveSessionById(wsId, channel, requestSessionId)
+            : undefined;
+
+          if (incoming.sessionId && !sessionById && !requestSession) {
+            throw new Error(`Session ${incoming.sessionId} not found`);
+          }
+
+          let targetSession: ActiveSession | undefined;
+          if (incoming.result.type === "dismiss") {
+            targetSession = requestSession ?? sessionById;
+          } else {
+            targetSession = sessionById ?? requestSession;
+          }
+
+          if (!targetSession) {
+            let activeSession = getSession(wsId);
+            if (!activeSession) {
+              const result = await getOrCreateSession(wsId, dataDir, sessionOptions);
+              activeSession = result.session;
+            }
+            targetSession = activeSession;
+          }
+
+          attachSessionListeners(wsId, channel, targetSession);
+          targetSession.respondToToolInput(incoming.toolName, incoming.result);
+          if (incoming.result.type !== "dismiss") {
+            broadcastToChannel(channel, wsId, {
+              type: "status",
+              status: "busy",
+              sessionId: targetSession.sessionId,
+              streaming: true,
+              streamingStartedAt: targetSession.streamingStartedAt ?? undefined,
+            });
+          }
+        } catch (err: unknown) {
+          sendToHub(hub, wsId, { type: "error", message: errorMessage(err, "Failed to respond to tool input") });
+        }
+        break;
+      }
+    }
+  };
+
+  // ── Hub WebSocket endpoint ────────────────────────────────────────
+
+  app.get<{ Querystring: { token?: string } }>(
+    "/ws/hub",
     { websocket: true },
     async (socket, req) => {
       const queryToken = typeof req.query.token === "string" ? req.query.token : undefined;
       if (!isAuthorized(req.headers, authToken, queryToken)) {
-        sendOutgoing(socket, { type: "error", message: "Unauthorized" });
+        if (socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify({ workspaceId: "_auth", event: { type: "error", message: "Unauthorized" } }));
+        }
         socket.close(1008, "Unauthorized");
         return;
       }
 
-      const { wsId } = req.params;
-      const channel = getOrCreateChannel(wsId);
-      channel.sockets.add(socket);
+      const hub: HubSocket = { ws: socket, subscribedWorkspaces: new Set() };
+      hubSockets.add(hub);
 
-      // Keep-alive ping to prevent idle TCP drops (especially through proxies).
       const pingTimer = setInterval(() => {
         if (socket.readyState === socket.OPEN) socket.ping();
       }, PING_INTERVAL_MS);
-      socketPingTimers.set(socket, pingTimer);
-
-      const sendBootstrap = async (): Promise<void> => {
-        const session = getSession(wsId);
-
-        if (session) {
-          attachSessionListeners(wsId, channel, session);
-          await sendSessionBootstrap(socket, session);
-          // Send status for other sessions that are currently streaming
-          for (const streamingId of getStreamingSessionIds(wsId)) {
-            if (streamingId !== session.sessionId) {
-              const streamingSession = getSessionById(wsId, streamingId);
-              sendOutgoing(socket, {
-                type: "status",
-                status: "busy",
-                sessionId: streamingId,
-                streaming: true,
-                ...(streamingSession?.streamingStartedAt
-                  ? { streamingStartedAt: streamingSession.streamingStartedAt }
-                  : {}),
-              });
-            }
-          }
-        } else {
-          sendOutgoing(socket, { type: "status", status: "idle", streaming: false });
-          try {
-            const messages = await getSessionMessages(wsId, dataDir);
-            if (messages.length > 0) {
-              const firstSessionId = messages[0]?.sessionId;
-              sendOutgoing(socket, { type: "history", sessionId: firstSessionId, messages });
-            }
-          } catch {
-            // Ignore missing/corrupt persisted history.
-          }
-        }
-
-        const branchInfo = gitSyncSnapshotProvider?.getCachedBranchInfo(wsId);
-        if (branchInfo) {
-          sendOutgoing(socket, { type: "branch_info", info: branchInfo });
-        }
-
-        const diffStats = gitSyncSnapshotProvider?.getCachedDiffStats(wsId);
-        if (diffStats) {
-          sendOutgoing(socket, { type: "diff_stats", stats: diffStats });
-        }
-
-        // Bootstrap script running state so sidebar indicators survive reconnects.
-        const scriptStatus = getScriptStatus(wsId);
-        for (const [scriptType, info] of Object.entries(scriptStatus)) {
-          if (info.state !== "idle") {
-            sendOutgoing(socket, {
-              type: "script_status",
-              scriptType,
-              state: info.state,
-              ...(info.exitCode !== undefined ? { exitCode: info.exitCode } : {}),
-            });
-          }
-        }
-      };
+      hubPingTimers.set(hub, pingTimer);
 
       socket.on("close", () => {
-        const timer = socketPingTimers.get(socket);
-        if (timer) { clearInterval(timer); socketPingTimers.delete(socket); }
+        const timer = hubPingTimers.get(hub);
+        if (timer) { clearInterval(timer); hubPingTimers.delete(hub); }
 
-        channel.sockets.delete(socket);
-        if (channel.sockets.size === 0) {
-          detachAllSessionListeners(channel);
-          channels.delete(wsId);
+        // Unsubscribe from all workspace channels
+        for (const wsId of hub.subscribedWorkspaces) {
+          const channel = channels.get(wsId);
+          if (channel) {
+            channel.hubSockets.delete(hub);
+            if (channel.hubSockets.size === 0) {
+              detachAllSessionListeners(channel);
+              channels.delete(wsId);
+            }
+          }
         }
+        hubSockets.delete(hub);
       });
 
       socket.on("message", async (raw) => {
-        let incoming: WsIncoming;
+        let parsed: HubIncoming;
         try {
-          incoming = JSON.parse(raw.toString()) as WsIncoming;
+          parsed = JSON.parse(raw.toString()) as HubIncoming;
         } catch {
-          sendOutgoing(socket, { type: "error", message: "Invalid JSON" });
+          if (socket.readyState === socket.OPEN) {
+            socket.send(JSON.stringify({ workspaceId: "_error", event: { type: "error", message: "Invalid JSON" } }));
+          }
           return;
         }
 
-        switch (incoming.type) {
-          case "switch_session": {
-            try {
-              const session = await activateSession(
-                wsId,
-                incoming.sessionId,
-                dataDir,
-                sessionOptions,
-              );
-              attachSessionListeners(wsId, channel, session);
-              await sendSessionBootstrap(socket, session);
-            } catch (err: unknown) {
-              sendOutgoing(socket, { type: "error", message: errorMessage(err, "Failed to switch session") });
-            }
-            break;
-          }
-          case "user_message": {
-            try {
-              let targetSession: ActiveSession | undefined;
-              if (incoming.sessionId) {
-                targetSession = await resolveSessionById(wsId, channel, incoming.sessionId);
-                if (!targetSession) {
-                  throw new Error(`Session ${incoming.sessionId} not found`);
-                }
-              }
-
-              if (!targetSession) {
-                const active = getSession(wsId);
-                if (active) {
-                  targetSession = active;
-                } else {
-                  const result = await getOrCreateSession(wsId, dataDir, sessionOptions);
-                  targetSession = result.session;
-                }
-              }
-
-              attachSessionListeners(wsId, channel, targetSession);
-              targetSession.sendMessage(incoming.content, incoming.options, incoming.images);
-              broadcastToChannel(channel, {
-                type: "status",
-                status: "busy",
-                sessionId: targetSession.sessionId,
-                streaming: true,
-                streamingStartedAt: targetSession.streamingStartedAt ?? undefined,
-                lockedProvider: targetSession.metadata.lockedProvider,
-              });
-            } catch (err: unknown) {
-              sendOutgoing(socket, { type: "error", message: errorMessage(err, "Failed to send message") });
-            }
-            break;
-          }
-          case "stop": {
-            try {
-              const targetSessionId = incoming.sessionId;
-              if (targetSessionId) {
-                stopStreaming(wsId, targetSessionId);
-              } else {
-                const active = getSession(wsId);
-                if (!active) throw new Error(`No active session for workspace ${wsId}`);
-                stopStreaming(wsId, active.sessionId);
-              }
-            } catch (err: unknown) {
-              sendOutgoing(socket, { type: "error", message: errorMessage(err, "Failed to stop") });
-            }
-            break;
-          }
-          case "tool_input_response": {
-            try {
-              // Prefer routing dismiss responses back to the originating session.
-              // This avoids races where active/focused session changed meanwhile.
-              const requestSessionId = channel.pendingToolRequests.get(incoming.requestId);
-              if (requestSessionId) {
-                channel.pendingToolRequests.delete(incoming.requestId);
-              }
-
-              const sessionById = incoming.sessionId
-                ? await resolveSessionById(wsId, channel, incoming.sessionId)
-                : undefined;
-              const requestSession = requestSessionId
-                ? await resolveSessionById(wsId, channel, requestSessionId)
-                : undefined;
-
-              if (incoming.sessionId && !sessionById && !requestSession) {
-                throw new Error(`Session ${incoming.sessionId} not found`);
-              }
-
-              let targetSession: ActiveSession | undefined;
-              if (incoming.result.type === "dismiss") {
-                targetSession = requestSession ?? sessionById;
-              } else {
-                targetSession = sessionById ?? requestSession;
-              }
-
-              if (!targetSession) {
-                let activeSession = getSession(wsId);
-                if (!activeSession) {
-                  const result = await getOrCreateSession(wsId, dataDir, sessionOptions);
-                  activeSession = result.session;
-                }
-                targetSession = activeSession;
-              }
-
-              attachSessionListeners(wsId, channel, targetSession);
-              targetSession.respondToToolInput(incoming.toolName, incoming.result);
-              // Dismiss persists a message without spawning a CLI — no streaming.
-              if (incoming.result.type !== "dismiss") {
-                broadcastToChannel(channel, {
-                  type: "status",
-                  status: "busy",
-                  sessionId: targetSession.sessionId,
-                  streaming: true,
-                  streamingStartedAt: targetSession.streamingStartedAt ?? undefined,
-                });
-              }
-            } catch (err: unknown) {
-              sendOutgoing(socket, { type: "error", message: errorMessage(err, "Failed to respond to tool input") });
-            }
-            break;
-          }
+        if ("type" in parsed && parsed.type === "sync_workspaces") {
+          await handleSyncWorkspaces(hub, parsed.workspaceIds);
+        } else if ("workspaceId" in parsed && "event" in parsed) {
+          await handleWorkspaceMessage(hub, parsed.workspaceId, parsed.event);
         }
-      });
-
-      // Defer bootstrap messages one tick so test injectors and real clients
-      // consistently attach message listeners before the initial status/history burst.
-      setImmediate(() => {
-        void sendBootstrap();
       });
     },
   );
