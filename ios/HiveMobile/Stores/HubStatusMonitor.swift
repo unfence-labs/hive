@@ -34,7 +34,7 @@ final class HubStatusMonitor {
     }
 
     /// Wire (or re-wire) the send closure for a workspace's store.
-    private func wireSendClosure(for workspaceId: String, on store: ConversationStore) {
+    fileprivate func wireSendClosure(for workspaceId: String, on store: ConversationStore) {
         guard let conn = connections[workspaceId] else { return }
         store.send = { [weak conn] message in
             await conn?.send(message)
