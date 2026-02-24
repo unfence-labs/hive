@@ -41,7 +41,10 @@ interface WorkspaceChannel {
   pendingToolRequests: Map<string, string>;
 }
 
+const PING_INTERVAL_MS = 30_000;
+
 const channels = new Map<string, WorkspaceChannel>();
+const socketPingTimers = new Map<WebSocket, NodeJS.Timeout>();
 
 /** Send a message to all sockets connected to a workspace channel. */
 export function broadcastToWorkspace(workspaceId: string, msg: WsOutgoing): void {
@@ -204,6 +207,12 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       const channel = getOrCreateChannel(wsId);
       channel.sockets.add(socket);
 
+      // Keep-alive ping to prevent idle TCP drops (especially through proxies).
+      const pingTimer = setInterval(() => {
+        if (socket.readyState === socket.OPEN) socket.ping();
+      }, PING_INTERVAL_MS);
+      socketPingTimers.set(socket, pingTimer);
+
       const sendBootstrap = async (): Promise<void> => {
         const session = getSession(wsId);
 
@@ -263,6 +272,9 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       };
 
       socket.on("close", () => {
+        const timer = socketPingTimers.get(socket);
+        if (timer) { clearInterval(timer); socketPingTimers.delete(socket); }
+
         channel.sockets.delete(socket);
         if (channel.sockets.size === 0) {
           detachAllSessionListeners(channel);

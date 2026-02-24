@@ -4,6 +4,8 @@ import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { getScriptProcess } from "../services/script-runner.js";
 import { isAuthorized } from "../utils/auth.js";
 
+const PING_INTERVAL_MS = 30_000;
+
 export interface ScriptWsRoutesOptions {
   dataDir?: string;
   authToken?: string;
@@ -91,6 +93,10 @@ export async function scriptWsRoutes(
 
       socket.send(JSON.stringify({ type: "ready" }));
 
+      const pingTimer = setInterval(() => {
+        if (socket.readyState === socket.OPEN) socket.ping();
+      }, PING_INTERVAL_MS);
+
       // WS → PTY (bidirectional for interactive prompts)
       socket.on("message", (raw, isBinary) => {
         if (proc.state !== "running") return;
@@ -118,6 +124,7 @@ export async function scriptWsRoutes(
 
       // On WS close: detach listener but do NOT kill the process
       socket.on("close", () => {
+        clearInterval(pingTimer);
         proc.listeners.delete(listenerId);
         proc.exitListeners.delete(listenerId);
       });

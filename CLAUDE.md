@@ -261,3 +261,4 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `redacted_thinking` blocks are logged as `[redacted]` but not visually distinguished from regular thinking in the UI.
 - Codex provider integration is functional but less battle-tested than Claude. Stream adapter edge cases may surface.
 - No Codex session resume verification (thread ID persistence is best-effort).
+- No WS multiplexing — one WebSocket per workspace (N connections). Consider multiplexing all workspace events over a single "hub" WS to reduce proxy/network overhead and simplify connection lifecycle. Would require a new hub endpoint, workspaceId-tagged messages, frontend transport rewrite, and iOS `HubStatusMonitor` rewrite.
