@@ -149,10 +149,10 @@ describe("ModelSelector", () => {
 
     await user.click(screen.getByRole("button", { name: /Model: Opus 4.6/i }));
 
-    // Codex models should be visually disabled (opacity-40, cursor-not-allowed)
+    // Codex models should be visually disabled (opacity-30, cursor-not-allowed)
     const codexModelElement = screen.getByText("GPT-5.3-Codex");
     const container = codexModelElement.closest("div");
-    expect(container?.className).toContain("opacity-40");
+    expect(container?.className).toContain("opacity-30");
     expect(container?.className).toContain("cursor-not-allowed");
   });
 
