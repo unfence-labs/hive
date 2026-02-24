@@ -1,7 +1,11 @@
+import { useEffect } from "react";
 import { Outlet, useLocation } from "react-router-dom";
+import { PanelLeft } from "lucide-react";
 import Sidebar from "./Sidebar";
 import SettingsSidebar from "./SettingsSidebar";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
+import { useSidebarCollapsed, toggleSidebar } from "@/hooks/useSidebarCollapsed";
+import { cn } from "@/lib/utils";
 
 interface AppLayoutProps {
   onAddProject: () => void;
@@ -11,6 +15,19 @@ export default function AppLayout({ onAddProject }: AppLayoutProps) {
   const { pathname } = useLocation();
   const isSettings = pathname.startsWith("/settings");
   const { backendEnv } = useConnectionStatus();
+  const { collapsed, toggle } = useSidebarCollapsed();
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "b") {
+        if ((e.target as HTMLElement).isContentEditable) return;
+        e.preventDefault();
+        toggleSidebar();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   return (
     <div className="flex h-screen flex-col">
@@ -20,12 +37,31 @@ export default function AppLayout({ onAddProject }: AppLayoutProps) {
         </div>
       )}
       <div className="flex min-h-0 flex-1">
-        {isSettings ? (
-          <SettingsSidebar />
-        ) : (
-          <Sidebar onAddProject={onAddProject} />
-        )}
+        <div
+          className={cn(
+            "shrink-0 overflow-hidden transition-[width] duration-200 ease-in-out",
+            collapsed ? "w-0" : "w-72",
+          )}
+        >
+          {isSettings ? (
+            <SettingsSidebar onCollapse={toggle} />
+          ) : (
+            <Sidebar onAddProject={onAddProject} onCollapse={toggle} />
+          )}
+        </div>
         <main className="relative flex flex-1 flex-col overflow-hidden">
+          {collapsed && (
+            <button
+              type="button"
+              onClick={toggle}
+              className="absolute left-2.5 z-30 flex items-center justify-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              style={{ top: "calc(var(--titlebar-inset, 0px) + 12px)" }}
+              aria-label="Show sidebar"
+              title="Show sidebar (⌘B)"
+            >
+              <PanelLeft className="h-4 w-4" />
+            </button>
+          )}
           <div className="relative min-h-0 flex-1 overflow-hidden">
             <Outlet />
           </div>

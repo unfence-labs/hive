@@ -1,12 +1,16 @@
 import { useRef } from "react";
-import { ArrowLeft, Bell, CircleUser, Paintbrush, Wifi, GitFork } from "lucide-react";
+import { ArrowLeft, Bell, CircleUser, PanelLeftClose, Paintbrush, Wifi, GitFork } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { useProjects } from "@/hooks/useProjects";
 
-export default function SettingsSidebar() {
+interface SettingsSidebarProps {
+  onCollapse?: () => void;
+}
+
+export default function SettingsSidebar({ onCollapse }: SettingsSidebarProps) {
   const { projects } = useProjects();
   const navigate = useNavigate();
   const location = useLocation();
@@ -20,6 +24,20 @@ export default function SettingsSidebar() {
         style={{ height: "var(--titlebar-inset, 0px)" }}
         data-tauri-drag-region
       />
+
+      {onCollapse && (
+        <div className="flex h-12 shrink-0 items-center justify-end px-2">
+          <button
+            type="button"
+            onClick={onCollapse}
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+            aria-label="Hide sidebar"
+            title="Hide sidebar (⌘B)"
+          >
+            <PanelLeftClose className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       <ScrollArea className="flex-1">
         <div className="px-3 py-3">
