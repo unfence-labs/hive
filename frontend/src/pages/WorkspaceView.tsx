@@ -293,9 +293,10 @@ export default function WorkspaceView() {
   }, [createSession, switchSession]);
 
   const handleActivateSession = useCallback((targetSessionId: string) => {
+    if (targetSessionId === sessionId) return;
     setActiveTab("conversation");
     switchSession(targetSessionId);
-  }, [switchSession]);
+  }, [sessionId, switchSession]);
 
   const handleDeleteSession = useCallback(async (targetSessionId: string) => {
     const isActive = targetSessionId === sessionId;
@@ -467,11 +468,6 @@ export default function WorkspaceView() {
             onConversationTabClick={() => setActiveTab("conversation")}
           />
           <div className={activeTab === "conversation" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
-            {error && (
-              <div className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
-                {error}
-              </div>
-            )}
             <ChatConversation
               messages={messages}
               isStreaming={isStreaming}
@@ -489,6 +485,7 @@ export default function WorkspaceView() {
               defaultBranch={workspace?.defaultBranch}
               fileCount={fileCount}
               switchCounter={switchCounter}
+              error={error}
             />
             {tasks.length > 0 && (
               <TaskTracker

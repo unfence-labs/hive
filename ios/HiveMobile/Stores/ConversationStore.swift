@@ -23,8 +23,10 @@ final class ConversationStore {
 
     // MARK: - Public state
 
+    /// Send closure wired by HubStatusMonitor to the workspace's WS connection.
+    var send: ((WsIncoming) async -> Void)?
+
     var messages: [ChatMessage] = []
-    var isBusy = false
 
     /// Session currently displayed in chat.
     var sessionId: String?
@@ -46,6 +48,8 @@ final class ConversationStore {
         sessionId.flatMap { sessionStreams[$0] }
     }
 
+    /// Busy state for the currently focused session only.
+    var isBusy: Bool { activeStream?.isStreaming ?? false }
     var isStreaming: Bool { activeStream?.isStreaming ?? false }
     var streamingStartedAt: Date? { activeStream?.streamingStartedAt }
     var currentText: String { activeStream?.currentText ?? "" }
@@ -147,8 +151,11 @@ final class ConversationStore {
                     ensureStream(for: sid)
                     if var stream = sessionStreams[sid] {
                         stream.isStreaming = true
-                        if stream.streamingStartedAt == nil {
+                        // Prefer backend start time so iOS/web timers stay aligned.
+                        if let startedAt {
                             stream.streamingStartedAt = parseStartedAt(startedAt)
+                        } else if stream.streamingStartedAt == nil {
+                            stream.streamingStartedAt = Date()
                         }
                         sessionStreams[sid] = stream
                     }
@@ -174,8 +181,6 @@ final class ConversationStore {
             if sessionId == nil, let incomingSessionId {
                 sessionId = incomingSessionId
             }
-
-            isBusy = status == .busy || streaming == true
 
         case .userMessage(let msg):
             let sid = msg.sessionId
@@ -250,8 +255,7 @@ final class ConversationStore {
         }
     }
 
-    private func parseStartedAt(_ rawStartedAt: Double?) -> Date {
-        guard let rawStartedAt else { return Date() }
+    private func parseStartedAt(_ rawStartedAt: Double) -> Date {
         let seconds = rawStartedAt > 10_000_000_000 ? rawStartedAt / 1000 : rawStartedAt
         return Date(timeIntervalSince1970: seconds)
     }

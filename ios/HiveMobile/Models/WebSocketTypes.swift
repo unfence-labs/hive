@@ -1,5 +1,40 @@
 import Foundation
 
+// MARK: - Hub WebSocket Protocol (Multiplexed)
+
+/// Server -> Client (hub-level). Every outgoing event is tagged with its workspace.
+struct HubOutgoing: Decodable {
+    let workspaceId: String
+    let event: WsOutgoing
+}
+
+/// Client -> Server (hub-level).
+enum HubIncoming: Encodable {
+    case syncWorkspaces(workspaceIds: [String])
+    case workspaceEvent(workspaceId: String, event: WsIncoming)
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .syncWorkspaces(let workspaceIds):
+            var container = encoder.container(keyedBy: SyncCodingKeys.self)
+            try container.encode("sync_workspaces", forKey: .type)
+            try container.encode(workspaceIds, forKey: .workspaceIds)
+        case .workspaceEvent(let workspaceId, let event):
+            var container = encoder.container(keyedBy: EventCodingKeys.self)
+            try container.encode(workspaceId, forKey: .workspaceId)
+            try container.encode(event, forKey: .event)
+        }
+    }
+
+    private enum SyncCodingKeys: String, CodingKey {
+        case type, workspaceIds
+    }
+
+    private enum EventCodingKeys: String, CodingKey {
+        case workspaceId, event
+    }
+}
+
 // MARK: - Tool Input Result (Encodable)
 
 enum ToolInputResult: Encodable {

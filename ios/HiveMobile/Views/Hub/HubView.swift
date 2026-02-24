@@ -138,6 +138,7 @@ struct HubView: View {
                                 WorkspaceCard(
                                     workspace: workspace,
                                     isStreaming: store.statusMonitor.isStreaming(workspace.id),
+                                    turnCompleted: store.statusMonitor.isCompleted(workspace.id),
                                     diffStats: store.statusMonitor.diffStats(for: workspace.id),
                                     branchInfo: store.statusMonitor.branchInfo(for: workspace.id),
                                     prStatus: store.statusMonitor.prStatus(for: workspace.id),
@@ -328,6 +329,6 @@ struct HubView: View {
     NavigationStack {
         HubView()
     }
-    .environment(ProjectStore())
+    .environment(ProjectStore(storeCache: ConversationStoreCache()))
     .preferredColorScheme(.dark)
 }

@@ -1851,7 +1851,7 @@ describe("useConversation", () => {
     expect(result.current.streamingStartedAt).toBe(1_700_000_009_999);
 
     act(() => {
-      // Existing timestamp should be preserved if already set.
+      // A newer backend timestamp should replace the existing value.
       __wsMock.emit("ws-1", {
         type: "status",
         status: "busy",
@@ -1861,7 +1861,7 @@ describe("useConversation", () => {
       });
     });
 
-    expect(result.current.streamingStartedAt).toBe(1_700_000_009_999);
+    expect(result.current.streamingStartedAt).toBe(1_700_000_010_000);
 
     act(() => {
       // Fallback to Date.now when backend does not provide a timestamp.
@@ -1870,7 +1870,7 @@ describe("useConversation", () => {
 
     // sess-y status creates a background stream slot, but the active session stays sess-x.
     expect(result.current.sessionId).toBe("sess-x");
-    expect(result.current.streamingStartedAt).toBe(1_700_000_009_999);
+    expect(result.current.streamingStartedAt).toBe(1_700_000_010_000);
 
     act(() => {
       __wsMock.emit("ws-1", { type: "status", status: "idle", streaming: false });
@@ -1895,6 +1895,23 @@ describe("useConversation", () => {
     expect(result.current.isStreaming).toBe(true);
     expect(result.current.streamingStartedAt).toBe(1_700_000_001_555);
     nowSpy.mockRestore();
+  });
+
+  it("normalizes status streamingStartedAt in seconds to milliseconds", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        streaming: true,
+        sessionId: "sess-seconds",
+        streamingStartedAt: 1_700_000_002,
+      });
+    });
+
+    expect(result.current.streamingStartedAt).toBe(1_700_000_002_000);
   });
 
   it("preserves streamingStartedAt on same-session history while streaming", async () => {
@@ -1945,6 +1962,59 @@ describe("useConversation", () => {
     expect(result.current.error).toBe("Connection lost");
     expect(result.current.isStreaming).toBe(false);
     expect(result.current.streamingStartedAt).toBeNull();
+  });
+
+  // ── Stale error filtering on buffer replay ─────────────────────────
+
+  it("filters session-less errors replayed from buffer on mount", async () => {
+    const { __wsMock } = await getWsMock();
+
+    // Simulate a stale error that was buffered while the user was on another workspace.
+    __wsMock.setReplay("ws-1", [
+      { type: "error", message: "stale connection error" },
+    ]);
+    __wsMock.setBuffered("ws-1", true);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    // The session-less error from the synchronous buffer replay should be silently dropped.
+    expect(result.current.error).toBeUndefined();
+  });
+
+  it("dispatches session-scoped errors during buffer replay", async () => {
+    const { __wsMock } = await getWsMock();
+
+    // Session-scoped errors are NOT filtered — they carry a sessionId so they're
+    // targeted, not stale broadcast noise.
+    __wsMock.setReplay("ws-1", [
+      { type: "status", status: "busy", sessionId: "sess-1", streaming: true },
+      { type: "error", sessionId: "sess-1", message: "session error from buffer" },
+    ]);
+    __wsMock.setBuffered("ws-1", true);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    expect(result.current.error).toBe("session error from buffer");
+  });
+
+  it("dispatches session-less errors arriving live after buffer replay", async () => {
+    const { __wsMock } = await getWsMock();
+
+    // Pre-populate buffer with a stale error (dropped) to confirm the flag resets.
+    __wsMock.setReplay("ws-1", [
+      { type: "error", message: "stale error" },
+    ]);
+    __wsMock.setBuffered("ws-1", true);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+    expect(result.current.error).toBeUndefined();
+
+    // A live session-less error arriving after replay should pass through normally.
+    act(() => {
+      __wsMock.emit("ws-1", { type: "error", message: "live error" });
+    });
+
+    expect(result.current.error).toBe("live error");
   });
 
   it("ignores session-scoped error for a background session", async () => {
@@ -2115,6 +2185,38 @@ describe("useConversation", () => {
       for (const call of __wsMock.updateCachedHistoryMock.mock.calls) {
         expect(call[1].messages.length).toBeGreaterThan(0);
       }
+    });
+
+    it("skips cache write on first effect cycle after workspace switch to prevent cross-workspace pollution", async () => {
+      const { __wsMock } = await getWsMock();
+
+      const { result, rerender } = renderHook(
+        ({ wsId }) => useConversation(wsId),
+        { initialProps: { wsId: "ws-1" } },
+      );
+
+      // Populate ws-1 with messages
+      await act(async () => {
+        __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-1", streaming: false });
+        __wsMock.emit("ws-1", {
+          type: "history",
+          sessionId: "sess-1",
+          messages: [{ id: "m1", sessionId: "sess-1", role: "user", content: "ws-1 msg", timestamp: "2026-02-20T00:00:00.000Z" }],
+        });
+      });
+
+      expect(result.current.messages).toHaveLength(1);
+      __wsMock.updateCachedHistoryMock.mockClear();
+
+      // Switch to ws-2 — React 18 batching may transiently leave state.messages
+      // holding ws-1's messages while workspaceId is already ws-2. The guard
+      // (prevCacheWorkspaceRef) should prevent writing ws-1's messages into ws-2's cache.
+      rerender({ wsId: "ws-2" });
+
+      const ws2CacheCalls = __wsMock.updateCachedHistoryMock.mock.calls.filter(
+        ([wsId]: [string]) => wsId === "ws-2",
+      );
+      expect(ws2CacheCalls).toHaveLength(0);
     });
 
     it("skips REST fetch when transport has cached history", async () => {

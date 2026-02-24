@@ -181,7 +181,7 @@ describe("useTasks", () => {
     expect(result.current.counts.completed).toBe(1);
   });
 
-  it("parses JSON-structured TaskCreate output", () => {
+  it("parses JSON-structured TaskCreate output (task.id)", () => {
     const messages = [
       msg([
         tc({
@@ -193,6 +193,34 @@ describe("useTasks", () => {
     ];
     const { result } = renderHook(() => useTasks(messages, []));
     expect(result.current.tasks[0].id).toBe("42");
+  });
+
+  it("parses JSON-structured TaskCreate output (top-level taskId)", () => {
+    const messages = [
+      msg([
+        tc({
+          name: "TaskCreate",
+          input: JSON.stringify({ subject: "Top-level" }),
+          output: JSON.stringify({ taskId: "7" }),
+        }),
+      ]),
+    ];
+    const { result } = renderHook(() => useTasks(messages, []));
+    expect(result.current.tasks[0].id).toBe("7");
+  });
+
+  it("parses JSON-structured TaskCreate output (top-level id)", () => {
+    const messages = [
+      msg([
+        tc({
+          name: "TaskCreate",
+          input: JSON.stringify({ subject: "Plain id" }),
+          output: JSON.stringify({ id: "99" }),
+        }),
+      ]),
+    ];
+    const { result } = renderHook(() => useTasks(messages, []));
+    expect(result.current.tasks[0].id).toBe("99");
   });
 
   it("ignores TaskUpdate for unknown taskId", () => {

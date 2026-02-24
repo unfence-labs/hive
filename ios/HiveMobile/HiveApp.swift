@@ -2,7 +2,8 @@ import SwiftUI
 
 @main
 struct HiveApp: App {
-    @State private var projectStore = ProjectStore()
+    @State private var storeCache: ConversationStoreCache
+    @State private var projectStore: ProjectStore
     @State private var modelCatalog = ModelCatalog()
     @State private var selectedTab: AppTab = .hub
     @State private var hubPath = NavigationPath()
@@ -10,6 +11,12 @@ struct HiveApp: App {
     @AppStorage("hiveAccent") private var accentId = "violet"
 
     private let liveActivityManager = LiveActivityManager()
+
+    init() {
+        let cache = ConversationStoreCache()
+        _storeCache = State(initialValue: cache)
+        _projectStore = State(initialValue: ProjectStore(storeCache: cache))
+    }
 
     private var accent: Color {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
@@ -22,9 +29,12 @@ struct HiveApp: App {
                     NavigationStack(path: $hubPath) {
                         HubView()
                             .navigationDestination(for: Workspace.self) { workspace in
-                                ChatView(workspace: workspace)
-                                    .toolbar(.hidden, for: .tabBar)
-                                    .smoothTabBarTransition()
+                                ChatView(
+                                    workspace: workspace,
+                                    store: storeCache.getOrCreate(workspace.id)
+                                )
+                                .toolbar(.hidden, for: .tabBar)
+                                .smoothTabBarTransition()
                             }
                     }
                     .toolbarColorScheme(.dark, for: .navigationBar)
@@ -38,6 +48,7 @@ struct HiveApp: App {
             }
             .tint(accent)
             .environment(projectStore)
+            .environment(storeCache)
             .environment(modelCatalog)
             .preferredColorScheme(.dark)
             .task { await modelCatalog.loadIfNeeded() }

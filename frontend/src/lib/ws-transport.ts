@@ -1,5 +1,5 @@
 import { getServerUrl } from "@/hooks/useServerUrl";
-import type { WsIncoming, WsOutgoing } from "@/types";
+import type { WsIncoming, WsOutgoing, HubOutgoing } from "@/types";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
@@ -13,12 +13,18 @@ type BranchInfoMessage = Extract<WsOutgoing, { type: "branch_info" }>;
 const MAX_RECONNECT_DELAY = 30_000;
 const BASE_RECONNECT_DELAY = 1_000;
 
-interface WorkspaceConnection {
+// ── Hub socket state ────────────────────────────────────────────────
+
+interface HubState {
   ws: WebSocket | null;
   status: ConnectionStatus;
-  active: boolean;
   reconnectAttempt: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
+}
+
+// ── Per-workspace subscription data (no socket) ─────────────────────
+
+interface WorkspaceSubscription {
   messageHandlers: Set<MessageHandler>;
   statusListeners: Set<StatusListener>;
   lastStatus?: StatusMessage;
@@ -31,85 +37,87 @@ interface WorkspaceConnection {
 }
 
 class WsTransport {
-  private connections = new Map<string, WorkspaceConnection>();
+  private hub: HubState = {
+    ws: null,
+    status: "disconnected",
+    reconnectAttempt: 0,
+    reconnectTimer: null,
+  };
+  private subscriptions = new Map<string, WorkspaceSubscription>();
+  private subscribedWorkspaceIds = new Set<string>();
 
-  /** Connect to a workspace's WebSocket endpoint. */
+  /** Connect to a workspace (subscribes it via the hub). */
   connect(workspaceId: string): void {
-    const connection = this.getOrCreateConnection(workspaceId);
-    connection.active = true;
-
-    if (
-      connection.ws?.readyState === WebSocket.OPEN ||
-      connection.ws?.readyState === WebSocket.CONNECTING
-    ) {
-      return;
+    this.getOrCreateSubscription(workspaceId);
+    if (!this.subscribedWorkspaceIds.has(workspaceId)) {
+      this.subscribedWorkspaceIds.add(workspaceId);
+      this.ensureHubConnected();
+      this.sendSyncWorkspaces();
     }
-
-    connection.reconnectAttempt = 0;
-    this.setStatus(connection, "connecting");
-    this.openSocket(workspaceId, connection);
   }
 
-  /** Ensure exactly this set of workspace sockets stay connected. */
+  /** Ensure exactly this set of workspaces are subscribed via the hub. */
   syncWorkspaces(workspaceIds: string[]): void {
     const wanted = new Set(workspaceIds);
     for (const workspaceId of wanted) {
-      this.connect(workspaceId);
+      this.getOrCreateSubscription(workspaceId);
     }
-    for (const workspaceId of Array.from(this.connections.keys())) {
+    // Remove unwanted (if no listeners remain)
+    for (const workspaceId of Array.from(this.subscriptions.keys())) {
       if (!wanted.has(workspaceId)) {
-        const connection = this.connections.get(workspaceId);
-        if (connection && (connection.messageHandlers.size > 0 || connection.statusListeners.size > 0)) {
+        const sub = this.subscriptions.get(workspaceId);
+        if (sub && (sub.messageHandlers.size > 0 || sub.statusListeners.size > 0)) {
           continue;
         }
-        this.removeConnection(workspaceId);
+        this.subscriptions.delete(workspaceId);
       }
     }
+    this.subscribedWorkspaceIds = wanted;
+    this.ensureHubConnected();
+    this.sendSyncWorkspaces();
   }
 
   /** Update the cached history so switch-back replays are fresh. */
   updateCachedHistory(workspaceId: string, historyMsg: HistoryMessage): void {
-    const connection = this.connections.get(workspaceId);
-    if (connection) connection.lastHistory = historyMsg;
+    const sub = this.subscriptions.get(workspaceId);
+    if (sub) sub.lastHistory = historyMsg;
   }
 
   /** Check whether cached history exists for a workspace. */
   hasCachedHistory(workspaceId: string): boolean {
-    return this.connections.get(workspaceId)?.lastHistory !== undefined;
+    return this.subscriptions.get(workspaceId)?.lastHistory !== undefined;
   }
 
   /** Clear cached status/history for a workspace (e.g. after session deletion). */
   clearCachedData(workspaceId: string): void {
-    const connection = this.connections.get(workspaceId);
-    if (!connection) return;
-    connection.lastStatus = undefined;
-    connection.lastStatusBySession.clear();
-    connection.lastHistory = undefined;
-    connection.lastBranchInfo = undefined;
-    connection.messageBuffer = [];
+    const sub = this.subscriptions.get(workspaceId);
+    if (!sub) return;
+    sub.lastStatus = undefined;
+    sub.lastStatusBySession.clear();
+    sub.lastHistory = undefined;
+    sub.lastBranchInfo = undefined;
+    sub.messageBuffer = [];
   }
 
-  /** Disconnect one workspace and stop reconnecting. */
+  /** Unsubscribe one workspace from the hub (does not close the hub socket). */
   disconnect(workspaceId: string): void {
-    const connection = this.connections.get(workspaceId);
-    if (!connection) return;
-    connection.active = false;
-    this.teardown(connection);
-    this.setStatus(connection, "disconnected");
+    this.subscribedWorkspaceIds.delete(workspaceId);
+    this.sendSyncWorkspaces();
+    const sub = this.subscriptions.get(workspaceId);
+    if (sub) this.notifyStatusListeners(sub);
   }
 
-  /** Disconnect all workspaces and clear listeners/replay state. */
+  /** Disconnect all workspaces and close the hub socket. */
   disconnectAll(): void {
-    for (const workspaceId of Array.from(this.connections.keys())) {
-      this.removeConnection(workspaceId);
-    }
+    this.teardownHub();
+    this.subscriptions.clear();
+    this.subscribedWorkspaceIds.clear();
   }
 
-  /** Send a message to the backend. Returns false if the socket isn't open. */
+  /** Send a message to the backend for a specific workspace. Returns false if the hub isn't open. */
   send(workspaceId: string, msg: WsIncoming): boolean {
-    const connection = this.connections.get(workspaceId);
-    if (!connection?.ws || connection.ws.readyState !== WebSocket.OPEN) return false;
-    connection.ws.send(JSON.stringify(msg));
+    if (!this.hub.ws || this.hub.ws.readyState !== WebSocket.OPEN) return false;
+    this.hub.ws.send(JSON.stringify({ workspaceId, event: msg }));
     return true;
   }
 
@@ -119,107 +127,97 @@ class WsTransport {
    * Returns `{ unsubscribe, hadBufferedMessages }`.
    */
   onMessage(workspaceId: string, handler: MessageHandler): { unsubscribe: () => void; hadBufferedMessages: boolean } {
-    const connection = this.getOrCreateConnection(workspaceId);
-    connection.messageHandlers.add(handler);
+    const sub = this.getOrCreateSubscription(workspaceId);
+    sub.messageHandlers.add(handler);
 
-    if (connection.lastStatusBySession.size > 0) {
-      for (const statusMsg of connection.lastStatusBySession.values()) {
+    if (sub.lastStatusBySession.size > 0) {
+      for (const statusMsg of sub.lastStatusBySession.values()) {
         handler(statusMsg);
       }
-    } else if (connection.lastStatus) {
-      handler(connection.lastStatus);
+    } else if (sub.lastStatus) {
+      handler(sub.lastStatus);
     }
-    if (connection.lastHistory) {
-      handler(connection.lastHistory);
+    if (sub.lastHistory) {
+      handler(sub.lastHistory);
     }
-    if (connection.lastDiffStats) {
-      handler(connection.lastDiffStats);
+    if (sub.lastDiffStats) {
+      handler(sub.lastDiffStats);
     }
-    if (connection.lastBranchInfo) {
-      handler(connection.lastBranchInfo);
+    if (sub.lastBranchInfo) {
+      handler(sub.lastBranchInfo);
     }
 
-    const hadBufferedMessages = connection.messageBuffer.length > 0;
-    for (const msg of connection.messageBuffer) {
+    const hadBufferedMessages = sub.messageBuffer.length > 0;
+    for (const msg of sub.messageBuffer) {
       handler(msg);
     }
-    connection.messageBuffer = [];
+    sub.messageBuffer = [];
 
     return {
-      unsubscribe: () => { connection.messageHandlers.delete(handler); },
+      unsubscribe: () => { sub.messageHandlers.delete(handler); },
       hadBufferedMessages,
     };
   }
 
   /** useSyncExternalStore subscribe contract (per workspace). */
   subscribe = (workspaceId: string, listener: StatusListener): (() => void) => {
-    const connection = this.getOrCreateConnection(workspaceId);
-    connection.statusListeners.add(listener);
+    const sub = this.getOrCreateSubscription(workspaceId);
+    sub.statusListeners.add(listener);
     return () => {
-      connection.statusListeners.delete(listener);
+      sub.statusListeners.delete(listener);
     };
   };
 
   /** useSyncExternalStore getSnapshot contract (per workspace). */
-  getStatus = (workspaceId: string): ConnectionStatus =>
-    this.connections.get(workspaceId)?.status ?? "disconnected";
+  getStatus = (workspaceId: string): ConnectionStatus => {
+    const sub = this.subscriptions.get(workspaceId);
+    if (!sub) return "disconnected";
+    return this.hub.status;
+  };
 
-  private getOrCreateConnection(workspaceId: string): WorkspaceConnection {
-    const existing = this.connections.get(workspaceId);
+  // ── Internal: subscription management ─────────────────────────────
+
+  private getOrCreateSubscription(workspaceId: string): WorkspaceSubscription {
+    const existing = this.subscriptions.get(workspaceId);
     if (existing) return existing;
 
-    const created: WorkspaceConnection = {
-      ws: null,
-      status: "disconnected",
-      active: false,
-      reconnectAttempt: 0,
-      reconnectTimer: null,
+    const created: WorkspaceSubscription = {
       messageHandlers: new Set<MessageHandler>(),
       statusListeners: new Set<StatusListener>(),
       lastStatusBySession: new Map(),
       messageBuffer: [],
     };
-    this.connections.set(workspaceId, created);
+    this.subscriptions.set(workspaceId, created);
     return created;
   }
 
-  private setStatus(connection: WorkspaceConnection, status: ConnectionStatus): void {
-    if (connection.status === status) return;
-    connection.status = status;
-    for (const listener of connection.statusListeners) listener();
+  private notifyStatusListeners(sub: WorkspaceSubscription): void {
+    for (const listener of sub.statusListeners) listener();
   }
 
-  private teardown(connection: WorkspaceConnection): void {
-    if (connection.reconnectTimer) {
-      clearTimeout(connection.reconnectTimer);
-      connection.reconnectTimer = null;
-    }
-    if (connection.ws) {
-      const ws = connection.ws;
-      connection.ws = null;
-      ws.close();
+  // ── Internal: hub socket lifecycle ────────────────────────────────
+
+  private setHubStatus(status: ConnectionStatus): void {
+    if (this.hub.status === status) return;
+    this.hub.status = status;
+    for (const sub of this.subscriptions.values()) {
+      this.notifyStatusListeners(sub);
     }
   }
 
-  private removeConnection(workspaceId: string): void {
-    const connection = this.connections.get(workspaceId);
-    if (!connection) return;
-    connection.active = false;
-    this.teardown(connection);
-    connection.messageHandlers.clear();
-    connection.statusListeners.clear();
-    connection.lastStatus = undefined;
-    connection.lastStatusBySession.clear();
-    connection.lastHistory = undefined;
-    connection.lastDiffStats = undefined;
-    connection.lastBranchInfo = undefined;
-    connection.messageBuffer = [];
-    this.connections.delete(workspaceId);
+  private ensureHubConnected(): void {
+    if (
+      this.hub.ws?.readyState === WebSocket.OPEN ||
+      this.hub.ws?.readyState === WebSocket.CONNECTING
+    ) {
+      return;
+    }
+    this.hub.reconnectAttempt = 0;
+    this.setHubStatus("connecting");
+    this.openHubSocket();
   }
 
-  private openSocket(workspaceId: string, connection: WorkspaceConnection): void {
-    if (!connection.active) return;
-
+  private openHubSocket(): void {
     const serverUrl = getServerUrl();
     let wsHost: string;
     if (serverUrl) {
@@ -230,50 +228,37 @@ class WsTransport {
     }
     const authToken = import.meta.env.VITE_HIVE_AUTH_TOKEN?.trim();
     const query = authToken ? `?token=${encodeURIComponent(authToken)}` : "";
-    const ws = new WebSocket(`${wsHost}/ws/session/${workspaceId}${query}`);
-    connection.ws = ws;
+    const ws = new WebSocket(`${wsHost}/ws/hub${query}`);
+    this.hub.ws = ws;
 
     ws.onopen = () => {
-      if (connection.ws !== ws) return;
-      connection.reconnectAttempt = 0;
-      connection.lastStatusBySession.clear();
-      this.setStatus(connection, "connected");
+      if (this.hub.ws !== ws) return;
+      this.hub.reconnectAttempt = 0;
+      // Clear per-session status caches on reconnect (will be repopulated by bootstrap)
+      for (const sub of this.subscriptions.values()) {
+        sub.lastStatusBySession.clear();
+      }
+      this.setHubStatus("connected");
+      this.sendSyncWorkspaces();
     };
 
     ws.onmessage = (event) => {
-      if (connection.ws !== ws) return;
+      if (this.hub.ws !== ws) return;
       try {
-        const msg = JSON.parse(event.data as string) as WsOutgoing;
-        if (msg.type === "status") {
-          connection.lastStatus = msg;
-          if (msg.sessionId) {
-            connection.lastStatusBySession.set(msg.sessionId, msg);
-          } else if (msg.status === "idle") {
-            connection.lastStatusBySession.clear();
-          }
-        } else if (msg.type === "history") {
-          connection.lastHistory = msg;
-        } else if (msg.type === "diff_stats") {
-          connection.lastDiffStats = msg;
-        } else if (msg.type === "branch_info") {
-          connection.lastBranchInfo = msg;
-        }
-
-        if (connection.messageHandlers.size > 0) {
-          for (const handler of connection.messageHandlers) handler(msg);
-        } else {
-          connection.messageBuffer.push(msg);
-        }
+        const envelope = JSON.parse(event.data as string) as HubOutgoing;
+        this.handleIncomingEnvelope(envelope);
       } catch {
         // Ignore malformed messages
       }
     };
 
     ws.onclose = () => {
-      if (connection.ws !== ws) return;
-      connection.ws = null;
-      this.setStatus(connection, "disconnected");
-      if (connection.active) this.scheduleReconnect(workspaceId, connection);
+      if (this.hub.ws !== ws) return;
+      this.hub.ws = null;
+      this.setHubStatus("disconnected");
+      if (this.subscribedWorkspaceIds.size > 0) {
+        this.scheduleHubReconnect();
+      }
     };
 
     ws.onerror = () => {
@@ -281,19 +266,69 @@ class WsTransport {
     };
   }
 
-  private scheduleReconnect(workspaceId: string, connection: WorkspaceConnection): void {
-    if (connection.reconnectTimer || !connection.active) return;
+  private handleIncomingEnvelope(envelope: HubOutgoing): void {
+    const { workspaceId, event: msg } = envelope;
+    const sub = this.subscriptions.get(workspaceId);
+    if (!sub) return;
+
+    // Update per-workspace caches
+    if (msg.type === "status") {
+      sub.lastStatus = msg;
+      if (msg.sessionId) {
+        sub.lastStatusBySession.set(msg.sessionId, msg);
+      } else if (msg.status === "idle") {
+        sub.lastStatusBySession.clear();
+      }
+    } else if (msg.type === "history") {
+      sub.lastHistory = msg;
+    } else if (msg.type === "diff_stats") {
+      sub.lastDiffStats = msg;
+    } else if (msg.type === "branch_info") {
+      sub.lastBranchInfo = msg;
+    }
+
+    // Dispatch to handlers or buffer
+    if (sub.messageHandlers.size > 0) {
+      for (const handler of sub.messageHandlers) handler(msg);
+    } else {
+      sub.messageBuffer.push(msg);
+    }
+  }
+
+  private sendSyncWorkspaces(): void {
+    if (!this.hub.ws || this.hub.ws.readyState !== WebSocket.OPEN) return;
+    this.hub.ws.send(JSON.stringify({
+      type: "sync_workspaces",
+      workspaceIds: [...this.subscribedWorkspaceIds],
+    }));
+  }
+
+  private scheduleHubReconnect(): void {
+    if (this.hub.reconnectTimer) return;
     const delay = Math.min(
-      BASE_RECONNECT_DELAY * 2 ** connection.reconnectAttempt,
+      BASE_RECONNECT_DELAY * 2 ** this.hub.reconnectAttempt,
       MAX_RECONNECT_DELAY,
     );
-    connection.reconnectAttempt++;
-    connection.reconnectTimer = setTimeout(() => {
-      connection.reconnectTimer = null;
-      if (!connection.active) return;
-      this.setStatus(connection, "connecting");
-      this.openSocket(workspaceId, connection);
+    this.hub.reconnectAttempt++;
+    this.hub.reconnectTimer = setTimeout(() => {
+      this.hub.reconnectTimer = null;
+      if (this.subscribedWorkspaceIds.size === 0) return;
+      this.setHubStatus("connecting");
+      this.openHubSocket();
     }, delay);
+  }
+
+  private teardownHub(): void {
+    if (this.hub.reconnectTimer) {
+      clearTimeout(this.hub.reconnectTimer);
+      this.hub.reconnectTimer = null;
+    }
+    if (this.hub.ws) {
+      const ws = this.hub.ws;
+      this.hub.ws = null;
+      ws.close();
+    }
+    this.hub.status = "disconnected";
   }
 }
 

@@ -1,11 +1,11 @@
 import Foundation
 import Observation
 
-/// Monitors real-time streaming status, diff stats, and branch/PR info for all workspaces.
+/// Monitors real-time status for all workspaces via a single multiplexed hub WebSocket.
 ///
-/// Opens a lightweight WebSocket connection per workspace, listens for `status`,
-/// `diff_stats`, and `branch_info` messages. This mirrors the React frontend's
-/// `useWorkspaceLiveData` approach.
+/// A single `HubConnection` fully decodes ALL WS events wrapped in `HubOutgoing` envelopes:
+/// - Hub-level events (status, diff_stats, branch_info) update monitor properties.
+/// - ALL events are forwarded to the workspace's `ConversationStore` (via `ConversationStoreCache`).
 @MainActor
 @Observable
 final class HubStatusMonitor {
@@ -13,14 +13,40 @@ final class HubStatusMonitor {
     private(set) var workspaceDiffStats: [String: DiffStatResponse] = [:]
     private(set) var workspaceBranchInfo: [String: BranchInfo] = [:]
     private(set) var workspacePrStatus: [String: PrStatusResponse] = [:]
+    private(set) var completedWorkspaces: Set<String> = []
 
     /// Called whenever the streaming workspace set changes.
     var onStreamingChange: ((Set<String>) -> Void)?
 
-    private var connections: [String: WorkspaceConnection] = [:]
+    let storeCache: ConversationStoreCache
+
+    private var hubConnection: HubConnection?
+    fileprivate var subscribedWorkspaceIds: Set<String> = []
     private var prPollTasks: [String: Task<Void, Never>] = [:]
     private let apiClient = APIClient()
-    private let decoder = JSONDecoder()
+
+    init(storeCache: ConversationStoreCache) {
+        self.storeCache = storeCache
+        storeCache.onStoreCreated = { [weak self] workspaceId, store in
+            self?.wireSendClosure(for: workspaceId, on: store)
+        }
+    }
+
+    /// Wire (or re-wire) the send closure for a workspace's store via the hub connection.
+    fileprivate func wireSendClosure(for workspaceId: String, on store: ConversationStore) {
+        store.send = { [weak self] message in
+            await self?.hubConnection?.send(.workspaceEvent(workspaceId: workspaceId, event: message))
+        }
+    }
+
+    /// Re-wire send closures on all existing stores (e.g. after hub reconnect).
+    fileprivate func rewireAllSendClosures() {
+        for (workspaceId, store) in storeCache.stores {
+            wireSendClosure(for: workspaceId, on: store)
+        }
+    }
+
+    // MARK: - Public accessors
 
     func isStreaming(_ workspaceId: String) -> Bool {
         streamingWorkspaces.contains(workspaceId)
@@ -38,41 +64,58 @@ final class HubStatusMonitor {
         workspacePrStatus[workspaceId]
     }
 
-    /// Sync monitored workspaces — opens new connections, closes stale ones.
+    func isCompleted(_ workspaceId: String) -> Bool {
+        completedWorkspaces.contains(workspaceId)
+    }
+
+    func clearCompleted(_ workspaceId: String) {
+        completedWorkspaces.remove(workspaceId)
+    }
+
+    // MARK: - Sync
+
+    /// Sync monitored workspaces — manages hub connection and subscriptions.
     func sync(workspaceIds: [String]) {
         let desired = Set(workspaceIds)
-        let current = Set(connections.keys)
 
-        // Remove connections for workspaces no longer in the list
-        for id in current.subtracting(desired) {
-            connections[id]?.cancel()
-            connections.removeValue(forKey: id)
+        // Clean up removed workspaces
+        for id in subscribedWorkspaceIds.subtracting(desired) {
             streamingWorkspaces.remove(id)
             workspaceDiffStats.removeValue(forKey: id)
             workspaceBranchInfo.removeValue(forKey: id)
             prPollTasks[id]?.cancel()
             prPollTasks.removeValue(forKey: id)
             workspacePrStatus.removeValue(forKey: id)
+            storeCache.evict(id)
+            completedWorkspaces.remove(id)
         }
 
-        // Add connections for new workspaces
-        for id in desired.subtracting(current) {
-            let conn = WorkspaceConnection(workspaceId: id, monitor: self)
-            connections[id] = conn
+        subscribedWorkspaceIds = desired
+
+        if desired.isEmpty {
+            hubConnection?.cancel()
+            hubConnection = nil
+        } else if hubConnection == nil {
+            let conn = HubConnection(monitor: self)
+            hubConnection = conn
             conn.connect()
+        } else {
+            hubConnection?.sendSyncWorkspaces(Array(subscribedWorkspaceIds))
         }
     }
 
     /// Disconnect everything.
     func disconnectAll() {
-        for conn in connections.values { conn.cancel() }
-        connections.removeAll()
+        hubConnection?.cancel()
+        hubConnection = nil
+        subscribedWorkspaceIds.removeAll()
         streamingWorkspaces.removeAll()
         workspaceDiffStats.removeAll()
         workspaceBranchInfo.removeAll()
         for task in prPollTasks.values { task.cancel() }
         prPollTasks.removeAll()
         workspacePrStatus.removeAll()
+        completedWorkspaces.removeAll()
     }
 
     // MARK: - PR Status Polling
@@ -105,7 +148,7 @@ final class HubStatusMonitor {
         }
     }
 
-    // MARK: - Called by WorkspaceConnection
+    // MARK: - Called by HubConnection
 
     fileprivate func didReceiveStreaming(_ streaming: Bool, for workspaceId: String) {
         if streaming {
@@ -123,13 +166,21 @@ final class HubStatusMonitor {
     fileprivate func didReceiveBranchInfo(_ info: BranchInfo, for workspaceId: String) {
         workspaceBranchInfo[workspaceId] = info
     }
+
+    fileprivate func didReceiveDone(for workspaceId: String) {
+        completedWorkspaces.insert(workspaceId)
+    }
+
+    /// Ensure a ConversationStore exists for a workspace (eager creation on streaming).
+    fileprivate func ensureStoreExists(for workspaceId: String) {
+        _ = storeCache.getOrCreate(workspaceId)
+    }
 }
 
-// MARK: - Per-workspace lightweight connection
+// MARK: - Single hub WebSocket connection
 
 @MainActor
-private final class WorkspaceConnection {
-    let workspaceId: String
+private final class HubConnection {
     private weak var monitor: HubStatusMonitor?
 
     private var wsTask: URLSessionWebSocketTask?
@@ -140,9 +191,9 @@ private final class WorkspaceConnection {
     private var backoff: UInt64 = 1
 
     private let decoder = JSONDecoder()
+    private let encoder = JSONEncoder()
 
-    init(workspaceId: String, monitor: HubStatusMonitor) {
-        self.workspaceId = workspaceId
+    init(monitor: HubStatusMonitor) {
         self.monitor = monitor
     }
 
@@ -160,22 +211,49 @@ private final class WorkspaceConnection {
         wsTask = nil
     }
 
+    /// Send a hub-level message (sync_workspaces or workspace event).
+    func send(_ message: HubIncoming) async {
+        guard let wsTask else { return }
+        guard let data = try? encoder.encode(message),
+              let string = String(data: data, encoding: .utf8) else { return }
+        try? await wsTask.send(.string(string))
+    }
+
+    /// Send sync_workspaces with the given workspace IDs.
+    func sendSyncWorkspaces(_ workspaceIds: [String]) {
+        Task {
+            await send(.syncWorkspaces(workspaceIds: workspaceIds))
+        }
+    }
+
     private func performConnect() {
         let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
         let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
         let token = UserDefaults.standard.string(forKey: "authToken") ?? ""
 
-        guard let url = URL(string: "ws://\(host):\(port)/ws/session/\(workspaceId)?token=\(token)") else {
+        guard let url = URL(string: "ws://\(host):\(port)/ws/hub?token=\(token)") else {
             return
         }
 
         let task = URLSession.shared.webSocketTask(with: url)
+        task.maximumMessageSize = 10 * 1024 * 1024
         self.wsTask = task
         task.resume()
         backoff = 1
+
+        // Re-wire send closures on all existing stores (handles reconnects)
+        monitor?.rewireAllSendClosures()
+
         startReceiving()
         startPinging()
+
+        // Send sync_workspaces to subscribe to all tracked workspaces
+        if let workspaceIds = monitor?.subscribedWorkspaceIds {
+            sendSyncWorkspaces(Array(workspaceIds))
+        }
     }
+
+    // MARK: - Receive loop
 
     private func startReceiving() {
         receiveTask = Task { [weak self] in
@@ -202,32 +280,39 @@ private final class WorkspaceConnection {
         }
         guard let data else { return }
 
-        // Lightweight selective decode — only handle types the hub cares about.
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = json["type"] as? String else {
-            return
-        }
+        // Decode hub envelope
+        guard let envelope = try? decoder.decode(HubOutgoing.self, from: data) else { return }
 
-        switch type {
-        case "status":
-            let streaming = json["streaming"] as? Bool ?? false
-            monitor?.didReceiveStreaming(streaming, for: workspaceId)
-        case "diff_stats":
-            if let statsJson = json["stats"],
-               let statsData = try? JSONSerialization.data(withJSONObject: statsJson),
-               let stats = try? decoder.decode(DiffStatResponse.self, from: statsData) {
-                monitor?.didReceiveDiffStats(stats, for: workspaceId)
+        let workspaceId = envelope.workspaceId
+        let event = envelope.event
+
+        // Hub-level processing
+        switch event {
+        case .status(_, _, let streaming, _, _):
+            let isStreaming = streaming ?? false
+            monitor?.didReceiveStreaming(isStreaming, for: workspaceId)
+            if isStreaming {
+                monitor?.ensureStoreExists(for: workspaceId)
             }
-        case "branch_info":
-            if let infoJson = json["info"],
-               let infoData = try? JSONSerialization.data(withJSONObject: infoJson),
-               let info = try? decoder.decode(BranchInfo.self, from: infoData) {
-                monitor?.didReceiveBranchInfo(info, for: workspaceId)
-            }
+
+        case .diffStats(let stats):
+            monitor?.didReceiveDiffStats(stats, for: workspaceId)
+
+        case .branchInfo(let info):
+            monitor?.didReceiveBranchInfo(info, for: workspaceId)
+
+        case .done:
+            monitor?.didReceiveDone(for: workspaceId)
+
         default:
             break
         }
+
+        // Forward ALL events to the ConversationStore (if one exists).
+        monitor?.storeCache.stores[workspaceId]?.handle(event)
     }
+
+    // MARK: - Ping keepalive
 
     private func startPinging() {
         pingTask = Task { [weak self] in
@@ -244,6 +329,8 @@ private final class WorkspaceConnection {
             }
         }
     }
+
+    // MARK: - Reconnect
 
     private func handleDisconnect() {
         receiveTask?.cancel()

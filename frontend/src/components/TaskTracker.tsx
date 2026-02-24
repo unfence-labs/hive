@@ -52,9 +52,12 @@ const TaskTracker = memo(function TaskTracker({
 
   if (tasks.length === 0) return null;
 
+  const allDone = counts.completed === counts.total;
   const collapsedLabel = currentTask
     ? (currentTask.activeForm ?? currentTask.subject)
-    : "All tasks completed";
+    : allDone
+      ? "All tasks completed"
+      : `${counts.pending} task${counts.pending === 1 ? "" : "s"} remaining`;
 
   return (
     <div className="border-t border-border/50 bg-background px-4 py-1.5">

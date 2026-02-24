@@ -11,7 +11,7 @@ import { workspaceRoutes } from "../api/workspaces.js";
 import { sessionRoutes } from "../api/agents.js";
 import { streamRoutes } from "../ws/stream.js";
 import { _clearActiveSessions } from "../agents/agent-manager.js";
-import type { WsOutgoing } from "../types.js";
+import type { WsOutgoing, HubOutgoing } from "../types.js";
 
 const CONV_CMD = { command: "bash" };
 
@@ -51,18 +51,25 @@ afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
 });
 
-async function connectSessionWs(
+async function connectHub(
   workspaceId: string,
-): Promise<{ ws: WebSocket; messages: WsOutgoing[] }> {
+): Promise<{ ws: WebSocket; messages: WsOutgoing[]; send: (msg: unknown) => void }> {
   const messages: WsOutgoing[] = [];
-  const ws = await app.injectWS(`/ws/session/${workspaceId}`, {}, {
+  const ws = await app.injectWS("/ws/hub", {}, {
     onInit: (clientWs: WebSocket) => {
       clientWs.on("message", (data: Buffer) => {
-        messages.push(JSON.parse(data.toString()) as WsOutgoing);
+        const envelope = JSON.parse(data.toString()) as HubOutgoing;
+        if (envelope.workspaceId === workspaceId) {
+          messages.push(envelope.event);
+        }
       });
     },
   });
-  return { ws, messages };
+  ws.send(JSON.stringify({ type: "sync_workspaces", workspaceIds: [workspaceId] }));
+  const send = (msg: unknown) => {
+    ws.send(JSON.stringify({ workspaceId, event: msg }));
+  };
+  return { ws, messages, send };
 }
 
 describe("E2E: conversation-only lifecycle", () => {
@@ -114,7 +121,7 @@ describe("E2E: conversation-only lifecycle", () => {
     expect(sessGetRes.json().sessionId).toBe(sessionMeta.sessionId);
 
     // 7. Connect WebSocket
-    const { ws: wsClient, messages } = await connectSessionWs(workspace.id);
+    const { ws: wsClient, messages } = await connectHub(workspace.id);
 
     // Wait for initial status message
     await new Promise<void>((resolve) => {
@@ -176,7 +183,7 @@ describe("E2E: conversation-only lifecycle", () => {
     const workspace = wsRes.json();
 
     // Connect WS directly (no session created yet)
-    const { ws: wsClient, messages } = await connectSessionWs(workspace.id);
+    const { ws: wsClient, messages, send } = await connectHub(workspace.id);
 
 
     // Should get initial idle status
@@ -190,7 +197,7 @@ describe("E2E: conversation-only lifecycle", () => {
     expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
 
     // Send a message — should auto-create session
-    wsClient.send(JSON.stringify({ type: "user_message", content: "Hello" }));
+    send({ type: "user_message", content: "Hello" });
 
     // Wait for status with sessionId
     await new Promise<void>((resolve) => {
@@ -239,7 +246,7 @@ describe("E2E: conversation-only lifecycle", () => {
     });
 
     // Connect WS
-    const { ws: wsClient, messages } = await connectSessionWs(workspace.id);
+    const { ws: wsClient, messages } = await connectHub(workspace.id);
 
 
     // Wait for initial status from existing, non-streaming session

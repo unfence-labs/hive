@@ -278,3 +278,16 @@ export type WsOutgoing =
   | { type: "branch_info"; info: BranchInfo }
   | { type: "diff_stats"; stats: DiffStatResponse }
   | { type: "script_status"; scriptType: ScriptType; state: ScriptState; exitCode?: number };
+
+// ── Hub WebSocket protocol (multiplexed) ────────────────────────────
+
+/** Client -> Server (hub-level). */
+export type HubIncoming =
+  | { type: "sync_workspaces"; workspaceIds: string[] }
+  | { workspaceId: string; event: WsIncoming };
+
+/** Server -> Client (hub-level). Every outgoing event is tagged with its workspace. */
+export interface HubOutgoing {
+  workspaceId: string;
+  event: WsOutgoing;
+}
