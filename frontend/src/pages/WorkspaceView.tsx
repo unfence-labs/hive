@@ -293,9 +293,10 @@ export default function WorkspaceView() {
   }, [createSession, switchSession]);
 
   const handleActivateSession = useCallback((targetSessionId: string) => {
+    if (targetSessionId === sessionId) return;
     setActiveTab("conversation");
     switchSession(targetSessionId);
-  }, [switchSession]);
+  }, [sessionId, switchSession]);
 
   const handleDeleteSession = useCallback(async (targetSessionId: string) => {
     const isActive = targetSessionId === sessionId;
