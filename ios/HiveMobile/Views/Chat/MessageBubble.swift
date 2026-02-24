@@ -215,6 +215,14 @@ private struct ImageThumb: View {
 
 // MARK: - Tool Display Helpers
 
+private struct ToolStats {
+    enum Kind { case diff, plain }
+    let kind: Kind
+    var added: Int = 0
+    var removed: Int = 0
+    var label: String?
+}
+
 private struct ToolDisplay {
     let icon: String
     let label: String
@@ -223,6 +231,7 @@ private struct ToolDisplay {
     var badgeText: String?
     var badgeIcon: String?
     var overrideSummary: String?
+    var stats: ToolStats?
 }
 
 private func toolIcon(for name: String) -> String {
@@ -243,6 +252,84 @@ private func getFilename(_ path: String) -> String {
     (path as NSString).lastPathComponent
 }
 
+/// Resolve file path across providers (Claude: file_path, Codex: filename, Gemini: path).
+private func resolveFilePath(_ input: [String: Any]) -> String? {
+    (input["file_path"] ?? input["filename"] ?? input["path"]) as? String
+}
+
+/// Count +/- lines in a unified diff string (Codex file_change format).
+private func parseDiffStats(_ diff: String) -> (added: Int, removed: Int) {
+    var added = 0, removed = 0
+    for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
+        if line.hasPrefix("+") && !line.hasPrefix("+++") { added += 1 }
+        else if line.hasPrefix("-") && !line.hasPrefix("---") { removed += 1 }
+    }
+    return (added, removed)
+}
+
+/// Compute edit diff stats using prefix/suffix line matching.
+private func computeEditDiffStats(oldString: String, newString: String) -> (added: Int, removed: Int) {
+    let oldLines = oldString.split(separator: "\n", omittingEmptySubsequences: false)
+    let newLines = newString.split(separator: "\n", omittingEmptySubsequences: false)
+    // Common prefix
+    var prefix = 0
+    while prefix < oldLines.count && prefix < newLines.count && oldLines[prefix] == newLines[prefix] {
+        prefix += 1
+    }
+    // Common suffix (not overlapping with prefix)
+    var suffix = 0
+    while suffix < oldLines.count - prefix && suffix < newLines.count - prefix
+            && oldLines[oldLines.count - 1 - suffix] == newLines[newLines.count - 1 - suffix] {
+        suffix += 1
+    }
+    let removed = oldLines.count - prefix - suffix
+    let added = newLines.count - prefix - suffix
+    return (added, removed)
+}
+
+private func computeToolStats(_ tool: ToolCall) -> ToolStats? {
+    guard let data = tool.input.data(using: .utf8),
+          let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        return nil
+    }
+
+    switch tool.name {
+    case "Edit":
+        let oldString = input["old_string"] as? String
+        let newString = input["new_string"] as? String
+        let diff = input["diff"] as? String
+        if let diff, !diff.isEmpty {
+            let stats = parseDiffStats(diff)
+            guard stats.added > 0 || stats.removed > 0 else { return nil }
+            return ToolStats(kind: .diff, added: stats.added, removed: stats.removed)
+        }
+        guard (oldString != nil && !oldString!.isEmpty) || (newString != nil && !newString!.isEmpty) else { return nil }
+        let stats = computeEditDiffStats(oldString: oldString ?? "", newString: newString ?? "")
+        guard stats.added > 0 || stats.removed > 0 else { return nil }
+        return ToolStats(kind: .diff, added: stats.added, removed: stats.removed)
+
+    case "Write":
+        guard let content = input["content"] as? String, !content.isEmpty else { return nil }
+        let lineCount = content.components(separatedBy: "\n").count
+        return ToolStats(kind: .plain, label: "\(lineCount) lines")
+
+    case "Grep":
+        guard let output = tool.output, !output.isEmpty else { return nil }
+        let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
+        guard !lines.isEmpty else { return nil }
+        return ToolStats(kind: .plain, label: "\(lines.count) result\(lines.count != 1 ? "s" : "")")
+
+    case "Glob":
+        guard let output = tool.output, !output.isEmpty else { return nil }
+        let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
+        guard !lines.isEmpty else { return nil }
+        return ToolStats(kind: .plain, label: "\(lines.count) file\(lines.count != 1 ? "s" : "")")
+
+    default:
+        return nil
+    }
+}
+
 private func getToolDisplay(_ tool: ToolCall, isPending: Bool = false) -> ToolDisplay {
     guard let data = tool.input.data(using: .utf8),
           let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -251,18 +338,22 @@ private func getToolDisplay(_ tool: ToolCall, isPending: Bool = false) -> ToolDi
 
     switch tool.name {
     case "Read":
-        let filePath = input["file_path"] as? String
+        let filePath = resolveFilePath(input)
         let limit = input["limit"] as? Int
         let label = limit != nil ? "Read \(limit!) lines" : "Read"
         return ToolDisplay(icon: "doc.text", label: label, detail: filePath.map(getFilename))
 
     case "Edit":
-        let filePath = input["file_path"] as? String
-        return ToolDisplay(icon: "pencil", label: "Edit", detail: filePath.map(getFilename), hideOutput: true)
+        let filePath = resolveFilePath(input)
+        var display = ToolDisplay(icon: "pencil", label: "Edit", detail: filePath.map(getFilename), hideOutput: true)
+        display.stats = computeToolStats(tool)
+        return display
 
     case "Write":
-        let filePath = input["file_path"] as? String
-        return ToolDisplay(icon: "doc.text", label: "Write", detail: filePath.map(getFilename))
+        let filePath = resolveFilePath(input)
+        var display = ToolDisplay(icon: "doc.text", label: "Write", detail: filePath.map(getFilename))
+        display.stats = computeToolStats(tool)
+        return display
 
     case "Bash":
         let command = input["command"] as? String
@@ -274,11 +365,15 @@ private func getToolDisplay(_ tool: ToolCall, isPending: Bool = false) -> ToolDi
         let path = input["path"] as? String
         var detail = pattern.map { "\"\($0)\"" }
         if let path { detail = (detail ?? "") + " in \(getFilename(path))" }
-        return ToolDisplay(icon: "magnifyingglass", label: "Grep", detail: detail)
+        var grepDisplay = ToolDisplay(icon: "magnifyingglass", label: "Grep", detail: detail)
+        grepDisplay.stats = computeToolStats(tool)
+        return grepDisplay
 
     case "Glob":
         let pattern = input["pattern"] as? String
-        return ToolDisplay(icon: "magnifyingglass", label: "Glob", detail: pattern)
+        var globDisplay = ToolDisplay(icon: "magnifyingglass", label: "Glob", detail: pattern)
+        globDisplay.stats = computeToolStats(tool)
+        return globDisplay
 
     case "Task":
         let subagentType = input["subagent_type"] as? String
@@ -482,19 +577,21 @@ private struct WhisperToolCallRow: View {
 
     var body: some View {
         let display = getToolDisplay(tool, isPending: isPending)
-        let summary = !isExpanded ? (display.overrideSummary ?? getOutputSummary(tool)) : nil
+        let summary = !isExpanded && display.stats == nil ? (display.overrideSummary ?? getOutputSummary(tool)) : nil
 
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                ToolRowLabel(icon: display.icon, label: display.label, detail: display.detail, summary: summary, badgeText: display.badgeText, badgeIcon: display.badgeIcon)
+                ToolRowLabel(icon: display.icon, label: display.label, detail: display.detail, stats: display.stats, summary: summary, badgeText: display.badgeText, badgeIcon: display.badgeIcon)
             }
             .buttonStyle(.plain)
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 0) {
-                    if tool.name == "AskUserQuestion" {
+                    if tool.name == "Edit" {
+                        DiffContentView(tool: tool)
+                    } else if tool.name == "AskUserQuestion" {
                         AskUserQuestionContent(tool: tool)
                     } else if let output = tool.output, !output.isEmpty, !display.hideOutput {
                         ToolContentPanel {
@@ -529,6 +626,168 @@ private struct WhisperToolCallRow: View {
                 }
                 .transition(.opacity)
             }
+        }
+    }
+}
+
+// MARK: - Diff Content View (Edit tool expanded)
+
+private struct DiffLine: Identifiable {
+    enum Kind { case context, added, removed }
+    let id: Int
+    let kind: Kind
+    let text: String
+
+    var prefix: String {
+        switch kind {
+        case .context: return " "
+        case .added:   return "+"
+        case .removed: return "-"
+        }
+    }
+}
+
+/// Compute display-ready diff lines from old/new strings (Claude/Gemini format).
+private func computeDiffLines(oldString: String, newString: String) -> [DiffLine] {
+    let oldLines = oldString.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    let newLines = newString.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+
+    // Common prefix
+    var pfx = 0
+    while pfx < oldLines.count && pfx < newLines.count && oldLines[pfx] == newLines[pfx] {
+        pfx += 1
+    }
+    // Common suffix (not overlapping with prefix)
+    var sfx = 0
+    while sfx < oldLines.count - pfx && sfx < newLines.count - pfx
+            && oldLines[oldLines.count - 1 - sfx] == newLines[newLines.count - 1 - sfx] {
+        sfx += 1
+    }
+
+    var result: [DiffLine] = []
+    var idx = 0
+
+    // Prefix context (show last 3 lines max)
+    let ctxBefore = max(0, pfx - 3)
+    for i in ctxBefore..<pfx {
+        result.append(DiffLine(id: idx, kind: .context, text: oldLines[i])); idx += 1
+    }
+    // Removed lines
+    for i in pfx..<(oldLines.count - sfx) {
+        result.append(DiffLine(id: idx, kind: .removed, text: oldLines[i])); idx += 1
+    }
+    // Added lines
+    for i in pfx..<(newLines.count - sfx) {
+        result.append(DiffLine(id: idx, kind: .added, text: newLines[i])); idx += 1
+    }
+    // Suffix context (show first 3 lines max)
+    let ctxAfter = min(sfx, 3)
+    for i in 0..<ctxAfter {
+        let lineIdx = oldLines.count - sfx + i
+        result.append(DiffLine(id: idx, kind: .context, text: oldLines[lineIdx])); idx += 1
+    }
+
+    return result
+}
+
+/// Parse a unified diff string (Codex format) into display-ready lines.
+private func parseUnifiedDiffLines(_ diff: String) -> [DiffLine] {
+    var result: [DiffLine] = []
+    var idx = 0
+    for raw in diff.split(separator: "\n", omittingEmptySubsequences: false) {
+        let line = String(raw)
+        if line.hasPrefix("+++") || line.hasPrefix("---") || line.hasPrefix("@@") { continue }
+        if line.hasPrefix("+") {
+            result.append(DiffLine(id: idx, kind: .added, text: String(line.dropFirst()))); idx += 1
+        } else if line.hasPrefix("-") {
+            result.append(DiffLine(id: idx, kind: .removed, text: String(line.dropFirst()))); idx += 1
+        } else {
+            let text = line.hasPrefix(" ") ? String(line.dropFirst()) : line
+            result.append(DiffLine(id: idx, kind: .context, text: text)); idx += 1
+        }
+    }
+    return result
+}
+
+private struct DiffContentView: View {
+    let tool: ToolCall
+
+    private var parsed: (filePath: String?, lines: [DiffLine]) {
+        guard let data = tool.input.data(using: .utf8),
+              let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return (nil, [])
+        }
+        let filePath = resolveFilePath(input)
+
+        // Codex format: unified diff string
+        if let diff = input["diff"] as? String, !diff.isEmpty {
+            return (filePath, parseUnifiedDiffLines(diff))
+        }
+        // Claude/Gemini format: old_string + new_string
+        let oldString = input["old_string"] as? String ?? ""
+        let newString = input["new_string"] as? String ?? ""
+        return (filePath, computeDiffLines(oldString: oldString, newString: newString))
+    }
+
+    private static let maxLines = 80
+
+    var body: some View {
+        let result = parsed
+        let lines = Array(result.lines.prefix(Self.maxLines))
+        let truncated = result.lines.count > Self.maxLines
+
+        ToolContentPanel {
+            VStack(alignment: .leading, spacing: 0) {
+                if let path = result.filePath {
+                    Text(path)
+                        .font(WhisperFont.mono(10))
+                        .foregroundStyle(WhisperColor.textMuted)
+                        .lineLimit(1)
+                        .padding(.bottom, 6)
+                }
+
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(lines) { line in
+                        HStack(spacing: 0) {
+                            Text(line.prefix)
+                                .frame(width: 14, alignment: .center)
+                                .foregroundStyle(prefixColor(line.kind).opacity(0.6))
+                            Text(line.text.isEmpty ? " " : line.text)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .foregroundStyle(prefixColor(line.kind))
+                        }
+                        .font(WhisperFont.mono(11))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(bgColor(line.kind))
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                if truncated {
+                    Text("… \(result.lines.count - Self.maxLines) more lines")
+                        .font(WhisperFont.mono(10))
+                        .foregroundStyle(WhisperColor.textMuted)
+                        .padding(.top, 4)
+                }
+            }
+        }
+        .transition(.opacity)
+    }
+
+    private func prefixColor(_ kind: DiffLine.Kind) -> Color {
+        switch kind {
+        case .context: return WhisperColor.textSecondary
+        case .added:   return .green
+        case .removed: return .red
+        }
+    }
+
+    private func bgColor(_ kind: DiffLine.Kind) -> Color {
+        switch kind {
+        case .context: return .clear
+        case .added:   return Color.green.opacity(0.12)
+        case .removed: return Color.red.opacity(0.12)
         }
     }
 }
@@ -583,6 +842,7 @@ private struct ToolRowLabel: View {
     let icon: String
     let label: String
     var detail: String?
+    var stats: ToolStats?
     var summary: String?
     var badgeText: String?
     var badgeIcon: String?
@@ -621,6 +881,30 @@ private struct ToolRowLabel: View {
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 4))
+            }
+
+            if let stats {
+                switch stats.kind {
+                case .diff:
+                    HStack(spacing: 4) {
+                        if stats.added > 0 {
+                            Text("+\(stats.added)")
+                                .foregroundStyle(.green)
+                        }
+                        if stats.removed > 0 {
+                            Text("-\(stats.removed)")
+                                .foregroundStyle(.red)
+                        }
+                    }
+                    .font(WhisperFont.mono(10))
+                case .plain:
+                    if let label = stats.label {
+                        Text(label)
+                            .font(WhisperFont.mono(10))
+                            .foregroundStyle(WhisperColor.textMuted)
+                            .lineLimit(1)
+                    }
+                }
             }
 
             if let summary {
