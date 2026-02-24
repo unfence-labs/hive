@@ -150,8 +150,11 @@ final class ConversationStore {
                     ensureStream(for: sid)
                     if var stream = sessionStreams[sid] {
                         stream.isStreaming = true
-                        if stream.streamingStartedAt == nil {
+                        // Prefer backend start time so iOS/web timers stay aligned.
+                        if let startedAt {
                             stream.streamingStartedAt = parseStartedAt(startedAt)
+                        } else if stream.streamingStartedAt == nil {
+                            stream.streamingStartedAt = Date()
                         }
                         sessionStreams[sid] = stream
                     }
@@ -253,8 +256,7 @@ final class ConversationStore {
         }
     }
 
-    private func parseStartedAt(_ rawStartedAt: Double?) -> Date {
-        guard let rawStartedAt else { return Date() }
+    private func parseStartedAt(_ rawStartedAt: Double) -> Date {
         let seconds = rawStartedAt > 10_000_000_000 ? rawStartedAt / 1000 : rawStartedAt
         return Date(timeIntervalSince1970: seconds)
     }

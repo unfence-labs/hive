@@ -1851,7 +1851,7 @@ describe("useConversation", () => {
     expect(result.current.streamingStartedAt).toBe(1_700_000_009_999);
 
     act(() => {
-      // Existing timestamp should be preserved if already set.
+      // A newer backend timestamp should replace the existing value.
       __wsMock.emit("ws-1", {
         type: "status",
         status: "busy",
@@ -1861,7 +1861,7 @@ describe("useConversation", () => {
       });
     });
 
-    expect(result.current.streamingStartedAt).toBe(1_700_000_009_999);
+    expect(result.current.streamingStartedAt).toBe(1_700_000_010_000);
 
     act(() => {
       // Fallback to Date.now when backend does not provide a timestamp.
@@ -1870,7 +1870,7 @@ describe("useConversation", () => {
 
     // sess-y status creates a background stream slot, but the active session stays sess-x.
     expect(result.current.sessionId).toBe("sess-x");
-    expect(result.current.streamingStartedAt).toBe(1_700_000_009_999);
+    expect(result.current.streamingStartedAt).toBe(1_700_000_010_000);
 
     act(() => {
       __wsMock.emit("ws-1", { type: "status", status: "idle", streaming: false });
@@ -1895,6 +1895,23 @@ describe("useConversation", () => {
     expect(result.current.isStreaming).toBe(true);
     expect(result.current.streamingStartedAt).toBe(1_700_000_001_555);
     nowSpy.mockRestore();
+  });
+
+  it("normalizes status streamingStartedAt in seconds to milliseconds", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        streaming: true,
+        sessionId: "sess-seconds",
+        streamingStartedAt: 1_700_000_002,
+      });
+    });
+
+    expect(result.current.streamingStartedAt).toBe(1_700_000_002_000);
   });
 
   it("preserves streamingStartedAt on same-session history while streaming", async () => {

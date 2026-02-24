@@ -211,8 +211,9 @@ struct ChatView: View {
         projectStore.statusMonitor.clearCompleted(workspace.id)
 
         await loadSessions()
-        activeSessionId = workspace.activeSessionId ?? sessions.first?.sessionId
-        store.setFocusedSessionId(activeSessionId)
+        let initialSessionId = resolveInitialSessionId()
+        activeSessionId = initialSessionId
+        store.setFocusedSessionId(initialSessionId)
 
         if let sessionId = activeSessionId {
             restoreDraft(for: sessionId)
@@ -223,6 +224,25 @@ struct ChatView: View {
         }
 
         await loadMessages()
+    }
+
+    private func resolveInitialSessionId() -> String? {
+        let knownSessionIds = Set(sessions.map(\.sessionId))
+
+        // Keep the currently focused store session whenever possible, so leaving
+        // and returning to chat doesn't drop in-progress streaming/thinking state.
+        if let cachedSessionId = store.sessionId {
+            if knownSessionIds.isEmpty || knownSessionIds.contains(cachedSessionId) ||
+                store.sessionStreams[cachedSessionId] != nil {
+                return cachedSessionId
+            }
+        }
+
+        if let workspaceSessionId = workspace.activeSessionId, knownSessionIds.contains(workspaceSessionId) {
+            return workspaceSessionId
+        }
+
+        return sessions.first?.sessionId
     }
 
     private func loadSessions() async {

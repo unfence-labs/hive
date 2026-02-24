@@ -67,6 +67,12 @@ function parseToolInput(input: string): unknown {
   }
 }
 
+function normalizeStreamingStartedAt(raw: number | undefined): number | undefined {
+  if (raw === undefined || Number.isNaN(raw)) return undefined;
+  // Backend currently sends ms, but accept seconds defensively.
+  return raw > 10_000_000_000 ? raw : raw * 1000;
+}
+
 function derivePendingToolInputsFromHistory(messages: ChatMessage[]): PendingToolInput[] {
   let lastAssistantIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -259,6 +265,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "status": {
       const sid = action.sessionId ?? state.sessionId;
       const newIsStreaming = action.streaming ?? (action.status === "idle" ? false : undefined);
+      const backendStartedAt = normalizeStreamingStartedAt(action.streamingStartedAt);
 
       let newStreams = state.sessionStreams;
       if (sid && newIsStreaming !== undefined) {
@@ -271,7 +278,8 @@ function reducer(state: ConversationState, action: Action): ConversationState {
             [sid]: {
               ...existing,
               isStreaming: true,
-              streamingStartedAt: existing.streamingStartedAt ?? action.streamingStartedAt ?? Date.now(),
+              // Prefer backend-provided start time so all clients show the same timer.
+              streamingStartedAt: backendStartedAt ?? existing.streamingStartedAt ?? Date.now(),
             },
           };
         } else if (stream) {
