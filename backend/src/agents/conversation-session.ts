@@ -23,6 +23,7 @@ import type {
 } from "../types.js";
 
 const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
+const MAX_ERROR_DETAIL_LENGTH = 280;
 
 /** Gemini CLI writes informational/retry messages to stderr; suppress these from error events. */
 const GEMINI_STDERR_NOISE = [
@@ -77,6 +78,17 @@ function formatServerToolResult(block: ServerResultBlock): string {
   }
 
   return JSON.stringify(content);
+}
+
+function sanitizeErrorDetail(detail: string): string {
+  const normalized = detail.replace(/\s+/g, " ").trim();
+  if (normalized.length <= MAX_ERROR_DETAIL_LENGTH) return normalized;
+  return `${normalized.slice(0, MAX_ERROR_DETAIL_LENGTH - 1)}…`;
+}
+
+function buildCancellationErrorDetail(exitCode: number, lastStderr: string | undefined): string {
+  const suffix = lastStderr ? ` | ${lastStderr}` : "";
+  return sanitizeErrorDetail(`exit code ${exitCode}${suffix}`);
 }
 
 type StopReason = "user" | "park";
@@ -346,6 +358,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let thinkingText = "";
     const toolCalls: ToolCall[] = [];
     let resultDurationMs: number | undefined;
+    let lastStderr: string | undefined;
 
     const pendingTaskStack: string[] = [];
     const blockingToolNames = new Set(["AskUserQuestion", "ExitPlanMode"]);
@@ -487,7 +500,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       if (!text) return;
       // Skip known informational stderr noise from Gemini CLI
       if (GEMINI_STDERR_NOISE.some((n) => text.includes(n))) return;
-      this.emit("message", { type: "error", message: `stderr: ${text}`, sessionId: this.sessionId } as WsOutgoing);
+      const stderrLine = `stderr: ${sanitizeErrorDetail(text)}`;
+      lastStderr = stderrLine;
+      this.emit("message", { type: "error", message: stderrLine, sessionId: this.sessionId } as WsOutgoing);
     });
 
     this.process.on("error", (err) => {
@@ -517,6 +532,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       const wasCancelled = exitCode !== 0 && this._status === "streaming" && !killedForBlockingTool;
       const cancelledByPark = wasCancelled && this.stopReason === "park";
       const shouldSurfaceCancelled = wasCancelled && !cancelledByPark;
+      const cancellationErrorDetail = shouldSurfaceCancelled
+        ? buildCancellationErrorDetail(exitCode, lastStderr)
+        : undefined;
 
       this._status = (exitCode === 0 || killedForBlockingTool) ? "idle" : "error";
       this._streamingStartedAt = null;
@@ -534,6 +552,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           thinkingContent: thinkingText || undefined,
           timestamp: new Date().toISOString(),
           cancelled: shouldSurfaceCancelled || undefined,
+          errorDetail: cancellationErrorDetail,
           durationMs: resultDurationMs,
         };
         void this.enqueuePersist(assistantMsg);
