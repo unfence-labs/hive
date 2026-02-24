@@ -1,4 +1,5 @@
 import { useState, memo, type ReactNode } from "react";
+import { diffLines } from "diff";
 import type { ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
 import { DiffView } from "@/components/diff/DiffView";
@@ -82,6 +83,11 @@ function getFilename(path: string): string {
   return path.split("/").pop() ?? path;
 }
 
+/** Resolve file path across providers (Claude: file_path, Codex: filename, Gemini: path). */
+function resolveFilePath(input: Record<string, unknown>): string | undefined {
+  return (input.file_path ?? input.filename ?? input.path) as string | undefined;
+}
+
 /** Parse a tool output as a JSON array of content blocks and extract text. */
 function parseContentBlocks(output: string): string | null {
   try {
@@ -122,7 +128,7 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
 
   switch (tool.name) {
     case "Read": {
-      const filePath = input.file_path as string | undefined;
+      const filePath = resolveFilePath(input);
       const filename = filePath ? getFilename(filePath) : undefined;
       const limit = input.limit as number | undefined;
       const offset = input.offset as number | undefined;
@@ -138,7 +144,7 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
     }
 
     case "Edit": {
-      const filePath = input.file_path as string | undefined;
+      const filePath = resolveFilePath(input);
       const filename = filePath ? getFilename(filePath) : undefined;
       const oldString = input.old_string as string | undefined;
       const newString = input.new_string as string | undefined;
@@ -160,7 +166,7 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
     }
 
     case "Write": {
-      const filePath = input.file_path as string | undefined;
+      const filePath = resolveFilePath(input);
       const filename = filePath ? getFilename(filePath) : undefined;
       const content = input.content as string | undefined;
       return {
@@ -299,6 +305,66 @@ interface ChatToolUseProps {
   onClick?: () => void;
 }
 
+type ToolStats =
+  | { type: "diff"; added: number; removed: number }
+  | { type: "plain"; label: string };
+
+/** Count +/- lines in a unified diff string (Codex file_change format). */
+function parseDiffStats(diff: string): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("+") && !line.startsWith("+++")) added++;
+    else if (line.startsWith("-") && !line.startsWith("---")) removed++;
+  }
+  return { added, removed };
+}
+
+function getToolStats(tool: ToolCall): ToolStats | null {
+  let input: Record<string, unknown> = {};
+  try { input = JSON.parse(tool.input); } catch { return null; }
+
+  switch (tool.name) {
+    case "Edit": {
+      const oldString = input.old_string as string | undefined;
+      const newString = input.new_string as string | undefined;
+      const diff = input.diff as string | undefined;
+      if (diff) {
+        // Codex format: unified diff string
+        const stats = parseDiffStats(diff);
+        return stats.added || stats.removed ? { type: "diff", ...stats } : null;
+      }
+      if (!oldString && !newString) return null;
+      const parts = diffLines(oldString ?? "", newString ?? "");
+      let added = 0, removed = 0;
+      for (const part of parts) {
+        const lines = part.value.replace(/\n$/, "").split("\n").length;
+        if (part.added) added += lines;
+        else if (part.removed) removed += lines;
+      }
+      return added || removed ? { type: "diff", added, removed } : null;
+    }
+    case "Write": {
+      const content = (input.content as string | undefined) ?? "";
+      if (!content) return null;
+      const lineCount = content.split("\n").length;
+      return { type: "plain", label: `${lineCount} lines` };
+    }
+    case "Grep": {
+      if (!tool.output) return null;
+      const lines = tool.output.split("\n").filter(Boolean);
+      return lines.length ? { type: "plain", label: `${lines.length} result${lines.length !== 1 ? "s" : ""}` } : null;
+    }
+    case "Glob": {
+      if (!tool.output) return null;
+      const lines = tool.output.split("\n").filter(Boolean);
+      return lines.length ? { type: "plain", label: `${lines.length} file${lines.length !== 1 ? "s" : ""}` } : null;
+    }
+    default:
+      return null;
+  }
+}
+
 function getOutputSummary(tool: ToolCall): string | undefined {
   if (tool.output == null) return undefined;
   const text = typeof tool.output === "string" ? tool.output : JSON.stringify(tool.output);
@@ -313,7 +379,8 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
   const [expanded, setExpanded] = useState(false);
   const display = getToolDisplay(tool);
   const showExpanded = onClick ? false : expanded;
-  const summary = !isExecuting && !showExpanded ? getOutputSummary(tool) : undefined;
+  const stats = !isExecuting ? getToolStats(tool) : null;
+  const summary = !isExecuting && !showExpanded && !stats ? getOutputSummary(tool) : undefined;
   const taskOutputText = tool.name === "Task" && tool.output
     ? parseContentBlocks(tool.output)
     : null;
@@ -334,6 +401,15 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
           <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
             {display.detail}
           </code>
+        )}
+        {stats?.type === "diff" && (
+          <span className="flex items-center gap-1 font-mono text-xs">
+            {stats.added > 0 && <span className="text-green-500">+{stats.added}</span>}
+            {stats.removed > 0 && <span className="text-red-500">&minus;{stats.removed}</span>}
+          </span>
+        )}
+        {stats?.type === "plain" && (
+          <span className="truncate text-xs font-normal text-muted-foreground/60">{stats.label}</span>
         )}
         {isExecuting && (
           <span className="flex items-center gap-1.5">
