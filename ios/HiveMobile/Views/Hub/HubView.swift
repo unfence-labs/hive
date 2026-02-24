@@ -329,6 +329,6 @@ struct HubView: View {
     NavigationStack {
         HubView()
     }
-    .environment(ProjectStore())
+    .environment(ProjectStore(storeCache: ConversationStoreCache()))
     .preferredColorScheme(.dark)
 }
