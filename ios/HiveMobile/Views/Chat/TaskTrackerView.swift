@@ -47,7 +47,10 @@ struct TaskTrackerView: View {
         if let current = currentTask {
             return current.activeForm ?? current.subject
         }
-        return "All tasks completed"
+        if counts.completed == counts.total {
+            return "All tasks completed"
+        }
+        return counts.pending == 1 ? "1 task remaining" : "\(counts.pending) tasks remaining"
     }
 
     private var collapsedRow: some View {

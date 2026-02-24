@@ -10,12 +10,13 @@ private let validStatuses: Set<String> = ["pending", "in_progress", "completed"]
 /// Parse a task ID from a TaskCreate tool output string.
 /// Tries JSON `{ "task": { "id": "42" } }` first, then regex `Task #1 created...`.
 func parseTaskId(from output: String) -> String? {
-    // Try JSON first
+    // Try JSON first (various shapes depending on CLI version)
     if let data = output.data(using: .utf8),
-       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-       let task = json["task"] as? [String: Any],
-       let id = task["id"] {
-        return "\(id)"
+       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        let id = (json["task"] as? [String: Any])?["id"] ?? json["taskId"] ?? json["id"]
+        if let id = id {
+            return "\(id)"
+        }
     }
     // Regex fallback: case-insensitive "Task #1" or "Task 1"
     if let match = output.range(of: #"Task\s+#?(\d+)"#, options: [.regularExpression, .caseInsensitive]) {

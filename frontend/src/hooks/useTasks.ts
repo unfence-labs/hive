@@ -31,10 +31,11 @@ const VALID_STATUSES = new Set(["pending", "in_progress", "completed"]);
  * Expected formats: "Task #1 created successfully: ..." or "Task 1 created: ..."
  */
 function parseTaskId(output: string): string | null {
-  // Try JSON first (in case CLI ever sends structured output)
+  // Try JSON first (various shapes depending on CLI version)
   try {
     const json = JSON.parse(output);
-    if (json?.task?.id != null) return String(json.task.id);
+    const id = json?.task?.id ?? json?.taskId ?? json?.id;
+    if (id != null) return String(id);
   } catch {
     // not JSON, try text
   }

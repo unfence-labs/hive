@@ -49,7 +49,7 @@ describe("TaskTracker", () => {
     expect(screen.getByText("Fix bug")).toBeInTheDocument();
   });
 
-  it("shows 'All tasks completed' when none in progress", () => {
+  it("shows 'All tasks completed' when all tasks are completed", () => {
     const tasks = [
       task({ id: "1", subject: "Done task", status: "completed" }),
     ];
@@ -57,6 +57,29 @@ describe("TaskTracker", () => {
       <TaskTracker tasks={tasks} currentTask={undefined} counts={counts(tasks)} />,
     );
     expect(screen.getByText("All tasks completed")).toBeInTheDocument();
+  });
+
+  it("shows remaining count when tasks are pending but none in progress", () => {
+    const tasks = [
+      task({ id: "1", subject: "A", status: "completed" }),
+      task({ id: "2", subject: "B", status: "pending" }),
+      task({ id: "3", subject: "C", status: "pending" }),
+    ];
+    render(
+      <TaskTracker tasks={tasks} currentTask={undefined} counts={counts(tasks)} />,
+    );
+    expect(screen.getByText("2 tasks remaining")).toBeInTheDocument();
+  });
+
+  it("shows singular form for one remaining task", () => {
+    const tasks = [
+      task({ id: "1", subject: "A", status: "completed" }),
+      task({ id: "2", subject: "B", status: "pending" }),
+    ];
+    render(
+      <TaskTracker tasks={tasks} currentTask={undefined} counts={counts(tasks)} />,
+    );
+    expect(screen.getByText("1 task remaining")).toBeInTheDocument();
   });
 
   it("shows count badge", () => {
