@@ -23,6 +23,9 @@ final class ConversationStore {
 
     // MARK: - Public state
 
+    /// Send closure wired by HubStatusMonitor to the workspace's WS connection.
+    var send: ((WsIncoming) async -> Void)?
+
     var messages: [ChatMessage] = []
     var isBusy = false
 

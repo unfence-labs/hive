@@ -166,14 +166,14 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `HiveMobile/Models/WebSocketTypes.swift`: WS protocol types (mirrors `backend/src/types.ts`)
 - `HiveMobile/Models/StreamingAttributes.swift`: Live Activity attributes
 - `HiveMobile/Services/APIClient.swift`: REST API client (includes `/api/models` and `/api/workspaces/:wsId/pr-status`)
-- `HiveMobile/Services/WebSocketManager.swift`: WS connection handler
 - `HiveMobile/Services/LiveActivityManager.swift`: iOS 16+ Live Activity (streaming indicator on lock screen)
 - `HiveMobile/Services/ImageCache.swift`: image caching
-- `HiveMobile/Stores/ConversationStore.swift`: chat state (mirrors `useConversation.ts`) + `lockedProvider` tracking
+- `HiveMobile/Stores/ConversationStore.swift`: chat state (mirrors `useConversation.ts`) + `lockedProvider` tracking + `send` closure for WS outgoing
+- `HiveMobile/Stores/ConversationStoreCache.swift`: app-level cache of ConversationStore instances keyed by workspace ID, survives navigation
 - `HiveMobile/Stores/ChatDraftStore.swift`: draft message persistence (includes `selectedModelId`, `thinkingLevel`)
-- `HiveMobile/Stores/ProjectStore.swift`: project list state
+- `HiveMobile/Stores/ProjectStore.swift`: project list state (accepts `ConversationStoreCache` at init)
 - `HiveMobile/Stores/ModelCatalog.swift`: dynamic model catalog from API, grouped by provider
-- `HiveMobile/Stores/HubStatusMonitor.swift`: per-workspace WS monitoring + PR status REST polling (15s)
+- `HiveMobile/Stores/HubStatusMonitor.swift`: single WS per workspace (full event decode + routing to ConversationStore) + PR status REST polling (15s) + turn-completed tracking
 - `HiveMobile/Views/Chat/ChatView.swift`: conversation UI + provider locking + model selection
 - `HiveMobile/Views/Chat/ChatInputBar.swift`: input bar with provider-adaptive controls (thinking toggle vs level picker)
 - `HiveMobile/Views/Chat/MessageBubble.swift`: message + tool call rendering
@@ -181,7 +181,7 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `HiveMobile/Views/Chat/SessionSheet.swift`: session switching
 - `HiveMobile/Views/Hub/HubView.swift`: project/workspace navigation
 - `HiveMobile/Views/Hub/AddProjectSheet.swift`: new project creation
-- `HiveMobile/Views/Hub/WorkspaceCard.swift`: workspace cards with activity preview + enriched PR status display
+- `HiveMobile/Views/Hub/WorkspaceCard.swift`: workspace cards with activity preview + enriched PR status display + turn-completed badge
 - `HiveMobile/Theme/DesignTokens.swift`: design tokens (WhisperColor, WhisperFont)
 - `HiveWidget/`: iOS Live Activity widget (streaming status on lock screen)
 
@@ -189,6 +189,10 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 
 - Connects to the same backend as web/desktop via configurable host/port (Settings).
 - Auth token stored in UserDefaults, passed as query param on WS connections.
+- **Single WS per workspace**: `HubStatusMonitor.WorkspaceConnection` opens one full-event WS per workspace. Hub-level events (status, diff_stats, branch_info) update monitor properties. ALL events are forwarded to the workspace's `ConversationStore` in the `ConversationStoreCache`.
+- **ConversationStoreCache** (`@Environment`): app-level cache of `ConversationStore` instances keyed by workspace ID. Stores survive `ChatView` mount/unmount, preserving streaming state across navigation. Stores are eagerly created when streaming starts (even if ChatView isn't open). Evicted on workspace archive/delete.
+- **ChatView receives its store as a parameter** from the cache (via `HiveApp`'s `navigationDestination`). No per-view WS — all sends go through `store.send` closure wired to `WorkspaceConnection`.
+- **Turn-completed badge**: `HubStatusMonitor.completedWorkspaces` tracks workspaces where a `done` event fired. `WorkspaceCard` shows a green dot. Cleared when `ChatView` opens (via `clearCompleted`).
 - Tool rendering mirrors the frontend: same tool names, same icon mapping, same hierarchical display (parentToolUseId).
 - AskUserQuestion renders as a paginated form sheet with multi-select support.
 - ExitPlanMode renders as a markdown preview with approve/reject actions.
@@ -219,7 +223,7 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - When adding new WS message types, update:
   - backend stream dispatch,
   - frontend reducers/hooks (`useConversation`, `useWorkspaceLiveData`, `ws-transport` cache),
-  - iOS stores (`ConversationStore`, `WebSocketManager`),
+  - iOS stores (`ConversationStore`, `HubStatusMonitor`),
   - corresponding tests.
 - When Claude CLI adds new content block types, update `ContentBlock` in `backend/src/types.ts` and the switch in `conversation-session.ts`.
 - When adding a new provider, implement `AgentProvider` from `providers/types.ts`, register it in `providers/registry.ts`, and add a stream adapter if the CLI output format differs from Claude's.
@@ -257,7 +261,3 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `redacted_thinking` blocks are logged as `[redacted]` but not visually distinguished from regular thinking in the UI.
 - Codex provider integration is functional but less battle-tested than Claude. Stream adapter edge cases may surface.
 - No Codex session resume verification (thread ID persistence is best-effort).
-- iOS workspace-level streaming persistence: iOS creates a fresh `ConversationStore` per `ChatView`. Preserving streaming state across workspace switches requires a shared stream cache at the app level. Two fix paths explored:
-  - **Lightweight**: Extend `HubStatusMonitor`'s per-workspace WS connections (already persistent) to capture streaming events (text_delta, tool_use, done) into a `SessionStreamCache` singleton. On ChatView mount, the store replays from cache before WS bootstrap. Pros: minimal SwiftUI plumbing. Cons: duplicates event handling logic between cache and ConversationStore.
-  - **Clean**: Replace `@State private var store = ConversationStore()` with an app-level `ConversationStoreCache` (keyed by workspace ID) injected via `@Environment`. Stores stay alive across navigation, WS stays connected while in cache. ChatView pulls existing store on re-mount. Pros: single source of truth, no event duplication. Cons: bigger refactor (State → Environment), need cache eviction on workspace archive/delete, memory management for inactive stores.
-  - Both paths require stopping `wsManager.disconnect()` in `onDisappear` (or keeping the hub monitor's connection as the single WS per workspace shared between hub and chat).

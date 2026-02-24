@@ -3,6 +3,7 @@ import SwiftUI
 struct WorkspaceCard: View {
     let workspace: Workspace
     var isStreaming: Bool = false
+    var turnCompleted: Bool = false
     var diffStats: DiffStatResponse?
     var branchInfo: BranchInfo?
     var prStatus: PrStatusResponse?
@@ -33,6 +34,10 @@ struct WorkspaceCard: View {
                 Spacer(minLength: 0)
                 if isStreaming {
                     AgentActivityIndicator(dotSize: 3, spacing: 1.5)
+                } else if turnCompleted {
+                    Circle()
+                        .fill(.green)
+                        .frame(width: 6, height: 6)
                 } else {
                     StatusDot(isStreaming: false)
                 }

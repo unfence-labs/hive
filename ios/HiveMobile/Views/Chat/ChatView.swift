@@ -3,11 +3,10 @@ import SwiftUI
 
 struct ChatView: View {
     let workspace: Workspace
+    let store: ConversationStore
 
-    @State private var store = ConversationStore()
     @State private var draft = ""
     @State private var isLoading = true
-    @State private var wsManager = WebSocketManager()
     @State private var sessions: [SessionMetadata] = []
     @State private var activeSessionId: String?
     @State private var showSessionSheet = false
@@ -18,6 +17,7 @@ struct ChatView: View {
     @State private var draftAttachments: [ImageAttachment] = []
 
     @Environment(ModelCatalog.self) private var modelCatalog
+    @Environment(ProjectStore.self) private var projectStore
 
     private let api = APIClient()
     private let draftStore = ChatDraftStore.shared
@@ -116,7 +116,7 @@ struct ChatView: View {
                     onModelSelect: { selectedModelId = $0 },
                     onDraftAttachmentsChange: { draftAttachments = $0 },
                     onSend: sendMessage,
-                    onStop: { Task { await wsManager.send(.stop(sessionId: activeSessionId)) } }
+                    onStop: { Task { await store.send?(.stop(sessionId: activeSessionId)) } }
                 )
                 .padding(.horizontal, 12)
                 .padding(.bottom, 4)
@@ -186,7 +186,6 @@ struct ChatView: View {
         }
         .onDisappear {
             saveCurrentDraft()
-            wsManager.disconnect()
         }
     }
 
@@ -209,6 +208,8 @@ struct ChatView: View {
     // MARK: - Setup
 
     private func setup() async {
+        projectStore.statusMonitor.clearCompleted(workspace.id)
+
         await loadSessions()
         activeSessionId = workspace.activeSessionId ?? sessions.first?.sessionId
         store.setFocusedSessionId(activeSessionId)
@@ -220,9 +221,6 @@ struct ChatView: View {
         if selectedModelId.isEmpty {
             selectedModelId = modelCatalog.defaultModelId
         }
-
-        wsManager.connect(workspaceId: workspace.id)
-        listenToWebSocket()
 
         await loadMessages()
     }
@@ -266,7 +264,7 @@ struct ChatView: View {
         store.prepareSessionSwitch(sessionId)
         isLoading = true
         Task {
-            await wsManager.send(.switchSession(sessionId: sessionId))
+            await store.send?(.switchSession(sessionId: sessionId))
             await loadMessages()
         }
     }
@@ -286,16 +284,6 @@ struct ChatView: View {
             sessions.removeAll { $0.sessionId == sessionId }
             if sessionId == activeSessionId, let first = sessions.first {
                 switchSession(first.sessionId)
-            }
-        }
-    }
-
-    // MARK: - WebSocket
-
-    private func listenToWebSocket() {
-        Task {
-            for await event in wsManager.messages {
-                store.handle(event)
             }
         }
     }
@@ -321,7 +309,7 @@ struct ChatView: View {
         )
 
         Task {
-            await wsManager.send(.userMessage(
+            await store.send?(.userMessage(
                 content: content,
                 images: images.isEmpty ? nil : images,
                 options: options,
@@ -332,7 +320,7 @@ struct ChatView: View {
 
     private func respondToTool(pending: PendingToolInput, result: ToolInputResult) {
         Task {
-            await wsManager.send(.toolInputResponse(
+            await store.send?(.toolInputResponse(
                 requestId: pending.requestId,
                 toolName: pending.toolName,
                 result: result,
@@ -410,13 +398,17 @@ struct ChatView: View {
 
 #Preview {
     NavigationStack {
-        ChatView(workspace: Workspace(
-            id: "ws-1", name: "san-antonio-v1", branch: "0xlny/ios-app",
-            status: .idle, createdAt: "", activeSessionId: "sess-1",
-            projectName: "hive", defaultBranch: "main"
-        ))
+        ChatView(
+            workspace: Workspace(
+                id: "ws-1", name: "san-antonio-v1", branch: "0xlny/ios-app",
+                status: .idle, createdAt: "", activeSessionId: "sess-1",
+                projectName: "hive", defaultBranch: "main"
+            ),
+            store: ConversationStore()
+        )
     }
     .environment(ModelCatalog())
+    .environment(ProjectStore(storeCache: ConversationStoreCache()))
     .preferredColorScheme(.dark)
 }
 

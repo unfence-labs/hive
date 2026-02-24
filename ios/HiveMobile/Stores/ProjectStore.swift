@@ -19,10 +19,14 @@ final class ProjectStore {
     /// Set after workspace creation so HiveApp can navigate to it.
     var pendingNavigation: Workspace?
 
-    let statusMonitor = HubStatusMonitor()
+    let statusMonitor: HubStatusMonitor
 
     private let api = APIClient()
     private var hasFetchedOnce = false
+
+    init(storeCache: ConversationStoreCache) {
+        self.statusMonitor = HubStatusMonitor(storeCache: storeCache)
+    }
 
     /// Whether the store has never successfully loaded data yet.
     var isInitialLoad: Bool { !hasFetchedOnce }
