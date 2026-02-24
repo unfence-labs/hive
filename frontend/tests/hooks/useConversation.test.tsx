@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useConversation } from "@/hooks/useConversation";
+import { useConversation, _resetSavedSessions } from "@/hooks/useConversation";
 import type { ChatMessage, WsOutgoing } from "@/types";
 
 vi.mock("@/hooks/useApi", () => {
@@ -143,6 +143,7 @@ describe("useConversation", () => {
     const { __apiMock } = await getApiMock();
     __wsMock.reset();
     __apiMock.reset();
+    _resetSavedSessions();
   });
 
   it("connects on mount and keeps connection alive on unmount", async () => {
@@ -1485,6 +1486,72 @@ describe("useConversation", () => {
 
     rerender({ wsId: "ws-1" });
     expect(result.current.switchCounter).toBe(initial + 2);
+  });
+
+  it("restores last viewed session when switching back to a workspace", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result, rerender } = renderHook(
+      ({ wsId }) => useConversation(wsId),
+      { initialProps: { wsId: "ws-1" } },
+    );
+
+    // Establish session sess-A on ws-1 via a status event
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "idle",
+        sessionId: "sess-A",
+        streaming: false,
+      });
+    });
+    expect(result.current.sessionId).toBe("sess-A");
+
+    // Switch to ws-2 — cleanup saves ws-1 → sess-A
+    rerender({ wsId: "ws-2" });
+    __wsMock.sendMock.mockClear();
+
+    // Switch back to ws-1 — should send switch_session for the saved session
+    __wsMock.setReplay("ws-1", []);
+    rerender({ wsId: "ws-1" });
+
+    expect(__wsMock.sendMock).toHaveBeenCalledWith("ws-1", {
+      type: "switch_session",
+      sessionId: "sess-A",
+    });
+    expect(result.current.sessionId).toBe("sess-A");
+  });
+
+  it("uses session-specific REST endpoint when restoring saved session", async () => {
+    const { __wsMock } = await getWsMock();
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock.mockResolvedValue([]);
+    const { result, rerender } = renderHook(
+      ({ wsId }) => useConversation(wsId),
+      { initialProps: { wsId: "ws-1" } },
+    );
+
+    // Establish session on ws-1
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "idle",
+        sessionId: "sess-B",
+        streaming: false,
+      });
+    });
+
+    // Switch away and back
+    __apiMock.getMock.mockClear();
+    __apiMock.getMock.mockResolvedValue([]);
+    rerender({ wsId: "ws-2" });
+    __wsMock.setReplay("ws-1", []);
+    rerender({ wsId: "ws-1" });
+
+    await waitFor(() => {
+      expect(__apiMock.getMock).toHaveBeenCalledWith(
+        "/api/workspaces/ws-1/sessions/sess-B/messages",
+      );
+    });
   });
 
   it("preserves streaming data across workspace switch", async () => {

@@ -359,9 +359,11 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "prepare_session_switch":
       return {
         ...state,
+        messages: [],
         sessionId: action.sessionId,
         error: undefined,
         lockedProvider: undefined,
+        switchCounter: state.switchCounter + 1,
         // sessionStreams is untouched — background sessions keep accumulating
       };
 
@@ -396,6 +398,14 @@ function reducer(state: ConversationState, action: Action): ConversationState {
   }
 }
 
+/** Remembers which session was last viewed per workspace (module-level, survives re-mounts). */
+const savedSessionByWorkspace = new Map<string, string>();
+
+/** @internal Test-only: clear saved session memory between tests. */
+export function _resetSavedSessions() {
+  savedSessionByWorkspace.clear();
+}
+
 function sessionIdField(id: string | undefined): { sessionId: string } | Record<string, never> {
   return id ? { sessionId: id } : {};
 }
@@ -403,6 +413,9 @@ function sessionIdField(id: string | undefined): { sessionId: string } | Record<
 export function useConversation(workspaceId: string | undefined) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const historyRequestTokenRef = useRef(0);
+  // Track latest sessionId so effect cleanup can read it (refs update during render, before effects).
+  const sessionIdRef = useRef<string | undefined>(state.sessionId);
+  sessionIdRef.current = state.sessionId;
   const syncSessionHistory = useCallback(async (sessionId: string) => {
     if (!workspaceId || !sessionId) return;
     const historyRequestToken = historyRequestTokenRef.current + 1;
@@ -428,10 +441,17 @@ export function useConversation(workspaceId: string | undefined) {
       dispatch({ type: "reset" });
       return;
     }
+    const savedSession = savedSessionByWorkspace.get(workspaceId);
     const historyRequestToken = historyRequestTokenRef.current + 1;
     historyRequestTokenRef.current = historyRequestToken;
 
     dispatch({ type: "prepare_workspace_switch" });
+    // Pre-set sessionId so the reducer's mismatch guard rejects replayed history
+    // for a different session (e.g. from stale lastHistory in the WS transport cache).
+    if (savedSession) {
+      dispatch({ type: "prepare_session_switch", sessionId: savedSession });
+    }
+
     wsTransport.connect(workspaceId);
 
     const { unsubscribe, hadBufferedMessages } = wsTransport.onMessage(workspaceId, (msg) => {
@@ -441,6 +461,12 @@ export function useConversation(workspaceId: string | undefined) {
       }
     });
 
+    // Tell the backend to activate the saved session and send its bootstrap.
+    if (savedSession) {
+      const sent = wsTransport.send(workspaceId, { type: "switch_session", sessionId: savedSession });
+      if (sent) historyRequestTokenRef.current += 1;
+    }
+
     // If the transport replayed buffered messages (events that arrived while we were
     // on another workspace), the reducer already has the most current state. Bump the
     // token so the async REST fetch won't overwrite it with potentially stale disk data.
@@ -448,17 +474,27 @@ export function useConversation(workspaceId: string | undefined) {
       historyRequestTokenRef.current += 1;
     }
 
+    // REST fallback — use session-specific endpoint when we have a saved preference.
+    // Compare against the original historyRequestToken so bumps from
+    // hadBufferedMessages / switch_session correctly invalidate a stale REST response.
     void (async () => {
       try {
-        const messages = await api.get<ChatMessage[]>(`/api/workspaces/${workspaceId}/session/messages`);
+        const url = savedSession
+          ? `/api/workspaces/${workspaceId}/sessions/${savedSession}/messages`
+          : `/api/workspaces/${workspaceId}/session/messages`;
+        const messages = await api.get<ChatMessage[]>(url);
         if (historyRequestTokenRef.current !== historyRequestToken) return;
-        dispatch({ type: "history", messages });
+        dispatch({ type: "history", sessionId: savedSession, messages });
       } catch {
         // History is still best-effort via websocket replay if API fetch fails.
       }
     })();
 
     return () => {
+      // Remember which session was active before leaving this workspace.
+      if (workspaceId && sessionIdRef.current) {
+        savedSessionByWorkspace.set(workspaceId, sessionIdRef.current);
+      }
       if (historyRequestTokenRef.current === historyRequestToken) {
         historyRequestTokenRef.current = historyRequestToken + 1;
       }

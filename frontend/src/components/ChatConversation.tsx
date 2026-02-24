@@ -91,9 +91,13 @@ export default function ChatConversation({
       const raf1 = requestAnimationFrame(() => {
         raf2 = requestAnimationFrame(() => setHydrated(true));
       });
+      // Safety fallback: rAF can stall when the tab/window isn't focused
+      // (background tabs, Tauri window transitions). Force reveal after 200ms.
+      const fallback = setTimeout(() => setHydrated(true), 200);
       return () => {
         cancelAnimationFrame(raf1);
         cancelAnimationFrame(raf2);
+        clearTimeout(fallback);
       };
     }
   }, [isHydrating]);
