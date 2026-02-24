@@ -27,7 +27,6 @@ final class ConversationStore {
     var send: ((WsIncoming) async -> Void)?
 
     var messages: [ChatMessage] = []
-    var isBusy = false
 
     /// Session currently displayed in chat.
     var sessionId: String?
@@ -49,6 +48,8 @@ final class ConversationStore {
         sessionId.flatMap { sessionStreams[$0] }
     }
 
+    /// Busy state for the currently focused session only.
+    var isBusy: Bool { activeStream?.isStreaming ?? false }
     var isStreaming: Bool { activeStream?.isStreaming ?? false }
     var streamingStartedAt: Date? { activeStream?.streamingStartedAt }
     var currentText: String { activeStream?.currentText ?? "" }
@@ -180,8 +181,6 @@ final class ConversationStore {
             if sessionId == nil, let incomingSessionId {
                 sessionId = incomingSessionId
             }
-
-            isBusy = status == .busy || streaming == true
 
         case .userMessage(let msg):
             let sid = msg.sessionId
