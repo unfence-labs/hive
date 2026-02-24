@@ -116,7 +116,7 @@ struct ChatView: View {
                     onModelSelect: { selectedModelId = $0 },
                     onDraftAttachmentsChange: { draftAttachments = $0 },
                     onSend: sendMessage,
-                    onStop: { Task { await store.send?(.stop(sessionId: activeSessionId)) } }
+                    onStop: { Task { _ = await store.send?(.stop(sessionId: activeSessionId)) } }
                 )
                 .padding(.horizontal, 12)
                 .padding(.bottom, 4)
@@ -166,7 +166,6 @@ struct ChatView: View {
         )) {
             ToolInputSheet(pendingInputs: store.pendingToolInputs) { pending, result in
                 respondToTool(pending: pending, result: result)
-                store.clearPendingToolInputs()
             }
         }
         .task { await setup() }
@@ -186,6 +185,7 @@ struct ChatView: View {
         }
         .onDisappear {
             saveCurrentDraft()
+            store.onTurnCompleted = nil
         }
     }
 
@@ -209,6 +209,31 @@ struct ChatView: View {
 
     private func setup() async {
         projectStore.statusMonitor.clearCompleted(workspace.id)
+
+        // Wire post-turn re-sync: after done/cancelled, re-fetch messages from REST
+        // so client-generated UUIDs are replaced with backend-assigned IDs.
+        store.onTurnCompleted = { [weak store, api, workspace] sessionId in
+            Task { @MainActor [weak store] in
+                guard let store else { return }
+                // Keep A streaming while B is open: only re-sync the visible session.
+                guard store.sessionId == sessionId else { return }
+
+                let requestToken = store.beginHistoryRequest(for: sessionId)
+                do {
+                    let msgs = try await api.fetchMessages(
+                        workspaceId: workspace.id,
+                        sessionId: sessionId
+                    )
+                    guard store.sessionId == sessionId else { return }
+                    guard store.historyToken(for: sessionId) == requestToken else { return }
+                    if store.sessionStreams[sessionId]?.isStreaming != true {
+                        store.messages = msgs
+                    }
+                } catch {
+                    // Best-effort — streamed messages remain as fallback
+                }
+            }
+        }
 
         await loadSessions()
         let initialSessionId = resolveInitialSessionId()
@@ -261,11 +286,28 @@ struct ChatView: View {
             return
         }
         store.setFocusedSessionId(sessionId)
+        let requestToken = store.beginHistoryRequest(for: sessionId)
         do {
-            store.messages = try await api.fetchMessages(
+            let msgs = try await api.fetchMessages(
                 workspaceId: workspace.id,
                 sessionId: sessionId
             )
+            // If the user switched session while this request was in-flight, ignore it.
+            guard activeSessionId == sessionId else {
+                isLoading = false
+                return
+            }
+            // Skip if a newer event (WS history, send, session switch) arrived while
+            // this REST call was in-flight — their data is more authoritative.
+            guard store.historyToken(for: sessionId) == requestToken else {
+                isLoading = false
+                return
+            }
+            // Don't overwrite messages while streaming — the active stream state
+            // would be lost (matches the guard in ConversationStore's .history handler).
+            if store.sessionStreams[sessionId]?.isStreaming != true {
+                store.messages = msgs
+            }
         } catch is CancellationError {
             // View disappeared
         } catch {
@@ -284,7 +326,7 @@ struct ChatView: View {
         store.prepareSessionSwitch(sessionId)
         isLoading = true
         Task {
-            await store.send?(.switchSession(sessionId: sessionId))
+            _ = await store.send?(.switchSession(sessionId: sessionId))
             await loadMessages()
         }
     }
@@ -313,6 +355,19 @@ struct ChatView: View {
     private func sendMessage(images: [ImageAttachment]) {
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty || !images.isEmpty else { return }
+
+        let targetSessionId = activeSessionId
+        // Snapshot draft so we can restore on failure
+        let savedDraft = draft
+        let savedAttachments = draftAttachments
+        let savedDraftState = ChatDraftStore.Draft(
+            text: savedDraft,
+            thinkingEnabled: thinkingEnabled,
+            planModeEnabled: planModeEnabled,
+            thinkingLevel: thinkingLevel,
+            selectedModelId: selectedModelId.isEmpty ? nil : selectedModelId,
+            attachments: savedAttachments.map(ChatDraftStore.Attachment.init)
+        )
         draft = ""
         draftAttachments = []
 
@@ -329,23 +384,62 @@ struct ChatView: View {
         )
 
         Task {
-            await store.send?(.userMessage(
+            let sent = await store.send?(.userMessage(
                 content: content,
                 images: images.isEmpty ? nil : images,
                 options: options,
-                sessionId: activeSessionId
-            ))
+                sessionId: targetSessionId
+            )) ?? false
+
+            if sent {
+                // Bump history token so any in-flight REST fetch won't overwrite the
+                // user_message echo that the backend is about to broadcast.
+                store.bumpHistoryToken(for: targetSessionId)
+            } else {
+                // Persist draft for the originating session, even if the user switched away.
+                if let targetSessionId {
+                    draftStore.save(
+                        workspaceId: workspace.id,
+                        sessionId: targetSessionId,
+                        draft: savedDraftState
+                    )
+                }
+                // Restore inline only if the user is still on the same session.
+                guard activeSessionId == targetSessionId else { return }
+                draft = savedDraft
+                draftAttachments = savedAttachments
+                store.messages.append(ChatMessage(
+                    id: UUID().uuidString, sessionId: "", role: .assistant,
+                    content: "Message not sent: disconnected from server.",
+                    images: nil, toolCalls: nil, thinkingContent: nil,
+                    timestamp: ConversationStore.timestamp(),
+                    cancelled: nil, durationMs: nil
+                ))
+            }
         }
     }
 
     private func respondToTool(pending: PendingToolInput, result: ToolInputResult) {
         Task {
-            await store.send?(.toolInputResponse(
+            let sent = await store.send?(.toolInputResponse(
                 requestId: pending.requestId,
                 toolName: pending.toolName,
                 result: result,
                 sessionId: pending.sessionId
-            ))
+            )) ?? false
+
+            if sent {
+                store.clearPendingToolInputs()
+                store.bumpHistoryToken(for: pending.sessionId)
+            } else if pending.sessionId == activeSessionId {
+                store.messages.append(ChatMessage(
+                    id: UUID().uuidString, sessionId: "", role: .assistant,
+                    content: "Tool response not sent: disconnected from server.",
+                    images: nil, toolCalls: nil, thinkingContent: nil,
+                    timestamp: ConversationStore.timestamp(),
+                    cancelled: nil, durationMs: nil
+                ))
+            }
         }
     }
 
