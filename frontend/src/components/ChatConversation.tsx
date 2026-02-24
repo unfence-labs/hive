@@ -67,20 +67,25 @@ export default function ChatConversation({
 
   // Hide the conversation during hydration so the user never sees content
   // flash at the top before StickToBottom repositions the scroll. The sequence:
-  // 1. switchCounter changes → reset hydrated synchronously during render
+  // 1. switchCounter changes → reset hydrated+settled synchronously during render
   // 2. Messages arrive → render invisible with resize="instant"
   // 3. StickToBottom's ResizeObserver fires → instant scroll to bottom
   // 4. Double-rAF ensures scroll is settled → reveal content at correct position
+  // 5. Settling period keeps resize="instant" so late layout shifts (Streamdown
+  //    plugin processing, syntax highlighting, images) are absorbed silently
+  // 6. After settling → resize="smooth" for normal interaction
   //
   // Uses React's "set state during render" pattern to detect workspace switches
   // synchronously, even when React 18 batches the switch dispatch with the WS
   // history replay into a single render (which broke the old useEffect approach).
   const [prevSwitchCounter, setPrevSwitchCounter] = useState(switchCounter);
   const [hydrated, setHydrated] = useState(false);
+  const [settled, setSettled] = useState(false);
 
   if (switchCounter !== prevSwitchCounter) {
     setPrevSwitchCounter(switchCounter);
     setHydrated(false);
+    setSettled(false);
   }
 
   const isHydrating = !hydrated && messages.length > 0;
@@ -101,6 +106,16 @@ export default function ChatConversation({
       };
     }
   }, [isHydrating]);
+
+  // Keep resize="instant" for a settling period after reveal so that late
+  // layout shifts (async syntax highlighting, plugin rendering) don't cause
+  // a visible smooth-scroll animation.
+  useEffect(() => {
+    if (hydrated && !settled) {
+      const timer = setTimeout(() => setSettled(true), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [hydrated, settled]);
 
   const hasContent = messages.length > 0 || isStreaming;
 
@@ -135,7 +150,7 @@ export default function ChatConversation({
   };
 
   return (
-    <Conversation className={`flex-1${isHydrating ? " invisible" : ""}`} resize={isHydrating ? "instant" : "smooth"}>
+    <Conversation className={`flex-1${isHydrating ? " invisible" : ""}`} resize={settled ? "smooth" : "instant"}>
       <ConversationContent className="gap-4 px-8 py-4">
         {!hasContent &&
           (workspaceName && projectName && branch && defaultBranch ? (
