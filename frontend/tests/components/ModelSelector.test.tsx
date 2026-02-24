@@ -18,7 +18,6 @@ const CLAUDE_MODELS: ModelCatalogEntry[] = [
     label: "Sonnet 4.6",
     provider: "claude",
     providerLabel: "Claude Code",
-    isNew: true,
     capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },
   },
 ];
@@ -36,10 +35,11 @@ const CODEX_MODELS: ModelCatalogEntry[] = [
 
 const GEMINI_MODELS: ModelCatalogEntry[] = [
   {
-    id: "gemini:gemini-2.5-pro",
-    label: "Gemini 2.5 Pro",
+    id: "gemini:gemini-3.1-pro-preview",
+    label: "Gemini 3.1 Pro",
     provider: "gemini",
     providerLabel: "Gemini CLI",
+    isDefault: true,
     capabilities: { thinking: false, planMode: false, blockingTools: false, completions: false },
   },
 ];
@@ -94,14 +94,18 @@ describe("ModelSelector", () => {
     // Model labels
     expect(screen.getByText("Sonnet 4.6")).toBeInTheDocument();
     expect(screen.getByText("GPT-5.3-Codex")).toBeInTheDocument();
-    expect(screen.getByText("Gemini 2.5 Pro")).toBeInTheDocument();
+    expect(screen.getByText("Gemini 3.1 Pro")).toBeInTheDocument();
   });
 
   it("shows NEW badge for models with isNew flag", async () => {
+    const modelsWithNew: ModelCatalogEntry[] = [
+      ...CLAUDE_MODELS,
+      { ...CODEX_MODELS[0], isNew: true },
+    ];
     const user = userEvent.setup();
     render(
       <ModelSelector
-        models={ALL_MODELS}
+        models={modelsWithNew}
         selectedModelId="claude:opus-4-6"
         defaultModelId="claude:opus-4-6"
         onSelect={vi.fn()}
@@ -230,13 +234,13 @@ describe("ModelSelector", () => {
     render(
       <ModelSelector
         models={[...ALL_MODELS, ...GEMINI_MODELS]}
-        selectedModelId="gemini:gemini-2.5-pro"
+        selectedModelId="gemini:gemini-3.1-pro-preview"
         defaultModelId="claude:opus-4-6"
         onSelect={vi.fn()}
       />,
     );
 
-    const trigger = screen.getByRole("button", { name: /Model: Gemini 2.5 Pro/i });
+    const trigger = screen.getByRole("button", { name: /Model: Gemini 3.1 Pro/i });
     const iconPath = trigger.querySelector("svg path")?.getAttribute("d");
     expect(iconPath).toContain("M12 0C12 6.627");
   });

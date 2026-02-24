@@ -9,11 +9,9 @@ import type {
 } from "./types.js";
 
 const GEMINI_MODELS: ModelDefinition[] = [
-  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", cliValue: "gemini-2.5-pro", isDefault: true },
-  { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", cliValue: "gemini-2.5-flash" },
-  { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite", cliValue: "gemini-2.5-flash-lite" },
-  { id: "gemini-3-pro-preview", label: "Gemini 3 Pro", cliValue: "gemini-3-pro-preview", isNew: true },
-  { id: "gemini-3-flash-preview", label: "Gemini 3 Flash", cliValue: "gemini-3-flash-preview", isNew: true },
+  { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", cliValue: "gemini-3.1-pro-preview", isDefault: true },
+  { id: "gemini-3-pro-preview", label: "Gemini 3 Pro", cliValue: "gemini-3-pro-preview" },
+  { id: "gemini-3-flash-preview", label: "Gemini 3 Flash", cliValue: "gemini-3-flash-preview" },
 ];
 
 const GEMINI_CAPABILITIES: ProviderCapabilities = {

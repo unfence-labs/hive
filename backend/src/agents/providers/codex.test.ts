@@ -85,9 +85,9 @@ describe("CodexProvider", () => {
   });
 
   it("includes --model with cli value when model is specified", () => {
-    const args = provider.buildArgs("Hello", { model: "gpt-5.3-codex-spark" }, baseSession());
+    const args = provider.buildArgs("Hello", { model: "gpt-5.3-codex" }, baseSession());
     expect(args).toContain("--model");
-    expect(args).toContain("gpt-5.3-codex-spark");
+    expect(args).toContain("gpt-5.3-codex");
   });
 
   it("omits --model when model is not in the list", () => {

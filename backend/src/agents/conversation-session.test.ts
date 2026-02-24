@@ -78,7 +78,7 @@ function resultLine(sessionId = "sess-123", costUsd = 0.01): string {
   return JSON.stringify({ type: "result", session_id: sessionId, cost_usd: costUsd }) + "\n";
 }
 
-function geminiInitLine(sessionId: string, model = "gemini-2.5-pro"): string {
+function geminiInitLine(sessionId: string, model = "gemini-3.1-pro-preview"): string {
   return JSON.stringify({ type: "init", session_id: sessionId, model }) + "\n";
 }
 
@@ -269,7 +269,7 @@ describe("ConversationSession", () => {
   it("uses Gemini init session_id for resume on second message", () => {
     const session = createSession({ sessionId: "gemini-resume" });
 
-    session.sendMessage("First", { model: "gemini:gemini-2.5-pro" });
+    session.sendMessage("First", { model: "gemini:gemini-3.1-pro-preview" });
 
     const firstArgs = mockSpawn.mock.calls[0][1] as string[];
     expect(firstArgs).not.toContain("-r");
@@ -280,7 +280,7 @@ describe("ConversationSession", () => {
     const mockProc2 = createMockProcess();
     mockSpawn.mockReturnValue(mockProc2);
 
-    session.sendMessage("Second", { model: "gemini:gemini-2.5-flash" });
+    session.sendMessage("Second", { model: "gemini:gemini-3-flash-preview" });
 
     const secondArgs = mockSpawn.mock.calls[1][1] as string[];
     const resumeIdx = secondArgs.indexOf("-r");
@@ -578,7 +578,7 @@ describe("ConversationSession", () => {
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
-    session.sendMessage("Hi", { model: "gemini:gemini-2.5-pro" });
+    session.sendMessage("Hi", { model: "gemini:gemini-3.1-pro-preview" });
     mockProc._stderr.push("Loaded cached credentials at /tmp/creds");
     mockProc._stderr.push("YOLO mode is enabled for this run");
     mockProc._stderr.push("Retrying with backoff in 1000ms");
@@ -593,7 +593,7 @@ describe("ConversationSession", () => {
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
-    session.sendMessage("Hi", { model: "gemini:gemini-2.5-pro" });
+    session.sendMessage("Hi", { model: "gemini:gemini-3.1-pro-preview" });
     mockProc._stderr.push("permission denied");
 
     const errors = messages.filter((m) => m.type === "error");
