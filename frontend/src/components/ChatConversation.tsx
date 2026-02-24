@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -12,6 +12,7 @@ import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { ToolCallList } from "@/components/chat/ToolCallList";
 import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
+import { getFallbackInteractiveAssistantIndex, hasExitPlanModeTool } from "@/lib/plan-state";
 import type { ChatMessage as ChatMessageType, ToolCall, QuestionAnswer } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
@@ -32,6 +33,7 @@ interface ChatConversationProps {
   branch?: string;
   defaultBranch?: string;
   fileCount?: number;
+  switchCounter: number;
 }
 
 export default function ChatConversation({
@@ -50,6 +52,7 @@ export default function ChatConversation({
   branch,
   defaultBranch,
   fileCount,
+  switchCounter,
 }: ChatConversationProps) {
   const [elapsed, setElapsed] = useState(0);
 
@@ -63,33 +66,57 @@ export default function ChatConversation({
     return () => clearInterval(id);
   }, [isStreaming, streamingStartedAt]);
 
-  // Hide the conversation during REST hydration so the user never sees content
+  // Hide the conversation during hydration so the user never sees content
   // flash at the top before StickToBottom repositions the scroll. The sequence:
-  // 1. Messages arrive → render invisible with resize="instant"
-  // 2. StickToBottom's ResizeObserver fires → instant scroll to bottom
-  // 3. Double-rAF ensures scroll is settled → reveal content at correct position
-  const wasEmptyRef = useRef(true);
+  // 1. switchCounter changes → reset hydrated+settled synchronously during render
+  // 2. Messages arrive → render invisible with resize="instant"
+  // 3. StickToBottom's ResizeObserver fires → instant scroll to bottom
+  // 4. Double-rAF ensures scroll is settled → reveal content at correct position
+  // 5. Settling period keeps resize="instant" so late layout shifts (Streamdown
+  //    plugin processing, syntax highlighting, images) are absorbed silently
+  // 6. After settling → resize="smooth" for normal interaction
+  //
+  // Uses React's "set state during render" pattern to detect workspace switches
+  // synchronously, even when React 18 batches the switch dispatch with the WS
+  // history replay into a single render (which broke the old useEffect approach).
+  const [prevSwitchCounter, setPrevSwitchCounter] = useState(switchCounter);
   const [hydrated, setHydrated] = useState(false);
-  const isInitialLoad = wasEmptyRef.current && messages.length > 0;
-  const isHydrating = isInitialLoad && !hydrated;
+  const [settled, setSettled] = useState(false);
+
+  if (switchCounter !== prevSwitchCounter) {
+    setPrevSwitchCounter(switchCounter);
+    setHydrated(false);
+    setSettled(false);
+  }
+
+  const isHydrating = !hydrated && messages.length > 0;
 
   useEffect(() => {
-    wasEmptyRef.current = messages.length === 0;
-    if (messages.length === 0) setHydrated(false);
-  }, [messages.length]);
-
-  useEffect(() => {
-    if (isInitialLoad) {
+    if (isHydrating) {
       let raf2: number;
       const raf1 = requestAnimationFrame(() => {
         raf2 = requestAnimationFrame(() => setHydrated(true));
       });
+      // Safety fallback: rAF can stall when the tab/window isn't focused
+      // (background tabs, Tauri window transitions). Force reveal after 200ms.
+      const fallback = setTimeout(() => setHydrated(true), 200);
       return () => {
         cancelAnimationFrame(raf1);
         cancelAnimationFrame(raf2);
+        clearTimeout(fallback);
       };
     }
-  }, [isInitialLoad]);
+  }, [isHydrating]);
+
+  // Keep resize="instant" for a settling period after reveal so that late
+  // layout shifts (async syntax highlighting, plugin rendering) don't cause
+  // a visible smooth-scroll animation.
+  useEffect(() => {
+    if (hydrated && !settled) {
+      const timer = setTimeout(() => setSettled(true), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [hydrated, settled]);
 
   const hasContent = messages.length > 0 || isStreaming;
 
@@ -97,34 +124,27 @@ export default function ChatConversation({
   // Fallback to the old heuristic (last assistant message, no user after) when no pending inputs.
   const hasPendingInputs = pendingToolInputs.length > 0;
   const pendingToolUseIds = new Set(pendingToolInputs.map((p) => p.toolUseId));
-
-  const lastAssistantIdx = isStreaming
-    ? -1
-    : messages.reduce((acc, msg, i) => (msg.role === "assistant" ? i : acc), -1);
-  const hasUserAfterLast =
-    lastAssistantIdx >= 0 &&
-    messages.slice(lastAssistantIdx + 1).some((m) => m.role === "user");
+  const fallbackInteractiveAssistantIdx = getFallbackInteractiveAssistantIndex(messages, isStreaming);
 
   const isMessageInteractive = (msg: ChatMessageType, idx: number): boolean => {
     if (hasPendingInputs) {
       return msg.toolCalls?.some((tc) => pendingToolUseIds.has(tc.id)) ?? false;
     }
-    return idx === lastAssistantIdx && !hasUserAfterLast;
+    return idx === fallbackInteractiveAssistantIdx;
   };
 
   const getPlanStatus = (msg: ChatMessageType, idx: number): PlanStatus | undefined => {
-    const hasExitPlanMode = msg.toolCalls?.some((tc) => tc.name === "ExitPlanMode");
-    if (!hasExitPlanMode) return undefined;
+    if (!hasExitPlanModeTool(msg)) return undefined;
     if (isMessageInteractive(msg, idx)) return "interactive";
     // "Revised" only if a later assistant message also proposes a plan
     const hasLaterPlan = messages.slice(idx + 1).some(
-      (m) => m.role === "assistant" && m.toolCalls?.some((tc) => tc.name === "ExitPlanMode"),
+      (m) => m.role === "assistant" && hasExitPlanModeTool(m),
     );
     return hasLaterPlan ? "revised" : "approved";
   };
 
   return (
-    <Conversation className={`flex-1${isHydrating ? " invisible" : ""}`} resize={isHydrating ? "instant" : "smooth"}>
+    <Conversation className={`flex-1${isHydrating ? " invisible" : ""}`} resize={settled ? "smooth" : "instant"}>
       <ConversationContent className="gap-4 px-8 py-4">
         {!hasContent &&
           (workspaceName && projectName && branch && defaultBranch ? (

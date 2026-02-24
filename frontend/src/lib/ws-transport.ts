@@ -6,7 +6,7 @@ export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 type MessageHandler = (msg: WsOutgoing) => void;
 type StatusListener = () => void;
 type StatusMessage = Extract<WsOutgoing, { type: "status" }>;
-type HistoryMessage = Extract<WsOutgoing, { type: "history" }>;
+export type HistoryMessage = Extract<WsOutgoing, { type: "history" }>;
 type DiffStatsMessage = Extract<WsOutgoing, { type: "diff_stats" }>;
 type BranchInfoMessage = Extract<WsOutgoing, { type: "branch_info" }>;
 
@@ -65,6 +65,17 @@ class WsTransport {
         this.removeConnection(workspaceId);
       }
     }
+  }
+
+  /** Update the cached history so switch-back replays are fresh. */
+  updateCachedHistory(workspaceId: string, historyMsg: HistoryMessage): void {
+    const connection = this.connections.get(workspaceId);
+    if (connection) connection.lastHistory = historyMsg;
+  }
+
+  /** Check whether cached history exists for a workspace. */
+  hasCachedHistory(workspaceId: string): boolean {
+    return this.connections.get(workspaceId)?.lastHistory !== undefined;
   }
 
   /** Clear cached status/history for a workspace (e.g. after session deletion). */

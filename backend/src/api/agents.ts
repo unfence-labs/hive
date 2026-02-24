@@ -9,7 +9,6 @@ import {
   getSessionMessages,
   listWorkspaceSessions,
   createNewSession,
-  activateSession,
   hardDeleteSession,
   getSpecificSessionMessages,
   resolveSessionAttachmentPath,
@@ -113,26 +112,6 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
         return reply.status(201).send(session.metadata);
       } catch (err: unknown) {
         const msg = errorMessage(err, "Failed to create session");
-        const code = errorStatus(err);
-        return reply.status(code).send({ error: msg });
-      }
-    },
-  );
-
-  // POST /api/workspaces/:wsId/sessions/:sessionId/activate — switch to a session
-  app.post<{ Params: { wsId: string; sessionId: string } }>(
-    "/api/workspaces/:wsId/sessions/:sessionId/activate",
-    async (req, reply) => {
-      try {
-        const session = await activateSession(
-          req.params.wsId,
-          req.params.sessionId,
-          dataDir,
-          sessionOptions,
-        );
-        return reply.send(session.metadata);
-      } catch (err: unknown) {
-        const msg = errorMessage(err, "Failed to activate session");
         const code = errorStatus(err);
         return reply.status(code).send({ error: msg });
       }

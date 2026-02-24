@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useReducer, useRef, useSyncExternalStore } from "react";
 import type { ChatMessage, ImageAttachment, MessageOptions, ToolCall, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
 import { wsTransport } from "@/lib/ws-transport";
+import type { HistoryMessage } from "@/lib/ws-transport";
 import { api } from "@/hooks/useApi";
 
 export interface PendingToolInput {
@@ -35,6 +36,7 @@ interface ConversationState {
   error?: string;
   sessionId?: string;
   lockedProvider?: string;
+  switchCounter: number;
 }
 
 const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
@@ -54,6 +56,7 @@ const initialState: ConversationState = {
   workspaceStatus: undefined,
   error: undefined,
   sessionId: undefined,
+  switchCounter: 0,
 };
 
 function parseToolInput(input: string): unknown {
@@ -357,9 +360,11 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "prepare_session_switch":
       return {
         ...state,
+        messages: [],
         sessionId: action.sessionId,
         error: undefined,
         lockedProvider: undefined,
+        switchCounter: state.switchCounter + 1,
         // sessionStreams is untouched — background sessions keep accumulating
       };
 
@@ -371,6 +376,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         workspaceStatus: undefined,
         error: undefined,
         lockedProvider: undefined,
+        switchCounter: state.switchCounter + 1,
         // sessionStreams is untouched — all sessions keep accumulating
       };
 
@@ -393,6 +399,14 @@ function reducer(state: ConversationState, action: Action): ConversationState {
   }
 }
 
+/** Remembers which session was last viewed per workspace (module-level, survives re-mounts). */
+const savedSessionByWorkspace = new Map<string, string>();
+
+/** @internal Test-only: clear saved session memory between tests. */
+export function _resetSavedSessions() {
+  savedSessionByWorkspace.clear();
+}
+
 function sessionIdField(id: string | undefined): { sessionId: string } | Record<string, never> {
   return id ? { sessionId: id } : {};
 }
@@ -400,6 +414,9 @@ function sessionIdField(id: string | undefined): { sessionId: string } | Record<
 export function useConversation(workspaceId: string | undefined) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const historyRequestTokenRef = useRef(0);
+  // Track latest sessionId so effect cleanup can read it (refs update during render, before effects).
+  const sessionIdRef = useRef<string | undefined>(state.sessionId);
+  sessionIdRef.current = state.sessionId;
   const syncSessionHistory = useCallback(async (sessionId: string) => {
     if (!workspaceId || !sessionId) return;
     const historyRequestToken = historyRequestTokenRef.current + 1;
@@ -425,10 +442,17 @@ export function useConversation(workspaceId: string | undefined) {
       dispatch({ type: "reset" });
       return;
     }
+    const savedSession = savedSessionByWorkspace.get(workspaceId);
     const historyRequestToken = historyRequestTokenRef.current + 1;
     historyRequestTokenRef.current = historyRequestToken;
 
     dispatch({ type: "prepare_workspace_switch" });
+    // Pre-set sessionId so the reducer's mismatch guard rejects replayed history
+    // for a different session (e.g. from stale lastHistory in the WS transport cache).
+    if (savedSession) {
+      dispatch({ type: "prepare_session_switch", sessionId: savedSession });
+    }
+
     wsTransport.connect(workspaceId);
 
     const { unsubscribe, hadBufferedMessages } = wsTransport.onMessage(workspaceId, (msg) => {
@@ -438,6 +462,12 @@ export function useConversation(workspaceId: string | undefined) {
       }
     });
 
+    // Tell the backend to activate the saved session and send its bootstrap.
+    if (savedSession) {
+      const sent = wsTransport.send(workspaceId, { type: "switch_session", sessionId: savedSession });
+      if (sent) historyRequestTokenRef.current += 1;
+    }
+
     // If the transport replayed buffered messages (events that arrived while we were
     // on another workspace), the reducer already has the most current state. Bump the
     // token so the async REST fetch won't overwrite it with potentially stale disk data.
@@ -445,23 +475,48 @@ export function useConversation(workspaceId: string | undefined) {
       historyRequestTokenRef.current += 1;
     }
 
-    void (async () => {
-      try {
-        const messages = await api.get<ChatMessage[]>(`/api/workspaces/${workspaceId}/session/messages`);
-        if (historyRequestTokenRef.current !== historyRequestToken) return;
-        dispatch({ type: "history", messages });
-      } catch {
-        // History is still best-effort via websocket replay if API fetch fails.
-      }
-    })();
+    // REST fallback — only needed on first visit when no cached history exists.
+    // On switch-back the transport cache is kept fresh (see effect below), so
+    // the WS replay already provides current messages.
+    if (!wsTransport.hasCachedHistory(workspaceId)) {
+      void (async () => {
+        try {
+          const url = savedSession
+            ? `/api/workspaces/${workspaceId}/sessions/${savedSession}/messages`
+            : `/api/workspaces/${workspaceId}/session/messages`;
+          const messages = await api.get<ChatMessage[]>(url);
+          if (historyRequestTokenRef.current !== historyRequestToken) return;
+          dispatch({ type: "history", sessionId: savedSession, messages });
+        } catch {
+          // History is still best-effort via websocket replay if API fetch fails.
+        }
+      })();
+    }
 
     return () => {
+      // Remember which session was active before leaving this workspace.
+      if (workspaceId && sessionIdRef.current) {
+        savedSessionByWorkspace.set(workspaceId, sessionIdRef.current);
+      }
       if (historyRequestTokenRef.current === historyRequestToken) {
         historyRequestTokenRef.current = historyRequestToken + 1;
       }
       unsubscribe();
     };
   }, [workspaceId, syncSessionHistory]);
+
+  // Keep the transport's cached history fresh so switch-back replays are current.
+  // Fires on history/done/cancelled/user_message — NOT on streaming deltas.
+  // Guard: don't write empty messages (prepare_workspace_switch clears them).
+  useEffect(() => {
+    if (!workspaceId || !state.sessionId || state.messages.length === 0) return;
+    const historyMsg: HistoryMessage = {
+      type: "history",
+      sessionId: state.sessionId,
+      messages: state.messages,
+    };
+    wsTransport.updateCachedHistory(workspaceId, historyMsg);
+  }, [workspaceId, state.sessionId, state.messages]);
 
   const sendMessage = useCallback((
     content: string,
@@ -501,7 +556,7 @@ export function useConversation(workspaceId: string | undefined) {
     dispatch({ type: "clear_chat" });
   }, []);
 
-  const switchSession = useCallback(async (sessionId: string) => {
+  const switchSession = useCallback((sessionId: string) => {
     if (!workspaceId) return;
     dispatch({ type: "prepare_session_switch", sessionId });
     dispatch({ type: "status", status: "busy", sessionId, streaming: false });
@@ -611,6 +666,7 @@ export function useConversation(workspaceId: string | undefined) {
     error: state.error,
     sessionId: state.sessionId,
     lockedProvider: state.lockedProvider,
+    switchCounter: state.switchCounter,
     sendMessage,
     stopStreaming,
     clearChat,

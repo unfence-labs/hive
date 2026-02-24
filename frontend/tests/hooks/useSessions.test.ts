@@ -75,7 +75,6 @@ describe("useSessions", () => {
 
     await act(async () => {
       expect(await result.current.createSession()).toBeNull();
-      expect(await result.current.activateSession("sess-1")).toBeNull();
       expect(await result.current.deleteSession("sess-1")).toBe(false);
     });
 
@@ -135,58 +134,6 @@ describe("useSessions", () => {
     });
   });
 
-  it("activates a session then refreshes the list", async () => {
-    vi.mocked(api.get)
-      .mockResolvedValueOnce([makeSession("sess-1")])
-      .mockResolvedValueOnce([makeSession("sess-1"), makeSession("sess-2")]);
-    vi.mocked(api.post).mockResolvedValueOnce(makeSession("sess-2"));
-    const { wrapper } = createWrapper();
-
-    const { result } = renderHook(() => useSessions("ws-1"), { wrapper });
-    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
-
-    let activated: SessionMetadata | null = null;
-    await act(async () => {
-      activated = await result.current.activateSession("sess-2");
-    });
-
-    expect(activated).toEqual(makeSession("sess-2"));
-    expect(api.post).toHaveBeenCalledWith("/api/workspaces/ws-1/sessions/sess-2/activate");
-
-    await waitFor(() => {
-      expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-2")]);
-    });
-  });
-
-  it("keeps sessions sorted after activateSession refreshes with unsorted data", async () => {
-    vi.mocked(api.get)
-      .mockResolvedValueOnce([makeSession("sess-a", "ws-1", "2026-02-12T00:00:01.000Z")])
-      .mockResolvedValueOnce([
-        makeSession("sess-c", "ws-1", "2026-02-12T00:00:03.000Z"),
-        makeSession("sess-a", "ws-1", "2026-02-12T00:00:01.000Z"),
-        makeSession("sess-b", "ws-1", "2026-02-12T00:00:02.000Z"),
-      ]);
-    vi.mocked(api.post).mockResolvedValueOnce(
-      makeSession("sess-c", "ws-1", "2026-02-12T00:00:03.000Z"),
-    );
-    const { wrapper } = createWrapper();
-
-    const { result } = renderHook(() => useSessions("ws-1"), { wrapper });
-    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
-
-    await act(async () => {
-      await result.current.activateSession("sess-c");
-    });
-
-    await waitFor(() => {
-      expect(result.current.sessions.map((s) => s.sessionId)).toEqual([
-        "sess-a",
-        "sess-b",
-        "sess-c",
-      ]);
-    });
-  });
-
   it("deletes a session then refreshes the list", async () => {
     vi.mocked(api.get)
       .mockResolvedValueOnce([makeSession("sess-1"), makeSession("sess-2")])
@@ -210,7 +157,7 @@ describe("useSessions", () => {
     });
   });
 
-  it("returns safe values on create/activate/delete errors", async () => {
+  it("returns safe values on create/delete errors", async () => {
     vi.mocked(api.get).mockResolvedValue([makeSession("sess-1")]);
     vi.mocked(api.post).mockRejectedValue(new Error("boom"));
     vi.mocked(api.delete).mockRejectedValue(new Error("boom"));
@@ -221,7 +168,6 @@ describe("useSessions", () => {
 
     await act(async () => {
       expect(await result.current.createSession()).toBeNull();
-      expect(await result.current.activateSession("sess-1")).toBeNull();
       expect(await result.current.deleteSession("sess-1")).toBe(false);
     });
   });
