@@ -20,14 +20,16 @@ export default function SettingsSidebar() {
         style={{ height: "max(var(--titlebar-inset, 0px), 3rem)" }}
         data-tauri-drag-region
       >
-        <button
-          type="button"
-          onClick={() => navigate(returnTo.current)}
-          className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          Back
-        </button>
+        <div className="ml-auto">
+          <button
+            type="button"
+            onClick={() => navigate(returnTo.current)}
+            className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back
+          </button>
+        </div>
       </div>
 
       <ScrollArea className="flex-1">

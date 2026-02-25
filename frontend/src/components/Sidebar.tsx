@@ -96,7 +96,7 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
     <div className="flex h-full w-72 flex-col border-r border-border/50 bg-sidebar text-sidebar-foreground">
       <div
         className="shrink-0"
-        style={{ height: "var(--titlebar-inset, 0px)" }}
+        style={{ height: "max(var(--titlebar-inset, 0px), 3rem)" }}
         data-tauri-drag-region
       />
 

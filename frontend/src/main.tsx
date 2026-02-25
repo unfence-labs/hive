@@ -8,6 +8,7 @@ import App from "./App";
 // When running inside Tauri, reserve space for the native traffic lights
 if ("__TAURI_INTERNALS__" in window) {
   document.documentElement.style.setProperty("--titlebar-inset", "40px");
+  document.documentElement.style.setProperty("--traffic-light-clearance", "76px");
 }
 
 createRoot(document.getElementById("root")!).render(

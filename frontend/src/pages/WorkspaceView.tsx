@@ -40,6 +40,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTerminalApps } from "@/hooks/useTerminalApps";
 import { openTerminalSsh } from "@/lib/terminal";
+import { useLayoutContext } from "@/components/AppLayout";
 import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput } from "@/lib/plan-state";
@@ -86,6 +87,7 @@ function renderFileTreeNodes(nodes: WorkspaceFileTreeNode[]) {
 
 export default function WorkspaceView() {
   const { wsId } = useParams();
+  const { collapsed } = useLayoutContext();
   const { ip: tailscaleIp, sshUser } = useTailscaleConfig();
   const { serverUrl } = useServerUrl();
   const terminalApps = useTerminalApps();
@@ -384,7 +386,11 @@ export default function WorkspaceView() {
       {/* Chat area + right panel */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="relative z-20 flex h-12 items-center gap-2 border-b border-border/50 px-4 backdrop-blur-sm" data-tauri-drag-region>
+          <div
+            className="relative z-20 flex h-12 items-center gap-2 border-b border-border/50 px-4 backdrop-blur-sm"
+            style={collapsed ? { paddingLeft: "calc(var(--traffic-light-clearance, 0px) + 44px)" } : undefined}
+            data-tauri-drag-region
+          >
             <span className="truncate text-sm font-semibold text-foreground">{workspace?.projectName ?? workspace?.name}</span>
             {displayBranch && (
               <BranchLabel branch={displayBranch} showIcon={false} className="text-xs text-muted-foreground" />
