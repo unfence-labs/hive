@@ -222,8 +222,8 @@ export default function ChatConversation({
 
         {/* Queued follow-up message */}
         {queuedMessage && (
-          <div className="flex w-full items-start justify-end" data-testid="queued-message">
-            <div className="group/queued relative max-w-[85%] rounded-[10px] rounded-br-[2px] border border-primary bg-transparent px-3.5 py-2 text-sm leading-relaxed text-white">
+          <div className="flex w-full flex-col items-end gap-0.5" data-testid="queued-message">
+            <div className="group/queued relative max-w-[85%] rounded-[10px] rounded-br-[2px] border border-dashed border-primary/40 bg-transparent px-3.5 py-2 text-sm leading-relaxed text-white/60">
               <p className="whitespace-pre-wrap">{queuedMessage.content}</p>
               <button
                 type="button"
@@ -234,6 +234,7 @@ export default function ChatConversation({
                 <Trash2Icon className="size-3" />
               </button>
             </div>
+            <span className="pr-1 text-[10px] text-muted-foreground">Queued</span>
           </div>
         )}
       </ConversationContent>

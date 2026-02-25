@@ -368,6 +368,7 @@ describe("ChatConversation queued message", () => {
     const queued = screen.getByTestId("queued-message");
     expect(queued).toBeInTheDocument();
     expect(queued).toHaveTextContent("my follow-up");
+    expect(queued).toHaveTextContent("Queued");
   });
 
   it("does not render queued message when queuedMessage is null", () => {
