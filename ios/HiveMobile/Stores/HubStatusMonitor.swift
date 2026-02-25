@@ -191,6 +191,16 @@ final class HubStatusMonitor {
     fileprivate func ensureStoreExists(for workspaceId: String) {
         _ = storeCache.getOrCreate(workspaceId)
     }
+
+    // MARK: - App lifecycle
+
+    /// Called when the app returns to foreground after a non-trivial background period.
+    /// Clears stale streaming state and forces an immediate hub reconnect so the
+    /// backend bootstrap (status + history) writes into a clean slate.
+    func appDidBecomeActive() {
+        storeCache.clearAllStreamingState()
+        hubConnection?.forceReconnect()
+    }
 }
 
 // MARK: - Single hub WebSocket connection
@@ -364,6 +374,19 @@ private final class HubConnection {
     }
 
     // MARK: - Reconnect
+
+    /// Force an immediate reconnect, bypassing exponential backoff.
+    /// Used when the app returns from background and the connection is likely dead.
+    func forceReconnect() {
+        guard !intentionallyClosed else { return }
+        receiveTask?.cancel()
+        pingTask?.cancel()
+        reconnectTask?.cancel()
+        wsTask?.cancel(with: .goingAway, reason: nil)
+        wsTask = nil
+        backoff = 1
+        performConnect()
+    }
 
     private func handleDisconnect() {
         receiveTask?.cancel()
