@@ -45,7 +45,7 @@ import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput } from "@/lib/plan-state";
 import { useScripts } from "@/hooks/useScripts";
-import type { DiffStatResponse, FileMention, ImageAttachment, MessageOptions, Workspace, WorkspaceFileTreeNode } from "@/types";
+import type { DiffStatResponse, FileMention, ImageAttachment, MessageOptions, QueuedMessage, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 const DEFAULT_EXPANDED = new Set<string>();
 
@@ -216,6 +216,7 @@ export default function WorkspaceView() {
     messages,
     isStreaming,
     streamingStartedAt,
+    workspaceStatus,
     currentStreamingText,
     currentThinking,
     activeToolCalls,
@@ -244,6 +245,25 @@ export default function WorkspaceView() {
       clearUnread(wsId, sessionId);
     }
   }, [activeTab, wsId, sessionId, liveData, clearUnread]);
+
+  // ── Message queue: lets users type one follow-up while agent is busy ──
+  const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
+
+  // Clear queue on session switch
+  useEffect(() => { setQueuedMessage(null); }, [sessionId]);
+
+  // Auto-dequeue when the agent finishes and workspace is truly idle
+  useEffect(() => {
+    if (!queuedMessage) return;
+    if (isStreaming) return;
+    if (workspaceStatus !== "idle") return;
+    if (pendingToolInputs.length > 0) return;
+
+    const { content, images, options, fileMentions } = queuedMessage;
+    const sent = sendMessage(content, images, options, undefined, fileMentions);
+    if (sent) setQueuedMessage(null);
+    // If send fails (WS disconnected), keep queue — effect re-fires on reconnect
+  }, [queuedMessage, isStreaming, workspaceStatus, pendingToolInputs, sendMessage]);
 
   const { tasks, currentTask, counts: taskCounts } = useTasks(messages, activeToolCalls);
 
@@ -511,6 +531,8 @@ export default function WorkspaceView() {
               fileCount={fileCount}
               switchCounter={switchCounter}
               error={error}
+              queuedMessage={queuedMessage}
+              onClearQueue={() => setQueuedMessage(null)}
             />
             {tasks.length > 0 && (
               <TaskTracker
@@ -538,6 +560,8 @@ export default function WorkspaceView() {
                 connectionStatus={connectionStatus}
                 placeholder={hasPendingPlan ? "Enter your plan adjustments here..." : undefined}
                 messages={messages}
+                queuedMessage={queuedMessage}
+                onQueue={setQueuedMessage}
               />
             )}
           </div>

@@ -80,6 +80,15 @@ export interface CreateProjectRequest {
   url: string;
 }
 
+// ── Queued message type ──────────────────────────────────────────────
+
+export interface QueuedMessage {
+  content: string;
+  images?: ImageAttachment[];
+  options?: MessageOptions;
+  fileMentions?: FileMention[];
+}
+
 // ── Image attachment type ────────────────────────────────────────────
 
 export interface ImageAttachment {

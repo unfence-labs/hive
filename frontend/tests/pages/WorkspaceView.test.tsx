@@ -91,15 +91,18 @@ vi.mock("@/components/ChatConversation", () => ({
     onHandOff,
     isStreaming,
     streamingStartedAt,
+    queuedMessage,
   }: {
     onHandOff: (planContent: string, planPath?: string) => void;
     isStreaming?: boolean;
     streamingStartedAt?: number | null;
+    queuedMessage?: { content: string } | null;
   }) => (
     <div data-testid="chat-conversation">
       chat-conversation
       <div data-testid="chat-is-streaming">{String(Boolean(isStreaming))}</div>
       <div data-testid="chat-streaming-started-at">{streamingStartedAt ?? "none"}</div>
+      <div data-testid="chat-queued-message">{queuedMessage?.content ?? "none"}</div>
       <button type="button" data-testid="handoff-plan-btn" onClick={() => onHandOff("PLAN-CONTENT")}>
         handoff plan
       </button>
@@ -115,9 +118,31 @@ vi.mock("@/components/ChatConversation", () => ({
 }));
 
 vi.mock("@/components/ChatInput", () => ({
-  default: ({ wsId, sessionId }: { wsId?: string; sessionId?: string }) => (
-    <div data-testid="chat-input" data-ws-id={wsId ?? ""} data-session-id={sessionId ?? ""}>
+  default: ({
+    wsId,
+    sessionId,
+    isStreaming,
+    queuedMessage,
+    onQueue,
+  }: {
+    wsId?: string;
+    sessionId?: string;
+    isStreaming?: boolean;
+    queuedMessage?: { content: string } | null;
+    onQueue?: (msg: { content: string }) => void;
+  }) => (
+    <div
+      data-testid="chat-input"
+      data-ws-id={wsId ?? ""}
+      data-session-id={sessionId ?? ""}
+      data-has-queue={queuedMessage ? "true" : "false"}
+    >
       chat-input
+      {isStreaming && onQueue && (
+        <button type="button" data-testid="queue-message-btn" onClick={() => onQueue({ content: "queued msg" })}>
+          queue message
+        </button>
+      )}
     </div>
   ),
 }));
@@ -1875,5 +1900,45 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     await screen.findByText("tokyo");
 
     expect(screen.getByRole("button", { name: "VS Code" })).toBeInTheDocument();
+  });
+
+  it("passes queued message to ChatConversation when queued during streaming", async () => {
+    const user = userEvent.setup();
+    mocks.useConversation.mockReturnValue({
+      messages: [],
+      isStreaming: true,
+      streamingStartedAt: Date.now(),
+      workspaceStatus: "busy",
+      currentStreamingText: "",
+      currentThinking: "",
+      activeToolCalls: [],
+      pendingToolInputs: [],
+      connectionStatus: "connected",
+      error: null,
+      sessionId: "sess-active",
+      sendMessage: mocks.sendMessage,
+      stopStreaming: mocks.stopStreaming,
+      clearChat: mocks.clearChat,
+      switchSession: mocks.switchSession,
+      answerQuestion: mocks.answerQuestion,
+      batchAnswerQuestions: mocks.batchAnswerQuestions,
+      approvePlan: mocks.approvePlan,
+      rejectToolInput: mocks.rejectToolInput,
+      dismissPlan: mocks.dismissPlan,
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    // Initially no queued message
+    expect(screen.getByTestId("chat-queued-message")).toHaveTextContent("none");
+    expect(screen.getByTestId("chat-input")).toHaveAttribute("data-has-queue", "false");
+
+    // Queue a message via ChatInput's queue button
+    await user.click(screen.getByTestId("queue-message-btn"));
+
+    // Queued message flows to ChatConversation and ChatInput
+    expect(screen.getByTestId("chat-queued-message")).toHaveTextContent("queued msg");
+    expect(screen.getByTestId("chat-input")).toHaveAttribute("data-has-queue", "true");
   });
 });

@@ -13,7 +13,8 @@ import { ToolCallList } from "@/components/chat/ToolCallList";
 import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
 import { getFallbackInteractiveAssistantIndex, hasExitPlanModeTool } from "@/lib/plan-state";
-import type { ChatMessage as ChatMessageType, ToolCall, QuestionAnswer } from "@/types";
+import { Trash2Icon } from "lucide-react";
+import type { ChatMessage as ChatMessageType, QueuedMessage, ToolCall, QuestionAnswer } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
 
@@ -36,6 +37,8 @@ interface ChatConversationProps {
   fileCount?: number;
   switchCounter: number;
   error?: string;
+  queuedMessage?: QueuedMessage | null;
+  onClearQueue?: () => void;
 }
 
 export default function ChatConversation({
@@ -57,6 +60,8 @@ export default function ChatConversation({
   fileCount,
   switchCounter,
   error,
+  queuedMessage,
+  onClearQueue,
 }: ChatConversationProps) {
   const [elapsed, setElapsed] = useState(0);
 
@@ -215,6 +220,24 @@ export default function ChatConversation({
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <AgentActivityPreview size="small" />
             <span>{formatElapsed(elapsed)}</span>
+          </div>
+        )}
+
+        {/* Queued follow-up message */}
+        {queuedMessage && (
+          <div className="flex w-full flex-col items-end gap-0.5" data-testid="queued-message">
+            <div className="group/queued relative max-w-[85%] rounded-[10px] rounded-br-[2px] border border-dashed border-primary/40 bg-transparent px-3.5 py-2 text-sm leading-relaxed text-white/60">
+              <p className="whitespace-pre-wrap">{queuedMessage.content}</p>
+              <button
+                type="button"
+                onClick={onClearQueue}
+                className="absolute -top-2 -right-2 flex size-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover/queued:opacity-100"
+                aria-label="Cancel queued message"
+              >
+                <Trash2Icon className="size-3" />
+              </button>
+            </div>
+            <span className="pr-1 text-[10px] text-muted-foreground">Queued</span>
           </div>
         )}
       </ConversationContent>

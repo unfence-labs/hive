@@ -26,11 +26,13 @@ function renderChatInput(overrides?: Partial<ComponentProps<typeof ChatInput>>) 
   });
   const onSend = overrides?.onSend ?? vi.fn(() => true);
   const onStop = overrides?.onStop ?? vi.fn();
+  const onQueue = overrides?.onQueue ?? vi.fn();
   render(
     <QueryClientProvider client={queryClient}>
       <ChatInput
         onSend={onSend}
         onStop={onStop}
+        onQueue={onQueue}
         disabled={false}
         isStreaming={false}
         connectionStatus="connected"
@@ -39,7 +41,7 @@ function renderChatInput(overrides?: Partial<ComponentProps<typeof ChatInput>>) 
       />
     </QueryClientProvider>,
   );
-  return { onSend, onStop };
+  return { onSend, onStop, onQueue };
 }
 
 describe("ChatInput", () => {
@@ -116,7 +118,6 @@ describe("ChatInput", () => {
     const { onStop } = renderChatInput({ isStreaming: true });
 
     expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Send a message...")).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: "Stop" }));
 
@@ -189,5 +190,51 @@ describe("ChatInput", () => {
     renderChatInput({ connectionStatus: "connecting" });
     // "connecting" still uses the default placeholder and doesn't disable input
     expect(screen.getByPlaceholderText("Send a message...")).not.toBeDisabled();
+  });
+
+  // ── Message queue tests ───────────────────────────────────────────
+
+  it("enables textarea during streaming so user can type a follow-up", () => {
+    renderChatInput({ isStreaming: true });
+
+    expect(screen.getByPlaceholderText("Send a message...")).not.toBeDisabled();
+  });
+
+  it("disables textarea when a queued message exists", () => {
+    renderChatInput({
+      isStreaming: true,
+      queuedMessage: { content: "queued follow-up" },
+    });
+
+    expect(screen.getByPlaceholderText("Send a message...")).toBeDisabled();
+  });
+
+  it("calls onQueue instead of onSend when submitting during streaming", async () => {
+    const user = userEvent.setup();
+    const { onSend, onQueue } = renderChatInput({ isStreaming: true });
+
+    await user.type(screen.getByPlaceholderText("Send a message..."), "follow up");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onQueue).toHaveBeenCalledWith({
+      content: "follow up",
+      images: undefined,
+      options: { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true },
+    });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("shows stop and send buttons separately during streaming", () => {
+    renderChatInput({ isStreaming: true });
+
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+  });
+
+  it("hides stop button when not streaming", () => {
+    renderChatInput({ isStreaming: false });
+
+    expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
   });
 });
