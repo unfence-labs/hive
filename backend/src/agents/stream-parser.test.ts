@@ -29,7 +29,6 @@ function makeResultLine(sessionId = "sess-123", costUsd = 0.01): string {
     session_id: sessionId,
     cost_usd: costUsd,
     duration_ms: 1234,
-    usage: { input_tokens: 100, output_tokens: 50 },
   });
 }
 
@@ -101,7 +100,6 @@ describe("StreamParser", () => {
     expect(results[0].session_id).toBe("sess-abc");
     expect(results[0].cost_usd).toBe(0.05);
     expect(results[0].duration_ms).toBe(1234);
-    expect(results[0].usage).toEqual({ input_tokens: 100, output_tokens: 50 });
   });
 
   it("parses a system message", () => {

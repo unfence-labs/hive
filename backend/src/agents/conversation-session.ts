@@ -452,6 +452,16 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           }
         }
       }
+
+      // Capture token usage from assistant message events (deduplicated: last write wins)
+      const usage = data.message.usage;
+      if (usage) {
+        resultInputTokens =
+          usage.input_tokens +
+          (usage.cache_creation_input_tokens ?? 0) +
+          (usage.cache_read_input_tokens ?? 0);
+        resultOutputTokens = usage.output_tokens;
+      }
     });
 
     this.parser.on("user", (data) => {
@@ -486,6 +496,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       if (data.cost_usd != null) {
         resultCostUsd = data.cost_usd;
       }
+      // Codex/Gemini adapters place usage on the result event (Claude puts it on assistant events)
       if (data.usage) {
         resultInputTokens =
           data.usage.input_tokens +

@@ -170,6 +170,12 @@ export type CliJsonLine =
         content: ContentBlock[];
         model?: string;
         stop_reason?: string;
+        usage?: {
+          input_tokens: number;
+          output_tokens: number;
+          cache_creation_input_tokens?: number;
+          cache_read_input_tokens?: number;
+        };
       };
     }
   | {
@@ -184,6 +190,7 @@ export type CliJsonLine =
       session_id: string;
       cost_usd?: number;
       duration_ms?: number;
+      /** Codex/Gemini adapters may place usage here; Claude puts it on assistant events. */
       usage?: {
         input_tokens: number;
         output_tokens: number;
