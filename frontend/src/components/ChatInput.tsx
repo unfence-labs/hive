@@ -11,9 +11,9 @@ import {
   usePromptInputAttachments,
   type AttachmentsContext,
 } from "@/components/ai-elements/prompt-input";
-import type { ChatMessage, CompletionItem, ImageAttachment, MessageOptions, ThinkingLevel } from "@/types";
+import type { ChatMessage, CompletionItem, ImageAttachment, MessageOptions, QueuedMessage, ThinkingLevel } from "@/types";
 import { cn } from "@/lib/utils";
-import { BrainIcon, BookOpenIcon, PlusIcon } from "lucide-react";
+import { BrainIcon, BookOpenIcon, PlusIcon, SquareIcon } from "lucide-react";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
 import { AutocompletePopup } from "@/components/chat/AutocompletePopup";
 import { ContextRing } from "@/components/chat/ContextRing";
@@ -34,6 +34,8 @@ interface ChatInputProps {
   connectionStatus: "connecting" | "connected" | "disconnected";
   placeholder?: string;
   messages: ChatMessage[];
+  queuedMessage?: QueuedMessage | null;
+  onQueue: (msg: QueuedMessage) => void;
 }
 
 interface AutocompleteState {
@@ -80,6 +82,8 @@ export default function ChatInput({
   connectionStatus,
   placeholder: customPlaceholder,
   messages,
+  queuedMessage,
+  onQueue,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [thinkingEnabled, setThinkingEnabled] = useState(true);
@@ -90,7 +94,8 @@ export default function ChatInput({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const attachmentsRef = useRef<AttachmentsContext | null>(null);
   const isDisconnected = connectionStatus === "disconnected";
-  const isInputDisabled = disabled || isStreaming || isDisconnected;
+  const hasQueuedMessage = !!queuedMessage;
+  const isInputDisabled = disabled || isDisconnected || hasQueuedMessage;
   const canSubmit = !isInputDisabled && (value.trim().length > 0 || fileCount > 0);
 
   const { models, defaultModelId, selectedModelId, selectedModel, setSelectedModelId, capabilities } = useModels(lockedProvider);
@@ -228,8 +233,12 @@ export default function ChatInput({
       ...(supportsThinkingLevels && { thinkingLevel }),
     };
 
-    const sent = onSend(trimmed, images, options);
-    if (!sent) throw new Error("Message send failed");
+    if (isStreaming) {
+      onQueue({ content: trimmed, images, options });
+    } else {
+      const sent = onSend(trimmed, images, options);
+      if (!sent) throw new Error("Message send failed");
+    }
     setValue("");
     setAutocomplete(null);
   };
@@ -324,12 +333,22 @@ export default function ChatInput({
             >
               <PlusIcon className="size-3" />
             </PromptInputButton>
+            {isStreaming && (
+              <PromptInputButton
+                aria-label="Stop"
+                variant="ghost"
+                size="icon-xs"
+                className="size-5"
+                onClick={(e) => { e.preventDefault(); onStop(); }}
+              >
+                <SquareIcon className="size-3" />
+              </PromptInputButton>
+            )}
             <PromptInputSubmit
-              aria-label={isStreaming ? "Stop" : "Send"}
-              status={isStreaming ? "streaming" : "ready"}
+              aria-label="Send"
+              status="ready"
               variant="ghost"
-              onStop={onStop}
-              disabled={!isStreaming && !canSubmit}
+              disabled={!canSubmit}
               size="icon-xs"
               className={cn(
                 "size-5 border border-border/50",

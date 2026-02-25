@@ -1,4 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ComponentProps, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import ChatConversation from "@/components/ChatConversation";
@@ -347,5 +348,47 @@ describe("ChatConversation hydration on session/workspace switch", () => {
 
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+});
+
+describe("ChatConversation queued message", () => {
+  it("renders queued message at the bottom when queuedMessage is set", () => {
+    renderConversation({
+      messages: [{
+        id: "u1",
+        sessionId: "sess-1",
+        role: "user",
+        content: "first message",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      }],
+      isStreaming: true,
+      queuedMessage: { content: "my follow-up" },
+    });
+
+    const queued = screen.getByTestId("queued-message");
+    expect(queued).toBeInTheDocument();
+    expect(queued).toHaveTextContent("my follow-up");
+  });
+
+  it("does not render queued message when queuedMessage is null", () => {
+    renderConversation({
+      queuedMessage: null,
+    });
+
+    expect(screen.queryByTestId("queued-message")).not.toBeInTheDocument();
+  });
+
+  it("calls onClearQueue when trash button is clicked", async () => {
+    const user = userEvent.setup();
+    const onClearQueue = vi.fn();
+
+    renderConversation({
+      isStreaming: true,
+      queuedMessage: { content: "cancel me" },
+      onClearQueue,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Cancel queued message" }));
+    expect(onClearQueue).toHaveBeenCalledTimes(1);
   });
 });
