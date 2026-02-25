@@ -79,19 +79,29 @@ export default function AppLayout({ onAddProject }: AppLayoutProps) {
           )}
         </div>
         <main className="relative flex flex-1 flex-col overflow-hidden">
+          {collapsed && (
+            <div
+              className="absolute inset-x-0 top-0"
+              style={{ height: "var(--titlebar-inset, 0px)" }}
+              data-tauri-drag-region
+            />
+          )}
           {collapsed && !isSettings && (
             <button
               type="button"
               onClick={toggle}
               className="absolute left-2.5 z-30 flex items-center justify-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              style={{ top: "max(var(--titlebar-inset, 0px) - 8px, 0.75rem)" }}
+              style={{ top: "calc(var(--titlebar-inset, 0px) + 0.75rem)" }}
               aria-label="Show sidebar"
               title="Show sidebar (⌘B)"
             >
               <PanelLeft className="h-4 w-4" />
             </button>
           )}
-          <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div
+            className="relative min-h-0 flex-1 overflow-hidden"
+            style={collapsed ? { paddingTop: "var(--titlebar-inset, 0px)" } : undefined}
+          >
             <Outlet context={{ collapsed, toggle } satisfies LayoutContext} />
           </div>
         </main>

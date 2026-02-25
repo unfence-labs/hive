@@ -38,24 +38,24 @@ function renderLayout(initialEntry = "/workspaces/ws-1") {
 }
 
 describe("AppLayout", () => {
-  it("does not render the legacy titlebar spacer in workspace layout", () => {
+  it("does not render titlebar inset elements when sidebar is expanded", () => {
     const { container } = renderLayout();
 
     const main = container.querySelector("main");
-    const legacySpacerInMain = main?.querySelector("[style*='--titlebar-inset']");
+    const insetElements = main?.querySelectorAll("[style*='--titlebar-inset']");
 
-    expect(legacySpacerInMain).not.toBeInTheDocument();
+    expect(insetElements?.length ?? 0).toBe(0);
     expect(main).toHaveClass("relative");
   });
 
-  it("does not render the legacy titlebar spacer in settings layout", async () => {
+  it("does not render titlebar inset elements in settings when sidebar is expanded", async () => {
     const { container } = renderLayout("/settings/appearance");
     await screen.findByTestId("settings-content");
 
     const main = container.querySelector("main");
-    const legacySpacerInMain = main?.querySelector("[style*='--titlebar-inset']");
+    const insetElements = main?.querySelectorAll("[style*='--titlebar-inset']");
 
-    expect(legacySpacerInMain).not.toBeInTheDocument();
+    expect(insetElements?.length ?? 0).toBe(0);
     expect(main).toHaveClass("relative");
   });
 });
