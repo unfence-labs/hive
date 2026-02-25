@@ -32,6 +32,7 @@ import {
 import { Streamdown } from "streamdown";
 import type { LinkSafetyModalProps } from "streamdown";
 import { ExternalLinkDialog } from "@/components/ExternalLinkDialog";
+import { openExternal } from "@/lib/open-external";
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"];
@@ -331,7 +332,10 @@ const renderLinkModal = (props: LinkSafetyModalProps) => (
     url={props.url}
     open={props.isOpen}
     onClose={props.onClose}
-    onConfirm={props.onConfirm}
+    onConfirm={() => {
+      openExternal(props.url);
+      props.onClose();
+    }}
   />
 );
 
