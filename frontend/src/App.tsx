@@ -9,7 +9,6 @@ import NotificationSettings from "@/pages/settings/NotificationSettings";
 import ProjectDetail from "@/pages/settings/ProjectDetail";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import EmptyStateLogo from "@/components/EmptyStateLogo";
-import LogoSquareTempPage from "@/pages/LogoSquareTempPage";
 import { useProjects } from "@/hooks/useProjects";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
@@ -48,7 +47,6 @@ export default function App() {
           onSubmit={createProjectWithWorkspace}
         />
         <Routes>
-          <Route path="tmp/logo-carre" element={<LogoSquareTempPage />} />
           <Route
             element={
               <AppLayout onAddProject={() => setShowAddProject(true)} />

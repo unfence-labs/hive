@@ -22,7 +22,7 @@ import {
   _setScriptStatusForTests,
   _clearAll as clearScripts,
 } from "../services/script-runner.js";
-import type { WsOutgoing, HubOutgoing, HubIncoming } from "../types.js";
+import type { WsOutgoing, HubOutgoing } from "../types.js";
 
 const CONV_CMD = { command: "bash" };
 
@@ -908,7 +908,7 @@ describe("WS /ws/hub", () => {
     const otherWorkspace = await createWorkspace(projectId, dataDir);
 
     // Subscribe a single hub socket to both workspaces
-    const { wsReady, messages, allEnvelopes } = connectHub([wsId], { collectAll: true });
+    const { wsReady, allEnvelopes } = connectHub([wsId], { collectAll: true });
     const ws = await wsReady;
 
     // Also subscribe to the other workspace
@@ -919,7 +919,6 @@ describe("WS /ws/hub", () => {
       allEnvelopes.some((e) => e.workspaceId === otherWorkspace.id && e.event.type === "status"),
     );
 
-    const wsIdEnvelopes = allEnvelopes.filter((e) => e.workspaceId === wsId);
     const otherEnvelopes = allEnvelopes.filter((e) => e.workspaceId === otherWorkspace.id);
     const otherStartCount = otherEnvelopes.length;
 

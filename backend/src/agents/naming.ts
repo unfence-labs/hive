@@ -38,6 +38,9 @@ Rules for session_title:
 - No commit-style prefixes (Add, Fix, Update, Refactor)`;
 
 const TIMEOUT_MS = 15_000;
+const DEBUG_AGENT_LOGS = ["1", "true", "yes", "on"].includes(
+  (process.env.HIVE_DEBUG_AGENT_LOGS ?? "").trim().toLowerCase(),
+);
 
 const PREFIX_PATTERN = /^(?:feat|fix|chore|docs|refactor|test|style|perf|ci|build|workspace)\//;
 
@@ -176,7 +179,9 @@ export async function runNamingTask(
     try {
       const { stdout: currentBranch } = await git(["rev-parse", "--abbrev-ref", "HEAD"], ctx.cwd);
       if (!currentBranch.startsWith("workspace/")) {
-        console.log("[naming] branch already renamed, skipping:", currentBranch);
+        if (DEBUG_AGENT_LOGS) {
+          console.log("[naming] branch already renamed, skipping:", currentBranch);
+        }
         return;
       }
     } catch {
@@ -184,6 +189,8 @@ export async function runNamingTask(
     }
 
     await git(["branch", "-m", finalName], ctx.cwd);
-    console.log(`[naming] renamed branch: ${ctx.currentBranch} → ${finalName}`);
+    if (DEBUG_AGENT_LOGS) {
+      console.log(`[naming] renamed branch: ${ctx.currentBranch} → ${finalName}`);
+    }
   }
 }

@@ -76,7 +76,7 @@ describe("useModels", () => {
     mockApi.get.mockResolvedValue(MOCK_CATALOG);
     renderHook(() => useModels());
 
-    expect(mockApi.get).toHaveBeenCalledWith("/api/models");
+    await waitFor(() => expect(mockApi.get).toHaveBeenCalledWith("/api/models"));
   });
 
   it("sets selectedModelId to defaultModelId on first load", async () => {
