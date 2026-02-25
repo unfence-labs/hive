@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CodeXmlIcon, ChevronDownIcon, TerminalIcon } from "lucide-react";
+import { CodeXmlIcon, ChevronDownIcon, PanelLeft, TerminalIcon } from "lucide-react";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
@@ -138,7 +138,7 @@ export default function WorkspaceView() {
 
   // Live data via WebSocket (branch + diff stats)
   const liveData = useWorkspaceLiveDataContext();
-  const { collapsed: sidebarCollapsed } = useSidebarCollapsed();
+  const { collapsed: sidebarCollapsed, toggle: toggleSidebar } = useSidebarCollapsed();
   const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
 
   // VS Code Remote SSH
@@ -385,7 +385,18 @@ export default function WorkspaceView() {
       {/* Chat area + right panel */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className={cn("relative z-20 flex h-12 items-center gap-2 border-b border-border/50 pr-4 backdrop-blur-sm transition-[padding-left] duration-200 ease-in-out", sidebarCollapsed ? "pl-9" : "pl-4")} data-tauri-drag-region>
+          <div className="relative z-20 flex h-12 items-center gap-2 border-b border-border/50 px-4 backdrop-blur-sm" data-tauri-drag-region>
+            {sidebarCollapsed && (
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                className="-ml-1 mr-0.5 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                aria-label="Show sidebar"
+                title="Show sidebar (⌘B)"
+              >
+                <PanelLeft className="h-4 w-4" />
+              </button>
+            )}
             <span className="truncate text-sm font-semibold text-foreground">{workspace?.projectName ?? workspace?.name}</span>
             {displayBranch && (
               <BranchLabel branch={displayBranch} showIcon={false} className="text-xs text-muted-foreground" />

@@ -86,18 +86,7 @@ export default function AppLayout({ onAddProject }: AppLayoutProps) {
               data-tauri-drag-region
             />
           )}
-          {collapsed && !isSettings && (
-            <button
-              type="button"
-              onClick={toggle}
-              className="absolute left-2.5 z-30 flex items-center justify-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              style={{ top: "calc(var(--titlebar-inset, 0px) + 0.75rem)" }}
-              aria-label="Show sidebar"
-              title="Show sidebar (⌘B)"
-            >
-              <PanelLeft className="h-4 w-4" />
-            </button>
-          )}
+
           <div
             className="relative min-h-0 flex-1 overflow-hidden"
             style={collapsed ? { paddingTop: "var(--titlebar-inset, 0px)" } : undefined}
