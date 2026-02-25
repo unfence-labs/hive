@@ -15,6 +15,8 @@ import {
   getModelCatalog,
   detectAvailableProviders,
   markProviderAvailable,
+  parseVersionFromOutput,
+  getAllProviderInfo,
 } from "./registry.js";
 
 // Cast away the overloaded execFile signature so mockImplementation accepts simpler callbacks.
@@ -315,5 +317,162 @@ describe("contextWindow in catalog", () => {
     for (const model of codexModels) {
       expect(model.contextWindow).toBeUndefined();
     }
+  });
+});
+
+describe("parseVersionFromOutput", () => {
+  it("extracts version from 'v1.0.35'", () => {
+    expect(parseVersionFromOutput("v1.0.35")).toBe("1.0.35");
+  });
+
+  it("extracts version from bare '1.0.35'", () => {
+    expect(parseVersionFromOutput("1.0.35")).toBe("1.0.35");
+  });
+
+  it("extracts version from 'claude v1.0.35'", () => {
+    expect(parseVersionFromOutput("claude v1.0.35")).toBe("1.0.35");
+  });
+
+  it("extracts version from 'codex 0.1.2501.1'", () => {
+    expect(parseVersionFromOutput("codex 0.1.2501.1")).toBe("0.1.2501.1");
+  });
+
+  it("extracts version with pre-release tag", () => {
+    expect(parseVersionFromOutput("1.2.3-beta.1")).toBe("1.2.3-beta.1");
+  });
+
+  it("returns null for empty string", () => {
+    expect(parseVersionFromOutput("")).toBeNull();
+  });
+
+  it("returns null for non-version output", () => {
+    expect(parseVersionFromOutput("some random text")).toBeNull();
+  });
+
+  it("extracts the first semver-like token in multiline output", () => {
+    expect(parseVersionFromOutput("build info\nv2.3.4\nextra")).toBe("2.3.4");
+  });
+});
+
+describe("getAllProviderInfo", () => {
+  it("returns all providers even when none are installed", async () => {
+    mockExecFile.mockImplementation(
+      (_cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
+        cb(new Error("not found"), { stdout: "", stderr: "" });
+      },
+    );
+    await detectAvailableProviders();
+
+    const info = getAllProviderInfo();
+    expect(info).toHaveLength(3);
+    expect(info.every((p) => !p.installed)).toBe(true);
+    expect(info.every((p) => p.version === null)).toBe(true);
+  });
+
+  it("includes detected version for installed providers", async () => {
+    mockExecFile.mockImplementation(
+      (cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
+        if (cmd === "claude") {
+          cb(null, { stdout: "claude v1.0.35\n", stderr: "" });
+        } else {
+          cb(new Error("not found"), { stdout: "", stderr: "" });
+        }
+      },
+    );
+    await detectAvailableProviders();
+
+    const info = getAllProviderInfo();
+    const claude = info.find((p) => p.id === "claude");
+    expect(claude?.installed).toBe(true);
+    expect(claude?.version).toBe("1.0.35");
+  });
+
+  it("includes correct labels and npm packages", async () => {
+    mockExecFile.mockImplementation(
+      (_cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
+        cb(new Error("not found"), { stdout: "", stderr: "" });
+      },
+    );
+    await detectAvailableProviders();
+
+    const info = getAllProviderInfo();
+    const claude = info.find((p) => p.id === "claude")!;
+    const codex = info.find((p) => p.id === "codex")!;
+    const gemini = info.find((p) => p.id === "gemini")!;
+
+    expect(claude.label).toBe("Claude Code");
+    expect(claude.npmPackage).toBe("@anthropic-ai/claude-code");
+    expect(codex.label).toBe("Codex");
+    expect(codex.npmPackage).toBe("@openai/codex");
+    expect(gemini.label).toBe("Gemini CLI");
+    expect(gemini.npmPackage).toBe("@google/gemini-cli");
+  });
+
+  it("sets version null when CLI output is unparseable", async () => {
+    mockExecFile.mockImplementation(
+      (cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
+        if (cmd === "claude") {
+          cb(null, { stdout: "some weird output\n", stderr: "" });
+        } else {
+          cb(new Error("not found"), { stdout: "", stderr: "" });
+        }
+      },
+    );
+    await detectAvailableProviders();
+
+    const info = getAllProviderInfo();
+    const claude = info.find((p) => p.id === "claude")!;
+    expect(claude.installed).toBe(true);
+    expect(claude.version).toBeNull();
+  });
+
+  it("clears previously detected versions on subsequent detection runs", async () => {
+    mockExecFile.mockImplementation(
+      (cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
+        if (cmd === "claude") {
+          cb(null, { stdout: "claude v1.2.3\n", stderr: "" });
+        } else {
+          cb(new Error("not found"), { stdout: "", stderr: "" });
+        }
+      },
+    );
+    await detectAvailableProviders();
+
+    const firstRun = getAllProviderInfo().find((p) => p.id === "claude")!;
+    expect(firstRun.installed).toBe(true);
+    expect(firstRun.version).toBe("1.2.3");
+
+    mockExecFile.mockImplementation(
+      (_cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
+        cb(new Error("not found"), { stdout: "", stderr: "" });
+      },
+    );
+    await detectAvailableProviders();
+
+    const secondRun = getAllProviderInfo().find((p) => p.id === "claude")!;
+    expect(secondRun.installed).toBe(false);
+    expect(secondRun.version).toBeNull();
+  });
+
+  it("captures versions independently for multiple installed providers", async () => {
+    mockExecFile.mockImplementation(
+      (cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
+        if (cmd === "claude") {
+          cb(null, { stdout: "v1.0.0\n", stderr: "" });
+          return;
+        }
+        if (cmd === "codex") {
+          cb(null, { stdout: "codex 0.2.5\n", stderr: "" });
+          return;
+        }
+        cb(new Error("not found"), { stdout: "", stderr: "" });
+      },
+    );
+    await detectAvailableProviders();
+
+    const info = getAllProviderInfo();
+    expect(info.find((p) => p.id === "claude")?.version).toBe("1.0.0");
+    expect(info.find((p) => p.id === "codex")?.version).toBe("0.2.5");
+    expect(info.find((p) => p.id === "gemini")?.version).toBeNull();
   });
 });

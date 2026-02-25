@@ -51,6 +51,7 @@ describe("SettingsSidebar", () => {
           <Route path="/settings" element={<SettingsShell />}>
             <Route path="appearance" element={<div>Appearance settings</div>} />
             <Route path="notifications" element={<div>Notification settings</div>} />
+            <Route path="agents" element={<div>Agents settings</div>} />
             <Route path="repositories/:projectId" element={<div>Repository settings</div>} />
           </Route>
           <Route path="/workspaces/:wsId" element={<div>Workspace w1</div>} />
@@ -77,6 +78,7 @@ describe("SettingsSidebar", () => {
           <Route path="/settings" element={<SettingsShell />}>
             <Route path="appearance" element={<div>Appearance settings</div>} />
             <Route path="notifications" element={<div>Notification settings</div>} />
+            <Route path="agents" element={<div>Agents settings</div>} />
           </Route>
           <Route path="/projects" element={<div>Projects list</div>} />
         </Routes>
@@ -97,6 +99,7 @@ describe("SettingsSidebar", () => {
           <Route path="/settings" element={<SettingsShell />}>
             <Route path="appearance" element={<div>Appearance settings</div>} />
             <Route path="notifications" element={<div>Notification settings</div>} />
+            <Route path="agents" element={<div>Agents settings</div>} />
           </Route>
         </Routes>
       </MemoryRouter>,
@@ -106,5 +109,39 @@ describe("SettingsSidebar", () => {
     await waitFor(() => {
       expect(screen.getByText("Notification settings")).toBeInTheDocument();
     });
+  });
+
+  it("navigates to agents settings", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/settings/appearance"]}>
+        <Routes>
+          <Route path="/settings" element={<SettingsShell />}>
+            <Route path="appearance" element={<div>Appearance settings</div>} />
+            <Route path="agents" element={<div>Agents settings</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("link", { name: /Agents/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Agents settings")).toBeInTheDocument();
+    });
+  });
+
+  it("highlights the agents link when agents route is active", async () => {
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/settings/agents"]}>
+        <Routes>
+          <Route path="/settings" element={<SettingsShell />}>
+            <Route path="agents" element={<div>Agents settings</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await screen.findByText("Agents settings");
+    expect(screen.getByRole("link", { name: /Agents/i })).toHaveClass("bg-primary/10");
   });
 });

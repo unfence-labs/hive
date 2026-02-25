@@ -106,6 +106,16 @@ describe("buildApp", () => {
     });
   });
 
+  it("registers agent settings routes", async () => {
+    app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/api/settings/agents" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      agents: expect.any(Array),
+    });
+  });
+
   it("registers session routes", async () => {
     app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/api/workspaces/test-ws/session" });
