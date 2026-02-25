@@ -3,11 +3,13 @@ import SwiftUI
 @main
 struct HiveApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @Environment(\.scenePhase) private var scenePhase
     @State private var storeCache: ConversationStoreCache
     @State private var projectStore: ProjectStore
     @State private var modelCatalog = ModelCatalog()
     @State private var selectedTab: AppTab = .hub
     @State private var hubPath = NavigationPath()
+    @State private var backgroundedAt: Date?
     @AppStorage("hiveAccent") private var accentId = "violet"
 
     init() {
@@ -62,6 +64,19 @@ struct HiveApp: App {
             .onChange(of: CompletedWorkspacesStore.shared.pending) { _, pending in
                 guard !pending.isEmpty else { return }
                 mergePushCompletions()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                switch newPhase {
+                case .background:
+                    backgroundedAt = Date()
+                case .active:
+                    if let bg = backgroundedAt, Date().timeIntervalSince(bg) > 2 {
+                        projectStore.statusMonitor.appDidBecomeActive()
+                    }
+                    backgroundedAt = nil
+                default:
+                    break
+                }
             }
         }
     }

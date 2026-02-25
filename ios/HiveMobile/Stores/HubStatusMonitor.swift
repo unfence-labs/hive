@@ -166,11 +166,20 @@ final class HubStatusMonitor {
 
     // MARK: - Called by HubConnection
 
+    /// Workspaces that were streaming when the app entered background.
+    /// Used to detect streaming→idle transitions after reconnect and mark them as completed.
+    private var streamingBeforeBackground: Set<String> = []
+
     fileprivate func didReceiveStreaming(_ streaming: Bool, for workspaceId: String) {
         if streaming {
             streamingWorkspaces.insert(workspaceId)
         } else {
             streamingWorkspaces.remove(workspaceId)
+            // If this workspace was streaming before the app went to background
+            // and is now idle, treat it as a completed turn (the .done event was lost).
+            if streamingBeforeBackground.remove(workspaceId) != nil {
+                didReceiveDone(for: workspaceId)
+            }
         }
     }
 
@@ -190,6 +199,17 @@ final class HubStatusMonitor {
     /// Ensure a ConversationStore exists for a workspace (eager creation on streaming).
     fileprivate func ensureStoreExists(for workspaceId: String) {
         _ = storeCache.getOrCreate(workspaceId)
+    }
+
+    // MARK: - App lifecycle
+
+    /// Called when the app returns to foreground after a non-trivial background period.
+    /// Clears stale streaming state and forces an immediate hub reconnect so the
+    /// backend bootstrap (status + history) writes into a clean slate.
+    func appDidBecomeActive() {
+        streamingBeforeBackground = streamingWorkspaces
+        storeCache.clearAllStreamingState()
+        hubConnection?.forceReconnect()
     }
 }
 
@@ -364,6 +384,19 @@ private final class HubConnection {
     }
 
     // MARK: - Reconnect
+
+    /// Force an immediate reconnect, bypassing exponential backoff.
+    /// Used when the app returns from background and the connection is likely dead.
+    func forceReconnect() {
+        guard !intentionallyClosed else { return }
+        receiveTask?.cancel()
+        pingTask?.cancel()
+        reconnectTask?.cancel()
+        wsTask?.cancel(with: .goingAway, reason: nil)
+        wsTask = nil
+        backoff = 1
+        performConnect()
+    }
 
     private func handleDisconnect() {
         receiveTask?.cancel()
