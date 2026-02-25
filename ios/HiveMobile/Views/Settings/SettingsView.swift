@@ -6,8 +6,13 @@ struct SettingsView: View {
     @AppStorage("authToken") private var token = ""
     @AppStorage("hiveAccent") private var accentId = "violet"
 
+    @FocusState private var focusedField: Field?
     @State private var healthStatus: HealthStatus = .unknown
     @State private var isChecking = false
+
+    private enum Field: Hashable {
+        case host, port, token
+    }
 
     var body: some View {
         Form {
@@ -15,7 +20,15 @@ struct SettingsView: View {
             connectionSection
             healthSection
         }
+        .scrollDismissesKeyboard(.interactively)
+        .onTapGesture { focusedField = nil }
         .toolbar(.hidden, for: .navigationBar)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { focusedField = nil }
+            }
+        }
     }
 
     // MARK: - Accent Color Picker
@@ -76,6 +89,7 @@ struct SettingsView: View {
         Section("Connection") {
             LabeledContent("Host") {
                 TextField("hostname or IP", text: $host)
+                    .focused($focusedField, equals: .host)
                     .textContentType(.URL)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
@@ -83,11 +97,13 @@ struct SettingsView: View {
             }
             LabeledContent("Port") {
                 TextField("port", text: $port)
+                    .focused($focusedField, equals: .port)
                     .keyboardType(.numberPad)
                     .multilineTextAlignment(.trailing)
             }
             LabeledContent("Token") {
                 SecureField("auth token", text: $token)
+                    .focused($focusedField, equals: .token)
                     .multilineTextAlignment(.trailing)
             }
         }
