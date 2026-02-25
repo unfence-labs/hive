@@ -144,7 +144,7 @@ describe("useBulkPrStatus", () => {
     const { result } = renderHook(() => useBulkPrStatus([]), { wrapper });
 
     expect(result.current.results).toEqual({});
-    expect(result.current.fetched).toBe(false);
+    expect(result.current.loading).toBe(false);
     expect(api.post).not.toHaveBeenCalled();
   });
 
@@ -169,17 +169,17 @@ describe("useBulkPrStatus", () => {
       workspaceIds: ["ws-1", "ws-2"],
     });
     expect(result.current.results["ws-2"]).toEqual({ pr: null });
-    expect(result.current.fetched).toBe(true);
+    expect(result.current.loading).toBe(false);
   });
 
-  it("reports fetched=false while request is in flight", async () => {
+  it("reports loading=true while request is in flight", async () => {
     const pending = deferred<{ results: Record<string, unknown> }>();
     vi.mocked(api.post).mockReturnValueOnce(pending.promise);
 
     const { wrapper } = createWrapper();
     const { result } = renderHook(() => useBulkPrStatus(["ws-1"]), { wrapper });
 
-    expect(result.current.fetched).toBe(false);
+    expect(result.current.loading).toBe(true);
 
     await act(async () => {
       pending.resolve({ results: { "ws-1": { pr: makePr() } } });
@@ -187,7 +187,7 @@ describe("useBulkPrStatus", () => {
     });
 
     await waitFor(() => {
-      expect(result.current.fetched).toBe(true);
+      expect(result.current.loading).toBe(false);
     });
   });
 
@@ -206,15 +206,52 @@ describe("useBulkPrStatus", () => {
     );
 
     await waitFor(() => {
-      expect(result.current.fetched).toBe(true);
+      expect(result.current.loading).toBe(false);
     });
 
     rerender({ ids: ["ws-1", "ws-2"] });
 
     // Should not trigger a second fetch — same sorted key
     await waitFor(() => {
-      expect(result.current.fetched).toBe(true);
+      expect(result.current.loading).toBe(false);
     });
     expect(api.post).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps previous results while refetching after wsIds changes", async () => {
+    const pending = deferred<{ results: Record<string, unknown> }>();
+    vi.mocked(api.post)
+      .mockResolvedValueOnce({
+        results: { "ws-1": { pr: makePr({ number: 1 }) } },
+      })
+      .mockReturnValueOnce(pending.promise);
+
+    const { wrapper } = createWrapper();
+    const { result, rerender } = renderHook(
+      ({ ids }: { ids: string[] }) => useBulkPrStatus(ids),
+      {
+        initialProps: { ids: ["ws-1"] },
+        wrapper,
+      },
+    );
+
+    await waitFor(() => {
+      expect(result.current.results["ws-1"]?.pr?.number).toBe(1);
+    });
+
+    rerender({ ids: ["ws-2"] });
+
+    // keepPreviousData should preserve old data until the new key resolves.
+    expect(result.current.results["ws-1"]?.pr?.number).toBe(1);
+    expect(result.current.loading).toBe(false);
+
+    await act(async () => {
+      pending.resolve({ results: { "ws-2": { pr: makePr({ number: 2 }) } } });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.results["ws-2"]?.pr?.number).toBe(2);
+    });
   });
 });

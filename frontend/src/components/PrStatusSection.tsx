@@ -14,8 +14,16 @@ interface PrStatusSectionProps {
 export function PrStatusSection({ wsId }: PrStatusSectionProps) {
   const { pr, error, loading } = usePrStatus(wsId);
 
-  // Silent loading — show nothing until data arrives
-  if (loading) return null;
+  if (loading) {
+    return (
+      <div className="border-t border-border/50 px-4 py-2.5">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <GitPullRequest className="size-3.5 shrink-0" />
+          <span>Loading…</span>
+        </div>
+      </div>
+    );
+  }
 
   // Error state: gh unavailable / not authenticated
   if (error) {
