@@ -25,6 +25,7 @@ interface ConversationTabsProps {
   activeSessionId?: string;
   isStreaming: boolean;
   streamingSessions?: Record<string, boolean>;
+  unreadSessions?: Record<string, boolean>;
   onCreateSession: () => void;
   onActivateSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
@@ -44,6 +45,7 @@ export function ConversationTabs({
   activeSessionId,
   isStreaming,
   streamingSessions,
+  unreadSessions,
   onCreateSession,
   onActivateSession,
   onDeleteSession,
@@ -155,6 +157,7 @@ export function ConversationTabs({
             const isVisible = i < visibleCount;
             const title = getTabTitle(session);
             const isSessionStreaming = streamingSessions?.[session.sessionId] ?? (isActive && isStreaming);
+            const isSessionUnread = !isActive && !isSessionStreaming && !!unreadSessions?.[session.sessionId];
 
             return (
               <button
@@ -173,6 +176,8 @@ export function ConversationTabs({
                   <div className="flex size-3 shrink-0 items-center justify-center overflow-visible">
                     <AgentActivityPreview size="small" />
                   </div>
+                ) : isSessionUnread ? (
+                  <span className="size-2 shrink-0 rounded-full bg-primary" />
                 ) : (
                   <MessageSquareIcon className="size-3 shrink-0" />
                 )}
@@ -219,6 +224,7 @@ export function ConversationTabs({
                 const isActive = session.sessionId === activeSessionId;
                 const title = getTabTitle(session);
                 const isOverflowStreaming = streamingSessions?.[session.sessionId] ?? (isActive && isStreaming);
+                const isOverflowUnread = !isActive && !isOverflowStreaming && !!unreadSessions?.[session.sessionId];
 
                 return (
                   <DropdownMenuItem
@@ -230,6 +236,8 @@ export function ConversationTabs({
                       <div className="flex size-3 shrink-0 items-center justify-center overflow-visible">
                         <AgentActivityPreview size="small" />
                       </div>
+                    ) : isOverflowUnread ? (
+                      <span className="size-2 shrink-0 rounded-full bg-primary" />
                     ) : (
                       <MessageSquareIcon className="size-3 shrink-0" />
                     )}

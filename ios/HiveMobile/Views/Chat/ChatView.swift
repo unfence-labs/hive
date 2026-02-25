@@ -195,6 +195,7 @@ struct ChatView: View {
         .onDisappear {
             saveCurrentDraft()
             store.onTurnCompleted = nil
+            projectStore.statusMonitor.viewingWorkspaceId = nil
         }
     }
 
@@ -217,6 +218,7 @@ struct ChatView: View {
     // MARK: - Setup
 
     private func setup() async {
+        projectStore.statusMonitor.viewingWorkspaceId = workspace.id
         projectStore.statusMonitor.clearCompleted(workspace.id)
 
         // Wire post-turn re-sync: after done/cancelled, re-fetch messages from REST
@@ -235,9 +237,7 @@ struct ChatView: View {
                     )
                     guard store.sessionId == sessionId else { return }
                     guard store.historyToken(for: sessionId) == requestToken else { return }
-                    if store.sessionStreams[sessionId]?.isStreaming != true {
-                        store.messages = msgs
-                    }
+                    store.messages = msgs
                 } catch {
                     // Best-effort — streamed messages remain as fallback
                 }
@@ -312,11 +312,9 @@ struct ChatView: View {
                 isLoading = false
                 return
             }
-            // Don't overwrite messages while streaming — the active stream state
-            // would be lost (matches the guard in ConversationStore's .history handler).
-            if store.sessionStreams[sessionId]?.isStreaming != true {
-                store.messages = msgs
-            }
+            // History contains only finalized turns; streaming content lives
+            // in sessionStreams and is appended by displayMessages.
+            store.messages = msgs
         } catch is CancellationError {
             // View disappeared
         } catch {

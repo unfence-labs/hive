@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -37,6 +37,10 @@ function renderTabs(props?: Partial<ComponentProps<typeof ConversationTabs>>) {
   );
 
   return { onCreateSession, onActivateSession, onDeleteSession };
+}
+
+function findUnreadDot(container: HTMLElement) {
+  return container.querySelector("span[class*='rounded-full'][class*='bg-primary']");
 }
 
 describe("ConversationTabs", () => {
@@ -251,6 +255,36 @@ describe("ConversationTabs", () => {
     expect(inactiveTab.querySelector("svg")).toBeInTheDocument();
   });
 
+  it("shows unread dot for inactive unread session when not streaming", () => {
+    renderTabs({
+      unreadSessions: { "sess-2": true },
+    });
+
+    const inactiveTab = screen.getByText("Second conversation").closest("button")!;
+    expect(findUnreadDot(inactiveTab)).toBeInTheDocument();
+    expect(inactiveTab.querySelector("svg.lucide-message-square")).toBeNull();
+  });
+
+  it("does not show unread dot for active session even when unreadSessions marks it", () => {
+    renderTabs({
+      unreadSessions: { "sess-1": true },
+    });
+
+    const activeTab = screen.getByText("First conversation").closest("button")!;
+    expect(findUnreadDot(activeTab)).not.toBeInTheDocument();
+  });
+
+  it("prioritizes streaming indicator over unread dot", () => {
+    renderTabs({
+      unreadSessions: { "sess-2": true },
+      streamingSessions: { "sess-2": true },
+    });
+
+    const inactiveTab = screen.getByText("Second conversation").closest("button")!;
+    expect(inactiveTab.querySelector("[aria-label='Agent thinking']")).toBeInTheDocument();
+    expect(findUnreadDot(inactiveTab)).not.toBeInTheDocument();
+  });
+
   it("shows MessageSquare icon on active tab when not streaming", () => {
     renderTabs({ isStreaming: false });
     const activeTab = screen.getByText("First conversation").closest("button")!;
@@ -281,6 +315,40 @@ describe("ConversationTabs", () => {
 
     expect(screen.getByText("Named one")).toBeInTheDocument();
     expect(screen.getByText("Untitled")).toBeInTheDocument();
+  });
+
+  it("shows unread dot in overflow menu for unread overflow sessions", async () => {
+    const user = userEvent.setup();
+    const clientWidthSpy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(50);
+    const scrollWidthSpy = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(50);
+
+    try {
+      renderTabs({
+        sessions: [
+          makeSession("s1", "2026-02-12T00:00:03.000Z", "Alpha"),
+          makeSession("s2", "2026-02-12T00:00:02.000Z", "Beta"),
+          makeSession("s3", "2026-02-12T00:00:01.000Z", "Gamma"),
+        ],
+        activeSessionId: "s1",
+        unreadSessions: { s3: true },
+      });
+
+      const overflowTrigger = await waitFor(() => {
+        const trigger = (
+          document.querySelector("svg.lucide-more-horizontal")?.closest("button")
+          ?? document.querySelector("svg.lucide-ellipsis")?.closest("button")
+        ) as HTMLButtonElement | null;
+        expect(trigger).toBeTruthy();
+        return trigger as HTMLButtonElement;
+      });
+
+      await user.click(overflowTrigger);
+      const overflowItem = await screen.findByRole("menuitem", { name: /Gamma/i });
+      expect(findUnreadDot(overflowItem)).toBeInTheDocument();
+    } finally {
+      clientWidthSpy.mockRestore();
+      scrollWidthSpy.mockRestore();
+    }
   });
 });
 

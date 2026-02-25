@@ -492,7 +492,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       if (data.duration_ms != null) {
         resultDurationMs = data.duration_ms;
       }
-      if (data.usage) {
+      // Only use result-level usage as fallback — the last assistant event
+      // carries the actual context-window usage for the final sub-call, while
+      // the result event may report cumulative tokens across all sub-calls
+      // in the turn (which can exceed the context window size).
+      if (data.usage && resultInputTokens === undefined) {
         resultInputTokens =
           data.usage.input_tokens +
           (data.usage.cache_creation_input_tokens ?? 0) +

@@ -1,7 +1,9 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   WorkspaceLiveDataProvider,
+  useClearUnread,
   useWorkspaceLive,
   useWorkspaceLiveDataContext,
 } from "@/contexts/WorkspaceLiveDataContext";
@@ -25,10 +27,21 @@ function ContextProbe({ wsId }: { wsId?: string }) {
   );
 }
 
+function ClearUnreadProbe({ wsId = "ws-1", sessionId }: { wsId?: string; sessionId?: string }) {
+  const clearUnread = useClearUnread();
+  return (
+    <button type="button" onClick={() => clearUnread(wsId, sessionId)}>
+      clear unread
+    </button>
+  );
+}
+
 describe("WorkspaceLiveDataContext", () => {
+  const clearUnread = vi.fn();
+
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.useWorkspaceLiveData.mockReturnValue({});
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread });
   });
 
   it("exposes empty defaults outside provider", () => {
@@ -38,12 +51,20 @@ describe("WorkspaceLiveDataContext", () => {
     expect(screen.getByTestId("single")).toHaveTextContent("{}");
   });
 
+  it("useClearUnread outside provider is a safe no-op", async () => {
+    const user = userEvent.setup();
+    render(<ClearUnreadProbe wsId="ws-1" sessionId="sess-1" />);
+
+    await user.click(screen.getByRole("button", { name: "clear unread" }));
+    expect(clearUnread).not.toHaveBeenCalled();
+  });
+
   it("passes workspace ids to useWorkspaceLiveData and provides full map", () => {
     const liveData = {
       "ws-1": { status: "busy", streaming: true },
       "ws-2": { status: "idle", scriptRunning: false },
     };
-    mocks.useWorkspaceLiveData.mockReturnValue(liveData);
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData, clearUnread });
 
     render(
       <WorkspaceLiveDataProvider workspaceIds={["ws-1", "ws-2"]}>
@@ -60,7 +81,7 @@ describe("WorkspaceLiveDataContext", () => {
 
   it("returns empty object for undefined workspace id in useWorkspaceLive", () => {
     const liveData = { "ws-1": { status: "busy" } };
-    mocks.useWorkspaceLiveData.mockReturnValue(liveData);
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData, clearUnread });
 
     render(
       <WorkspaceLiveDataProvider workspaceIds={["ws-1"]}>
@@ -73,7 +94,7 @@ describe("WorkspaceLiveDataContext", () => {
 
   it("returns empty object when workspace id is missing from map", () => {
     const liveData = { "ws-1": { status: "idle" } };
-    mocks.useWorkspaceLiveData.mockReturnValue(liveData);
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData, clearUnread });
 
     render(
       <WorkspaceLiveDataProvider workspaceIds={["ws-1"]}>
@@ -82,5 +103,17 @@ describe("WorkspaceLiveDataContext", () => {
     );
 
     expect(JSON.parse(screen.getByTestId("single").textContent ?? "{}")).toEqual({});
+  });
+
+  it("useClearUnread forwards calls to the hook implementation from provider", async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkspaceLiveDataProvider workspaceIds={["ws-1"]}>
+        <ClearUnreadProbe wsId="ws-1" sessionId="sess-1" />
+      </WorkspaceLiveDataProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "clear unread" }));
+    expect(clearUnread).toHaveBeenCalledWith("ws-1", "sess-1");
   });
 });
