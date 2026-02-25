@@ -111,6 +111,22 @@ describe("script-runner", () => {
     expect(getScriptStatus("ws-1").setup?.state).toBe("running");
   });
 
+  it("starts an interactive shell when command is undefined", () => {
+    process.env.SHELL = "/bin/bash";
+
+    const proc = startScript("ws-1", "terminal", undefined, "/tmp/workspace");
+
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      "/bin/bash",
+      [],
+      expect.objectContaining({
+        cwd: "/tmp/workspace",
+      }),
+    );
+    expect(proc.state).toBe("running");
+    expect(getScriptStatus("ws-1").terminal?.state).toBe("running");
+  });
+
   it("throws when trying to start the same script while it is already running", () => {
     startScript("ws-1", "setup", "npm ci", "/tmp/workspace");
     expect(() => startScript("ws-1", "setup", "npm ci", "/tmp/workspace")).toThrow(

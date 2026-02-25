@@ -225,6 +225,46 @@ describe("useScripts", () => {
     expect(mocks.apiPost).toHaveBeenCalledWith("/api/workspaces/ws-1/scripts/backend/start");
   });
 
+  it("starts terminal and sets terminal status to running optimistically", async () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => {
+      result.current.startTerminal();
+    });
+
+    await waitFor(() => {
+      expect(result.current.status.terminal).toEqual({ state: "running" });
+    });
+    expect(mocks.apiPost).toHaveBeenCalledWith("/api/workspaces/ws-1/terminal/start");
+  });
+
+  it("reverts terminal state to server data when terminal start fails", async () => {
+    mocks.apiGet
+      .mockResolvedValueOnce(scriptsResponse())
+      .mockResolvedValueOnce({
+        ...scriptsResponse(),
+        status: {
+          ...scriptsResponse().status,
+          terminal: { state: "done", exitCode: 0 },
+        },
+      });
+    mocks.apiPost.mockRejectedValueOnce(new Error("already running"));
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => {
+      result.current.startTerminal();
+    });
+
+    await waitFor(() => {
+      expect(result.current.status.terminal).toEqual({ state: "done", exitCode: 0 });
+    });
+  });
+
   it("reverts to server state when start fails", async () => {
     mocks.apiGet
       .mockResolvedValueOnce(scriptsResponse())
@@ -274,6 +314,33 @@ describe("useScripts", () => {
     });
 
     expect(mocks.apiPost).toHaveBeenCalledWith("/api/workspaces/ws-1/scripts/run/stop");
+
+    const closeCallOrder = ws.close.mock.invocationCallOrder[0];
+    const postCallOrder = mocks.apiPost.mock.invocationCallOrder[0];
+    expect(closeCallOrder).toBeLessThan(postCallOrder);
+  });
+
+  it("closes active websocket before stopping terminal", async () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const term = createTerminal();
+    act(() => {
+      result.current.connectOutput("terminal", term as unknown as { cols: number; rows: number });
+    });
+
+    const ws = MockWebSocket.instances[0];
+    if (!ws) throw new Error("expected websocket instance");
+
+    act(() => {
+      result.current.stopTerminal();
+    });
+
+    await waitFor(() => {
+      expect(ws.close).toHaveBeenCalledTimes(1);
+    });
+    expect(mocks.apiPost).toHaveBeenCalledWith("/api/workspaces/ws-1/terminal/stop");
 
     const closeCallOrder = ws.close.mock.invocationCallOrder[0];
     const postCallOrder = mocks.apiPost.mock.invocationCallOrder[0];
@@ -483,6 +550,29 @@ describe("useScripts", () => {
     });
   });
 
+  it("does not close websocket when stopping terminal from a non-terminal connection", async () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const term = createTerminal();
+    act(() => {
+      result.current.connectOutput("run", term as unknown as { cols: number; rows: number });
+    });
+
+    const ws = MockWebSocket.instances[0];
+    if (!ws) throw new Error("expected websocket instance");
+
+    act(() => {
+      result.current.stopTerminal();
+    });
+
+    expect(ws.close).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(mocks.apiPost).toHaveBeenCalledWith("/api/workspaces/ws-1/terminal/stop");
+    });
+  });
+
   it("replaces existing websocket when reconnecting to another script type", async () => {
     const { wrapper } = createWrapper();
     const { result } = renderHook(() => useScripts("ws-1"), { wrapper });
@@ -514,6 +604,8 @@ describe("useScripts", () => {
     act(() => {
       result.current.startScript("setup");
       result.current.stopScript("setup");
+      result.current.startTerminal();
+      result.current.stopTerminal();
       result.current.connectOutput(
         "setup" as ScriptType,
         term as unknown as { cols: number; rows: number },

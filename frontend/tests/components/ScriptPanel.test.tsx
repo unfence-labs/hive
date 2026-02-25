@@ -40,6 +40,8 @@ function renderPanel(
 ) {
   const onStart = overrides?.onStart ?? vi.fn();
   const onStop = overrides?.onStop ?? vi.fn();
+  const onStartTerminal = overrides?.onStartTerminal ?? vi.fn();
+  const onStopTerminal = overrides?.onStopTerminal ?? vi.fn();
   const onConnectOutput = overrides?.onConnectOutput ?? vi.fn();
   const onDisconnectOutput = overrides?.onDisconnectOutput ?? vi.fn();
 
@@ -58,12 +60,14 @@ function renderPanel(
     },
     onStart,
     onStop,
+    onStartTerminal,
+    onStopTerminal,
     onConnectOutput,
     onDisconnectOutput,
   };
 
   const utils = render(<ScriptPanel {...defaultProps} {...overrides} />);
-  return { ...utils, onStart, onStop, onConnectOutput, onDisconnectOutput };
+  return { ...utils, onStart, onStop, onStartTerminal, onStopTerminal, onConnectOutput, onDisconnectOutput };
 }
 
 describe("ScriptPanel", () => {
@@ -77,17 +81,17 @@ describe("ScriptPanel", () => {
     vi.useRealTimers();
   });
 
-  it("renders placeholder when no scripts are defined", () => {
+  it("renders terminal tab when no scripts are defined", () => {
     renderPanel({ config: {} });
 
-    expect(screen.getByText("hive.json")).toBeInTheDocument();
-    expect(screen.getByText(/setup & run scripts/i)).toBeInTheDocument();
+    // Terminal tab is always present even without hive.json scripts
+    expect(screen.getByText("Start terminal")).toBeInTheDocument();
   });
 
-  it("renders placeholder when config is null", () => {
+  it("renders terminal tab when config is null", () => {
     renderPanel({ config: null });
 
-    expect(screen.getByText("hive.json")).toBeInTheDocument();
+    expect(screen.getByText("Start terminal")).toBeInTheDocument();
   });
 
   it("starts setup script from idle state", async () => {
@@ -99,6 +103,18 @@ describe("ScriptPanel", () => {
     });
 
     expect(onStart).toHaveBeenCalledWith("setup");
+  });
+
+  it("starts terminal from idle state when terminal tab is selected", async () => {
+    const { onStart, onStartTerminal } = renderPanel({ config: null, status: {} });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Start terminal"));
+      await Promise.resolve();
+    });
+
+    expect(onStartTerminal).toHaveBeenCalledTimes(1);
+    expect(onStart).not.toHaveBeenCalled();
   });
 
   it("shows wave indicator when script is running", () => {
@@ -122,6 +138,8 @@ describe("ScriptPanel", () => {
         status={{ setup: { state: "done", exitCode: 0 }, run: { state: "idle" } }}
         onStart={vi.fn()}
         onStop={vi.fn()}
+        onStartTerminal={vi.fn()}
+        onStopTerminal={vi.fn()}
         onConnectOutput={vi.fn()}
         onDisconnectOutput={vi.fn()}
       />,
@@ -136,6 +154,8 @@ describe("ScriptPanel", () => {
         status={{ setup: { state: "error", exitCode: 1 }, run: { state: "idle" } }}
         onStart={vi.fn()}
         onStop={vi.fn()}
+        onStartTerminal={vi.fn()}
+        onStopTerminal={vi.fn()}
         onConnectOutput={vi.fn()}
         onDisconnectOutput={vi.fn()}
       />,
@@ -152,6 +172,8 @@ describe("ScriptPanel", () => {
         status={{ setup: { state: "done", exitCode: 0 }, run: { state: "done", exitCode: 0 } }}
         onStart={vi.fn()}
         onStop={vi.fn()}
+        onStartTerminal={vi.fn()}
+        onStopTerminal={vi.fn()}
         onConnectOutput={vi.fn()}
         onDisconnectOutput={vi.fn()}
       />,
@@ -183,6 +205,34 @@ describe("ScriptPanel", () => {
       fireEvent.click(screen.getByTitle("Stop"));
     });
     expect(onStop).toHaveBeenCalledWith("setup");
+  });
+
+  it("shows running terminal for terminal tab and stops via terminal callbacks", () => {
+    const { onStop, onStopTerminal, onConnectOutput } = renderPanel({
+      config: { scripts: { setup: "npm ci" }, port: 3000 },
+      status: {
+        setup: { state: "idle" },
+        terminal: { state: "running" },
+      },
+    });
+
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(60);
+    });
+
+    expect(onConnectOutput).toHaveBeenCalledWith("terminal", expect.anything());
+    expect(screen.queryByText("Port 3000")).not.toBeInTheDocument();
+
+    act(() => {
+      fireEvent.click(screen.getByTitle("Stop"));
+    });
+
+    expect(onStopTerminal).toHaveBeenCalledTimes(1);
+    expect(onStop).not.toHaveBeenCalled();
   });
 
   it("re-runs finished script and disconnects old terminal first", async () => {
@@ -279,6 +329,7 @@ describe("ScriptPanel", () => {
     expect(screen.getByRole("button", { name: "Setup" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Backend" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Frontend" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Terminal" })).toBeInTheDocument();
   });
 
   it("starts a named run script when selected", async () => {

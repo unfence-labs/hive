@@ -28,7 +28,7 @@ function key(wsId: string, type: ScriptType): string {
 export function startScript(
   wsId: string,
   type: ScriptType,
-  command: string,
+  command: string | undefined,
   cwd: string,
 ): ScriptProcess {
   const k = key(wsId, type);
@@ -43,7 +43,8 @@ export function startScript(
   }
 
   const shell = process.env.SHELL || "/bin/sh";
-  const ptyProcess = pty.spawn(shell, ["-c", command], {
+  const args = command ? ["-c", command] : [];
+  const ptyProcess = pty.spawn(shell, args, {
     cwd,
     env: buildWorkspaceEnv({ TERM: "xterm-256color" }),
     cols: 80,

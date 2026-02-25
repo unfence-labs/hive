@@ -48,15 +48,26 @@ export function useScripts(wsId: string | undefined) {
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["scripts", wsId] });
 
+  const setOptimisticStatus = (type: string, next: ScriptStatusInfo) => {
+    queryClient.setQueryData<WorkspaceScriptsResponse>(["scripts", wsId], (prev) =>
+      prev
+        ? { ...prev, status: { ...prev.status, [type]: next } }
+        : prev,
+    );
+  };
+
+  const closeConnectionIfType = (type: string) => {
+    if (connectedTypeRef.current !== type) return;
+    wsRef.current?.close();
+    wsRef.current = null;
+    connectedTypeRef.current = null;
+  };
+
   const startScript = useMutation({
     mutationFn: (type: string) =>
       api.post(`/api/workspaces/${wsId}/scripts/${type}/start`),
     onMutate: (type) => {
-      queryClient.setQueryData<WorkspaceScriptsResponse>(["scripts", wsId], (prev) =>
-        prev
-          ? { ...prev, status: { ...prev.status, [type]: { state: "running" as const } } }
-          : prev,
-      );
+      setOptimisticStatus(type, { state: "running" });
     },
     onError: invalidate,
   });
@@ -64,19 +75,30 @@ export function useScripts(wsId: string | undefined) {
   const stopScript = useMutation({
     mutationFn: (type: string) => {
       // Close WS first so the PTY exit message doesn't override the idle status
-      if (connectedTypeRef.current === type) {
-        wsRef.current?.close();
-        wsRef.current = null;
-        connectedTypeRef.current = null;
-      }
+      closeConnectionIfType(type);
       return api.post(`/api/workspaces/${wsId}/scripts/${type}/stop`);
     },
     onMutate: (type) => {
-      queryClient.setQueryData<WorkspaceScriptsResponse>(["scripts", wsId], (prev) =>
-        prev
-          ? { ...prev, status: { ...prev.status, [type]: { state: "idle" as const } } }
-          : prev,
-      );
+      setOptimisticStatus(type, { state: "idle" });
+    },
+    onError: invalidate,
+  });
+
+  const startTerminal = useMutation({
+    mutationFn: () => api.post(`/api/workspaces/${wsId}/terminal/start`),
+    onMutate: () => {
+      setOptimisticStatus("terminal", { state: "running" });
+    },
+    onError: invalidate,
+  });
+
+  const stopTerminal = useMutation({
+    mutationFn: () => {
+      closeConnectionIfType("terminal");
+      return api.post(`/api/workspaces/${wsId}/terminal/stop`);
+    },
+    onMutate: () => {
+      setOptimisticStatus("terminal", { state: "idle" });
     },
     onError: invalidate,
   });
@@ -161,8 +183,22 @@ export function useScripts(wsId: string | undefined) {
     config: query.data?.config ?? null,
     status: query.data?.status ?? EMPTY_STATUS,
     loading: query.isLoading,
-    startScript: (type: string) => startScript.mutate(type),
-    stopScript: (type: string) => stopScript.mutate(type),
+    startScript: (type: string) => {
+      if (!wsId) return;
+      startScript.mutate(type);
+    },
+    stopScript: (type: string) => {
+      if (!wsId) return;
+      stopScript.mutate(type);
+    },
+    startTerminal: () => {
+      if (!wsId) return;
+      startTerminal.mutate();
+    },
+    stopTerminal: () => {
+      if (!wsId) return;
+      stopTerminal.mutate();
+    },
     connectOutput,
     disconnectOutput,
     refresh: invalidate,
