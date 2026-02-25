@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { copyToClipboard } from "@/lib/clipboard";
 
 interface ExternalLinkDialogProps {
   url: string;
@@ -23,11 +24,11 @@ export function ExternalLinkDialog({ url, open, onClose, onConfirm }: ExternalLi
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(url);
+      await copyToClipboard(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // clipboard API unavailable
+      // clipboard fallback also failed
     }
   }, [url]);
 
@@ -44,12 +45,10 @@ export function ExternalLinkDialog({ url, open, onClose, onConfirm }: ExternalLi
           {url}
         </div>
         <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline" onClick={handleCopy}>
-              {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-              {copied ? "Copied" : "Copy link"}
-            </Button>
-          </DialogClose>
+          <Button variant="outline" onClick={handleCopy}>
+            {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+            {copied ? "Copied" : "Copy link"}
+          </Button>
           <DialogClose asChild>
             <Button onClick={onConfirm}>
               <ExternalLink className="size-3.5" />

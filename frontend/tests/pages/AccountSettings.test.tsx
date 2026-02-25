@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
   openExternal: vi.fn(),
+  copyToClipboard: vi.fn(),
 }));
 
 vi.mock("@/hooks/useApi", () => ({
@@ -20,6 +21,10 @@ vi.mock("@/hooks/useApi", () => ({
 
 vi.mock("@/lib/open-external", () => ({
   openExternal: mocks.openExternal,
+}));
+
+vi.mock("@/lib/clipboard", () => ({
+  copyToClipboard: mocks.copyToClipboard,
 }));
 
 function createAccountWrapper() {
@@ -38,6 +43,7 @@ function createAccountWrapper() {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useFakeTimers({ shouldAdvanceTime: true });
+  mocks.copyToClipboard.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -159,7 +165,7 @@ describe("AccountSettings", () => {
     expect(screen.getByText("Waiting for authorization...")).toBeInTheDocument();
   });
 
-  it("renders copy button alongside user code in connecting state", async () => {
+  it("copies device code with clipboard helper and toggles copy label", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     mocks.get.mockResolvedValue({ ghInstalled: true, authenticated: false });
     const { Wrapper } = createAccountWrapper();
@@ -168,7 +174,7 @@ describe("AccountSettings", () => {
     await screen.findByText("Connect with GitHub");
 
     mocks.post.mockResolvedValueOnce({
-      userCode: "COPY-ME",
+      userCode: "COPY-CODE",
       verificationUri: "https://github.com/login/device",
       expiresIn: 900,
       interval: 5,
@@ -176,7 +182,16 @@ describe("AccountSettings", () => {
     mocks.post.mockResolvedValue({ status: "pending" });
 
     await user.click(screen.getByText("Connect with GitHub"));
-    await screen.findByText("COPY-ME");
+    await screen.findByText("COPY-CODE");
+
+    await user.click(screen.getByLabelText("Copy code to clipboard"));
+
+    expect(mocks.copyToClipboard).toHaveBeenCalledWith("COPY-CODE");
+    expect(screen.getByLabelText("Code copied")).toBeInTheDocument();
+
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+    });
 
     expect(screen.getByLabelText("Copy code to clipboard")).toBeInTheDocument();
   });

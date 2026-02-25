@@ -2,6 +2,7 @@ import { memo, useState } from "react";
 import { ClipboardIcon, CheckIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { copyToClipboard } from "@/lib/clipboard";
 
 interface CopyButtonProps {
   content: string;
@@ -15,7 +16,7 @@ export const CopyButton = memo(function CopyButton({
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(content);
+    await copyToClipboard(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

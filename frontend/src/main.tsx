@@ -3,7 +3,18 @@ import { createRoot } from "react-dom/client";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/query-client";
 import "./index.css";
+import { copyToClipboard } from "@/lib/clipboard";
 import App from "./App";
+
+// Fallback for streamdown's code block copy button in non-secure contexts
+// where navigator.clipboard is unavailable (HTTP, remote IP).
+document.addEventListener("click", (e) => {
+  const btn = (e.target as HTMLElement).closest?.('[data-streamdown="code-block-copy-button"]');
+  if (!btn) return;
+  const code = btn.closest('[data-streamdown="code-block"]')
+    ?.querySelector('[data-streamdown="code-block-body"] code');
+  if (code?.textContent) copyToClipboard(code.textContent);
+});
 
 // When running inside Tauri, reserve space for the native traffic lights
 // and react to fullscreen changes (traffic lights hidden in fullscreen).

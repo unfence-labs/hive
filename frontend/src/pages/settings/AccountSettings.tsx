@@ -5,6 +5,7 @@ import { SettingsHeader } from "@/components/AppLayout";
 import { cn } from "@/lib/utils";
 import { api } from "@/hooks/useApi";
 import { openExternal } from "@/lib/open-external";
+import { copyToClipboard } from "@/lib/clipboard";
 
 interface GitHubUser {
   login: string;
@@ -149,7 +150,7 @@ export default function AccountSettings() {
   };
 
   const handleCopyCode = async (code: string) => {
-    await navigator.clipboard.writeText(code);
+    await copyToClipboard(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

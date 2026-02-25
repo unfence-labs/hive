@@ -201,6 +201,18 @@
     @apply !text-blue-300;
   }
 
+  /* Disable content-visibility containment on code blocks — it breaks
+     sticky overlay hit-testing in WebKitGTK (Tauri/Linux). */
+  [data-streamdown="code-block"] {
+    content-visibility: visible !important;
+  }
+  [data-streamdown="code-block-copy-button"],
+  [data-streamdown="code-block-download-button"] {
+    pointer-events: auto !important;
+    position: relative;
+    z-index: 30;
+  }
+
   /* Tauri: transparent titlebar drag regions */
   [data-tauri-drag-region] {
     -webkit-app-region: drag;
