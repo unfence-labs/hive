@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArchiveIcon, FolderPlus, PanelLeftClose, Plus, Settings } from "lucide-react";
+import { ArchiveIcon, FolderPlus, Plus, Settings } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,10 +31,9 @@ import type { DiffStatResponse } from "@/types";
 
 interface SidebarProps {
   onAddProject: () => void;
-  onCollapse?: () => void;
 }
 
-export default function Sidebar({ onAddProject, onCollapse }: SidebarProps) {
+export default function Sidebar({ onAddProject }: SidebarProps) {
   const { projects, loading, createWorkspace, archiveWorkspace } = useProjects();
   const queryClient = useQueryClient();
   const { wsId: activeWsId } = useParams();
@@ -97,23 +96,9 @@ export default function Sidebar({ onAddProject, onCollapse }: SidebarProps) {
     <div className="flex h-full w-72 flex-col border-r border-border/50 bg-sidebar text-sidebar-foreground">
       <div
         className="shrink-0"
-        style={{ height: "var(--titlebar-inset, 0px)" }}
+        style={{ height: "max(var(--titlebar-inset, 0px), 3rem)" }}
         data-tauri-drag-region
       />
-
-      {onCollapse && (
-        <div className="flex h-12 shrink-0 items-center justify-end px-3">
-          <button
-            type="button"
-            onClick={onCollapse}
-            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
-            aria-label="Hide sidebar"
-            title="Hide sidebar (⌘B)"
-          >
-            <PanelLeftClose className="h-4 w-4" />
-          </button>
-        </div>
-      )}
 
       <ScrollArea className="flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full">
         <div className="p-2">

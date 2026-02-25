@@ -6,7 +6,7 @@ import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
 import { useWorkspaceLiveDataContext, useClearUnread } from "@/contexts/WorkspaceLiveDataContext";
-import { useSidebarCollapsed } from "@/hooks/useSidebarCollapsed";
+
 import {
   FileTree,
   FileTreeFile,
@@ -40,6 +40,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTerminalApps } from "@/hooks/useTerminalApps";
 import { openTerminalSsh } from "@/lib/terminal";
+import { useLayoutContext } from "@/components/AppLayout";
 import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput } from "@/lib/plan-state";
@@ -86,6 +87,7 @@ function renderFileTreeNodes(nodes: WorkspaceFileTreeNode[]) {
 
 export default function WorkspaceView() {
   const { wsId } = useParams();
+  const { collapsed } = useLayoutContext();
   const { ip: tailscaleIp, sshUser } = useTailscaleConfig();
   const { serverUrl } = useServerUrl();
   const terminalApps = useTerminalApps();
@@ -139,12 +141,12 @@ export default function WorkspaceView() {
   // Live data via WebSocket (branch + diff stats)
   const liveData = useWorkspaceLiveDataContext();
   const clearUnread = useClearUnread();
-  const { collapsed: sidebarCollapsed } = useSidebarCollapsed();
 
   // Clear unread state when navigating to a workspace
   useEffect(() => {
     if (wsId) clearUnread(wsId);
   }, [wsId, clearUnread]);
+
 
   const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
 
@@ -401,7 +403,11 @@ export default function WorkspaceView() {
       {/* Chat area + right panel */}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className={cn("relative z-20 flex h-12 items-center gap-2 border-b border-border/50 pr-4 backdrop-blur-sm transition-[padding-left] duration-200 ease-in-out", sidebarCollapsed ? "pl-9" : "pl-4")} data-tauri-drag-region>
+          <div
+            className="relative z-20 flex h-12 items-center gap-2 border-b border-border/50 pr-4 backdrop-blur-sm transition-[padding-left] duration-200 ease-in-out"
+            style={{ paddingLeft: collapsed ? "calc(max(var(--traffic-light-clearance, 0px), 1rem) + 28px)" : "1rem" }}
+            data-tauri-drag-region
+          >
             <span className="truncate text-sm font-semibold text-foreground">{workspace?.projectName ?? workspace?.name}</span>
             {displayBranch && (
               <BranchLabel branch={displayBranch} showIcon={false} className="text-xs text-muted-foreground" />
