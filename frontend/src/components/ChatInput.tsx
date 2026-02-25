@@ -11,13 +11,15 @@ import {
   usePromptInputAttachments,
   type AttachmentsContext,
 } from "@/components/ai-elements/prompt-input";
-import type { CompletionItem, ImageAttachment, MessageOptions, ThinkingLevel } from "@/types";
+import type { ChatMessage, CompletionItem, ImageAttachment, MessageOptions, ThinkingLevel } from "@/types";
 import { cn } from "@/lib/utils";
 import { BrainIcon, BookOpenIcon, PlusIcon } from "lucide-react";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
 import { AutocompletePopup } from "@/components/chat/AutocompletePopup";
+import { ContextRing } from "@/components/chat/ContextRing";
 import { ModelSelector } from "@/components/chat/ModelSelector";
 import { useCompletions } from "@/hooks/useCompletions";
+import { useContextUsage } from "@/hooks/useContextUsage";
 import { useModels } from "@/hooks/useModels";
 import { useChatInputDraftPersistence } from "@/hooks/useChatInputDraftPersistence";
 
@@ -31,6 +33,7 @@ interface ChatInputProps {
   isStreaming: boolean;
   connectionStatus: "connecting" | "connected" | "disconnected";
   placeholder?: string;
+  messages: ChatMessage[];
 }
 
 interface AutocompleteState {
@@ -76,6 +79,7 @@ export default function ChatInput({
   isStreaming,
   connectionStatus,
   placeholder: customPlaceholder,
+  messages,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [thinkingEnabled, setThinkingEnabled] = useState(true);
@@ -89,7 +93,8 @@ export default function ChatInput({
   const isInputDisabled = disabled || isStreaming || isDisconnected;
   const canSubmit = !isInputDisabled && (value.trim().length > 0 || fileCount > 0);
 
-  const { models, defaultModelId, selectedModelId, setSelectedModelId, capabilities } = useModels(lockedProvider);
+  const { models, defaultModelId, selectedModelId, selectedModel, setSelectedModelId, capabilities } = useModels(lockedProvider);
+  const contextUsage = useContextUsage(messages, selectedModel);
 
   const supportsThinkingToggle = capabilities?.thinking === true;
   const supportsThinkingLevels = capabilities?.thinking === "levels";
@@ -309,6 +314,7 @@ export default function ChatInput({
             )}
           </PromptInputTools>
           <PromptInputTools className="gap-2">
+            <ContextRing usage={contextUsage} />
             <PromptInputButton
               aria-label="Add attachments"
               variant="ghost"

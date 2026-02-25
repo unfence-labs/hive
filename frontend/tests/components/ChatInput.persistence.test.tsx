@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChatInput from "@/components/ChatInput";
+import type { ChatMessage } from "@/types";
 
 vi.mock("@/hooks/useCompletions", () => ({
   useCompletions: () => [],
@@ -41,6 +42,7 @@ function chatInputProps({
     disabled: false,
     isStreaming: false,
     connectionStatus: "connected" as const,
+    messages: [] as ChatMessage[],
   };
 }
 

@@ -41,6 +41,7 @@ struct ModelCatalogEntry: Codable, Identifiable, Equatable {
     let isDefault: Bool?
     let isNew: Bool?
     let capabilities: ProviderCapabilities
+    let contextWindow: Int?
 }
 
 struct ModelCatalogResponse: Codable {
@@ -213,10 +214,13 @@ struct ChatMessage: Codable, Identifiable {
     let timestamp: String
     let cancelled: Bool?
     let durationMs: Int?
+    let inputTokens: Int?
+    let outputTokens: Int?
 
     init(id: String, sessionId: String, role: MessageRole, content: String,
          images: [ImageAttachment]?, toolCalls: [ToolCall]?, thinkingContent: String?,
-         timestamp: String, cancelled: Bool?, durationMs: Int?) {
+         timestamp: String, cancelled: Bool?, durationMs: Int?,
+         inputTokens: Int? = nil, outputTokens: Int? = nil) {
         self.id = id
         self.sessionId = sessionId
         self.role = role
@@ -227,6 +231,8 @@ struct ChatMessage: Codable, Identifiable {
         self.timestamp = timestamp
         self.cancelled = cancelled
         self.durationMs = durationMs
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
     }
 
     init(from decoder: Decoder) throws {
@@ -248,11 +254,26 @@ struct ChatMessage: Codable, Identifiable {
         } else {
             durationMs = nil
         }
+        if let intVal = try? container.decodeIfPresent(Int.self, forKey: .inputTokens) {
+            inputTokens = intVal
+        } else if let doubleVal = try? container.decodeIfPresent(Double.self, forKey: .inputTokens) {
+            inputTokens = Int(doubleVal)
+        } else {
+            inputTokens = nil
+        }
+        if let intVal = try? container.decodeIfPresent(Int.self, forKey: .outputTokens) {
+            outputTokens = intVal
+        } else if let doubleVal = try? container.decodeIfPresent(Double.self, forKey: .outputTokens) {
+            outputTokens = Int(doubleVal)
+        } else {
+            outputTokens = nil
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, sessionId, role, content, images, toolCalls
         case thinkingContent, timestamp, cancelled, durationMs
+        case inputTokens, outputTokens
     }
 }
 

@@ -56,6 +56,7 @@ describe("ChatInput autocomplete", () => {
         disabled={false}
         isStreaming={false}
         connectionStatus="connected"
+        messages={[]}
       />,
     );
 
@@ -81,6 +82,7 @@ describe("ChatInput autocomplete", () => {
         disabled={false}
         isStreaming={false}
         connectionStatus="connected"
+        messages={[]}
       />,
     );
 
@@ -105,6 +107,7 @@ describe("ChatInput autocomplete", () => {
         disabled={false}
         isStreaming={false}
         connectionStatus="connected"
+        messages={[]}
       />,
     );
 
@@ -133,6 +136,7 @@ describe("ChatInput autocomplete", () => {
         disabled={false}
         isStreaming={false}
         connectionStatus="connected"
+        messages={[]}
       />,
     );
 
@@ -159,6 +163,7 @@ describe("ChatInput autocomplete", () => {
         disabled={false}
         isStreaming={false}
         connectionStatus="connected"
+        messages={[]}
       />,
     );
 
@@ -184,6 +189,7 @@ describe("ChatInput autocomplete", () => {
         disabled={false}
         isStreaming={false}
         connectionStatus="connected"
+        messages={[]}
       />,
     );
 
@@ -216,6 +222,7 @@ describe("ChatInput autocomplete", () => {
         disabled={false}
         isStreaming={false}
         connectionStatus="connected"
+        messages={[]}
       />,
     );
 

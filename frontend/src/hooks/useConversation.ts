@@ -210,6 +210,8 @@ function reducer(state: ConversationState, action: Action): ConversationState {
           thinkingContent: stream.currentThinking || undefined,
           timestamp: new Date().toISOString(),
           durationMs: action.durationMs,
+          inputTokens: action.inputTokens,
+          outputTokens: action.outputTokens,
         };
         return {
           ...state,

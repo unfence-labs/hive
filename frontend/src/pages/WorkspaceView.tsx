@@ -514,6 +514,7 @@ export default function WorkspaceView() {
                 isStreaming={isStreaming}
                 connectionStatus={connectionStatus}
                 placeholder={hasPendingPlan ? "Enter your plan adjustments here..." : undefined}
+                messages={messages}
               />
             )}
           </div>

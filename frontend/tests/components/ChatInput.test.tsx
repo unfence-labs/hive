@@ -34,6 +34,7 @@ function renderChatInput(overrides?: Partial<ComponentProps<typeof ChatInput>>) 
         disabled={false}
         isStreaming={false}
         connectionStatus="connected"
+        messages={[]}
         {...overrides}
       />
     </QueryClientProvider>,

@@ -15,6 +15,8 @@ export interface ModelDefinition {
   cliValue: string;
   isDefault?: boolean;
   isNew?: boolean;
+  /** Maximum context window size in tokens. */
+  contextWindow?: number;
 }
 
 export interface ProviderCapabilities {
@@ -83,6 +85,8 @@ export interface ModelCatalogEntry {
   isDefault?: boolean;
   isNew?: boolean;
   capabilities: ProviderCapabilities;
+  /** Maximum context window size in tokens. */
+  contextWindow?: number;
 }
 
 export interface ModelCatalogResponse {

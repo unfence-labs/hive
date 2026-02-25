@@ -2251,4 +2251,71 @@ describe("useConversation", () => {
       });
     });
   });
+
+  describe("token usage in done event", () => {
+    it("stores inputTokens/outputTokens from done event in assistant message", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
+        __wsMock.emit("ws-1", {
+          type: "user_message",
+          message: {
+            id: "u1",
+            sessionId: "sess-1",
+            role: "user",
+            content: "hello",
+            timestamp: "2026-02-20T00:00:00.000Z",
+          },
+        });
+      });
+
+      act(() => {
+        __wsMock.emit("ws-1", { type: "text_delta", text: "Hello back" });
+        __wsMock.emit("ws-1", {
+          type: "done",
+          sessionId: "sess-1",
+          durationMs: 2000,
+          inputTokens: 45_000,
+          outputTokens: 1_200,
+        });
+      });
+
+      const assistant = result.current.messages.at(-1);
+      expect(assistant?.role).toBe("assistant");
+      expect(assistant?.inputTokens).toBe(45_000);
+      expect(assistant?.outputTokens).toBe(1_200);
+      expect(assistant?.durationMs).toBe(2000);
+    });
+
+    it("stores undefined tokens when done event has no token data", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
+        __wsMock.emit("ws-1", {
+          type: "user_message",
+          message: {
+            id: "u1",
+            sessionId: "sess-1",
+            role: "user",
+            content: "hello",
+            timestamp: "2026-02-20T00:00:00.000Z",
+          },
+        });
+      });
+
+      act(() => {
+        __wsMock.emit("ws-1", { type: "text_delta", text: "Reply" });
+        __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
+      });
+
+      const assistant = result.current.messages.at(-1);
+      expect(assistant?.role).toBe("assistant");
+      expect(assistant?.inputTokens).toBeUndefined();
+      expect(assistant?.outputTokens).toBeUndefined();
+    });
+  });
 });

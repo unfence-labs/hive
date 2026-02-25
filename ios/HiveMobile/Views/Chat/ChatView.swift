@@ -34,8 +34,16 @@ struct ChatView: View {
         return nil
     }
 
+    private var selectedModel: ModelCatalogEntry? {
+        modelCatalog.models.first { $0.id == selectedModelId }
+    }
+
     private var selectedCapabilities: ProviderCapabilities? {
-        modelCatalog.models.first { $0.id == selectedModelId }?.capabilities
+        selectedModel?.capabilities
+    }
+
+    private var contextUsage: ContextUsageData {
+        ContextUsageData.derive(from: store.messages, contextWindow: selectedModel?.contextWindow)
     }
 
     private var pendingToolUseIds: Set<String> {
@@ -114,6 +122,7 @@ struct ChatView: View {
                     lockedProvider: lockedProvider,
                     capabilities: selectedCapabilities,
                     onModelSelect: { selectedModelId = $0 },
+                    contextUsage: contextUsage,
                     onDraftAttachmentsChange: { draftAttachments = $0 },
                     onSend: sendMessage,
                     onStop: { Task { _ = await store.send?(.stop(sessionId: activeSessionId)) } }

@@ -111,7 +111,7 @@ enum WsOutgoing: Decodable {
     case toolUse(sessionId: String, id: String, name: String, input: String, parentToolUseId: String?)
     case toolResult(sessionId: String, toolUseId: String, output: String)
     case toolInputRequired(sessionId: String, requestId: String, toolName: String, toolUseId: String, input: String)
-    case done(sessionId: String, costUsd: Double?, durationMs: Int?)
+    case done(sessionId: String, durationMs: Int?, inputTokens: Int?, outputTokens: Int?)
     case error(message: String, sessionId: String?)
     case cancelled(sessionId: String)
     case status(status: WorkspaceStatus, sessionId: String?, streaming: Bool?, streamingStartedAt: Double?, lockedProvider: String?)
@@ -124,7 +124,8 @@ enum WsOutgoing: Decodable {
     private enum CodingKeys: String, CodingKey {
         case type, sessionId, text, id, name, input, output
         case parentToolUseId, toolUseId, requestId, toolName
-        case costUsd, durationMs, message, status, streaming, streamingStartedAt, lockedProvider
+        case durationMs, inputTokens, outputTokens
+        case message, status, streaming, streamingStartedAt, lockedProvider
         case messages, info, stats
         case scriptType, state, exitCode
     }
@@ -177,7 +178,6 @@ enum WsOutgoing: Decodable {
             )
         case "done":
             let doneSessionId = try container.decode(String.self, forKey: .sessionId)
-            let doneCost = try container.decodeIfPresent(Double.self, forKey: .costUsd)
             // durationMs may be Int or Double from the backend
             let doneDuration: Int?
             if let intVal = try? container.decodeIfPresent(Int.self, forKey: .durationMs) {
@@ -187,7 +187,24 @@ enum WsOutgoing: Decodable {
             } else {
                 doneDuration = nil
             }
-            self = .done(sessionId: doneSessionId, costUsd: doneCost, durationMs: doneDuration)
+            let doneInputTokens: Int?
+            if let intVal = try? container.decodeIfPresent(Int.self, forKey: .inputTokens) {
+                doneInputTokens = intVal
+            } else if let doubleVal = try? container.decodeIfPresent(Double.self, forKey: .inputTokens) {
+                doneInputTokens = Int(doubleVal)
+            } else {
+                doneInputTokens = nil
+            }
+            let doneOutputTokens: Int?
+            if let intVal = try? container.decodeIfPresent(Int.self, forKey: .outputTokens) {
+                doneOutputTokens = intVal
+            } else if let doubleVal = try? container.decodeIfPresent(Double.self, forKey: .outputTokens) {
+                doneOutputTokens = Int(doubleVal)
+            } else {
+                doneOutputTokens = nil
+            }
+            self = .done(sessionId: doneSessionId, durationMs: doneDuration,
+                         inputTokens: doneInputTokens, outputTokens: doneOutputTokens)
         case "error":
             self = .error(
                 message: try container.decode(String.self, forKey: .message),

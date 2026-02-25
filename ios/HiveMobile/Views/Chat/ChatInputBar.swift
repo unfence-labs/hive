@@ -15,6 +15,7 @@ struct ChatInputBar: View {
     let lockedProvider: String?
     let capabilities: ProviderCapabilities?
     let onModelSelect: (String) -> Void
+    let contextUsage: ContextUsageData
     let onDraftAttachmentsChange: ([ImageAttachment]) -> Void
     let onSend: ([ImageAttachment]) -> Void
     var onStop: (() -> Void)?
@@ -115,6 +116,8 @@ struct ChatInputBar: View {
             }
 
             Spacer()
+
+            ContextRingView(usage: contextUsage)
         }
         .padding(.horizontal, 16)
     }
@@ -380,10 +383,12 @@ private extension ImageAttachment {
     let sampleModels: [ModelCatalogEntry] = [
         .init(id: "claude:opus-4-6", label: "Opus 4.6", provider: "claude", providerLabel: "Claude Code",
               isDefault: true, isNew: nil,
-              capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true)),
+              capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true),
+              contextWindow: 200_000),
         .init(id: "claude:sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code",
               isDefault: nil, isNew: true,
-              capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true)),
+              capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true),
+              contextWindow: 200_000),
     ]
     let grouped = [ModelProviderGroup(provider: "claude", providerLabel: "Claude Code", models: sampleModels)]
 
@@ -403,6 +408,7 @@ private extension ImageAttachment {
             lockedProvider: nil,
             capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true),
             onModelSelect: { _ in },
+            contextUsage: ContextUsageData(inputTokens: 62_000, contextWindow: 200_000),
             onDraftAttachmentsChange: { _ in },
             onSend: { _ in }
         )
@@ -420,6 +426,7 @@ private extension ImageAttachment {
             lockedProvider: "claude",
             capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true),
             onModelSelect: { _ in },
+            contextUsage: ContextUsageData(inputTokens: 170_000, contextWindow: 200_000),
             onDraftAttachmentsChange: { _ in },
             onSend: { _ in },
             onStop: {}

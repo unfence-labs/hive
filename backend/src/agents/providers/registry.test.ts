@@ -295,3 +295,25 @@ describe("markProviderAvailable", () => {
     expect(catalog.models.every((m) => m.provider === "claude")).toBe(true);
   });
 });
+
+describe("contextWindow in catalog", () => {
+  it("includes contextWindow for Claude models", () => {
+    markProviderAvailable("claude");
+    const catalog = getModelCatalog();
+    const claudeModels = catalog.models.filter((m) => m.provider === "claude");
+
+    for (const model of claudeModels) {
+      expect(model.contextWindow).toBe(200_000);
+    }
+  });
+
+  it("omits contextWindow for providers that don't define it", () => {
+    markProviderAvailable("codex");
+    const catalog = getModelCatalog();
+    const codexModels = catalog.models.filter((m) => m.provider === "codex");
+
+    for (const model of codexModels) {
+      expect(model.contextWindow).toBeUndefined();
+    }
+  });
+});
