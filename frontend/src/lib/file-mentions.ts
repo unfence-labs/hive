@@ -1,48 +1,67 @@
 import type { FileMention } from "@/types";
 
+/** Match @mention tokens: must start after whitespace or beginning of string. */
+export const AT_MENTION_RE = /(?:^|(?<=\s))@[\w][\w-]*/g;
+
 export interface MentionChunk {
   text: string;
   mention?: FileMention;
+  highlight?: boolean;
 }
 
-export function splitByFileMentions(content: string, mentions: FileMention[] | undefined): MentionChunk[] {
-  if (!mentions?.length) return [{ text: content }];
+interface HighlightTarget {
+  needle: string;
+  mention?: FileMention;
+}
+
+function splitByTargets(content: string, targets: HighlightTarget[]): MentionChunk[] {
+  if (targets.length === 0) return [{ text: content }];
 
   const chunks: MentionChunk[] = [];
   let cursor = 0;
 
   while (cursor < content.length) {
-    let nextIndex = -1;
-    let nextMention: FileMention | undefined;
+    let bestIndex = -1;
+    let bestTarget: HighlightTarget | undefined;
 
-    for (const mention of mentions) {
-      const needle = `#${mention.displayName}`;
-      const idx = content.indexOf(needle, cursor);
+    for (const target of targets) {
+      const idx = content.indexOf(target.needle, cursor);
       if (idx === -1) continue;
 
       if (
-        nextIndex === -1
-        || idx < nextIndex
-        || (idx === nextIndex && nextMention && needle.length > `#${nextMention.displayName}`.length)
+        bestIndex === -1
+        || idx < bestIndex
+        || (idx === bestIndex && bestTarget && target.needle.length > bestTarget.needle.length)
       ) {
-        nextIndex = idx;
-        nextMention = mention;
+        bestIndex = idx;
+        bestTarget = target;
       }
     }
 
-    if (nextIndex === -1 || !nextMention) {
+    if (bestIndex === -1 || !bestTarget) {
       chunks.push({ text: content.slice(cursor) });
       break;
     }
 
-    if (nextIndex > cursor) {
-      chunks.push({ text: content.slice(cursor, nextIndex) });
+    if (bestIndex > cursor) {
+      chunks.push({ text: content.slice(cursor, bestIndex) });
     }
 
-    const mentionText = `#${nextMention.displayName}`;
-    chunks.push({ text: mentionText, mention: nextMention });
-    cursor = nextIndex + mentionText.length;
+    chunks.push({ text: bestTarget.needle, mention: bestTarget.mention, highlight: true });
+    cursor = bestIndex + bestTarget.needle.length;
   }
 
   return chunks.length > 0 ? chunks : [{ text: content }];
+}
+
+export function splitByAllMentions(
+  content: string,
+  fileMentions: FileMention[] | undefined,
+  agentMentions: string[] | undefined,
+): MentionChunk[] {
+  const targets: HighlightTarget[] = [
+    ...(fileMentions ?? []).map((m) => ({ needle: `#${m.displayName}`, mention: m })),
+    ...(agentMentions ?? []).map((name) => ({ needle: name })),
+  ];
+  return splitByTargets(content, targets);
 }

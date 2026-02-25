@@ -10,29 +10,43 @@ import { CopyButton } from "@/components/chat/CopyButton";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { FileIcon } from "lucide-react";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
-import { splitByFileMentions } from "@/lib/file-mentions";
+import { AT_MENTION_RE, splitByAllMentions } from "@/lib/file-mentions";
 
 function renderContentWithMentions(
   content: string,
   mentions: FileMention[] | undefined,
   onFileClick?: (relativePath: string) => void,
 ): ReactNode {
-  if (!mentions?.length) return <p className="whitespace-pre-wrap">{content}</p>;
+  const atMatches = content.match(AT_MENTION_RE);
+  const atMentions = atMatches ? [...new Set(atMatches)] : [];
 
-  const segments = splitByFileMentions(content, mentions).map((segment, i) => {
-    const mention = segment.mention;
-    if (!mention) return <span key={i}>{segment.text}</span>;
-    return (
-      <button
-        key={i}
-        type="button"
-        onClick={() => onFileClick?.(mention.relativePath)}
-        className="inline-flex items-center gap-0.5 rounded bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary hover:bg-primary/25 transition-colors"
-      >
-        <FileIcon className="size-3" />
-        {mention.displayName}
-      </button>
-    );
+  if (!mentions?.length && atMentions.length === 0) return <p className="whitespace-pre-wrap">{content}</p>;
+
+  const segments = splitByAllMentions(content, mentions, atMentions).map((segment, i) => {
+    if (segment.mention) {
+      return (
+        <button
+          key={i}
+          type="button"
+          onClick={() => onFileClick?.(segment.mention!.relativePath)}
+          className="inline-flex items-center gap-0.5 rounded bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary hover:bg-primary/25 transition-colors"
+        >
+          <FileIcon className="size-3" />
+          {segment.mention!.displayName}
+        </button>
+      );
+    }
+    if (segment.highlight) {
+      return (
+        <span
+          key={i}
+          className="rounded bg-primary/15 px-1 py-0.5 text-xs font-medium text-primary"
+        >
+          {segment.text}
+        </span>
+      );
+    }
+    return <span key={i}>{segment.text}</span>;
   });
 
   return <p className="whitespace-pre-wrap">{segments}</p>;

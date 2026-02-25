@@ -1,6 +1,6 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useRef, type RefObject } from "react";
 import type { FileMention } from "@/types";
-import { splitByFileMentions } from "@/lib/file-mentions";
+import { AT_MENTION_RE, splitByAllMentions } from "@/lib/file-mentions";
 
 interface MentionHighlightOverlayProps {
   value: string;
@@ -15,6 +15,14 @@ export function MentionHighlightOverlay({
 }: MentionHighlightOverlayProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
 
+  // Auto-detect @mentions directly from the text
+  const atMentions = useMemo(() => {
+    const matches = value.match(AT_MENTION_RE);
+    return matches ? [...new Set(matches)] : [];
+  }, [value]);
+
+  const totalMentions = fileMentions.length + atMentions.length;
+
   useEffect(() => {
     const textarea = textareaRef.current;
     const overlay = overlayRef.current;
@@ -28,12 +36,12 @@ export function MentionHighlightOverlay({
     syncScroll();
     textarea.addEventListener("scroll", syncScroll);
     return () => textarea.removeEventListener("scroll", syncScroll);
-  }, [textareaRef, fileMentions.length]);
+  }, [textareaRef, totalMentions]);
 
-  if (fileMentions.length === 0) return null;
+  if (totalMentions === 0) return null;
 
-  const segments = splitByFileMentions(value, fileMentions);
-  if (segments.every((s) => !s.mention)) return null;
+  const segments = splitByAllMentions(value, fileMentions, atMentions);
+  if (segments.every((s) => !s.highlight)) return null;
 
   return (
     <div
@@ -43,7 +51,7 @@ export function MentionHighlightOverlay({
       aria-hidden="true"
     >
       {segments.map((seg, i) =>
-        seg.mention ? (
+        seg.highlight ? (
           <mark
             key={i}
             className="rounded-sm bg-primary/15 text-transparent"

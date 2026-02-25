@@ -167,7 +167,6 @@ export default function ChatInput({
       setFileMentions((prev) =>
         prev.filter((m) => text.includes(`#${m.displayName}`)),
       );
-
       const cursor = e.target.selectionStart ?? text.length;
       const beforeCursor = text.slice(0, cursor);
       const match = beforeCursor.match(/(^|[\s])([/@#])(\S*)$/);
