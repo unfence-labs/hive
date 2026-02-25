@@ -175,13 +175,16 @@ describe("Sidebar", () => {
   it("shows workspace count beside project name only when count is greater than zero", async () => {
     renderSidebar("/projects", projects);
 
-    const alphaLabel = (await screen.findByText("Alpha")).closest("span");
-    const betaLabel = screen.getByText("Beta").closest("span");
+    // Project header: button contains name, sibling div contains count
+    const alphaButton = (await screen.findByText("Alpha")).closest("button")!;
+    const alphaHeader = alphaButton.parentElement!;
+    const betaButton = screen.getByText("Beta").closest("button")!;
+    const betaHeader = betaButton.parentElement!;
 
-    expect(alphaLabel).toBeInTheDocument();
-    expect(alphaLabel?.querySelector("span")).toHaveTextContent("1");
-    expect(betaLabel).toBeInTheDocument();
-    expect(betaLabel?.querySelector("span")).toBeNull();
+    // Alpha has 1 workspace → count "1" visible in project header
+    expect(alphaHeader.querySelector("[class*='tabular-nums']")).toHaveTextContent("1");
+    // Beta has 0 workspaces → count "0" visible in project header
+    expect(betaHeader.querySelector("[class*='tabular-nums']")).toHaveTextContent("0");
   });
 
   it("expands the active project's workspaces on workspace route", async () => {

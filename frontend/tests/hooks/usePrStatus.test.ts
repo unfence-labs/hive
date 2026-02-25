@@ -66,7 +66,7 @@ describe("usePrStatus", () => {
 
     expect(api.get).toHaveBeenCalledWith("/api/workspaces/ws-1/pr-status");
     expect(result.current.error).toBeNull();
-    expect(result.current.fetched).toBe(false);
+    expect(result.current.loading).toBe(false);
   });
 
   it("exposes backend error messages", async () => {
@@ -92,7 +92,7 @@ describe("usePrStatus", () => {
     const { wrapper } = createWrapper();
     const { result } = renderHook(() => usePrStatus("ws-1"), { wrapper });
 
-    expect(result.current.fetched).toBe(true);
+    expect(result.current.loading).toBe(true);
 
     await act(async () => {
       pending.resolve({ pr: makePr({ number: 99 }) });
@@ -100,7 +100,7 @@ describe("usePrStatus", () => {
     });
 
     await waitFor(() => {
-      expect(result.current.fetched).toBe(false);
+      expect(result.current.loading).toBe(false);
     });
     expect(result.current.pr?.number).toBe(99);
   });
