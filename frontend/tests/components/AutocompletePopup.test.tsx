@@ -108,8 +108,8 @@ describe("AutocompletePopup", () => {
     const selected = screen.getByRole("button", { name: /\/deploy/i });
     const unselected = screen.getByRole("button", { name: /\/help/i });
 
-    expect(selected.className).toContain("bg-accent");
-    expect(unselected.className).toContain("hover:bg-accent/50");
+    expect(selected.className).toContain("bg-primary/10");
+    expect(unselected.className).toContain("hover:bg-white/[0.04]");
   });
 
   it("calls onSelect on mousedown and prevents default", () => {

@@ -274,6 +274,17 @@ describe("ConversationTabs", () => {
     expect(findUnreadDot(activeTab)).not.toBeInTheDocument();
   });
 
+  it("shows unread dot for active session when file tab is active", () => {
+    renderTabs({
+      unreadSessions: { "sess-1": true },
+      openFile: "src/index.ts",
+      isFileActive: true,
+    });
+
+    const activeButHiddenConversationTab = screen.getByText("First conversation").closest("button")!;
+    expect(findUnreadDot(activeButHiddenConversationTab)).toBeInTheDocument();
+  });
+
   it("prioritizes streaming indicator over unread dot", () => {
     renderTabs({
       unreadSessions: { "sess-2": true },
@@ -423,5 +434,31 @@ describe("ConversationTabs — file tab", () => {
     const fileTab = screen.getByText("package.json").closest("button")!;
     const svg = fileTab.querySelector("svg");
     expect(svg).toBeInTheDocument();
+  });
+
+  it("keeps all conversation tabs reachable via overflow when file tab consumes visible width", async () => {
+    const user = userEvent.setup();
+    const clientWidthSpy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(50);
+    const scrollWidthSpy = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(50);
+
+    try {
+      renderTabs({ openFile: "src/app.ts", isFileActive: true });
+
+      const overflowTrigger = await waitFor(() => {
+        const trigger = (
+          document.querySelector("svg.lucide-more-horizontal")?.closest("button")
+          ?? document.querySelector("svg.lucide-ellipsis")?.closest("button")
+        ) as HTMLButtonElement | null;
+        expect(trigger).toBeTruthy();
+        return trigger as HTMLButtonElement;
+      });
+
+      await user.click(overflowTrigger);
+      expect(await screen.findByRole("menuitem", { name: /First conversation/i })).toBeInTheDocument();
+      expect(await screen.findByRole("menuitem", { name: /Second conversation/i })).toBeInTheDocument();
+    } finally {
+      clientWidthSpy.mockRestore();
+      scrollWidthSpy.mockRestore();
+    }
   });
 });

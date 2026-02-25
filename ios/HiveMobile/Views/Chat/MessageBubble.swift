@@ -55,7 +55,7 @@ struct MessageBubble: View {
         } else if !message.content.isEmpty {
             switch message.role {
             case .user:
-                Text(message.content)
+                Text(highlightedUserContent(message.content, fileMentions: message.fileMentions))
                     .font(.system(size: 14))
                     .foregroundStyle(WhisperColor.text)
                     .lineSpacing(3)
@@ -121,6 +121,51 @@ struct MessageBubble: View {
             urlString += "\(sep)token=\(token)"
         }
         return URL(string: urlString)
+    }
+
+    // MARK: - Mention Highlighting
+
+    @Environment(\.self) private var environment
+
+    private func highlightedUserContent(_ content: String, fileMentions: [FileMention]?) -> AttributedString {
+        var result = AttributedString(content)
+        let accent = Color.accentColor.resolve(in: environment)
+        let accentUI = UIColor(red: CGFloat(accent.red), green: CGFloat(accent.green),
+                               blue: CGFloat(accent.blue), alpha: CGFloat(accent.opacity))
+        let bgColor = accentUI.withAlphaComponent(0.15)
+        let fgColor = accentUI
+
+        // Highlight #fileMentions using metadata
+        if let mentions = fileMentions {
+            for mention in mentions {
+                let needle = "#\(mention.displayName)"
+                var searchStart = result.startIndex
+                while searchStart < result.endIndex,
+                      let range = result[searchStart...].range(of: needle) {
+                    result[range].backgroundColor = bgColor
+                    result[range].foregroundColor = fgColor
+                    searchStart = range.upperBound
+                }
+            }
+        }
+
+        // Highlight @mentions via regex (cursor-based to handle duplicates)
+        if let regex = try? NSRegularExpression(pattern: #"(?:^|(?<=\s))@[\w][\w-]*"#) {
+            let nsContent = content as NSString
+            let matches = regex.matches(in: content, range: NSRange(location: 0, length: nsContent.length))
+            var atCursor = result.startIndex
+            for match in matches {
+                guard let swiftRange = Range(match.range, in: content) else { continue }
+                let needle = String(content[swiftRange])
+                guard atCursor < result.endIndex,
+                      let range = result[atCursor...].range(of: needle) else { continue }
+                result[range].backgroundColor = bgColor
+                result[range].foregroundColor = fgColor
+                atCursor = range.upperBound
+            }
+        }
+
+        return result
     }
 
     private func formatTimestamp(_ ts: String) -> String {
@@ -1062,8 +1107,10 @@ private extension Theme {
         VStack(spacing: 16) {
             MessageBubble(message: ChatMessage(
                 id: "1", sessionId: "s1", role: .user,
-                content: "Can you fix the login bug?",
-                images: nil, toolCalls: nil, thinkingContent: nil,
+                content: "Can you fix the login bug in #auth.ts? Ask @claude-code if needed",
+                images: nil,
+                fileMentions: [FileMention(displayName: "auth.ts", relativePath: "src/utils/auth.ts")],
+                toolCalls: nil, thinkingContent: nil,
                 timestamp: "2026-02-17T12:00:00.000Z", cancelled: nil, durationMs: nil
             ))
             MessageBubble(message: ChatMessage(

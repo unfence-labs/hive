@@ -14,6 +14,10 @@ import { errorMessage } from "../utils/errors.js";
 import { isAuthorized } from "../utils/auth.js";
 import type { WsIncoming, WsOutgoing, HubIncoming, HubOutgoing } from "../types.js";
 import { getScriptStatus } from "../services/script-runner.js";
+import { getWorkspace } from "../workspaces/workspace-manager.js";
+import { workspacesDir } from "../utils/paths.js";
+import { getDataDir } from "../state/state.js";
+import { join, resolve, sep } from "node:path";
 
 interface GitSyncSnapshotProvider {
   getCachedBranchInfo: (workspaceId: string) => Extract<WsOutgoing, { type: "branch_info" }>["info"] | undefined;
@@ -47,6 +51,36 @@ const PING_INTERVAL_MS = 30_000;
 const channels = new Map<string, WorkspaceChannel>();
 const hubSockets = new Set<HubSocket>();
 const hubPingTimers = new Map<HubSocket, NodeJS.Timeout>();
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isWithinWorkspace(workspacePath: string, candidatePath: string): boolean {
+  const root = resolve(workspacePath);
+  const candidate = resolve(candidatePath);
+  return candidate === root || candidate.startsWith(`${root}${sep}`);
+}
+
+function replaceFileMentionsWithAbsolutePaths(
+  content: string,
+  mentions: Array<{ displayName: string; relativePath: string }>,
+  workspacePath: string,
+): string {
+  let resolved = content;
+
+  for (const mention of mentions) {
+    if (!mention.displayName || !mention.relativePath) continue;
+
+    const absPath = resolve(workspacePath, mention.relativePath);
+    if (!isWithinWorkspace(workspacePath, absPath)) continue;
+
+    const pattern = new RegExp(`(^|\\s)#${escapeRegExp(mention.displayName)}(?=\\s|$)`, "g");
+    resolved = resolved.replace(pattern, `$1${absPath}`);
+  }
+
+  return resolved;
+}
 
 // ── Sending helpers ─────────────────────────────────────────────────
 
@@ -354,7 +388,19 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           }
 
           attachSessionListeners(wsId, channel, targetSession);
-          targetSession.sendMessage(incoming.content, incoming.options, incoming.images);
+
+          // Build cliContent by replacing #displayName with absolute paths
+          let cliContent: string | undefined;
+          if (incoming.fileMentions?.length) {
+            const dir = dataDir ?? getDataDir();
+            const wsResult = await getWorkspace(wsId, dir);
+            if (wsResult) {
+              const wsPath = join(workspacesDir(dir, wsResult.projectState.id), wsResult.workspace.name);
+              cliContent = replaceFileMentionsWithAbsolutePaths(incoming.content, incoming.fileMentions, wsPath);
+            }
+          }
+
+          targetSession.sendMessage(incoming.content, incoming.options, incoming.images, cliContent, incoming.fileMentions);
           broadcastToChannel(channel, wsId, {
             type: "status",
             status: "busy",

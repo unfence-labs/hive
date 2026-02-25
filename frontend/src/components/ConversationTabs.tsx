@@ -40,6 +40,74 @@ function getTabTitle(session: SessionMetadata): string {
   return session.title || "Untitled";
 }
 
+function getSessionVisualState({
+  sessionId,
+  activeSessionId,
+  isStreaming,
+  isFileActive,
+  streamingSessions,
+  unreadSessions,
+}: {
+  sessionId: string;
+  activeSessionId?: string;
+  isStreaming: boolean;
+  isFileActive?: boolean;
+  streamingSessions?: Record<string, boolean>;
+  unreadSessions?: Record<string, boolean>;
+}) {
+  const isActive = sessionId === activeSessionId;
+  const isSessionVisible = isActive && !isFileActive;
+  const isSessionStreaming = Boolean(streamingSessions?.[sessionId] ?? (isActive && isStreaming));
+  const isSessionUnread = !isSessionVisible && !isSessionStreaming && Boolean(unreadSessions?.[sessionId]);
+
+  return { isActive, isSessionStreaming, isSessionUnread };
+}
+
+function SessionStatusIndicator({
+  isStreaming,
+  isUnread,
+}: {
+  isStreaming: boolean;
+  isUnread: boolean;
+}) {
+  if (isStreaming) {
+    return (
+      <div className="flex size-3 shrink-0 items-center justify-center overflow-visible">
+        <AgentActivityPreview size="small" />
+      </div>
+    );
+  }
+  if (isUnread) {
+    return <span className="size-2 shrink-0 rounded-full bg-primary" />;
+  }
+  return <MessageSquareIcon className="size-3 shrink-0" />;
+}
+
+function TabCloseAction({ onClose }: { onClose: () => void }) {
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      className={cn(
+        "ml-auto shrink-0 rounded p-0.5 text-muted-foreground/50",
+        "hover:bg-destructive/10 hover:text-destructive",
+      )}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <XIcon className="size-3" />
+    </span>
+  );
+}
+
 export function ConversationTabs({
   sessions,
   activeSessionId,
@@ -58,6 +126,7 @@ export function ConversationTabs({
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(sessions.length);
   const tabsRef = useRef<HTMLDivElement>(null);
+  const visibleSessionCount = Math.max(0, visibleCount - (openFile ? 1 : 0));
 
   const measureTabs = useCallback(() => {
     const tabsEl = tabsRef.current;
@@ -86,7 +155,7 @@ export function ConversationTabs({
 
   useEffect(() => {
     measureTabs();
-  }, [sessions.length, measureTabs]);
+  }, [sessions, openFile, measureTabs]);
 
   useEffect(() => {
     const el = tabsRef.current;
@@ -96,7 +165,7 @@ export function ConversationTabs({
     return () => observer.disconnect();
   }, [measureTabs]);
 
-  const overflowSessions = sessions.slice(visibleCount);
+  const overflowSessions = sessions.slice(visibleSessionCount);
 
   return (
     <>
@@ -115,26 +184,7 @@ export function ConversationTabs({
             >
               <FileIcon className="size-3 shrink-0" />
               <span className="truncate">{openFile.split("/").pop()}</span>
-              <span
-                role="button"
-                tabIndex={0}
-                className={cn(
-                  "ml-auto shrink-0 rounded p-0.5 text-muted-foreground/50",
-                  "hover:bg-destructive/10 hover:text-destructive",
-                )}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onFileTabClose?.();
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.stopPropagation();
-                    onFileTabClose?.();
-                  }
-                }}
-              >
-                <XIcon className="size-3" />
-              </span>
+              <TabCloseAction onClose={() => onFileTabClose?.()} />
             </button>
           )}
           {sessions.length === 0 && (
@@ -153,11 +203,16 @@ export function ConversationTabs({
             </button>
           )}
           {sessions.map((session, i) => {
-            const isActive = session.sessionId === activeSessionId;
-            const isVisible = i < visibleCount;
+            const { isActive, isSessionStreaming, isSessionUnread } = getSessionVisualState({
+              sessionId: session.sessionId,
+              activeSessionId,
+              isStreaming,
+              isFileActive,
+              streamingSessions,
+              unreadSessions,
+            });
+            const isVisible = i < visibleSessionCount;
             const title = getTabTitle(session);
-            const isSessionStreaming = streamingSessions?.[session.sessionId] ?? (isActive && isStreaming);
-            const isSessionUnread = !isActive && !isSessionStreaming && !!unreadSessions?.[session.sessionId];
 
             return (
               <button
@@ -172,37 +227,10 @@ export function ConversationTabs({
                 )}
                 onClick={() => onActivateSession(session.sessionId)}
               >
-                {isSessionStreaming ? (
-                  <div className="flex size-3 shrink-0 items-center justify-center overflow-visible">
-                    <AgentActivityPreview size="small" />
-                  </div>
-                ) : isSessionUnread ? (
-                  <span className="size-2 shrink-0 rounded-full bg-primary" />
-                ) : (
-                  <MessageSquareIcon className="size-3 shrink-0" />
-                )}
+                <SessionStatusIndicator isStreaming={isSessionStreaming} isUnread={isSessionUnread} />
                 <span className="truncate">{title}</span>
                 {sessions.length > 1 && !isSessionStreaming && (
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    className={cn(
-                      "ml-auto shrink-0 rounded p-0.5 text-muted-foreground/50",
-                      "hover:bg-destructive/10 hover:text-destructive",
-                    )}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteTarget(session.sessionId);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.stopPropagation();
-                        setDeleteTarget(session.sessionId);
-                      }
-                    }}
-                  >
-                    <XIcon className="size-3" />
-                  </span>
+                  <TabCloseAction onClose={() => setDeleteTarget(session.sessionId)} />
                 )}
               </button>
             );
@@ -221,10 +249,15 @@ export function ConversationTabs({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-56">
               {overflowSessions.map((session) => {
-                const isActive = session.sessionId === activeSessionId;
+                const { isActive, isSessionStreaming: isOverflowStreaming, isSessionUnread: isOverflowUnread } = getSessionVisualState({
+                  sessionId: session.sessionId,
+                  activeSessionId,
+                  isStreaming,
+                  isFileActive,
+                  streamingSessions,
+                  unreadSessions,
+                });
                 const title = getTabTitle(session);
-                const isOverflowStreaming = streamingSessions?.[session.sessionId] ?? (isActive && isStreaming);
-                const isOverflowUnread = !isActive && !isOverflowStreaming && !!unreadSessions?.[session.sessionId];
 
                 return (
                   <DropdownMenuItem
@@ -232,15 +265,10 @@ export function ConversationTabs({
                     className="flex items-center gap-2"
                     onSelect={() => onActivateSession(session.sessionId)}
                   >
-                    {isOverflowStreaming ? (
-                      <div className="flex size-3 shrink-0 items-center justify-center overflow-visible">
-                        <AgentActivityPreview size="small" />
-                      </div>
-                    ) : isOverflowUnread ? (
-                      <span className="size-2 shrink-0 rounded-full bg-primary" />
-                    ) : (
-                      <MessageSquareIcon className="size-3 shrink-0" />
-                    )}
+                    <SessionStatusIndicator
+                      isStreaming={isOverflowStreaming}
+                      isUnread={isOverflowUnread}
+                    />
                     <span className="flex-1 truncate text-xs">{title}</span>
                     {isActive && (
                       <span className="size-1.5 shrink-0 rounded-full bg-primary" />

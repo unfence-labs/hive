@@ -64,7 +64,7 @@ describe("ChatInput", () => {
     await user.type(screen.getByPlaceholderText("Send a message..."), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true });
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true }, undefined);
   });
 
   it("sends message on Enter without Shift", async () => {
@@ -73,7 +73,7 @@ describe("ChatInput", () => {
 
     await user.type(screen.getByPlaceholderText("Send a message..."), "hello{enter}");
 
-    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true });
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true }, undefined);
   });
 
   it("does not send on Shift+Enter", async () => {
@@ -94,7 +94,7 @@ describe("ChatInput", () => {
     await user.type(screen.getByPlaceholderText("Send a message..."), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: true, thinkingEnabled: false });
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: true, thinkingEnabled: false }, undefined);
   });
 
   it("restores default options when toggles are clicked twice", async () => {
@@ -108,7 +108,7 @@ describe("ChatInput", () => {
     await user.type(screen.getByPlaceholderText("Send a message..."), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true });
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true }, undefined);
   });
 
   it("shows stop button and calls onStop while streaming", async () => {
@@ -138,7 +138,7 @@ describe("ChatInput", () => {
     await user.type(input, "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true });
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true }, undefined);
     expect(input).toHaveValue("hello");
   });
 

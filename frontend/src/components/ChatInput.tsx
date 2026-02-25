@@ -11,23 +11,27 @@ import {
   usePromptInputAttachments,
   type AttachmentsContext,
 } from "@/components/ai-elements/prompt-input";
-import type { ChatMessage, CompletionItem, ImageAttachment, MessageOptions, ThinkingLevel } from "@/types";
+import type { ChatMessage, CompletionItem, FileMention, ImageAttachment, MessageOptions, ThinkingLevel } from "@/types";
 import { cn } from "@/lib/utils";
 import { BrainIcon, BookOpenIcon, PlusIcon } from "lucide-react";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
 import { AutocompletePopup } from "@/components/chat/AutocompletePopup";
+import { FileAutocompletePopup } from "@/components/chat/FileAutocompletePopup";
+import { MentionHighlightOverlay } from "@/components/chat/MentionHighlightOverlay";
 import { ContextRing } from "@/components/chat/ContextRing";
 import { ModelSelector } from "@/components/chat/ModelSelector";
 import { useCompletions } from "@/hooks/useCompletions";
+import { useFileCompletions } from "@/hooks/useFileCompletions";
 import { useContextUsage } from "@/hooks/useContextUsage";
 import { useModels } from "@/hooks/useModels";
 import { useChatInputDraftPersistence } from "@/hooks/useChatInputDraftPersistence";
+import { fuzzyMatchFiles, disambiguateDisplayName, type FuzzyResult } from "@/lib/fuzzy-match";
 
 interface ChatInputProps {
   wsId?: string;
   sessionId?: string;
   lockedProvider?: string;
-  onSend: (content: string, images?: ImageAttachment[], options?: MessageOptions) => boolean;
+  onSend: (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]) => boolean;
   onStop: () => void;
   disabled: boolean;
   isStreaming: boolean;
@@ -37,7 +41,7 @@ interface ChatInputProps {
 }
 
 interface AutocompleteState {
-  trigger: "/" | "@";
+  trigger: "/" | "@" | "#";
   query: string;
   triggerIndex: number;
 }
@@ -88,7 +92,9 @@ export default function ChatInput({
   const [fileCount, setFileCount] = useState(0);
   const [autocomplete, setAutocomplete] = useState<AutocompleteState | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [fileMentions, setFileMentions] = useState<FileMention[]>([]);
   const attachmentsRef = useRef<AttachmentsContext | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const isDisconnected = connectionStatus === "disconnected";
   const isInputDisabled = disabled || isStreaming || isDisconnected;
   const canSubmit = !isInputDisabled && (value.trim().length > 0 || fileCount > 0);
@@ -111,12 +117,14 @@ export default function ChatInput({
     defaultModelId,
     thinkingLevel,
     attachmentsRef,
+    fileMentions,
     setValue,
     setThinkingEnabled,
     setPlanMode,
     setSelectedModelId,
     setThinkingLevel,
     setFileCount,
+    setFileMentions,
   });
 
   // Auto-correct model if it conflicts with the session's locked provider
@@ -131,9 +139,10 @@ export default function ChatInput({
   }, [lockedProvider, selectedModelId, models, setSelectedModelId]);
 
   const completionItems = useCompletions(wsId);
+  const filePaths = useFileCompletions(wsId);
 
   const filteredItems = useMemo(() => {
-    if (!autocomplete) return [];
+    if (!autocomplete || autocomplete.trigger === "#") return [];
     const type = autocomplete.trigger === "/" ? "slash_command" : "agent";
     return completionItems
       .filter((item) => item.type === type)
@@ -144,21 +153,34 @@ export default function ChatInput({
       );
   }, [autocomplete, completionItems]);
 
+  const fileResults = useMemo(() => {
+    if (!autocomplete || autocomplete.trigger !== "#") return [];
+    return fuzzyMatchFiles(filePaths, autocomplete.query);
+  }, [autocomplete, filePaths]);
+
   const handleChange = useCallback(
     (e: ChangeEvent<HTMLTextAreaElement>) => {
       const text = e.target.value;
       setValue(text);
 
+      // Prune mentions that no longer appear in the text
+      setFileMentions((prev) =>
+        prev.filter((m) => text.includes(`#${m.displayName}`)),
+      );
       const cursor = e.target.selectionStart ?? text.length;
       const beforeCursor = text.slice(0, cursor);
-      const match = beforeCursor.match(/(^|[\s])([/@])(\S*)$/);
+      const match = beforeCursor.match(/(^|[\s])([/@#])(\S*)$/);
 
-      if (match && supportsCompletions) {
-        const trigger = match[2] as "/" | "@";
-        const query = match[3];
-        const triggerIndex = beforeCursor.length - match[2].length - match[3].length;
-        setAutocomplete({ trigger, query, triggerIndex });
-        setSelectedIndex(0);
+      if (match) {
+        const trigger = match[2] as "/" | "@" | "#";
+        if (trigger === "#" || supportsCompletions) {
+          const query = match[3];
+          const triggerIndex = beforeCursor.length - match[2].length - match[3].length;
+          setAutocomplete({ trigger, query, triggerIndex });
+          setSelectedIndex(0);
+        } else {
+          setAutocomplete(null);
+        }
       } else {
         setAutocomplete(null);
       }
@@ -180,25 +202,62 @@ export default function ChatInput({
     [autocomplete, value],
   );
 
+  const selectFileItem = useCallback(
+    (result: FuzzyResult) => {
+      if (!autocomplete) return;
+      const displayName = disambiguateDisplayName(result.path, filePaths);
+      const before = value.slice(0, autocomplete.triggerIndex);
+      const after = value.slice(
+        autocomplete.triggerIndex + 1 + autocomplete.query.length,
+      );
+      const insertion = `#${displayName} `;
+      setValue(before + insertion + after);
+      setFileMentions((prev) => [
+        ...prev.filter((m) => m.relativePath !== result.path),
+        { displayName, relativePath: result.path },
+      ]);
+      setAutocomplete(null);
+    },
+    [autocomplete, value, filePaths],
+  );
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (!autocomplete || filteredItems.length === 0) return;
+      if (!autocomplete) return;
 
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSelectedIndex((i) => (i + 1) % filteredItems.length);
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setSelectedIndex((i) => (i - 1 + filteredItems.length) % filteredItems.length);
-      } else if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        selectItem(filteredItems[selectedIndex]);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        setAutocomplete(null);
+      if (autocomplete.trigger === "#") {
+        if (fileResults.length === 0) return;
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSelectedIndex((i) => (i + 1) % fileResults.length);
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSelectedIndex((i) => (i - 1 + fileResults.length) % fileResults.length);
+        } else if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          selectFileItem(fileResults[selectedIndex]);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          setAutocomplete(null);
+        }
+      } else {
+        if (filteredItems.length === 0) return;
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSelectedIndex((i) => (i + 1) % filteredItems.length);
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSelectedIndex((i) => (i - 1 + filteredItems.length) % filteredItems.length);
+        } else if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          selectItem(filteredItems[selectedIndex]);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          setAutocomplete(null);
+        }
       }
     },
-    [autocomplete, filteredItems, selectedIndex, selectItem],
+    [autocomplete, filteredItems, fileResults, selectedIndex, selectItem, selectFileItem],
   );
 
   const cycleThinkingLevel = useCallback(() => {
@@ -228,13 +287,20 @@ export default function ChatInput({
       ...(supportsThinkingLevels && { thinkingLevel }),
     };
 
-    const sent = onSend(trimmed, images, options);
+    const mentions: FileMention[] | undefined = fileMentions.length > 0
+      ? fileMentions.map((m) => ({ displayName: m.displayName, relativePath: m.relativePath }))
+      : undefined;
+
+    const sent = onSend(trimmed, images, options, mentions);
     if (!sent) throw new Error("Message send failed");
     setValue("");
+    setFileMentions([]);
     setAutocomplete(null);
   };
 
-  const showPopup = autocomplete !== null && filteredItems.length > 0;
+  const showSlashPopup = autocomplete !== null && autocomplete.trigger !== "#" && filteredItems.length > 0;
+  const showFilePopup = autocomplete !== null && autocomplete.trigger === "#" && fileResults.length > 0;
+  const showPopup = showSlashPopup || showFilePopup;
 
   const activeStyle = "bg-primary/10 text-primary ring-1 ring-primary/15 hover:bg-primary/15 hover:text-primary dark:hover:bg-primary/15";
 
@@ -246,7 +312,7 @@ export default function ChatInput({
         planMode && supportsPlanMode && "[&_[data-slot=input-group]]:!border-transparent border-dashed border-primary",
         planMode && supportsPlanMode && showPopup && "rounded-t-none border-t-0",
       )}>
-        {showPopup && (
+        {showSlashPopup && (
           <AutocompletePopup
             items={filteredItems}
             selectedIndex={selectedIndex}
@@ -255,11 +321,26 @@ export default function ChatInput({
             planMode={planMode && supportsPlanMode}
           />
         )}
+        {showFilePopup && (
+          <FileAutocompletePopup
+            items={fileResults}
+            selectedIndex={selectedIndex}
+            onSelect={selectFileItem}
+            onHover={setSelectedIndex}
+            planMode={planMode && supportsPlanMode}
+          />
+        )}
         <PromptInput onSubmit={handleSubmit} accept="image/*" multiple>
         <PromptInputBody>
           <ChatInputAttachments onFileCountChange={setFileCount} attachmentsRef={attachmentsRef} />
+          <MentionHighlightOverlay
+            value={value}
+            fileMentions={fileMentions}
+            textareaRef={textareaRef}
+          />
           <PromptInputTextarea
-            className="min-h-[100px] max-h-40 text-sm placeholder:text-muted-foreground/40"
+            ref={textareaRef}
+            className="min-h-[100px] max-h-40 bg-transparent text-sm placeholder:text-muted-foreground/40"
             placeholder={isDisconnected ? "Reconnecting..." : (customPlaceholder ?? "Send a message...")}
             value={value}
             onChange={handleChange}

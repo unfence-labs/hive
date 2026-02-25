@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
@@ -144,9 +144,10 @@ vi.mock("@/components/ConversationTabs", () => ({
     onDeleteSession: (id: string) => void;
     onCreateSession: () => void;
     onActivateSession: (id: string) => void;
+    onFileTabClick?: () => void;
     unreadSessions?: Record<string, boolean>;
   }) => {
-    const { onDeleteSession, onCreateSession, onActivateSession } = props;
+    const { onDeleteSession, onCreateSession, onActivateSession, onFileTabClick } = props;
     mocks.captureConversationTabsProps(props);
     return (
       <div data-testid="conversation-tabs">
@@ -161,6 +162,9 @@ vi.mock("@/components/ConversationTabs", () => ({
         </button>
         <button type="button" data-testid="activate-session-btn" onClick={() => onActivateSession("sess-2")}>
           activate session
+        </button>
+        <button type="button" data-testid="file-tab-btn" onClick={() => onFileTabClick?.()}>
+          file tab
         </button>
       </div>
     );
@@ -660,6 +664,70 @@ describe("WorkspaceView behavior", () => {
     expect(
       clearUnread.mock.calls.some((call) => call[0] === "ws-1" && call[1] === "sess-2"),
     ).toBe(false);
+  });
+
+  it("returns to conversation tab when clicking the already active session", async () => {
+    const user = userEvent.setup();
+    const clearUnread = vi.fn();
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread });
+    mocks.useConversation.mockReturnValue({
+      messages: [],
+      isStreaming: false,
+      streamingStartedAt: null,
+      workspaceStatus: "idle",
+      currentStreamingText: "",
+      currentThinking: "",
+      activeToolCalls: [],
+      pendingToolInputs: [],
+      connectionStatus: "connected",
+      error: null,
+      sessionId: "sess-2",
+      sendMessage: mocks.sendMessage,
+      stopStreaming: mocks.stopStreaming,
+      clearChat: mocks.clearChat,
+      switchSession: mocks.switchSession,
+      answerQuestion: mocks.answerQuestion,
+      batchAnswerQuestions: mocks.batchAnswerQuestions,
+      approvePlan: mocks.approvePlan,
+      rejectToolInput: mocks.rejectToolInput,
+      dismissPlan: mocks.dismissPlan,
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await waitFor(() => {
+      const lastCall =
+        mocks.captureConversationTabsProps.mock.calls[
+          mocks.captureConversationTabsProps.mock.calls.length - 1
+        ]?.[0] as { isFileActive?: boolean } | undefined;
+      expect(lastCall?.isFileActive).toBe(false);
+    });
+
+    await user.click(screen.getByTestId("file-tab-btn"));
+
+    await waitFor(() => {
+      const lastCall =
+        mocks.captureConversationTabsProps.mock.calls[
+          mocks.captureConversationTabsProps.mock.calls.length - 1
+        ]?.[0] as { isFileActive?: boolean } | undefined;
+      expect(lastCall?.isFileActive).toBe(true);
+    });
+
+    await user.click(screen.getByTestId("activate-session-btn"));
+
+    expect(mocks.switchSession).not.toHaveBeenCalled();
+    expect(
+      clearUnread.mock.calls.some((call) => call[0] === "ws-1" && call[1] === "sess-2"),
+    ).toBe(false);
+
+    await waitFor(() => {
+      const lastCall =
+        mocks.captureConversationTabsProps.mock.calls[
+          mocks.captureConversationTabsProps.mock.calls.length - 1
+        ]?.[0] as { isFileActive?: boolean } | undefined;
+      expect(lastCall?.isFileActive).toBe(false);
+    });
   });
 
   it("passes unreadSessions from liveData to ConversationTabs", async () => {

@@ -13,6 +13,7 @@ import { buildWorkspaceEnv } from "../utils/env.js";
 import type {
   ChatMessage,
   ContentBlock,
+  FileMention,
   ImageAttachment,
   MessageOptions,
   ServerToolResultType,
@@ -203,7 +204,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   /** Send a user message. Spawns a CLI process for this turn.
    *  When `cliContent` is provided, it is sent to the CLI instead of `content`
    *  while the displayed/persisted message remains `content`. */
-  sendMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[], cliContent?: string): void {
+  sendMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[], cliContent?: string, fileMentions?: FileMention[]): void {
     if (this._status === "streaming") {
       throw new Error("Already streaming — wait for current message to complete or stop it");
     }
@@ -233,7 +234,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           mediaType: images[i].mediaType,
           dataUrl: `/api/workspaces/${this.workspaceId}/sessions/${this.sessionId}/attachments/${s.filename}`,
         }));
-        this.emitUserMessage(content, urlImages);
+        this.emitUserMessage(content, urlImages, fileMentions);
         this.spawnCli(this.buildPromptWithImages(promptContent, saved.map((s) => s.path)), msgOptions);
       }).catch((err) => {
         this._status = "error";
@@ -241,18 +242,19 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         this.emit("error", err instanceof Error ? err : new Error(String(err)));
       });
     } else {
-      this.emitUserMessage(content);
+      this.emitUserMessage(content, undefined, fileMentions);
       this.spawnCli(promptContent, msgOptions);
     }
   }
 
-  private emitUserMessage(content: string, images?: ImageAttachment[]): void {
+  private emitUserMessage(content: string, images?: ImageAttachment[], fileMentions?: FileMention[]): void {
     const userMsg: ChatMessage = {
       id: nanoid(12),
       sessionId: this.sessionId,
       role: "user",
       content,
       images: images?.length ? images : undefined,
+      fileMentions: fileMentions?.length ? fileMentions : undefined,
       timestamp: new Date().toISOString(),
     };
     if (!this._metadata.title) {
