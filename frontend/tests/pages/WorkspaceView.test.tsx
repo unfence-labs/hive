@@ -578,18 +578,39 @@ describe("WorkspaceView behavior", () => {
     expect(mocks.switchSession).toHaveBeenCalledWith("sess-2");
   });
 
-  it("clears workspace unread state on mount and when switching workspace route", async () => {
+  it("clears only the active session unread on mount (not entire workspace)", async () => {
     const user = userEvent.setup();
     const clearUnread = vi.fn();
-    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread });
+    const liveData = { "ws-1": { unreadSessions: { "sess-1": true } } };
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData, clearUnread });
+    mocks.useConversation.mockReturnValue({
+      messages: [],
+      isStreaming: false,
+      streamingStartedAt: null,
+      workspaceStatus: "idle",
+      currentStreamingText: "",
+      currentThinking: "",
+      activeToolCalls: [],
+      pendingToolInputs: [],
+      connectionStatus: "connected",
+      error: null,
+      sessionId: "sess-1",
+      sendMessage: mocks.sendMessage,
+      stopStreaming: mocks.stopStreaming,
+      clearChat: mocks.clearChat,
+      switchSession: mocks.switchSession,
+      answerQuestion: mocks.answerQuestion,
+      batchAnswerQuestions: mocks.batchAnswerQuestions,
+      approvePlan: mocks.approvePlan,
+      rejectToolInput: mocks.rejectToolInput,
+      dismissPlan: mocks.dismissPlan,
+    });
 
     renderWorkspace();
     await screen.findByText("tokyo");
-    expect(clearUnread).toHaveBeenCalledWith("ws-1");
-
-    await user.click(screen.getByRole("button", { name: "go ws-2" }));
-    await screen.findByText("kyoto");
-    expect(clearUnread).toHaveBeenCalledWith("ws-2");
+    // Should clear only the active session, not the entire workspace
+    expect(clearUnread).toHaveBeenCalledWith("ws-1", "sess-1");
+    expect(clearUnread).not.toHaveBeenCalledWith("ws-1");
   });
 
   it("clears unread state for target session when activating a different session", async () => {

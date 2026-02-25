@@ -142,10 +142,6 @@ export default function WorkspaceView() {
   const liveData = useWorkspaceLiveDataContext();
   const clearUnread = useClearUnread();
 
-  // Clear unread state when navigating to a workspace
-  useEffect(() => {
-    if (wsId) clearUnread(wsId);
-  }, [wsId, clearUnread]);
 
 
   const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
