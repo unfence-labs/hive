@@ -45,7 +45,7 @@ import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput } from "@/lib/plan-state";
 import { useScripts } from "@/hooks/useScripts";
-import type { DiffStatResponse, ImageAttachment, MessageOptions, Workspace, WorkspaceFileTreeNode } from "@/types";
+import type { DiffStatResponse, FileMention, ImageAttachment, MessageOptions, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 const DEFAULT_EXPANDED = new Set<string>();
 
@@ -310,8 +310,8 @@ export default function WorkspaceView() {
   }, [createSession, switchSession]);
 
   const handleActivateSession = useCallback((targetSessionId: string) => {
-    if (targetSessionId === sessionId) return;
     setActiveTab("conversation");
+    if (targetSessionId === sessionId) return;
     switchSession(targetSessionId);
     if (wsId) clearUnread(wsId, targetSessionId);
   }, [sessionId, switchSession, wsId, clearUnread]);
@@ -364,12 +364,12 @@ export default function WorkspaceView() {
   });
 
   const handleSend = useCallback(
-    (content: string, images?: ImageAttachment[], options?: MessageOptions): boolean => {
+    (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]): boolean => {
       if (hasPendingPlan && hasPendingExitPlanInput) {
         rejectToolInput(content);
         return true;
       }
-      return sendMessage(content, images, options);
+      return sendMessage(content, images, options, undefined, fileMentions);
     },
     [hasPendingPlan, hasPendingExitPlanInput, rejectToolInput, sendMessage],
   );
@@ -502,6 +502,7 @@ export default function WorkspaceView() {
               onQuestionAnswer={answerQuestion}
               onPlanApproval={approvePlan}
               onHandOff={handleHandOff}
+              onFileMentionClick={handleFileTreeSelect}
               workspaceName={workspace?.name}
               projectName={workspace?.projectName}
               branch={displayBranch}

@@ -58,6 +58,7 @@ export function ConversationTabs({
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(sessions.length);
   const tabsRef = useRef<HTMLDivElement>(null);
+  const visibleSessionCount = Math.max(0, visibleCount - (openFile ? 1 : 0));
 
   const measureTabs = useCallback(() => {
     const tabsEl = tabsRef.current;
@@ -86,7 +87,7 @@ export function ConversationTabs({
 
   useEffect(() => {
     measureTabs();
-  }, [sessions.length, measureTabs]);
+  }, [sessions, openFile, measureTabs]);
 
   useEffect(() => {
     const el = tabsRef.current;
@@ -96,7 +97,7 @@ export function ConversationTabs({
     return () => observer.disconnect();
   }, [measureTabs]);
 
-  const overflowSessions = sessions.slice(visibleCount);
+  const overflowSessions = sessions.slice(visibleSessionCount);
 
   return (
     <>
@@ -154,7 +155,7 @@ export function ConversationTabs({
           )}
           {sessions.map((session, i) => {
             const isActive = session.sessionId === activeSessionId;
-            const isVisible = i < visibleCount;
+            const isVisible = i < visibleSessionCount;
             const title = getTabTitle(session);
             const isSessionStreaming = streamingSessions?.[session.sessionId] ?? (isActive && isStreaming);
             const isSessionUnread = !isActive && !isSessionStreaming && !!unreadSessions?.[session.sessionId];

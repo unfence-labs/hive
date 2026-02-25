@@ -394,6 +394,7 @@ struct ChatView: View {
             let sent = await store.send?(.userMessage(
                 content: content,
                 images: images.isEmpty ? nil : images,
+                fileMentions: nil,
                 options: options,
                 sessionId: targetSessionId
             )) ?? false

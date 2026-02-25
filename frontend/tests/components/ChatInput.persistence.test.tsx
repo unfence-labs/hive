@@ -8,6 +8,10 @@ vi.mock("@/hooks/useCompletions", () => ({
   useCompletions: () => [],
 }));
 
+vi.mock("@/hooks/useFileCompletions", () => ({
+  useFileCompletions: () => [],
+}));
+
 vi.mock("@/hooks/useApi", () => ({
   api: {
     get: vi.fn(
@@ -206,7 +210,7 @@ describe("ChatInput draft persistence", () => {
     expect(onSend).toHaveBeenLastCalledWith("session b", undefined, {
       planMode: false,
       thinkingEnabled: true,
-    });
+    }, undefined);
 
     rerenderChatInput(rerender, { sessionId: sessionA, onSend });
     await user.type(getInput(), "session a");
@@ -215,7 +219,7 @@ describe("ChatInput draft persistence", () => {
     expect(onSend).toHaveBeenLastCalledWith("session a", undefined, {
       planMode: true,
       thinkingEnabled: false,
-    });
+    }, undefined);
   });
 
   it("removes empty drafts after session switch", () => {

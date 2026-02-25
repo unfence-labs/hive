@@ -70,7 +70,7 @@ enum ToolInputResult: Encodable {
 
 enum WsIncoming: Encodable {
     case switchSession(sessionId: String)
-    case userMessage(content: String, images: [ImageAttachment]?, options: MessageOptions?, sessionId: String?)
+    case userMessage(content: String, images: [ImageAttachment]?, fileMentions: [FileMention]?, options: MessageOptions?, sessionId: String?)
     case stop(sessionId: String?)
     case toolInputResponse(requestId: String, toolName: String, result: ToolInputResult, sessionId: String?)
 
@@ -80,10 +80,11 @@ enum WsIncoming: Encodable {
         case .switchSession(let sessionId):
             try container.encode("switch_session", forKey: .type)
             try container.encode(sessionId, forKey: .sessionId)
-        case .userMessage(let content, let images, let options, let sessionId):
+        case .userMessage(let content, let images, let fileMentions, let options, let sessionId):
             try container.encode("user_message", forKey: .type)
             try container.encode(content, forKey: .content)
             try container.encodeIfPresent(images, forKey: .images)
+            try container.encodeIfPresent(fileMentions, forKey: .fileMentions)
             try container.encodeIfPresent(options, forKey: .options)
             try container.encodeIfPresent(sessionId, forKey: .sessionId)
         case .stop(let sessionId):
@@ -99,7 +100,7 @@ enum WsIncoming: Encodable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, sessionId, content, images, options, requestId, toolName, result
+        case type, sessionId, content, images, fileMentions, options, requestId, toolName, result
     }
 }
 

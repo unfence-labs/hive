@@ -96,6 +96,13 @@ export interface ImageAttachment {
   dataUrl: string;
 }
 
+// ── File mention type ───────────────────────────────────────────────
+
+export interface FileMention {
+  displayName: string;   // e.g. "git.ts" or "api/index.ts" (disambiguated)
+  relativePath: string;  // e.g. "src/utils/git.ts"
+}
+
 // ── Session / Chat types ────────────────────────────────────────────
 
 export interface SessionMetadata {
@@ -124,6 +131,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   images?: ImageAttachment[];
+  fileMentions?: FileMention[];
   toolCalls?: ToolCall[];
   thinkingContent?: string;
   timestamp: string;
@@ -280,7 +288,7 @@ export type ThinkingLevel = "low" | "medium" | "high" | "xhigh";
 /** Frontend -> Backend */
 export type WsIncoming =
   | { type: "switch_session"; sessionId: string }
-  | { type: "user_message"; content: string; images?: ImageAttachment[]; options?: MessageOptions; sessionId?: string }
+  | { type: "user_message"; content: string; images?: ImageAttachment[]; fileMentions?: FileMention[]; options?: MessageOptions; sessionId?: string }
   | { type: "stop"; sessionId?: string }
   | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult; sessionId?: string };
 

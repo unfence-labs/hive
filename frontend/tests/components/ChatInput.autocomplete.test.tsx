@@ -10,6 +10,10 @@ vi.mock("@/hooks/useCompletions", () => ({
   useCompletions: vi.fn(),
 }));
 
+vi.mock("@/hooks/useFileCompletions", () => ({
+  useFileCompletions: () => [],
+}));
+
 vi.mock("@/hooks/useModels", () => ({
   useModels: vi.fn(() => ({
     models: [],

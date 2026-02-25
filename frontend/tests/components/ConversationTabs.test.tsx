@@ -424,4 +424,30 @@ describe("ConversationTabs — file tab", () => {
     const svg = fileTab.querySelector("svg");
     expect(svg).toBeInTheDocument();
   });
+
+  it("keeps all conversation tabs reachable via overflow when file tab consumes visible width", async () => {
+    const user = userEvent.setup();
+    const clientWidthSpy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(50);
+    const scrollWidthSpy = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(50);
+
+    try {
+      renderTabs({ openFile: "src/app.ts", isFileActive: true });
+
+      const overflowTrigger = await waitFor(() => {
+        const trigger = (
+          document.querySelector("svg.lucide-more-horizontal")?.closest("button")
+          ?? document.querySelector("svg.lucide-ellipsis")?.closest("button")
+        ) as HTMLButtonElement | null;
+        expect(trigger).toBeTruthy();
+        return trigger as HTMLButtonElement;
+      });
+
+      await user.click(overflowTrigger);
+      expect(await screen.findByRole("menuitem", { name: /First conversation/i })).toBeInTheDocument();
+      expect(await screen.findByRole("menuitem", { name: /Second conversation/i })).toBeInTheDocument();
+    } finally {
+      clientWidthSpy.mockRestore();
+      scrollWidthSpy.mockRestore();
+    }
+  });
 });

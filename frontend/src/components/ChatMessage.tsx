@@ -1,5 +1,5 @@
-import { memo, useState } from "react";
-import type { ChatMessage as ChatMessageType, QuestionAnswer } from "@/types";
+import { memo, useState, type ReactNode } from "react";
+import type { ChatMessage as ChatMessageType, FileMention, QuestionAnswer } from "@/types";
 import { cn } from "@/lib/utils";
 import { formatElapsed } from "@/lib/time";
 import { resolveImageSrc } from "@/lib/image-url";
@@ -8,7 +8,35 @@ import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { ToolCallList } from "@/components/chat/ToolCallList";
 import { CopyButton } from "@/components/chat/CopyButton";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { FileIcon } from "lucide-react";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
+import { splitByFileMentions } from "@/lib/file-mentions";
+
+function renderContentWithMentions(
+  content: string,
+  mentions: FileMention[] | undefined,
+  onFileClick?: (relativePath: string) => void,
+): ReactNode {
+  if (!mentions?.length) return <p className="whitespace-pre-wrap">{content}</p>;
+
+  const segments = splitByFileMentions(content, mentions).map((segment, i) => {
+    const mention = segment.mention;
+    if (!mention) return <span key={i}>{segment.text}</span>;
+    return (
+      <button
+        key={i}
+        type="button"
+        onClick={() => onFileClick?.(mention.relativePath)}
+        className="inline-flex items-center gap-0.5 rounded bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary hover:bg-primary/25 transition-colors"
+      >
+        <FileIcon className="size-3" />
+        {mention.displayName}
+      </button>
+    );
+  });
+
+  return <p className="whitespace-pre-wrap">{segments}</p>;
+}
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -17,6 +45,7 @@ interface ChatMessageProps {
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onPlanApproval?: () => void;
   onHandOff?: (planContent: string, planPath?: string) => void;
+  onFileMentionClick?: (relativePath: string) => void;
 }
 
 const ChatMessage = memo(function ChatMessage({
@@ -26,6 +55,7 @@ const ChatMessage = memo(function ChatMessage({
   onQuestionAnswer,
   onPlanApproval,
   onHandOff,
+  onFileMentionClick,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -89,7 +119,7 @@ const ChatMessage = memo(function ChatMessage({
                 </Dialog>
               </>
             )}
-            {message.content && <p className="whitespace-pre-wrap">{message.content}</p>}
+            {message.content && renderContentWithMentions(message.content, message.fileMentions, onFileMentionClick)}
           </>
         ) : (
           <>

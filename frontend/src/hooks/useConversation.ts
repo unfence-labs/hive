@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useReducer, useRef, useSyncExternalStore } from "react";
-import type { ChatMessage, ImageAttachment, MessageOptions, ToolCall, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
+import type { ChatMessage, FileMention, ImageAttachment, MessageOptions, ToolCall, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
 import { wsTransport } from "@/lib/ws-transport";
 import type { HistoryMessage } from "@/lib/ws-transport";
 import { api } from "@/hooks/useApi";
@@ -549,6 +549,7 @@ export function useConversation(workspaceId: string | undefined) {
     images?: ImageAttachment[],
     options?: MessageOptions,
     sessionId?: string,
+    fileMentions?: FileMention[],
   ): boolean => {
     if (!workspaceId) {
       dispatch({ type: "error", message: "Message not sent: no workspace selected." });
@@ -559,6 +560,7 @@ export function useConversation(workspaceId: string | undefined) {
       type: "user_message",
       content,
       images: images?.length ? images : undefined,
+      fileMentions: fileMentions?.length ? fileMentions : undefined,
       options,
       ...sessionIdField(targetSessionId),
     });
