@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   useConversation: vi.fn(),
   useSessions: vi.fn(),
-  useWorkspaceLiveData: vi.fn().mockReturnValue({}),
+  useWorkspaceLiveData: vi.fn().mockReturnValue({ liveData: {}, clearUnread: vi.fn() }),
   sendMessage: vi.fn(),
   stopStreaming: vi.fn(),
   clearChat: vi.fn(),
@@ -276,7 +276,7 @@ describe("WorkspaceView behavior", () => {
     mocks.refreshSessions.mockReset();
     mocks.clearCachedData.mockReset();
     mocks.useWorkspaceLiveData.mockReset();
-    mocks.useWorkspaceLiveData.mockReturnValue({});
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread: vi.fn() });
     mocks.openExternal.mockReset();
 
     mocks.useScripts.mockReturnValue({
@@ -577,7 +577,10 @@ describe("WorkspaceView behavior", () => {
 
   it("displays live branch name from useWorkspaceLiveData when available", async () => {
     mocks.useWorkspaceLiveData.mockReturnValue({
-      "ws-1": { branch: "feature/live-branch", branchInfo: { name: "feature/live-branch", lastSyncedAt: "2026-02-13T00:00:00.000Z" } },
+      liveData: {
+        "ws-1": { branch: "feature/live-branch", branchInfo: { name: "feature/live-branch", lastSyncedAt: "2026-02-13T00:00:00.000Z" } },
+      },
+      clearUnread: vi.fn(),
     });
 
     renderWorkspace();
@@ -833,7 +836,7 @@ describe("WorkspaceView session delete behavior", () => {
     mocks.refreshSessions.mockReset();
     mocks.clearCachedData.mockReset();
     mocks.useWorkspaceLiveData.mockReset();
-    mocks.useWorkspaceLiveData.mockReturnValue({});
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread: vi.fn() });
 
     mocks.useScripts.mockReturnValue({
       config: null,
@@ -1045,7 +1048,7 @@ describe("WorkspaceView sidebar split resize", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.useWorkspaceLiveData.mockReturnValue({});
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread: vi.fn() });
     localStorage.removeItem("sidebar-split");
   });
 
@@ -1294,7 +1297,7 @@ describe("WorkspaceView VS Code SSH host resolution", () => {
       disconnectOutput: mocks.disconnectScriptOutput,
     });
 
-    mocks.useWorkspaceLiveData.mockReturnValue({});
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread: vi.fn() });
   }
 
   beforeEach(() => {
@@ -1547,7 +1550,7 @@ describe("WorkspaceView dropdown terminal interactions", () => {
       disconnectOutput: mocks.disconnectScriptOutput,
     });
 
-    mocks.useWorkspaceLiveData.mockReturnValue({});
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread: vi.fn() });
   }
 
   beforeEach(() => {

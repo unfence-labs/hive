@@ -26,9 +26,11 @@ function ContextProbe({ wsId }: { wsId?: string }) {
 }
 
 describe("WorkspaceLiveDataContext", () => {
+  const clearUnread = vi.fn();
+
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.useWorkspaceLiveData.mockReturnValue({});
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread });
   });
 
   it("exposes empty defaults outside provider", () => {
@@ -43,7 +45,7 @@ describe("WorkspaceLiveDataContext", () => {
       "ws-1": { status: "busy", streaming: true },
       "ws-2": { status: "idle", scriptRunning: false },
     };
-    mocks.useWorkspaceLiveData.mockReturnValue(liveData);
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData, clearUnread });
 
     render(
       <WorkspaceLiveDataProvider workspaceIds={["ws-1", "ws-2"]}>
@@ -60,7 +62,7 @@ describe("WorkspaceLiveDataContext", () => {
 
   it("returns empty object for undefined workspace id in useWorkspaceLive", () => {
     const liveData = { "ws-1": { status: "busy" } };
-    mocks.useWorkspaceLiveData.mockReturnValue(liveData);
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData, clearUnread });
 
     render(
       <WorkspaceLiveDataProvider workspaceIds={["ws-1"]}>
@@ -73,7 +75,7 @@ describe("WorkspaceLiveDataContext", () => {
 
   it("returns empty object when workspace id is missing from map", () => {
     const liveData = { "ws-1": { status: "idle" } };
-    mocks.useWorkspaceLiveData.mockReturnValue(liveData);
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData, clearUnread });
 
     render(
       <WorkspaceLiveDataProvider workspaceIds={["ws-1"]}>

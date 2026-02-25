@@ -58,7 +58,7 @@ describe("useWorkspaceLiveData", () => {
 
   it("returns empty object initially for given workspace IDs", () => {
     const { result } = renderHook(() => useWorkspaceLiveData(["ws-1", "ws-2"]));
-    expect(result.current).toEqual({});
+    expect(result.current.liveData).toEqual({});
   });
 
   it("updates status on WS status message", async () => {
@@ -69,13 +69,13 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "status", status: "busy", streaming: true });
     });
 
-    expect(result.current["ws-1"]).toEqual({ status: "busy", streaming: true, streamingSessions: {} });
+    expect(result.current.liveData["ws-1"]).toEqual({ status: "busy", streaming: true, streamingSessions: {} });
 
     act(() => {
       __wsMock.emit("ws-1", { type: "status", status: "idle", streaming: false });
     });
 
-    expect(result.current["ws-1"]).toEqual({ status: "idle", streaming: false, streamingSessions: {} });
+    expect(result.current.liveData["ws-1"]).toEqual({ status: "idle", streaming: false, streamingSessions: {} });
   });
 
   it("tracks multiple streaming sessions even when workspace status stays busy", async () => {
@@ -91,7 +91,7 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current["ws-1"]).toEqual({
+    expect(result.current.liveData["ws-1"]).toEqual({
       status: "busy",
       streaming: true,
       streamingSessions: { "sess-a": true },
@@ -106,7 +106,7 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current["ws-1"]).toEqual({
+    expect(result.current.liveData["ws-1"]).toEqual({
       status: "busy",
       streaming: true,
       streamingSessions: { "sess-a": true, "sess-b": true },
@@ -141,7 +141,7 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current["ws-1"]).toEqual({
+    expect(result.current.liveData["ws-1"]).toEqual({
       status: "busy",
       streaming: true,
       streamingSessions: { "sess-b": true },
@@ -158,7 +158,7 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "branch_info", info: branchInfo });
     });
 
-    expect(result.current["ws-1"]).toEqual({
+    expect(result.current.liveData["ws-1"]).toEqual({
       branch: "workspace/tokyo",
       branchInfo,
     });
@@ -175,7 +175,7 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    const firstReference = result.current;
+    const firstReference = result.current.liveData;
 
     act(() => {
       __wsMock.emit("ws-1", {
@@ -184,7 +184,7 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current).toBe(firstReference);
+    expect(result.current.liveData).toBe(firstReference);
   });
 
   it("cleans up stale entries when workspace IDs change", async () => {
@@ -199,13 +199,13 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-2", { type: "status", status: "idle", streaming: false });
     });
 
-    expect(result.current["ws-1"]).toBeDefined();
-    expect(result.current["ws-2"]).toBeDefined();
+    expect(result.current.liveData["ws-1"]).toBeDefined();
+    expect(result.current.liveData["ws-2"]).toBeDefined();
 
     rerender(["ws-1"]);
 
-    expect(result.current["ws-1"]).toBeDefined();
-    expect(result.current["ws-2"]).toBeUndefined();
+    expect(result.current.liveData["ws-1"]).toBeDefined();
+    expect(result.current.liveData["ws-2"]).toBeUndefined();
   });
 
   it("unsubscribes handlers on unmount", async () => {
@@ -227,8 +227,8 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "running" });
     });
 
-    expect(result.current["ws-1"]?.scriptRunning).toBe(true);
-    expect(result.current["ws-1"]?.scriptStates).toEqual({ run: "running" });
+    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(true);
+    expect(result.current.liveData["ws-1"]?.scriptStates).toEqual({ run: "running" });
   });
 
   it("clears scriptRunning when script finishes", async () => {
@@ -238,13 +238,13 @@ describe("useWorkspaceLiveData", () => {
     act(() => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "running" });
     });
-    expect(result.current["ws-1"]?.scriptRunning).toBe(true);
+    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(true);
 
     act(() => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "done", exitCode: 0 });
     });
-    expect(result.current["ws-1"]?.scriptRunning).toBe(false);
-    expect(result.current["ws-1"]?.scriptStates).toEqual({ run: "done" });
+    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(false);
+    expect(result.current.liveData["ws-1"]?.scriptStates).toEqual({ run: "done" });
   });
 
   it("stays scriptRunning while at least one script type is running", async () => {
@@ -255,18 +255,18 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "setup", state: "running" });
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "running" });
     });
-    expect(result.current["ws-1"]?.scriptRunning).toBe(true);
+    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(true);
 
     act(() => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "setup", state: "done", exitCode: 0 });
     });
     // run is still running
-    expect(result.current["ws-1"]?.scriptRunning).toBe(true);
+    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(true);
 
     act(() => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "error", exitCode: 1 });
     });
-    expect(result.current["ws-1"]?.scriptRunning).toBe(false);
+    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(false);
   });
 
   it("computes scriptRunning for arbitrary named scripts", async () => {
@@ -278,8 +278,8 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "frontend", state: "done", exitCode: 0 });
     });
 
-    expect(result.current["ws-1"]?.scriptRunning).toBe(true);
-    expect(result.current["ws-1"]?.scriptStates).toEqual({
+    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(true);
+    expect(result.current.liveData["ws-1"]?.scriptStates).toEqual({
       backend: "running",
       frontend: "done",
     });
@@ -288,8 +288,8 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "backend", state: "error", exitCode: 1 });
     });
 
-    expect(result.current["ws-1"]?.scriptRunning).toBe(false);
-    expect(result.current["ws-1"]?.scriptStates).toEqual({
+    expect(result.current.liveData["ws-1"]?.scriptRunning).toBe(false);
+    expect(result.current.liveData["ws-1"]?.scriptStates).toEqual({
       backend: "error",
       frontend: "done",
     });
@@ -303,13 +303,13 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "running" });
     });
 
-    const firstRef = result.current;
+    const firstRef = result.current.liveData;
 
     act(() => {
       __wsMock.emit("ws-1", { type: "script_status", scriptType: "run", state: "running" });
     });
 
-    expect(result.current).toBe(firstRef);
+    expect(result.current.liveData).toBe(firstRef);
   });
 
   it("handles multiple workspaces independently", async () => {
@@ -320,8 +320,8 @@ describe("useWorkspaceLiveData", () => {
       __wsMock.emit("ws-1", { type: "status", status: "busy", streaming: true });
     });
 
-    expect(result.current["ws-1"]).toEqual({ status: "busy", streaming: true, streamingSessions: {} });
-    expect(result.current["ws-2"]).toBeUndefined();
+    expect(result.current.liveData["ws-1"]).toEqual({ status: "busy", streaming: true, streamingSessions: {} });
+    expect(result.current.liveData["ws-2"]).toBeUndefined();
 
     act(() => {
       __wsMock.emit("ws-2", {
@@ -330,8 +330,8 @@ describe("useWorkspaceLiveData", () => {
       });
     });
 
-    expect(result.current["ws-1"]).toEqual({ status: "busy", streaming: true, streamingSessions: {} });
-    expect(result.current["ws-2"]).toEqual({
+    expect(result.current.liveData["ws-1"]).toEqual({ status: "busy", streaming: true, streamingSessions: {} });
+    expect(result.current.liveData["ws-2"]).toEqual({
       branch: "workspace/kyoto",
       branchInfo: { name: "workspace/kyoto", lastSyncedAt: "2026-02-13T00:00:00.000Z" },
     });

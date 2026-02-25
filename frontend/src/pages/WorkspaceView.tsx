@@ -5,7 +5,7 @@ import { CodeXmlIcon, ChevronDownIcon, TerminalIcon } from "lucide-react";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
-import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
+import { useWorkspaceLiveDataContext, useClearUnread } from "@/contexts/WorkspaceLiveDataContext";
 import { useSidebarCollapsed } from "@/hooks/useSidebarCollapsed";
 import {
   FileTree,
@@ -138,7 +138,13 @@ export default function WorkspaceView() {
 
   // Live data via WebSocket (branch + diff stats)
   const liveData = useWorkspaceLiveDataContext();
+  const clearUnread = useClearUnread();
   const { collapsed: sidebarCollapsed } = useSidebarCollapsed();
+
+  // Clear unread state when navigating to a workspace
+  useEffect(() => {
+    if (wsId) clearUnread(wsId);
+  }, [wsId, clearUnread]);
   const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
 
   // VS Code Remote SSH
@@ -298,7 +304,8 @@ export default function WorkspaceView() {
     if (targetSessionId === sessionId) return;
     setActiveTab("conversation");
     switchSession(targetSessionId);
-  }, [sessionId, switchSession]);
+    if (wsId) clearUnread(wsId, targetSessionId);
+  }, [sessionId, switchSession, wsId, clearUnread]);
 
   const handleDeleteSession = useCallback(async (targetSessionId: string) => {
     const isActive = targetSessionId === sessionId;
@@ -457,6 +464,7 @@ export default function WorkspaceView() {
             activeSessionId={sessionId}
             isStreaming={isStreaming}
             streamingSessions={wsId ? liveData[wsId]?.streamingSessions : undefined}
+            unreadSessions={wsId ? liveData[wsId]?.unreadSessions : undefined}
             onCreateSession={handleCreateSession}
             onActivateSession={handleActivateSession}
             onDeleteSession={handleDeleteSession}

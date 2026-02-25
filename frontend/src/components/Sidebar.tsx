@@ -173,6 +173,7 @@ export default function Sidebar({ onAddProject, onCollapse }: SidebarProps) {
                           const wsStreaming = wsLive?.streaming ?? false;
                           const wsScriptRunning = wsLive?.scriptRunning ?? false;
                           const displayBranch = wsLive?.branch ?? ws.branch;
+                          const wsUnread = !wsStreaming && activeWsId !== ws.id && Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
                           return (
                             <div key={ws.id} className="group/ws relative">
                               <Link
@@ -183,12 +184,16 @@ export default function Sidebar({ onAddProject, onCollapse }: SidebarProps) {
                                 )}
                               >
                                 <div className="flex items-center gap-1.5">
-                                  {wsStreaming && (
+                                  {wsStreaming ? (
                                     <div className="flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-visible">
                                       <AgentActivityPreview size="small" />
                                     </div>
-                                  )}
-                                  <BranchLabel branch={displayBranch} showIcon={!wsStreaming} className="min-w-0 flex-1 text-sm" />
+                                  ) : wsUnread ? (
+                                    <div className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                                      <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                                    </div>
+                                  ) : null}
+                                  <BranchLabel branch={displayBranch} showIcon={!wsStreaming && !wsUnread} className="min-w-0 flex-1 text-sm" />
                                   {wsScriptRunning && (
                                     <WaveIndicator className="shrink-0" />
                                   )}
