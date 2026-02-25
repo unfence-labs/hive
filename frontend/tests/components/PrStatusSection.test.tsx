@@ -30,10 +30,10 @@ describe("PrStatusSection", () => {
     vi.clearAllMocks();
   });
 
-  it("shows 'Checking…' while loading", () => {
+  it("renders nothing while loading (silent fetch)", () => {
     mockUsePrStatus.mockReturnValue({ pr: null, error: null, loading: true });
-    render(<PrStatusSection wsId="ws-1" />);
-    expect(screen.getByText(/Checking/)).toBeDefined();
+    const { container } = render(<PrStatusSection wsId="ws-1" />);
+    expect(container.innerHTML).toBe("");
   });
 
   it("shows 'No pull request' when no wsId is provided", () => {

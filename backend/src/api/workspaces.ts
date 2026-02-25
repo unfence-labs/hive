@@ -21,7 +21,7 @@ import { getBranchName } from "../services/git-sync.js";
 import { readHiveConfig } from "../utils/hive-config.js";
 import { startScript } from "../services/script-runner.js";
 import { broadcastToWorkspace } from "../ws/stream.js";
-import type { PrStatusResponse } from "../types.js";
+import type { BulkPrStatusResponse, PrStatusResponse } from "../types.js";
 
 export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
   app.post<{ Params: { id: string } }>("/api/projects/:id/workspaces", async (req, reply) => {
@@ -162,6 +162,67 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
         .send({ error: errorMessage(err, "Failed to fetch PR status") });
     }
   });
+
+  // ── Bulk PR status ──────────────────────────────────────────────────
+  app.post<{ Body: { workspaceIds: string[] } }>(
+    "/api/workspaces/pr-status/bulk",
+    async (req, reply) => {
+      const { workspaceIds } = req.body ?? {};
+      if (!Array.isArray(workspaceIds)) {
+        return reply.status(400).send({ error: "workspaceIds must be an array" });
+      }
+
+      const results: Record<string, PrStatusResponse> = {};
+
+      await Promise.allSettled(
+        workspaceIds.map(async (wsId) => {
+          const cached = prCache.get(wsId);
+          if (cached && Date.now() - cached.at < PR_TTL) {
+            results[wsId] = cached.data;
+            return;
+          }
+
+          try {
+            const result = await getWorkspace(wsId, dataDir);
+            if (!result) {
+              results[wsId] = { pr: null, error: "Workspace not found" };
+              return;
+            }
+
+            const ghRepo = parseGitHubRepo(result.projectState.url);
+            if (!ghRepo) {
+              const data: PrStatusResponse = { pr: null };
+              prCache.set(wsId, { data, at: Date.now() });
+              results[wsId] = data;
+              return;
+            }
+
+            const dir = dataDir ?? getDataDir();
+            const wsPath = join(workspacesDir(dir, result.projectState.id), result.workspace.name);
+            let branch: string;
+            try {
+              branch = await getBranchName(wsPath);
+            } catch {
+              branch = result.workspace.branch;
+            }
+
+            const prResult = await fetchPrForBranch(ghRepo.owner, ghRepo.repo, branch);
+            const data: PrStatusResponse = {
+              pr: prResult.pr,
+              ...(prResult.error ? { error: prResult.error } : {}),
+            };
+            prCache.set(wsId, { data, at: Date.now() });
+            results[wsId] = data;
+          } catch {
+            results[wsId] = { pr: null, error: "Failed to fetch PR status" };
+          }
+        }),
+      );
+
+      const response: BulkPrStatusResponse = { results };
+      return reply.send(response);
+    },
+  );
 
   app.get<{ Params: { wsId: string } }>("/api/workspaces/:wsId/files", async (req, reply) => {
     try {

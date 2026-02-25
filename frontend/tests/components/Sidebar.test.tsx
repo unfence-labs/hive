@@ -235,7 +235,7 @@ describe("Sidebar", () => {
 
     await screen.findByText("Alpha");
     expect(screen.queryByRole("img", { name: "Agent thinking" })).not.toBeInTheDocument();
-    expect(screen.getByText("tokyo")).toBeInTheDocument();
+    expect(screen.getByText("workspace/tokyo")).toBeInTheDocument();
 
     act(() => {
       __wsMock.emit("w1", { type: "status", status: "busy", streaming: true });
@@ -249,7 +249,7 @@ describe("Sidebar", () => {
     });
 
     expect(screen.queryByRole("img", { name: "Agent thinking" })).not.toBeInTheDocument();
-    expect(screen.getByText("tokyo")).toBeInTheDocument();
+    expect(screen.getByText("workspace/tokyo")).toBeInTheDocument();
   });
 
   it("hides GitBranch icon when streaming and restores it when idle", async () => {
