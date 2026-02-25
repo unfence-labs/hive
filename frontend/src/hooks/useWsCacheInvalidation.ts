@@ -28,6 +28,7 @@ export function useWsCacheInvalidation(workspaceIds: string[]): void {
             // Files were created/modified/deleted by Claude.
             void queryClient.invalidateQueries({ queryKey: ["files", wsId] });
             void queryClient.invalidateQueries({ queryKey: ["diff-stat", wsId] });
+            void queryClient.invalidateQueries({ queryKey: ["file-completions", wsId] });
             break;
 
           case "status":

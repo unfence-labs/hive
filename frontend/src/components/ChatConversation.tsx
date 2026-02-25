@@ -29,6 +29,7 @@ interface ChatConversationProps {
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onPlanApproval?: () => void;
   onHandOff?: (planContent: string, planPath?: string) => void;
+  onFileMentionClick?: (relativePath: string) => void;
   workspaceName?: string;
   projectName?: string;
   branch?: string;
@@ -51,6 +52,7 @@ export default function ChatConversation({
   onQuestionAnswer,
   onPlanApproval,
   onHandOff,
+  onFileMentionClick,
   workspaceName,
   projectName,
   branch,
@@ -185,6 +187,7 @@ export default function ChatConversation({
             onQuestionAnswer={onQuestionAnswer}
             onPlanApproval={onPlanApproval}
             onHandOff={onHandOff}
+            onFileMentionClick={onFileMentionClick}
           />
         ))}
 

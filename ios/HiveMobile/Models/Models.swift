@@ -170,6 +170,11 @@ struct ImageAttachment: Codable, Equatable {
     let dataUrl: String
 }
 
+struct FileMention: Codable, Equatable {
+    let displayName: String
+    let relativePath: String
+}
+
 struct ToolCall: Codable, Identifiable {
     let id: String
     let name: String
@@ -213,6 +218,7 @@ struct ChatMessage: Codable, Identifiable {
     let role: MessageRole
     let content: String
     let images: [ImageAttachment]?
+    let fileMentions: [FileMention]?
     let toolCalls: [ToolCall]?
     let thinkingContent: String?
     let timestamp: String
@@ -222,7 +228,8 @@ struct ChatMessage: Codable, Identifiable {
     let outputTokens: Int?
 
     init(id: String, sessionId: String, role: MessageRole, content: String,
-         images: [ImageAttachment]?, toolCalls: [ToolCall]?, thinkingContent: String?,
+         images: [ImageAttachment]?, fileMentions: [FileMention]? = nil,
+         toolCalls: [ToolCall]?, thinkingContent: String?,
          timestamp: String, cancelled: Bool?, durationMs: Int?,
          inputTokens: Int? = nil, outputTokens: Int? = nil) {
         self.id = id
@@ -230,6 +237,7 @@ struct ChatMessage: Codable, Identifiable {
         self.role = role
         self.content = content
         self.images = images
+        self.fileMentions = fileMentions
         self.toolCalls = toolCalls
         self.thinkingContent = thinkingContent
         self.timestamp = timestamp
@@ -246,6 +254,7 @@ struct ChatMessage: Codable, Identifiable {
         role = try container.decode(MessageRole.self, forKey: .role)
         content = try container.decode(String.self, forKey: .content)
         images = try container.decodeIfPresent([ImageAttachment].self, forKey: .images)
+        fileMentions = try container.decodeIfPresent([FileMention].self, forKey: .fileMentions)
         toolCalls = try container.decodeIfPresent([ToolCall].self, forKey: .toolCalls)
         thinkingContent = try container.decodeIfPresent(String.self, forKey: .thinkingContent)
         timestamp = try container.decode(String.self, forKey: .timestamp)
@@ -275,7 +284,7 @@ struct ChatMessage: Codable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, sessionId, role, content, images, toolCalls
+        case id, sessionId, role, content, images, fileMentions, toolCalls
         case thinkingContent, timestamp, cancelled, durationMs
         case inputTokens, outputTokens
     }

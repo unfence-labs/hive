@@ -45,7 +45,7 @@ import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput } from "@/lib/plan-state";
 import { useScripts } from "@/hooks/useScripts";
-import type { DiffStatResponse, ImageAttachment, MessageOptions, QueuedMessage, Workspace, WorkspaceFileTreeNode } from "@/types";
+import type { DiffStatResponse, FileMention, ImageAttachment, MessageOptions, QueuedMessage, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 const DEFAULT_EXPANDED = new Set<string>();
 
@@ -237,13 +237,14 @@ export default function WorkspaceView() {
     switchCounter,
   } = useConversation(wsId);
 
-  // Clear unread for the active session reactively (handles done/cancelled
-  // events arriving while the user is already viewing this conversation).
+  // Clear unread only when the active conversation is actually visible.
+  // If the file tab is open, keep unread state so the tab can show a dot.
   useEffect(() => {
+    if (activeTab !== "conversation") return;
     if (wsId && sessionId && liveData[wsId]?.unreadSessions?.[sessionId]) {
       clearUnread(wsId, sessionId);
     }
-  }, [wsId, sessionId, liveData, clearUnread]);
+  }, [activeTab, wsId, sessionId, liveData, clearUnread]);
 
   // ── Message queue: lets users type one follow-up while agent is busy ──
   const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
@@ -258,8 +259,8 @@ export default function WorkspaceView() {
     if (workspaceStatus !== "idle") return;
     if (pendingToolInputs.length > 0) return;
 
-    const { content, images, options } = queuedMessage;
-    const sent = sendMessage(content, images, options);
+    const { content, images, options, fileMentions } = queuedMessage;
+    const sent = sendMessage(content, images, options, undefined, fileMentions);
     if (sent) setQueuedMessage(null);
     // If send fails (WS disconnected), keep queue — effect re-fires on reconnect
   }, [queuedMessage, isStreaming, workspaceStatus, pendingToolInputs, sendMessage]);
@@ -330,8 +331,8 @@ export default function WorkspaceView() {
   }, [createSession, switchSession]);
 
   const handleActivateSession = useCallback((targetSessionId: string) => {
-    if (targetSessionId === sessionId) return;
     setActiveTab("conversation");
+    if (targetSessionId === sessionId) return;
     switchSession(targetSessionId);
     if (wsId) clearUnread(wsId, targetSessionId);
   }, [sessionId, switchSession, wsId, clearUnread]);
@@ -384,12 +385,12 @@ export default function WorkspaceView() {
   });
 
   const handleSend = useCallback(
-    (content: string, images?: ImageAttachment[], options?: MessageOptions): boolean => {
+    (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]): boolean => {
       if (hasPendingPlan && hasPendingExitPlanInput) {
         rejectToolInput(content);
         return true;
       }
-      return sendMessage(content, images, options);
+      return sendMessage(content, images, options, undefined, fileMentions);
     },
     [hasPendingPlan, hasPendingExitPlanInput, rejectToolInput, sendMessage],
   );
@@ -522,6 +523,7 @@ export default function WorkspaceView() {
               onQuestionAnswer={answerQuestion}
               onPlanApproval={approvePlan}
               onHandOff={handleHandOff}
+              onFileMentionClick={handleFileTreeSelect}
               workspaceName={workspace?.name}
               projectName={workspace?.projectName}
               branch={displayBranch}

@@ -11,6 +11,7 @@ import {
   mergeWorkspace,
   archiveWorkspace,
 } from "../workspaces/workspace-manager.js";
+import { git } from "../utils/git.js";
 import { endSession } from "../agents/agent-manager.js";
 import { join } from "node:path";
 import { bareRepoPath, resolveDefaultBranch, workspacesDir } from "../utils/paths.js";
@@ -223,6 +224,21 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
       return reply.send(response);
     },
   );
+
+  app.get<{ Params: { wsId: string } }>("/api/workspaces/:wsId/file-completions", async (req, reply) => {
+    try {
+      const result = await getWorkspace(req.params.wsId, dataDir);
+      if (!result) return reply.status(404).send({ error: "Workspace not found" });
+
+      const dir = dataDir ?? getDataDir();
+      const wsPath = join(workspacesDir(dir, result.projectState.id), result.workspace.name);
+      const { stdout } = await git(["ls-files"], wsPath);
+      const files = stdout.split("\n").filter(Boolean);
+      return reply.send({ files });
+    } catch (err: unknown) {
+      return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });
+    }
+  });
 
   app.get<{ Params: { wsId: string } }>("/api/workspaces/:wsId/files", async (req, reply) => {
     try {
