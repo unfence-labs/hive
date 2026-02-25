@@ -63,7 +63,7 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
     () => projects.flatMap((p) => (p.workspaces ?? []).map((ws) => ws.id)),
     [projects],
   );
-  const { results: prStatuses, fetched: prFetched } = useBulkPrStatus(allWsIds);
+  const { results: prStatuses, loading: prLoading } = useBulkPrStatus(allWsIds);
 
   const isProjectExpanded = (projectId: string) => {
     const expanded = expandedProjects[projectId];
@@ -232,14 +232,12 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
                                               </span>
                                             );
                                           })()
+                                        ) : prLoading ? (
+                                          <span className="text-muted-foreground">Loading…</span>
                                         ) : prStatus?.error ? (
                                           <span className="text-muted-foreground">Error fetching PR</span>
-                                        ) : prFetched && prStatus && !prStatus.pr ? (
-                                          <span className="text-muted-foreground">No PR</span>
-                                        ) : prFetched && !prStatus ? (
-                                          <span className="text-muted-foreground">Error fetching PR</span>
                                         ) : (
-                                          <span className="text-muted-foreground">No data</span>
+                                          <span className="text-muted-foreground">No PR</span>
                                         )}
                                       </div>
                                     </Link>

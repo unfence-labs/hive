@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Sidebar from "@/components/Sidebar";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { api } from "@/hooks/useApi";
-import type { Project, WsOutgoing } from "@/types";
+import type { Project, PullRequestInfo, WsOutgoing } from "@/types";
 
 vi.mock("@/hooks/useApi", () => ({
   api: {
@@ -126,6 +126,33 @@ function findSidebarUnreadDot(container: HTMLElement) {
   );
 }
 
+function makePr(overrides: Partial<PullRequestInfo> = {}): PullRequestInfo {
+  return {
+    number: 42,
+    url: "https://github.com/acme/widget/pull/42",
+    state: "open",
+    mergeable: true,
+    mergeableState: "clean",
+    checksStatus: "success",
+    checksPassed: null,
+    checksTotal: null,
+    reviewStatus: null,
+    ...overrides,
+  };
+}
+
+function mockPostWithBulkFallback(overrides: Record<string, unknown | Error>) {
+  vi.mocked(api.post).mockImplementation(async (url: string) => {
+    if (Object.prototype.hasOwnProperty.call(overrides, url)) {
+      const response = overrides[url];
+      if (response instanceof Error) throw response;
+      return response;
+    }
+    if (url === "/api/workspaces/pr-status/bulk") return { results: {} };
+    throw new Error(`Unexpected POST: ${url}`);
+  });
+}
+
 describe("Sidebar", () => {
   const projects: Project[] = [
     {
@@ -156,6 +183,7 @@ describe("Sidebar", () => {
     vi.mocked(api.get).mockReset();
     vi.mocked(api.post).mockReset();
     vi.mocked(api.delete).mockReset();
+    mockPostWithBulkFallback({});
     const { __wsMock } = await getWsMock();
     __wsMock.reset();
   });
@@ -195,12 +223,14 @@ describe("Sidebar", () => {
 
   it("calls add workspace via API", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.post).mockResolvedValue({
-      id: "w-new",
-      name: "osaka",
-      branch: "workspace/osaka",
-      status: "idle",
-      createdAt: "2026-02-12T00:00:00.000Z",
+    mockPostWithBulkFallback({
+      "/api/projects/p1/workspaces": {
+        id: "w-new",
+        name: "osaka",
+        branch: "workspace/osaka",
+        status: "idle",
+        createdAt: "2026-02-12T00:00:00.000Z",
+      },
     });
     renderSidebar("/projects", projects);
 
@@ -214,12 +244,14 @@ describe("Sidebar", () => {
 
   it("navigates to the new workspace after creation", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.post).mockResolvedValue({
-      id: "w-new",
-      name: "osaka",
-      branch: "workspace/osaka",
-      status: "idle",
-      createdAt: "2026-02-12T00:00:00.000Z",
+    mockPostWithBulkFallback({
+      "/api/projects/p1/workspaces": {
+        id: "w-new",
+        name: "osaka",
+        branch: "workspace/osaka",
+        status: "idle",
+        createdAt: "2026-02-12T00:00:00.000Z",
+      },
     });
 
     renderSidebar("/projects", projects);
@@ -503,7 +535,9 @@ describe("Sidebar", () => {
 
   it("archives clean workspace directly without confirmation", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.post).mockResolvedValue(undefined);
+    mockPostWithBulkFallback({
+      "/api/workspaces/w1/archive": undefined,
+    });
 
     renderSidebar("/workspaces/w1", projects, {
       diffStat: { committed: [], uncommitted: [] },
@@ -545,7 +579,9 @@ describe("Sidebar", () => {
 
   it("confirms archive of dirty workspace via dialog", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.post).mockResolvedValue(undefined);
+    mockPostWithBulkFallback({
+      "/api/workspaces/w1/archive": undefined,
+    });
 
     renderSidebar("/workspaces/w1", projects, {
       diffStat: {
@@ -599,7 +635,9 @@ describe("Sidebar", () => {
   it("uses cached diffStats from live data when available", async () => {
     const { __wsMock } = await getWsMock();
     const user = userEvent.setup();
-    vi.mocked(api.post).mockResolvedValue(undefined);
+    mockPostWithBulkFallback({
+      "/api/workspaces/w1/archive": undefined,
+    });
 
     renderSidebar("/workspaces/w1", projects);
 
@@ -629,7 +667,9 @@ describe("Sidebar", () => {
 
   it("falls back to direct API call when diffStats not cached and API fails", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.post).mockResolvedValue(undefined);
+    mockPostWithBulkFallback({
+      "/api/workspaces/w1/archive": undefined,
+    });
 
     renderSidebar("/workspaces/w1", projects, {
       diffStat: new Error("network error"),
@@ -655,5 +695,53 @@ describe("Sidebar", () => {
     await waitFor(() => {
       expect(screen.getByTestId("settings-from")).toHaveTextContent("/workspaces/w1");
     });
+  });
+
+  it("shows PR loading text while bulk status is in flight", async () => {
+    let resolve!: (value: unknown) => void;
+    const pending = new Promise((res) => {
+      resolve = res;
+    });
+
+    mockPostWithBulkFallback({
+      "/api/workspaces/pr-status/bulk": pending,
+    });
+
+    renderSidebar("/workspaces/w1", projects);
+
+    expect(await screen.findByText("Loading…")).toBeInTheDocument();
+
+    resolve({ results: {} });
+    await waitFor(() => {
+      expect(screen.getByText("No PR")).toBeInTheDocument();
+    });
+  });
+
+  it("shows compact PR info when a PR exists", async () => {
+    mockPostWithBulkFallback({
+      "/api/workspaces/pr-status/bulk": {
+        results: {
+          w1: { pr: makePr({ number: 7, mergeable: true, mergeableState: "clean" }) },
+        },
+      },
+    });
+
+    renderSidebar("/workspaces/w1", projects);
+
+    expect(await screen.findByText("#7 Ready")).toBeInTheDocument();
+  });
+
+  it("shows PR error text when backend reports an error for a workspace", async () => {
+    mockPostWithBulkFallback({
+      "/api/workspaces/pr-status/bulk": {
+        results: {
+          w1: { pr: null, error: "gh unavailable" },
+        },
+      },
+    });
+
+    renderSidebar("/workspaces/w1", projects);
+
+    expect(await screen.findByText("Error fetching PR")).toBeInTheDocument();
   });
 });
