@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./useApi";
 import type { BulkPrStatusResponse, PrStatusResponse } from "@/types";
@@ -25,6 +25,8 @@ const emptyResults: Record<string, PrStatusResponse> = {};
 
 export function useBulkPrStatus(wsIds: string[]) {
   const stableKey = useMemo(() => wsIds.slice().sort().join(","), [wsIds]);
+  const lastResults = useRef<Record<string, PrStatusResponse>>(emptyResults);
+  const hasFetched = useRef(false);
 
   const query = useQuery({
     queryKey: ["pr-status-bulk", stableKey],
@@ -38,8 +40,15 @@ export function useBulkPrStatus(wsIds: string[]) {
     gcTime: 5 * 60_000,
   });
 
+  if (query.data?.results) {
+    lastResults.current = query.data.results;
+    hasFetched.current = true;
+  } else if (query.isSuccess) {
+    hasFetched.current = true;
+  }
+
   return {
-    results: query.data?.results ?? emptyResults,
-    loading: query.isLoading,
+    results: lastResults.current,
+    fetched: hasFetched.current,
   };
 }

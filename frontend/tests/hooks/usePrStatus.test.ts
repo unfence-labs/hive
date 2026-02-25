@@ -66,7 +66,7 @@ describe("usePrStatus", () => {
 
     expect(api.get).toHaveBeenCalledWith("/api/workspaces/ws-1/pr-status");
     expect(result.current.error).toBeNull();
-    expect(result.current.loading).toBe(false);
+    expect(result.current.fetched).toBe(false);
   });
 
   it("exposes backend error messages", async () => {
@@ -92,7 +92,7 @@ describe("usePrStatus", () => {
     const { wrapper } = createWrapper();
     const { result } = renderHook(() => usePrStatus("ws-1"), { wrapper });
 
-    expect(result.current.loading).toBe(true);
+    expect(result.current.fetched).toBe(true);
 
     await act(async () => {
       pending.resolve({ pr: makePr({ number: 99 }) });
@@ -100,7 +100,7 @@ describe("usePrStatus", () => {
     });
 
     await waitFor(() => {
-      expect(result.current.loading).toBe(false);
+      expect(result.current.fetched).toBe(false);
     });
     expect(result.current.pr?.number).toBe(99);
   });
@@ -144,7 +144,7 @@ describe("useBulkPrStatus", () => {
     const { result } = renderHook(() => useBulkPrStatus([]), { wrapper });
 
     expect(result.current.results).toEqual({});
-    expect(result.current.loading).toBe(false);
+    expect(result.current.fetched).toBe(false);
     expect(api.post).not.toHaveBeenCalled();
   });
 
@@ -169,17 +169,17 @@ describe("useBulkPrStatus", () => {
       workspaceIds: ["ws-1", "ws-2"],
     });
     expect(result.current.results["ws-2"]).toEqual({ pr: null });
-    expect(result.current.loading).toBe(false);
+    expect(result.current.fetched).toBe(true);
   });
 
-  it("reports loading while request is in flight", async () => {
+  it("reports fetched=false while request is in flight", async () => {
     const pending = deferred<{ results: Record<string, unknown> }>();
     vi.mocked(api.post).mockReturnValueOnce(pending.promise);
 
     const { wrapper } = createWrapper();
     const { result } = renderHook(() => useBulkPrStatus(["ws-1"]), { wrapper });
 
-    expect(result.current.loading).toBe(true);
+    expect(result.current.fetched).toBe(false);
 
     await act(async () => {
       pending.resolve({ results: { "ws-1": { pr: makePr() } } });
@@ -187,7 +187,7 @@ describe("useBulkPrStatus", () => {
     });
 
     await waitFor(() => {
-      expect(result.current.loading).toBe(false);
+      expect(result.current.fetched).toBe(true);
     });
   });
 
@@ -206,14 +206,14 @@ describe("useBulkPrStatus", () => {
     );
 
     await waitFor(() => {
-      expect(result.current.loading).toBe(false);
+      expect(result.current.fetched).toBe(true);
     });
 
     rerender({ ids: ["ws-1", "ws-2"] });
 
     // Should not trigger a second fetch — same sorted key
     await waitFor(() => {
-      expect(result.current.loading).toBe(false);
+      expect(result.current.fetched).toBe(true);
     });
     expect(api.post).toHaveBeenCalledTimes(1);
   });

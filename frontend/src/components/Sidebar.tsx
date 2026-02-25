@@ -63,7 +63,7 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
     () => projects.flatMap((p) => (p.workspaces ?? []).map((ws) => ws.id)),
     [projects],
   );
-  const { results: prStatuses } = useBulkPrStatus(allWsIds);
+  const { results: prStatuses, fetched: prFetched } = useBulkPrStatus(allWsIds);
 
   const isProjectExpanded = (projectId: string) => {
     const expanded = expandedProjects[projectId];
@@ -132,7 +132,7 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
                 {projects.map((project, index) => (
                   <div
                     key={project.id}
-                    className={cn(index > 0 && "mt-3 border-t border-border/30 pt-3")}
+                    className={cn(index > 0 && "mt-2.5")}
                   >
                     <Collapsible
                       open={isProjectExpanded(project.id)}
@@ -153,28 +153,30 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
                               hasFavicon={project.hasFavicon}
                               className="h-5 w-5"
                             />
-                            <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground pr-0 transition-[padding] group-hover:pr-10">
+                            <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wider text-sidebar-foreground">
                               {project.name}
-                              {(project.workspaces ?? []).length > 0 && (
-                                <span className="ml-1.5 text-[10px] tabular-nums text-muted-foreground/40">
-                                  {(project.workspaces ?? []).length}
-                                </span>
-                              )}
                             </span>
                           </button>
                         </CollapsibleTrigger>
-                        <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
-                          <button
-                            type="button"
-                            className="shrink-0 rounded px-1 py-0.5 text-xs text-muted-foreground transition-colors hover:text-sidebar-foreground"
-                            onClick={() => {
-                              void handleAddWorkspace(project.id);
-                            }}
-                            aria-label={`Add workspace to ${project.name}`}
-                            title={`Add workspace to ${project.name}`}
-                          >
-                            {creatingProjectId === project.id ? "..." : <Plus className="h-3 w-3" />}
-                          </button>
+                        <div className="absolute inset-y-0 right-2.5 flex items-center">
+                          <div className="relative flex h-5 w-5 items-center justify-center">
+                            {/* Workspace count: visible by default, hidden on hover */}
+                            <span className="text-xs tabular-nums text-muted-foreground/60 transition-opacity group-hover:opacity-0">
+                              {(project.workspaces ?? []).length}
+                            </span>
+                            {/* Add button: hidden by default, visible on hover */}
+                            <button
+                              type="button"
+                              className="absolute inset-0 flex items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover:opacity-100"
+                              onClick={() => {
+                                void handleAddWorkspace(project.id);
+                              }}
+                              aria-label={`Add workspace to ${project.name}`}
+                              title={`Add workspace to ${project.name}`}
+                            >
+                              {creatingProjectId === project.id ? "..." : <Plus className="h-4 w-4" />}
+                            </button>
+                          </div>
                         </div>
                       </div>
 
@@ -230,9 +232,15 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
                                               </span>
                                             );
                                           })()
-                                        ) : prStatus && !prStatus.pr ? (
+                                        ) : prStatus?.error ? (
+                                          <span className="text-muted-foreground">Error fetching PR</span>
+                                        ) : prFetched && prStatus && !prStatus.pr ? (
                                           <span className="text-muted-foreground">No PR</span>
-                                        ) : null}
+                                        ) : prFetched && !prStatus ? (
+                                          <span className="text-muted-foreground">Error fetching PR</span>
+                                        ) : (
+                                          <span className="text-muted-foreground">No data</span>
+                                        )}
                                       </div>
                                     </Link>
                                   </TooltipTrigger>
