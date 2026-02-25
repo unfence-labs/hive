@@ -196,10 +196,10 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
                                     <Link
                                       to={`/workspaces/${ws.id}`}
                                       className={cn(
-                                        "block rounded-md py-1.5 pr-2 transition-colors hover:bg-sidebar-accent/60",
+                                        "block rounded-md py-1.5 pl-2 pr-2 transition-colors hover:bg-sidebar-accent/60",
                                         activeWsId === ws.id
-                                          ? "border-l-2 border-primary pl-[calc(0.5rem-2px)]"
-                                          : "border-l-2 border-transparent pl-[calc(0.5rem-2px)]",
+                                          ? "border-2 border-dashed border-primary/50"
+                                          : "border-2 border-transparent",
                                       )}
                                     >
                                       {/* Line 1: activity + branch + wave */}
