@@ -145,6 +145,10 @@ struct PrStatusResponse: Codable {
     let error: String?
 }
 
+struct BulkPrStatusResponse: Codable {
+    let results: [String: PrStatusResponse]
+}
+
 // MARK: - Session & Chat
 
 struct SessionMetadata: Codable, Identifiable {

@@ -174,6 +174,11 @@ final class APIClient {
         try await get(path: "/api/workspaces/\(workspaceId)/pr-status")
     }
 
+    func fetchBulkPrStatus(workspaceIds: [String]) async throws -> BulkPrStatusResponse {
+        let body = try JSONEncoder().encode(["workspaceIds": workspaceIds])
+        return try await post(path: "/api/workspaces/pr-status/bulk", body: body)
+    }
+
     func registerDeviceToken(_ token: String) async throws {
         let body = try JSONEncoder().encode(["token": token])
         try await requestVoid("POST", path: "/api/devices/apns", body: body)

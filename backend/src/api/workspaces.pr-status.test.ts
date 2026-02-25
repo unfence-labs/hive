@@ -251,3 +251,91 @@ describe("GET /api/workspaces/:wsId/pr-status", () => {
     expect(res.json()).toEqual({ error: "boom" });
   });
 });
+
+describe("POST /api/workspaces/pr-status/bulk", () => {
+  it("returns PR status for multiple workspaces", async () => {
+    const ws2: Workspace = { ...workspace, id: "ws-2", name: "paris", branch: "workspace/paris" };
+    const ps2: ProjectState = { ...projectState, workspaces: [ws2] };
+
+    mocks.getWorkspace
+      .mockResolvedValueOnce({ workspace, projectState })
+      .mockResolvedValueOnce({ workspace: ws2, projectState: ps2 });
+    mocks.fetchPrForBranch
+      .mockResolvedValueOnce({ pr: makePr({ number: 1 }) })
+      .mockResolvedValueOnce({ pr: makePr({ number: 2 }) });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/workspaces/pr-status/bulk",
+      payload: { workspaceIds: [WORKSPACE_ID, "ws-2"] },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.results[WORKSPACE_ID].pr.number).toBe(1);
+    expect(body.results["ws-2"].pr.number).toBe(2);
+  });
+
+  it("handles partial failures (one workspace not found)", async () => {
+    mocks.getWorkspace
+      .mockResolvedValueOnce({ workspace, projectState })
+      .mockResolvedValueOnce(null);
+    mocks.fetchPrForBranch.mockResolvedValueOnce({ pr: makePr({ number: 1 }) });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/workspaces/pr-status/bulk",
+      payload: { workspaceIds: [WORKSPACE_ID, "ws-missing"] },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.results[WORKSPACE_ID].pr.number).toBe(1);
+    expect(body.results["ws-missing"]).toEqual({ pr: null, error: "Workspace not found" });
+  });
+
+  it("shares cache with the single endpoint", async () => {
+    mocks.fetchPrForBranch.mockResolvedValueOnce({ pr: makePr({ number: 7 }) });
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(100_000);
+
+    // Bulk populates cache
+    await app.inject({
+      method: "POST",
+      url: "/api/workspaces/pr-status/bulk",
+      payload: { workspaceIds: [WORKSPACE_ID] },
+    });
+
+    // Single reads from cache
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,
+    });
+
+    expect(res.json()).toEqual({ pr: makePr({ number: 7 }) });
+    expect(mocks.fetchPrForBranch).toHaveBeenCalledTimes(1);
+
+    nowSpy.mockRestore();
+  });
+
+  it("returns 400 when body is invalid", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/workspaces/pr-status/bulk",
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "workspaceIds must be an array" });
+  });
+
+  it("returns empty results for empty array", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/workspaces/pr-status/bulk",
+      payload: { workspaceIds: [] },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ results: {} });
+  });
+});

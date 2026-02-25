@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { usePrStatus } from "@/hooks/usePrStatus";
+import { usePrStatus, useBulkPrStatus } from "@/hooks/usePrStatus";
 import { api } from "@/hooks/useApi";
 import type { PullRequestInfo } from "@/types";
 import { createWrapper } from "../test-utils";
@@ -8,6 +8,7 @@ import { createWrapper } from "../test-utils";
 vi.mock("@/hooks/useApi", () => ({
   api: {
     get: vi.fn(),
+    post: vi.fn(),
   },
 }));
 
@@ -130,5 +131,90 @@ describe("usePrStatus", () => {
 
     expect(api.get).toHaveBeenNthCalledWith(1, "/api/workspaces/ws-1/pr-status");
     expect(api.get).toHaveBeenNthCalledWith(2, "/api/workspaces/ws-2/pr-status");
+  });
+});
+
+describe("useBulkPrStatus", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns empty results when wsIds is empty", () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useBulkPrStatus([]), { wrapper });
+
+    expect(result.current.results).toEqual({});
+    expect(result.current.fetched).toBe(false);
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("posts to bulk endpoint with workspace IDs", async () => {
+    vi.mocked(api.post).mockResolvedValueOnce({
+      results: {
+        "ws-1": { pr: makePr({ number: 1 }) },
+        "ws-2": { pr: null },
+      },
+    });
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useBulkPrStatus(["ws-1", "ws-2"]), {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(result.current.results["ws-1"]?.pr?.number).toBe(1);
+    });
+
+    expect(api.post).toHaveBeenCalledWith("/api/workspaces/pr-status/bulk", {
+      workspaceIds: ["ws-1", "ws-2"],
+    });
+    expect(result.current.results["ws-2"]).toEqual({ pr: null });
+    expect(result.current.fetched).toBe(true);
+  });
+
+  it("reports fetched=false while request is in flight", async () => {
+    const pending = deferred<{ results: Record<string, unknown> }>();
+    vi.mocked(api.post).mockReturnValueOnce(pending.promise);
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useBulkPrStatus(["ws-1"]), { wrapper });
+
+    expect(result.current.fetched).toBe(false);
+
+    await act(async () => {
+      pending.resolve({ results: { "ws-1": { pr: makePr() } } });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.fetched).toBe(true);
+    });
+  });
+
+  it("uses stable query key regardless of wsIds order", async () => {
+    vi.mocked(api.post).mockResolvedValue({
+      results: { "ws-1": { pr: null }, "ws-2": { pr: null } },
+    });
+
+    const { wrapper } = createWrapper();
+    const { result, rerender } = renderHook(
+      ({ ids }: { ids: string[] }) => useBulkPrStatus(ids),
+      {
+        initialProps: { ids: ["ws-2", "ws-1"] },
+        wrapper,
+      },
+    );
+
+    await waitFor(() => {
+      expect(result.current.fetched).toBe(true);
+    });
+
+    rerender({ ids: ["ws-1", "ws-2"] });
+
+    // Should not trigger a second fetch — same sorted key
+    await waitFor(() => {
+      expect(result.current.fetched).toBe(true);
+    });
+    expect(api.post).toHaveBeenCalledTimes(1);
   });
 });
