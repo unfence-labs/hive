@@ -166,11 +166,20 @@ final class HubStatusMonitor {
 
     // MARK: - Called by HubConnection
 
+    /// Workspaces that were streaming when the app entered background.
+    /// Used to detect streaming→idle transitions after reconnect and mark them as completed.
+    private var streamingBeforeBackground: Set<String> = []
+
     fileprivate func didReceiveStreaming(_ streaming: Bool, for workspaceId: String) {
         if streaming {
             streamingWorkspaces.insert(workspaceId)
         } else {
             streamingWorkspaces.remove(workspaceId)
+            // If this workspace was streaming before the app went to background
+            // and is now idle, treat it as a completed turn (the .done event was lost).
+            if streamingBeforeBackground.remove(workspaceId) != nil {
+                didReceiveDone(for: workspaceId)
+            }
         }
     }
 
@@ -198,6 +207,7 @@ final class HubStatusMonitor {
     /// Clears stale streaming state and forces an immediate hub reconnect so the
     /// backend bootstrap (status + history) writes into a clean slate.
     func appDidBecomeActive() {
+        streamingBeforeBackground = streamingWorkspaces
         storeCache.clearAllStreamingState()
         hubConnection?.forceReconnect()
     }
