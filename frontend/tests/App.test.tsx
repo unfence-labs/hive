@@ -125,6 +125,10 @@ vi.mock("@/pages/settings/NotificationSettings", () => ({
   default: () => <div>notification settings</div>,
 }));
 
+vi.mock("@/pages/settings/AgentSettings", () => ({
+  default: () => <div>agent settings</div>,
+}));
+
 vi.mock("@/pages/settings/ProjectDetail", () => ({
   default: () => <div>project detail</div>,
 }));
@@ -245,6 +249,14 @@ describe("App", () => {
     renderApp();
 
     expect(screen.getByText("notification settings")).toBeInTheDocument();
+  });
+
+  it("renders agent settings route", () => {
+    window.history.pushState({}, "", "/settings/agents");
+
+    renderApp();
+
+    expect(screen.getByText("agent settings")).toBeInTheDocument();
   });
 
   it("redirects /projects/:id to /projects", () => {

@@ -13,6 +13,13 @@ const PROVIDER_LABELS: Record<string, string> = {
   gemini: "Gemini CLI",
 };
 
+/** npm package name for each provider, used to check for updates. */
+const NPM_PACKAGES: Record<string, string> = {
+  claude: "@anthropic-ai/claude-code",
+  codex: "@openai/codex",
+  gemini: "@google/gemini-cli",
+};
+
 /** All known providers. Availability is checked at runtime via CLI detection. */
 const ALL_PROVIDERS: AgentProvider[] = [
   new ClaudeProvider(),
@@ -27,16 +34,33 @@ const providerMap = new Map<string, AgentProvider>(
 /** Set of provider IDs whose CLI binary was detected on the system. */
 const availableProviderIds = new Set<string>();
 
+/** Detected installed versions. Key = provider ID, value = version string. */
+const detectedVersions = new Map<string, string>();
+
+/**
+ * Extract a semver-like version from CLI --version output.
+ * Handles formats like "1.0.35", "v1.0.35", "claude v1.0.35", "codex 0.1.2501.1".
+ */
+export function parseVersionFromOutput(stdout: string): string | null {
+  const match = stdout.match(/(\d+\.\d+[\w.-]*)/);
+  return match?.[1] ?? null;
+}
+
 /**
  * Probe which provider CLIs are installed.
  * Called once at startup (from preflight or main).
  */
 export async function detectAvailableProviders(): Promise<void> {
   availableProviderIds.clear();
+  detectedVersions.clear();
   for (const provider of ALL_PROVIDERS) {
     try {
-      await execFile(provider.command, ["--version"]);
+      const { stdout } = await execFile(provider.command, ["--version"]);
       availableProviderIds.add(provider.id);
+      const version = parseVersionFromOutput(stdout);
+      if (version) {
+        detectedVersions.set(provider.id, version);
+      }
     } catch {
       // CLI not found — provider won't appear in catalog
     }
@@ -112,4 +136,23 @@ export function getModelCatalog(): ModelCatalogResponse {
   }
 
   return { models, defaultModelId };
+}
+
+export interface AgentProviderInfo {
+  id: string;
+  label: string;
+  npmPackage: string;
+  installed: boolean;
+  version: string | null;
+}
+
+/** Return info about all known providers (installed or not). */
+export function getAllProviderInfo(): AgentProviderInfo[] {
+  return ALL_PROVIDERS.map((p) => ({
+    id: p.id,
+    label: PROVIDER_LABELS[p.id] ?? p.id,
+    npmPackage: NPM_PACKAGES[p.id] ?? "",
+    installed: availableProviderIds.has(p.id),
+    version: detectedVersions.get(p.id) ?? null,
+  }));
 }

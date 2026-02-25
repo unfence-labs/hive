@@ -6,6 +6,7 @@ import AccountSettings from "@/pages/settings/AccountSettings";
 import AppearanceSettings from "@/pages/settings/AppearanceSettings";
 import ConnectionSettings from "@/pages/settings/ConnectionSettings";
 import NotificationSettings from "@/pages/settings/NotificationSettings";
+import AgentSettings from "@/pages/settings/AgentSettings";
 import ProjectDetail from "@/pages/settings/ProjectDetail";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import EmptyStateLogo from "@/components/EmptyStateLogo";
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="settings/appearance" element={<AppearanceSettings />} />
             <Route path="settings/connection" element={<ConnectionSettings onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }} />} />
             <Route path="settings/notifications" element={<NotificationSettings />} />
+            <Route path="settings/agents" element={<AgentSettings />} />
             <Route path="settings/repositories/:projectId" element={<ProjectDetail />} />
           </Route>
         </Routes>
