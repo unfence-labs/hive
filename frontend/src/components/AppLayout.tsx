@@ -84,7 +84,7 @@ export default function AppLayout({ onAddProject }: AppLayoutProps) {
               type="button"
               onClick={toggle}
               className="absolute left-2.5 z-30 flex items-center justify-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              style={{ top: "calc(var(--titlebar-inset, 0px) + 12px)" }}
+              style={{ top: "max(var(--titlebar-inset, 0px) - 8px, 0.75rem)" }}
               aria-label="Show sidebar"
               title="Show sidebar (⌘B)"
             >
