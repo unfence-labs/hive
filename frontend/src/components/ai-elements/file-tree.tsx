@@ -118,18 +118,12 @@ export const FileTreeFolder = ({
   children,
   ...props
 }: FileTreeFolderProps) => {
-  const { expandedPaths, togglePath, selectedPath, onPathSelect } =
-    useContext(FileTreeContext);
+  const { expandedPaths, togglePath } = useContext(FileTreeContext);
   const isExpanded = expandedPaths.has(path);
-  const isSelected = selectedPath === path;
 
   const handleOpenChange = useCallback(() => {
     togglePath(path);
   }, [togglePath, path]);
-
-  const handleSelect = useCallback(() => {
-    onPathSelect?.(path);
-  }, [onPathSelect, path]);
 
   const folderContextValue = useMemo(
     () => ({ isExpanded, name, path }),
@@ -147,11 +141,7 @@ export const FileTreeFolder = ({
         >
           <CollapsibleTrigger asChild>
             <button
-              className={cn(
-                "flex w-full items-center gap-1 rounded px-2 py-1 text-left transition-colors hover:bg-muted/50",
-                isSelected && "bg-muted"
-              )}
-              onClick={handleSelect}
+              className="flex w-full items-center gap-1 rounded px-2 py-1 text-left transition-colors hover:bg-muted/50"
               type="button"
             >
               <ChevronRightIcon
