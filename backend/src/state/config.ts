@@ -9,17 +9,39 @@ export interface TelegramConfig {
   chatId: string;
 }
 
+export interface ApnsConfig {
+  enabled: boolean;
+  teamId: string;
+  keyId: string;
+  keyContent: string;
+  bundleId: string;
+  sandbox: boolean;
+  deviceTokens: string[];
+}
+
 export interface NotificationsConfig {
   telegram: TelegramConfig;
+  apns: ApnsConfig;
 }
 
 export interface AppConfig {
   notifications: NotificationsConfig;
 }
 
+const DEFAULT_APNS: ApnsConfig = {
+  enabled: false,
+  teamId: "",
+  keyId: "",
+  keyContent: "",
+  bundleId: "",
+  sandbox: false,
+  deviceTokens: [],
+};
+
 const DEFAULT_CONFIG: AppConfig = {
   notifications: {
     telegram: { enabled: false, botToken: "", chatId: "" },
+    apns: { ...DEFAULT_APNS },
   },
 };
 
@@ -31,12 +53,22 @@ export async function loadConfig(dataDir = getDataDir()): Promise<AppConfig> {
   try {
     const raw = await readFile(configFilePath(dataDir), "utf-8");
     const parsed = JSON.parse(raw) as Partial<AppConfig>;
+    const apns = parsed.notifications?.apns;
     return {
       notifications: {
         telegram: {
           enabled: parsed.notifications?.telegram?.enabled ?? DEFAULT_CONFIG.notifications.telegram.enabled,
           botToken: parsed.notifications?.telegram?.botToken ?? DEFAULT_CONFIG.notifications.telegram.botToken,
           chatId: parsed.notifications?.telegram?.chatId ?? DEFAULT_CONFIG.notifications.telegram.chatId,
+        },
+        apns: {
+          enabled: apns?.enabled ?? DEFAULT_APNS.enabled,
+          teamId: apns?.teamId ?? DEFAULT_APNS.teamId,
+          keyId: apns?.keyId ?? DEFAULT_APNS.keyId,
+          keyContent: apns?.keyContent ?? DEFAULT_APNS.keyContent,
+          bundleId: apns?.bundleId ?? DEFAULT_APNS.bundleId,
+          sandbox: apns?.sandbox ?? DEFAULT_APNS.sandbox,
+          deviceTokens: apns?.deviceTokens ?? DEFAULT_APNS.deviceTokens,
         },
       },
     };

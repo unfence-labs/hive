@@ -13,7 +13,9 @@ final class HubStatusMonitor {
     private(set) var workspaceDiffStats: [String: DiffStatResponse] = [:]
     private(set) var workspaceBranchInfo: [String: BranchInfo] = [:]
     private(set) var workspacePrStatus: [String: PrStatusResponse] = [:]
-    private(set) var completedWorkspaces: Set<String> = []
+    private(set) var completedWorkspaces: Set<String> = [] {
+        didSet { persistCompleted() }
+    }
 
     /// Called whenever the streaming workspace set changes.
     var onStreamingChange: ((Set<String>) -> Void)?
@@ -25,8 +27,13 @@ final class HubStatusMonitor {
     private var prPollTasks: [String: Task<Void, Never>] = [:]
     private let apiClient = APIClient()
 
+    private static let completedKey = "completedWorkspaces"
+
     init(storeCache: ConversationStoreCache) {
         self.storeCache = storeCache
+        // Restore persisted completed set (survives app kill)
+        let stored = UserDefaults.standard.stringArray(forKey: Self.completedKey) ?? []
+        self.completedWorkspaces = Set(stored)
         storeCache.onStoreCreated = { [weak self] workspaceId, store in
             self?.wireSendClosure(for: workspaceId, on: store)
         }
@@ -70,6 +77,15 @@ final class HubStatusMonitor {
 
     func clearCompleted(_ workspaceId: String) {
         completedWorkspaces.remove(workspaceId)
+    }
+
+    /// Called from HiveApp to merge push-delivered completions on launch.
+    func markCompletedFromPush(_ workspaceId: String) {
+        completedWorkspaces.insert(workspaceId)
+    }
+
+    private func persistCompleted() {
+        UserDefaults.standard.set(Array(completedWorkspaces), forKey: Self.completedKey)
     }
 
     // MARK: - Sync

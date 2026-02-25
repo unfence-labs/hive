@@ -2244,9 +2244,11 @@ describe("useConversation", () => {
       renderHook(() => useConversation("ws-1"));
 
       // REST should fire since there's no cached history
-      expect(__apiMock.getMock).toHaveBeenCalledWith(
-        expect.stringContaining("/api/workspaces/ws-1/"),
-      );
+      await waitFor(() => {
+        expect(__apiMock.getMock).toHaveBeenCalledWith(
+          expect.stringContaining("/api/workspaces/ws-1/"),
+        );
+      });
     });
   });
 });

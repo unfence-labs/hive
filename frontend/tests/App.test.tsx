@@ -133,10 +133,6 @@ vi.mock("@/pages/WorkspaceView", () => ({
   default: () => <div>workspace view</div>,
 }));
 
-vi.mock("@/pages/LogoSquareTempPage", () => ({
-  default: () => <div>logo page</div>,
-}));
-
 vi.mock("@/components/AppLayout", async () => {
   const { Outlet } = await import("react-router-dom");
   return {
@@ -186,14 +182,6 @@ describe("App", () => {
     renderApp();
 
     expect(screen.getByText("workspace view")).toBeInTheDocument();
-  });
-
-  it("renders temporary logo route", () => {
-    window.history.pushState({}, "", "/tmp/logo-carre");
-
-    renderApp();
-
-    expect(screen.getByText("logo page")).toBeInTheDocument();
   });
 
   it("does not sync workspaces while project list is still loading", () => {

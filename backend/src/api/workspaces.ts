@@ -201,12 +201,8 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
 
   app.post<{ Params: { wsId: string } }>("/api/workspaces/:wsId/archive", async (req, reply) => {
     try {
-      // End any active session before archiving
-      try {
-        await endSession(req.params.wsId, dataDir);
-      } catch {
-        // No active session — fine
-      }
+      // End loaded sessions before archiving to avoid stale in-memory state.
+      await endSession(req.params.wsId, dataDir);
       await archiveWorkspace(req.params.wsId, dataDir);
       return reply.status(204).send();
     } catch (err: unknown) {

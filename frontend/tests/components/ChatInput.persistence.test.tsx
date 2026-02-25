@@ -1,10 +1,21 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChatInput from "@/components/ChatInput";
 
 vi.mock("@/hooks/useCompletions", () => ({
   useCompletions: () => [],
+}));
+
+vi.mock("@/hooks/useApi", () => ({
+  api: {
+    get: vi.fn(
+      () =>
+        new Promise(() => {
+          // Keep model fetch pending so ChatInput tests stay deterministic.
+        }),
+    ),
+  },
 }));
 
 type SendFn = (
@@ -53,7 +64,9 @@ function rerenderChatInput(
     onSend?: SendFn;
   },
 ) {
-  rerender(<ChatInput {...chatInputProps({ sessionId, wsId, onSend })} />);
+  act(() => {
+    rerender(<ChatInput {...chatInputProps({ sessionId, wsId, onSend })} />);
+  });
 }
 
 function getInput(): HTMLTextAreaElement {
@@ -62,6 +75,12 @@ function getInput(): HTMLTextAreaElement {
 
 function inputValue(): string {
   return getInput().value;
+}
+
+function setInputValue(value: string): void {
+  act(() => {
+    fireEvent.change(getInput(), { target: { value } });
+  });
 }
 
 function getUploadInput(): HTMLInputElement {
@@ -119,11 +138,11 @@ describe("ChatInput draft persistence", () => {
     const { a: sessionA, b: sessionB } = makeSessionIds();
     const { rerender } = renderChatInput(sessionA);
 
-    fireEvent.change(getInput(), { target: { value: "draft A" } });
+    setInputValue("draft A");
     rerenderChatInput(rerender, { sessionId: sessionB });
     expect(inputValue()).toBe("");
 
-    fireEvent.change(getInput(), { target: { value: "draft B" } });
+    setInputValue("draft B");
     rerenderChatInput(rerender, { sessionId: sessionA });
     expect(inputValue()).toBe("draft A");
   });
@@ -132,9 +151,7 @@ describe("ChatInput draft persistence", () => {
     const { a: sessionA, b: sessionB } = makeSessionIds();
     const { rerender, unmount } = renderChatInput(sessionA);
 
-    fireEvent.change(getInput(), {
-      target: { value: "keep me" },
-    });
+    setInputValue("keep me");
 
     rerenderChatInput(rerender, { sessionId: sessionB });
     unmount();
@@ -148,9 +165,7 @@ describe("ChatInput draft persistence", () => {
     const { a: wsA, b: wsB } = makeWorkspaceIds();
     const { rerender } = renderChatInput(sessionA, wsA);
 
-    fireEvent.change(getInput(), {
-      target: { value: "workspace A draft" },
-    });
+    setInputValue("workspace A draft");
 
     rerenderChatInput(rerender, { wsId: wsB, sessionId: sessionB });
     expect(inputValue()).toBe("");
@@ -164,11 +179,11 @@ describe("ChatInput draft persistence", () => {
     const { a: wsA, b: wsB } = makeWorkspaceIds();
     const { rerender } = renderChatInput(sessionId, wsA);
 
-    fireEvent.change(getInput(), { target: { value: "draft from ws-a" } });
+    setInputValue("draft from ws-a");
     rerenderChatInput(rerender, { wsId: wsB, sessionId });
     expect(inputValue()).toBe("");
 
-    fireEvent.change(getInput(), { target: { value: "draft from ws-b" } });
+    setInputValue("draft from ws-b");
     rerenderChatInput(rerender, { wsId: wsA, sessionId });
     expect(inputValue()).toBe("draft from ws-a");
   });
@@ -205,12 +220,12 @@ describe("ChatInput draft persistence", () => {
     const { a: sessionA, b: sessionB } = makeSessionIds();
     const { rerender } = renderChatInput(sessionA);
 
-    fireEvent.change(getInput(), { target: { value: "temporary" } });
+    setInputValue("temporary");
     rerenderChatInput(rerender, { sessionId: sessionB });
     rerenderChatInput(rerender, { sessionId: sessionA });
     expect(inputValue()).toBe("temporary");
 
-    fireEvent.change(getInput(), { target: { value: "" } });
+    setInputValue("");
     rerenderChatInput(rerender, { sessionId: sessionB });
     rerenderChatInput(rerender, { sessionId: sessionA });
     expect(inputValue()).toBe("");

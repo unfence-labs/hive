@@ -1,6 +1,10 @@
 import { EventEmitter } from "node:events";
 import type { CliJsonLine } from "../types.js";
 
+const DEBUG_AGENT_LOGS = ["1", "true", "yes", "on"].includes(
+  (process.env.HIVE_DEBUG_AGENT_LOGS ?? "").trim().toLowerCase(),
+);
+
 export type StreamParserEvent = {
   assistant: [data: Extract<CliJsonLine, { type: "assistant" }>];
   user: [data: Extract<CliJsonLine, { type: "user" }>];
@@ -68,14 +72,16 @@ export class StreamParser extends EventEmitter<StreamParserEvent> {
         const resetsIn = info.resetsAt
           ? `${Math.max(0, Math.round((info.resetsAt * 1000 - Date.now()) / 60_000))}min`
           : "?";
-        console.log(
-          "[rate-limit] status=%s window=%s resets_in=%s overage=%s",
-          info.status ?? "unknown",
-          info.rateLimitType ?? "?",
-          resetsIn,
-          info.overageStatus ?? "?",
-        );
-      } else {
+        if (DEBUG_AGENT_LOGS) {
+          console.log(
+            "[rate-limit] status=%s window=%s resets_in=%s overage=%s",
+            info.status ?? "unknown",
+            info.rateLimitType ?? "?",
+            resetsIn,
+            info.overageStatus ?? "?",
+          );
+        }
+      } else if (DEBUG_AGENT_LOGS) {
         console.log("[rate-limit]", JSON.stringify(raw));
       }
       return;

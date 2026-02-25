@@ -3,7 +3,9 @@ import type { AppConfig } from "../state/config.js";
 
 const mocks = vi.hoisted(() => ({
   notifierCtor: vi.fn(),
-  fromConfig: vi.fn(),
+  telegramFromConfig: vi.fn(),
+  apnsFromConfig: vi.fn(),
+  apnsDestroy: vi.fn(),
 }));
 
 vi.mock("../notifications/notifier.js", () => ({
@@ -18,11 +20,24 @@ vi.mock("../notifications/notifier.js", () => ({
 
 vi.mock("../notifications/telegram.js", () => ({
   TelegramChannel: {
-    fromConfig: mocks.fromConfig,
+    fromConfig: mocks.telegramFromConfig,
   },
 }));
 
+vi.mock("../notifications/apns.js", () => ({
+  ApnsChannel: {
+    fromConfig: mocks.apnsFromConfig,
+  },
+}));
+
+vi.mock("../state/config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../state/config.js")>();
+  return { ...actual, loadConfig: vi.fn(), saveConfig: vi.fn() };
+});
+
 import { rebuildNotifier } from "./agent-manager.js";
+
+const DEFAULT_APNS = { enabled: false, teamId: "", keyId: "", keyContent: "", bundleId: "", sandbox: false, deviceTokens: [] as string[] };
 
 function makeConfig(overrides?: Partial<AppConfig["notifications"]["telegram"]>): AppConfig {
   return {
@@ -33,6 +48,7 @@ function makeConfig(overrides?: Partial<AppConfig["notifications"]["telegram"]>)
         chatId: "",
         ...overrides,
       },
+      apns: { ...DEFAULT_APNS },
     },
   };
 }
@@ -45,26 +61,62 @@ describe("rebuildNotifier", () => {
   it("builds notifier with no channels when telegram is disabled", () => {
     rebuildNotifier(makeConfig({ enabled: false, botToken: "token", chatId: "chat" }));
 
-    expect(mocks.fromConfig).not.toHaveBeenCalled();
+    expect(mocks.telegramFromConfig).not.toHaveBeenCalled();
     expect(mocks.notifierCtor).toHaveBeenCalledWith([]);
   });
 
   it("builds notifier with telegram channel when enabled and valid", () => {
     const channel = { name: "telegram", isEnabled: () => true, send: vi.fn() };
-    mocks.fromConfig.mockReturnValue(channel);
+    mocks.telegramFromConfig.mockReturnValue(channel);
 
     rebuildNotifier(makeConfig({ enabled: true, botToken: "token", chatId: "chat" }));
 
-    expect(mocks.fromConfig).toHaveBeenCalledWith({ botToken: "token", chatId: "chat", enabled: true });
+    expect(mocks.telegramFromConfig).toHaveBeenCalledWith({ botToken: "token", chatId: "chat", enabled: true });
     expect(mocks.notifierCtor).toHaveBeenCalledWith([channel]);
   });
 
   it("builds notifier with no channels when telegram config is invalid", () => {
-    mocks.fromConfig.mockReturnValue(null);
+    mocks.telegramFromConfig.mockReturnValue(null);
 
     rebuildNotifier(makeConfig({ enabled: true, botToken: "", chatId: "" }));
 
-    expect(mocks.fromConfig).toHaveBeenCalledWith({ botToken: "", chatId: "", enabled: true });
+    expect(mocks.telegramFromConfig).toHaveBeenCalledWith({ botToken: "", chatId: "", enabled: true });
     expect(mocks.notifierCtor).toHaveBeenCalledWith([]);
+  });
+
+  it("includes apns channel when enabled and valid", () => {
+    const apnsCh = { name: "apns", isEnabled: () => true, send: vi.fn(), destroy: mocks.apnsDestroy };
+    mocks.apnsFromConfig.mockReturnValue(apnsCh);
+
+    const config: AppConfig = {
+      notifications: {
+        telegram: { enabled: false, botToken: "", chatId: "" },
+        apns: { enabled: true, teamId: "T", keyId: "K", keyContent: "PEM", bundleId: "com.x", sandbox: false, deviceTokens: [] },
+      },
+    };
+    rebuildNotifier(config);
+
+    expect(mocks.apnsFromConfig).toHaveBeenCalled();
+    expect(mocks.notifierCtor).toHaveBeenCalledWith([apnsCh]);
+  });
+
+  it("destroys previous apns channel on rebuild", () => {
+    // Clear any lingering liveApnsChannel from previous tests
+    rebuildNotifier(makeConfig());
+    vi.clearAllMocks();
+
+    const apnsCh = { name: "apns", isEnabled: () => true, send: vi.fn(), destroy: mocks.apnsDestroy };
+    mocks.apnsFromConfig.mockReturnValue(apnsCh);
+
+    const config: AppConfig = {
+      notifications: {
+        telegram: { enabled: false, botToken: "", chatId: "" },
+        apns: { enabled: true, teamId: "T", keyId: "K", keyContent: "PEM", bundleId: "com.x", sandbox: false, deviceTokens: [] },
+      },
+    };
+    rebuildNotifier(config);
+    rebuildNotifier(config);
+
+    expect(mocks.apnsDestroy).toHaveBeenCalledTimes(1);
   });
 });

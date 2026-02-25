@@ -24,6 +24,9 @@ import type {
 
 const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
 const MAX_ERROR_DETAIL_LENGTH = 280;
+const DEBUG_AGENT_LOGS = ["1", "true", "yes", "on"].includes(
+  (process.env.HIVE_DEBUG_AGENT_LOGS ?? "").trim().toLowerCase(),
+);
 
 /** Gemini CLI writes informational/retry messages to stderr; suppress these from error events. */
 const GEMINI_STDERR_NOISE = [
@@ -230,7 +233,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           mediaType: images[i].mediaType,
           dataUrl: `/api/workspaces/${this.workspaceId}/sessions/${this.sessionId}/attachments/${s.filename}`,
         }));
-        this.emitUserMessage(content, msgOptions, urlImages);
+        this.emitUserMessage(content, urlImages);
         this.spawnCli(this.buildPromptWithImages(promptContent, saved.map((s) => s.path)), msgOptions);
       }).catch((err) => {
         this._status = "error";
@@ -238,12 +241,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         this.emit("error", err instanceof Error ? err : new Error(String(err)));
       });
     } else {
-      this.emitUserMessage(content, msgOptions);
+      this.emitUserMessage(content);
       this.spawnCli(promptContent, msgOptions);
     }
   }
 
-  private emitUserMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[]): void {
+  private emitUserMessage(content: string, images?: ImageAttachment[]): void {
     const userMsg: ChatMessage = {
       id: nanoid(12),
       sessionId: this.sessionId,
@@ -342,12 +345,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     const supportsBlockingTools = provider?.capabilities.blockingTools ?? false;
 
-    console.log(`[session] spawn ${command}`, {
-      provider: provider?.id ?? "test",
-      model: modelId || undefined,
-      msgOptions,
-      args: args.filter((a) => a !== content && !a.includes("You are")),
-    });
+    if (DEBUG_AGENT_LOGS) {
+      console.log(`[session] spawn ${command}`, {
+        provider: provider?.id ?? "test",
+        model: modelId || undefined,
+        msgOptions,
+        args: args.filter((a) => a !== content && !a.includes("You are")),
+      });
+    }
 
     this.parser = this.testCommand
       ? new StreamParser()
@@ -366,7 +371,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     this.parser.on("assistant", (data) => {
       const blockTypes = data.message.content.map((b) => b.type);
-      console.log("[session] assistant blocks:", blockTypes, JSON.stringify(data.message.content).slice(0, 500));
+      if (DEBUG_AGENT_LOGS) {
+        console.log("[session] assistant blocks:", blockTypes, JSON.stringify(data.message.content).slice(0, 500));
+      }
       for (const block of data.message.content) {
         switch (block.type) {
           case "text":
