@@ -1,16 +1,12 @@
 import { useRef } from "react";
-import { ArrowLeft, Bell, CircleUser, PanelLeftClose, Paintbrush, Wifi, GitFork } from "lucide-react";
+import { ArrowLeft, Bell, CircleUser, Paintbrush, Wifi, GitFork } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { useProjects } from "@/hooks/useProjects";
 
-interface SettingsSidebarProps {
-  onCollapse?: () => void;
-}
-
-export default function SettingsSidebar({ onCollapse }: SettingsSidebarProps) {
+export default function SettingsSidebar() {
   const { projects } = useProjects();
   const navigate = useNavigate();
   const location = useLocation();
@@ -32,18 +28,6 @@ export default function SettingsSidebar({ onCollapse }: SettingsSidebarProps) {
           <ArrowLeft className="h-3.5 w-3.5" />
           Back
         </button>
-        <div className="flex-1" />
-        {onCollapse && (
-          <button
-            type="button"
-            onClick={onCollapse}
-            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
-            aria-label="Hide sidebar"
-            title="Hide sidebar (⌘B)"
-          >
-            <PanelLeftClose className="h-4 w-4" />
-          </button>
-        )}
       </div>
 
       <ScrollArea className="flex-1">
