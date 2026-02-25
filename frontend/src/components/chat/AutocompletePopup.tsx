@@ -84,16 +84,17 @@ export function AutocompletePopup({
               {SOURCE_LABELS[source] ?? source}
             </div>
           )}
+          <div className="p-1">
           {groupItems.map(({ item, globalIndex }) => (
             <button
               key={`${item.source}-${item.name}`}
               ref={globalIndex === selectedIndex ? selectedRef : undefined}
               type="button"
               className={cn(
-                "flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm transition-colors",
+                "flex w-full items-baseline gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors",
                 globalIndex === selectedIndex
-                  ? "bg-accent text-accent-foreground"
-                  : "text-foreground hover:bg-accent/50",
+                  ? "bg-primary/10 text-primary"
+                  : "text-foreground hover:bg-white/[0.04]",
               )}
               onMouseDown={(e) => {
                 e.preventDefault(); // Prevent textarea blur
@@ -103,12 +104,16 @@ export function AutocompletePopup({
             >
               <span className="shrink-0 font-medium">{item.label}</span>
               {item.description && (
-                <span className="truncate text-xs text-muted-foreground">
+                <span className={cn(
+                  "truncate text-xs",
+                  globalIndex === selectedIndex ? "text-primary/60" : "text-muted-foreground",
+                )}>
                   {item.description}
                 </span>
               )}
             </button>
           ))}
+          </div>
         </div>
       ))}
     </div>
