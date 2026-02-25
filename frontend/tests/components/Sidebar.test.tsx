@@ -120,6 +120,12 @@ function renderSidebar(
   );
 }
 
+function findSidebarUnreadDot(container: HTMLElement) {
+  return container.querySelector(
+    "span[class*='h-1.5'][class*='w-1.5'][class*='rounded-full'][class*='bg-primary']",
+  );
+}
+
 describe("Sidebar", () => {
   const projects: Project[] = [
     {
@@ -313,6 +319,86 @@ describe("Sidebar", () => {
     // Orbit loader should appear only once (for w1)
     const orbitLoaders = screen.getAllByRole("img", { name: "Agent thinking" });
     expect(orbitLoaders).toHaveLength(1);
+  });
+
+  it("shows unread dot for inactive workspace after done event", async () => {
+    const multiWsProjects: Project[] = [
+      {
+        id: "p1",
+        name: "Alpha",
+        url: "https://github.com/acme/alpha.git",
+        createdAt: "2026-02-11T00:00:00.000Z",
+        workspaces: [
+          { id: "w1", name: "tokyo", branch: "workspace/tokyo", status: "idle", createdAt: "2026-02-11T00:00:00.000Z" },
+          { id: "w2", name: "paris", branch: "workspace/paris", status: "idle", createdAt: "2026-02-11T00:00:00.000Z" },
+        ],
+      },
+    ];
+
+    const { __wsMock } = await getWsMock();
+    renderSidebar("/workspaces/w1", multiWsProjects);
+
+    await screen.findByText("workspace/paris");
+
+    act(() => {
+      __wsMock.emit("w2", { type: "done", sessionId: "sess-2" });
+    });
+
+    const inactiveLink = screen.getByRole("link", { name: /workspace\/paris/i });
+    expect(findSidebarUnreadDot(inactiveLink)).toBeInTheDocument();
+    expect(inactiveLink.querySelector("svg.lucide-git-branch")).toBeNull();
+  });
+
+  it("does not show unread dot for active workspace", async () => {
+    const { __wsMock } = await getWsMock();
+    renderSidebar("/workspaces/w1", projects);
+
+    await screen.findByText("workspace/tokyo");
+
+    act(() => {
+      __wsMock.emit("w1", { type: "done", sessionId: "sess-1" });
+    });
+
+    const activeLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
+    expect(findSidebarUnreadDot(activeLink)).toBeNull();
+  });
+
+  it("prioritizes streaming indicator over unread dot and restores dot when idle again", async () => {
+    const multiWsProjects: Project[] = [
+      {
+        id: "p1",
+        name: "Alpha",
+        url: "https://github.com/acme/alpha.git",
+        createdAt: "2026-02-11T00:00:00.000Z",
+        workspaces: [
+          { id: "w1", name: "tokyo", branch: "workspace/tokyo", status: "idle", createdAt: "2026-02-11T00:00:00.000Z" },
+          { id: "w2", name: "paris", branch: "workspace/paris", status: "idle", createdAt: "2026-02-11T00:00:00.000Z" },
+        ],
+      },
+    ];
+
+    const { __wsMock } = await getWsMock();
+    renderSidebar("/workspaces/w1", multiWsProjects);
+
+    await screen.findByText("workspace/paris");
+    const inactiveLink = screen.getByRole("link", { name: /workspace\/paris/i });
+
+    act(() => {
+      __wsMock.emit("w2", { type: "done", sessionId: "sess-2" });
+    });
+    expect(findSidebarUnreadDot(inactiveLink)).toBeInTheDocument();
+
+    act(() => {
+      __wsMock.emit("w2", { type: "status", status: "busy", sessionId: "sess-2", streaming: true });
+    });
+    expect(inactiveLink.querySelector("[aria-label='Agent thinking']")).toBeInTheDocument();
+    expect(findSidebarUnreadDot(inactiveLink)).toBeNull();
+
+    act(() => {
+      __wsMock.emit("w2", { type: "status", status: "busy", sessionId: "sess-2", streaming: false });
+    });
+    expect(inactiveLink.querySelector("[aria-label='Agent thinking']")).not.toBeInTheDocument();
+    expect(findSidebarUnreadDot(inactiveLink)).toBeInTheDocument();
   });
 
   it("displays live branch name from branch_info WS message", async () => {

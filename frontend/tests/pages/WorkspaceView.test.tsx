@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   useConversation: vi.fn(),
   useSessions: vi.fn(),
-  useWorkspaceLiveData: vi.fn().mockReturnValue({}),
+  useWorkspaceLiveData: vi.fn().mockReturnValue({ liveData: {}, clearUnread: vi.fn() }),
   sendMessage: vi.fn(),
   stopStreaming: vi.fn(),
   clearChat: vi.fn(),
@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   openExternal: vi.fn(),
   useTerminalApps: vi.fn().mockReturnValue([]),
   openTerminalSsh: vi.fn(),
+  captureConversationTabsProps: vi.fn(),
 }));
 
 vi.mock("@/hooks/useApi", () => ({
@@ -139,30 +140,31 @@ vi.mock("@/components/chat/QuestionPanel", () => ({
 }));
 
 vi.mock("@/components/ConversationTabs", () => ({
-  ConversationTabs: ({
-    onDeleteSession,
-    onCreateSession,
-    onActivateSession,
-  }: {
+  ConversationTabs: (props: {
     onDeleteSession: (id: string) => void;
     onCreateSession: () => void;
     onActivateSession: (id: string) => void;
-  }) => (
-    <div data-testid="conversation-tabs">
-      <button type="button" data-testid="delete-active-btn" onClick={() => onDeleteSession("sess-active")}>
-        delete active
-      </button>
-      <button type="button" data-testid="delete-inactive-btn" onClick={() => onDeleteSession("sess-inactive")}>
-        delete inactive
-      </button>
-      <button type="button" data-testid="create-session-btn" onClick={onCreateSession}>
-        create session
-      </button>
-      <button type="button" data-testid="activate-session-btn" onClick={() => onActivateSession("sess-2")}>
-        activate session
-      </button>
-    </div>
-  ),
+    unreadSessions?: Record<string, boolean>;
+  }) => {
+    const { onDeleteSession, onCreateSession, onActivateSession } = props;
+    mocks.captureConversationTabsProps(props);
+    return (
+      <div data-testid="conversation-tabs">
+        <button type="button" data-testid="delete-active-btn" onClick={() => onDeleteSession("sess-active")}>
+          delete active
+        </button>
+        <button type="button" data-testid="delete-inactive-btn" onClick={() => onDeleteSession("sess-inactive")}>
+          delete inactive
+        </button>
+        <button type="button" data-testid="create-session-btn" onClick={onCreateSession}>
+          create session
+        </button>
+        <button type="button" data-testid="activate-session-btn" onClick={() => onActivateSession("sess-2")}>
+          activate session
+        </button>
+      </div>
+    );
+  },
 }));
 
 vi.mock("@/components/diff/GitDiffModal", () => ({
@@ -276,7 +278,8 @@ describe("WorkspaceView behavior", () => {
     mocks.refreshSessions.mockReset();
     mocks.clearCachedData.mockReset();
     mocks.useWorkspaceLiveData.mockReset();
-    mocks.useWorkspaceLiveData.mockReturnValue({});
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread: vi.fn() });
+    mocks.captureConversationTabsProps.mockReset();
     mocks.openExternal.mockReset();
 
     mocks.useScripts.mockReturnValue({
@@ -575,9 +578,96 @@ describe("WorkspaceView behavior", () => {
     expect(mocks.switchSession).toHaveBeenCalledWith("sess-2");
   });
 
+  it("clears workspace unread state on mount and when switching workspace route", async () => {
+    const user = userEvent.setup();
+    const clearUnread = vi.fn();
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+    expect(clearUnread).toHaveBeenCalledWith("ws-1");
+
+    await user.click(screen.getByRole("button", { name: "go ws-2" }));
+    await screen.findByText("kyoto");
+    expect(clearUnread).toHaveBeenCalledWith("ws-2");
+  });
+
+  it("clears unread state for target session when activating a different session", async () => {
+    const user = userEvent.setup();
+    const clearUnread = vi.fn();
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByTestId("activate-session-btn"));
+    expect(clearUnread).toHaveBeenCalledWith("ws-1", "sess-2");
+  });
+
+  it("does not clear target session unread when clicking the already active session", async () => {
+    const user = userEvent.setup();
+    const clearUnread = vi.fn();
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread });
+    mocks.useConversation.mockReturnValue({
+      messages: [],
+      isStreaming: false,
+      streamingStartedAt: null,
+      workspaceStatus: "idle",
+      currentStreamingText: "",
+      currentThinking: "",
+      activeToolCalls: [],
+      pendingToolInputs: [],
+      connectionStatus: "connected",
+      error: null,
+      sessionId: "sess-2",
+      sendMessage: mocks.sendMessage,
+      stopStreaming: mocks.stopStreaming,
+      clearChat: mocks.clearChat,
+      switchSession: mocks.switchSession,
+      answerQuestion: mocks.answerQuestion,
+      batchAnswerQuestions: mocks.batchAnswerQuestions,
+      approvePlan: mocks.approvePlan,
+      rejectToolInput: mocks.rejectToolInput,
+      dismissPlan: mocks.dismissPlan,
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByTestId("activate-session-btn"));
+    expect(mocks.switchSession).not.toHaveBeenCalled();
+    expect(
+      clearUnread.mock.calls.some((call) => call[0] === "ws-1" && call[1] === "sess-2"),
+    ).toBe(false);
+  });
+
+  it("passes unreadSessions from liveData to ConversationTabs", async () => {
+    const unreadSessions = { "sess-2": true, "sess-3": true };
+    mocks.useWorkspaceLiveData.mockReturnValue({
+      liveData: {
+        "ws-1": { unreadSessions },
+      },
+      clearUnread: vi.fn(),
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await waitFor(() => {
+      const lastCall =
+        mocks.captureConversationTabsProps.mock.calls[
+          mocks.captureConversationTabsProps.mock.calls.length - 1
+        ]?.[0] as { unreadSessions?: Record<string, boolean> } | undefined;
+      expect(lastCall?.unreadSessions).toEqual(unreadSessions);
+    });
+  });
+
   it("displays live branch name from useWorkspaceLiveData when available", async () => {
     mocks.useWorkspaceLiveData.mockReturnValue({
-      "ws-1": { branch: "feature/live-branch", branchInfo: { name: "feature/live-branch", lastSyncedAt: "2026-02-13T00:00:00.000Z" } },
+      liveData: {
+        "ws-1": { branch: "feature/live-branch", branchInfo: { name: "feature/live-branch", lastSyncedAt: "2026-02-13T00:00:00.000Z" } },
+      },
+      clearUnread: vi.fn(),
     });
 
     renderWorkspace();
@@ -833,7 +923,7 @@ describe("WorkspaceView session delete behavior", () => {
     mocks.refreshSessions.mockReset();
     mocks.clearCachedData.mockReset();
     mocks.useWorkspaceLiveData.mockReset();
-    mocks.useWorkspaceLiveData.mockReturnValue({});
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread: vi.fn() });
 
     mocks.useScripts.mockReturnValue({
       config: null,
@@ -1045,7 +1135,7 @@ describe("WorkspaceView sidebar split resize", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.useWorkspaceLiveData.mockReturnValue({});
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread: vi.fn() });
     localStorage.removeItem("sidebar-split");
   });
 
@@ -1294,7 +1384,7 @@ describe("WorkspaceView VS Code SSH host resolution", () => {
       disconnectOutput: mocks.disconnectScriptOutput,
     });
 
-    mocks.useWorkspaceLiveData.mockReturnValue({});
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread: vi.fn() });
   }
 
   beforeEach(() => {
@@ -1547,7 +1637,7 @@ describe("WorkspaceView dropdown terminal interactions", () => {
       disconnectOutput: mocks.disconnectScriptOutput,
     });
 
-    mocks.useWorkspaceLiveData.mockReturnValue({});
+    mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread: vi.fn() });
   }
 
   beforeEach(() => {

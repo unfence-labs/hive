@@ -17,6 +17,9 @@ final class HubStatusMonitor {
         didSet { persistCompleted() }
     }
 
+    /// Workspace currently visible in ChatView (suppresses unread badge).
+    var viewingWorkspaceId: String?
+
     /// Called whenever the streaming workspace set changes.
     var onStreamingChange: ((Set<String>) -> Void)?
 
@@ -184,6 +187,7 @@ final class HubStatusMonitor {
     }
 
     fileprivate func didReceiveDone(for workspaceId: String) {
+        guard workspaceId != viewingWorkspaceId else { return }
         completedWorkspaces.insert(workspaceId)
     }
 
