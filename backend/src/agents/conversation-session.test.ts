@@ -1490,4 +1490,186 @@ describe("ConversationSession", () => {
       { planMode: true },
     );
   });
+
+  // ── Token usage capture & forwarding ──────────────────────────────────
+
+  it("captures inputTokens/outputTokens from assistant usage and includes them in done event", async () => {
+    const session = createSession({ sessionId: "tok-done" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi");
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-tok",
+          role: "assistant",
+          content: [{ type: "text", text: "Hello" }],
+          usage: { input_tokens: 1500, output_tokens: 200 },
+        },
+      }) + "\n",
+    );
+    mockProc._stdout.push(resultLine("sess-123"));
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const doneMsgs = messages.filter((m) => m.type === "done");
+    expect(doneMsgs).toHaveLength(1);
+    expect(doneMsgs[0]).toMatchObject({
+      type: "done",
+      sessionId: "tok-done",
+      inputTokens: 1500,
+      outputTokens: 200,
+    });
+  });
+
+  it("includes cache tokens in inputTokens total", async () => {
+    const session = createSession({ sessionId: "tok-cache" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi");
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-cache",
+          role: "assistant",
+          content: [{ type: "text", text: "Hello" }],
+          usage: {
+            input_tokens: 1000,
+            output_tokens: 100,
+            cache_creation_input_tokens: 500,
+            cache_read_input_tokens: 300,
+          },
+        },
+      }) + "\n",
+    );
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const doneMsgs = messages.filter((m) => m.type === "done");
+    expect(doneMsgs[0]).toMatchObject({
+      inputTokens: 1800, // 1000 + 500 + 300
+      outputTokens: 100,
+    });
+  });
+
+  it("captures token usage from result event when assistant has no usage", async () => {
+    const session = createSession({ sessionId: "tok-result" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi");
+    mockProc._stdout.push(assistantLine("Reply"));
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "result",
+        session_id: "s1",
+        duration_ms: 500,
+        usage: { input_tokens: 2000, output_tokens: 150 },
+      }) + "\n",
+    );
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const doneMsgs = messages.filter((m) => m.type === "done");
+    expect(doneMsgs[0]).toMatchObject({
+      inputTokens: 2000,
+      outputTokens: 150,
+      durationMs: 500,
+    });
+  });
+
+  it("result event usage overrides earlier assistant usage (last write wins)", async () => {
+    const session = createSession({ sessionId: "tok-override" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi");
+    // Assistant event with usage
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-ov",
+          role: "assistant",
+          content: [{ type: "text", text: "Hello" }],
+          usage: { input_tokens: 1000, output_tokens: 50 },
+        },
+      }) + "\n",
+    );
+    // Result event with different usage
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "result",
+        session_id: "s1",
+        usage: { input_tokens: 3000, output_tokens: 250 },
+      }) + "\n",
+    );
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const doneMsgs = messages.filter((m) => m.type === "done");
+    expect(doneMsgs[0]).toMatchObject({
+      inputTokens: 3000,
+      outputTokens: 250,
+    });
+  });
+
+  it("persists inputTokens/outputTokens in assistant message", async () => {
+    const session = createSession({ sessionId: "tok-persist" });
+
+    session.sendMessage("Hi");
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-tp",
+          role: "assistant",
+          content: [{ type: "text", text: "Hi back" }],
+          usage: { input_tokens: 5000, output_tokens: 400 },
+        },
+      }) + "\n",
+    );
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const messagesPath = join(tempDir, "sessions", "tok-persist", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+    expect(lines.length).toBe(2);
+
+    const assistantMsg = JSON.parse(lines[1]);
+    expect(assistantMsg.inputTokens).toBe(5000);
+    expect(assistantMsg.outputTokens).toBe(400);
+  });
+
+  it("done event has no token fields when no usage data is available", async () => {
+    const session = createSession({ sessionId: "tok-none" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi");
+    mockProc._stdout.push(assistantLine("Reply"));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const doneMsgs = messages.filter((m) => m.type === "done");
+    expect(doneMsgs).toHaveLength(1);
+    if (doneMsgs[0].type === "done") {
+      expect(doneMsgs[0].inputTokens).toBeUndefined();
+      expect(doneMsgs[0].outputTokens).toBeUndefined();
+    }
+  });
 });
