@@ -485,6 +485,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     });
 
     this.parser.on("result", (data) => {
+      console.log("[session] result event keys:", Object.keys(data), "cost_usd:", data.cost_usd, "usage:", JSON.stringify(data.usage));
       // Capture session/thread ID from first result for continuity
       if (data.session_id && !this.cliSessionId) {
         this.cliSessionId = data.session_id;
