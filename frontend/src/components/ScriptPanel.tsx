@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { PlayIcon, SquareIcon, RotateCcwIcon, CheckCircle2Icon } from "lucide-react";
+import { PlayIcon, SquareIcon, RotateCcwIcon, CheckCircle2Icon, TerminalSquareIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { WaveIndicator } from "@/components/WaveIndicator";
@@ -14,6 +14,8 @@ interface ScriptPanelProps {
   status: Record<string, ScriptStatusInfo>;
   onStart: (type: string) => Promise<void> | void;
   onStop: (type: string) => Promise<void> | void;
+  onStartTerminal: () => void;
+  onStopTerminal: () => void;
   onConnectOutput: (type: string, term: XTerm) => void;
   onDisconnectOutput: () => void;
 }
@@ -22,6 +24,7 @@ interface TabInfo {
   key: string;
   label: string;
   isSetup: boolean;
+  isTerminal: boolean;
 }
 
 function StatusIndicator({ status, isSetup }: { status: ScriptStatusInfo; isSetup: boolean }) {
@@ -37,13 +40,15 @@ function StatusIndicator({ status, isSetup }: { status: ScriptStatusInfo; isSetu
 function buildTabs(config: HiveConfig | null): TabInfo[] {
   const tabs: TabInfo[] = [];
   if (config?.scripts?.setup) {
-    tabs.push({ key: "setup", label: "Setup", isSetup: true });
+    tabs.push({ key: "setup", label: "Setup", isSetup: true, isTerminal: false });
   }
   if (config?.scripts?.run) {
     for (const name of Object.keys(config.scripts.run)) {
-      tabs.push({ key: name, label: name.charAt(0).toUpperCase() + name.slice(1), isSetup: false });
+      tabs.push({ key: name, label: name.charAt(0).toUpperCase() + name.slice(1), isSetup: false, isTerminal: false });
     }
   }
+  // Always add terminal tab
+  tabs.push({ key: "terminal", label: "Terminal", isSetup: false, isTerminal: true });
   return tabs;
 }
 
@@ -52,17 +57,20 @@ export default function ScriptPanel({
   status,
   onStart,
   onStop,
+  onStartTerminal,
+  onStopTerminal,
   onConnectOutput,
   onDisconnectOutput,
 }: ScriptPanelProps) {
   const tabs = buildTabs(config);
-  const hasScripts = tabs.length > 0;
 
-  const [activeTab, setActiveTab] = useState<string>(tabs[0]?.key ?? "");
+  const [activeTab, setActiveTab] = useState<string>(tabs[0]?.key ?? "terminal");
 
   // If the active tab no longer exists in config, fall back to first
-  const effectiveTab = tabs.find((t) => t.key === activeTab)?.key ?? tabs[0]?.key ?? "";
-  const isSetupTab = tabs.find((t) => t.key === effectiveTab)?.isSetup ?? false;
+  const effectiveTab = tabs.find((t) => t.key === activeTab)?.key ?? tabs[0]?.key ?? "terminal";
+  const tabInfo = tabs.find((t) => t.key === effectiveTab);
+  const isSetupTab = tabInfo?.isSetup ?? false;
+  const isTerminalTab = tabInfo?.isTerminal ?? false;
   const currentStatus: ScriptStatusInfo = status[effectiveTab] ?? { state: "idle" };
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -74,6 +82,12 @@ export default function ScriptPanel({
   const [runGeneration, setRunGeneration] = useState(0);
 
   const shouldShowTerminal = currentStatus.state !== "idle";
+  const actionLabel = isSetupTab ? "Run setup" : isTerminalTab ? "Start terminal" : "Run";
+  const idleDescription = isSetupTab
+    ? "Install dependencies"
+    : isTerminalTab
+      ? "Open an interactive shell"
+      : "Start this script";
 
   const initTerminal = useCallback(() => {
     const el = containerRef.current;
@@ -152,34 +166,21 @@ export default function ScriptPanel({
 
   const handleAction = async () => {
     if (currentStatus.state === "running") {
-      onStop(effectiveTab);
+      if (isTerminalTab) {
+        onStopTerminal();
+      } else {
+        onStop(effectiveTab);
+      }
     } else {
       destroyTerminal();
-      await onStart(effectiveTab);
+      if (isTerminalTab) {
+        onStartTerminal();
+      } else {
+        await onStart(effectiveTab);
+      }
       setRunGeneration((g) => g + 1);
     }
   };
-
-  if (!hasScripts) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex h-9 items-center border-t border-border/50 px-3">
-          <span className="text-xs uppercase tracking-wide text-muted-foreground">Scripts</span>
-        </div>
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-muted-foreground">
-          <p className="text-xs">
-            Add a <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">hive.json</code> to your repo to define setup &amp; run scripts.
-          </p>
-          <pre className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-left text-[11px] leading-relaxed">{`{
-  "scripts": {
-    "setup": "npm install",
-    "run": { "dev": "npm run dev" }
-  }
-}`}</pre>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -191,6 +192,7 @@ export default function ScriptPanel({
             <button
               key={tab.key}
               type="button"
+              aria-label={tab.label}
               className={cn(
                 "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
                 effectiveTab === tab.key
@@ -199,8 +201,17 @@ export default function ScriptPanel({
               )}
               onClick={() => setActiveTab(tab.key)}
             >
-              <StatusIndicator status={tabStatus} isSetup={tab.isSetup} />
-              {tab.label}
+              {tab.isTerminal ? (
+                <>
+                  {tabStatus.state === "running" && <WaveIndicator />}
+                  <TerminalSquareIcon className="size-3" />
+                </>
+              ) : (
+                <>
+                  <StatusIndicator status={tabStatus} isSetup={tab.isSetup} />
+                  {tab.label}
+                </>
+              )}
             </button>
           );
         })}
@@ -216,7 +227,7 @@ export default function ScriptPanel({
               <RotateCcwIcon className="size-3" />
             </Button>
           ) : (
-            <Button variant="ghost" size="icon-xs" onClick={handleAction} title={isSetupTab ? "Run setup" : "Run"}>
+            <Button variant="ghost" size="icon-xs" onClick={handleAction} title={actionLabel}>
               <PlayIcon className="size-3" />
             </Button>
           )}
@@ -227,9 +238,9 @@ export default function ScriptPanel({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {shouldShowTerminal ? (
           <>
-            <div ref={containerRef} className="h-full w-full bg-background" />
+            <div ref={containerRef} className="h-full w-full px-3" style={{ backgroundColor: "#09090f" }} />
             {/* Port badge */}
-            {!isSetupTab && config?.port && currentStatus.state === "running" && (
+            {!isSetupTab && !isTerminalTab && config?.port && currentStatus.state === "running" && (
               <div className="absolute bottom-2 right-2">
                 <Badge variant="secondary" className="text-[10px]">
                   Port {config.port}
@@ -239,17 +250,25 @@ export default function ScriptPanel({
           </>
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-3">
-            <PlayIcon className="size-8 text-muted-foreground/30" />
+            {isTerminalTab ? (
+              <TerminalSquareIcon className="size-8 text-muted-foreground/30" />
+            ) : (
+              <PlayIcon className="size-8 text-muted-foreground/30" />
+            )}
             <Button
               variant="outline"
               size="sm"
               onClick={handleAction}
             >
-              <PlayIcon className="size-3" />
-              {isSetupTab ? "Run setup" : "Run"}
+              {isTerminalTab ? (
+                <TerminalSquareIcon className="size-3" />
+              ) : (
+                <PlayIcon className="size-3" />
+              )}
+              {actionLabel}
             </Button>
             <p className="text-xs text-muted-foreground/60">
-              {isSetupTab ? "Install dependencies" : "Start this script"}
+              {idleDescription}
             </p>
           </div>
         )}

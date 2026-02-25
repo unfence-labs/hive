@@ -289,6 +289,90 @@ describe("script routes", () => {
     expect(res.json().error).toContain('Script "setup" is already running');
   });
 
+  it("POST /api/workspaces/:wsId/terminal/start returns 404 for unknown workspace", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/workspaces/missing/terminal/start",
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: "Workspace not found" });
+  });
+
+  it("POST /api/workspaces/:wsId/terminal/start starts interactive terminal shell", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${WS_ID}/terminal/start`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ started: true });
+    expect(mocks.startScript).toHaveBeenCalledWith(WS_ID, "terminal", undefined, wsPath);
+    expect(mocks.broadcastToWorkspace).toHaveBeenCalledWith(WS_ID, {
+      type: "script_status",
+      scriptType: "terminal",
+      state: "running",
+    });
+  });
+
+  it("POST /api/workspaces/:wsId/terminal/start registers exit listener and broadcasts terminal exit state", async () => {
+    const exitListeners = new Map<string, (code: number) => void>();
+    mocks.startScript.mockReturnValue({ exitListeners });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${WS_ID}/terminal/start`,
+    });
+
+    expect(exitListeners.size).toBe(1);
+    const listener = [...exitListeners.values()][0];
+
+    mocks.broadcastToWorkspace.mockClear();
+    listener(0);
+    expect(mocks.broadcastToWorkspace).toHaveBeenCalledWith(WS_ID, {
+      type: "script_status",
+      scriptType: "terminal",
+      state: "done",
+      exitCode: 0,
+    });
+
+    expect(exitListeners.size).toBe(0);
+  });
+
+  it("POST /api/workspaces/:wsId/terminal/start broadcasts terminal error on non-zero exit", async () => {
+    const exitListeners = new Map<string, (code: number) => void>();
+    mocks.startScript.mockReturnValue({ exitListeners });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${WS_ID}/terminal/start`,
+    });
+
+    const listener = [...exitListeners.values()][0];
+    mocks.broadcastToWorkspace.mockClear();
+    listener(9);
+    expect(mocks.broadcastToWorkspace).toHaveBeenCalledWith(WS_ID, {
+      type: "script_status",
+      scriptType: "terminal",
+      state: "error",
+      exitCode: 9,
+    });
+  });
+
+  it("POST /api/workspaces/:wsId/terminal/start maps runner errors to 409", async () => {
+    mocks.startScript.mockImplementation(() => {
+      throw new Error("Terminal already running");
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${WS_ID}/terminal/start`,
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toContain("Terminal already running");
+  });
+
   it("POST /api/workspaces/:wsId/scripts/:type/stop returns 409 when no script is running", async () => {
     mocks.stopScript.mockReturnValue(false);
 
@@ -326,6 +410,35 @@ describe("script routes", () => {
       scriptType: "backend",
       state: "idle",
     });
+  });
+
+  it("POST /api/workspaces/:wsId/terminal/stop stops terminal and broadcasts idle", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${WS_ID}/terminal/stop`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ stopped: true });
+    expect(mocks.stopScript).toHaveBeenCalledWith(WS_ID, "terminal");
+    expect(mocks.broadcastToWorkspace).toHaveBeenCalledWith(WS_ID, {
+      type: "script_status",
+      scriptType: "terminal",
+      state: "idle",
+    });
+  });
+
+  it("POST /api/workspaces/:wsId/terminal/stop returns 409 when terminal is not running", async () => {
+    mocks.stopScript.mockReturnValue(false);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${WS_ID}/terminal/stop`,
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: "No running terminal to stop" });
+    expect(mocks.broadcastToWorkspace).not.toHaveBeenCalled();
   });
 
   it("broadcasts script_status idle on stop", async () => {

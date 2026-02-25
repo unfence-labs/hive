@@ -25,6 +25,31 @@ export async function scriptRoutes(app: FastifyInstance, dataDir?: string) {
     };
   }
 
+  function startAndBroadcast(
+    wsId: string,
+    scriptType: string,
+    command: string | undefined,
+    wsPath: string,
+  ) {
+    const proc = startScript(wsId, scriptType, command, wsPath);
+    broadcastToWorkspace(wsId, {
+      type: "script_status",
+      scriptType,
+      state: "running",
+    });
+
+    const listenerId = `broadcast-${Date.now()}`;
+    proc.exitListeners.set(listenerId, (code) => {
+      broadcastToWorkspace(wsId, {
+        type: "script_status",
+        scriptType,
+        state: code === 0 ? "done" : "error",
+        exitCode: code,
+      });
+      proc.exitListeners.delete(listenerId);
+    });
+  }
+
   // GET /api/workspaces/:wsId/scripts — config + status
   app.get<{ Params: { wsId: string } }>(
     "/api/workspaces/:wsId/scripts",
@@ -60,23 +85,7 @@ export async function scriptRoutes(app: FastifyInstance, dataDir?: string) {
       }
 
       try {
-        const proc = startScript(req.params.wsId, scriptType, command, resolved.wsPath);
-        broadcastToWorkspace(req.params.wsId, {
-          type: "script_status",
-          scriptType,
-          state: "running",
-        });
-        // Broadcast exit status when the process finishes
-        const listenerId = `broadcast-${Date.now()}`;
-        proc.exitListeners.set(listenerId, (code) => {
-          broadcastToWorkspace(req.params.wsId, {
-            type: "script_status",
-            scriptType,
-            state: code === 0 ? "done" : "error",
-            exitCode: code,
-          });
-          proc.exitListeners.delete(listenerId);
-        });
+        startAndBroadcast(req.params.wsId, scriptType, command, resolved.wsPath);
         return reply.send({ started: true });
       } catch (err: unknown) {
         return reply.status(409).send({ error: errorMessage(err, "Failed to start script") });
@@ -98,6 +107,43 @@ export async function scriptRoutes(app: FastifyInstance, dataDir?: string) {
       broadcastToWorkspace(req.params.wsId, {
         type: "script_status",
         scriptType,
+        state: "idle",
+      });
+
+      return reply.send({ stopped: true });
+    },
+  );
+
+  // POST /api/workspaces/:wsId/terminal/start — interactive shell
+  app.post<{ Params: { wsId: string } }>(
+    "/api/workspaces/:wsId/terminal/start",
+    async (req, reply) => {
+      const { wsId } = req.params;
+      const resolved = await resolveWsPath(wsId);
+      if (!resolved) return reply.status(404).send({ error: "Workspace not found" });
+
+      try {
+        startAndBroadcast(wsId, "terminal", undefined, resolved.wsPath);
+        return reply.send({ started: true });
+      } catch (err: unknown) {
+        return reply.status(409).send({ error: errorMessage(err, "Failed to start terminal") });
+      }
+    },
+  );
+
+  // POST /api/workspaces/:wsId/terminal/stop
+  app.post<{ Params: { wsId: string } }>(
+    "/api/workspaces/:wsId/terminal/stop",
+    async (req, reply) => {
+      const { wsId } = req.params;
+      const stopped = stopScript(wsId, "terminal");
+      if (!stopped) {
+        return reply.status(409).send({ error: "No running terminal to stop" });
+      }
+
+      broadcastToWorkspace(wsId, {
+        type: "script_status",
+        scriptType: "terminal",
         state: "idle",
       });
 

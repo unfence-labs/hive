@@ -258,6 +258,8 @@ export default function WorkspaceView() {
     status: scriptsStatus,
     startScript,
     stopScript,
+    startTerminal,
+    stopTerminal,
     connectOutput: connectScriptOutput,
     disconnectOutput: disconnectScriptOutput,
   } = useScripts(wsId);
@@ -630,6 +632,8 @@ export default function WorkspaceView() {
               status={scriptsStatus}
               onStart={startScript}
               onStop={stopScript}
+              onStartTerminal={startTerminal}
+              onStopTerminal={stopTerminal}
               onConnectOutput={connectScriptOutput}
               onDisconnectOutput={disconnectScriptOutput}
             />
