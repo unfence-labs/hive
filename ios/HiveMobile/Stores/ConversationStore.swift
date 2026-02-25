@@ -141,9 +141,9 @@ final class ConversationStore {
                 toolName: toolName, toolUseId: toolUseId, input: input
             ))
 
-        case .done(let sid, let costUsd, let durationMs, let inputTokens, let outputTokens):
+        case .done(let sid, let durationMs, let inputTokens, let outputTokens):
             finalizeMessage(sessionId: sid, durationMs: durationMs, cancelled: false,
-                            costUsd: costUsd, inputTokens: inputTokens, outputTokens: outputTokens)
+                            inputTokens: inputTokens, outputTokens: outputTokens)
             onTurnCompleted?(sid)
 
         case .cancelled(let sid):
@@ -305,7 +305,7 @@ final class ConversationStore {
     }
 
     private func finalizeMessage(sessionId sid: String, durationMs: Int?, cancelled: Bool,
-                                 costUsd: Double? = nil, inputTokens: Int? = nil, outputTokens: Int? = nil) {
+                                 inputTokens: Int? = nil, outputTokens: Int? = nil) {
         guard let stream = sessionStreams[sid] else { return }
 
         let isActive = sid == sessionId
@@ -324,7 +324,6 @@ final class ConversationStore {
                     timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
                     cancelled: cancelled ? true : nil,
                     durationMs: durationMs,
-                    costUsd: costUsd,
                     inputTokens: inputTokens,
                     outputTokens: outputTokens
                 )

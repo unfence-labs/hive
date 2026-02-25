@@ -5,18 +5,16 @@ import SwiftUI
 struct ContextUsageData {
     let inputTokens: Int?
     let contextWindow: Int?
-    let sessionCostUsd: Double?
 
     var usageFraction: Double? {
         guard let input = inputTokens, let window = contextWindow, window > 0 else { return nil }
         return min(1.0, Double(input) / Double(window))
     }
 
-    var isEmpty: Bool { usageFraction == nil && sessionCostUsd == nil }
+    var isEmpty: Bool { usageFraction == nil }
 
     static func derive(from messages: [ChatMessage], contextWindow: Int?) -> ContextUsageData {
         var lastInputTokens: Int?
-        var totalCost: Double?
 
         for msg in messages.reversed() {
             if msg.role == .assistant, let tokens = msg.inputTokens, lastInputTokens == nil {
@@ -25,16 +23,9 @@ struct ContextUsageData {
             }
         }
 
-        for msg in messages where msg.role == .assistant {
-            if let cost = msg.costUsd {
-                totalCost = (totalCost ?? 0) + cost
-            }
-        }
-
         return ContextUsageData(
             inputTokens: lastInputTokens,
-            contextWindow: contextWindow,
-            sessionCostUsd: totalCost
+            contextWindow: contextWindow
         )
     }
 }
@@ -60,34 +51,21 @@ struct ContextRingView: View {
         if let frac = usage.usageFraction {
             parts.append("\(Int(frac * 100))%")
         }
-        if let cost = usage.sessionCostUsd {
-            parts.append("\(formatCost(cost)) session total")
-        }
         return parts.joined(separator: " · ")
     }
 
     var body: some View {
         if !usage.isEmpty {
-            HStack(spacing: 4) {
-                if usage.usageFraction != nil {
-                    ZStack {
-                        Circle()
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 2)
-                        Circle()
-                            .trim(from: 0, to: fraction)
-                            .stroke(ringColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                    }
-                    .frame(width: 16, height: 16)
-                    .animation(.easeInOut(duration: 0.3), value: fraction)
-                }
-
-                if let cost = usage.sessionCostUsd {
-                    Text(formatCost(cost))
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
+            ZStack {
+                Circle()
+                    .stroke(Color.secondary.opacity(0.2), lineWidth: 2)
+                Circle()
+                    .trim(from: 0, to: fraction)
+                    .stroke(ringColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
             }
+            .frame(width: 16, height: 16)
+            .animation(.easeInOut(duration: 0.3), value: fraction)
             .help(tooltipText)
         }
     }
@@ -97,10 +75,5 @@ struct ContextRingView: View {
         if count < 100_000 { return String(format: "%.1fK", Double(count) / 1_000) }
         if count < 1_000_000 { return "\(count / 1_000)K" }
         return String(format: "%.1fM", Double(count) / 1_000_000)
-    }
-
-    private func formatCost(_ cost: Double) -> String {
-        if cost < 0.01 { return String(format: "$%.3f", cost) }
-        return String(format: "$%.2f", cost)
     }
 }

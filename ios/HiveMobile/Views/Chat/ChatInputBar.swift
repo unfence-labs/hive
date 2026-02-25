@@ -408,7 +408,7 @@ private extension ImageAttachment {
             lockedProvider: nil,
             capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true),
             onModelSelect: { _ in },
-            contextUsage: ContextUsageData(inputTokens: 62_000, contextWindow: 200_000, sessionCostUsd: 0.42),
+            contextUsage: ContextUsageData(inputTokens: 62_000, contextWindow: 200_000),
             onDraftAttachmentsChange: { _ in },
             onSend: { _ in }
         )
@@ -426,7 +426,7 @@ private extension ImageAttachment {
             lockedProvider: "claude",
             capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true),
             onModelSelect: { _ in },
-            contextUsage: ContextUsageData(inputTokens: 170_000, contextWindow: 200_000, sessionCostUsd: 1.23),
+            contextUsage: ContextUsageData(inputTokens: 170_000, contextWindow: 200_000),
             onDraftAttachmentsChange: { _ in },
             onSend: { _ in },
             onStop: {}

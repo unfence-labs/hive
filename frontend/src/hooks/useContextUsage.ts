@@ -10,8 +10,6 @@ export interface ContextUsageData {
   contextWindow: number | null;
   /** Usage as a fraction 0–1. null if no data. */
   usageFraction: number | null;
-  /** Cumulative session cost in USD. null if no cost data available. */
-  sessionCostUsd: number | null;
 }
 
 export function useContextUsage(
@@ -21,7 +19,6 @@ export function useContextUsage(
   return useMemo(() => {
     let lastInputTokens: number | null = null;
     let lastOutputTokens: number | null = null;
-    let totalCost: number | null = null;
 
     // Reverse-scan for last assistant message with token data
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -30,13 +27,6 @@ export function useContextUsage(
         lastInputTokens = msg.inputTokens;
         lastOutputTokens = msg.outputTokens ?? null;
         break;
-      }
-    }
-
-    // Sum costUsd across all assistant messages
-    for (const msg of messages) {
-      if (msg.role === "assistant" && msg.costUsd != null) {
-        totalCost = (totalCost ?? 0) + msg.costUsd;
       }
     }
 
@@ -51,7 +41,6 @@ export function useContextUsage(
       outputTokens: lastOutputTokens,
       contextWindow,
       usageFraction,
-      sessionCostUsd: totalCost,
     };
   }, [messages, selectedModel]);
 }

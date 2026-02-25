@@ -214,14 +214,13 @@ struct ChatMessage: Codable, Identifiable {
     let timestamp: String
     let cancelled: Bool?
     let durationMs: Int?
-    let costUsd: Double?
     let inputTokens: Int?
     let outputTokens: Int?
 
     init(id: String, sessionId: String, role: MessageRole, content: String,
          images: [ImageAttachment]?, toolCalls: [ToolCall]?, thinkingContent: String?,
          timestamp: String, cancelled: Bool?, durationMs: Int?,
-         costUsd: Double? = nil, inputTokens: Int? = nil, outputTokens: Int? = nil) {
+         inputTokens: Int? = nil, outputTokens: Int? = nil) {
         self.id = id
         self.sessionId = sessionId
         self.role = role
@@ -232,7 +231,6 @@ struct ChatMessage: Codable, Identifiable {
         self.timestamp = timestamp
         self.cancelled = cancelled
         self.durationMs = durationMs
-        self.costUsd = costUsd
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
     }
@@ -256,7 +254,6 @@ struct ChatMessage: Codable, Identifiable {
         } else {
             durationMs = nil
         }
-        costUsd = try container.decodeIfPresent(Double.self, forKey: .costUsd)
         if let intVal = try? container.decodeIfPresent(Int.self, forKey: .inputTokens) {
             inputTokens = intVal
         } else if let doubleVal = try? container.decodeIfPresent(Double.self, forKey: .inputTokens) {
@@ -276,7 +273,7 @@ struct ChatMessage: Codable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, sessionId, role, content, images, toolCalls
         case thinkingContent, timestamp, cancelled, durationMs
-        case costUsd, inputTokens, outputTokens
+        case inputTokens, outputTokens
     }
 }
 

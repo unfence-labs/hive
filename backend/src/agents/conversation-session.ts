@@ -363,7 +363,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let thinkingText = "";
     const toolCalls: ToolCall[] = [];
     let resultDurationMs: number | undefined;
-    let resultCostUsd: number | undefined;
     let resultInputTokens: number | undefined;
     let resultOutputTokens: number | undefined;
     let lastStderr: string | undefined;
@@ -485,7 +484,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     });
 
     this.parser.on("result", (data) => {
-      console.log("[session] result event keys:", Object.keys(data), "cost_usd:", data.cost_usd, "usage:", JSON.stringify(data.usage));
       // Capture session/thread ID from first result for continuity
       if (data.session_id && !this.cliSessionId) {
         this.cliSessionId = data.session_id;
@@ -494,10 +492,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       if (data.duration_ms != null) {
         resultDurationMs = data.duration_ms;
       }
-      if (data.cost_usd != null) {
-        resultCostUsd = data.cost_usd;
-      }
-      // Codex/Gemini adapters place usage on the result event (Claude puts it on assistant events)
       if (data.usage) {
         resultInputTokens =
           data.usage.input_tokens +
@@ -586,7 +580,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           cancelled: shouldSurfaceCancelled || undefined,
           errorDetail: cancellationErrorDetail,
           durationMs: resultDurationMs,
-          costUsd: resultCostUsd,
           inputTokens: resultInputTokens,
           outputTokens: resultOutputTokens,
         };
@@ -612,7 +605,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             type: "done",
             sessionId: this.sessionId,
             durationMs: resultDurationMs,
-            costUsd: resultCostUsd,
             inputTokens: resultInputTokens,
             outputTokens: resultOutputTokens,
           });
