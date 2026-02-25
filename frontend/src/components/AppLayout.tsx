@@ -74,7 +74,7 @@ export default function AppLayout({ onAddProject }: AppLayoutProps) {
         <button
           type="button"
           onClick={toggleSidebar}
-          className="absolute top-px z-40 flex h-12 items-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="absolute top-0 z-40 flex h-12 items-center rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           style={{ left: "max(var(--traffic-light-clearance, 0px), 0.75rem)" }}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
