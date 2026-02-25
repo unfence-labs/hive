@@ -9,9 +9,9 @@ import type {
 } from "./types.js";
 
 const GEMINI_MODELS: ModelDefinition[] = [
-  { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", cliValue: "gemini-3.1-pro-preview", isDefault: true },
-  { id: "gemini-3-pro-preview", label: "Gemini 3 Pro", cliValue: "gemini-3-pro-preview" },
-  { id: "gemini-3-flash-preview", label: "Gemini 3 Flash", cliValue: "gemini-3-flash-preview" },
+  { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", cliValue: "gemini-3.1-pro-preview", isDefault: true, contextWindow: 2_000_000 },
+  { id: "gemini-3-pro-preview", label: "Gemini 3 Pro", cliValue: "gemini-3-pro-preview", contextWindow: 1_000_000 },
+  { id: "gemini-3-flash-preview", label: "Gemini 3 Flash", cliValue: "gemini-3-flash-preview", contextWindow: 1_000_000 },
 ];
 
 const GEMINI_CAPABILITIES: ProviderCapabilities = {

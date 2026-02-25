@@ -99,6 +99,7 @@ export function getModelCatalog(): ModelCatalogResponse {
         isDefault: model.isDefault,
         isNew: model.isNew,
         capabilities: provider.capabilities,
+        contextWindow: model.contextWindow,
       });
       if (provider.id === "claude" && model.isDefault) {
         defaultModelId = compoundId;

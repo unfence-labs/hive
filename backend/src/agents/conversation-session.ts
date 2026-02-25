@@ -363,6 +363,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let thinkingText = "";
     const toolCalls: ToolCall[] = [];
     let resultDurationMs: number | undefined;
+    let resultCostUsd: number | undefined;
+    let resultInputTokens: number | undefined;
+    let resultOutputTokens: number | undefined;
     let lastStderr: string | undefined;
 
     const pendingTaskStack: string[] = [];
@@ -480,6 +483,16 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       if (data.duration_ms != null) {
         resultDurationMs = data.duration_ms;
       }
+      if (data.cost_usd != null) {
+        resultCostUsd = data.cost_usd;
+      }
+      if (data.usage) {
+        resultInputTokens =
+          data.usage.input_tokens +
+          (data.usage.cache_creation_input_tokens ?? 0) +
+          (data.usage.cache_read_input_tokens ?? 0);
+        resultOutputTokens = data.usage.output_tokens;
+      }
     });
 
     this.parser.on("system", () => {
@@ -561,6 +574,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           cancelled: shouldSurfaceCancelled || undefined,
           errorDetail: cancellationErrorDetail,
           durationMs: resultDurationMs,
+          costUsd: resultCostUsd,
+          inputTokens: resultInputTokens,
+          outputTokens: resultOutputTokens,
         };
         void this.enqueuePersist(assistantMsg);
       }
@@ -584,6 +600,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             type: "done",
             sessionId: this.sessionId,
             durationMs: resultDurationMs,
+            costUsd: resultCostUsd,
+            inputTokens: resultInputTokens,
+            outputTokens: resultOutputTokens,
           });
         }
 
