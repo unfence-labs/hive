@@ -96,13 +96,11 @@ export default function Sidebar({ onAddProject, onCollapse }: SidebarProps) {
   return (
     <div className="flex h-full w-72 flex-col border-r border-border/50 bg-sidebar text-sidebar-foreground">
       <div
-        className="shrink-0"
-        style={{ height: "var(--titlebar-inset, 0px)" }}
+        className={cn("flex shrink-0 items-center justify-end px-3", onCollapse && "min-h-12")}
+        style={{ height: onCollapse ? "max(var(--titlebar-inset, 0px), 3rem)" : "var(--titlebar-inset, 0px)" }}
         data-tauri-drag-region
-      />
-
-      {onCollapse && (
-        <div className="flex h-12 shrink-0 items-center justify-end px-3">
+      >
+        {onCollapse && (
           <button
             type="button"
             onClick={onCollapse}
@@ -112,8 +110,8 @@ export default function Sidebar({ onAddProject, onCollapse }: SidebarProps) {
           >
             <PanelLeftClose className="h-4 w-4" />
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       <ScrollArea className="flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full">
         <div className="p-2">

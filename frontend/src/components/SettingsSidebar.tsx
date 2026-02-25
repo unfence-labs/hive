@@ -20,12 +20,10 @@ export default function SettingsSidebar({ onCollapse }: SettingsSidebarProps) {
   return (
     <div className="flex h-full w-72 flex-col border-r border-border/50 bg-sidebar text-sidebar-foreground">
       <div
-        className="shrink-0"
-        style={{ height: "var(--titlebar-inset, 0px)" }}
+        className="flex min-h-12 shrink-0 items-center px-3"
+        style={{ height: "max(var(--titlebar-inset, 0px), 3rem)" }}
         data-tauri-drag-region
-      />
-
-      <div className="flex h-12 shrink-0 items-center px-3">
+      >
         <button
           type="button"
           onClick={() => navigate(returnTo.current)}
