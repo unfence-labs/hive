@@ -1,11 +1,40 @@
 import { useEffect } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation, useOutletContext } from "react-router-dom";
 import { PanelLeft } from "lucide-react";
 import Sidebar from "./Sidebar";
 import SettingsSidebar from "./SettingsSidebar";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import { useSidebarCollapsed, toggleSidebar } from "@/hooks/useSidebarCollapsed";
 import { cn } from "@/lib/utils";
+
+export interface LayoutContext {
+  collapsed: boolean;
+  toggle: () => void;
+}
+
+export function useLayoutContext() {
+  return useOutletContext<LayoutContext>();
+}
+
+export function SettingsHeader({ children }: { children: React.ReactNode }) {
+  const ctx = useOutletContext<LayoutContext | null>();
+  return (
+    <div className="flex h-12 shrink-0 items-center border-b border-border/50 px-4" data-tauri-drag-region>
+      {ctx?.collapsed && (
+        <button
+          type="button"
+          onClick={ctx.toggle}
+          className="mr-2 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          aria-label="Show sidebar"
+          title="Show sidebar (⌘B)"
+        >
+          <PanelLeft className="h-4 w-4" />
+        </button>
+      )}
+      {children}
+    </div>
+  );
+}
 
 interface AppLayoutProps {
   onAddProject: () => void;
@@ -50,7 +79,7 @@ export default function AppLayout({ onAddProject }: AppLayoutProps) {
           )}
         </div>
         <main className="relative flex flex-1 flex-col overflow-hidden">
-          {collapsed && (
+          {collapsed && !isSettings && (
             <button
               type="button"
               onClick={toggle}
@@ -63,7 +92,7 @@ export default function AppLayout({ onAddProject }: AppLayoutProps) {
             </button>
           )}
           <div className="relative min-h-0 flex-1 overflow-hidden">
-            <Outlet />
+            <Outlet context={{ collapsed, toggle } satisfies LayoutContext} />
           </div>
         </main>
       </div>

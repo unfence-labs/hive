@@ -57,7 +57,7 @@ struct AddProjectSheet: View {
 #Preview {
     Text("Hub")
         .sheet(isPresented: .constant(true)) {
-            AddProjectSheet { url in print(url) }
+            AddProjectSheet { _ in }
         }
         .preferredColorScheme(.dark)
 }

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Eye, EyeOff, Send, Save, Loader2, Smartphone } from "lucide-react";
+import { SettingsHeader } from "@/components/AppLayout";
+
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { api } from "@/hooks/useApi";
@@ -44,14 +46,11 @@ export default function NotificationSettings() {
 
   return (
     <div className="flex h-full flex-col overflow-auto">
-      <div className="border-b border-border/50 px-8 py-5" data-tauri-drag-region>
-        <h1 className="text-base font-semibold">Notifications</h1>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Configure how Hive notifies you when agents finish work.
-        </p>
-      </div>
+      <SettingsHeader>
+        <h1 className="text-sm font-medium">Notifications</h1>
+      </SettingsHeader>
 
-      <div className="max-w-2xl space-y-6 px-8 py-6">
+      <div className="max-w-2xl space-y-6 px-4 py-5">
         <TelegramForm initial={telegram} />
         <ApnsForm initial={apns} />
       </div>

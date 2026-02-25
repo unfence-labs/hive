@@ -33,6 +33,16 @@ async function writeAgent(dir: string, filename: string, content: string) {
   await writeFile(join(dir, filename), content, "utf-8");
 }
 
+async function writeInstalledPlugins(content: unknown) {
+  const pluginsDir = join(homeDir, ".claude", "plugins");
+  await mkdir(pluginsDir, { recursive: true });
+  await writeFile(
+    join(pluginsDir, "installed_plugins.json"),
+    JSON.stringify(content),
+    "utf-8",
+  );
+}
+
 beforeEach(async () => {
   tempDir = await createTempDir("hive-completion-scanner-");
   homeDir = join(tempDir, "home");
@@ -175,6 +185,63 @@ description: Reviews pull requests
     );
 
     expect(items.some((item) => item.name === "README")).toBe(false);
+  });
+
+  it("scans plugin commands from installed_plugins.json", async () => {
+    await writeInstalledPlugins({
+      plugins: [
+        {
+          name: "quality-kit",
+          description: "Quality plugin",
+          commands: [
+            {
+              name: "/review",
+              description: "Run review checks",
+              "argument-hint": "<scope>",
+            },
+            {
+              name: "lint",
+            },
+          ],
+        },
+        {
+          name: "dup",
+          commands: [{ name: "lint", description: "duplicate command should be ignored" }],
+        },
+      ],
+    });
+
+    const items = await scanCompletions(workspaceCwd);
+
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "slash_command",
+          name: "review",
+          label: "/review",
+          description: "Run review checks",
+          argumentHint: "<scope>",
+          source: "plugin",
+        }),
+        expect.objectContaining({
+          type: "slash_command",
+          name: "lint",
+          label: "/lint",
+          description: "Quality plugin",
+          source: "plugin",
+        }),
+      ]),
+    );
+  });
+
+  it("ignores malformed plugin manifests", async () => {
+    const pluginsDir = join(homeDir, ".claude", "plugins");
+    await mkdir(pluginsDir, { recursive: true });
+    await writeFile(join(pluginsDir, "installed_plugins.json"), "{bad-json", "utf-8");
+
+    const items = await scanCompletions(workspaceCwd);
+
+    expect(items.some((item) => item.source === "plugin")).toBe(false);
   });
 
   it("returns completions in stable source order", async () => {

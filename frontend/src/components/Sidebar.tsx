@@ -102,7 +102,7 @@ export default function Sidebar({ onAddProject, onCollapse }: SidebarProps) {
       />
 
       {onCollapse && (
-        <div className="flex h-12 shrink-0 items-center justify-end px-2">
+        <div className="flex h-12 shrink-0 items-center justify-end px-3">
           <button
             type="button"
             onClick={onCollapse}

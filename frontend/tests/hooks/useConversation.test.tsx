@@ -2239,7 +2239,7 @@ describe("useConversation", () => {
 
     it("fires REST fetch on first visit when no cached history exists", async () => {
       const { __apiMock } = await getApiMock();
-      __apiMock.getMock.mockResolvedValue([]);
+      __apiMock.getMock.mockReturnValue(new Promise<ChatMessage[]>(() => {}));
 
       renderHook(() => useConversation("ws-1"));
 

@@ -25,8 +25,17 @@ export default function SettingsSidebar({ onCollapse }: SettingsSidebarProps) {
         data-tauri-drag-region
       />
 
-      {onCollapse && (
-        <div className="flex h-12 shrink-0 items-center justify-end px-2">
+      <div className="flex h-12 shrink-0 items-center px-3">
+        <button
+          type="button"
+          onClick={() => navigate(returnTo.current)}
+          className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back
+        </button>
+        <div className="flex-1" />
+        {onCollapse && (
           <button
             type="button"
             onClick={onCollapse}
@@ -36,19 +45,11 @@ export default function SettingsSidebar({ onCollapse }: SettingsSidebarProps) {
           >
             <PanelLeftClose className="h-4 w-4" />
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       <ScrollArea className="flex-1">
         <div className="px-3 py-3">
-          <button
-            type="button"
-            onClick={() => navigate(returnTo.current)}
-            className="mb-4 flex items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Back
-          </button>
           <SidebarSection label="General">
             <NavItem
               to="/settings/appearance"

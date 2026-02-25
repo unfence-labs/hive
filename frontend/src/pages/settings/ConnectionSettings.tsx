@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { RefreshCw } from "lucide-react";
+import { SettingsHeader } from "@/components/AppLayout";
 import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import { Input } from "@/components/ui/input";
@@ -57,14 +58,11 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
 
   return (
     <div className="flex h-full flex-col overflow-auto">
-      <div className="border-b border-border/50 px-8 py-5" data-tauri-drag-region>
-        <h1 className="text-base font-semibold">Connection</h1>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Configure how the frontend connects to your Hive backend.
-        </p>
-      </div>
+      <SettingsHeader>
+        <h1 className="text-sm font-medium">Connection</h1>
+      </SettingsHeader>
 
-      <div className="max-w-2xl space-y-6 px-8 py-6">
+      <div className="max-w-2xl space-y-6 px-4 py-5">
         <section className="rounded-lg border border-border/50 bg-card/50 p-5">
           <div className="flex items-start justify-between">
             <div>
