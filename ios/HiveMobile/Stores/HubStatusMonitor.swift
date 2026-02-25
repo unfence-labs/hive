@@ -27,7 +27,8 @@ final class HubStatusMonitor {
 
     private var hubConnection: HubConnection?
     fileprivate var subscribedWorkspaceIds: Set<String> = []
-    private var prPollTasks: [String: Task<Void, Never>] = [:]
+    private var bulkPrPollTask: Task<Void, Never>?
+    private var prPollingIds: Set<String> = []
     private let apiClient = APIClient()
 
     private static let completedKey = "completedWorkspaces"
@@ -102,8 +103,6 @@ final class HubStatusMonitor {
             streamingWorkspaces.remove(id)
             workspaceDiffStats.removeValue(forKey: id)
             workspaceBranchInfo.removeValue(forKey: id)
-            prPollTasks[id]?.cancel()
-            prPollTasks.removeValue(forKey: id)
             workspacePrStatus.removeValue(forKey: id)
             storeCache.evict(id)
             completedWorkspaces.remove(id)
@@ -131,39 +130,50 @@ final class HubStatusMonitor {
         streamingWorkspaces.removeAll()
         workspaceDiffStats.removeAll()
         workspaceBranchInfo.removeAll()
-        for task in prPollTasks.values { task.cancel() }
-        prPollTasks.removeAll()
+        bulkPrPollTask?.cancel()
+        bulkPrPollTask = nil
+        prPollingIds.removeAll()
         workspacePrStatus.removeAll()
         completedWorkspaces.removeAll()
     }
 
-    // MARK: - PR Status Polling
+    // MARK: - PR Status Polling (Bulk)
 
     /// Start/stop PR status polling to match the given workspace IDs.
+    /// Uses a single bulk request instead of per-workspace polling.
     func syncPrPolling(visibleWorkspaceIds: [String]) {
         let desired = Set(visibleWorkspaceIds)
-        let current = Set(prPollTasks.keys)
 
-        for id in current.subtracting(desired) {
-            prPollTasks[id]?.cancel()
-            prPollTasks.removeValue(forKey: id)
+        // Clean up removed workspaces
+        for id in prPollingIds.subtracting(desired) {
             workspacePrStatus.removeValue(forKey: id)
         }
 
-        for id in desired.subtracting(current) {
-            let task = Task { [weak self] in
-                guard let self else { return }
-                while !Task.isCancelled {
-                    do {
-                        let status = try await self.apiClient.fetchPrStatus(workspaceId: id)
-                        self.workspacePrStatus[id] = status
-                    } catch {
-                        // Silently ignore — card shows stale or "No PR"
+        prPollingIds = desired
+
+        // Cancel existing poll and restart with updated IDs
+        bulkPrPollTask?.cancel()
+
+        guard !desired.isEmpty else {
+            bulkPrPollTask = nil
+            return
+        }
+
+        bulkPrPollTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                let ids = Array(self.prPollingIds)
+                guard !ids.isEmpty else { break }
+                do {
+                    let response = try await self.apiClient.fetchBulkPrStatus(workspaceIds: ids)
+                    for (wsId, status) in response.results {
+                        self.workspacePrStatus[wsId] = status
                     }
-                    try? await Task.sleep(for: .seconds(15))
+                } catch {
+                    // Silently ignore — cards show stale or "No PR"
                 }
+                try? await Task.sleep(for: .seconds(15))
             }
-            prPollTasks[id] = task
         }
     }
 
