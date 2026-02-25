@@ -1,26 +1,10 @@
-import { cn } from "@/lib/utils";
-import { FilePlusIcon, FileMinusIcon, FileIcon, PencilIcon } from "lucide-react";
-import type { DiffFileStat, DiffFileStatus } from "@/types";
+import type { DiffFileStat } from "@/types";
 
 interface ModifiedFileListProps {
   committed: DiffFileStat[];
   uncommitted: DiffFileStat[];
   onFileClick: (filePath: string) => void;
 }
-
-const STATUS_ICON: Record<DiffFileStatus, typeof FileIcon> = {
-  added: FilePlusIcon,
-  modified: PencilIcon,
-  deleted: FileMinusIcon,
-  renamed: FileIcon,
-};
-
-const STATUS_COLOR: Record<DiffFileStatus, string> = {
-  added: "text-green-500",
-  modified: "text-blue-500",
-  deleted: "text-red-500",
-  renamed: "text-yellow-500",
-};
 
 function FileRow({
   stat,
@@ -29,7 +13,6 @@ function FileRow({
   stat: DiffFileStat;
   onFileClick: (filePath: string) => void;
 }) {
-  const Icon = STATUS_ICON[stat.status];
   return (
     <button
       key={stat.file}
@@ -37,11 +20,9 @@ function FileRow({
       className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs font-mono hover:bg-muted/50"
       onClick={() => onFileClick(stat.file)}
     >
-      <Icon
-        className={cn("size-3.5 shrink-0", STATUS_COLOR[stat.status])}
-      />
-      <span className="min-w-0 flex-1 truncate">
-        {stat.file.split("/").pop()}
+      <span className="min-w-0 flex-1 truncate text-muted-foreground">
+        {stat.file.includes("/") && stat.file.slice(0, stat.file.lastIndexOf("/") + 1)}
+        <span className="text-foreground">{stat.file.split("/").pop()}</span>
       </span>
       {stat.additions > 0 && (
         <span className="shrink-0 text-green-500">
@@ -62,7 +43,7 @@ function SectionHeader({ label, stats }: { label: string; stats: DiffFileStat[] 
   const totalDeletions = stats.reduce((sum, s) => sum + s.deletions, 0);
   return (
     <div className="flex items-center gap-2 px-2 pb-1 pt-2 text-[10px] uppercase tracking-wider text-muted-foreground">
-      <span>{label}</span>
+      <span className="font-semibold text-foreground">{label}</span>
       <span className="text-muted-foreground/60">{stats.length}</span>
       {totalAdditions > 0 && (
         <span className="text-green-500">+{totalAdditions}</span>
