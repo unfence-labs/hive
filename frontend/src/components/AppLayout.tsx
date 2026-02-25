@@ -23,7 +23,7 @@ export function SettingsHeader({ children }: { children: React.ReactNode }) {
   return (
     <div
       className="flex h-12 shrink-0 items-center border-b border-border/50 pr-4 transition-[padding-left] duration-200 ease-in-out"
-      style={{ paddingLeft: collapsed ? "calc(var(--traffic-light-clearance, 0px) + 40px)" : "1rem" }}
+      style={{ paddingLeft: collapsed ? "calc(var(--traffic-light-clearance, 0px) + 28px)" : "1rem" }}
       data-tauri-drag-region
     >
       {children}

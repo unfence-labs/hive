@@ -388,7 +388,7 @@ export default function WorkspaceView() {
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <div
             className="relative z-20 flex h-12 items-center gap-2 border-b border-border/50 pr-4 backdrop-blur-sm transition-[padding-left] duration-200 ease-in-out"
-            style={{ paddingLeft: collapsed ? "calc(var(--traffic-light-clearance, 0px) + 40px)" : "1rem" }}
+            style={{ paddingLeft: collapsed ? "calc(var(--traffic-light-clearance, 0px) + 28px)" : "1rem" }}
             data-tauri-drag-region
           >
             <span className="truncate text-sm font-semibold text-foreground">{workspace?.projectName ?? workspace?.name}</span>

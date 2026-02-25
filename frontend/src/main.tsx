@@ -16,7 +16,7 @@ if ("__TAURI_INTERNALS__" in window) {
       root.style.setProperty("--traffic-light-clearance", "0px");
     } else {
       root.style.setProperty("--titlebar-inset", "40px");
-      root.style.setProperty("--traffic-light-clearance", "76px");
+      root.style.setProperty("--traffic-light-clearance", "80px");
     }
   }
 
