@@ -1,12 +1,16 @@
 import { useRef } from "react";
-import { ArrowLeft, Bell, CircleUser, Paintbrush, Wifi, GitFork } from "lucide-react";
+import { ArrowLeft, Bell, CircleUser, PanelLeftClose, Paintbrush, Wifi, GitFork } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { useProjects } from "@/hooks/useProjects";
 
-export default function SettingsSidebar() {
+interface SettingsSidebarProps {
+  onCollapse?: () => void;
+}
+
+export default function SettingsSidebar({ onCollapse }: SettingsSidebarProps) {
   const { projects } = useProjects();
   const navigate = useNavigate();
   const location = useLocation();
@@ -21,16 +25,31 @@ export default function SettingsSidebar() {
         data-tauri-drag-region
       />
 
-      <ScrollArea className="flex-1">
-        <div className="px-3 py-3">
+      <div className="flex h-12 shrink-0 items-center px-3">
+        <button
+          type="button"
+          onClick={() => navigate(returnTo.current)}
+          className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back
+        </button>
+        <div className="flex-1" />
+        {onCollapse && (
           <button
             type="button"
-            onClick={() => navigate(returnTo.current)}
-            className="mb-4 flex items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+            onClick={onCollapse}
+            className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+            aria-label="Hide sidebar"
+            title="Hide sidebar (⌘B)"
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Back
+            <PanelLeftClose className="h-4 w-4" />
           </button>
+        )}
+      </div>
+
+      <ScrollArea className="flex-1">
+        <div className="px-3 py-3">
           <SidebarSection label="General">
             <NavItem
               to="/settings/appearance"

@@ -73,7 +73,7 @@ describe("useModels", () => {
   });
 
   it("calls /api/models endpoint", async () => {
-    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    mockApi.get.mockReturnValue(new Promise(() => {}));
     renderHook(() => useModels());
 
     await waitFor(() => expect(mockApi.get).toHaveBeenCalledWith("/api/models"));

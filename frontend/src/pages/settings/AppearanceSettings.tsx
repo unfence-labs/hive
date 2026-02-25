@@ -1,5 +1,6 @@
 import { Check } from "lucide-react";
 import { useAccentColor } from "@/hooks/useAccentColor";
+import { SettingsHeader } from "@/components/AppLayout";
 import { cn } from "@/lib/utils";
 
 export default function AppearanceSettings() {
@@ -7,14 +8,11 @@ export default function AppearanceSettings() {
 
   return (
     <div className="flex h-full flex-col overflow-auto">
-      <div className="border-b border-border/50 px-8 py-5" data-tauri-drag-region>
-        <h1 className="text-base font-semibold">Appearance</h1>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Customize how Hive looks on your device.
-        </p>
-      </div>
+      <SettingsHeader>
+        <h1 className="text-sm font-medium">Appearance</h1>
+      </SettingsHeader>
 
-      <div className="max-w-2xl space-y-8 px-8 py-6">
+      <div className="max-w-2xl space-y-8 px-4 py-5">
         <section>
           <div className="rounded-lg border border-border/50 bg-card/50 p-5">
             <h2 className="text-sm font-medium text-foreground">Accent color</h2>

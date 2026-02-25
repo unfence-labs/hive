@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Trash2, ExternalLink } from "lucide-react";
+import { SettingsHeader } from "@/components/AppLayout";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,17 +41,14 @@ export default function ProjectDetail() {
 
   return (
     <div className="flex h-full flex-col overflow-auto">
-      <div className="border-b border-border/50 px-8 py-5" data-tauri-drag-region>
-        <div className="flex items-center gap-3">
-          <ProjectAvatar name={project.name} projectId={project.id} hasFavicon={project.hasFavicon} className="h-8 w-8 rounded-md text-sm" />
-          <div>
-            <h1 className="text-base font-semibold">{project.name}</h1>
-            <p className="text-xs text-muted-foreground">Repository settings</p>
-          </div>
+      <SettingsHeader>
+        <div className="flex items-center gap-2.5">
+          <ProjectAvatar name={project.name} projectId={project.id} hasFavicon={project.hasFavicon} />
+          <h1 className="text-sm font-medium">{project.name}</h1>
         </div>
-      </div>
+      </SettingsHeader>
 
-      <div className="max-w-2xl space-y-6 px-8 py-6">
+      <div className="max-w-2xl space-y-6 px-4 py-5">
         <section className="rounded-lg border border-border/50 bg-card/50 p-5">
           <h2 className="mb-4 text-sm font-medium text-foreground">General</h2>
 

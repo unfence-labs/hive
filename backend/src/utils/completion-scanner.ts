@@ -101,7 +101,76 @@ async function scanAgents(
   return items;
 }
 
-// TODO: Add plugin command scanning from ~/.claude/plugins/installed_plugins.json
+type UnknownRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): UnknownRecord | null {
+  return value !== null && typeof value === "object" ? (value as UnknownRecord) : null;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function normalizeCommandName(name: string): string {
+  return name.trim().replace(/^\//, "");
+}
+
+async function scanPluginCommands(home: string): Promise<CompletionItem[]> {
+  const pluginsFilePath = join(home, ".claude", "plugins", "installed_plugins.json");
+  let content: string;
+  try {
+    content = await readFile(pluginsFilePath, "utf-8");
+  } catch {
+    return [];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return [];
+  }
+
+  const parsedRecord = asRecord(parsed);
+  const pluginEntries = parsedRecord?.plugins;
+  if (!Array.isArray(pluginEntries)) return [];
+
+  const items: CompletionItem[] = [];
+  const seenNames = new Set<string>();
+
+  for (const pluginEntry of pluginEntries) {
+    const pluginRecord = asRecord(pluginEntry);
+    if (!pluginRecord) continue;
+    const pluginDescription = asString(pluginRecord.description);
+    const commands = pluginRecord.commands;
+    if (!Array.isArray(commands)) continue;
+
+    for (const commandEntry of commands) {
+      const commandRecord = asRecord(commandEntry);
+      if (!commandRecord) continue;
+      const rawName = asString(commandRecord.name);
+      if (!rawName) continue;
+      const name = normalizeCommandName(rawName);
+      if (!name || seenNames.has(name)) continue;
+
+      const description = asString(commandRecord.description) ?? pluginDescription;
+      const argumentHint = asString(commandRecord["argument-hint"])
+        ?? asString(commandRecord.argumentHint);
+
+      items.push({
+        type: "slash_command",
+        name,
+        label: `/${name}`,
+        description,
+        argumentHint,
+        source: "plugin",
+      });
+      seenNames.add(name);
+    }
+  }
+
+  return items;
+}
 
 export async function scanCompletions(
   workspaceCwd: string,
@@ -112,10 +181,11 @@ export async function scanCompletions(
   const userAgentsDir = join(home, ".claude", "agents");
   const projectAgentsDir = join(workspaceCwd, ".claude", "agents");
 
-  const [userSkills, projectSkills, userAgents, projectAgents] =
+  const [userSkills, projectSkills, pluginCommands, userAgents, projectAgents] =
     await Promise.all([
       scanSkills(userSkillsDir, "user_skill"),
       scanSkills(projectSkillsDir, "project_skill"),
+      scanPluginCommands(home),
       scanAgents(userAgentsDir, "user_agent"),
       scanAgents(projectAgentsDir, "project_agent"),
     ]);
@@ -124,6 +194,7 @@ export async function scanCompletions(
     ...BUILTIN_COMMANDS,
     ...userSkills,
     ...projectSkills,
+    ...pluginCommands,
     ...userAgents,
     ...projectAgents,
   ];

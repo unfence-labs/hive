@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Github, Loader2, LogOut, ExternalLink, Copy, Check, AlertCircle, CheckCircle2, Terminal, XCircle } from "lucide-react";
+import { SettingsHeader } from "@/components/AppLayout";
 import { cn } from "@/lib/utils";
 import { api } from "@/hooks/useApi";
 import { openExternal } from "@/lib/open-external";
@@ -165,19 +166,16 @@ export default function AccountSettings() {
 
   return (
     <div className="flex h-full flex-col overflow-auto">
-      <div className="border-b border-border/50 px-8 py-5" data-tauri-drag-region>
-        <h1 className="text-base font-semibold">Account</h1>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Connect your GitHub account to enable PR tracking and git authentication.
-        </p>
-      </div>
+      <SettingsHeader>
+        <h1 className="text-sm font-medium">Account</h1>
+      </SettingsHeader>
 
       {state.kind === "loading" ? (
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="h-5 w-5 motion-safe:animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <div className="max-w-2xl space-y-6 px-8 py-6">
+        <div className="max-w-2xl space-y-6 px-4 py-5">
           {state.kind === "no-gh" && (
             <section className="rounded-lg border border-border/50 bg-card/50 p-5">
               <div className="flex items-start gap-3">
