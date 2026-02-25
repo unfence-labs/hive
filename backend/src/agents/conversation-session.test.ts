@@ -1586,13 +1586,13 @@ describe("ConversationSession", () => {
     });
   });
 
-  it("result event usage overrides earlier assistant usage (last write wins)", async () => {
+  it("result event does NOT override assistant usage (assistant takes priority)", async () => {
     const session = createSession({ sessionId: "tok-override" });
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
     session.sendMessage("Hi");
-    // Assistant event with usage
+    // Assistant event with usage (actual context-window usage for last sub-call)
     mockProc._stdout.push(
       JSON.stringify({
         type: "assistant",
@@ -1604,7 +1604,7 @@ describe("ConversationSession", () => {
         },
       }) + "\n",
     );
-    // Result event with different usage
+    // Result event with higher (cumulative) usage — should be ignored
     mockProc._stdout.push(
       JSON.stringify({
         type: "result",
@@ -1618,9 +1618,320 @@ describe("ConversationSession", () => {
 
     const doneMsgs = messages.filter((m) => m.type === "done");
     expect(doneMsgs[0]).toMatchObject({
-      inputTokens: 3000,
-      outputTokens: 250,
+      inputTokens: 1000,
+      outputTokens: 50,
     });
+  });
+
+  it("result event usage is used as fallback when assistant has cache tokens but result has different values", async () => {
+    const session = createSession({ sessionId: "tok-cache-priority" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi");
+    // Assistant event with cache tokens — sets resultInputTokens to a defined value
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-cp",
+          role: "assistant",
+          content: [{ type: "text", text: "Hello" }],
+          usage: {
+            input_tokens: 500,
+            output_tokens: 80,
+            cache_creation_input_tokens: 200,
+            cache_read_input_tokens: 100,
+          },
+        },
+      }) + "\n",
+    );
+    // Result event with larger cumulative values — should be ignored
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "result",
+        session_id: "s1",
+        usage: { input_tokens: 5000, output_tokens: 400 },
+      }) + "\n",
+    );
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const doneMsgs = messages.filter((m) => m.type === "done");
+    expect(doneMsgs[0]).toMatchObject({
+      inputTokens: 800, // 500 + 200 + 100 from assistant event
+      outputTokens: 80,
+    });
+  });
+
+  it("multiple assistant events: last assistant usage wins (tool use cycles)", async () => {
+    const session = createSession({ sessionId: "tok-multi-assistant" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi");
+
+    // First assistant event — initial sub-call
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-1",
+          role: "assistant",
+          content: [{ type: "tool_use", id: "tu1", name: "Read", input: { path: "/tmp" } }],
+          usage: { input_tokens: 120_000, output_tokens: 100 },
+        },
+      }) + "\n",
+    );
+
+    // Tool result
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "user",
+        message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu1", content: "file content" }] },
+      }) + "\n",
+    );
+
+    // Second assistant event — larger context after tool result
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-2",
+          role: "assistant",
+          content: [{ type: "text", text: "Here's the file" }],
+          usage: { input_tokens: 140_000, output_tokens: 200 },
+        },
+      }) + "\n",
+    );
+
+    // Result event with cumulative total — should be ignored since assistant had usage
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "result",
+        session_id: "s1",
+        usage: { input_tokens: 260_000, output_tokens: 300 },
+      }) + "\n",
+    );
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const doneMsgs = messages.filter((m) => m.type === "done");
+    // Should use the LAST assistant event (140K), not the cumulative result (260K)
+    expect(doneMsgs[0]).toMatchObject({
+      inputTokens: 140_000,
+      outputTokens: 200,
+    });
+  });
+
+  it("three tool call cycles: reports last sub-call context, not cumulative total", async () => {
+    const session = createSession({ sessionId: "tok-3-cycles" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi");
+
+    // Cycle 1: 120K tokens
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-c1",
+          role: "assistant",
+          content: [{ type: "tool_use", id: "tu1", name: "Read", input: {} }],
+          usage: { input_tokens: 120_000, output_tokens: 50 },
+        },
+      }) + "\n",
+    );
+    mockProc._stdout.push(userLine([{ tool_use_id: "tu1", content: "data" }]));
+
+    // Cycle 2: 140K tokens (context grew)
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-c2",
+          role: "assistant",
+          content: [{ type: "tool_use", id: "tu2", name: "Grep", input: {} }],
+          usage: { input_tokens: 140_000, output_tokens: 80 },
+        },
+      }) + "\n",
+    );
+    mockProc._stdout.push(userLine([{ tool_use_id: "tu2", content: "matches" }]));
+
+    // Cycle 3: 174K tokens (context grew more)
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-c3",
+          role: "assistant",
+          content: [{ type: "text", text: "Done" }],
+          usage: { input_tokens: 174_000, output_tokens: 120 },
+        },
+      }) + "\n",
+    );
+
+    // Result event: cumulative total across all cycles (434K)
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "result",
+        session_id: "s1",
+        usage: { input_tokens: 434_000, output_tokens: 250 },
+      }) + "\n",
+    );
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const doneMsgs = messages.filter((m) => m.type === "done");
+    // Must show the last sub-call (174K), NOT the cumulative 434K
+    expect(doneMsgs[0]).toMatchObject({
+      inputTokens: 174_000,
+      outputTokens: 120,
+    });
+  });
+
+  it("assistant usage with zero input_tokens still counts as defined (blocks result fallback)", async () => {
+    const session = createSession({ sessionId: "tok-zero" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi");
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-z",
+          role: "assistant",
+          content: [{ type: "text", text: "Hi" }],
+          usage: { input_tokens: 0, output_tokens: 10 },
+        },
+      }) + "\n",
+    );
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "result",
+        session_id: "s1",
+        usage: { input_tokens: 5000, output_tokens: 300 },
+      }) + "\n",
+    );
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const doneMsgs = messages.filter((m) => m.type === "done");
+    // 0 is a defined value — result should NOT override
+    expect(doneMsgs[0]).toMatchObject({
+      inputTokens: 0,
+      outputTokens: 10,
+    });
+  });
+
+  it("result event cache tokens are aggregated correctly when used as fallback", async () => {
+    const session = createSession({ sessionId: "tok-result-cache" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi");
+    // Assistant line with NO usage
+    mockProc._stdout.push(assistantLine("Reply"));
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "result",
+        session_id: "s1",
+        usage: {
+          input_tokens: 800,
+          output_tokens: 60,
+          cache_creation_input_tokens: 400,
+          cache_read_input_tokens: 200,
+        },
+      }) + "\n",
+    );
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const doneMsgs = messages.filter((m) => m.type === "done");
+    expect(doneMsgs[0]).toMatchObject({
+      inputTokens: 1400, // 800 + 400 + 200
+      outputTokens: 60,
+    });
+  });
+
+  it("result duration is always captured regardless of token priority", async () => {
+    const session = createSession({ sessionId: "tok-duration" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi");
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-d",
+          role: "assistant",
+          content: [{ type: "text", text: "Reply" }],
+          usage: { input_tokens: 5000, output_tokens: 100 },
+        },
+      }) + "\n",
+    );
+    // Result event: tokens should be ignored, but duration should be captured
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "result",
+        session_id: "s1",
+        duration_ms: 3500,
+        usage: { input_tokens: 9000, output_tokens: 500 },
+      }) + "\n",
+    );
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const doneMsgs = messages.filter((m) => m.type === "done");
+    expect(doneMsgs[0]).toMatchObject({
+      inputTokens: 5000, // from assistant, not result
+      outputTokens: 100,
+      durationMs: 3500, // from result — always captured
+    });
+  });
+
+  it("persists correct tokens in messages.jsonl when result has higher values", async () => {
+    const session = createSession({ sessionId: "tok-persist-priority" });
+
+    session.sendMessage("Hi");
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-pp",
+          role: "assistant",
+          content: [{ type: "text", text: "Hi back" }],
+          usage: { input_tokens: 80_000, output_tokens: 400 },
+        },
+      }) + "\n",
+    );
+    mockProc._stdout.push(
+      JSON.stringify({
+        type: "result",
+        session_id: "s1",
+        usage: { input_tokens: 250_000, output_tokens: 1200 },
+      }) + "\n",
+    );
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const messagesPath = join(tempDir, "sessions", "tok-persist-priority", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+    const assistantMsg = JSON.parse(lines[1]);
+    // Persisted value should be from assistant event (80K), not result (250K)
+    expect(assistantMsg.inputTokens).toBe(80_000);
+    expect(assistantMsg.outputTokens).toBe(400);
   });
 
   it("persists inputTokens/outputTokens in assistant message", async () => {
