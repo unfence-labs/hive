@@ -145,6 +145,7 @@ export default function WorkspaceView() {
   useEffect(() => {
     if (wsId) clearUnread(wsId);
   }, [wsId, clearUnread]);
+
   const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
 
   // VS Code Remote SSH
@@ -236,6 +237,14 @@ export default function WorkspaceView() {
     lockedProvider,
     switchCounter,
   } = useConversation(wsId);
+
+  // Clear unread for the active session reactively (handles done/cancelled
+  // events arriving while the user is already viewing this conversation).
+  useEffect(() => {
+    if (wsId && sessionId && liveData[wsId]?.unreadSessions?.[sessionId]) {
+      clearUnread(wsId, sessionId);
+    }
+  }, [wsId, sessionId, liveData, clearUnread]);
 
   const { tasks, currentTask, counts: taskCounts } = useTasks(messages, activeToolCalls);
 

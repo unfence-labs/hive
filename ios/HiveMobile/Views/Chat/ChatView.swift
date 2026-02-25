@@ -195,6 +195,7 @@ struct ChatView: View {
         .onDisappear {
             saveCurrentDraft()
             store.onTurnCompleted = nil
+            projectStore.statusMonitor.viewingWorkspaceId = nil
         }
     }
 
@@ -217,6 +218,7 @@ struct ChatView: View {
     // MARK: - Setup
 
     private func setup() async {
+        projectStore.statusMonitor.viewingWorkspaceId = workspace.id
         projectStore.statusMonitor.clearCompleted(workspace.id)
 
         // Wire post-turn re-sync: after done/cancelled, re-fetch messages from REST
