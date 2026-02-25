@@ -219,12 +219,17 @@ final class ConversationStore {
             // Only update messages for the active session
             guard historySessionId == nil || sessionId == nil || historySessionId == sessionId else { return }
 
+            // Always apply history — it contains finalized turns only.
+            // Streaming content lives in sessionStreams and is appended
+            // separately by displayMessages.
+            messages = msgs
+            bumpHistoryToken(for: historySessionId)
+            sessionId = historySessionId ?? sessionId
+
+            // Derive pending tool inputs from history only when not actively
+            // streaming (during streaming, live WS tool inputs take precedence).
             let activeStream = historySessionId.flatMap { sessionStreams[$0] }
             if activeStream?.isStreaming != true {
-                messages = msgs
-                bumpHistoryToken(for: historySessionId)
-                sessionId = historySessionId ?? sessionId
-                // Derive pending tool inputs from history
                 let derived = derivePendingToolInputsFromHistory(msgs)
                 if let sid = historySessionId {
                     if activeStream != nil || !derived.isEmpty {
@@ -311,6 +316,12 @@ final class ConversationStore {
         let isActive = sid == sessionId
         let hasContent = !stream.currentText.isEmpty || !stream.activeToolCalls.isEmpty || !stream.currentThinking.isEmpty
 
+        // Remove stream slot FIRST so displayMessages never shows both the
+        // finalized message (in `messages`) and the streaming ghost (from
+        // `streamingMessage`). The local `stream` is a value-type copy
+        // captured above, so it survives this removal.
+        sessionStreams.removeValue(forKey: sid)
+
         if isActive {
             if hasContent {
                 let msg = ChatMessage(
@@ -342,8 +353,6 @@ final class ConversationStore {
                 messages.append(msg)
             }
         }
-        // Clean up the slot — REST fetch on switch-back will include the completed message.
-        sessionStreams.removeValue(forKey: sid)
     }
 
     /// Derive pending tool inputs from history — mirrors frontend's derivePendingToolInputsFromHistory.
