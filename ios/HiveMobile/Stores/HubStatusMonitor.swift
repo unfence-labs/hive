@@ -20,9 +20,6 @@ final class HubStatusMonitor {
     /// Workspace currently visible in ChatView (suppresses unread badge).
     var viewingWorkspaceId: String?
 
-    /// Called whenever the streaming workspace set changes.
-    var onStreamingChange: ((Set<String>) -> Void)?
-
     let storeCache: ConversationStoreCache
 
     private var hubConnection: HubConnection?
@@ -175,7 +172,6 @@ final class HubStatusMonitor {
         } else {
             streamingWorkspaces.remove(workspaceId)
         }
-        onStreamingChange?(streamingWorkspaces)
     }
 
     fileprivate func didReceiveDiffStats(_ stats: DiffStatResponse, for workspaceId: String) {

@@ -8,10 +8,7 @@ struct HiveApp: App {
     @State private var modelCatalog = ModelCatalog()
     @State private var selectedTab: AppTab = .hub
     @State private var hubPath = NavigationPath()
-    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hiveAccent") private var accentId = "violet"
-
-    private let liveActivityManager = LiveActivityManager()
 
     init() {
         let cache = ConversationStoreCache()
@@ -53,9 +50,6 @@ struct HiveApp: App {
             .environment(modelCatalog)
             .preferredColorScheme(.dark)
             .task { await modelCatalog.loadIfNeeded() }
-            .onChange(of: scenePhase) { _, phase in
-                handleScenePhase(phase)
-            }
             .onChange(of: projectStore.pendingNavigation) { _, workspace in
                 guard let workspace else { return }
                 selectedTab = .hub
@@ -63,36 +57,12 @@ struct HiveApp: App {
                 projectStore.pendingNavigation = nil
             }
             .onAppear {
-                setupStreamingCallback()
                 mergePushCompletions()
             }
             .onChange(of: CompletedWorkspacesStore.shared.pending) { _, pending in
                 guard !pending.isEmpty else { return }
                 mergePushCompletions()
             }
-        }
-    }
-
-    private func handleScenePhase(_ phase: ScenePhase) {
-        switch phase {
-        case .background:
-            liveActivityManager.didEnterBackground(
-                streamingIds: projectStore.statusMonitor.streamingWorkspaces,
-                labelResolver: workspaceLabel(for:)
-            )
-        case .active:
-            liveActivityManager.didEnterForeground()
-        default:
-            break
-        }
-    }
-
-    private func setupStreamingCallback() {
-        projectStore.statusMonitor.onStreamingChange = { [liveActivityManager] ids in
-            liveActivityManager.streamingDidChange(
-                streamingIds: ids,
-                labelResolver: workspaceLabel(for:)
-            )
         }
     }
 
@@ -103,15 +73,6 @@ struct HiveApp: App {
             projectStore.statusMonitor.markCompletedFromPush(wsId)
         }
         store.clearAll()
-    }
-
-    private func workspaceLabel(for id: String) -> WorkspaceLabel? {
-        for project in projectStore.projects {
-            if let ws = project.workspaces.first(where: { $0.id == id }) {
-                return WorkspaceLabel(project: project.name, branch: ws.branch)
-            }
-        }
-        return nil
     }
 }
 

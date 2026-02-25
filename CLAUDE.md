@@ -3,7 +3,7 @@
 This repository is a monorepo:
 - `backend/`: Fastify API + WebSocket server
 - `frontend/`: React + Vite UI + Tauri desktop app (`frontend/src-tauri/`)
-- `ios/`: SwiftUI iOS app + Live Activity widget
+- `ios/`: SwiftUI iOS app
 
 Hive runs AI agent conversations (Claude, Codex) in isolated Git workspaces (worktrees) created from a project's bare repo.
 
@@ -164,9 +164,7 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `HiveMobile/HiveApp.swift`: app entry point
 - `HiveMobile/Models/Models.swift`: data models (ChatMessage, ToolCall, Workspace, ModelCatalogEntry, etc.)
 - `HiveMobile/Models/WebSocketTypes.swift`: WS protocol types (mirrors `backend/src/types.ts`)
-- `HiveMobile/Models/StreamingAttributes.swift`: Live Activity attributes
 - `HiveMobile/Services/APIClient.swift`: REST API client (includes `/api/models` and `/api/workspaces/:wsId/pr-status`)
-- `HiveMobile/Services/LiveActivityManager.swift`: iOS 16+ Live Activity (streaming indicator on lock screen)
 - `HiveMobile/Services/ImageCache.swift`: image caching
 - `HiveMobile/Stores/ConversationStore.swift`: chat state (mirrors `useConversation.ts`) + `lockedProvider` tracking + `send` closure for WS outgoing
 - `HiveMobile/Stores/ConversationStoreCache.swift`: app-level cache of ConversationStore instances keyed by workspace ID, survives navigation
@@ -183,8 +181,6 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `HiveMobile/Views/Hub/AddProjectSheet.swift`: new project creation
 - `HiveMobile/Views/Hub/WorkspaceCard.swift`: workspace cards with activity preview + enriched PR status display + turn-completed badge
 - `HiveMobile/Theme/DesignTokens.swift`: design tokens (WhisperColor, WhisperFont)
-- `HiveWidget/`: iOS Live Activity widget (streaming status on lock screen)
-
 ### Important iOS behavior
 
 - Connects to the same backend as web/desktop via configurable host/port (Settings).
@@ -197,7 +193,6 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - AskUserQuestion renders as a paginated form sheet with multi-select support.
 - ExitPlanMode renders as a markdown preview with approve/reject actions.
 - Chat drafts are persisted per-workspace and restored on app relaunch (includes `selectedModelId`, `thinkingLevel`).
-- Live Activity shows streaming status on lock screen when a turn is in progress.
 - Model catalog is fetched dynamically from `/api/models`. Picker groups by provider, disables cross-provider items when session is locked.
 - Codex models show thinking level cycling (Low/Med/High/xHigh) instead of boolean toggle. Plan mode hidden for providers that don't support it.
 - `lockedProvider` is read from WS status events (not REST) for instant model locking after first message.
