@@ -349,7 +349,7 @@ describe("Sidebar", () => {
     expect(inactiveLink.querySelector("svg.lucide-git-branch")).toBeNull();
   });
 
-  it("does not show unread dot for active workspace", async () => {
+  it("shows unread dot even for the active workspace when a session completes", async () => {
     const { __wsMock } = await getWsMock();
     renderSidebar("/workspaces/w1", projects);
 
@@ -360,7 +360,7 @@ describe("Sidebar", () => {
     });
 
     const activeLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
-    expect(findSidebarUnreadDot(activeLink)).toBeNull();
+    expect(findSidebarUnreadDot(activeLink)).not.toBeNull();
   });
 
   it("prioritizes streaming indicator over unread dot and restores dot when idle again", async () => {

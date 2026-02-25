@@ -158,7 +158,7 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
                           const wsStreaming = wsLive?.streaming ?? false;
                           const wsScriptRunning = wsLive?.scriptRunning ?? false;
                           const displayBranch = wsLive?.branch ?? ws.branch;
-                          const wsUnread = !wsStreaming && activeWsId !== ws.id && Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
+                          const wsUnread = !wsStreaming && Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
                           return (
                             <div key={ws.id} className="group/ws relative">
                               <Link
