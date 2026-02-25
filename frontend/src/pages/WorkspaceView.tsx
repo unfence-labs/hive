@@ -236,13 +236,14 @@ export default function WorkspaceView() {
     switchCounter,
   } = useConversation(wsId);
 
-  // Clear unread for the active session reactively (handles done/cancelled
-  // events arriving while the user is already viewing this conversation).
+  // Clear unread only when the active conversation is actually visible.
+  // If the file tab is open, keep unread state so the tab can show a dot.
   useEffect(() => {
+    if (activeTab !== "conversation") return;
     if (wsId && sessionId && liveData[wsId]?.unreadSessions?.[sessionId]) {
       clearUnread(wsId, sessionId);
     }
-  }, [wsId, sessionId, liveData, clearUnread]);
+  }, [activeTab, wsId, sessionId, liveData, clearUnread]);
 
   const { tasks, currentTask, counts: taskCounts } = useTasks(messages, activeToolCalls);
 

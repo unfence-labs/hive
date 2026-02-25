@@ -274,6 +274,17 @@ describe("ConversationTabs", () => {
     expect(findUnreadDot(activeTab)).not.toBeInTheDocument();
   });
 
+  it("shows unread dot for active session when file tab is active", () => {
+    renderTabs({
+      unreadSessions: { "sess-1": true },
+      openFile: "src/index.ts",
+      isFileActive: true,
+    });
+
+    const activeButHiddenConversationTab = screen.getByText("First conversation").closest("button")!;
+    expect(findUnreadDot(activeButHiddenConversationTab)).toBeInTheDocument();
+  });
+
   it("prioritizes streaming indicator over unread dot", () => {
     renderTabs({
       unreadSessions: { "sess-2": true },
