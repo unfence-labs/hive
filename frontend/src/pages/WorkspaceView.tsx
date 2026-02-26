@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CodeXmlIcon, ChevronDownIcon, TerminalIcon } from "lucide-react";
+import { ChevronDownIcon, TerminalIcon } from "lucide-react";
+import { VscodeIcon, Iterm2Icon } from "@/components/icons/software-icons";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
@@ -439,7 +440,7 @@ export default function WorkspaceView() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="xs" className="ml-2">
-                    <CodeXmlIcon className="mr-1.5 size-3.5" />
+                    <VscodeIcon className="mr-1.5 size-3.5" />
                     Code
                     <ChevronDownIcon className="ml-1 size-3" />
                   </Button>
@@ -449,24 +450,27 @@ export default function WorkspaceView() {
                     disabled={!canOpenVscode}
                     onSelect={() => { if (vscodeUri) void openExternal(vscodeUri); }}
                   >
-                    <CodeXmlIcon className="size-3.5" />
+                    <VscodeIcon className="size-3.5" />
                     Open in VS Code
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  {terminalApps.map((t) => (
-                    <DropdownMenuItem
-                      key={t.id}
-                      disabled={!canSsh}
-                      onSelect={() => {
-                        if (canSsh && workspace?.worktreePath) {
-                          void openTerminalSsh(t.id, sshHost, workspace.worktreePath);
-                        }
-                      }}
-                    >
-                      <TerminalIcon className="size-3.5" />
-                      {t.name} (SSH)
-                    </DropdownMenuItem>
-                  ))}
+                  {terminalApps.map((t) => {
+                    const Icon = t.id === "iterm2" ? Iterm2Icon : TerminalIcon;
+                    return (
+                      <DropdownMenuItem
+                        key={t.id}
+                        disabled={!canSsh}
+                        onSelect={() => {
+                          if (canSsh && workspace?.worktreePath) {
+                            void openTerminalSsh(t.id, sshHost, workspace.worktreePath);
+                          }
+                        }}
+                      >
+                        <Icon className="size-3.5" />
+                        {t.name} (SSH)
+                      </DropdownMenuItem>
+                    );
+                  })}
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
@@ -481,7 +485,7 @@ export default function WorkspaceView() {
                         onClick={() => { if (vscodeUri) void openExternal(vscodeUri); }}
                         disabled={!canOpenVscode}
                       >
-                        <CodeXmlIcon className="mr-1.5 size-3.5" />
+                        <VscodeIcon className="mr-1.5 size-3.5" />
                         VS Code
                       </Button>
                     </span>
