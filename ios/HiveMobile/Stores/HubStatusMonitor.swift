@@ -213,13 +213,20 @@ final class HubStatusMonitor {
 
     // MARK: - App lifecycle
 
+    /// Force a full WS reconnect to get fresh bootstrap data for all workspaces.
+    /// Used by pull-to-refresh so the backend re-sends status, history, branch_info,
+    /// diff_stats, and script_status for every subscribed workspace.
+    func forceRefresh() {
+        storeCache.clearAllStreamingState()
+        hubConnection?.forceReconnect()
+    }
+
     /// Called when the app returns to foreground after a non-trivial background period.
     /// Clears stale streaming state and forces an immediate hub reconnect so the
     /// backend bootstrap (status + history) writes into a clean slate.
     func appDidBecomeActive() {
         streamingBeforeBackground = streamingWorkspaces
-        storeCache.clearAllStreamingState()
-        hubConnection?.forceReconnect()
+        forceRefresh()
     }
 }
 
