@@ -78,6 +78,12 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `backend/src/agents/providers/codex-stream-adapter.ts`: Codex JSONL→StreamParserEvent normalizer
 - `backend/src/notifications/notifier.ts`: event dispatcher for notification channels
 - `backend/src/notifications/telegram.ts`: Telegram bot API channel
+- `backend/src/services/automation-scheduler.ts`: cron-based automation executor (croner, ConversationSession, summary extraction, notifications)
+- `backend/src/api/automations.ts`: automation CRUD + manual trigger + run history
+- `backend/src/api/prompt-templates.ts`: prompt template CRUD (deletion guard if referenced by automation)
+- `backend/src/state/automations.ts`: automation + run persistence (atomic writes, run capping at 50)
+- `backend/src/state/prompt-templates.ts`: template persistence
+- `backend/src/utils/summary-extractor.ts`: extract `## Summary` section from agent messages
 - `backend/src/state/state.ts`: JSON persistence + per-project locks
 - `backend/src/state/config.ts`: file-based app config (`$DATA_DIR/config.json`)
 - `backend/src/utils/preflight.ts`: startup dependency checks (git >= 2.17, claude, gh; codex optional)
@@ -108,6 +114,15 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - MCP tool blocks (`mcp_tool_use`, `mcp_tool_result`) and `redacted_thinking` are also handled.
 - Image attachments are resized via sharp (max 1568px, JPEG q80) and stored as files on disk, served via HTTP (`/api/workspaces/:wsId/sessions/:sessionId/attachments/:filename`).
 - PR status endpoint returns enriched data: review state (approved/changes_requested/review_required), checks counts (passed/total), mergeable state (13-state priority ladder), and supports closed/merged/draft PRs via `--state all`.
+- Automation scheduler (`AutomationScheduler`) runs as a singleton service alongside `GitSyncService`, instantiated in `main()`.
+- Automations execute `ConversationSession` directly (not via agent-manager) to keep automation sessions decoupled from workspace sessions.
+- System prompt auto-appends a `## Summary` instruction; summary is extracted from the last assistant message post-run via `extractSummary()`.
+- Workspace setup: project-linked automations create a worktree from the project's bare repo, reset to latest default branch on each run; non-project automations use a plain directory.
+- No concurrent runs per automation — cron trigger skips if already running.
+- Stale "running" runs are marked as failed on server restart.
+- Automation data lives at `~/.hive/automations.json` (definitions) and `~/.hive/automations/<autoId>/` (runs, sessions, workspace).
+- Prompt templates persist at `~/.hive/prompt-templates.json`; deletion is blocked if referenced by an automation.
+- Automation notifications use the same `Notifier` + `TelegramChannel` / `ApnsChannel` infrastructure as workspace turn-complete notifications.
 
 ## Frontend Architecture
 
@@ -131,7 +146,12 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `frontend/src/hooks/useCompletions.ts`: autocomplete scanning
 - `frontend/src/hooks/useChatInputDraftPersistence.ts`: draft persistence (message, images, thinking, planMode, selectedModelId, thinkingLevel)
 - `frontend/src/lib/ws-transport.ts`: single multiplexed hub WS transport (`/ws/hub`; `sync_workspaces`, envelope demux, per-workspace caches + replay buffer)
-- `frontend/src/components/Sidebar.tsx`: project/workspace nav + archive/delete + activity preview
+- `frontend/src/hooks/useAutomations.ts`: automation CRUD + trigger + run history hooks (TanStack Query, 15s polling)
+- `frontend/src/hooks/usePromptTemplates.ts`: prompt template CRUD hooks
+- `frontend/src/pages/AutomationDetail.tsx`: automation config display + run history + enable/disable + manual trigger + delete
+- `frontend/src/components/CreateAutomationDialog.tsx`: automation creation form (name, project, schedule, model, prompts, notifications)
+- `frontend/src/pages/settings/PromptTemplatesSettings.tsx`: template CRUD settings page (grouped by system/user)
+- `frontend/src/components/Sidebar.tsx`: project/workspace nav + archive/delete + activity preview + automation list tab
 - `frontend/src/components/ChatInput.tsx`: message input with provider-adaptive controls (thinking toggle/levels, plan mode gating, completions gating)
 - `frontend/src/components/ChatConversation.tsx`: conversation display with hydration flash fix (visibility:hidden + double-rAF settle)
 - `frontend/src/components/PrStatusSection.tsx`: enriched PR display (13 states: merged, closed, draft, conflicts, blocked, checks, reviews)
@@ -256,3 +276,29 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - `redacted_thinking` blocks are logged as `[redacted]` but not visually distinguished from regular thinking in the UI.
 - Codex provider integration is functional but less battle-tested than Claude. Stream adapter edge cases may surface.
 - No Codex session resume verification (thread ID persistence is best-effort).
+- Automation detail page does not support inline editing of config (requires recreating the automation).
+- No iOS UI for automations or prompt templates yet (types added, UI not implemented).
+- No live WS streaming for automation runs (frontend uses REST polling only).
+
+## Automation — Future Milestones
+
+### GitHub Event Automations (M3)
+- Webhook receiver endpoint: `POST /api/webhooks/github`
+- GitHub sends PR/issue events → match against automations with `trigger.type === "github_event"`
+- `AutomationTrigger` union needs `{ type: "github_event"; events: string[] }` variant
+- Context enrichment: fetch PR diff/description via `gh` CLI, inject into user prompt
+- Template variables: `{{pr_url}}`, `{{pr_title}}`, `{{pr_diff}}`, `{{issue_url}}`, etc.
+- Agent output → post as GitHub comment via `gh pr review` or `gh issue comment`
+- Requires: webhook secret validation, event deduplication, rate limiting
+
+### Script Automations (M4)
+- `AutomationAction` union needs `{ type: "script"; command: string }` variant
+- Reuse `scriptRunner.startScript()` + `exitListeners` pattern
+- Script output capture for notifications
+
+### Advanced Features
+- Automation chaining: trigger type `automation_complete` (run B after A finishes)
+- Concurrency limits: semaphore for max parallel automation runs
+- Live WS streaming: add `sync_automations` hub subscription for real-time run output
+- Run log viewer: show full agent conversation in frontend
+- Retry policy: configurable retry count on failure

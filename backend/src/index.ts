@@ -18,6 +18,9 @@ import { agentSettingsRoutes } from "./api/agents-settings.js";
 import { accountRoutes } from "./api/account.js";
 import { scriptRoutes } from "./api/scripts.js";
 import { scriptWsRoutes } from "./ws/script.js";
+import { automationRoutes } from "./api/automations.js";
+import { promptTemplateRoutes } from "./api/prompt-templates.js";
+import { AutomationScheduler } from "./services/automation-scheduler.js";
 import { loadConfig } from "./state/config.js";
 import { broadcastToWorkspace } from "./ws/stream.js";
 import type { StreamRoutesOptions } from "./ws/stream.js";
@@ -45,6 +48,7 @@ function parsePositiveNumber(value: string | undefined, fallback: number): numbe
 
 interface BuildAppOptions {
   gitSyncSnapshotProvider?: StreamRoutesOptions["gitSyncSnapshotProvider"];
+  scheduler?: AutomationScheduler;
 }
 
 export async function buildApp(opts: BuildAppOptions = {}) {
@@ -98,6 +102,10 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register((instance: FastifyInstance) =>
     scriptWsRoutes(instance, { authToken }),
   );
+  await app.register((instance: FastifyInstance) =>
+    automationRoutes(instance, { scheduler: opts.scheduler }),
+  );
+  await app.register((instance: FastifyInstance) => promptTemplateRoutes(instance));
 
   return app;
 }
@@ -114,6 +122,8 @@ async function main() {
   const config = await loadConfig(dataDir);
   rebuildNotifier(config);
 
+  const scheduler = new AutomationScheduler(dataDir);
+
   const gitSync = new GitSyncService(dataDir);
   gitSync.onBranchChange((wsId, info) => {
     broadcastToWorkspace(wsId, { type: "branch_info", info });
@@ -122,7 +132,7 @@ async function main() {
     broadcastToWorkspace(wsId, { type: "diff_stats", stats });
   });
 
-  const app = await buildApp({ gitSyncSnapshotProvider: gitSync });
+  const app = await buildApp({ gitSyncSnapshotProvider: gitSync, scheduler });
 
   try {
     await gitSync.poll();
@@ -130,8 +140,12 @@ async function main() {
     app.log.warn("Initial git sync poll failed");
   }
 
-  app.addHook("onClose", () => gitSync.stop());
+  app.addHook("onClose", () => {
+    gitSync.stop();
+    scheduler.stop();
+  });
   gitSync.start(BRANCH_SYNC_INTERVAL_MS);
+  await scheduler.start();
 
   await app.listen({ host: HOST, port: PORT });
 }

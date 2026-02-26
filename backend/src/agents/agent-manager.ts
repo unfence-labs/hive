@@ -21,6 +21,10 @@ export function setNotifier(n: Notifier): void {
   notifier = n;
 }
 
+export function getNotifier(): Notifier | undefined {
+  return notifier;
+}
+
 export function rebuildNotifier(config: AppConfig): void {
   liveApnsChannel?.destroy();
   liveApnsChannel = null;

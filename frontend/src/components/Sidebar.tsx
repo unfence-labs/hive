@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArchiveIcon, FolderPlus, Plus, Settings } from "lucide-react";
+import { ArchiveIcon, FolderPlus, Loader2, Plus, Settings, Zap } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -35,15 +35,17 @@ import { WaveIndicator } from "@/components/WaveIndicator";
 import { api } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
-import type { DiffStatResponse } from "@/types";
+import { useAutomations } from "@/hooks/useAutomations";
+import type { Automation, DiffStatResponse } from "@/types";
 
 interface SidebarProps {
   onAddProject: () => void;
+  onAddAutomation?: () => void;
 }
 
 type SidebarTab = "build" | "automation";
 
-export default function Sidebar({ onAddProject }: SidebarProps) {
+export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps) {
   const { projects, loading, createWorkspace, archiveWorkspace } = useProjects();
   const queryClient = useQueryClient();
   const { wsId: activeWsId } = useParams();
@@ -276,15 +278,13 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
           </div>
         </ScrollArea>
       ) : (
-        /* ── Automation placeholder ────────────────────────────────── */
-        <div className="flex flex-1 items-center justify-center">
-          <span className="text-sm text-muted-foreground">Coming soon</span>
-        </div>
+        /* ── Automation list ───────────────────────────────────────── */
+        <AutomationList onAddAutomation={onAddAutomation} />
       )}
 
-      {/* ── Add repository (build tab only) ─────────────────────────── */}
-      {activeTab === "build" && (
-        <div className="shrink-0 px-2 pb-1.5">
+      {/* ── Bottom action ─────────────────────────────────────────── */}
+      <div className="shrink-0 px-2 pb-1.5">
+        {activeTab === "build" ? (
           <button
             type="button"
             className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-primary/40 px-2 py-2 text-sm text-primary transition-colors hover:border-primary hover:bg-primary/10"
@@ -293,8 +293,17 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
             <FolderPlus className="h-4 w-4 shrink-0" />
             Add repository
           </button>
-        </div>
-      )}
+        ) : (
+          <button
+            type="button"
+            className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-primary/40 px-2 py-2 text-sm text-primary transition-colors hover:border-primary hover:bg-primary/10"
+            onClick={onAddAutomation}
+          >
+            <Plus className="h-4 w-4 shrink-0" />
+            New automation
+          </button>
+        )}
+      </div>
 
       {/* ── Footer: tabs + settings ─────────────────────────────────── */}
       <div className="flex items-center border-t border-border/50 px-2 py-1.5">
@@ -352,5 +361,115 @@ export default function Sidebar({ onAddProject }: SidebarProps) {
       </AlertDialog>
 
     </div>
+  );
+}
+
+// ── Automation sidebar list ──────────────────────────────────────────
+
+function automationSortKey(a: Automation): number {
+  if (a.lastRunStatus === "running") return 0;
+  if (a.enabled) return 1;
+  return 2;
+}
+
+function describeSchedule(expression: string): string {
+  const presets: Record<string, string> = {
+    "0 * * * *": "Hourly",
+    "0 */6 * * *": "Every 6h",
+    "0 2 * * *": "Daily 2am",
+    "0 8 * * *": "Daily 8am",
+    "0 0 * * *": "Daily midnight",
+    "0 9 * * 1-5": "Weekdays 9am",
+    "0 9 * * 1": "Weekly Mon",
+  };
+  return presets[expression] ?? expression;
+}
+
+function AutomationList({ onAddAutomation }: { onAddAutomation?: () => void }) {
+  const { data: automations, isLoading } = useAutomations();
+  const { pathname } = useLocation();
+
+  const sorted = useMemo(() => {
+    if (!automations) return [];
+    return [...automations].sort((a, b) => automationSortKey(a) - automationSortKey(b));
+  }, [automations]);
+
+  if (isLoading) {
+    return (
+      <ScrollArea className="flex-1">
+        <div className="space-y-2 p-2 px-4">
+          <Skeleton className="h-6 w-full" />
+          <Skeleton className="h-6 w-3/4" />
+        </div>
+      </ScrollArea>
+    );
+  }
+
+  if (sorted.length === 0) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4">
+        <Zap className="h-8 w-8 text-muted-foreground/40" />
+        <div className="text-center">
+          <p className="text-sm text-muted-foreground">No automations yet</p>
+          <p className="mt-1 text-xs text-muted-foreground/60">
+            Schedule agents to run on a cron schedule
+          </p>
+        </div>
+        {onAddAutomation && (
+          <button
+            type="button"
+            className="mt-1 text-xs text-primary hover:underline"
+            onClick={onAddAutomation}
+          >
+            Create your first automation
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <ScrollArea className="flex-1">
+      <div className="space-y-0.5 p-2">
+        {sorted.map((auto) => {
+          const isActive = pathname === `/automations/${auto.id}`;
+          const isRunning = auto.lastRunStatus === "running";
+
+          return (
+            <Link
+              key={auto.id}
+              to={`/automations/${auto.id}`}
+              className={cn(
+                "block rounded-md px-2.5 py-2 transition-colors hover:bg-sidebar-accent/60",
+                isActive
+                  ? "border-2 border-dashed border-primary/50"
+                  : "border-2 border-transparent",
+              )}
+            >
+              <div className="flex items-center gap-2">
+                {/* Status dot */}
+                <span
+                  className={cn(
+                    "h-2 w-2 shrink-0 rounded-full",
+                    isRunning
+                      ? "bg-blue-500 animate-pulse"
+                      : auto.enabled
+                        ? "bg-emerald-500"
+                        : "bg-muted-foreground/40",
+                  )}
+                />
+                <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground">
+                  {auto.name}
+                </span>
+                {isRunning && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-blue-400" />}
+              </div>
+              <div className="mt-0.5 pl-4 text-[11px] text-muted-foreground">
+                {auto.enabled ? describeSchedule(auto.trigger.expression) : "Disabled"}
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </ScrollArea>
   );
 }

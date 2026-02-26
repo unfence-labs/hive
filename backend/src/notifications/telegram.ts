@@ -4,6 +4,10 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function truncate(text: string, maxLen: number): string {
+  return text.length <= maxLen ? text : text.slice(0, maxLen - 1) + "…";
+}
+
 function formatMessage(event: NotificationEvent): string {
   switch (event.type) {
     case "agent_turn_complete": {
@@ -14,6 +18,27 @@ function formatMessage(event: NotificationEvent): string {
         `Project: ${escapeHtml(event.projectName)}\n` +
         `Workspace: ${escapeHtml(event.workspaceName)}` +
         duration
+      );
+    }
+    case "automation_run_complete": {
+      const statusIcon = event.status === "success" ? "✅" : "❌";
+      const statusLabel = event.status === "success" ? "Success" : "Failed";
+      const duration =
+        event.durationMs != null ? `\nDuration: ${Math.round(event.durationMs / 1000)}s` : "";
+      const project = event.projectName ? `\nProject: ${escapeHtml(event.projectName)}` : "";
+
+      let body = "";
+      if (event.status === "failure" && event.error) {
+        body = `\n\n${escapeHtml(truncate(event.error, 4000))}`;
+      } else if (event.summary) {
+        body = `\n\n${escapeHtml(truncate(event.summary, 4000))}`;
+      }
+
+      return (
+        `🤖 <b>Automation: ${escapeHtml(event.automationName)}</b>${project}\n` +
+        `Status: ${statusIcon} ${statusLabel}` +
+        duration +
+        body
       );
     }
   }

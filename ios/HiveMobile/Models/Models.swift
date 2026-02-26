@@ -359,6 +359,70 @@ struct MessageOptions: Codable {
     let thinkingLevel: ThinkingLevel?
 }
 
+// MARK: - Automation
+
+enum AutomationRunStatus: String, Codable {
+    case running
+    case success
+    case failure
+}
+
+struct AutomationTrigger: Codable {
+    let type: String
+    let expression: String
+}
+
+struct AutomationAction: Codable {
+    let type: String
+    let modelId: String
+    let systemPromptId: String?
+    let systemPromptInline: String?
+    let userPromptId: String?
+    let userPromptInline: String?
+}
+
+struct AutomationNotification: Codable {
+    let onComplete: Bool
+    let onFailure: Bool
+}
+
+struct Automation: Codable, Identifiable {
+    let id: String
+    let name: String
+    let enabled: Bool
+    let projectId: String?
+    let trigger: AutomationTrigger
+    let action: AutomationAction
+    let notification: AutomationNotification
+    let workspacePath: String?
+    let lastRunId: String?
+    let lastRunAt: String?
+    let lastRunStatus: AutomationRunStatus?
+    let createdAt: String
+    let updatedAt: String
+}
+
+struct AutomationRun: Codable, Identifiable {
+    let id: String
+    let automationId: String
+    let status: AutomationRunStatus
+    let sessionId: String
+    let startedAt: String
+    let completedAt: String?
+    let durationMs: Int?
+    let summary: String?
+    let error: String?
+}
+
+struct PromptTemplate: Codable, Identifiable {
+    let id: String
+    let name: String
+    let type: String
+    let content: String
+    let createdAt: String
+    let updatedAt: String
+}
+
 // MARK: - Task Tracking
 
 enum TaskStatus: String {

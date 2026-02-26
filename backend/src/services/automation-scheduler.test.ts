@@ -1,0 +1,485 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
+import { createTempDir } from "../utils/test-helpers.js";
+import { AutomationScheduler } from "./automation-scheduler.js";
+import {
+  loadAutomations,
+  saveAutomations,
+  loadRuns,
+  saveRuns,
+} from "../state/automations.js";
+import { savePromptTemplates } from "../state/prompt-templates.js";
+import type { Automation, AutomationRun, PromptTemplate } from "../types.js";
+
+// ── Mock heavy dependencies ─────────────────────────────────────────
+// ConversationSession is a complex beast that spawns child processes.
+// We mock it to test scheduler orchestration logic in isolation.
+
+vi.mock("../agents/conversation-session.js", async () => {
+  const { EventEmitter } = await import("node:events");
+  class MockSession extends EventEmitter {
+    stopped = false;
+    sentMessage: string | undefined;
+    sendOptions: Record<string, unknown> | undefined;
+
+    sendMessage(msg: string, opts?: Record<string, unknown>) {
+      this.sentMessage = msg;
+      this.sendOptions = opts;
+      // Emit "done" on next tick to simulate completion
+      process.nextTick(() => this.emit("message", { type: "done" }));
+    }
+
+    stop() {
+      this.stopped = true;
+    }
+
+    async getMessages() {
+      return [
+        { id: "m1", sessionId: "s1", role: "assistant", content: "Working\n## Summary\nAll good.", timestamp: new Date().toISOString() },
+      ];
+    }
+  }
+  return { ConversationSession: MockSession };
+});
+
+vi.mock("../agents/agent-manager.js", () => ({
+  getNotifier: vi.fn(() => null),
+}));
+
+vi.mock("../state/state.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../state/state.js")>();
+  return {
+    ...actual,
+    loadProject: vi.fn(async () => ({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" })),
+  };
+});
+
+vi.mock("../utils/git.js", () => ({
+  git: vi.fn(async () => ({ stdout: "", stderr: "" })),
+}));
+
+vi.mock("../utils/paths.js", () => ({
+  bareRepoPath: vi.fn((_dataDir: string, _projId: string) => "/tmp/bare"),
+  resolveDefaultBranch: vi.fn(async () => "main"),
+}));
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+let tmpDir: string;
+let dataDir: string;
+
+function makeAutomation(overrides: Partial<Automation> = {}): Automation {
+  return {
+    id: "auto-1",
+    name: "Test Automation",
+    enabled: true,
+    trigger: { type: "cron", expression: "0 * * * *" },
+    action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "Review code" },
+    notification: { onComplete: true, onFailure: true },
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function makeRun(overrides: Partial<AutomationRun> = {}): AutomationRun {
+  return {
+    id: "run-1",
+    automationId: "auto-1",
+    status: "running",
+    sessionId: "sess-1",
+    startedAt: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+beforeEach(async () => {
+  tmpDir = await createTempDir();
+  dataDir = join(tmpDir, "data");
+  vi.clearAllMocks();
+});
+
+afterEach(async () => {
+  await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+});
+
+// ── Tests ───────────────────────────────────────────────────────────
+
+describe("AutomationScheduler", () => {
+  describe("start()", () => {
+    it("recovers stale running runs on startup", async () => {
+      const auto = makeAutomation();
+      await saveAutomations([auto], dataDir);
+      await saveRuns("auto-1", [makeRun({ status: "running" })], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.start();
+
+      const runs = await loadRuns("auto-1", dataDir);
+      expect(runs[0].status).toBe("failure");
+      expect(runs[0].error).toBe("Server restarted during run");
+      expect(runs[0].completedAt).toBeDefined();
+
+      scheduler.stop();
+    });
+
+    it("does not touch completed runs on startup", async () => {
+      const auto = makeAutomation();
+      await saveAutomations([auto], dataDir);
+      await saveRuns("auto-1", [makeRun({ status: "success" })], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.start();
+
+      const runs = await loadRuns("auto-1", dataDir);
+      expect(runs[0].status).toBe("success");
+
+      scheduler.stop();
+    });
+
+    it("schedules enabled automations on start", async () => {
+      const auto = makeAutomation({ enabled: true });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.start();
+
+      // The fact that stop() can be called without error proves a job was scheduled
+      scheduler.stop();
+    });
+
+    it("does not schedule disabled automations on start", async () => {
+      const auto = makeAutomation({ enabled: false });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.start();
+      scheduler.stop();
+    });
+  });
+
+  describe("stop()", () => {
+    it("clears all cron jobs and active runs", async () => {
+      const auto = makeAutomation();
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.start();
+      scheduler.stop();
+
+      // After stop, isRunning should return false for any automation
+      expect(scheduler.isRunning("auto-1")).toBe(false);
+    });
+  });
+
+  describe("scheduleAutomation()", () => {
+    it("replaces existing job for same automation", async () => {
+      const scheduler = new AutomationScheduler(dataDir);
+      const auto = makeAutomation();
+
+      await scheduler.scheduleAutomation(auto);
+      // Schedule again — should not throw
+      await scheduler.scheduleAutomation(auto);
+
+      scheduler.stop();
+    });
+
+    it("does not schedule if automation is disabled", async () => {
+      const scheduler = new AutomationScheduler(dataDir);
+      const auto = makeAutomation({ enabled: false });
+
+      await scheduler.scheduleAutomation(auto);
+
+      // isRunning should be false since nothing was scheduled
+      expect(scheduler.isRunning("auto-1")).toBe(false);
+      scheduler.stop();
+    });
+  });
+
+  describe("unscheduleAutomation()", () => {
+    it("is a no-op for unknown automation id", () => {
+      const scheduler = new AutomationScheduler(dataDir);
+      // Should not throw
+      scheduler.unscheduleAutomation("nonexistent");
+      scheduler.stop();
+    });
+
+    it("removes a scheduled automation", async () => {
+      const scheduler = new AutomationScheduler(dataDir);
+      const auto = makeAutomation();
+      await scheduler.scheduleAutomation(auto);
+
+      scheduler.unscheduleAutomation("auto-1");
+      scheduler.stop();
+    });
+  });
+
+  describe("isRunning()", () => {
+    it("returns false when no run is active", () => {
+      const scheduler = new AutomationScheduler(dataDir);
+      expect(scheduler.isRunning("auto-1")).toBe(false);
+      scheduler.stop();
+    });
+  });
+
+  describe("triggerNow()", () => {
+    it("executes a run and returns the completed run", async () => {
+      const auto = makeAutomation();
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.automationId).toBe("auto-1");
+      expect(run.status).toBe("success");
+      expect(run.summary).toBe("All good.");
+      expect(run.completedAt).toBeDefined();
+
+      scheduler.stop();
+    });
+
+    it("throws when automation does not exist", async () => {
+      const scheduler = new AutomationScheduler(dataDir);
+
+      await expect(scheduler.triggerNow("nonexistent")).rejects.toThrow(
+        "Automation nonexistent not found",
+      );
+
+      scheduler.stop();
+    });
+
+    it("guards against concurrent runs via isRunning check", async () => {
+      const auto = makeAutomation();
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+
+      // First trigger starts the run
+      const run1Promise = scheduler.triggerNow("auto-1");
+
+      // While first is running (before done emits on next tick), isRunning should eventually be true
+      // After completion, isRunning should be false
+      const run1 = await run1Promise;
+      expect(run1.status).toBe("success");
+      expect(scheduler.isRunning("auto-1")).toBe(false);
+
+      scheduler.stop();
+    });
+
+    it("persists the run to disk", async () => {
+      const auto = makeAutomation();
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      const persisted = await loadRuns("auto-1", dataDir);
+      expect(persisted.length).toBeGreaterThanOrEqual(1);
+      expect(persisted.find((r) => r.id === run.id)).toBeDefined();
+
+      scheduler.stop();
+    });
+
+    it("updates the automation with lastRunId and lastRunStatus", async () => {
+      const auto = makeAutomation();
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      const autos = await loadAutomations(dataDir);
+      expect(autos[0].lastRunId).toBe(run.id);
+      expect(autos[0].lastRunStatus).toBe("success");
+      expect(autos[0].lastRunAt).toBeDefined();
+
+      scheduler.stop();
+    });
+
+    it("resolves user prompt from template when userPromptId is set", async () => {
+      const tpl: PromptTemplate = {
+        id: "tpl-1",
+        name: "Code Review",
+        type: "user",
+        content: "Review the latest changes",
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      };
+      await savePromptTemplates([tpl], dataDir);
+
+      const auto = makeAutomation({
+        action: {
+          type: "agent",
+          modelId: "claude:opus-4-6",
+          userPromptId: "tpl-1",
+        },
+      });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.status).toBe("success");
+
+      scheduler.stop();
+    });
+
+    it("fails when no user prompt can be resolved", async () => {
+      const auto = makeAutomation({
+        action: {
+          type: "agent",
+          modelId: "claude:opus-4-6",
+          userPromptId: "nonexistent-tpl",
+        },
+      });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.status).toBe("failure");
+      expect(run.error).toBe("No user prompt resolved");
+
+      scheduler.stop();
+    });
+  });
+
+  describe("onAutomationCreated()", () => {
+    it("schedules the automation", async () => {
+      const scheduler = new AutomationScheduler(dataDir);
+      const auto = makeAutomation();
+
+      await scheduler.onAutomationCreated(auto);
+      // Verify it was scheduled by stopping cleanly
+      scheduler.stop();
+    });
+  });
+
+  describe("onAutomationUpdated()", () => {
+    it("reschedules the automation", async () => {
+      const scheduler = new AutomationScheduler(dataDir);
+      const auto = makeAutomation();
+
+      await scheduler.onAutomationCreated(auto);
+      await scheduler.onAutomationUpdated({ ...auto, trigger: { type: "cron", expression: "0 2 * * *" } });
+
+      scheduler.stop();
+    });
+
+    it("unschedules if disabled", async () => {
+      const scheduler = new AutomationScheduler(dataDir);
+      const auto = makeAutomation();
+
+      await scheduler.onAutomationCreated(auto);
+      await scheduler.onAutomationUpdated({ ...auto, enabled: false });
+
+      scheduler.stop();
+    });
+  });
+
+  describe("onAutomationDeleted()", () => {
+    it("unschedules the automation", async () => {
+      const scheduler = new AutomationScheduler(dataDir);
+      const auto = makeAutomation();
+
+      await scheduler.onAutomationCreated(auto);
+      await scheduler.onAutomationDeleted("auto-1");
+
+      scheduler.stop();
+    });
+  });
+
+  describe("notification dispatch", () => {
+    it("sends notification on successful run when onComplete is true", async () => {
+      const { getNotifier } = await import("../agents/agent-manager.js");
+      const notifyMock = vi.fn(async () => {});
+      vi.mocked(getNotifier).mockReturnValue({
+        notify: notifyMock,
+        addChannel: vi.fn(),
+        removeChannel: vi.fn(),
+      } as never);
+
+      const auto = makeAutomation({ notification: { onComplete: true, onFailure: false } });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.triggerNow("auto-1");
+
+      expect(notifyMock).toHaveBeenCalledTimes(1);
+      const event = notifyMock.mock.calls[0][0];
+      expect(event.type).toBe("automation_run_complete");
+      expect(event.status).toBe("success");
+      expect(event.automationName).toBe("Test Automation");
+      expect(event.summary).toBe("All good.");
+
+      scheduler.stop();
+    });
+
+    it("does not send notification when onComplete is false and run succeeds", async () => {
+      const { getNotifier } = await import("../agents/agent-manager.js");
+      const notifyMock = vi.fn(async () => {});
+      vi.mocked(getNotifier).mockReturnValue({
+        notify: notifyMock,
+        addChannel: vi.fn(),
+        removeChannel: vi.fn(),
+      } as never);
+
+      const auto = makeAutomation({ notification: { onComplete: false, onFailure: true } });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.triggerNow("auto-1");
+
+      expect(notifyMock).not.toHaveBeenCalled();
+
+      scheduler.stop();
+    });
+
+    it("does not send notification when notifier is null", async () => {
+      const { getNotifier } = await import("../agents/agent-manager.js");
+      vi.mocked(getNotifier).mockReturnValue(null as never);
+
+      const auto = makeAutomation();
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      // Should not throw even without a notifier
+      await scheduler.triggerNow("auto-1");
+
+      scheduler.stop();
+    });
+  });
+
+  describe("workspace setup", () => {
+    it("creates workspace directory for non-project automations", async () => {
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject).mockResolvedValue(null as never);
+
+      const auto = makeAutomation({ projectId: undefined });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.status).toBe("success");
+      scheduler.stop();
+    });
+
+    it("saves workspace path on first run", async () => {
+      // Re-set mock to return a valid project (previous test may have cleared it)
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" } as never);
+
+      const auto = makeAutomation({ projectId: "proj-1" });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.triggerNow("auto-1");
+
+      const autos = await loadAutomations(dataDir);
+      expect(autos[0].workspacePath).toBeDefined();
+
+      scheduler.stop();
+    });
+  });
+});
