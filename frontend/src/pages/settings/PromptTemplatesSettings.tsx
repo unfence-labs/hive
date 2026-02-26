@@ -28,6 +28,7 @@ import {
   useUpdateBasePrompt,
   useResetBasePrompt,
 } from "@/hooks/useBasePrompt";
+import { PromptEditor } from "@/components/PromptEditor";
 import { cn } from "@/lib/utils";
 import type { PromptTemplate } from "@/types";
 
@@ -188,11 +189,7 @@ function BasePromptSection() {
 
       {editing ? (
         <div className="space-y-3">
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            className="field-sizing-content flex max-h-96 min-h-32 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
+          <PromptEditor value={draft} onChange={setDraft} maxHeight="24rem" />
 
           {/* Template variables hint */}
           <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/70">
@@ -224,9 +221,9 @@ function BasePromptSection() {
                 </button>
               </CollapsibleTrigger>
               <CollapsibleContent>
-                <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-border/30 bg-muted/30 p-3 text-xs text-muted-foreground">
-                  {data.defaultContent}
-                </pre>
+                <div className="mt-2">
+                  <PromptEditor value={data.defaultContent} readOnly maxHeight="12rem" />
+                </div>
               </CollapsibleContent>
             </Collapsible>
           )}
@@ -383,12 +380,11 @@ function CreateTemplateForm({ onClose }: { onClose: () => void }) {
 
         <div>
           <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Content</label>
-          <textarea
+          <PromptEditor
             value={content}
-            onChange={(e) => setContent(e.target.value)}
+            onChange={setContent}
+            maxHeight="16rem"
             placeholder={type === "system" ? "You are a code auditor..." : "Review the codebase and..."}
-            rows={6}
-            className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
 
@@ -510,12 +506,7 @@ function EditTemplateForm({ template, onClose }: { template: PromptTemplate; onC
           onChange={(e) => setName(e.target.value)}
           className="text-sm"
         />
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          rows={6}
-          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        />
+        <PromptEditor value={content} onChange={setContent} maxHeight="16rem" />
         <div className="flex items-center gap-2">
           <button
             type="button"
