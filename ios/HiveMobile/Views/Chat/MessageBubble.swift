@@ -5,6 +5,8 @@ struct MessageBubble: View {
     let message: ChatMessage
     var pendingToolUseIds: Set<String> = []
 
+    @State private var copied = false
+
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             if message.role == .user { Spacer(minLength: 60) }
@@ -103,6 +105,27 @@ struct MessageBubble: View {
                     Text(formatDuration(ms))
                         .font(WhisperFont.mono(10))
                         .foregroundStyle(WhisperColor.textMuted)
+                }
+
+                if message.role == .assistant, !message.content.isEmpty {
+                    Text("·")
+                        .font(WhisperFont.mono(10))
+                        .foregroundStyle(WhisperColor.textMuted)
+                    Button {
+                        UIPasteboard.general.string = message.content
+                        copied = true
+                        Task {
+                            try? await Task.sleep(for: .seconds(2))
+                            copied = false
+                        }
+                    } label: {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 10))
+                            .foregroundStyle(copied ? .green : WhisperColor.textMuted)
+                            .contentTransition(.symbolEffect(.replace))
+                            .frame(width: 14, height: 14)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
