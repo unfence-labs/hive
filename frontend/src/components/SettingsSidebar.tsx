@@ -67,7 +67,7 @@ export default function SettingsSidebar() {
             />
             <NavItem
               to="/settings/prompt-templates"
-              label="Prompt Templates"
+              label="Prompts"
               icon={<FileText className="h-4 w-4" />}
               active={pathname === "/settings/prompt-templates"}
             />

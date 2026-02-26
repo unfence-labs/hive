@@ -361,6 +361,12 @@ export interface PromptTemplate {
   updatedAt: string;
 }
 
+export interface BasePromptData {
+  content: string;
+  isDefault: boolean;
+  defaultContent: string;
+}
+
 // ── Hub WebSocket protocol (multiplexed) ────────────────────────────
 
 /** Client -> Server (hub-level). */
