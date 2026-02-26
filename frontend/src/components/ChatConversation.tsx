@@ -196,19 +196,23 @@ export default function ChatConversation({
               description=""
             />
           ))}
-        {messages.map((msg, i) => (
-          <ChatMessage
-            key={msg.id ?? `${msg.timestamp}-${i}`}
-            message={msg}
-            isInteractive={isMessageInteractive(msg, i)}
-            planStatus={getPlanStatus(msg, i)}
-            dismissedToolCallIds={dismissedToolCallIds}
-            onQuestionAnswer={onQuestionAnswer}
-            onPlanApproval={onPlanApproval}
-            onHandOff={onHandOff}
-            onFileMentionClick={onFileMentionClick}
-          />
-        ))}
+        {messages.map((msg, i) => {
+          // Hide "Question dismissed." user bubbles — the CANCELLED badge already conveys this
+          if (msg.role === "user" && msg.content === "Question dismissed.") return null;
+          return (
+            <ChatMessage
+              key={msg.id ?? `${msg.timestamp}-${i}`}
+              message={msg}
+              isInteractive={isMessageInteractive(msg, i)}
+              planStatus={getPlanStatus(msg, i)}
+              dismissedToolCallIds={dismissedToolCallIds}
+              onQuestionAnswer={onQuestionAnswer}
+              onPlanApproval={onPlanApproval}
+              onHandOff={onHandOff}
+              onFileMentionClick={onFileMentionClick}
+            />
+          );
+        })}
 
         {/* Live streaming content */}
         {isStreaming && (currentStreamingText || currentThinking || activeToolCalls.length > 0) && (

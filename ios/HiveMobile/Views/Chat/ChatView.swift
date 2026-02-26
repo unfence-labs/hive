@@ -83,8 +83,10 @@ struct ChatView: View {
                     ScrollView {
                         VStack(spacing: 16) {
                             ForEach(store.displayMessages) { message in
-                                MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
-                                    .id(message.id)
+                                if !(message.role == .user && message.content == "Question dismissed.") {
+                                    MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
+                                        .id(message.id)
+                                }
                             }
 
                             if store.isStreaming {
