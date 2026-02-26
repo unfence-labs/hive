@@ -57,13 +57,13 @@ export default function PromptTemplatesSettings() {
         <BasePromptSection />
 
         {/* ── Separator ──────────────────────────────────────────── */}
-        <div className="border-t border-border/30" />
+        <div className="border-t border-border/50" />
 
         {/* ── Template Library ────────────────────────────────────── */}
         <div className="space-y-4">
           <div>
-            <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">
-              Template Library
+            <h2 className="text-base font-medium text-foreground">
+              Automation Prompt Library
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
               Reusable system and user prompts for your automations.
@@ -74,7 +74,7 @@ export default function PromptTemplatesSettings() {
             <button
               type="button"
               onClick={() => setShowCreate(true)}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/10"
             >
               <Plus className="h-3 w-3" />
               Add Template
@@ -169,8 +169,8 @@ function BasePromptSection() {
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-2">
-        <h2 className="text-xs font-medium uppercase tracking-wider text-muted-foreground/70">
-          Base System Prompt
+        <h2 className="text-base font-medium text-foreground">
+          Build Agent Prompt
         </h2>
         <span
           className={cn(
@@ -184,7 +184,7 @@ function BasePromptSection() {
         </span>
       </div>
       <p className="text-xs text-muted-foreground">
-        Injected into every agent session. Supports template variables.
+        Injected into every build agent session under workspaces.
       </p>
 
       {editing ? (
@@ -430,9 +430,9 @@ function TemplateGroup({
 }) {
   return (
     <div>
-      <h2 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground/70">
+      <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
-      </h2>
+      </h3>
       <div className="space-y-2">
         {templates.map((tpl) =>
           editingId === tpl.id ? (
