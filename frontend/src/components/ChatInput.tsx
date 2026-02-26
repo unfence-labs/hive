@@ -439,6 +439,30 @@ export default function ChatInput({
           </PromptInputTools>
         </PromptInputFooter>
         </PromptInput>
+        {!value.trim() && !isInputDisabled && (
+          <div className="pointer-events-none absolute top-2 right-2 z-10 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                const text = "Commit and push all changes";
+                const options: MessageOptions = {
+                  model: selectedModelId || undefined,
+                  ...(supportsPlanMode && { planMode: false }),
+                  ...(supportsThinkingToggle && { thinkingEnabled: false }),
+                  ...(supportsThinkingLevels && { thinkingLevel: "low" as ThinkingLevel }),
+                };
+                if (isStreaming) {
+                  onQueue({ content: text, options });
+                } else {
+                  onSend(text, undefined, options);
+                }
+              }}
+              className="pointer-events-auto rounded border border-dashed border-muted-foreground/40 px-2 py-0.5 text-[11px] text-muted-foreground/40 transition-colors hover:border-muted-foreground/60 hover:text-muted-foreground/60"
+            >
+              Commit & Push
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
