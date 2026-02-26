@@ -439,19 +439,19 @@ export default function WorkspaceView() {
             {terminalApps.length > 0 ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="xs" className="ml-2">
-                    <VscodeIcon className="mr-1.5 size-3.5" />
-                    Code
-                    <ChevronDownIcon className="ml-1 size-3" />
+                  <Button variant="ghost" size="xs" className="ml-2 text-muted-foreground hover:text-foreground">
+                    <TerminalIcon className="size-3.5" />
+                    Open
+                    <ChevronDownIcon className="ml-0.5 size-3" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" className="min-w-[140px]">
                   <DropdownMenuItem
                     disabled={!canOpenVscode}
                     onSelect={() => { if (vscodeUri) void openExternal(vscodeUri); }}
                   >
                     <VscodeIcon className="size-3.5" />
-                    Open in VS Code
+                    VS Code
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   {terminalApps.map((t) => {
@@ -479,9 +479,9 @@ export default function WorkspaceView() {
                   <TooltipTrigger asChild>
                     <span>
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="xs"
-                        className="ml-2"
+                        className="ml-2 text-muted-foreground hover:text-foreground"
                         onClick={() => { if (vscodeUri) void openExternal(vscodeUri); }}
                         disabled={!canOpenVscode}
                       >
