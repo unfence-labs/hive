@@ -29,6 +29,7 @@ import {
   useResetBasePrompt,
 } from "@/hooks/useBasePrompt";
 import { PromptEditor } from "@/components/PromptEditor";
+import { PromptFlowExplainer } from "@/components/PromptFlowExplainer";
 import { cn } from "@/lib/utils";
 import type { PromptTemplate } from "@/types";
 
@@ -47,90 +48,98 @@ export default function PromptTemplatesSettings() {
   if (templatesLoading || baseLoading) return null;
 
   return (
-    <div className="flex h-full flex-col overflow-auto">
+    <div className="flex h-full flex-col overflow-hidden">
       <SettingsHeader>
         <h1 className="text-sm font-medium">Prompts</h1>
       </SettingsHeader>
 
-      <div className="max-w-2xl space-y-8 px-4 py-5">
-        {/* ── Base System Prompt ──────────────────────────────────── */}
-        <BasePromptSection />
+      <div className="flex-1 overflow-auto px-4 py-5">
+        <div className="max-w-4xl space-y-8">
+          {/* ── Base System Prompt ──────────────────────────────────── */}
+          <BasePromptSection />
 
-        {/* ── Separator ──────────────────────────────────────────── */}
-        <div className="border-t border-border/50" />
+          {/* ── Separator ──────────────────────────────────────────── */}
+          <div className="border-t border-border/50" />
 
-        {/* ── Git Context ──────────────────────────────────────── */}
-        <div className="space-y-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-medium text-foreground">Build Agent Git Injection</h2>
-              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                Enforced
-              </span>
+          {/* ── Git Context ──────────────────────────────────────── */}
+          <div className="space-y-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-medium text-foreground">Git Context</h2>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  Enforced
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                The following git context is also appended automatically at session start.
+              </p>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              The following git context is also appended automatically at session start.
-            </p>
-          </div>
-          <PromptEditor
-            value={GIT_CONTEXT_PLACEHOLDER}
-            readOnly
-            maxHeight="10rem"
-          />
-        </div>
-
-        {/* ── Separator ──────────────────────────────────────────── */}
-        <div className="border-t border-border/50" />
-
-        {/* ── Template Library ────────────────────────────────────── */}
-        <div className="space-y-4">
-          <div>
-            <h2 className="text-base font-medium text-foreground">
-              Automation Prompt Library
-            </h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Reusable system and user prompts for your automations.
-            </p>
+            <PromptEditor
+              value={GIT_CONTEXT_PLACEHOLDER}
+              readOnly
+              maxHeight="10rem"
+            />
           </div>
 
-          {!showCreate && (
-            <button
-              type="button"
-              onClick={() => setShowCreate(true)}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/10"
-            >
-              <Plus className="h-3 w-3" />
-              Add Template
-            </button>
-          )}
+          {/* ── Separator ──────────────────────────────────────────── */}
+          <div className="border-t border-border/50" />
 
-          {showCreate && (
-            <CreateTemplateForm onClose={() => setShowCreate(false)} />
-          )}
+          {/* ── Template Library ────────────────────────────────────── */}
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-base font-medium text-foreground">
+                Automation Prompt Library
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Reusable system and user prompts for your automations.
+              </p>
+            </div>
 
-          {systemTemplates.length > 0 && (
-            <TemplateGroup
-              label="System Prompts"
-              templates={systemTemplates}
-              editingId={editingId}
-              onEdit={setEditingId}
-              onDelete={setDeleteTarget}
-            />
-          )}
+            {!showCreate && (
+              <button
+                type="button"
+                onClick={() => setShowCreate(true)}
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/10"
+              >
+                <Plus className="h-3 w-3" />
+                Add Template
+              </button>
+            )}
 
-          {userTemplates.length > 0 && (
-            <TemplateGroup
-              label="User Prompts"
-              templates={userTemplates}
-              editingId={editingId}
-              onEdit={setEditingId}
-              onDelete={setDeleteTarget}
-            />
-          )}
+            {showCreate && (
+              <CreateTemplateForm onClose={() => setShowCreate(false)} />
+            )}
 
-          {systemTemplates.length === 0 && userTemplates.length === 0 && !showCreate && (
-            <p className="text-xs text-muted-foreground">No templates yet.</p>
-          )}
+            {systemTemplates.length > 0 && (
+              <TemplateGroup
+                label="System Prompts"
+                templates={systemTemplates}
+                editingId={editingId}
+                onEdit={setEditingId}
+                onDelete={setDeleteTarget}
+              />
+            )}
+
+            {userTemplates.length > 0 && (
+              <TemplateGroup
+                label="User Prompts"
+                templates={userTemplates}
+                editingId={editingId}
+                onEdit={setEditingId}
+                onDelete={setDeleteTarget}
+              />
+            )}
+
+            {systemTemplates.length === 0 && userTemplates.length === 0 && !showCreate && (
+              <p className="text-xs text-muted-foreground">No templates yet.</p>
+            )}
+          </div>
+          
+          {/* ── Separator ──────────────────────────────────────────── */}
+          <div className="border-t border-border/50" />
+
+          {/* ── Explainer ──────────────────────────────────────────── */}
+          <PromptFlowExplainer />
         </div>
       </div>
 
