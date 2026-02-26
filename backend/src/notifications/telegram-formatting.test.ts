@@ -28,13 +28,14 @@ function withEnv(botToken: string, chatId: string): TelegramChannel {
   return channel;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mockFetch() {
-  const mock = vi.fn<(input: any, init?: any) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>>(
-    async () => ({ ok: true, status: 200, text: async () => "" }),
-  );
+  const mock = vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    text: async () => "",
+  })) as unknown as typeof fetch;
   vi.stubGlobal("fetch", mock);
-  return mock;
+  return vi.mocked(mock);
 }
 
 afterEach(() => {

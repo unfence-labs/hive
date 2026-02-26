@@ -121,7 +121,7 @@ One session is active per workspace, but multiple sessions can coexist and be sw
 - No concurrent runs per automation — cron trigger skips if already running.
 - Stale "running" runs are marked as failed on server restart.
 - Automation data lives at `~/.hive/automations.json` (definitions) and `~/.hive/automations/<autoId>/` (runs, sessions, workspace).
-- Prompt templates persist at `~/.hive/prompt-templates.json`; deletion is blocked if referenced by an automation.
+- Prompt templates persist as individual `.md` files in `~/.hive/prompts/` (one file per template, YAML frontmatter + content); deletion is blocked if referenced by an automation.
 - Automation notifications use the same `Notifier` + `TelegramChannel` / `ApnsChannel` infrastructure as workspace turn-complete notifications.
 
 ## Frontend Architecture

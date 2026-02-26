@@ -2,7 +2,8 @@ import type { FastifyInstance } from "fastify";
 import { nanoid } from "nanoid";
 import {
   loadPromptTemplates,
-  savePromptTemplates,
+  savePromptTemplate,
+  deletePromptTemplate,
   withTemplatesLock,
 } from "../state/prompt-templates.js";
 import { loadAutomations } from "../state/automations.js";
@@ -49,9 +50,7 @@ export async function promptTemplateRoutes(
     };
 
     await withTemplatesLock(async () => {
-      const templates = await loadPromptTemplates(dataDir);
-      templates.push(template);
-      await savePromptTemplates(templates, dataDir);
+      await savePromptTemplate(template, dataDir);
     });
 
     return reply.status(201).send(template);
@@ -66,17 +65,17 @@ export async function promptTemplateRoutes(
 
       const updated = await withTemplatesLock(async () => {
         const templates = await loadPromptTemplates(dataDir);
-        const idx = templates.findIndex((t) => t.id === id);
-        if (idx === -1) return null;
+        const existing = templates.find((t) => t.id === id);
+        if (!existing) return null;
 
-        templates[idx] = {
-          ...templates[idx],
+        const merged: PromptTemplate = {
+          ...existing,
           ...(updates.name !== undefined && { name: updates.name.trim() }),
           ...(updates.content !== undefined && { content: updates.content.trim() }),
           updatedAt: new Date().toISOString(),
         };
-        await savePromptTemplates(templates, dataDir);
-        return templates[idx];
+        await savePromptTemplate(merged, dataDir);
+        return merged;
       });
 
       if (!updated) return reply.status(404).send({ error: "Template not found" });
@@ -100,12 +99,7 @@ export async function promptTemplateRoutes(
     }
 
     const found = await withTemplatesLock(async () => {
-      const templates = await loadPromptTemplates(dataDir);
-      const idx = templates.findIndex((t) => t.id === id);
-      if (idx === -1) return false;
-      templates.splice(idx, 1);
-      await savePromptTemplates(templates, dataDir);
-      return true;
+      return deletePromptTemplate(id, dataDir);
     });
 
     if (!found) return reply.status(404).send({ error: "Template not found" });

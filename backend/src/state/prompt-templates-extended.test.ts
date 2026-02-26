@@ -2,7 +2,7 @@
  * Extended prompt template state persistence tests.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { rm, readFile, readdir } from "node:fs/promises";
+import { rm, readFile, writeFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir } from "../utils/test-helpers.js";
 import {
@@ -70,29 +70,42 @@ describe("withTemplatesLock", () => {
   });
 });
 
-describe("atomicWrite behavior", () => {
-  it("creates directory if it does not exist", async () => {
+describe("file-per-template storage", () => {
+  it("creates prompts/ subdirectory on first write", async () => {
     await savePromptTemplates([makeTemplate()], dataDir);
 
-    const files = await readdir(dataDir);
-    expect(files).toContain("prompt-templates.json");
+    const files = await readdir(join(dataDir, "prompts"));
+    expect(files).toContain("tpl-1.md");
   });
 
-  it("writes valid JSON", async () => {
+  it("writes valid frontmatter + content", async () => {
     const tpl = makeTemplate({ content: 'Special "chars" & <html>' });
     await savePromptTemplates([tpl], dataDir);
 
-    const raw = await readFile(join(dataDir, "prompt-templates.json"), "utf-8");
-    const parsed = JSON.parse(raw);
-    expect(parsed[0].content).toBe('Special "chars" & <html>');
+    const raw = await readFile(join(dataDir, "prompts", "tpl-1.md"), "utf-8");
+    expect(raw).toContain("---");
+    expect(raw).toContain("name: Test Template");
+    expect(raw).toContain("type: system");
+    expect(raw).toContain('Special "chars" & <html>');
   });
 
   it("no temp files left after write", async () => {
     await savePromptTemplates([makeTemplate()], dataDir);
 
-    const files = await readdir(dataDir);
+    const files = await readdir(join(dataDir, "prompts"));
     const tmpFiles = files.filter((f) => f.startsWith("tmp."));
     expect(tmpFiles).toHaveLength(0);
+  });
+
+  it("ignores .md files without frontmatter", async () => {
+    await savePromptTemplates([makeTemplate()], dataDir);
+    // Write a raw .md file with no frontmatter (like base.md)
+    await writeFile(join(dataDir, "prompts", "base.md"), "Just raw content", "utf-8");
+
+    const loaded = await loadPromptTemplates(dataDir);
+    // Should only return the one with frontmatter
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0].id).toBe("tpl-1");
   });
 });
 
