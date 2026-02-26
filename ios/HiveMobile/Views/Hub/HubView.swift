@@ -32,6 +32,9 @@ struct HubView: View {
             // Unstructured Task shields refresh from SwiftUI prematurely
             // cancelling the .refreshable task on ScrollView (known iOS 26 regression).
             await Task { @MainActor in
+                // Force WS reconnect so the backend re-sends full bootstrap
+                // (status, history, branch_info, diff_stats) for all workspaces.
+                store.statusMonitor.forceRefresh()
                 await store.refresh()
             }.value
         }
