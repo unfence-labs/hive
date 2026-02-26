@@ -15,6 +15,9 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@codemirror/lang-markdown": "^6.5.0",
+    "@codemirror/language-data": "^6.5.2",
+    "@codemirror/theme-one-dark": "^6.1.3",
     "@pierre/diffs": "^1.0.10",
     "@react-symbols/icons": "^1.3.0",
     "@streamdown/cjk": "^1.0.2",
@@ -31,6 +34,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "codemirror": "^6.0.2",
     "diff": "^8.0.3",
     "lucide-react": "^0.563.0",
     "nanoid": "^3.3.11",
