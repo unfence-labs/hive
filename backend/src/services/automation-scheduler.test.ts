@@ -16,12 +16,22 @@ import type { Automation, AutomationRun, PromptTemplate } from "../types.js";
 // ConversationSession is a complex beast that spawns child processes.
 // We mock it to test scheduler orchestration logic in isolation.
 
+// Track constructor calls to inspect systemPrompt passed to sessions
+const sessionConstructorCalls: Array<Record<string, unknown>> = [];
+
 vi.mock("../agents/conversation-session.js", async () => {
   const { EventEmitter } = await import("node:events");
   class MockSession extends EventEmitter {
     stopped = false;
     sentMessage: string | undefined;
     sendOptions: Record<string, unknown> | undefined;
+    opts: Record<string, unknown>;
+
+    constructor(opts: Record<string, unknown>) {
+      super();
+      this.opts = opts;
+      sessionConstructorCalls.push(opts);
+    }
 
     sendMessage(msg: string, opts?: Record<string, unknown>) {
       this.sentMessage = msg;
@@ -64,6 +74,19 @@ vi.mock("../utils/paths.js", () => ({
   resolveDefaultBranch: vi.fn(async () => "main"),
 }));
 
+vi.mock("../agents/system-prompt.js", () => ({
+  getGitContext: vi.fn(async () => ({
+    branch: "main",
+    status: "",
+    recentCommits: "abc1234 initial commit",
+    defaultBranch: "main",
+  })),
+  formatGitContextBlock: vi.fn(
+    (_ctx: unknown, opts?: { projectName?: string }) =>
+      `# Git Context (snapshot at session start)\n\nProject: ${opts?.projectName ?? "unknown"}\nCurrent branch: main\nMain branch: main\n\nStatus: (clean)\n\nRecent commits:\nabc1234 initial commit`,
+  ),
+}));
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 let tmpDir: string;
@@ -97,6 +120,7 @@ function makeRun(overrides: Partial<AutomationRun> = {}): AutomationRun {
 beforeEach(async () => {
   tmpDir = await createTempDir();
   dataDir = join(tmpDir, "data");
+  sessionConstructorCalls.length = 0;
   vi.clearAllMocks();
 });
 
@@ -479,6 +503,113 @@ describe("AutomationScheduler", () => {
 
       const autos = await loadAutomations(dataDir);
       expect(autos[0].workspacePath).toBeDefined();
+
+      scheduler.stop();
+    });
+  });
+
+  describe("git context injection", () => {
+    it("injects git context into system prompt for project-linked automations", async () => {
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" } as never);
+
+      const auto = makeAutomation({
+        projectId: "proj-1",
+        action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "Review code", systemPromptInline: "You are a reviewer." },
+      });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.triggerNow("auto-1");
+
+      const lastCall = sessionConstructorCalls[sessionConstructorCalls.length - 1];
+      const sysPrompt = lastCall.systemPrompt as string;
+      expect(sysPrompt).toContain("You are a reviewer.");
+      expect(sysPrompt).toContain("# Git Context");
+      expect(sysPrompt).toContain("Project: Test Project");
+      expect(sysPrompt).toContain("## Summary");
+
+      scheduler.stop();
+    });
+
+    it("uses git context as sole system prompt when no system prompt is configured", async () => {
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" } as never);
+
+      const auto = makeAutomation({
+        projectId: "proj-1",
+        action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "Review code" },
+      });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.triggerNow("auto-1");
+
+      const lastCall = sessionConstructorCalls[sessionConstructorCalls.length - 1];
+      const sysPrompt = lastCall.systemPrompt as string;
+      expect(sysPrompt).toContain("# Git Context");
+      expect(sysPrompt).toContain("## Summary");
+      // Should NOT start with \n\n (no empty prefix from missing base prompt)
+      expect(sysPrompt).not.toMatch(/^\n/);
+
+      scheduler.stop();
+    });
+
+    it("does not inject git context for non-project automations", async () => {
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject).mockResolvedValue(null as never);
+
+      const auto = makeAutomation({
+        projectId: undefined,
+        action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "Do stuff", systemPromptInline: "You are helpful." },
+      });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.triggerNow("auto-1");
+
+      const lastCall = sessionConstructorCalls[sessionConstructorCalls.length - 1];
+      const sysPrompt = lastCall.systemPrompt as string;
+      expect(sysPrompt).toContain("You are helpful.");
+      expect(sysPrompt).not.toContain("# Git Context");
+
+      scheduler.stop();
+    });
+
+    it("calls getGitContext with workspace path and default branch", async () => {
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" } as never);
+      const { getGitContext } = await import("../agents/system-prompt.js");
+
+      const auto = makeAutomation({ projectId: "proj-1" });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.triggerNow("auto-1");
+
+      expect(getGitContext).toHaveBeenCalledWith(
+        expect.stringContaining("workspace"),
+        "main",
+      );
+
+      scheduler.stop();
+    });
+
+    it("calls formatGitContextBlock with project name", async () => {
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "My App", repoUrl: "https://github.com/test/repo" } as never);
+      const { formatGitContextBlock } = await import("../agents/system-prompt.js");
+
+      const auto = makeAutomation({ projectId: "proj-1" });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.triggerNow("auto-1");
+
+      expect(formatGitContextBlock).toHaveBeenCalledWith(
+        expect.objectContaining({ branch: "main", defaultBranch: "main" }),
+        { projectName: "My App" },
+      );
 
       scheduler.stop();
     });
