@@ -28,6 +28,15 @@ function withEnv(botToken: string, chatId: string): TelegramChannel {
   return channel;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mockFetch() {
+  const mock = vi.fn<(input: any, init?: any) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>>(
+    async () => ({ ok: true, status: 200, text: async () => "" }),
+  );
+  vi.stubGlobal("fetch", mock);
+  return mock;
+}
+
 afterEach(() => {
   delete process.env.TELEGRAM_BOT_TOKEN;
   delete process.env.TELEGRAM_CHAT_ID;
@@ -37,12 +46,7 @@ afterEach(() => {
 
 describe("automation_run_complete formatting", () => {
   it("formats successful automation run", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: async () => "",
-    })) as unknown as typeof fetch;
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = mockFetch();
     const channel = withEnv("token", "chat");
 
     await channel.send(
@@ -60,12 +64,7 @@ describe("automation_run_complete formatting", () => {
   });
 
   it("formats failed automation run with error", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: async () => "",
-    })) as unknown as typeof fetch;
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = mockFetch();
     const channel = withEnv("token", "chat");
 
     await channel.send(
@@ -83,12 +82,7 @@ describe("automation_run_complete formatting", () => {
   });
 
   it("includes project name when available", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: async () => "",
-    })) as unknown as typeof fetch;
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = mockFetch();
     const channel = withEnv("token", "chat");
 
     await channel.send(
@@ -100,12 +94,7 @@ describe("automation_run_complete formatting", () => {
   });
 
   it("omits project name when not set", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: async () => "",
-    })) as unknown as typeof fetch;
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = mockFetch();
     const channel = withEnv("token", "chat");
 
     await channel.send(
@@ -117,12 +106,7 @@ describe("automation_run_complete formatting", () => {
   });
 
   it("omits duration when not provided", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: async () => "",
-    })) as unknown as typeof fetch;
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = mockFetch();
     const channel = withEnv("token", "chat");
 
     await channel.send(
@@ -134,12 +118,7 @@ describe("automation_run_complete formatting", () => {
   });
 
   it("escapes HTML in automation name", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: async () => "",
-    })) as unknown as typeof fetch;
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = mockFetch();
     const channel = withEnv("token", "chat");
 
     await channel.send(
@@ -151,12 +130,7 @@ describe("automation_run_complete formatting", () => {
   });
 
   it("truncates very long error messages", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: async () => "",
-    })) as unknown as typeof fetch;
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = mockFetch();
     const channel = withEnv("token", "chat");
 
     const longError = "x".repeat(5000);
@@ -171,12 +145,7 @@ describe("automation_run_complete formatting", () => {
   });
 
   it("truncates very long summaries", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: async () => "",
-    })) as unknown as typeof fetch;
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = mockFetch();
     const channel = withEnv("token", "chat");
 
     const longSummary = "s".repeat(5000);
@@ -190,12 +159,7 @@ describe("automation_run_complete formatting", () => {
   });
 
   it("shows summary for success and error for failure", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      text: async () => "",
-    })) as unknown as typeof fetch;
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = mockFetch();
     const channel = withEnv("token", "chat");
 
     // Success with both summary and error — should show summary

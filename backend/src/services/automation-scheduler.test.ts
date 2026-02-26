@@ -392,7 +392,8 @@ describe("AutomationScheduler", () => {
   describe("notification dispatch", () => {
     it("sends notification on successful run when onComplete is true", async () => {
       const { getNotifier } = await import("../agents/agent-manager.js");
-      const notifyMock = vi.fn(async () => {});
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const notifyMock = vi.fn(async (..._args: any[]) => {});
       vi.mocked(getNotifier).mockReturnValue({
         notify: notifyMock,
         addChannel: vi.fn(),
@@ -406,7 +407,7 @@ describe("AutomationScheduler", () => {
       await scheduler.triggerNow("auto-1");
 
       expect(notifyMock).toHaveBeenCalledTimes(1);
-      const event = notifyMock.mock.calls[0][0];
+      const event = notifyMock.mock.calls[0]![0];
       expect(event.type).toBe("automation_run_complete");
       expect(event.status).toBe("success");
       expect(event.automationName).toBe("Test Automation");

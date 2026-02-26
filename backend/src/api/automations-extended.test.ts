@@ -11,7 +11,8 @@ import { automationRoutes } from "./automations.js";
 import { promptTemplateRoutes } from "./prompt-templates.js";
 import { saveAutomations, addRun } from "../state/automations.js";
 import { savePromptTemplates } from "../state/prompt-templates.js";
-import type { Automation, AutomationRun, AutomationScheduler, PromptTemplate } from "../types.js";
+import type { Automation, AutomationRun, PromptTemplate } from "../types.js";
+import type { AutomationScheduler } from "../services/automation-scheduler.js";
 
 let tmpDir: string;
 let dataDir: string;
