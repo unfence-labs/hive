@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { ArrowLeft, Bell, Bot, CircleUser, Paintbrush, Wifi, GitFork } from "lucide-react";
+import { ArrowLeft, Bell, Bot, CircleUser, FileText, Paintbrush, Wifi, GitFork } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -64,6 +64,12 @@ export default function SettingsSidebar() {
               label="Agents"
               icon={<Bot className="h-4 w-4" />}
               active={pathname === "/settings/agents"}
+            />
+            <NavItem
+              to="/settings/prompt-templates"
+              label="Prompt Templates"
+              icon={<FileText className="h-4 w-4" />}
+              active={pathname === "/settings/prompt-templates"}
             />
           </SidebarSection>
 

@@ -177,15 +177,27 @@ export class ApnsChannel implements NotificationChannel {
   async send(event: NotificationEvent): Promise<void> {
     if (this.deviceTokens.length === 0) return;
 
+    let title: string;
+    let body: string;
+    let extraData: Record<string, string> = {};
+
+    if (event.type === "agent_turn_complete") {
+      title = "Agent finished";
+      body = `${event.projectName} / ${event.workspaceName}`;
+      extraData = { workspaceId: event.workspaceId };
+    } else {
+      const statusLabel = event.status === "success" ? "Success" : "Failed";
+      title = `Automation: ${event.automationName}`;
+      body = `Status: ${statusLabel}${event.projectName ? ` | ${event.projectName}` : ""}`;
+      extraData = { automationId: event.automationId };
+    }
+
     const payload = JSON.stringify({
       aps: {
-        alert: {
-          title: "Agent finished",
-          body: `${event.projectName} / ${event.workspaceName}`,
-        },
+        alert: { title, body },
         sound: "default",
       },
-      workspaceId: event.workspaceId,
+      ...extraData,
     });
 
     const session = this.getOrCreateSession();

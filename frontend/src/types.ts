@@ -299,6 +299,68 @@ export type WsOutgoing =
   | { type: "diff_stats"; stats: DiffStatResponse }
   | { type: "script_status"; scriptType: ScriptType; state: ScriptState; exitCode?: number };
 
+// ── Automation types ─────────────────────────────────────────────────
+
+export type AutomationTriggerType = "cron";
+export type AutomationActionType = "agent";
+export type AutomationRunStatus = "running" | "success" | "failure";
+
+export interface AutomationTrigger {
+  type: AutomationTriggerType;
+  expression: string;
+}
+
+export interface AutomationAction {
+  type: AutomationActionType;
+  modelId: string;
+  systemPromptId?: string;
+  systemPromptInline?: string;
+  userPromptId?: string;
+  userPromptInline?: string;
+}
+
+export interface AutomationNotification {
+  onComplete: boolean;
+  onFailure: boolean;
+}
+
+export interface Automation {
+  id: string;
+  name: string;
+  enabled: boolean;
+  projectId?: string;
+  trigger: AutomationTrigger;
+  action: AutomationAction;
+  notification: AutomationNotification;
+  workspacePath?: string;
+  lastRunId?: string;
+  lastRunAt?: string;
+  lastRunStatus?: AutomationRunStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AutomationRun {
+  id: string;
+  automationId: string;
+  status: AutomationRunStatus;
+  sessionId: string;
+  startedAt: string;
+  completedAt?: string;
+  durationMs?: number;
+  summary?: string;
+  error?: string;
+}
+
+export interface PromptTemplate {
+  id: string;
+  name: string;
+  type: "system" | "user";
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── Hub WebSocket protocol (multiplexed) ────────────────────────────
 
 /** Client -> Server (hub-level). */

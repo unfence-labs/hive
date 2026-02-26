@@ -33,9 +33,10 @@ export function SettingsHeader({ children }: { children: React.ReactNode }) {
 
 interface AppLayoutProps {
   onAddProject: () => void;
+  onAddAutomation?: () => void;
 }
 
-export default function AppLayout({ onAddProject }: AppLayoutProps) {
+export default function AppLayout({ onAddProject, onAddAutomation }: AppLayoutProps) {
   const { pathname } = useLocation();
   const isSettings = pathname.startsWith("/settings");
   const { backendEnv } = useConnectionStatus();
@@ -92,7 +93,7 @@ export default function AppLayout({ onAddProject }: AppLayoutProps) {
           {isSettings ? (
             <SettingsSidebar />
           ) : (
-            <Sidebar onAddProject={onAddProject} />
+            <Sidebar onAddProject={onAddProject} onAddAutomation={onAddAutomation} />
           )}
         </div>
         <main className="relative flex flex-1 flex-col overflow-hidden">

@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TelegramChannel } from "./telegram.js";
 import type { NotificationEvent } from "./types.js";
 
-function eventFixture(overrides: Partial<NotificationEvent> = {}): NotificationEvent {
+type AgentTurnEvent = Extract<NotificationEvent, { type: "agent_turn_complete" }>;
+
+function eventFixture(overrides: Partial<AgentTurnEvent> = {}): AgentTurnEvent {
   return {
     type: "agent_turn_complete",
     workspaceId: "ws-1",
