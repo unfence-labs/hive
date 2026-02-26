@@ -12,7 +12,8 @@ import { EditorState, Compartment } from "@codemirror/state";
 import { minimalSetup } from "codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
-import { oneDark } from "@codemirror/theme-one-dark";
+import { oneDarkHighlightStyle } from "@codemirror/theme-one-dark";
+import { syntaxHighlighting } from "@codemirror/language";
 
 // ── Template variable highlighting ─────────────────────────────────────
 
@@ -44,18 +45,20 @@ const appTheme = EditorView.theme(
   {
     "&": {
       fontSize: "13px",
+      background: "transparent",
+      border: "none",
       borderRadius: "0.5rem",
-      border: "1px solid hsl(0 0% 100% / 0.08)",
       overflow: "hidden",
       height: "100%",
     },
     "&.cm-focused": {
       outline: "2px solid hsl(var(--ring))",
-      outlineOffset: "-1px",
+      outlineOffset: "0px",
     },
     ".cm-scroller": {
       fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
       lineHeight: "1.6",
+      background: "transparent",
     },
     ".cm-gutters": {
       display: "none",
@@ -109,7 +112,7 @@ export function PromptEditor({
     const extensions = [
       minimalSetup,
       markdown({ codeLanguages: languages }),
-      oneDark,
+      syntaxHighlighting(oneDarkHighlightStyle),
       appTheme,
       templateVarPlugin,
       EditorView.lineWrapping,
@@ -163,7 +166,7 @@ export function PromptEditor({
   return (
     <div
       ref={containerRef}
-      className="rounded-lg"
+      className="rounded-lg border border-border/50 bg-card/50"
       style={{ height: maxHeight, minHeight: "6rem", resize: "vertical", overflow: "hidden" }}
     />
   );

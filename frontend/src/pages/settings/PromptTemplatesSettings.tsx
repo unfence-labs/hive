@@ -59,6 +59,29 @@ export default function PromptTemplatesSettings() {
         {/* ── Separator ──────────────────────────────────────────── */}
         <div className="border-t border-border/50" />
 
+        {/* ── Git Context ──────────────────────────────────────── */}
+        <div className="space-y-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-medium text-foreground">Build Agent Git Injection</h2>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                Enforced
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              The following git context is also appended automatically at session start.
+            </p>
+          </div>
+          <PromptEditor
+            value={GIT_CONTEXT_PLACEHOLDER}
+            readOnly
+            maxHeight="10rem"
+          />
+        </div>
+
+        {/* ── Separator ──────────────────────────────────────────── */}
+        <div className="border-t border-border/50" />
+
         {/* ── Template Library ────────────────────────────────────── */}
         <div className="space-y-4">
           <div>
@@ -106,7 +129,7 @@ export default function PromptTemplatesSettings() {
           )}
 
           {systemTemplates.length === 0 && userTemplates.length === 0 && !showCreate && (
-            <p className="text-sm text-muted-foreground">No templates yet.</p>
+            <p className="text-xs text-muted-foreground">No templates yet.</p>
           )}
         </div>
       </div>
@@ -131,6 +154,19 @@ export default function PromptTemplatesSettings() {
 }
 
 // ── Base System Prompt ─────────────────────────────────────────────────
+
+const GIT_CONTEXT_PLACEHOLDER = `# Git Context (snapshot at session start)
+
+Project: {PROJECT}
+Workspace: {WORKSPACE}
+Current branch: (resolved from worktree)
+Main branch: {DEFAULT_BRANCH}
+
+Status:
+(live git status --short)
+
+Recent commits:
+(last 10 commits via git log --oneline)`;
 
 const TEMPLATE_VARIABLES = [
   { token: "{DIR}", desc: "workspace path" },
@@ -168,24 +204,26 @@ function BasePromptSection() {
 
   return (
     <section className="space-y-3">
-      <div className="flex items-center gap-2">
-        <h2 className="text-base font-medium text-foreground">
-          Build Agent Prompt
-        </h2>
-        <span
-          className={cn(
-            "rounded-full px-2 py-0.5 text-[10px] font-medium",
-            data.isDefault
-              ? "bg-muted text-muted-foreground"
-              : "bg-primary/10 text-primary",
-          )}
-        >
-          {data.isDefault ? "Default" : "Custom"}
-        </span>
+      <div>
+        <div className="flex items-center gap-2">
+          <h2 className="text-base font-medium text-foreground">
+            Build Agent Prompt
+          </h2>
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.5 text-[10px] font-medium",
+              data.isDefault
+                ? "bg-muted text-muted-foreground"
+                : "bg-primary/10 text-primary",
+            )}
+          >
+            {data.isDefault ? "Default" : "Custom"}
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Injected into every build agent session under workspaces.
+        </p>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Injected into every build agent session under workspaces.
-      </p>
 
       {editing ? (
         <div className="space-y-3 rounded-lg border border-primary/30 bg-card/50 p-4">
@@ -271,6 +309,7 @@ function BasePromptSection() {
             <button
               type="button"
               onClick={startEdit}
+              aria-label="Edit prompt"
               className="ml-2 shrink-0 cursor-pointer rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
             >
               <Pencil className="h-3 w-3" />
@@ -468,6 +507,7 @@ function TemplateCard({
           <button
             type="button"
             onClick={onEdit}
+            aria-label="Edit template"
             className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
           >
             <Pencil className="h-3 w-3" />
@@ -475,6 +515,7 @@ function TemplateCard({
           <button
             type="button"
             onClick={onDelete}
+            aria-label="Delete template"
             className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:text-red-400"
           >
             <Trash2 className="h-3 w-3" />
