@@ -457,7 +457,7 @@ export default function ChatInput({
                   onSend(text, undefined, options);
                 }
               }}
-              className="pointer-events-auto rounded border border-dashed border-muted-foreground/40 px-2 py-0.5 text-[11px] text-muted-foreground/40 transition-colors hover:border-muted-foreground/60 hover:text-muted-foreground/60"
+              className="pointer-events-auto rounded border border-dashed border-muted-foreground/30 px-2 py-0.5 text-[11px] text-muted-foreground/40 transition-colors hover:border-muted-foreground/60 hover:text-muted-foreground/60"
             >
               Commit & Push
             </button>
