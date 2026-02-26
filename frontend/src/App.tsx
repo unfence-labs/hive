@@ -10,6 +10,7 @@ import AgentSettings from "@/pages/settings/AgentSettings";
 import ProjectDetail from "@/pages/settings/ProjectDetail";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import EmptyStateLogo from "@/components/EmptyStateLogo";
+import AutomationsHome from "@/pages/AutomationsHome";
 import { useProjects } from "@/hooks/useProjects";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
@@ -76,6 +77,7 @@ export default function App() {
             />
             <Route path="projects/:id" element={<Navigate to="/projects" replace />} />
             <Route path="workspaces/:wsId" element={<WorkspaceView />} />
+            <Route path="automations" element={<AutomationsHome onAddAutomation={() => setShowAddAutomation(true)} />} />
             <Route path="automations/:automationId" element={<Suspense fallback={null}><AutomationDetail /></Suspense>} />
             <Route path="settings" element={<Navigate to="/settings/appearance" replace />} />
             <Route path="settings/account" element={<AccountSettings />} />

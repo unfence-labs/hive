@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArchiveIcon, FolderPlus, Loader2, Plus, Settings, Zap } from "lucide-react";
+import { ArchiveIcon, Clock, FolderPlus, Github, Loader2, Plus, Settings } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,6 +38,70 @@ import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { useAutomations } from "@/hooks/useAutomations";
 import type { Automation, DiffStatResponse } from "@/types";
 
+// ── Shared sidebar group header ──────────────────────────────────────
+
+interface SidebarGroupHeaderProps {
+  icon: React.ReactNode;
+  label: string;
+  badge?: React.ReactNode;
+  count?: number;
+  onAdd?: (e: React.MouseEvent) => void;
+  addLabel?: string;
+  addContent?: React.ReactNode;
+}
+
+function SidebarGroupHeader({
+  icon,
+  label,
+  badge,
+  count,
+  onAdd,
+  addLabel,
+  addContent,
+}: SidebarGroupHeaderProps) {
+  return (
+    <div className="group relative flex w-full items-center">
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-md bg-[#1e1e28] px-2.5 py-2 text-left transition-colors hover:bg-[#252532]"
+        >
+          {icon}
+          <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wider text-sidebar-foreground">
+            {label}
+          </span>
+          {badge}
+        </button>
+      </CollapsibleTrigger>
+      {count !== undefined && (
+        <div className="absolute inset-y-0 right-2.5 flex items-center">
+          <div className="relative flex h-5 w-5 items-center justify-center">
+            <span className="text-xs tabular-nums text-muted-foreground/60 transition-opacity group-hover:opacity-0">
+              {count}
+            </span>
+            {onAdd && (
+              <button
+                type="button"
+                className="absolute inset-0 flex items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover:opacity-100"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAdd(e);
+                }}
+                aria-label={addLabel}
+                title={addLabel}
+              >
+                {addContent ?? <Plus className="h-4 w-4" />}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Sidebar ──────────────────────────────────────────────────────────
+
 interface SidebarProps {
   onAddProject: () => void;
   onAddAutomation?: () => void;
@@ -54,8 +118,19 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<SidebarTab>("build");
   const liveData = useWorkspaceLiveDataContext();
+
+  // Derive active tab from route
+  const activeTab: SidebarTab = pathname.startsWith("/automations") ? "automation" : "build";
+
+  const handleTabClick = (tab: SidebarTab) => {
+    if (tab === activeTab) return;
+    if (tab === "automation") {
+      navigate("/automations");
+    } else {
+      navigate("/projects");
+    }
+  };
 
   const activeProjectId = projects.find((project) =>
     (project.workspaces ?? []).some((workspace) => workspace.id === activeWsId),
@@ -142,47 +217,22 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                         setExpandedProjects((prev) => ({ ...prev, [project.id]: open }))
                       }
                     >
-                      {/* ── Project header ──────────────────────────────── */}
-                      <div className="group relative flex w-full items-center">
-                        <CollapsibleTrigger asChild>
-                          <button
-                            type="button"
-                            className="flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-md bg-[#1e1e28] px-2.5 py-2 text-left transition-colors hover:bg-[#252532]"
-                          >
-                            <ProjectAvatar
-                              name={project.name}
-                              projectId={project.id}
-                              hasFavicon={project.hasFavicon}
-                              className="h-5 w-5"
-                            />
-                            <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wider text-sidebar-foreground">
-                              {project.name}
-                            </span>
-                          </button>
-                        </CollapsibleTrigger>
-                        <div className="absolute inset-y-0 right-2.5 flex items-center">
-                          <div className="relative flex h-5 w-5 items-center justify-center">
-                            {/* Workspace count: visible by default, hidden on hover */}
-                            <span className="text-xs tabular-nums text-muted-foreground/60 transition-opacity group-hover:opacity-0">
-                              {(project.workspaces ?? []).length}
-                            </span>
-                            {/* Add button: hidden by default, visible on hover */}
-                            <button
-                              type="button"
-                              className="absolute inset-0 flex items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover:opacity-100"
-                              onClick={() => {
-                                void handleAddWorkspace(project.id);
-                              }}
-                              aria-label={`Add workspace to ${project.name}`}
-                              title={`Add workspace to ${project.name}`}
-                            >
-                              {creatingProjectId === project.id ? "..." : <Plus className="h-4 w-4" />}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                      <SidebarGroupHeader
+                        icon={
+                          <ProjectAvatar
+                            name={project.name}
+                            projectId={project.id}
+                            hasFavicon={project.hasFavicon}
+                            className="h-5 w-5"
+                          />
+                        }
+                        label={project.name}
+                        count={(project.workspaces ?? []).length}
+                        onAdd={() => { void handleAddWorkspace(project.id); }}
+                        addLabel={`Add workspace to ${project.name}`}
+                        addContent={creatingProjectId === project.id ? "..." : <Plus className="h-4 w-4" />}
+                      />
 
-                      {/* ── Workspace list ──────────────────────────────── */}
                       <CollapsibleContent>
                         <div className="mt-1 space-y-0.5">
                           {(project.workspaces ?? []).map((ws) => {
@@ -206,7 +256,6 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                                           : "border-2 border-transparent",
                                       )}
                                     >
-                                      {/* Line 1: activity + branch + wave */}
                                       <div className="flex items-center gap-1.5">
                                         {wsStreaming ? (
                                           <div className="flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-visible">
@@ -223,7 +272,6 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                                         )}
                                       </div>
 
-                                      {/* Line 2: PR status */}
                                       <div className="mt-0.5 flex items-center gap-1 pl-5 text-[11px]">
                                         {prStatus?.pr ? (
                                           (() => {
@@ -278,7 +326,6 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
           </div>
         </ScrollArea>
       ) : (
-        /* ── Automation list ───────────────────────────────────────── */
         <AutomationList onAddAutomation={onAddAutomation} />
       )}
 
@@ -312,7 +359,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
             <button
               key={tab}
               type="button"
-              onClick={() => setActiveTab(tab)}
+              onClick={() => handleTabClick(tab)}
               className={cn(
                 "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                 activeTab === tab
@@ -388,10 +435,13 @@ function describeSchedule(expression: string): string {
 function AutomationList({ onAddAutomation }: { onAddAutomation?: () => void }) {
   const { data: automations, isLoading } = useAutomations();
   const { pathname } = useLocation();
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ cron: true, github: true });
 
-  const sorted = useMemo(() => {
+  const cronAutomations = useMemo(() => {
     if (!automations) return [];
-    return [...automations].sort((a, b) => automationSortKey(a) - automationSortKey(b));
+    return [...automations]
+      .filter((a) => a.trigger.type === "cron")
+      .sort((a, b) => automationSortKey(a) - automationSortKey(b));
   }, [automations]);
 
   if (isLoading) {
@@ -405,71 +455,107 @@ function AutomationList({ onAddAutomation }: { onAddAutomation?: () => void }) {
     );
   }
 
-  if (sorted.length === 0) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4">
-        <Zap className="h-8 w-8 text-muted-foreground/40" />
-        <div className="text-center">
-          <p className="text-sm text-muted-foreground">No automations yet</p>
-          <p className="mt-1 text-xs text-muted-foreground/60">
-            Schedule agents to run on a cron schedule
-          </p>
-        </div>
-        {onAddAutomation && (
-          <button
-            type="button"
-            className="mt-1 text-xs text-primary hover:underline"
-            onClick={onAddAutomation}
-          >
-            Create your first automation
-          </button>
-        )}
-      </div>
-    );
-  }
-
   return (
-    <ScrollArea className="flex-1">
-      <div className="space-y-0.5 p-2">
-        {sorted.map((auto) => {
-          const isActive = pathname === `/automations/${auto.id}`;
-          const isRunning = auto.lastRunStatus === "running";
+    <ScrollArea className="flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full">
+      <div className="space-y-2.5 p-2">
+        {/* ── Cron group ──────────────────────────────────────────── */}
+        <Collapsible
+          open={expandedGroups.cron}
+          onOpenChange={(open) => setExpandedGroups((prev) => ({ ...prev, cron: open }))}
+        >
+          <SidebarGroupHeader
+            icon={<Clock className="h-5 w-5 shrink-0 text-muted-foreground" />}
+            label="Cron"
+            count={cronAutomations.length}
+            onAdd={() => onAddAutomation?.()}
+            addLabel="Add cron automation"
+          />
 
-          return (
-            <Link
-              key={auto.id}
-              to={`/automations/${auto.id}`}
-              className={cn(
-                "block rounded-md px-2.5 py-2 transition-colors hover:bg-sidebar-accent/60",
-                isActive
-                  ? "border-2 border-dashed border-primary/50"
-                  : "border-2 border-transparent",
-              )}
-            >
-              <div className="flex items-center gap-2">
-                {/* Status dot */}
-                <span
-                  className={cn(
-                    "h-2 w-2 shrink-0 rounded-full",
-                    isRunning
-                      ? "bg-blue-500 animate-pulse"
-                      : auto.enabled
-                        ? "bg-emerald-500"
-                        : "bg-muted-foreground/40",
+          <CollapsibleContent>
+            <div className="mt-1 space-y-0.5">
+              {cronAutomations.length === 0 ? (
+                <div className="px-2.5 py-3 text-center">
+                  <p className="text-xs text-muted-foreground/60">No cron automations</p>
+                  {onAddAutomation && (
+                    <button
+                      type="button"
+                      className="mt-1 text-xs text-primary hover:underline"
+                      onClick={onAddAutomation}
+                    >
+                      Create one
+                    </button>
                   )}
-                />
-                <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground">
-                  {auto.name}
-                </span>
-                {isRunning && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-blue-400" />}
-              </div>
-              <div className="mt-0.5 pl-4 text-[11px] text-muted-foreground">
-                {auto.enabled ? describeSchedule(auto.trigger.expression) : "Disabled"}
-              </div>
-            </Link>
-          );
-        })}
+                </div>
+              ) : (
+                cronAutomations.map((auto) => (
+                  <AutomationRow key={auto.id} auto={auto} pathname={pathname} />
+                ))
+              )}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+
+        {/* ── GitHub group ────────────────────────────────────────── */}
+        <Collapsible
+          open={expandedGroups.github}
+          onOpenChange={(open) => setExpandedGroups((prev) => ({ ...prev, github: open }))}
+        >
+          <SidebarGroupHeader
+            icon={<Github className="h-5 w-5 shrink-0 text-muted-foreground" />}
+            label="GitHub"
+            badge={
+              <span className="rounded bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground/60">
+                soon
+              </span>
+            }
+          />
+
+          <CollapsibleContent>
+            <div className="px-2.5 py-3 text-center">
+              <p className="text-xs text-muted-foreground/60">
+                GitHub event triggers coming soon
+              </p>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       </div>
     </ScrollArea>
+  );
+}
+
+function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string }) {
+  const isActive = pathname === `/automations/${auto.id}`;
+  const isRunning = auto.lastRunStatus === "running";
+
+  return (
+    <Link
+      to={`/automations/${auto.id}`}
+      className={cn(
+        "block rounded-md px-2.5 py-1.5 transition-colors hover:bg-sidebar-accent/60",
+        isActive
+          ? "border-2 border-dashed border-primary/50"
+          : "border-2 border-transparent",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            "h-2 w-2 shrink-0 rounded-full",
+            isRunning
+              ? "bg-blue-500 animate-pulse"
+              : auto.enabled
+                ? "bg-emerald-500"
+                : "bg-muted-foreground/40",
+          )}
+        />
+        <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground">
+          {auto.name}
+        </span>
+        {isRunning && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-blue-400" />}
+      </div>
+      <div className="mt-0.5 pl-4 text-[11px] text-muted-foreground">
+        {auto.enabled ? describeSchedule(auto.trigger.expression) : "Disabled"}
+      </div>
+    </Link>
   );
 }

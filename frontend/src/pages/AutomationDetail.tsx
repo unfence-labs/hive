@@ -1,6 +1,14 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Loader2, Play, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  Loader2,
+  Play,
+  Trash2,
+} from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,6 +27,8 @@ import {
   useDeleteAutomation,
   useTriggerAutomation,
 } from "@/hooks/useAutomations";
+import { usePromptTemplates } from "@/hooks/usePromptTemplates";
+import { useProjects } from "@/hooks/useProjects";
 import { cn } from "@/lib/utils";
 import type { AutomationRun } from "@/types";
 
@@ -30,7 +40,21 @@ export default function AutomationDetail() {
   const updateMutation = useUpdateAutomation();
   const deleteMutation = useDeleteAutomation();
   const triggerMutation = useTriggerAutomation();
+  const { data: templates } = usePromptTemplates();
+  const { projects } = useProjects();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+
+  const templateNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const t of templates ?? []) map[t.id] = t.name;
+    return map;
+  }, [templates]);
+
+  const projectNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of projects) map[p.id] = p.name;
+    return map;
+  }, [projects]);
 
   if (isLoading || !auto) {
     return (
@@ -52,17 +76,16 @@ export default function AutomationDetail() {
 
   const handleDelete = async () => {
     await deleteMutation.mutateAsync(auto.id);
-    navigate("/projects");
+    navigate("/automations");
   };
 
   return (
     <div className="flex h-full flex-col overflow-auto">
       <SettingsHeader>
         <div className="flex flex-1 items-center gap-3">
-          <h1 className="text-sm font-medium">{auto.name}</h1>
           <span
             className={cn(
-              "h-2 w-2 rounded-full",
+              "h-2 w-2 shrink-0 rounded-full",
               isRunning
                 ? "bg-blue-500 animate-pulse"
                 : auto.enabled
@@ -70,11 +93,12 @@ export default function AutomationDetail() {
                   : "bg-muted-foreground/40",
             )}
           />
+          <h1 className="text-sm font-medium">{auto.name}</h1>
         </div>
       </SettingsHeader>
 
-      <div className="max-w-2xl space-y-6 px-4 py-5">
-        {/* ── Controls ─────────────────────────────────────────────────── */}
+      <div className="max-w-2xl space-y-5 px-4 py-5">
+        {/* ── Controls ─────────────────────────────────────────────── */}
         <div className="flex items-center gap-3">
           <Toggle
             enabled={auto.enabled}
@@ -115,31 +139,25 @@ export default function AutomationDetail() {
         </div>
 
         {/* ── Configuration ─────────────────────────────────────────── */}
-        <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-          <h2 className="text-sm font-medium text-foreground">Configuration</h2>
-          <div className="mt-4 space-y-3">
+        <section>
+          <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Configuration
+          </h2>
+          <div className="space-y-px overflow-hidden rounded-lg border border-border/50">
             <ConfigRow label="Schedule" value={auto.trigger.expression} />
             <ConfigRow label="Model" value={auto.action.modelId} />
-            {auto.projectId && <ConfigRow label="Project" value={auto.projectId} />}
+            {auto.projectId && <ConfigRow label="Project" value={projectNames[auto.projectId] ?? auto.projectId} />}
             {auto.action.systemPromptId && (
-              <ConfigRow label="System Prompt" value={`Template: ${auto.action.systemPromptId}`} />
+              <ConfigRow label="System Prompt" value={templateNames[auto.action.systemPromptId] ?? auto.action.systemPromptId} />
             )}
             {auto.action.systemPromptInline && (
-              <ConfigDetail label="System Prompt">
-                <pre className="whitespace-pre-wrap text-xs text-muted-foreground">
-                  {auto.action.systemPromptInline}
-                </pre>
-              </ConfigDetail>
+              <ConfigBlock label="System Prompt" content={auto.action.systemPromptInline} />
             )}
             {auto.action.userPromptId && (
-              <ConfigRow label="User Prompt" value={`Template: ${auto.action.userPromptId}`} />
+              <ConfigRow label="User Prompt" value={templateNames[auto.action.userPromptId] ?? auto.action.userPromptId} />
             )}
             {auto.action.userPromptInline && (
-              <ConfigDetail label="User Prompt">
-                <pre className="whitespace-pre-wrap text-xs text-muted-foreground">
-                  {auto.action.userPromptInline}
-                </pre>
-              </ConfigDetail>
+              <ConfigBlock label="User Prompt" content={auto.action.userPromptInline} />
             )}
             <ConfigRow
               label="Notifications"
@@ -154,12 +172,17 @@ export default function AutomationDetail() {
         </section>
 
         {/* ── Run History ──────────────────────────────────────────── */}
-        <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-          <h2 className="text-sm font-medium text-foreground">Run History</h2>
+        <section>
+          <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Run History
+          </h2>
           {!runs || runs.length === 0 ? (
-            <p className="mt-3 text-xs text-muted-foreground">No runs yet</p>
+            <div className="rounded-lg border border-border/50 px-4 py-6 text-center">
+              <Clock className="mx-auto h-5 w-5 text-muted-foreground/40" />
+              <p className="mt-2 text-xs text-muted-foreground">No runs yet</p>
+            </div>
           ) : (
-            <div className="mt-3 space-y-2">
+            <div className="space-y-1.5">
               {runs.map((run) => (
                 <RunRow key={run.id} run={run} />
               ))}
@@ -225,18 +248,20 @@ function Toggle({
 
 function ConfigRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-start justify-between text-xs">
+    <div className="flex items-center justify-between bg-card/30 px-4 py-2.5 text-xs">
       <span className="text-muted-foreground">{label}</span>
-      <span className="max-w-[60%] text-right font-mono text-foreground">{value}</span>
+      <span className="max-w-[60%] truncate text-right font-mono text-foreground">{value}</span>
     </div>
   );
 }
 
-function ConfigDetail({ label, children }: { label: string; children: React.ReactNode }) {
+function ConfigBlock({ label, content }: { label: string; content: string }) {
   return (
-    <div className="text-xs">
+    <div className="bg-card/30 px-4 py-2.5 text-xs">
       <span className="text-muted-foreground">{label}</span>
-      <div className="mt-1 rounded-md bg-muted/30 p-2">{children}</div>
+      <pre className="mt-1.5 whitespace-pre-wrap rounded-md bg-muted/20 p-2 font-mono text-foreground/80">
+        {content}
+      </pre>
     </div>
   );
 }
@@ -255,32 +280,55 @@ function formatRelativeTime(iso: string): string {
 
 function RunRow({ run }: { run: AutomationRun }) {
   const [expanded, setExpanded] = useState(false);
-
-  const statusIcon =
-    run.status === "running" ? "🔵" : run.status === "success" ? "✅" : "❌";
-  const duration = run.durationMs ? `${Math.round(run.durationMs / 1000)}s` : "—";
+  const duration = run.durationMs ? `${Math.round(run.durationMs / 1000)}s` : "--";
+  const hasDetails = !!(run.summary || run.error);
 
   return (
-    <div>
+    <div className="overflow-hidden rounded-lg border border-border/50">
       <button
         type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/30"
+        onClick={() => hasDetails && setExpanded(!expanded)}
+        className={cn(
+          "flex w-full items-center gap-2.5 px-3 py-2 text-xs transition-colors",
+          hasDetails && "cursor-pointer hover:bg-muted/20",
+          !hasDetails && "cursor-default",
+        )}
       >
-        <span>{statusIcon}</span>
-        <span className="flex-1 text-left text-muted-foreground">
+        {/* Status icon */}
+        {run.status === "running" ? (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-400" />
+        ) : run.status === "success" ? (
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+        ) : (
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-400" />
+        )}
+
+        <span className="text-muted-foreground">
           {formatRelativeTime(run.startedAt)}
         </span>
-        <span className="tabular-nums text-muted-foreground">{duration}</span>
+        <span className="tabular-nums text-muted-foreground/60">{duration}</span>
+
         {run.summary && (
-          <span className="max-w-[30%] truncate text-foreground/70">
-            {run.summary.slice(0, 60)}
+          <span className="min-w-0 flex-1 truncate text-right text-foreground/60">
+            {run.summary.slice(0, 80)}
           </span>
         )}
+
+        {hasDetails && (
+          <ChevronDown
+            className={cn(
+              "h-3 w-3 shrink-0 text-muted-foreground/40 transition-transform",
+              expanded && "rotate-180",
+            )}
+          />
+        )}
       </button>
-      {expanded && (run.summary || run.error) && (
-        <div className="mx-2 mb-2 rounded-md bg-muted/20 p-3 text-xs">
-          {run.error && <p className="text-red-400">{run.error}</p>}
+
+      {expanded && hasDetails && (
+        <div className="border-t border-border/50 bg-muted/10 px-3 py-2.5 text-xs">
+          {run.error && (
+            <p className="text-red-400">{run.error}</p>
+          )}
           {run.summary && (
             <pre className="whitespace-pre-wrap text-muted-foreground">{run.summary}</pre>
           )}
