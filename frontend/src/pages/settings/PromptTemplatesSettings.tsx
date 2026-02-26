@@ -74,7 +74,7 @@ export default function PromptTemplatesSettings() {
             <button
               type="button"
               onClick={() => setShowCreate(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
             >
               <Plus className="h-3 w-3" />
               Add Template
@@ -188,7 +188,7 @@ function BasePromptSection() {
       </p>
 
       {editing ? (
-        <div className="space-y-3">
+        <div className="space-y-3 rounded-lg border border-primary/30 bg-card/50 p-4">
           <PromptEditor value={draft} onChange={setDraft} maxHeight="24rem" />
 
           {/* Template variables hint */}
@@ -209,7 +209,7 @@ function BasePromptSection() {
               <CollapsibleTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  className="inline-flex cursor-pointer items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
                 >
                   <ChevronRight
                     className={cn(
@@ -235,7 +235,7 @@ function BasePromptSection() {
               onClick={() => void handleSave()}
               disabled={!draft.trim() || updateMutation.isPending}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
+                "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
                 (!draft.trim() || updateMutation.isPending) && "pointer-events-none opacity-60",
               )}
             >
@@ -245,7 +245,7 @@ function BasePromptSection() {
             <button
               type="button"
               onClick={() => { setEditing(false); setShowDefault(false); }}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               <X className="h-3 w-3" />
               Cancel
@@ -254,7 +254,7 @@ function BasePromptSection() {
               <button
                 type="button"
                 onClick={() => setShowResetConfirm(true)}
-                className="ml-auto inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-red-400"
+                className="ml-auto inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-red-400"
               >
                 <RotateCcw className="h-3 w-3" />
                 Reset to default
@@ -271,7 +271,7 @@ function BasePromptSection() {
             <button
               type="button"
               onClick={startEdit}
-              className="ml-2 shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+              className="ml-2 shrink-0 cursor-pointer rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
             >
               <Pencil className="h-3 w-3" />
             </button>
@@ -366,7 +366,7 @@ function CreateTemplateForm({ onClose }: { onClose: () => void }) {
                 type="button"
                 onClick={() => setType(t)}
                 className={cn(
-                  "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                  "cursor-pointer rounded-md px-3 py-1 text-xs font-medium transition-colors",
                   type === t
                     ? "bg-primary text-primary-foreground"
                     : "bg-muted text-muted-foreground hover:text-foreground",
@@ -394,7 +394,7 @@ function CreateTemplateForm({ onClose }: { onClose: () => void }) {
             onClick={() => void handleSubmit()}
             disabled={!isValid || createMutation.isPending}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
+              "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
               (!isValid || createMutation.isPending) && "pointer-events-none opacity-60",
             )}
           >
@@ -404,7 +404,7 @@ function CreateTemplateForm({ onClose }: { onClose: () => void }) {
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
             <X className="h-3 w-3" />
             Cancel
@@ -468,14 +468,14 @@ function TemplateCard({
           <button
             type="button"
             onClick={onEdit}
-            className="rounded p-1 text-muted-foreground hover:text-foreground"
+            className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
           >
             <Pencil className="h-3 w-3" />
           </button>
           <button
             type="button"
             onClick={onDelete}
-            className="rounded p-1 text-muted-foreground hover:text-red-400"
+            className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:text-red-400"
           >
             <Trash2 className="h-3 w-3" />
           </button>
@@ -513,7 +513,7 @@ function EditTemplateForm({ template, onClose }: { template: PromptTemplate; onC
             onClick={() => void handleSave()}
             disabled={!isValid || updateMutation.isPending}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground",
+              "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
               (!isValid || updateMutation.isPending) && "pointer-events-none opacity-60",
             )}
           >
@@ -523,7 +523,7 @@ function EditTemplateForm({ template, onClose }: { template: PromptTemplate; onC
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground"
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
             Cancel
           </button>

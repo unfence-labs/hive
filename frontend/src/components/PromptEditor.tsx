@@ -47,6 +47,7 @@ const appTheme = EditorView.theme(
       borderRadius: "0.5rem",
       border: "1px solid hsl(0 0% 100% / 0.08)",
       overflow: "hidden",
+      height: "100%",
     },
     "&.cm-focused": {
       outline: "2px solid hsl(var(--ring))",
@@ -162,8 +163,8 @@ export function PromptEditor({
   return (
     <div
       ref={containerRef}
-      className="overflow-hidden rounded-lg"
-      style={{ maxHeight, overflow: "auto" }}
+      className="rounded-lg"
+      style={{ height: maxHeight, minHeight: "6rem", resize: "vertical", overflow: "hidden" }}
     />
   );
 }
