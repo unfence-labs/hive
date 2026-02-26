@@ -336,7 +336,15 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       env = undefined;
     } else {
       command = provider!.command;
-      args = provider!.buildArgs(content, { ...msgOptions, model: modelId }, {
+
+      // For providers without a native system-prompt flag (Codex, Gemini),
+      // prepend the system prompt to the first user message content.
+      let cliContent = content;
+      if (isFirstMessage && this.systemPrompt && provider!.id !== "claude") {
+        cliContent = `<context>\n${this.systemPrompt}\n</context>\n\n${content}`;
+      }
+
+      args = provider!.buildArgs(cliContent, { ...msgOptions, model: modelId }, {
         isFirstMessage,
         sessionId: this.cliSessionId,
         systemPrompt: this.systemPrompt,
