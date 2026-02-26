@@ -231,6 +231,7 @@ interface ToolCallListProps {
   isInteractive?: boolean;
   showExecutingState?: boolean;
   planStatus?: PlanStatus;
+  dismissedToolCallIds?: Set<string>;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onPlanApproval?: () => void;
   onHandOff?: (planContent: string, planPath?: string) => void;
@@ -241,6 +242,7 @@ export function ToolCallList({
   isInteractive,
   showExecutingState,
   planStatus,
+  dismissedToolCallIds,
   onQuestionAnswer: _onQuestionAnswer,
   onPlanApproval,
   onHandOff,
@@ -331,6 +333,7 @@ export function ToolCallList({
               key={tool.id}
               tool={tool}
               isInteractive={isInteractive}
+              isDismissed={dismissedToolCallIds?.has(tool.id)}
             />
           );
         }

@@ -56,6 +56,7 @@ interface ChatMessageProps {
   message: ChatMessageType;
   isInteractive?: boolean;
   planStatus?: PlanStatus;
+  dismissedToolCallIds?: Set<string>;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onPlanApproval?: () => void;
   onHandOff?: (planContent: string, planPath?: string) => void;
@@ -66,6 +67,7 @@ const ChatMessage = memo(function ChatMessage({
   message,
   isInteractive = false,
   planStatus,
+  dismissedToolCallIds,
   onQuestionAnswer,
   onPlanApproval,
   onHandOff,
@@ -148,6 +150,7 @@ const ChatMessage = memo(function ChatMessage({
                 toolCalls={message.toolCalls}
                 isInteractive={isInteractive}
                 planStatus={planStatus}
+                dismissedToolCallIds={dismissedToolCallIds}
                 onQuestionAnswer={onQuestionAnswer}
                 onPlanApproval={onPlanApproval}
                 onHandOff={onHandOff}

@@ -62,6 +62,20 @@ describe("AskUserQuestion", () => {
     expect(screen.getByText("Choose runtime")).toBeInTheDocument();
   });
 
+  it("shows CANCELLED badge when isDismissed is true", () => {
+    render(
+      <AskUserQuestion
+        tool={askTool({
+          questions: [{ question: "Pick one", options: [{ label: "A" }] }],
+        })}
+        isDismissed
+      />,
+    );
+
+    expect(screen.getByText("CANCELLED")).toBeInTheDocument();
+    expect(screen.queryByText("ANSWERED")).not.toBeInTheDocument();
+  });
+
   it("returns null when payload has no questions", () => {
     const { container } = render(<AskUserQuestion tool={askTool("{bad json")} />);
     expect(container).toBeEmptyDOMElement();

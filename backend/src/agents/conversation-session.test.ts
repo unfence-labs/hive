@@ -927,6 +927,16 @@ describe("ConversationSession", () => {
     );
   });
 
+  it("sends 'Question dismissed.' for AskUserQuestion reject with [question_dismissed] marker", () => {
+    const session = createSession({ sessionId: "ask-dismiss" });
+    const sendSpy = vi.spyOn(session, "sendMessage").mockImplementation(() => {});
+
+    session.respondToToolInput("AskUserQuestion", { type: "reject", message: "[question_dismissed]" });
+
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+    expect(sendSpy).toHaveBeenCalledWith("Question dismissed.");
+  });
+
   // ── Image attachment tests ──────────────────────────────────────────
 
   it("emits user_message with URL-based images after saving to disk", async () => {
