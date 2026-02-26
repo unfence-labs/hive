@@ -42,7 +42,7 @@ export class CodexProvider implements AgentProvider {
     const flags = [
       "--json",
       ...(model ? ["--model", model.cliValue] : []),
-      "--full-auto",
+      "--dangerously-bypass-approvals-and-sandbox",
       "--config", `model_reasoning_effort=${thinkingLevel}`,
     ];
 

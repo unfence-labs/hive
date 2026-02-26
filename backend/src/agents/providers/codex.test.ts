@@ -79,9 +79,9 @@ describe("CodexProvider", () => {
     expect(args).toContain("--json");
   });
 
-  it("includes --full-auto flag", () => {
+  it("includes --dangerously-bypass-approvals-and-sandbox flag", () => {
     const args = provider.buildArgs("Hello", {}, baseSession());
-    expect(args).toContain("--full-auto");
+    expect(args).toContain("--dangerously-bypass-approvals-and-sandbox");
   });
 
   it("includes --model with cli value when model is specified", () => {
