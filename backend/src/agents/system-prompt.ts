@@ -75,6 +75,40 @@ export async function getGitContext(cwd: string, defaultBranchOverride?: string)
 }
 
 /**
+ * Format a git context block from already-resolved GitContext.
+ * Pure formatting — no async, no git calls.
+ */
+export function formatGitContextBlock(
+  ctx: GitContext,
+  opts?: { projectName?: string; workspaceName?: string },
+): string {
+  const gitLines: string[] = [
+    "# Git Context (snapshot at session start)",
+    "",
+  ];
+
+  if (opts?.projectName) gitLines.push(`Project: ${opts.projectName}`);
+  if (opts?.workspaceName) gitLines.push(`Workspace: ${opts.workspaceName}`);
+
+  gitLines.push(
+    `Current branch: ${ctx.branch || "unknown"}`,
+    `Main branch: ${ctx.defaultBranch}`,
+  );
+
+  if (ctx.status) {
+    gitLines.push("", "Status:", ctx.status);
+  } else {
+    gitLines.push("", "Status: (clean)");
+  }
+
+  if (ctx.recentCommits) {
+    gitLines.push("", "Recent commits:", ctx.recentCommits);
+  }
+
+  return gitLines.join("\n");
+}
+
+/**
  * Build a system prompt by merging a base prompt with dynamic git context.
  */
 export async function buildSystemPrompt(opts: SystemPromptOptions): Promise<string> {
@@ -98,32 +132,7 @@ export async function buildSystemPrompt(opts: SystemPromptOptions): Promise<stri
     .replace(/\{PROJECT}/g, projectName ?? "unknown");
 
   const sections: string[] = [basePrompt];
-
-  // Git context (includes project/workspace info)
-  const gitLines: string[] = [
-    "# Git Context (snapshot at session start)",
-    "",
-  ];
-
-  if (projectName) gitLines.push(`Project: ${projectName}`);
-  if (workspaceName) gitLines.push(`Workspace: ${workspaceName}`);
-
-  gitLines.push(
-    `Current branch: ${ctx.branch || "unknown"}`,
-    `Main branch: ${ctx.defaultBranch}`,
-  );
-
-  if (ctx.status) {
-    gitLines.push("", "Status:", ctx.status);
-  } else {
-    gitLines.push("", "Status: (clean)");
-  }
-
-  if (ctx.recentCommits) {
-    gitLines.push("", "Recent commits:", ctx.recentCommits);
-  }
-
-  sections.push(gitLines.join("\n"));
+  sections.push(formatGitContextBlock(ctx, { projectName, workspaceName }));
 
   return sections.join("\n\n");
 }

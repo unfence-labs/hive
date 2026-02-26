@@ -17,6 +17,7 @@ import { getNotifier } from "../agents/agent-manager.js";
 import { loadProject } from "../state/state.js";
 import { git } from "../utils/git.js";
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
+import { getGitContext, formatGitContextBlock } from "../agents/system-prompt.js";
 import type { Automation, AutomationRun, WsOutgoing } from "../types.js";
 
 const SUMMARY_INSTRUCTION =
@@ -154,7 +155,7 @@ export class AutomationScheduler {
     await addRun(autoId, run, this.dataDir);
 
     // Ensure workspace
-    const workspacePath = await this.ensureWorkspace(auto);
+    const { workspacePath, defaultBranch } = await this.ensureWorkspace(auto);
 
     // Update automation with workspace path if needed
     if (!auto.workspacePath) {
@@ -169,13 +170,21 @@ export class AutomationScheduler {
     }
 
     // Resolve prompts
-    const systemPrompt = await this.resolvePrompt(auto.action.systemPromptId, auto.action.systemPromptInline, "system");
+    let systemPrompt = await this.resolvePrompt(auto.action.systemPromptId, auto.action.systemPromptInline, "system");
     const userPrompt = await this.resolvePrompt(auto.action.userPromptId, auto.action.userPromptInline, "user");
 
     if (!userPrompt) {
       const error = "No user prompt resolved";
       await this.completeRun(auto, run.id, "failure", undefined, error, now);
       return { ...run, status: "failure", error };
+    }
+
+    // Inject git context for project-linked automations
+    if (auto.projectId) {
+      const project = await loadProject(auto.projectId, this.dataDir);
+      const ctx = await getGitContext(workspacePath, defaultBranch);
+      const gitBlock = formatGitContextBlock(ctx, { projectName: project?.name });
+      systemPrompt = systemPrompt ? systemPrompt + "\n\n" + gitBlock : gitBlock;
     }
 
     // Create session
@@ -238,7 +247,7 @@ export class AutomationScheduler {
     });
   }
 
-  private async ensureWorkspace(auto: Automation): Promise<string> {
+  private async ensureWorkspace(auto: Automation): Promise<{ workspacePath: string; defaultBranch?: string }> {
     const wsPath = join(this.dataDir, "automations", auto.id, "workspace");
 
     if (auto.projectId) {
@@ -257,18 +266,19 @@ export class AutomationScheduler {
         await git(["fetch", "origin", defaultBranch], wsPath);
         await git(["checkout", defaultBranch], wsPath);
         await git(["reset", "--hard", `origin/${defaultBranch}`], wsPath);
+        return { workspacePath: wsPath, defaultBranch };
       } catch {
         // Does not exist — create worktree
         await mkdir(join(this.dataDir, "automations", auto.id), { recursive: true });
         const defaultBranch = await resolveDefaultBranch(bareRepo);
         await git(["worktree", "add", wsPath, defaultBranch], bareRepo);
+        return { workspacePath: wsPath, defaultBranch };
       }
     } else {
       // Non-project automation: just ensure directory exists
       await mkdir(wsPath, { recursive: true });
+      return { workspacePath: wsPath };
     }
-
-    return wsPath;
   }
 
   private async resolvePrompt(

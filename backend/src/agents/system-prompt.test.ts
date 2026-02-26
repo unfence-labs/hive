@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { rm, writeFile, mkdir } from "node:fs/promises";
 import { createTempDir } from "../utils/test-helpers.js";
 import { git } from "../utils/git.js";
-import { getGitContext, buildSystemPrompt, loadBasePrompt, DEFAULT_BASE_PROMPT } from "./system-prompt.js";
+import { getGitContext, buildSystemPrompt, loadBasePrompt, formatGitContextBlock, DEFAULT_BASE_PROMPT } from "./system-prompt.js";
+import type { GitContext } from "./system-prompt.js";
 
 let tempDir: string;
 let repoDir: string;
@@ -190,5 +191,80 @@ describe("loadBasePrompt", () => {
     const promptsDir = join(tempDir, "no-such-dir");
     const result = await loadBasePrompt(promptsDir);
     expect(result).toBe(DEFAULT_BASE_PROMPT);
+  });
+});
+
+describe("formatGitContextBlock", () => {
+  const baseCtx: GitContext = {
+    branch: "feat/login",
+    status: "",
+    recentCommits: "abc1234 add login page",
+    defaultBranch: "main",
+  };
+
+  it("includes header, branch, and main branch", () => {
+    const block = formatGitContextBlock(baseCtx);
+    expect(block).toContain("# Git Context (snapshot at session start)");
+    expect(block).toContain("Current branch: feat/login");
+    expect(block).toContain("Main branch: main");
+  });
+
+  it("includes project name when provided", () => {
+    const block = formatGitContextBlock(baseCtx, { projectName: "hive" });
+    expect(block).toContain("Project: hive");
+  });
+
+  it("includes workspace name when provided", () => {
+    const block = formatGitContextBlock(baseCtx, { workspaceName: "geneva" });
+    expect(block).toContain("Workspace: geneva");
+  });
+
+  it("omits project and workspace lines when not provided", () => {
+    const block = formatGitContextBlock(baseCtx);
+    expect(block).not.toContain("Project:");
+    expect(block).not.toContain("Workspace:");
+  });
+
+  it("shows clean status when status is empty", () => {
+    const block = formatGitContextBlock(baseCtx);
+    expect(block).toContain("Status: (clean)");
+  });
+
+  it("shows dirty status when status has content", () => {
+    const ctx = { ...baseCtx, status: "M src/app.ts\n?? new.txt" };
+    const block = formatGitContextBlock(ctx);
+    expect(block).toContain("Status:");
+    expect(block).toContain("M src/app.ts");
+    expect(block).not.toContain("(clean)");
+  });
+
+  it("includes recent commits when present", () => {
+    const block = formatGitContextBlock(baseCtx);
+    expect(block).toContain("Recent commits:");
+    expect(block).toContain("abc1234 add login page");
+  });
+
+  it("omits recent commits section when empty", () => {
+    const ctx = { ...baseCtx, recentCommits: "" };
+    const block = formatGitContextBlock(ctx);
+    expect(block).not.toContain("Recent commits:");
+  });
+
+  it("shows unknown branch when branch is empty", () => {
+    const ctx = { ...baseCtx, branch: "" };
+    const block = formatGitContextBlock(ctx);
+    expect(block).toContain("Current branch: unknown");
+  });
+
+  it("produces identical output to what buildSystemPrompt appends", async () => {
+    // buildSystemPrompt calls formatGitContextBlock internally — verify consistency
+    const prompt = await buildSystemPrompt({
+      cwd: repoDir,
+      projectName: "hive",
+      workspaceName: "geneva",
+    });
+    const ctx = await getGitContext(repoDir);
+    const block = formatGitContextBlock(ctx, { projectName: "hive", workspaceName: "geneva" });
+    expect(prompt).toContain(block);
   });
 });
