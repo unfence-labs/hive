@@ -252,8 +252,8 @@ export default function WorkspaceView() {
   // ── Message queue: lets users type one follow-up while agent is busy ──
   const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
 
-  // Clear queue on session switch
-  useEffect(() => { setQueuedMessage(null); }, [sessionId]);
+  // Clear queue on workspace or session switch
+  useEffect(() => { setQueuedMessage(null); }, [wsId, sessionId]);
 
   // Auto-dequeue when the agent finishes and workspace is truly idle
   useEffect(() => {
