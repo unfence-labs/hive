@@ -459,13 +459,13 @@ describe("WorkspaceView behavior", () => {
     await screen.findByText("tokyo");
 
     // Should render dropdown trigger, not simple "VS Code" button
-    const trigger = screen.getByRole("button", { name: /Code/i });
+    const trigger = screen.getByRole("button", { name: /Open/i });
     expect(trigger).toBeInTheDocument();
 
     await user.click(trigger);
 
     // Menu items should appear
-    expect(await screen.findByText("Open in VS Code")).toBeInTheDocument();
+    expect(await screen.findByText("VS Code")).toBeInTheDocument();
     expect(screen.getByText("Terminal (SSH)")).toBeInTheDocument();
     expect(screen.getByText("iTerm (SSH)")).toBeInTheDocument();
   });
@@ -496,7 +496,7 @@ describe("WorkspaceView behavior", () => {
     renderWorkspace();
     await screen.findByText("tokyo");
 
-    await user.click(screen.getByRole("button", { name: /Code/i }));
+    await user.click(screen.getByRole("button", { name: /Open/i }));
     await user.click(await screen.findByText("Terminal (SSH)"));
 
     await waitFor(() => {
@@ -1762,7 +1762,7 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     localStorage.removeItem("hive-ssh-user");
   });
 
-  it("shows 'Open in VS Code' as first item in dropdown", async () => {
+  it("shows 'VS Code' as first item in dropdown", async () => {
     const user = userEvent.setup();
     setupDropdownTest({
       terminalApps: [{ id: "terminal_app", name: "Terminal" }],
@@ -1773,8 +1773,8 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     renderWorkspace();
     await screen.findByText("tokyo");
 
-    await user.click(screen.getByRole("button", { name: /Code/i }));
-    expect(await screen.findByText("Open in VS Code")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Open/i }));
+    expect(await screen.findByText("VS Code")).toBeInTheDocument();
   });
 
   it("separates VS Code from terminal apps with a separator", async () => {
@@ -1788,8 +1788,8 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     renderWorkspace();
     await screen.findByText("tokyo");
 
-    await user.click(screen.getByRole("button", { name: /Code/i }));
-    await screen.findByText("Open in VS Code");
+    await user.click(screen.getByRole("button", { name: /Open/i }));
+    await screen.findByText("VS Code");
 
     // There should be a separator element in the DOM
     expect(document.querySelector("[role='separator']")).toBeInTheDocument();
@@ -1806,9 +1806,9 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     renderWorkspace();
     await screen.findByText("tokyo");
 
-    await user.click(screen.getByRole("button", { name: /Code/i }));
+    await user.click(screen.getByRole("button", { name: /Open/i }));
 
-    const vscodeItem = await screen.findByText("Open in VS Code");
+    const vscodeItem = await screen.findByText("VS Code");
     // The menu item should be disabled (aria-disabled or data-disabled)
     expect(vscodeItem.closest("[data-disabled]") ?? vscodeItem.closest("[aria-disabled]")).toBeTruthy();
   });
@@ -1824,7 +1824,7 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     renderWorkspace();
     await screen.findByText("tokyo");
 
-    await user.click(screen.getByRole("button", { name: /Code/i }));
+    await user.click(screen.getByRole("button", { name: /Open/i }));
 
     const terminalItem = await screen.findByText("Terminal (SSH)");
     expect(terminalItem.closest("[data-disabled]") ?? terminalItem.closest("[aria-disabled]")).toBeTruthy();
@@ -1842,8 +1842,8 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     renderWorkspace();
     await screen.findByText("tokyo");
 
-    await user.click(screen.getByRole("button", { name: /Code/i }));
-    await user.click(await screen.findByText("Open in VS Code"));
+    await user.click(screen.getByRole("button", { name: /Open/i }));
+    await user.click(await screen.findByText("VS Code"));
 
     await waitFor(() => {
       expect(mocks.openExternal).toHaveBeenCalledWith(
@@ -1868,7 +1868,7 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     renderWorkspace();
     await screen.findByText("tokyo");
 
-    await user.click(screen.getByRole("button", { name: /Code/i }));
+    await user.click(screen.getByRole("button", { name: /Open/i }));
     await user.click(await screen.findByText("iTerm (SSH)"));
 
     await waitFor(() => {
@@ -1880,7 +1880,7 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     });
   });
 
-  it("renders dropdown button label as 'Code' with chevron when terminal apps exist", async () => {
+  it("renders dropdown button label as 'Open' with chevron when terminal apps exist", async () => {
     setupDropdownTest({
       terminalApps: [{ id: "terminal_app", name: "Terminal" }],
     });
@@ -1888,9 +1888,9 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     renderWorkspace();
     await screen.findByText("tokyo");
 
-    const trigger = screen.getByRole("button", { name: /Code/i });
+    const trigger = screen.getByRole("button", { name: /Open/i });
     expect(trigger).toBeInTheDocument();
-    expect(trigger.textContent).toContain("Code");
+    expect(trigger.textContent).toContain("Open");
   });
 
   it("renders simple 'VS Code' button when no terminal apps detected", async () => {
