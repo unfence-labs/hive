@@ -4,6 +4,7 @@ import SwiftUI
 struct MessageBubble: View {
     let message: ChatMessage
     var pendingToolUseIds: Set<String> = []
+    var dismissedToolCallIds: Set<String> = []
 
     @State private var copied = false
 
@@ -17,7 +18,7 @@ struct MessageBubble: View {
                 }
 
                 if let tools = message.toolCalls, !tools.isEmpty {
-                    WhisperToolCallsBlock(toolCalls: tools, pendingToolUseIds: pendingToolUseIds)
+                    WhisperToolCallsBlock(toolCalls: tools, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
                 }
 
                 messageContent
@@ -398,7 +399,7 @@ private func computeToolStats(_ tool: ToolCall) -> ToolStats? {
     }
 }
 
-private func getToolDisplay(_ tool: ToolCall, isPending: Bool = false) -> ToolDisplay {
+private func getToolDisplay(_ tool: ToolCall, isPending: Bool = false, isDismissed: Bool = false) -> ToolDisplay {
     guard let data = tool.input.data(using: .utf8),
           let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return ToolDisplay(icon: toolIcon(for: tool.name), label: tool.name, detail: String(tool.input.prefix(40)))
@@ -457,12 +458,14 @@ private func getToolDisplay(_ tool: ToolCall, isPending: Bool = false) -> ToolDi
     case "AskUserQuestion":
         let questions = (input["questions"] as? [[String: Any]]) ?? []
         let count = questions.count
+        let badgeText = isPending ? "WAITING" : (isDismissed ? "CANCELLED" : "ANSWERED")
+        let badgeIcon = isPending ? "clock" : (isDismissed ? "xmark.circle" : "checkmark.circle")
         return ToolDisplay(
             icon: "bubble.left",
             label: "User input",
             hideOutput: true,
-            badgeText: isPending ? "WAITING" : "ANSWERED",
-            badgeIcon: isPending ? "clock" : "checkmark.circle",
+            badgeText: badgeText,
+            badgeIcon: badgeIcon,
             overrideSummary: count > 0 ? "\(count) question\(count != 1 ? "s" : "")" : nil
         )
 
@@ -538,6 +541,7 @@ private let collapseThreshold = 3
 private struct WhisperToolCallsBlock: View {
     let toolCalls: [ToolCall]
     var pendingToolUseIds: Set<String> = []
+    var dismissedToolCallIds: Set<String> = []
     @State private var groupExpanded = false
 
     private static let hiddenTaskTools: Set<String> = ["TaskUpdate"]
@@ -575,7 +579,8 @@ private struct WhisperToolCallsBlock: View {
                     WhisperToolCallRow(
                         tool: tool,
                         children: children(for: tool.id),
-                        isPending: pendingToolUseIds.contains(tool.id)
+                        isPending: pendingToolUseIds.contains(tool.id),
+                        isDismissed: dismissedToolCallIds.contains(tool.id)
                     )
                 }
                 .transition(.opacity)
@@ -641,10 +646,11 @@ private struct WhisperToolCallRow: View {
     let tool: ToolCall
     let children: [ToolCall]
     var isPending = false
+    var isDismissed = false
     @State private var isExpanded = false
 
     var body: some View {
-        let display = getToolDisplay(tool, isPending: isPending)
+        let display = getToolDisplay(tool, isPending: isPending, isDismissed: isDismissed)
         let summary = !isExpanded && display.stats == nil ? (display.overrideSummary ?? getOutputSummary(tool)) : nil
 
         VStack(alignment: .leading, spacing: 0) {

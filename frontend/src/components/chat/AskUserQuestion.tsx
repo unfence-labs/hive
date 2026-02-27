@@ -2,17 +2,19 @@ import { useState, memo } from "react";
 import type { ToolCall } from "@/types";
 import { parseQuestions } from "@/types";
 import { cn } from "@/lib/utils";
-import { MessageSquareIcon, ClockIcon, CheckCircle2Icon } from "lucide-react";
+import { MessageSquareIcon, ClockIcon, CheckCircle2Icon, XCircleIcon } from "lucide-react";
 import { ContentPanel, ContentPanelBody } from "./ContentPanel";
 
 interface AskUserQuestionProps {
   tool: ToolCall;
   isInteractive?: boolean;
+  isDismissed?: boolean;
 }
 
 export const AskUserQuestion = memo(function AskUserQuestion({
   tool,
   isInteractive = false,
+  isDismissed = false,
 }: AskUserQuestionProps) {
   const questions = parseQuestions(tool);
   const [expanded, setExpanded] = useState(false);
@@ -44,9 +46,12 @@ export const AskUserQuestion = memo(function AskUserQuestion({
       >
         <MessageSquareIcon className="size-3.5" />
         <span>User input</span>
-        <span className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
-          <CheckCircle2Icon className="size-3" />
-          ANSWERED
+        <span className={cn(
+          "inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-mono",
+          isDismissed ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground",
+        )}>
+          {isDismissed ? <XCircleIcon className="size-3" /> : <CheckCircle2Icon className="size-3" />}
+          {isDismissed ? "CANCELLED" : "ANSWERED"}
         </span>
         {!expanded && (
           <span className="text-xs font-normal text-muted-foreground/60">

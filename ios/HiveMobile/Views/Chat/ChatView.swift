@@ -50,6 +50,21 @@ struct ChatView: View {
         Set(store.pendingToolInputs.map(\.toolUseId))
     }
 
+    private var dismissedToolCallIds: Set<String> {
+        var ids = Set<String>()
+        let msgs = store.messages
+        for i in 0..<(msgs.count - 1) {
+            let msg = msgs[i]
+            let next = msgs[i + 1]
+            if msg.role == .assistant, next.role == .user, next.content == "Question dismissed." {
+                for tc in msg.toolCalls ?? [] where tc.name == "AskUserQuestion" {
+                    ids.insert(tc.id)
+                }
+            }
+        }
+        return ids
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if isLoading {
@@ -68,8 +83,10 @@ struct ChatView: View {
                     ScrollView {
                         VStack(spacing: 16) {
                             ForEach(store.displayMessages) { message in
-                                MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds)
-                                    .id(message.id)
+                                if !(message.role == .user && message.content == "Question dismissed.") {
+                                    MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
+                                        .id(message.id)
+                                }
                             }
 
                             if store.isStreaming {

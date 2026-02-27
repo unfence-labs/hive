@@ -594,7 +594,7 @@ describe("WorkspaceView behavior", () => {
     expect(mocks.batchAnswerQuestions).toHaveBeenCalledWith([{ toolUseId: "ask-1", answers: [] }]);
 
     await user.click(screen.getByRole("button", { name: "dismiss questions" }));
-    expect(mocks.rejectToolInput).toHaveBeenCalledWith("cancel");
+    expect(mocks.rejectToolInput).toHaveBeenCalledWith("[question_dismissed]");
   });
 
   it("activates a session by calling switchSession directly", async () => {

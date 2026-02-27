@@ -702,6 +702,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       const feedback = result.message || "Please suggest an alternative approach.";
       const cliPrompt = `${feedback}\n\nIMPORTANT: You are still in plan mode. Update the plan file in .claude/plans/ with these adjustments, then call ExitPlanMode to submit the updated plan for review. Do NOT modify any source code files directly.`;
       this.sendMessage(feedback, { planMode: true }, undefined, cliPrompt);
+    } else if (toolName === "AskUserQuestion" && result.type === "reject" && result.message === "[question_dismissed]") {
+      this.sendMessage("Question dismissed.");
     } else if (result.type === "reject") {
       this.sendMessage(result.message || "I reject this. Please suggest an alternative approach.");
     }

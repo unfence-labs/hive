@@ -538,7 +538,7 @@ export default function WorkspaceView() {
               queuedMessage={queuedMessage}
               onClearQueue={() => setQueuedMessage(null)}
             />
-            {tasks.length > 0 && (
+            {tasks.length > 0 && !pendingToolInputs.some((p) => p.toolName === "AskUserQuestion") && (
               <TaskTracker
                 tasks={tasks}
                 currentTask={currentTask}
@@ -550,7 +550,7 @@ export default function WorkspaceView() {
               <QuestionPanel
                 pendingToolInputs={pendingToolInputs}
                 onBatchSubmit={batchAnswerQuestions}
-                onDismiss={() => rejectToolInput("cancel")}
+                onDismiss={() => rejectToolInput("[question_dismissed]")}
               />
             ) : (
               <ChatInput

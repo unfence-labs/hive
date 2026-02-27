@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -152,6 +152,24 @@ export default function ChatConversation({
     return hasLaterPlan ? "revised" : "approved";
   };
 
+  const dismissedToolCallIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (let i = 0; i < messages.length - 1; i++) {
+      const msg = messages[i];
+      const next = messages[i + 1];
+      if (
+        msg.role === "assistant" &&
+        next?.role === "user" &&
+        next.content === "Question dismissed."
+      ) {
+        msg.toolCalls
+          ?.filter((tc) => tc.name === "AskUserQuestion")
+          .forEach((tc) => ids.add(tc.id));
+      }
+    }
+    return ids;
+  }, [messages]);
+
   return (
     <Conversation className={`flex-1${isHydrating ? " invisible" : ""}`} resize={settled ? "smooth" : "instant"}>
       {error && (
@@ -178,18 +196,23 @@ export default function ChatConversation({
               description=""
             />
           ))}
-        {messages.map((msg, i) => (
-          <ChatMessage
-            key={msg.id ?? `${msg.timestamp}-${i}`}
-            message={msg}
-            isInteractive={isMessageInteractive(msg, i)}
-            planStatus={getPlanStatus(msg, i)}
-            onQuestionAnswer={onQuestionAnswer}
-            onPlanApproval={onPlanApproval}
-            onHandOff={onHandOff}
-            onFileMentionClick={onFileMentionClick}
-          />
-        ))}
+        {messages.map((msg, i) => {
+          // Hide "Question dismissed." user bubbles — the CANCELLED badge already conveys this
+          if (msg.role === "user" && msg.content === "Question dismissed.") return null;
+          return (
+            <ChatMessage
+              key={msg.id ?? `${msg.timestamp}-${i}`}
+              message={msg}
+              isInteractive={isMessageInteractive(msg, i)}
+              planStatus={getPlanStatus(msg, i)}
+              dismissedToolCallIds={dismissedToolCallIds}
+              onQuestionAnswer={onQuestionAnswer}
+              onPlanApproval={onPlanApproval}
+              onHandOff={onHandOff}
+              onFileMentionClick={onFileMentionClick}
+            />
+          );
+        })}
 
         {/* Live streaming content */}
         {isStreaming && (currentStreamingText || currentThinking || activeToolCalls.length > 0) && (
