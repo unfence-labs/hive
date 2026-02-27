@@ -152,7 +152,7 @@ export default function QuestionPanel({
   if (flatQuestions.length === 0) return null;
 
   const total = flatQuestions.length;
-  const canSubmit = answeredCount > 0;
+  const canSubmit = total > 1 ? answeredCount === total : answeredCount > 0;
 
   return (
     <div className="border-t border-border/30 px-3 py-3">
