@@ -33,7 +33,23 @@ vi.mock("@/components/ai-elements/conversation", () => ({
 }));
 
 vi.mock("@/components/ChatMessage", () => ({
-  default: ({ message }: { message: ChatMessage }) => <div data-testid={`msg-${message.id}`}>{message.content}</div>,
+  default: ({
+    message,
+    planStatus,
+    isInteractive,
+  }: {
+    message: ChatMessage;
+    planStatus?: string;
+    isInteractive?: boolean;
+  }) => (
+    <div
+      data-testid={`msg-${message.id}`}
+      data-plan-status={planStatus ?? "none"}
+      data-interactive={String(Boolean(isInteractive))}
+    >
+      {message.content}
+    </div>
+  ),
 }));
 
 vi.mock("@/components/chat/AgentActivityPreview", () => ({
@@ -391,5 +407,99 @@ describe("ChatConversation queued message", () => {
 
     await user.click(screen.getByRole("button", { name: "Cancel queued message" }));
     expect(onClearQueue).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ChatConversation plan status behavior", () => {
+  function assistantWithPlan(id: string, content: string): ChatMessage {
+    return {
+      id,
+      sessionId: "sess-1",
+      role: "assistant",
+      content,
+      timestamp: "2026-02-20T00:00:00.000Z",
+      toolCalls: [
+        {
+          id: `${id}-tool`,
+          name: "ExitPlanMode",
+          input: JSON.stringify({ plan: content }),
+        },
+      ],
+    };
+  }
+
+  it("marks a plan message as interactive when pending tool input matches tool call id", () => {
+    const message = assistantWithPlan("a1", "Plan A");
+    renderConversation({
+      messages: [message],
+      pendingToolInputs: [
+        {
+          requestId: "req-1",
+          toolName: "ExitPlanMode",
+          toolUseId: "a1-tool",
+          input: {},
+        },
+      ],
+    });
+
+    const node = screen.getByTestId("msg-a1");
+    expect(node).toHaveAttribute("data-interactive", "true");
+    expect(node).toHaveAttribute("data-plan-status", "interactive");
+  });
+
+  it("marks a standalone latest plan as interactive in fallback mode", () => {
+    renderConversation({
+      messages: [assistantWithPlan("a1", "Plan A")],
+    });
+
+    expect(screen.getByTestId("msg-a1")).toHaveAttribute("data-plan-status", "interactive");
+  });
+
+  it("marks an earlier plan as revised while latest plan remains interactive", () => {
+    renderConversation({
+      messages: [
+        assistantWithPlan("a1", "Plan A"),
+        assistantWithPlan("a2", "Plan B"),
+      ],
+    });
+
+    expect(screen.getByTestId("msg-a1")).toHaveAttribute("data-plan-status", "revised");
+    expect(screen.getByTestId("msg-a2")).toHaveAttribute("data-plan-status", "interactive");
+  });
+
+  it("marks a plan as revised while streaming after user feedback", () => {
+    renderConversation({
+      isStreaming: true,
+      messages: [
+        assistantWithPlan("a1", "Plan A"),
+        {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "Please change step 2",
+          timestamp: "2026-02-20T00:00:01.000Z",
+        },
+      ],
+    });
+
+    expect(screen.getByTestId("msg-a1")).toHaveAttribute("data-plan-status", "revised");
+  });
+});
+
+describe("ChatConversation question-dismissed rendering", () => {
+  it("hides synthetic 'Question dismissed.' user messages", () => {
+    renderConversation({
+      messages: [
+        {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "Question dismissed.",
+          timestamp: "2026-02-20T00:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(screen.queryByTestId("msg-u1")).not.toBeInTheDocument();
   });
 });

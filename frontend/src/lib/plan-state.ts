@@ -92,14 +92,20 @@ export function findPlanContent(
   // 2. Edit tool → reconstruct from Read output + Edit diffs
   const editTools = toolCalls.filter((t) => isPlanFileTool(t, "Edit"));
   if (editTools.length > 0) {
-    let planPath: string | undefined;
-    try {
-      planPath = JSON.parse(editTools[0].input).file_path;
-    } catch {
-      /* fall through */
-    }
+    const candidatePaths = [...new Set(
+      editTools
+        .map((edit) => {
+          try {
+            const parsed = JSON.parse(edit.input) as { file_path?: unknown };
+            return typeof parsed.file_path === "string" ? parsed.file_path : undefined;
+          } catch {
+            return undefined;
+          }
+        })
+        .filter((path): path is string => typeof path === "string"),
+    )].reverse();
 
-    if (planPath) {
+    for (const planPath of candidatePaths) {
       const readTool = [...toolCalls].reverse().find((t) => {
         if (t.name !== "Read" || !t.output) return false;
         try {

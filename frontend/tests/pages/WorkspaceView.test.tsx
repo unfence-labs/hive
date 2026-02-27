@@ -110,13 +110,17 @@ vi.mock("@/components/ChatInput", () => ({
     wsId,
     sessionId,
     isStreaming,
+    placeholder,
     queuedMessage,
+    onSend,
     onQueue,
   }: {
     wsId?: string;
     sessionId?: string;
     isStreaming?: boolean;
+    placeholder?: string;
     queuedMessage?: { content: string } | null;
+    onSend?: (content: string) => boolean;
     onQueue?: (msg: { content: string }) => void;
   }) => (
     <div
@@ -124,8 +128,14 @@ vi.mock("@/components/ChatInput", () => ({
       data-ws-id={wsId ?? ""}
       data-session-id={sessionId ?? ""}
       data-has-queue={queuedMessage ? "true" : "false"}
+      data-placeholder={placeholder ?? ""}
     >
       chat-input
+      {onSend && (
+        <button type="button" data-testid="chat-send-btn" onClick={() => onSend("queued revision")}>
+          send message
+        </button>
+      )}
       {isStreaming && onQueue && (
         <button type="button" data-testid="queue-message-btn" onClick={() => onQueue({ content: "queued msg" })}>
           queue message
@@ -231,6 +241,34 @@ const FILE_TREE: WorkspaceFileTreeNode[] = [
 
 const DIFF_STATS = { committed: [], uncommitted: [] };
 
+function buildConversationState(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    messages: [],
+    isStreaming: false,
+    streamingStartedAt: null,
+    workspaceStatus: "idle",
+    currentStreamingText: "",
+    currentThinking: "",
+    activeToolCalls: [],
+    pendingToolInputs: [],
+    connectionStatus: "connected",
+    error: null,
+    sessionId: undefined,
+    sendMessage: mocks.sendMessage,
+    stopStreaming: mocks.stopStreaming,
+    clearChat: mocks.clearChat,
+    switchSession: mocks.switchSession,
+    answerQuestion: mocks.answerQuestion,
+    batchAnswerQuestions: mocks.batchAnswerQuestions,
+    approvePlan: mocks.approvePlan,
+    rejectToolInput: mocks.rejectToolInput,
+    dismissPlan: mocks.dismissPlan,
+    ...overrides,
+  };
+}
+
 function TestControls() {
   const navigate = useNavigate();
   return (
@@ -318,28 +356,7 @@ describe("WorkspaceView behavior", () => {
       throw new Error(`Unexpected URL: ${url}`);
     });
 
-    mocks.useConversation.mockReturnValue({
-      messages: [],
-      isStreaming: false,
-      streamingStartedAt: null,
-      workspaceStatus: "idle",
-      currentStreamingText: "",
-      currentThinking: "",
-      activeToolCalls: [],
-      pendingToolInputs: [],
-      connectionStatus: "connected",
-      error: null,
-      sessionId: undefined,
-      sendMessage: mocks.sendMessage,
-      stopStreaming: mocks.stopStreaming,
-      clearChat: mocks.clearChat,
-      switchSession: mocks.switchSession,
-      answerQuestion: mocks.answerQuestion,
-      batchAnswerQuestions: mocks.batchAnswerQuestions,
-      approvePlan: mocks.approvePlan,
-      rejectToolInput: mocks.rejectToolInput,
-      dismissPlan: mocks.dismissPlan,
-    });
+    mocks.useConversation.mockReturnValue(buildConversationState());
 
     mocks.useSessions.mockReturnValue({
       sessions: [],
@@ -960,8 +977,7 @@ describe("WorkspaceView behavior", () => {
     mocks.refreshSessions.mockResolvedValue(undefined);
 
     // Set up plan state so PlanActionBar renders
-    mocks.useConversation.mockReturnValue({
-      ...mocks.useConversation(),
+    mocks.useConversation.mockReturnValue(buildConversationState({
       messages: [{
         id: "msg-plan",
         role: "assistant",
@@ -980,7 +996,7 @@ describe("WorkspaceView behavior", () => {
         sessionId: "sess-1",
         input: {},
       }],
-    });
+    }));
 
     renderWorkspace();
     await screen.findByText("tokyo");
@@ -1014,8 +1030,7 @@ describe("WorkspaceView behavior", () => {
     mocks.refreshSessions.mockResolvedValue(undefined);
 
     // Set up plan state with file path so PlanActionBar renders
-    mocks.useConversation.mockReturnValue({
-      ...mocks.useConversation(),
+    mocks.useConversation.mockReturnValue(buildConversationState({
       messages: [{
         id: "msg-plan",
         role: "assistant",
@@ -1034,7 +1049,7 @@ describe("WorkspaceView behavior", () => {
         sessionId: "sess-1",
         input: {},
       }],
-    });
+    }));
 
     renderWorkspace();
     await screen.findByText("tokyo");
@@ -1049,6 +1064,175 @@ describe("WorkspaceView behavior", () => {
         "sess-new",
       );
     });
+  });
+
+  it("approves plan from floating action bar", async () => {
+    const user = userEvent.setup();
+    mocks.useConversation.mockReturnValue(buildConversationState({
+      messages: [{
+        id: "msg-plan",
+        role: "assistant",
+        content: "",
+        timestamp: "2026-02-12T00:00:00.000Z",
+        toolCalls: [{
+          id: "tool-exit",
+          name: "ExitPlanMode",
+          input: JSON.stringify({ plan: "PLAN-CONTENT" }),
+        }],
+      }],
+      pendingToolInputs: [{
+        toolName: "ExitPlanMode",
+        toolUseId: "tool-exit",
+        requestId: "req-1",
+        input: {},
+      }],
+    }));
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    expect(screen.getByTestId("chat-input")).toHaveAttribute(
+      "data-placeholder",
+      "Enter your plan adjustments here...",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+    expect(mocks.approvePlan).toHaveBeenCalledTimes(1);
+  });
+
+  it("prioritizes active tool-call plan content over older message plan during handoff", async () => {
+    const user = userEvent.setup();
+    mocks.createSession.mockResolvedValue({
+      sessionId: "sess-new",
+      workspaceId: "ws-1",
+      createdAt: "2026-02-12T00:00:00.000Z",
+      updatedAt: "2026-02-12T00:00:00.000Z",
+      messageCount: 0,
+    });
+    mocks.switchSession.mockResolvedValue(undefined);
+    mocks.refreshSessions.mockResolvedValue(undefined);
+    mocks.useConversation.mockReturnValue(buildConversationState({
+      messages: [{
+        id: "msg-old-plan",
+        role: "assistant",
+        content: "",
+        timestamp: "2026-02-12T00:00:00.000Z",
+        toolCalls: [{
+          id: "tool-old-exit",
+          name: "ExitPlanMode",
+          input: JSON.stringify({ plan: "OLD-PLAN-CONTENT" }),
+        }],
+      }],
+      activeToolCalls: [{
+        id: "tool-active-exit",
+        name: "ExitPlanMode",
+        input: JSON.stringify({ plan: "ACTIVE-PLAN-CONTENT" }),
+      }],
+      pendingToolInputs: [{
+        toolName: "ExitPlanMode",
+        toolUseId: "tool-active-exit",
+        requestId: "req-active",
+        input: {},
+      }],
+    }));
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+    await user.click(screen.getByRole("button", { name: /Hand off/i }));
+
+    await waitFor(() => {
+      expect(mocks.sendMessage).toHaveBeenCalledWith(
+        "Here is the implementation plan to execute:\n\nACTIVE-PLAN-CONTENT",
+        undefined,
+        undefined,
+        "sess-new",
+      );
+    });
+  });
+
+  it("routes send action to rejectToolInput while ExitPlanMode input is pending", async () => {
+    const user = userEvent.setup();
+    mocks.useConversation.mockReturnValue(buildConversationState({
+      messages: [{
+        id: "msg-plan",
+        role: "assistant",
+        content: "",
+        timestamp: "2026-02-12T00:00:00.000Z",
+        toolCalls: [{
+          id: "tool-exit",
+          name: "ExitPlanMode",
+          input: JSON.stringify({ plan: "PLAN-CONTENT" }),
+        }],
+      }],
+      pendingToolInputs: [{
+        toolName: "ExitPlanMode",
+        toolUseId: "tool-exit",
+        requestId: "req-1",
+        input: {},
+      }],
+    }));
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+    await user.click(screen.getByTestId("chat-send-btn"));
+
+    expect(mocks.rejectToolInput).toHaveBeenCalledWith("queued revision");
+    expect(mocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("uses normal sendMessage flow when pending plan is from fallback history only", async () => {
+    const user = userEvent.setup();
+    mocks.useConversation.mockReturnValue(buildConversationState({
+      messages: [{
+        id: "msg-plan",
+        role: "assistant",
+        content: "",
+        timestamp: "2026-02-12T00:00:00.000Z",
+        toolCalls: [{
+          id: "tool-exit",
+          name: "ExitPlanMode",
+          input: JSON.stringify({ plan: "PLAN-CONTENT" }),
+        }],
+      }],
+      pendingToolInputs: [],
+    }));
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+    await user.click(screen.getByTestId("chat-send-btn"));
+
+    expect(mocks.rejectToolInput).not.toHaveBeenCalled();
+    expect(mocks.sendMessage).toHaveBeenCalledWith(
+      "queued revision",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+  });
+
+  it("does not render plan action bar when plan is pending but content is unavailable", async () => {
+    mocks.useConversation.mockReturnValue(buildConversationState({
+      messages: [],
+      activeToolCalls: [],
+      pendingToolInputs: [{
+        toolName: "ExitPlanMode",
+        toolUseId: "tool-exit",
+        requestId: "req-1",
+        input: {},
+      }],
+    }));
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Hand off/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId("chat-input")).toHaveAttribute(
+      "data-placeholder",
+      "Enter your plan adjustments here...",
+    );
   });
 });
 
