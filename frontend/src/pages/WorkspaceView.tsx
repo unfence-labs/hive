@@ -44,7 +44,8 @@ import { openTerminalSsh } from "@/lib/terminal";
 import { useLayoutContext } from "@/components/AppLayout";
 import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
-import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput } from "@/lib/plan-state";
+import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
+import { PlanActionBar } from "@/components/chat/PlanActionBar";
 import { useScripts } from "@/hooks/useScripts";
 import type { DiffStatResponse, FileMention, ImageAttachment, MessageOptions, QueuedMessage, Workspace, WorkspaceFileTreeNode } from "@/types";
 
@@ -386,6 +387,22 @@ export default function WorkspaceView() {
     pendingToolInputs,
   });
 
+  const pendingPlanData = useMemo(() => {
+    if (!hasPendingPlan) return undefined;
+    // Check active streaming tool calls first
+    if (activeToolCalls.some((t) => t.name === "ExitPlanMode")) {
+      return findPlanContent(activeToolCalls);
+    }
+    // Fall back to committed messages
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role === "assistant" && msg.toolCalls?.some((t) => t.name === "ExitPlanMode")) {
+        return findPlanContent(msg.toolCalls);
+      }
+    }
+    return undefined;
+  }, [hasPendingPlan, messages, activeToolCalls]);
+
   const handleSend = useCallback(
     (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]): boolean => {
       if (hasPendingPlan && hasPendingExitPlanInput) {
@@ -526,8 +543,6 @@ export default function WorkspaceView() {
               activeToolCalls={activeToolCalls}
               pendingToolInputs={pendingToolInputs}
               onQuestionAnswer={answerQuestion}
-              onPlanApproval={approvePlan}
-              onHandOff={handleHandOff}
               onFileMentionClick={handleFileTreeSelect}
               workspaceName={workspace?.name}
               projectName={workspace?.projectName}
@@ -554,21 +569,31 @@ export default function WorkspaceView() {
                 onDismiss={() => rejectToolInput("[question_dismissed]")}
               />
             ) : (
-              <ChatInput
-                wsId={wsId}
-                sessionId={sessionId}
-                lockedProvider={effectiveLockedProvider}
-                onSend={handleSend}
-                onStop={stopStreaming}
-                disabled={false}
-                isStreaming={isStreaming}
-                connectionStatus={connectionStatus}
-                placeholder={hasPendingPlan ? "Enter your plan adjustments here..." : undefined}
-                messages={messages}
-                queuedMessage={queuedMessage}
-                onQueue={setQueuedMessage}
-                agentPlanMode={agentPlanMode}
-              />
+              <div className="relative">
+                {hasPendingPlan && pendingPlanData && (
+                  <PlanActionBar
+                    planContent={pendingPlanData.content}
+                    planPath={pendingPlanData.planPath}
+                    onApprove={approvePlan}
+                    onHandOff={handleHandOff}
+                  />
+                )}
+                <ChatInput
+                  wsId={wsId}
+                  sessionId={sessionId}
+                  lockedProvider={effectiveLockedProvider}
+                  onSend={handleSend}
+                  onStop={stopStreaming}
+                  disabled={false}
+                  isStreaming={isStreaming}
+                  connectionStatus={connectionStatus}
+                  placeholder={hasPendingPlan ? "Enter your plan adjustments here..." : undefined}
+                  messages={messages}
+                  queuedMessage={queuedMessage}
+                  onQueue={setQueuedMessage}
+                  agentPlanMode={agentPlanMode}
+                />
+              </div>
             )}
           </div>
           {activeTab === "file" && openFile && wsId && (

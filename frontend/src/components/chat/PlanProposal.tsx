@@ -1,45 +1,26 @@
 import { useState, useEffect, memo } from "react";
-import { FileTextIcon, ChevronDownIcon, ArrowRightLeftIcon } from "lucide-react";
+import { FileTextIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MessageResponse } from "@/components/ai-elements/message";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CopyButton } from "@/components/chat/CopyButton";
 
 export type PlanStatus = "interactive" | "approved" | "revised";
 
 interface PlanProposalProps {
   planContent?: string;
-  planPath?: string;
   status: PlanStatus;
-  onApprove?: () => void;
-  onHandOff?: (content: string, planPath?: string) => void;
 }
 
 export const PlanProposal = memo(function PlanProposal({
   planContent,
-  planPath,
   status,
-  onApprove,
-  onHandOff,
 }: PlanProposalProps) {
   const [open, setOpen] = useState(status === "interactive");
-  const [responded, setResponded] = useState(false);
 
   // Auto-collapse when status transitions to "revised" (new refinement arrived)
   useEffect(() => {
     if (status === "revised") setOpen(false);
   }, [status]);
-
-  const handleApprove = () => {
-    setResponded(true);
-    onApprove?.();
-  };
-
-  const handleHandOff = () => {
-    setResponded(true);
-    onHandOff?.(planContent ?? "", planPath);
-  };
 
   const statusBadge =
     status === "approved" ? (
@@ -53,47 +34,23 @@ export const PlanProposal = memo(function PlanProposal({
     ) : null;
 
   return (
-    <div className="my-2 rounded-lg border bg-card">
+    <div className="my-0.5">
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium hover:bg-muted/50"
+        className={cn(
+          "inline-flex w-fit max-w-full items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground",
+        )}
         onClick={() => planContent && setOpen(!open)}
       >
-        <FileTextIcon className="size-4 text-muted-foreground" />
+        <span className="shrink-0">
+          <FileTextIcon className="size-3.5" />
+        </span>
         <span>Proposed plan</span>
         {statusBadge}
-        {planContent && (
-          <ChevronDownIcon
-            className={cn(
-              "ml-auto size-4 text-muted-foreground transition-transform",
-              open && "rotate-180",
-            )}
-          />
-        )}
       </button>
-
       {open && planContent && (
-        <div className="border-t px-4 py-3 text-sm">
+        <div className="mt-1 max-h-[70vh] overflow-auto text-sm">
           <MessageResponse>{planContent}</MessageResponse>
-        </div>
-      )}
-
-      {status === "interactive" && !responded && (
-        <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-          {planContent && <CopyButton content={planContent} />}
-          <Button size="sm" variant="outline" onClick={handleHandOff}>
-            <ArrowRightLeftIcon className="size-3" />
-            Hand off
-          </Button>
-          <Button size="sm" onClick={handleApprove}>
-            Accept
-          </Button>
-        </div>
-      )}
-
-      {status === "interactive" && responded && (
-        <div className="border-t px-4 py-3 text-sm italic text-muted-foreground">
-          Response submitted
         </div>
       )}
     </div>

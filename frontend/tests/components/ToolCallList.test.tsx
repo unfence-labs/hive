@@ -31,45 +31,41 @@ describe("ToolCallList", () => {
     expect(screen.getByText("Bash")).toBeInTheDocument();
   });
 
-  it("renders ExitPlanMode as PlanProposal and calls approval callback", async () => {
+  it("renders ExitPlanMode as PlanProposal with inline tool-style header", async () => {
     const user = userEvent.setup();
-    const onPlanApproval = vi.fn();
 
     render(
       <ToolCallList
         toolCalls={[tool({ name: "ExitPlanMode", input: JSON.stringify({ plan: "Test plan content" }) })]}
         isInteractive
-        onPlanApproval={onPlanApproval}
       />,
     );
 
     expect(screen.getByText("Proposed plan")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Accept" }));
+    // Action buttons are no longer inside PlanProposal (moved to PlanActionBar above ChatInput)
+    expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hand off" })).not.toBeInTheDocument();
 
-    expect(onPlanApproval).toHaveBeenCalledTimes(1);
+    // Interactive plan starts expanded — content visible immediately
+    expect(screen.getByText("Test plan content")).toBeInTheDocument();
+
+    // Click to collapse
+    await user.click(screen.getByText("Proposed plan"));
+    expect(screen.queryByText("Test plan content")).not.toBeInTheDocument();
   });
 
-  it("renders interactive plan actions even when ExitPlanMode has no plan content", async () => {
-    const user = userEvent.setup();
-    const onHandOff = vi.fn();
-
+  it("renders PlanProposal header even when ExitPlanMode has no plan content", () => {
     render(
       <ToolCallList
         toolCalls={[tool({ name: "ExitPlanMode", input: "{}" })]}
         isInteractive
-        onHandOff={onHandOff}
       />,
     );
 
     expect(screen.getByText("Proposed plan")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Copy message" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Hand off" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Hand off" }));
-
-    expect(onHandOff).toHaveBeenCalledWith("", undefined);
-    expect(screen.getByText("Response submitted")).toBeInTheDocument();
+    // No action buttons in inline view
+    expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Hand off" })).not.toBeInTheDocument();
   });
 
   it("falls back to the last markdown Write tool when plan content is not in .claude/plans", () => {
@@ -251,7 +247,6 @@ describe("ToolCallList", () => {
   });
 
   it("always shows interactive tools even when collapsed", () => {
-    const onPlanApproval = vi.fn();
     render(
       <ToolCallList
         toolCalls={[
@@ -261,7 +256,6 @@ describe("ToolCallList", () => {
           tool({ name: "ExitPlanMode", input: JSON.stringify({ plan: "Test plan" }) }),
         ]}
         isInteractive
-        onPlanApproval={onPlanApproval}
       />,
     );
 
@@ -269,9 +263,8 @@ describe("ToolCallList", () => {
     expect(screen.getByText("3 tool calls")).toBeInTheDocument();
     expect(screen.queryByText("Read")).not.toBeInTheDocument();
 
-    // PlanProposal always visible with Accept button
+    // PlanProposal always visible (inline tool header)
     expect(screen.getByText("Proposed plan")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument();
   });
 
   it("handles singular tool call label", () => {

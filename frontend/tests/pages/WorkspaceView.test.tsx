@@ -88,12 +88,10 @@ vi.mock("@/components/ScriptPanel", () => ({
 
 vi.mock("@/components/ChatConversation", () => ({
   default: ({
-    onHandOff,
     isStreaming,
     streamingStartedAt,
     queuedMessage,
   }: {
-    onHandOff: (planContent: string, planPath?: string) => void;
     isStreaming?: boolean;
     streamingStartedAt?: number | null;
     queuedMessage?: { content: string } | null;
@@ -103,16 +101,6 @@ vi.mock("@/components/ChatConversation", () => ({
       <div data-testid="chat-is-streaming">{String(Boolean(isStreaming))}</div>
       <div data-testid="chat-streaming-started-at">{streamingStartedAt ?? "none"}</div>
       <div data-testid="chat-queued-message">{queuedMessage?.content ?? "none"}</div>
-      <button type="button" data-testid="handoff-plan-btn" onClick={() => onHandOff("PLAN-CONTENT")}>
-        handoff plan
-      </button>
-      <button
-        type="button"
-        data-testid="handoff-plan-path-btn"
-        onClick={() => onHandOff("PLAN-CONTENT", ".claude/plans/background.md")}
-      >
-        handoff plan path
-      </button>
     </div>
   ),
 }));
@@ -971,10 +959,33 @@ describe("WorkspaceView behavior", () => {
     mocks.switchSession.mockResolvedValue(undefined);
     mocks.refreshSessions.mockResolvedValue(undefined);
 
+    // Set up plan state so PlanActionBar renders
+    mocks.useConversation.mockReturnValue({
+      ...mocks.useConversation(),
+      messages: [{
+        id: "msg-plan",
+        role: "assistant",
+        content: "",
+        timestamp: "2026-02-12T00:00:00.000Z",
+        toolCalls: [{
+          id: "tool-exit",
+          name: "ExitPlanMode",
+          input: JSON.stringify({ plan: "PLAN-CONTENT" }),
+        }],
+      }],
+      pendingToolInputs: [{
+        toolName: "ExitPlanMode",
+        toolUseId: "tool-exit",
+        requestId: "req-1",
+        sessionId: "sess-1",
+        input: {},
+      }],
+    });
+
     renderWorkspace();
     await screen.findByText("tokyo");
 
-    await user.click(screen.getByTestId("handoff-plan-btn"));
+    await user.click(screen.getByRole("button", { name: /hand off/i }));
 
     await waitFor(() => {
       expect(mocks.dismissPlan).toHaveBeenCalledWith("Plan handed off to a new session.");
@@ -1002,10 +1013,33 @@ describe("WorkspaceView behavior", () => {
     mocks.switchSession.mockResolvedValue(undefined);
     mocks.refreshSessions.mockResolvedValue(undefined);
 
+    // Set up plan state with file path so PlanActionBar renders
+    mocks.useConversation.mockReturnValue({
+      ...mocks.useConversation(),
+      messages: [{
+        id: "msg-plan",
+        role: "assistant",
+        content: "",
+        timestamp: "2026-02-12T00:00:00.000Z",
+        toolCalls: [{
+          id: "tool-exit",
+          name: "ExitPlanMode",
+          input: JSON.stringify({ plan: "PLAN-CONTENT", file_path: ".claude/plans/background.md" }),
+        }],
+      }],
+      pendingToolInputs: [{
+        toolName: "ExitPlanMode",
+        toolUseId: "tool-exit",
+        requestId: "req-1",
+        sessionId: "sess-1",
+        input: {},
+      }],
+    });
+
     renderWorkspace();
     await screen.findByText("tokyo");
 
-    await user.click(screen.getByTestId("handoff-plan-path-btn"));
+    await user.click(screen.getByRole("button", { name: /hand off/i }));
 
     await waitFor(() => {
       expect(mocks.sendMessage).toHaveBeenCalledWith(

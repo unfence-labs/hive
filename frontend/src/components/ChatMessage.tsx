@@ -58,8 +58,6 @@ interface ChatMessageProps {
   planStatus?: PlanStatus;
   dismissedToolCallIds?: Set<string>;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
-  onPlanApproval?: () => void;
-  onHandOff?: (planContent: string, planPath?: string) => void;
   onFileMentionClick?: (relativePath: string) => void;
 }
 
@@ -69,8 +67,6 @@ const ChatMessage = memo(function ChatMessage({
   planStatus,
   dismissedToolCallIds,
   onQuestionAnswer,
-  onPlanApproval,
-  onHandOff,
   onFileMentionClick,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
@@ -152,8 +148,6 @@ const ChatMessage = memo(function ChatMessage({
                 planStatus={planStatus}
                 dismissedToolCallIds={dismissedToolCallIds}
                 onQuestionAnswer={onQuestionAnswer}
-                onPlanApproval={onPlanApproval}
-                onHandOff={onHandOff}
               />
             )}
             {message.cancelled && (

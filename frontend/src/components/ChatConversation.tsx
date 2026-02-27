@@ -27,8 +27,6 @@ interface ChatConversationProps {
   activeToolCalls: ToolCall[];
   pendingToolInputs?: PendingToolInput[];
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
-  onPlanApproval?: () => void;
-  onHandOff?: (planContent: string, planPath?: string) => void;
   onFileMentionClick?: (relativePath: string) => void;
   workspaceName?: string;
   projectName?: string;
@@ -50,8 +48,6 @@ export default function ChatConversation({
   activeToolCalls,
   pendingToolInputs = [],
   onQuestionAnswer,
-  onPlanApproval,
-  onHandOff,
   onFileMentionClick,
   workspaceName,
   projectName,
@@ -207,8 +203,6 @@ export default function ChatConversation({
               planStatus={getPlanStatus(msg, i)}
               dismissedToolCallIds={dismissedToolCallIds}
               onQuestionAnswer={onQuestionAnswer}
-              onPlanApproval={onPlanApproval}
-              onHandOff={onHandOff}
               onFileMentionClick={onFileMentionClick}
             />
           );
@@ -231,8 +225,6 @@ export default function ChatConversation({
                 isInteractive
                 showExecutingState
                 onQuestionAnswer={onQuestionAnswer}
-                onPlanApproval={onPlanApproval}
-                onHandOff={onHandOff}
               />
             </div>
           </div>
