@@ -116,8 +116,8 @@ export function useChatInputDraftPersistence({
   setFileCount,
   setFileMentions,
 }: UseChatInputDraftPersistenceParams) {
-  const prevSessionIdRef = useRef<string | undefined>(sessionId);
-  const prevWsIdRef = useRef<string | undefined>(wsId);
+  const prevSessionIdRef = useRef<string | undefined>(undefined);
+  const prevWsIdRef = useRef<string | undefined>(undefined);
   const valueRef = useRef(value);
   valueRef.current = value;
   const thinkingRef = useRef(thinkingEnabled);
@@ -132,6 +132,8 @@ export function useChatInputDraftPersistence({
   defaultModelIdRef.current = defaultModelId;
   const fileMentionsRef = useRef(fileMentions);
   fileMentionsRef.current = fileMentions;
+  const wsIdRef = useRef(wsId);
+  wsIdRef.current = wsId;
 
   const saveDraftForSession = useCallback((
     targetSessionId: string | undefined,
@@ -139,7 +141,7 @@ export function useChatInputDraftPersistence({
   ) => {
     if (!targetSessionId) return;
     const files = attachmentsRef.current?.files ?? [];
-    upsertDraft(options?.targetWsId ?? wsId, targetSessionId, {
+    upsertDraft(options?.targetWsId ?? wsIdRef.current, targetSessionId, {
       value: valueRef.current,
       thinkingEnabled: thinkingRef.current,
       planMode: planModeRef.current,
@@ -148,46 +150,49 @@ export function useChatInputDraftPersistence({
       files: [...files],
       fileMentions: [...fileMentionsRef.current],
     }, options?.allowDelete ?? true);
-  }, [attachmentsRef, wsId]);
+  }, [attachmentsRef]);
 
+  // Merged save/restore effect — handles both workspace and session transitions
+  // in a single pass, using the PREVIOUS wsId for saves to avoid the race where
+  // wsId updates before sessionId in separate render cycles.
   useEffect(() => {
     const prevWsId = prevWsIdRef.current;
-    if (prevWsId !== wsId) {
-      saveDraftForSession(prevSessionIdRef.current, { targetWsId: prevWsId });
-      prevSessionIdRef.current = sessionId;
-      prevWsIdRef.current = wsId;
-    }
-  }, [wsId, sessionId, saveDraftForSession]);
+    const prevSessionId = prevSessionIdRef.current;
+    const wsChanged = prevWsId !== wsId;
+    const sessionChanged = prevSessionId !== sessionId;
 
-  useEffect(() => {
-    const prevId = prevSessionIdRef.current;
-    if (prevId && prevId !== sessionId) {
-      saveDraftForSession(prevId);
+    if (!wsChanged && !sessionChanged) return;
+
+    // Save outgoing session's draft under its ORIGINAL workspace.
+    if (prevSessionId) {
+      saveDraftForSession(prevSessionId, { targetWsId: prevWsId });
     }
 
-    const draft = sessionId
-      ? getWorkspaceDrafts(wsId).get(sessionId)
-      : undefined;
-
-    if (draft) {
-      setValue(draft.value);
-      setThinkingEnabled(draft.thinkingEnabled);
-      setPlanMode(draft.planMode);
-      setSelectedModelId(draft.selectedModelId);
-      setThinkingLevel(draft.thinkingLevel);
-      attachmentsRef.current?.restore([...draft.files]);
-      setFileCount(draft.files.length);
-      setFileMentions(draft.fileMentions ?? []);
-    } else if (sessionId) {
-      setValue("");
-      setThinkingEnabled(true);
-      setPlanMode(false);
-      if (defaultModelIdRef.current) setSelectedModelId(defaultModelIdRef.current);
-      attachmentsRef.current?.restore([]);
-      setFileCount(0);
-      setFileMentions([]);
+    // Restore incoming session's draft from the CURRENT workspace.
+    // Skip when sessionId is undefined (transient workspace-switch state).
+    if (sessionId && (wsChanged || sessionChanged)) {
+      const draft = getWorkspaceDrafts(wsId).get(sessionId);
+      if (draft) {
+        setValue(draft.value);
+        setThinkingEnabled(draft.thinkingEnabled);
+        setPlanMode(draft.planMode);
+        setSelectedModelId(draft.selectedModelId);
+        setThinkingLevel(draft.thinkingLevel);
+        attachmentsRef.current?.restore([...draft.files]);
+        setFileCount(draft.files.length);
+        setFileMentions(draft.fileMentions ?? []);
+      } else {
+        setValue("");
+        setThinkingEnabled(true);
+        setPlanMode(false);
+        if (defaultModelIdRef.current) setSelectedModelId(defaultModelIdRef.current);
+        attachmentsRef.current?.restore([]);
+        setFileCount(0);
+        setFileMentions([]);
+      }
     }
 
+    prevWsIdRef.current = wsId;
     prevSessionIdRef.current = sessionId;
   }, [
     wsId,
@@ -203,9 +208,13 @@ export function useChatInputDraftPersistence({
     setFileMentions,
   ]);
 
+  // Unmount cleanup: persist current draft without deleting.
   useEffect(() => {
     return () => {
-      saveDraftForSession(prevSessionIdRef.current, { allowDelete: false });
+      saveDraftForSession(prevSessionIdRef.current, {
+        allowDelete: false,
+        targetWsId: prevWsIdRef.current,
+      });
     };
   }, [saveDraftForSession]);
 }
