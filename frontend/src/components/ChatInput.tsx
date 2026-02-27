@@ -430,7 +430,7 @@ export default function ChatInput({
                 className="size-5"
                 onClick={(e) => { e.preventDefault(); onStop(); }}
               >
-                <SquareIcon className="size-3" />
+                <SquareIcon className="size-3 text-red-500" />
               </PromptInputButton>
             )}
             <PromptInputSubmit
