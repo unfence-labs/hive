@@ -61,15 +61,18 @@ describe("QuestionPanel", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /2B/ }));
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    // Q1: pick option B
+    await user.click(screen.getByRole("button", { name: /B/ }));
+    // Navigate to Q2 via pagination dot
+    await user.click(screen.getByRole("button", { name: "Question 2" }));
 
-    await user.click(screen.getByRole("button", { name: /One/ }));
-    await user.click(screen.getByRole("button", { name: /Two/ }));
-    await user.type(screen.getByPlaceholderText("Type something..."), "  extra choice  ");
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    // Q2: type custom text (in multi-select, typing clears any selected options)
+    await user.type(screen.getByPlaceholderText("Type something..."), "extra choice");
+    // Navigate to Q3 via pagination dot
+    await user.click(screen.getByRole("button", { name: "Question 3" }));
 
-    await user.type(screen.getByPlaceholderText("Type something..."), "  custom note  ");
+    // Q3: type custom text
+    await user.type(screen.getByPlaceholderText("Type something..."), "custom note");
     await user.click(screen.getByRole("button", { name: "Submit (3/3)" }));
 
     expect(onBatchSubmit).toHaveBeenCalledTimes(1);
@@ -78,7 +81,7 @@ describe("QuestionPanel", () => {
         toolUseId: "ask-1",
         answers: [
           { questionIndex: 0, selectedOptions: [1], customText: undefined },
-          { questionIndex: 1, selectedOptions: [0, 1], customText: "extra choice" },
+          { questionIndex: 1, selectedOptions: [], customText: "extra choice" },
         ],
       },
       {
@@ -127,5 +130,73 @@ describe("QuestionPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Dismiss questions" }));
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("typing custom text deselects options", async () => {
+    const user = userEvent.setup();
+    const onBatchSubmit = vi.fn();
+    render(
+      <QuestionPanel
+        pendingToolInputs={[
+          askInput("ask-1", [
+            {
+              question: "Pick one",
+              options: [{ label: "A" }, { label: "B" }],
+            },
+          ]),
+        ]}
+        onBatchSubmit={onBatchSubmit}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    // Select option A
+    await user.click(screen.getByRole("button", { name: /A/ }));
+    // Type custom text — should deselect option A
+    await user.type(screen.getByPlaceholderText("Type something..."), "my answer");
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    expect(onBatchSubmit).toHaveBeenCalledWith([
+      {
+        toolUseId: "ask-1",
+        answers: [
+          { questionIndex: 0, selectedOptions: [], customText: "my answer" },
+        ],
+      },
+    ]);
+  });
+
+  it("clicking option clears custom text", async () => {
+    const user = userEvent.setup();
+    const onBatchSubmit = vi.fn();
+    render(
+      <QuestionPanel
+        pendingToolInputs={[
+          askInput("ask-1", [
+            {
+              question: "Pick one",
+              options: [{ label: "A" }, { label: "B" }],
+            },
+          ]),
+        ]}
+        onBatchSubmit={onBatchSubmit}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    // Type custom text first
+    await user.type(screen.getByPlaceholderText("Type something..."), "my answer");
+    // Click option B — should clear custom text
+    await user.click(screen.getByRole("button", { name: /B/ }));
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    expect(onBatchSubmit).toHaveBeenCalledWith([
+      {
+        toolUseId: "ask-1",
+        answers: [
+          { questionIndex: 0, selectedOptions: [1], customText: undefined },
+        ],
+      },
+    ]);
   });
 });
