@@ -237,6 +237,29 @@ describe("ChatInput draft persistence", () => {
     expect(inputValue()).toBe("");
   });
 
+  it("keeps draft when wsId changes before sessionId (multi-render-cycle)", () => {
+    const sessA = nextId("sess-a");
+    const sessB = nextId("sess-b");
+    const { a: wsA, b: wsB } = makeWorkspaceIds();
+    const { rerender } = renderChatInput(sessA, wsA);
+
+    setInputValue("important draft");
+
+    // Simulate real-world navigation: wsId changes first, sessionId is stale
+    rerenderChatInput(rerender, { wsId: wsB, sessionId: sessA });
+    // Then sessionId becomes undefined (prepare_workspace_switch)
+    rerenderChatInput(rerender, { wsId: wsB, sessionId: undefined });
+    // Then sessionId settles to the new workspace's session
+    rerenderChatInput(rerender, { wsId: wsB, sessionId: sessB });
+    expect(inputValue()).toBe("");
+
+    // Navigate back — same multi-step transition
+    rerenderChatInput(rerender, { wsId: wsA, sessionId: sessB });
+    rerenderChatInput(rerender, { wsId: wsA, sessionId: undefined });
+    rerenderChatInput(rerender, { wsId: wsA, sessionId: sessA });
+    expect(inputValue()).toBe("important draft");
+  });
+
   it("persists attachment previews per session across switches", async () => {
     const user = userEvent.setup();
     const { a: sessionA, b: sessionB } = makeSessionIds();
