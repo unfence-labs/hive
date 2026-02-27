@@ -10,6 +10,7 @@ struct SessionStreamState {
     var isStreaming = false
     var streamingStartedAt: Date?
     var pendingToolInputs: [PendingToolInput] = []
+    var agentPlanMode: Bool?
 }
 
 @MainActor
@@ -56,15 +57,15 @@ final class ConversationStore {
     /// Provider locked for this session (pushed via WS status events).
     var lockedProvider: String?
 
-    /// Whether the agent has entered plan mode on its own (via EnterPlanMode tool).
-    var agentPlanMode: Bool?
-
     // MARK: - Computed
 
     /// The active session's stream state (convenience accessor).
     var activeStream: SessionStreamState? {
         sessionId.flatMap { sessionStreams[$0] }
     }
+
+    /// Whether the active session's agent entered plan mode on its own (via EnterPlanMode).
+    var agentPlanMode: Bool? { activeStream?.agentPlanMode }
 
     /// Busy state for the currently focused session only.
     var isBusy: Bool { activeStream?.isStreaming ?? false }
@@ -252,15 +253,21 @@ final class ConversationStore {
             break // Handled by sidebar, not relevant to chat
 
         case .planModeChanged(let sid, let active):
-            if sid == sessionId {
-                agentPlanMode = active
-            }
+            ensureStream(for: sid, streaming: false)
+            sessionStreams[sid]?.agentPlanMode = active
         }
     }
 
     func clearPendingToolInputs() {
         guard let sid = sessionId else { return }
         sessionStreams[sid]?.pendingToolInputs = []
+    }
+
+    /// Set plan-mode state for a specific session.
+    func setAgentPlanMode(_ active: Bool?, for sessionId: String?) {
+        guard let sessionId else { return }
+        ensureStream(for: sessionId, streaming: false)
+        sessionStreams[sessionId]?.agentPlanMode = active
     }
 
     /// Current history token for a given session.

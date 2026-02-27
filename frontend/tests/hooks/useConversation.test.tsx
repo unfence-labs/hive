@@ -620,6 +620,105 @@ describe("useConversation", () => {
     });
   });
 
+  it("tracks agentPlanMode from plan_mode_changed events for the active session", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-active",
+        streaming: true,
+      });
+      __wsMock.emit("ws-1", {
+        type: "plan_mode_changed",
+        sessionId: "sess-active",
+        active: true,
+      });
+    });
+
+    expect(result.current.agentPlanMode).toBe(true);
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "plan_mode_changed",
+        sessionId: "sess-active",
+        active: false,
+      });
+    });
+
+    expect(result.current.agentPlanMode).toBe(false);
+  });
+
+  it("does not change active agentPlanMode when plan_mode_changed is for another session", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-active",
+        streaming: true,
+      });
+      __wsMock.emit("ws-1", {
+        type: "plan_mode_changed",
+        sessionId: "sess-active",
+        active: true,
+      });
+      __wsMock.emit("ws-1", {
+        type: "plan_mode_changed",
+        sessionId: "sess-other",
+        active: false,
+      });
+    });
+
+    expect(result.current.agentPlanMode).toBe(true);
+  });
+
+  it("clears local agentPlanMode after approvePlan", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-approve",
+        streaming: true,
+      });
+      __wsMock.emit("ws-1", {
+        type: "plan_mode_changed",
+        sessionId: "sess-approve",
+        active: true,
+      });
+      __wsMock.emit("ws-1", {
+        type: "tool_input_required",
+        sessionId: "sess-approve",
+        requestId: "req-approve",
+        toolName: "ExitPlanMode",
+        toolUseId: "tool-approve",
+        input: {},
+      });
+    });
+
+    expect(result.current.agentPlanMode).toBe(true);
+
+    act(() => {
+      result.current.approvePlan();
+    });
+
+    expect(result.current.agentPlanMode).toBe(false);
+    expect(__wsMock.sendMock).toHaveBeenLastCalledWith("ws-1", {
+      type: "tool_input_response",
+      requestId: "req-approve",
+      toolName: "ExitPlanMode",
+      result: { type: "approve" },
+      sessionId: "sess-approve",
+    });
+  });
+
   it("includes current sessionId in tool input responses when available", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));

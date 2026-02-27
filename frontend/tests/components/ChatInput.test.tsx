@@ -27,7 +27,7 @@ function renderChatInput(overrides?: Partial<ComponentProps<typeof ChatInput>>) 
   const onSend = overrides?.onSend ?? vi.fn(() => true);
   const onStop = overrides?.onStop ?? vi.fn();
   const onQueue = overrides?.onQueue ?? vi.fn();
-  render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <ChatInput
         onSend={onSend}
@@ -41,7 +41,24 @@ function renderChatInput(overrides?: Partial<ComponentProps<typeof ChatInput>>) 
       />
     </QueryClientProvider>,
   );
-  return { onSend, onStop, onQueue };
+  const rerender = (nextOverrides?: Partial<ComponentProps<typeof ChatInput>>) => {
+    view.rerender(
+      <QueryClientProvider client={queryClient}>
+        <ChatInput
+          onSend={onSend}
+          onStop={onStop}
+          onQueue={onQueue}
+          disabled={false}
+          isStreaming={false}
+          connectionStatus="connected"
+          messages={[]}
+          {...overrides}
+          {...nextOverrides}
+        />
+      </QueryClientProvider>,
+    );
+  };
+  return { onSend, onStop, onQueue, rerender };
 }
 
 describe("ChatInput", () => {
@@ -111,6 +128,35 @@ describe("ChatInput", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true }, undefined);
+  });
+
+  it("enables plan mode automatically when agentPlanMode is true", async () => {
+    const user = userEvent.setup();
+    const { onSend } = renderChatInput({ agentPlanMode: true });
+
+    await user.type(screen.getByPlaceholderText("Send a message..."), "hello");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, {
+      model: "claude:opus-4-6",
+      planMode: true,
+      thinkingEnabled: true,
+    }, undefined);
+  });
+
+  it("updates plan mode when agentPlanMode changes", async () => {
+    const user = userEvent.setup();
+    const { onSend, rerender } = renderChatInput({ agentPlanMode: true });
+
+    rerender({ agentPlanMode: false });
+    await user.type(screen.getByPlaceholderText("Send a message..."), "hello");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, {
+      model: "claude:opus-4-6",
+      planMode: false,
+      thinkingEnabled: true,
+    }, undefined);
   });
 
   it("shows stop button and calls onStop while streaming", async () => {

@@ -49,6 +49,81 @@ describe("ToolCallList", () => {
     expect(onPlanApproval).toHaveBeenCalledTimes(1);
   });
 
+  it("renders interactive plan actions even when ExitPlanMode has no plan content", async () => {
+    const user = userEvent.setup();
+    const onHandOff = vi.fn();
+
+    render(
+      <ToolCallList
+        toolCalls={[tool({ name: "ExitPlanMode", input: "{}" })]}
+        isInteractive
+        onHandOff={onHandOff}
+      />,
+    );
+
+    expect(screen.getByText("Proposed plan")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy message" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hand off" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Hand off" }));
+
+    expect(onHandOff).toHaveBeenCalledWith("", undefined);
+    expect(screen.getByText("Response submitted")).toBeInTheDocument();
+  });
+
+  it("falls back to the last markdown Write tool when plan content is not in .claude/plans", () => {
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "write-plan-md",
+            name: "Write",
+            input: JSON.stringify({
+              file_path: "docs/plan.md",
+              content: "## Plan from markdown file",
+            }),
+          }),
+          tool({ name: "ExitPlanMode", input: "{}" }),
+        ]}
+        isInteractive
+      />,
+    );
+
+    expect(screen.getByText("Plan from markdown file")).toBeInTheDocument();
+    expect(screen.queryByText("Write")).not.toBeInTheDocument();
+  });
+
+  it("uses the last markdown Write tool when multiple markdown writes exist", () => {
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "write-old",
+            name: "Write",
+            input: JSON.stringify({
+              file_path: "docs/plan.md",
+              content: "Old plan",
+            }),
+          }),
+          tool({
+            id: "write-new",
+            name: "Write",
+            input: JSON.stringify({
+              file_path: "docs/plan.md",
+              content: "New plan",
+            }),
+          }),
+          tool({ name: "ExitPlanMode", input: "{}" }),
+        ]}
+        isInteractive
+      />,
+    );
+
+    expect(screen.getByText("New plan")).toBeInTheDocument();
+    expect(screen.queryByText("Old plan")).not.toBeInTheDocument();
+  });
+
   it("renders AskUserQuestion as awaiting-response indicator in interactive mode", () => {
     const askTool = tool({
       id: "ask-1",

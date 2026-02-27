@@ -464,7 +464,7 @@ struct ChatView: View {
                 // Auto-disable plan mode toggle on approve
                 if pending.toolName == "ExitPlanMode", case .approve = result {
                     planModeEnabled = false
-                    store.agentPlanMode = false
+                    store.setAgentPlanMode(false, for: pending.sessionId)
                 }
             } else if pending.sessionId == activeSessionId {
                 store.messages.append(ChatMessage(
