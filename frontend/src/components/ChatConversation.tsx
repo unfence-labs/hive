@@ -27,8 +27,6 @@ interface ChatConversationProps {
   activeToolCalls: ToolCall[];
   pendingToolInputs?: PendingToolInput[];
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
-  onPlanApproval?: () => void;
-  onHandOff?: (planContent: string, planPath?: string) => void;
   onFileMentionClick?: (relativePath: string) => void;
   workspaceName?: string;
   projectName?: string;
@@ -50,8 +48,6 @@ export default function ChatConversation({
   activeToolCalls,
   pendingToolInputs = [],
   onQuestionAnswer,
-  onPlanApproval,
-  onHandOff,
   onFileMentionClick,
   workspaceName,
   projectName,
@@ -145,11 +141,15 @@ export default function ChatConversation({
   const getPlanStatus = (msg: ChatMessageType, idx: number): PlanStatus | undefined => {
     if (!hasExitPlanModeTool(msg)) return undefined;
     if (isMessageInteractive(msg, idx)) return "interactive";
-    // "Revised" only if a later assistant message also proposes a plan
-    const hasLaterPlan = messages.slice(idx + 1).some(
+    // "Revised" if a later assistant message also proposes a plan,
+    // or if the agent is streaming after the user sent a revision (user message after plan)
+    const after = messages.slice(idx + 1);
+    const hasLaterPlan = after.some(
       (m) => m.role === "assistant" && hasExitPlanModeTool(m),
     );
-    return hasLaterPlan ? "revised" : "approved";
+    if (hasLaterPlan) return "revised";
+    if (isStreaming && after.some((m) => m.role === "user")) return "revised";
+    return "approved";
   };
 
   const dismissedToolCallIds = useMemo(() => {
@@ -207,8 +207,6 @@ export default function ChatConversation({
               planStatus={getPlanStatus(msg, i)}
               dismissedToolCallIds={dismissedToolCallIds}
               onQuestionAnswer={onQuestionAnswer}
-              onPlanApproval={onPlanApproval}
-              onHandOff={onHandOff}
               onFileMentionClick={onFileMentionClick}
             />
           );
@@ -231,8 +229,6 @@ export default function ChatConversation({
                 isInteractive
                 showExecutingState
                 onQuestionAnswer={onQuestionAnswer}
-                onPlanApproval={onPlanApproval}
-                onHandOff={onHandOff}
               />
             </div>
           </div>

@@ -1,0 +1,53 @@
+import { memo, useState } from "react";
+import { ArrowRightLeftIcon, ClipboardIcon, CheckIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { copyToClipboard } from "@/lib/clipboard";
+
+interface PlanActionBarProps {
+  planContent?: string;
+  planPath?: string;
+  onApprove: () => void;
+  onHandOff: (content: string, planPath?: string) => void;
+}
+
+export const PlanActionBar = memo(function PlanActionBar({
+  planContent,
+  planPath,
+  onApprove,
+  onHandOff,
+}: PlanActionBarProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    if (!planContent) return;
+    await copyToClipboard(planContent);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="absolute right-4 top-0 z-10 flex -translate-y-full items-center gap-1 pb-1">
+      {planContent && (
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          {copied ? <CheckIcon className="size-3 text-green-500" /> : <ClipboardIcon className="size-3" />}
+          Copy
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => onHandOff(planContent ?? "", planPath)}
+        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ArrowRightLeftIcon className="size-3" />
+        Hand off
+      </button>
+      <Button size="sm" onClick={onApprove}>
+        Approve
+      </Button>
+    </div>
+  );
+});
