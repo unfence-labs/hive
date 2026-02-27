@@ -17,9 +17,9 @@ export const PlanProposal = memo(function PlanProposal({
 }: PlanProposalProps) {
   const [open, setOpen] = useState(status === "interactive");
 
-  // Auto-collapse when status transitions to "revised" (new refinement arrived)
+  // Auto-collapse when status leaves "interactive" (user revised or approved)
   useEffect(() => {
-    if (status === "revised") setOpen(false);
+    if (status !== "interactive") setOpen(false);
   }, [status]);
 
   const statusBadge =
