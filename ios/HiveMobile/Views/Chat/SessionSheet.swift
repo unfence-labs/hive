@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct SessionSheet: View {
+    private let maxSessions = 4
+
     let sessions: [SessionMetadata]
     let activeSessionId: String?
     let onSelect: (String) -> Void
@@ -37,6 +39,7 @@ struct SessionSheet: View {
                         onCreate()
                         dismiss()
                     }
+                    .disabled(sessions.count >= maxSessions)
                 }
             }
         }
