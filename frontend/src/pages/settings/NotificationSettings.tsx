@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, type ReactNode } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Eye, EyeOff, Send, Save, Loader2, Smartphone } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
 
@@ -27,6 +27,8 @@ interface NotificationsConfig {
   telegram: TelegramConfig;
   apns: ApnsConfig;
 }
+
+type Feedback = { type: "success" | "error"; message: string } | null;
 
 const defaultTelegram: TelegramConfig = { enabled: false, botToken: "", chatId: "" };
 const defaultApns: ApnsConfig = {
@@ -59,7 +61,101 @@ export default function NotificationSettings() {
 }
 
 // ---------------------------------------------------------------------------
-// Toggle component (shared)
+// Shared hook — mutation plumbing for a notification channel
+// ---------------------------------------------------------------------------
+
+function useNotificationChannel(opts: {
+  initialEnabled: boolean;
+  buildSavePayload: (enabled: boolean) => Record<string, unknown>;
+  testUrl: string;
+  buildTestPayload: () => Record<string, unknown>;
+  testSuccessMsg: string;
+}) {
+  const queryClient = useQueryClient();
+  const [enabled, setEnabled] = useState(opts.initialEnabled);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+
+  const clearFeedback = () => setFeedback(null);
+  const showFeedback = (fb: Feedback) => {
+    setFeedback(fb);
+    if (fb?.type === "success") setTimeout(clearFeedback, 2500);
+  };
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["settings", "notifications"] });
+
+  const toggleMutation = useMutation({
+    mutationFn: (newEnabled: boolean) =>
+      api.put("/api/settings/notifications", opts.buildSavePayload(newEnabled)),
+    onSuccess: invalidate,
+    onError: (_: unknown, newEnabled: boolean) => {
+      setEnabled(!newEnabled);
+      showFeedback({ type: "error", message: "Failed to toggle" });
+    },
+  });
+
+  const handleToggle = (v: boolean) => {
+    setEnabled(v);
+    clearFeedback();
+    toggleMutation.mutate(v);
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      api.put("/api/settings/notifications", opts.buildSavePayload(enabled)),
+    onMutate: clearFeedback,
+    onSuccess: () => { invalidate(); showFeedback({ type: "success", message: "Saved" }); },
+    onError: () => showFeedback({ type: "error", message: "Failed to save" }),
+  });
+
+  const testMutation = useMutation({
+    mutationFn: () =>
+      api.post<{ ok: boolean; error?: string }>(opts.testUrl, opts.buildTestPayload()),
+    onMutate: clearFeedback,
+    onSuccess: (result) => {
+      showFeedback(result.ok
+        ? { type: "success", message: opts.testSuccessMsg }
+        : { type: "error", message: result.error ?? "Test failed" });
+    },
+    onError: () => showFeedback({ type: "error", message: "Could not reach backend" }),
+  });
+
+  return {
+    enabled, handleToggle, clearFeedback, feedback,
+    saving: saveMutation.isPending,
+    testing: testMutation.isPending,
+    onSave: () => saveMutation.mutate(),
+    onTest: () => testMutation.mutate(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Shared section wrapper (toggle header + card chrome)
+// ---------------------------------------------------------------------------
+
+function NotificationSection({ id, title, description, enabled, onToggle, children }: {
+  id: string;
+  title: string;
+  description: string;
+  enabled: boolean;
+  onToggle: (v: boolean) => void;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border border-border/50 bg-card/50 p-5">
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 id={`${id}-toggle-label`} className="text-sm font-medium text-foreground">{title}</h2>
+          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+        </div>
+        <Toggle id={`${id}-toggle-label`} enabled={enabled} onChange={onToggle} />
+      </div>
+      {children}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Toggle component
 // ---------------------------------------------------------------------------
 
 function Toggle({ id, enabled, onChange }: { id: string; enabled: boolean; onChange: (v: boolean) => void }) {
@@ -90,62 +186,29 @@ function Toggle({ id, enabled, onChange }: { id: string; enabled: boolean; onCha
 // ---------------------------------------------------------------------------
 
 function TelegramForm({ initial }: { initial: TelegramConfig }) {
-  const [enabled, setEnabled] = useState(initial.enabled);
   const [botToken, setBotToken] = useState(initial.botToken);
   const [chatId, setChatId] = useState(initial.chatId);
   const [showToken, setShowToken] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
-  const clearFeedback = () => setFeedback(null);
-  const showFeedback = (fb: { type: "success" | "error"; message: string }) => {
-    setFeedback(fb);
-    if (fb.type === "success") setTimeout(clearFeedback, 2500);
-  };
-
-  const saveMutation = useMutation({
-    mutationFn: () =>
-      api.put("/api/settings/notifications", {
-        telegram: { enabled, botToken, chatId },
-      }),
-    onMutate: clearFeedback,
-    onSuccess: () => showFeedback({ type: "success", message: "Saved" }),
-    onError: () => showFeedback({ type: "error", message: "Failed to save" }),
+  const channel = useNotificationChannel({
+    initialEnabled: initial.enabled,
+    buildSavePayload: (en) => ({ telegram: { enabled: en, botToken, chatId } }),
+    testUrl: "/api/settings/notifications/test",
+    buildTestPayload: () => ({ botToken, chatId }),
+    testSuccessMsg: "Test message sent!",
   });
 
-  const testMutation = useMutation({
-    mutationFn: () =>
-      api.post<{ ok: boolean; error?: string }>(
-        "/api/settings/notifications/test",
-        { botToken, chatId },
-      ),
-    onMutate: clearFeedback,
-    onSuccess: (result) => {
-      if (result.ok) {
-        showFeedback({ type: "success", message: "Test message sent!" });
-      } else {
-        showFeedback({ type: "error", message: result.error ?? "Test failed" });
-      }
-    },
-    onError: () => showFeedback({ type: "error", message: "Could not reach backend" }),
-  });
-
-  const saving = saveMutation.isPending;
-  const testing = testMutation.isPending;
   const hasCredentials = botToken.trim() !== "" && chatId.trim() !== "";
 
   return (
-    <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 id="telegram-toggle-label" className="text-sm font-medium text-foreground">Telegram</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Receive notifications via a Telegram bot.
-          </p>
-        </div>
-        <Toggle id="telegram-toggle-label" enabled={enabled} onChange={setEnabled} />
-      </div>
-
-      <div className={cn("mt-5 space-y-4 transition-opacity", !enabled && "pointer-events-none opacity-50")}>
+    <NotificationSection
+      id="telegram"
+      title="Telegram"
+      description="Receive notifications via a Telegram bot."
+      enabled={channel.enabled}
+      onToggle={channel.handleToggle}
+    >
+      <div className={cn("mt-5 space-y-4 transition-opacity", !channel.enabled && "pointer-events-none opacity-50")}>
         <div>
           <label htmlFor="tg-token" className="mb-1.5 block text-xs font-medium text-muted-foreground">
             Bot Token
@@ -155,7 +218,7 @@ function TelegramForm({ initial }: { initial: TelegramConfig }) {
               id="tg-token"
               type={showToken ? "text" : "password"}
               value={botToken}
-              onChange={(e) => { setBotToken(e.target.value); clearFeedback(); }}
+              onChange={(e) => { setBotToken(e.target.value); channel.clearFeedback(); }}
               placeholder="123456:ABC-DEF..."
               className="pr-9 font-mono text-xs"
             />
@@ -178,22 +241,17 @@ function TelegramForm({ initial }: { initial: TelegramConfig }) {
           <Input
             id="tg-chat"
             value={chatId}
-            onChange={(e) => { setChatId(e.target.value); clearFeedback(); }}
+            onChange={(e) => { setChatId(e.target.value); channel.clearFeedback(); }}
             placeholder="-1001234567890"
             className="font-mono text-xs"
           />
         </div>
-
-        <FormActions
-          saving={saving}
-          testing={testing}
-          hasCredentials={hasCredentials}
-          onTest={() => testMutation.mutate()}
-          onSave={() => saveMutation.mutate()}
-          feedback={feedback}
-        />
       </div>
-    </section>
+
+      <div className="mt-4">
+        <FormActions hasCredentials={hasCredentials} {...channel} />
+      </div>
+    </NotificationSection>
   );
 }
 
@@ -202,66 +260,33 @@ function TelegramForm({ initial }: { initial: TelegramConfig }) {
 // ---------------------------------------------------------------------------
 
 function ApnsForm({ initial }: { initial: ApnsConfig }) {
-  const [enabled, setEnabled] = useState(initial.enabled);
   const [teamId, setTeamId] = useState(initial.teamId);
   const [keyId, setKeyId] = useState(initial.keyId);
   const [keyContent, setKeyContent] = useState(initial.keyContent);
   const [bundleId, setBundleId] = useState(initial.bundleId);
   const [sandbox, setSandbox] = useState(initial.sandbox);
   const [showKey, setShowKey] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
-  const clearFeedback = () => setFeedback(null);
-  const showFeedback = (fb: { type: "success" | "error"; message: string }) => {
-    setFeedback(fb);
-    if (fb.type === "success") setTimeout(clearFeedback, 2500);
-  };
-
-  const saveMutation = useMutation({
-    mutationFn: () =>
-      api.put("/api/settings/notifications", {
-        apns: { enabled, teamId, keyId, keyContent, bundleId, sandbox },
-      }),
-    onMutate: clearFeedback,
-    onSuccess: () => showFeedback({ type: "success", message: "Saved" }),
-    onError: () => showFeedback({ type: "error", message: "Failed to save" }),
+  const channel = useNotificationChannel({
+    initialEnabled: initial.enabled,
+    buildSavePayload: (en) => ({ apns: { enabled: en, teamId, keyId, keyContent, bundleId, sandbox } }),
+    testUrl: "/api/settings/notifications/test-apns",
+    buildTestPayload: () => ({ teamId, keyId, keyContent, bundleId, sandbox }),
+    testSuccessMsg: "Test push sent!",
   });
 
-  const testMutation = useMutation({
-    mutationFn: () =>
-      api.post<{ ok: boolean; error?: string }>(
-        "/api/settings/notifications/test-apns",
-        { teamId, keyId, keyContent, bundleId, sandbox },
-      ),
-    onMutate: clearFeedback,
-    onSuccess: (result) => {
-      if (result.ok) {
-        showFeedback({ type: "success", message: "Test push sent!" });
-      } else {
-        showFeedback({ type: "error", message: result.error ?? "Test failed" });
-      }
-    },
-    onError: () => showFeedback({ type: "error", message: "Could not reach backend" }),
-  });
-
-  const saving = saveMutation.isPending;
-  const testing = testMutation.isPending;
   const hasCredentials = teamId.trim() !== "" && keyId.trim() !== "" && keyContent.trim() !== "" && bundleId.trim() !== "";
   const deviceCount = initial.deviceTokens.length;
 
   return (
-    <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 id="apns-toggle-label" className="text-sm font-medium text-foreground">Apple Push Notifications</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Push notifications to your iOS devices.
-          </p>
-        </div>
-        <Toggle id="apns-toggle-label" enabled={enabled} onChange={setEnabled} />
-      </div>
-
-      <div className={cn("mt-5 space-y-4 transition-opacity", !enabled && "pointer-events-none opacity-50")}>
+    <NotificationSection
+      id="apns"
+      title="Apple Push Notifications"
+      description="Push notifications to your iOS devices."
+      enabled={channel.enabled}
+      onToggle={channel.handleToggle}
+    >
+      <div className={cn("mt-5 space-y-4 transition-opacity", !channel.enabled && "pointer-events-none opacity-50")}>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label htmlFor="apns-team" className="mb-1.5 block text-xs font-medium text-muted-foreground">
@@ -270,7 +295,7 @@ function ApnsForm({ initial }: { initial: ApnsConfig }) {
             <Input
               id="apns-team"
               value={teamId}
-              onChange={(e) => { setTeamId(e.target.value); clearFeedback(); }}
+              onChange={(e) => { setTeamId(e.target.value); channel.clearFeedback(); }}
               placeholder="ABCDE12345"
               className="font-mono text-xs"
             />
@@ -282,7 +307,7 @@ function ApnsForm({ initial }: { initial: ApnsConfig }) {
             <Input
               id="apns-key-id"
               value={keyId}
-              onChange={(e) => { setKeyId(e.target.value); clearFeedback(); }}
+              onChange={(e) => { setKeyId(e.target.value); channel.clearFeedback(); }}
               placeholder="FGHIJ67890"
               className="font-mono text-xs"
             />
@@ -296,7 +321,7 @@ function ApnsForm({ initial }: { initial: ApnsConfig }) {
           <Input
             id="apns-bundle"
             value={bundleId}
-            onChange={(e) => { setBundleId(e.target.value); clearFeedback(); }}
+            onChange={(e) => { setBundleId(e.target.value); channel.clearFeedback(); }}
             placeholder="com.example.hive"
             className="font-mono text-xs"
           />
@@ -310,7 +335,7 @@ function ApnsForm({ initial }: { initial: ApnsConfig }) {
             <textarea
               id="apns-key"
               value={showKey ? keyContent : keyContent ? "••••••••••••••••" : ""}
-              onChange={(e) => { setKeyContent(e.target.value); clearFeedback(); }}
+              onChange={(e) => { setKeyContent(e.target.value); channel.clearFeedback(); }}
               onFocus={() => setShowKey(true)}
               placeholder={"-----BEGIN PRIVATE KEY-----\n..."}
               rows={4}
@@ -333,7 +358,7 @@ function ApnsForm({ initial }: { initial: ApnsConfig }) {
             <input
               type="checkbox"
               checked={sandbox}
-              onChange={(e) => { setSandbox(e.target.checked); clearFeedback(); }}
+              onChange={(e) => { setSandbox(e.target.checked); channel.clearFeedback(); }}
               className="rounded border-border"
             />
             Sandbox (development)
@@ -346,17 +371,12 @@ function ApnsForm({ initial }: { initial: ApnsConfig }) {
             </span>
           )}
         </div>
-
-        <FormActions
-          saving={saving}
-          testing={testing}
-          hasCredentials={hasCredentials}
-          onTest={() => testMutation.mutate()}
-          onSave={() => saveMutation.mutate()}
-          feedback={feedback}
-        />
       </div>
-    </section>
+
+      <div className="mt-4">
+        <FormActions hasCredentials={hasCredentials} {...channel} />
+      </div>
+    </NotificationSection>
   );
 }
 
@@ -365,19 +385,14 @@ function ApnsForm({ initial }: { initial: ApnsConfig }) {
 // ---------------------------------------------------------------------------
 
 function FormActions({
-  saving,
-  testing,
-  hasCredentials,
-  onTest,
-  onSave,
-  feedback,
+  saving, testing, hasCredentials, onTest, onSave, feedback,
 }: {
   saving: boolean;
   testing: boolean;
   hasCredentials: boolean;
   onTest: () => void;
   onSave: () => void;
-  feedback: { type: "success" | "error"; message: string } | null;
+  feedback: Feedback;
 }) {
   return (
     <div className="flex items-center gap-2">
