@@ -49,7 +49,7 @@ export const PlanProposal = memo(function PlanProposal({
         {statusBadge}
       </button>
       {open && planContent && (
-        <div className="mt-1 max-h-[70vh] overflow-auto text-sm">
+        <div className="mt-1 [&_h1]:text-2xl [&_h2]:text-xl [&_h3]:text-lg">
           <MessageResponse>{planContent}</MessageResponse>
         </div>
       )}
