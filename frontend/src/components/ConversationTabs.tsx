@@ -20,6 +20,8 @@ import {
 import { cn } from "@/lib/utils";
 import type { SessionMetadata } from "@/types";
 
+const MAX_SESSIONS_PER_WORKSPACE = 4;
+
 interface ConversationTabsProps {
   sessions: SessionMetadata[];
   activeSessionId?: string;
@@ -282,9 +284,15 @@ export function ConversationTabs({
 
         <button
           type="button"
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          className={cn(
+            "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground",
+            sessions.length >= MAX_SESSIONS_PER_WORKSPACE
+              ? "opacity-40 cursor-not-allowed"
+              : "hover:bg-accent/50 hover:text-foreground",
+          )}
           onClick={onCreateSession}
-          title="New conversation"
+          disabled={sessions.length >= MAX_SESSIONS_PER_WORKSPACE}
+          title={sessions.length >= MAX_SESSIONS_PER_WORKSPACE ? "Session limit reached (4 max)" : "New conversation"}
         >
           <PlusIcon className="size-3.5" />
         </button>
