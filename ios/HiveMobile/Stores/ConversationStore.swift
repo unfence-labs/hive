@@ -56,6 +56,9 @@ final class ConversationStore {
     /// Provider locked for this session (pushed via WS status events).
     var lockedProvider: String?
 
+    /// Whether the agent has entered plan mode on its own (via EnterPlanMode tool).
+    var agentPlanMode: Bool?
+
     // MARK: - Computed
 
     /// The active session's stream state (convenience accessor).
@@ -247,6 +250,11 @@ final class ConversationStore {
 
         case .scriptStatus:
             break // Handled by sidebar, not relevant to chat
+
+        case .planModeChanged(let sid, let active):
+            if sid == sessionId {
+                agentPlanMode = active
+            }
         }
     }
 

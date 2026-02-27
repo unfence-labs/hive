@@ -200,6 +200,11 @@ struct ChatView: View {
                 selectedModelId = modelCatalog.defaultModelId
             }
         }
+        .onChange(of: store.agentPlanMode) { _, active in
+            if let active {
+                planModeEnabled = active
+            }
+        }
         .onChange(of: lockedProvider) { _, newProvider in
             guard let newProvider, !selectedModelId.isEmpty else { return }
             let currentProvider = selectedModelId.split(separator: ":").first.map(String.init) ?? ""
@@ -456,6 +461,11 @@ struct ChatView: View {
             if sent {
                 store.clearPendingToolInputs()
                 store.bumpHistoryToken(for: pending.sessionId)
+                // Auto-disable plan mode toggle on approve
+                if pending.toolName == "ExitPlanMode", case .approve = result {
+                    planModeEnabled = false
+                    store.agentPlanMode = false
+                }
             } else if pending.sessionId == activeSessionId {
                 store.messages.append(ChatMessage(
                     id: UUID().uuidString, sessionId: "", role: .assistant,

@@ -40,6 +40,7 @@ interface ChatInputProps {
   messages: ChatMessage[];
   queuedMessage?: QueuedMessage | null;
   onQueue: (msg: QueuedMessage) => void;
+  agentPlanMode?: boolean;
 }
 
 interface AutocompleteState {
@@ -88,6 +89,7 @@ export default function ChatInput({
   messages,
   queuedMessage,
   onQueue,
+  agentPlanMode,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [thinkingEnabled, setThinkingEnabled] = useState(true);
@@ -142,6 +144,12 @@ export default function ChatInput({
       if (fallback) setSelectedModelId(fallback.id);
     }
   }, [lockedProvider, selectedModelId, models, setSelectedModelId]);
+
+  // Auto-enable plan mode when the agent enters plan mode on its own
+  useEffect(() => {
+    if (agentPlanMode === true) setPlanMode(true);
+    if (agentPlanMode === false) setPlanMode(false);
+  }, [agentPlanMode]);
 
   const completionItems = useCompletions(wsId);
   const filePaths = useFileCompletions(wsId);

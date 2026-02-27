@@ -918,7 +918,10 @@ describe("ConversationSession", () => {
 
     expect(sendSpy).toHaveBeenNthCalledWith(
       1,
-      "approved",
+      "Plan approved. Proceed with implementation.",
+      { planMode: false },
+      undefined,
+      expect.stringContaining("approved your plan"),
     );
     expect(sendSpy).toHaveBeenNthCalledWith(2, "Not this option");
     expect(sendSpy).toHaveBeenNthCalledWith(

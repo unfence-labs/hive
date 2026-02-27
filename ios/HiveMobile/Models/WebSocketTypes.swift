@@ -121,6 +121,7 @@ enum WsOutgoing: Decodable {
     case branchInfo(info: BranchInfo)
     case diffStats(stats: DiffStatResponse)
     case scriptStatus(scriptType: String, state: String, exitCode: Int?)
+    case planModeChanged(sessionId: String, active: Bool)
 
     private enum CodingKeys: String, CodingKey {
         case type, sessionId, text, id, name, input, output
@@ -129,6 +130,7 @@ enum WsOutgoing: Decodable {
         case message, status, streaming, streamingStartedAt, lockedProvider
         case messages, info, stats
         case scriptType, state, exitCode
+        case active
     }
 
     init(from decoder: Decoder) throws {
@@ -237,6 +239,11 @@ enum WsOutgoing: Decodable {
                 scriptType: try container.decode(String.self, forKey: .scriptType),
                 state: try container.decode(String.self, forKey: .state),
                 exitCode: try container.decodeIfPresent(Int.self, forKey: .exitCode)
+            )
+        case "plan_mode_changed":
+            self = .planModeChanged(
+                sessionId: try container.decode(String.self, forKey: .sessionId),
+                active: try container.decode(Bool.self, forKey: .active)
             )
         default:
             // Silently ignore unknown types instead of throwing — the backend

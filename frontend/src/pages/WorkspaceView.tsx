@@ -234,6 +234,7 @@ export default function WorkspaceView() {
     approvePlan,
     rejectToolInput,
     dismissPlan,
+    agentPlanMode,
     lockedProvider,
     switchCounter,
   } = useConversation(wsId);
@@ -566,6 +567,7 @@ export default function WorkspaceView() {
                 messages={messages}
                 queuedMessage={queuedMessage}
                 onQueue={setQueuedMessage}
+                agentPlanMode={agentPlanMode}
               />
             )}
           </div>
