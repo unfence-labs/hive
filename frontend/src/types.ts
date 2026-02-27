@@ -297,7 +297,8 @@ export type WsOutgoing =
   | { type: "history"; messages: ChatMessage[]; sessionId?: string }
   | { type: "branch_info"; info: BranchInfo }
   | { type: "diff_stats"; stats: DiffStatResponse }
-  | { type: "script_status"; scriptType: ScriptType; state: ScriptState; exitCode?: number };
+  | { type: "script_status"; scriptType: ScriptType; state: ScriptState; exitCode?: number }
+  | { type: "plan_mode_changed"; sessionId: string; active: boolean };
 
 // ── Automation types ─────────────────────────────────────────────────
 

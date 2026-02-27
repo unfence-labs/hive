@@ -132,6 +132,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private _lastPlanMode = false;
   private _metadata: SessionMetadata;
   private stopReason: StopReason | null = null;
+  private _lastBlockingToolUseId: string | undefined;
 
   constructor(config: ConversationSessionConfig) {
     super();
@@ -430,9 +431,19 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
               pendingTaskStack.push(block.id);
             }
 
+            // Emit plan mode state changes for UI auto-toggle
+            if (block.name === "EnterPlanMode" || block.name === "ExitPlanMode") {
+              this.emit("message", {
+                type: "plan_mode_changed",
+                sessionId: this.sessionId,
+                active: block.name === "EnterPlanMode",
+              } as WsOutgoing);
+            }
+
             // Only intercept blocking tools for providers that support them
             if (supportsBlockingTools && blockingToolNames.has(block.name) && this.process) {
               killedForBlockingTool = true;
+              this._lastBlockingToolUseId = block.id;
               this.process.kill("SIGKILL");
             }
             break;
@@ -688,7 +699,13 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         this.sendMessage(msg);
       }
     } else if (toolName === "ExitPlanMode" && result.type === "approve") {
-      this.sendMessage("approved");
+      const toolUseId = this._lastBlockingToolUseId ?? "unknown";
+      this.sendMessage(
+        "Plan approved. Proceed with implementation.",
+        { planMode: false },
+        undefined,
+        `[Tool result for ExitPlanMode (${toolUseId}): Plan approved by user.]\n\nThe user has reviewed and approved your plan. You are no longer in plan mode. Execute the implementation step by step. Do NOT call ExitPlanMode again or re-propose the plan.`,
+      );
     } else if (toolName === "ExitPlanMode" && result.type === "dismiss") {
       const userMsg: ChatMessage = {
         id: nanoid(12),

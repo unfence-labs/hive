@@ -131,6 +131,28 @@ function findPlanContent(
     }
   }
 
+  // 4. Fallback: last Write tool to any .md file (plan may not live in .claude/plans/)
+  const mdWriteTool = toolCalls.filter((t) => {
+    if (t.name !== "Write") return false;
+    try {
+      const input = JSON.parse(t.input);
+      return typeof input.file_path === "string" && input.file_path.endsWith(".md");
+    } catch {
+      return false;
+    }
+  }).pop();
+  if (mdWriteTool) {
+    try {
+      const input = JSON.parse(mdWriteTool.input) as { content?: string; file_path?: string };
+      const content = input.content ?? "";
+      if (content.trim()) {
+        return { content, writeToolId: mdWriteTool.id, planPath: input.file_path };
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
   return undefined;
 }
 

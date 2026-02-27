@@ -18,6 +18,7 @@ interface SessionStreamState {
   isStreaming: boolean;
   streamingStartedAt: number | null;
   pendingToolInputs: PendingToolInput[];
+  agentPlanMode?: boolean;
 }
 
 const emptyStreamState: SessionStreamState = {
@@ -361,6 +362,12 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       });
     }
 
+    case "plan_mode_changed": {
+      const sid = action.sessionId || state.sessionId;
+      if (!sid) return state;
+      return updateStream(state, sid, { agentPlanMode: action.active });
+    }
+
     case "clear_pending_tool_inputs": {
       const sid = state.sessionId;
       if (!sid || !state.sessionStreams[sid]) return state;
@@ -646,6 +653,7 @@ export function useConversation(workspaceId: string | undefined) {
       ...sessionIdField(state.sessionId),
     });
     dispatch({ type: "clear_pending_tool_inputs" });
+    dispatch({ type: "plan_mode_changed", sessionId: state.sessionId ?? "", active: false });
     historyRequestTokenRef.current += 1;
   }, [workspaceId, activeStream?.pendingToolInputs, state.sessionId]);
 
@@ -693,6 +701,7 @@ export function useConversation(workspaceId: string | undefined) {
     connectionStatus,
     error: state.error,
     sessionId: state.sessionId,
+    agentPlanMode: activeStream?.agentPlanMode,
     lockedProvider: state.lockedProvider,
     switchCounter: state.switchCounter,
     sendMessage,

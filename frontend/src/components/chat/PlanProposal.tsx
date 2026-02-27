@@ -31,8 +31,6 @@ export const PlanProposal = memo(function PlanProposal({
     if (status === "revised") setOpen(false);
   }, [status]);
 
-  if (!planContent) return null;
-
   const handleApprove = () => {
     setResponded(true);
     onApprove?.();
@@ -40,7 +38,7 @@ export const PlanProposal = memo(function PlanProposal({
 
   const handleHandOff = () => {
     setResponded(true);
-    onHandOff?.(planContent, planPath);
+    onHandOff?.(planContent ?? "", planPath);
   };
 
   const statusBadge =
@@ -59,20 +57,22 @@ export const PlanProposal = memo(function PlanProposal({
       <button
         type="button"
         className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium hover:bg-muted/50"
-        onClick={() => setOpen(!open)}
+        onClick={() => planContent && setOpen(!open)}
       >
         <FileTextIcon className="size-4 text-muted-foreground" />
         <span>Proposed plan</span>
         {statusBadge}
-        <ChevronDownIcon
-          className={cn(
-            "ml-auto size-4 text-muted-foreground transition-transform",
-            open && "rotate-180",
-          )}
-        />
+        {planContent && (
+          <ChevronDownIcon
+            className={cn(
+              "ml-auto size-4 text-muted-foreground transition-transform",
+              open && "rotate-180",
+            )}
+          />
+        )}
       </button>
 
-      {open && (
+      {open && planContent && (
         <div className="border-t px-4 py-3 text-sm">
           <MessageResponse>{planContent}</MessageResponse>
         </div>
@@ -80,7 +80,7 @@ export const PlanProposal = memo(function PlanProposal({
 
       {status === "interactive" && !responded && (
         <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-          <CopyButton content={planContent} />
+          {planContent && <CopyButton content={planContent} />}
           <Button size="sm" variant="outline" onClick={handleHandOff}>
             <ArrowRightLeftIcon className="size-3" />
             Hand off

@@ -918,12 +918,34 @@ describe("ConversationSession", () => {
 
     expect(sendSpy).toHaveBeenNthCalledWith(
       1,
-      "approved",
+      "Plan approved. Proceed with implementation.",
+      { planMode: false },
+      undefined,
+      expect.stringContaining("ExitPlanMode (unknown)"),
     );
     expect(sendSpy).toHaveBeenNthCalledWith(2, "Not this option");
     expect(sendSpy).toHaveBeenNthCalledWith(
       3,
       "I reject this. Please suggest an alternative approach.",
+    );
+  });
+
+  it("includes the last blocking tool id when approving ExitPlanMode", () => {
+    const session = createSession({ sessionId: "respond-approve-tool-id" });
+
+    session.sendMessage("Plan this");
+    mockProc._stdout.push(
+      assistantToolUseLine({ id: "toolu_plan_42", name: "ExitPlanMode", input: { planFile: "plan.md" } }),
+    );
+
+    const sendSpy = vi.spyOn(session, "sendMessage").mockImplementation(() => {});
+    session.respondToToolInput("ExitPlanMode", { type: "approve" });
+
+    expect(sendSpy).toHaveBeenCalledWith(
+      "Plan approved. Proceed with implementation.",
+      { planMode: false },
+      undefined,
+      expect.stringContaining("ExitPlanMode (toolu_plan_42)"),
     );
   });
 
@@ -1228,6 +1250,29 @@ describe("ConversationSession", () => {
       toolUseId: "toolu_plan",
     });
     expect(session.status).toBe("idle");
+  });
+
+  it("emits plan_mode_changed for EnterPlanMode and ExitPlanMode tool use blocks", async () => {
+    const session = createSession({ sessionId: "plan-mode-events" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Plan this");
+    mockProc._stdout.push(
+      assistantToolUseLine({ id: "toolu_enter", name: "EnterPlanMode", input: {} }),
+    );
+    mockProc._stdout.push(
+      assistantToolUseLine({ id: "toolu_exit", name: "ExitPlanMode", input: { plan: "Step 1" } }),
+    );
+
+    mockProc._emitClose(137);
+    await new Promise((r) => setTimeout(r, 50));
+
+    const planModeEvents = messages.filter((m) => m.type === "plan_mode_changed");
+    expect(planModeEvents).toMatchObject([
+      { type: "plan_mode_changed", sessionId: "plan-mode-events", active: true },
+      { type: "plan_mode_changed", sessionId: "plan-mode-events", active: false },
+    ]);
   });
 
   // ── Conversation title tests ──────────────────────────────────────
