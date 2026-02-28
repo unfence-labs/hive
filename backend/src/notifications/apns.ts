@@ -2,6 +2,7 @@ import { connect, type ClientHttp2Session } from "node:http2";
 import { createSign } from "node:crypto";
 import type { NotificationChannel, NotificationEvent } from "./types.js";
 import type { ApnsConfig } from "../state/config.js";
+import { formatDuration } from "../utils/format.js";
 
 const PRODUCTION_HOST = "https://api.push.apple.com";
 const SANDBOX_HOST = "https://api.sandbox.push.apple.com";
@@ -181,15 +182,40 @@ export class ApnsChannel implements NotificationChannel {
     let body: string;
     let extraData: Record<string, string> = {};
 
-    if (event.type === "agent_turn_complete") {
-      title = "Agent finished";
-      body = `${event.projectName} / ${event.workspaceName}`;
-      extraData = { workspaceId: event.workspaceId };
-    } else {
-      const statusLabel = event.status === "success" ? "Success" : "Failed";
-      title = `Automation: ${event.automationName}`;
-      body = `Status: ${statusLabel}${event.projectName ? ` | ${event.projectName}` : ""}`;
-      extraData = { automationId: event.automationId };
+    switch (event.type) {
+      case "agent_turn_complete": {
+        const dur = event.durationMs != null ? ` (${formatDuration(event.durationMs)})` : "";
+        title = "Agent finished";
+        body = `${event.projectName} / ${event.workspaceName}${dur}`;
+        extraData = { workspaceId: event.workspaceId };
+        break;
+      }
+      case "agent_needs_input": {
+        title = "Agent needs input";
+        body = `${event.projectName} / ${event.workspaceName}`;
+        extraData = { workspaceId: event.workspaceId };
+        break;
+      }
+      case "agent_proposed_plan": {
+        title = "Agent proposed a plan";
+        body = `${event.projectName} / ${event.workspaceName}`;
+        extraData = { workspaceId: event.workspaceId };
+        break;
+      }
+      case "agent_failed": {
+        const dur = event.durationMs != null ? ` (${formatDuration(event.durationMs)})` : "";
+        title = "Agent failed";
+        body = `${event.projectName} / ${event.workspaceName}${dur}`;
+        extraData = { workspaceId: event.workspaceId };
+        break;
+      }
+      case "automation_run_complete": {
+        const statusLabel = event.status === "success" ? "Success" : "Failed";
+        title = `Automation: ${event.automationName}`;
+        body = `Status: ${statusLabel}${event.projectName ? ` | ${event.projectName}` : ""}`;
+        extraData = { automationId: event.automationId };
+        break;
+      }
     }
 
     const payload = JSON.stringify({

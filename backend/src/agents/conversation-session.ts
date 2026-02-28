@@ -581,7 +581,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
       const exitCode = code ?? 1;
       const wasCancelled = exitCode !== 0 && this._status === "streaming" && !killedForBlockingTool;
-      const cancelledByPark = wasCancelled && this.stopReason === "park";
+      const capturedStopReason = this.stopReason;
+      const capturedStreamingStart = this._streamingStartedAt;
+      const cancelledByPark = wasCancelled && capturedStopReason === "park";
       const shouldSurfaceCancelled = wasCancelled && !cancelledByPark;
       const cancellationErrorDetail = shouldSurfaceCancelled
         ? buildCancellationErrorDetail(exitCode, lastStderr)
@@ -621,10 +623,22 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         ? toolCalls.filter((tc) => blockingToolNames.has(tc.name))
         : [];
 
+      const pendingToolName = unansweredBlockingTools.length > 0
+        ? unansweredBlockingTools[0]!.name
+        : undefined;
+
       void (async () => {
         await this.persistQueue;
         if (shouldSurfaceCancelled) {
-          this.emit("message", { type: "cancelled", sessionId: this.sessionId });
+          const cancelDurationMs = resultDurationMs
+            ?? (capturedStreamingStart ? Date.now() - capturedStreamingStart : undefined);
+          this.emit("message", {
+            type: "cancelled",
+            sessionId: this.sessionId,
+            errorDetail: cancellationErrorDetail,
+            userInitiated: capturedStopReason === "user",
+            durationMs: cancelDurationMs,
+          });
         } else if (!cancelledByPark) {
           this.emit("message", {
             type: "done",
@@ -632,6 +646,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             durationMs: resultDurationMs,
             inputTokens: resultInputTokens,
             outputTokens: resultOutputTokens,
+            pendingToolName,
           });
         }
 

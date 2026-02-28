@@ -7,6 +7,7 @@ import { saveProject, getDataDir, loadProject, withProjectStateLock } from "../s
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
 import { runNamingTask } from "./naming.js";
 import { NotFoundError } from "../utils/errors.js";
+import { extractSummary } from "../utils/summary-extractor.js";
 import type { ChatMessage, SessionMetadata } from "../types.js";
 import { Notifier } from "../notifications/notifier.js";
 import { TelegramChannel } from "../notifications/telegram.js";
@@ -426,16 +427,42 @@ function attachNotificationListener(
 ): void {
   if (!notifier) return;
   const n = notifier;
+  const baseCtx = {
+    workspaceId: ctx.workspace.id,
+    workspaceName: ctx.workspace.name,
+    projectName: ctx.projectState.name,
+    sessionId: session.sessionId,
+  };
+
   session.on("message", (msg) => {
-    if (msg.type !== "done") return;
-    n.notify({
-      type: "agent_turn_complete",
-      workspaceId: ctx.workspace.id,
-      workspaceName: ctx.workspace.name,
-      projectName: ctx.projectState.name,
-      sessionId: session.sessionId,
-      durationMs: msg.durationMs,
-    }).catch(() => {});
+    if (msg.type === "done") {
+      if (msg.pendingToolName === "AskUserQuestion") {
+        n.notify({ type: "agent_needs_input", ...baseCtx }).catch(() => {});
+      } else if (msg.pendingToolName === "ExitPlanMode") {
+        n.notify({ type: "agent_proposed_plan", ...baseCtx }).catch(() => {});
+      } else {
+        void (async () => {
+          let summary: string | undefined;
+          try {
+            const messages = await session.getMessages();
+            summary = extractSummary(messages);
+          } catch { /* non-fatal */ }
+          n.notify({
+            type: "agent_turn_complete",
+            ...baseCtx,
+            durationMs: msg.durationMs,
+            summary,
+          }).catch(() => {});
+        })();
+      }
+    } else if (msg.type === "cancelled" && !msg.userInitiated) {
+      n.notify({
+        type: "agent_failed",
+        ...baseCtx,
+        durationMs: msg.durationMs,
+        errorDetail: msg.errorDetail,
+      }).catch(() => {});
+    }
   });
 }
 

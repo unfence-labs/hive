@@ -10,6 +10,30 @@ export type NotificationEvent =
       projectName: string;
       sessionId: string;
       durationMs?: number;
+      summary?: string;
+    }
+  | {
+      type: "agent_needs_input";
+      workspaceId: string;
+      workspaceName: string;
+      projectName: string;
+      sessionId: string;
+    }
+  | {
+      type: "agent_proposed_plan";
+      workspaceId: string;
+      workspaceName: string;
+      projectName: string;
+      sessionId: string;
+    }
+  | {
+      type: "agent_failed";
+      workspaceId: string;
+      workspaceName: string;
+      projectName: string;
+      sessionId: string;
+      durationMs?: number;
+      errorDetail?: string;
     }
   | {
       type: "automation_run_complete";

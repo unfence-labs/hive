@@ -145,12 +145,12 @@ final class ConversationStore {
                 toolName: toolName, toolUseId: toolUseId, input: input
             ))
 
-        case .done(let sid, let durationMs, let inputTokens, let outputTokens):
+        case .done(let sid, let durationMs, let inputTokens, let outputTokens, _):
             finalizeMessage(sessionId: sid, durationMs: durationMs, cancelled: false,
                             inputTokens: inputTokens, outputTokens: outputTokens)
             onTurnCompleted?(sid)
 
-        case .cancelled(let sid):
+        case .cancelled(let sid, _, _, _):
             finalizeMessage(sessionId: sid, durationMs: nil, cancelled: true)
             onTurnCompleted?(sid)
 
