@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import {
+  useIsFetching,
   useQuery,
+  useQueries,
   useQueryClient,
   keepPreviousData,
 } from "@tanstack/react-query";
@@ -9,27 +11,65 @@ import type { BulkPrStatusResponse, PrStatusResponse } from "@/types";
 
 export const prStatusKey = (wsId: string) => ["pr-status", wsId] as const;
 
+const PR_GC_TIME = 5 * 60_000;
+
+function readPrStatusFromCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  wsId: string,
+): PrStatusResponse | undefined {
+  return queryClient.getQueryData<PrStatusResponse>(prStatusKey(wsId));
+}
+
 export function usePrStatus(wsId: string | undefined) {
+  const queryClient = useQueryClient();
+  const bulkFetchingCount = useIsFetching({ queryKey: ["pr-status-bulk"] });
+
   const query = useQuery({
     queryKey: prStatusKey(wsId ?? ""),
-    queryFn: (): Promise<PrStatusResponse> =>
-      api.get<PrStatusResponse>(`/api/workspaces/${wsId}/pr-status`),
-    enabled: !!wsId,
-    staleTime: 10_000,
-    gcTime: 5 * 60_000,
+    queryFn: async (): Promise<PrStatusResponse> =>
+      readPrStatusFromCache(queryClient, wsId ?? "") ?? { pr: null },
+    // Cache-only consumer: the sidebar bulk query is the single poller.
+    enabled: false,
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: PR_GC_TIME,
     placeholderData: keepPreviousData,
-    // No refetchInterval — data is seeded by useBulkPrStatus (Sidebar)
-    // via queryClient.setQueryData, ensuring all consumers update together.
   });
+
+  const hasData = query.data !== undefined;
+  const loading = !!wsId && !hasData && bulkFetchingCount > 0;
 
   return {
     pr: query.data?.pr ?? null,
     error: query.data?.error ?? null,
-    loading: query.isLoading,
+    loading,
   };
 }
 
 const emptyResults: Record<string, PrStatusResponse> = {};
+
+export function usePrStatusMap(wsIds: string[]) {
+  const queryClient = useQueryClient();
+  const queries = useQueries({
+    queries: wsIds.map((wsId) => ({
+      queryKey: prStatusKey(wsId),
+      queryFn: async (): Promise<PrStatusResponse> =>
+        readPrStatusFromCache(queryClient, wsId) ?? { pr: null },
+      enabled: false,
+      staleTime: Number.POSITIVE_INFINITY,
+      gcTime: PR_GC_TIME,
+      placeholderData: keepPreviousData,
+    })),
+  });
+
+  return useMemo(() => {
+    const results: Record<string, PrStatusResponse> = {};
+    wsIds.forEach((wsId, index) => {
+      const status = queries[index]?.data;
+      if (status) results[wsId] = status;
+    });
+    return results;
+  }, [queries, wsIds]);
+}
 
 export function useBulkPrStatus(wsIds: string[]) {
   const queryClient = useQueryClient();
@@ -56,7 +96,7 @@ export function useBulkPrStatus(wsIds: string[]) {
     enabled: wsIds.length > 0,
     refetchInterval: 15_000,
     staleTime: 10_000,
-    gcTime: 5 * 60_000,
+    gcTime: PR_GC_TIME,
     placeholderData: keepPreviousData,
   });
 
