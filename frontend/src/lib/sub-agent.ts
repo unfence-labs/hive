@@ -37,17 +37,3 @@ export function buildChildrenMap(tools: ToolCall[]): Map<string, ToolCall[]> {
   }
   return map;
 }
-
-/** Recursively count all descendant tools under a given parent. */
-export function getSubAgentChildCount(
-  toolId: string,
-  childrenMap: Map<string, ToolCall[]>,
-): number {
-  const children = childrenMap.get(toolId);
-  if (!children) return 0;
-  let count = children.length;
-  for (const child of children) {
-    count += getSubAgentChildCount(child.id, childrenMap);
-  }
-  return count;
-}
