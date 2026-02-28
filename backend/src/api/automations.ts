@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { nanoid } from "nanoid";
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Cron } from "croner";
 import {
@@ -215,4 +215,45 @@ export async function automationRoutes(
     }
     return loadRuns(req.params.id, dataDir);
   });
+
+  // ── Get run messages ──────────────────────────────────────────────
+  app.get<{ Params: { id: string; runId: string } }>(
+    "/api/automations/:id/runs/:runId/messages",
+    async (req, reply) => {
+      const { id, runId } = req.params;
+
+      const automations = await loadAutomations(dataDir);
+      if (!automations.find((a) => a.id === id)) {
+        return reply.status(404).send({ error: "Automation not found" });
+      }
+
+      const runs = await loadRuns(id, dataDir);
+      const run = runs.find((r) => r.id === runId);
+      if (!run) {
+        return reply.status(404).send({ error: "Run not found" });
+      }
+
+      const sessDir = join(dataDir, "automations", id, "sessions", run.sessionId);
+
+      let messages: unknown[] = [];
+      try {
+        const raw = await readFile(join(sessDir, "messages.jsonl"), "utf-8");
+        messages = raw
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line));
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
+
+      let systemPrompt: string | undefined;
+      try {
+        systemPrompt = await readFile(join(sessDir, "system-prompt.txt"), "utf-8");
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
+
+      return { messages, systemPrompt };
+    },
+  );
 }

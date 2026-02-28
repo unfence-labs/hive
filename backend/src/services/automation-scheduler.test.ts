@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir } from "../utils/test-helpers.js";
 import { AutomationScheduler } from "./automation-scheduler.js";
@@ -610,6 +610,71 @@ describe("AutomationScheduler", () => {
         expect.objectContaining({ branch: "main", defaultBranch: "main" }),
         { projectName: "My App" },
       );
+
+      scheduler.stop();
+    });
+  });
+
+  describe("system prompt persistence", () => {
+    it("persists resolved system prompt for run log viewer", async () => {
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject).mockResolvedValue(null as never);
+
+      const auto = makeAutomation({
+        projectId: undefined,
+        action: {
+          type: "agent",
+          modelId: "claude:opus-4-6",
+          userPromptInline: "Do stuff",
+          systemPromptInline: "You are strict.",
+        },
+      });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      const promptPath = join(
+        dataDir,
+        "automations",
+        "auto-1",
+        "sessions",
+        run.sessionId,
+        "system-prompt.txt",
+      );
+      const persisted = await readFile(promptPath, "utf-8");
+      expect(persisted).toBe("You are strict.");
+      expect(persisted).not.toContain("## Summary");
+
+      scheduler.stop();
+    });
+
+    it("does not persist system prompt file when no system prompt is resolved", async () => {
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject).mockResolvedValue(null as never);
+
+      const auto = makeAutomation({
+        projectId: undefined,
+        action: {
+          type: "agent",
+          modelId: "claude:opus-4-6",
+          userPromptInline: "Do stuff",
+        },
+      });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      const promptPath = join(
+        dataDir,
+        "automations",
+        "auto-1",
+        "sessions",
+        run.sessionId,
+        "system-prompt.txt",
+      );
+      await expect(readFile(promptPath, "utf-8")).rejects.toMatchObject({ code: "ENOENT" });
 
       scheduler.stop();
     });

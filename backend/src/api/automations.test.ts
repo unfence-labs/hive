@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { createTempDir } from "../utils/test-helpers.js";
 import { automationRoutes } from "./automations.js";
 import { promptTemplateRoutes } from "./prompt-templates.js";
-import { saveAutomations } from "../state/automations.js";
-import type { Automation } from "../types.js";
+import { saveAutomations, addRun } from "../state/automations.js";
+import type { Automation, AutomationRun } from "../types.js";
 
 let tmpDir: string;
 let dataDir: string;
@@ -202,5 +202,100 @@ describe("POST /api/automations/:id/trigger", () => {
     await saveAutomations([makeAutomation()], dataDir);
     const res = await app.inject({ method: "POST", url: "/api/automations/auto-1/trigger" });
     expect(res.statusCode).toBe(503);
+  });
+});
+
+describe("GET /api/automations/:id/runs/:runId/messages", () => {
+  const run: AutomationRun = {
+    id: "run-1",
+    automationId: "auto-1",
+    status: "success",
+    sessionId: "sess-1",
+    startedAt: "2026-01-01T00:00:00Z",
+    completedAt: "2026-01-01T00:01:00Z",
+    durationMs: 60_000,
+  };
+
+  it("returns messages for a completed run", async () => {
+    await saveAutomations([makeAutomation()], dataDir);
+    await addRun("auto-1", run, dataDir);
+
+    const sessDir = join(dataDir, "automations", "auto-1", "sessions", "sess-1");
+    await mkdir(sessDir, { recursive: true });
+    const msg = { id: "msg-1", role: "assistant", content: "Done." };
+    await writeFile(join(sessDir, "messages.jsonl"), JSON.stringify(msg) + "\n", "utf-8");
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/automations/auto-1/runs/run-1/messages",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].content).toBe("Done.");
+    expect(body.systemPrompt).toBeUndefined();
+  });
+
+  it("returns system prompt when available", async () => {
+    await saveAutomations([makeAutomation()], dataDir);
+    await addRun("auto-1", run, dataDir);
+
+    const sessDir = join(dataDir, "automations", "auto-1", "sessions", "sess-1");
+    await mkdir(sessDir, { recursive: true });
+    await writeFile(join(sessDir, "messages.jsonl"), '{"id":"m1","role":"user","content":"hi"}\n', "utf-8");
+    await writeFile(join(sessDir, "system-prompt.txt"), "You are a security auditor.", "utf-8");
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/automations/auto-1/runs/run-1/messages",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.messages).toHaveLength(1);
+    expect(body.systemPrompt).toBe("You are a security auditor.");
+  });
+
+  it("returns empty messages when no messages file exists", async () => {
+    await saveAutomations([makeAutomation()], dataDir);
+    await addRun("auto-1", run, dataDir);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/automations/auto-1/runs/run-1/messages",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().messages).toEqual([]);
+  });
+
+  it("returns 500 when system prompt path is unreadable", async () => {
+    await saveAutomations([makeAutomation()], dataDir);
+    await addRun("auto-1", run, dataDir);
+
+    const sessDir = join(dataDir, "automations", "auto-1", "sessions", "sess-1");
+    await mkdir(join(sessDir, "system-prompt.txt"), { recursive: true });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/automations/auto-1/runs/run-1/messages",
+    });
+    expect(res.statusCode).toBe(500);
+  });
+
+  it("returns 404 when run does not exist", async () => {
+    await saveAutomations([makeAutomation()], dataDir);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/automations/auto-1/runs/no-such-run/messages",
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("returns 404 when automation does not exist", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/automations/unknown/runs/run-1/messages",
+    });
+    expect(res.statusCode).toBe(404);
   });
 });

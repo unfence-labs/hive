@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { api } from "./useApi";
-import type { Automation, AutomationRun } from "@/types";
+import type { Automation, AutomationRun, ChatMessage } from "@/types";
 
 const sharedOptions = {
   refetchInterval: 15_000,
@@ -63,8 +63,9 @@ export function useUpdateAutomation() {
   return useMutation({
     mutationFn: ({ id, ...body }: { id: string } & Record<string, unknown>) =>
       api.put<Automation>(`/api/automations/${id}`, body),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       void qc.invalidateQueries({ queryKey: ["automations"] });
+      void qc.invalidateQueries({ queryKey: ["automations", variables.id] });
     },
   });
 }
@@ -87,5 +88,20 @@ export function useTriggerAutomation() {
       void qc.invalidateQueries({ queryKey: ["automation-runs", id] });
       void qc.invalidateQueries({ queryKey: ["automations"] });
     },
+  });
+}
+
+export interface RunMessagesResponse {
+  messages: ChatMessage[];
+  systemPrompt?: string;
+}
+
+export function useAutomationRunMessages(automationId: string | undefined, runId: string | undefined) {
+  return useQuery({
+    queryKey: ["automation-run-messages", automationId, runId],
+    queryFn: () => api.get<RunMessagesResponse>(`/api/automations/${automationId}/runs/${runId}/messages`),
+    enabled: !!automationId && !!runId,
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
   });
 }

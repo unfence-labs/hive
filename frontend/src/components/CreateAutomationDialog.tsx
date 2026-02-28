@@ -4,20 +4,24 @@ import { Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { getNextRuns } from "@/lib/cron";
 import { useProjects } from "@/hooks/useProjects";
 import { usePromptTemplates } from "@/hooks/usePromptTemplates";
-import { useCreateAutomation } from "@/hooks/useAutomations";
+import { useCreateAutomation, useUpdateAutomation } from "@/hooks/useAutomations";
 import { api } from "@/hooks/useApi";
-import type { ModelCatalogEntry, ModelCatalogResponse } from "@/types";
+import type { Automation, ModelCatalogEntry, ModelCatalogResponse } from "@/types";
 
-interface CreateAutomationDialogProps {
+interface AutomationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When provided, the dialog operates in edit mode. */
+  automation?: Automation;
 }
 
 const SCHEDULE_PRESETS = [
@@ -31,11 +35,12 @@ const SCHEDULE_PRESETS = [
   { label: "Custom...", expression: "" },
 ];
 
-export default function CreateAutomationDialog({ open, onOpenChange }: CreateAutomationDialogProps) {
+export default function AutomationDialog({ open, onOpenChange, automation }: AutomationDialogProps) {
   const navigate = useNavigate();
   const { projects } = useProjects();
   const { data: templates } = usePromptTemplates();
   const createMutation = useCreateAutomation();
+  const updateMutation = useUpdateAutomation();
 
   const [name, setName] = useState("");
   const [projectId, setProjectId] = useState("");
@@ -58,12 +63,77 @@ export default function CreateAutomationDialog({ open, onOpenChange }: CreateAut
   const [notifyComplete, setNotifyComplete] = useState(true);
   const [notifyFailure, setNotifyFailure] = useState(true);
 
+  const isEditMode = !!automation;
+
   useEffect(() => {
     if (!open) return;
+
+    if (automation) {
+      // Edit mode: pre-fill from automation
+      setName(automation.name);
+      setProjectId(automation.projectId ?? "");
+
+      const presetMatch = SCHEDULE_PRESETS.find(
+        (p) => p.expression === automation.trigger.expression && p.expression !== "",
+      );
+      if (presetMatch) {
+        setSchedulePreset(presetMatch.expression);
+        setCustomCron("");
+      } else {
+        setSchedulePreset("");
+        setCustomCron(automation.trigger.expression);
+      }
+
+      setModelId(automation.action.modelId);
+
+      if (automation.action.systemPromptId) {
+        setSystemPromptMode("template");
+        setSystemPromptId(automation.action.systemPromptId);
+        setSystemPromptInline("");
+      } else if (automation.action.systemPromptInline) {
+        setSystemPromptMode("custom");
+        setSystemPromptInline(automation.action.systemPromptInline);
+        setSystemPromptId("");
+      } else {
+        setSystemPromptMode("none");
+        setSystemPromptId("");
+        setSystemPromptInline("");
+      }
+
+      if (automation.action.userPromptId) {
+        setUserPromptMode("template");
+        setUserPromptId(automation.action.userPromptId);
+        setUserPromptInline("");
+      } else {
+        setUserPromptMode("custom");
+        setUserPromptInline(automation.action.userPromptInline ?? "");
+        setUserPromptId("");
+      }
+
+      setNotifyComplete(automation.notification.onComplete);
+      setNotifyFailure(automation.notification.onFailure);
+    } else {
+      // Create mode: reset to defaults
+      setName("");
+      setProjectId("");
+      setSchedulePreset("0 2 * * *");
+      setCustomCron("");
+      setModelId("");
+      setSystemPromptMode("none");
+      setSystemPromptId("");
+      setSystemPromptInline("");
+      setUserPromptMode("custom");
+      setUserPromptId("");
+      setUserPromptInline("");
+      setNotifyComplete(true);
+      setNotifyFailure(true);
+    }
+
     api.get<ModelCatalogResponse>("/api/models")
       .then((data) => {
         setModels(data.models);
-        if (!modelId) setModelId(data.defaultModelId);
+        // In create mode, default to the API's default model
+        if (!automation) setModelId((prev) => prev || data.defaultModelId);
       })
       .catch(() => {});
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -78,33 +148,52 @@ export default function CreateAutomationDialog({ open, onOpenChange }: CreateAut
     modelId &&
     (userPromptMode === "custom" ? userPromptInline.trim() : userPromptId);
 
+  const isPending = createMutation.isPending || updateMutation.isPending;
+
   const handleSubmit = async () => {
     if (!isValid) return;
 
-    const auto = await createMutation.mutateAsync({
-      name: name.trim(),
-      projectId: projectId || undefined,
-      trigger: { type: "cron", expression: cronExpression },
-      action: {
-        type: "agent",
-        modelId,
-        ...(systemPromptMode === "template" && systemPromptId ? { systemPromptId } : {}),
-        ...(systemPromptMode === "custom" && systemPromptInline.trim() ? { systemPromptInline: systemPromptInline.trim() } : {}),
-        ...(userPromptMode === "template" && userPromptId ? { userPromptId } : {}),
-        ...(userPromptMode === "custom" && userPromptInline.trim() ? { userPromptInline: userPromptInline.trim() } : {}),
-      },
-      notification: { onComplete: notifyComplete, onFailure: notifyFailure },
-    });
+    const actionPayload = {
+      type: "agent" as const,
+      modelId,
+      ...(systemPromptMode === "template" && systemPromptId ? { systemPromptId } : {}),
+      ...(systemPromptMode === "custom" && systemPromptInline.trim() ? { systemPromptInline: systemPromptInline.trim() } : {}),
+      ...(userPromptMode === "template" && userPromptId ? { userPromptId } : {}),
+      ...(userPromptMode === "custom" && userPromptInline.trim() ? { userPromptInline: userPromptInline.trim() } : {}),
+    };
 
-    onOpenChange(false);
-    navigate(`/automations/${auto.id}`);
+    if (automation) {
+      await updateMutation.mutateAsync({
+        id: automation.id,
+        name: name.trim(),
+        trigger: { type: "cron", expression: cronExpression },
+        action: actionPayload,
+        notification: { onComplete: notifyComplete, onFailure: notifyFailure },
+      });
+      onOpenChange(false);
+    } else {
+      const auto = await createMutation.mutateAsync({
+        name: name.trim(),
+        projectId: projectId || undefined,
+        trigger: { type: "cron", expression: cronExpression },
+        action: actionPayload,
+        notification: { onComplete: notifyComplete, onFailure: notifyFailure },
+      });
+      onOpenChange(false);
+      navigate(`/automations/${auto.id}`);
+    }
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>New Automation</DialogTitle>
+          <DialogTitle>{isEditMode ? "Edit Automation" : "New Automation"}</DialogTitle>
+          <DialogDescription>
+            {isEditMode
+              ? "Update schedule, prompts, model, and notification behavior."
+              : "Create a scheduled automation with prompts, model, and notifications."}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
@@ -123,7 +212,11 @@ export default function CreateAutomationDialog({ open, onOpenChange }: CreateAut
             <select
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              disabled={isEditMode}
+              className={cn(
+                "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                isEditMode && "opacity-60",
+              )}
             >
               <option value="">None</option>
               {projects.map((p) => (
@@ -151,6 +244,7 @@ export default function CreateAutomationDialog({ open, onOpenChange }: CreateAut
                 className="mt-2 font-mono text-xs"
               />
             )}
+            {cronExpression && <CronPreview expression={cronExpression} />}
           </Field>
 
           {/* Model */}
@@ -277,14 +371,14 @@ export default function CreateAutomationDialog({ open, onOpenChange }: CreateAut
           <button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={!isValid || createMutation.isPending}
+            disabled={!isValid || isPending}
             className={cn(
               "flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90",
-              (!isValid || createMutation.isPending) && "pointer-events-none opacity-60",
+              (!isValid || isPending) && "pointer-events-none opacity-60",
             )}
           >
-            {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Create Automation
+            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            {isEditMode ? "Save Changes" : "Create Automation"}
           </button>
         </div>
       </DialogContent>
@@ -298,5 +392,22 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{label}</label>
       {children}
     </div>
+  );
+}
+
+function CronPreview({ expression }: { expression: string }) {
+  const runs = getNextRuns(expression, 3);
+  if (!runs) {
+    return (
+      <p className="mt-1.5 text-xs text-red-400">Invalid cron expression</p>
+    );
+  }
+  const fmt = new Intl.DateTimeFormat(undefined, {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+  return (
+    <p className="mt-1.5 text-xs text-muted-foreground">
+      Next: {runs.map((d) => fmt.format(d)).join(", ")}
+    </p>
   );
 }
