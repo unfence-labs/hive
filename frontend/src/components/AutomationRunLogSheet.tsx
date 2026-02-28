@@ -6,10 +6,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import ChatConversation from "@/components/ChatConversation";
+import ChatMessage from "@/components/ChatMessage";
 import { useAutomationRunMessages } from "@/hooks/useAutomations";
 import { cn } from "@/lib/utils";
 import type { AutomationRun } from "@/types";
+
+const EMPTY_SET = new Set<string>();
 
 interface AutomationRunLogSheetProps {
   automationId: string;
@@ -43,24 +45,22 @@ export default function AutomationRunLogSheet({
 
         {systemPrompt && <SystemPromptBanner content={systemPrompt} />}
 
-        <div className="min-h-0 flex-1 flex flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {isLoading ? (
             <div className="flex h-full items-center justify-center">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : messages && messages.length > 0 ? (
-            <ChatConversation
-              key={run?.id}
-              messages={messages}
-              isStreaming={false}
-              streamingStartedAt={null}
-              currentStreamingText=""
-              currentThinking=""
-              activeToolCalls={[]}
-              pendingToolInputs={[]}
-              switchCounter={0}
-              scrollToBottomTrigger={0}
-            />
+            <div className="flex flex-col gap-4 px-8 py-4">
+              {messages.map((msg, i) => (
+                <ChatMessage
+                  key={msg.id ?? `${msg.timestamp}-${i}`}
+                  message={msg}
+                  isInteractive={false}
+                  dismissedToolCallIds={EMPTY_SET}
+                />
+              ))}
+            </div>
           ) : (
             <div className="flex h-full items-center justify-center">
               <p className="text-xs text-muted-foreground">No messages recorded for this run.</p>
