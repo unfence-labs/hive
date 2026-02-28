@@ -47,6 +47,7 @@ import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
 import { PlanActionBar } from "@/components/chat/PlanActionBar";
 import { useScripts } from "@/hooks/useScripts";
+import { useTabs } from "@/hooks/useTabs";
 import type { DiffStatResponse, FileMention, ImageAttachment, MessageOptions, QueuedMessage, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 const DEFAULT_EXPANDED = new Set<string>();
@@ -119,10 +120,6 @@ export default function WorkspaceView() {
 
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(DEFAULT_EXPANDED);
   const [selectedPath, setSelectedPath] = useState("");
-
-  // File viewer state
-  const [openFile, setOpenFile] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"conversation" | "file">("conversation");
 
   // Sidebar tab state
   const [sidebarTab, setSidebarTab] = useState<"all" | "modified">("all");
@@ -240,14 +237,22 @@ export default function WorkspaceView() {
     switchCounter,
   } = useConversation(wsId);
 
+  const {
+    openFile,
+    isFileTabActive,
+    activateTab,
+    openFileTab,
+    closeFileTab,
+  } = useTabs(sessionId, wsId);
+
   // Clear unread only when the active conversation is actually visible.
   // If the file tab is open, keep unread state so the tab can show a dot.
   useEffect(() => {
-    if (activeTab !== "conversation") return;
+    if (isFileTabActive) return;
     if (wsId && sessionId && liveData[wsId]?.unreadSessions?.[sessionId]) {
       clearUnread(wsId, sessionId);
     }
-  }, [activeTab, wsId, sessionId, liveData, clearUnread]);
+  }, [isFileTabActive, wsId, sessionId, liveData, clearUnread]);
 
   // ── Message queue: lets users type one follow-up while agent is busy ──
   const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
@@ -320,12 +325,6 @@ export default function WorkspaceView() {
     [],
   );
 
-  // Reset file viewer when switching workspaces
-  useEffect(() => {
-    setOpenFile(null);
-    setActiveTab("conversation");
-  }, [wsId]);
-
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();
     if (meta) {
@@ -334,11 +333,11 @@ export default function WorkspaceView() {
   }, [createSession, switchSession]);
 
   const handleActivateSession = useCallback((targetSessionId: string) => {
-    setActiveTab("conversation");
+    activateTab(`session:${targetSessionId}`);
     if (targetSessionId === sessionId) return;
     switchSession(targetSessionId);
     if (wsId) clearUnread(wsId, targetSessionId);
-  }, [sessionId, switchSession, wsId, clearUnread]);
+  }, [sessionId, switchSession, wsId, clearUnread, activateTab]);
 
   const handleDeleteSession = useCallback(async (targetSessionId: string) => {
     const isActive = targetSessionId === sessionId;
@@ -359,9 +358,8 @@ export default function WorkspaceView() {
 
   const handleFileTreeSelect = useCallback((path: string) => {
     setSelectedPath(path);
-    setOpenFile(path);
-    setActiveTab("file");
-  }, []);
+    openFileTab(path);
+  }, [openFileTab]);
 
   const handleModifiedFileClick = useCallback((filePath: string) => {
     setDiffModalFile(filePath);
@@ -525,15 +523,12 @@ export default function WorkspaceView() {
             onActivateSession={handleActivateSession}
             onDeleteSession={handleDeleteSession}
             openFile={openFile}
-            isFileActive={activeTab === "file"}
-            onFileTabClick={() => setActiveTab("file")}
-            onFileTabClose={() => {
-              setOpenFile(null);
-              setActiveTab("conversation");
-            }}
-            onConversationTabClick={() => setActiveTab("conversation")}
+            isFileTabActive={isFileTabActive}
+            onFileTabActivate={() => openFile && activateTab(`file:${openFile}`)}
+            onFileTabClose={closeFileTab}
+            onConversationActivate={() => sessionId && activateTab(`session:${sessionId}`)}
           />
-          <div className={activeTab === "conversation" ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
+          <div className={!isFileTabActive ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
             <ChatConversation
               messages={messages}
               isStreaming={isStreaming}
@@ -596,7 +591,7 @@ export default function WorkspaceView() {
               </div>
             )}
           </div>
-          {activeTab === "file" && openFile && wsId && (
+          {isFileTabActive && openFile && wsId && (
             <div className="flex min-h-0 flex-1 flex-col">
               <FileViewer wsId={wsId} filePath={openFile} />
             </div>

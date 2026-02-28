@@ -3,6 +3,8 @@ import {
   isAskUserQuestion,
   isExitPlanMode,
   parseQuestions,
+  parseTabId,
+  tabId,
   type ToolCall,
 } from "@/types";
 
@@ -53,5 +55,19 @@ describe("tool type helpers", () => {
 
   it("returns empty array for invalid question payload", () => {
     expect(parseQuestions(tool({ input: "oops" }))).toEqual([]);
+  });
+});
+
+describe("tab helpers", () => {
+  it("builds and parses session tab IDs", () => {
+    const id = tabId({ type: "session", sessionId: "sess-1" });
+    expect(id).toBe("session:sess-1");
+    expect(parseTabId(id)).toEqual({ type: "session", sessionId: "sess-1" });
+  });
+
+  it("builds and parses file tab IDs", () => {
+    const id = tabId({ type: "file", path: "src/index.ts" });
+    expect(id).toBe("file:src/index.ts");
+    expect(parseTabId(id)).toEqual({ type: "file", path: "src/index.ts" });
   });
 });
