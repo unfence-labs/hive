@@ -32,10 +32,10 @@ interface ConversationTabsProps {
   onActivateSession: (sessionId: string) => void;
   onDeleteSession: (sessionId: string) => void;
   openFile?: string | null;
-  isFileActive?: boolean;
-  onFileTabClick?: () => void;
+  isFileTabActive?: boolean;
+  onFileTabActivate?: () => void;
   onFileTabClose?: () => void;
-  onConversationTabClick?: () => void;
+  onConversationActivate?: () => void;
 }
 
 function getTabTitle(session: SessionMetadata): string {
@@ -46,19 +46,19 @@ function getSessionVisualState({
   sessionId,
   activeSessionId,
   isStreaming,
-  isFileActive,
+  isFileTabActive,
   streamingSessions,
   unreadSessions,
 }: {
   sessionId: string;
   activeSessionId?: string;
   isStreaming: boolean;
-  isFileActive?: boolean;
+  isFileTabActive?: boolean;
   streamingSessions?: Record<string, boolean>;
   unreadSessions?: Record<string, boolean>;
 }) {
   const isActive = sessionId === activeSessionId;
-  const isSessionVisible = isActive && !isFileActive;
+  const isSessionVisible = isActive && !isFileTabActive;
   const isSessionStreaming = Boolean(streamingSessions?.[sessionId] ?? (isActive && isStreaming));
   const isSessionUnread = !isSessionVisible && !isSessionStreaming && Boolean(unreadSessions?.[sessionId]);
 
@@ -120,10 +120,10 @@ export function ConversationTabs({
   onActivateSession,
   onDeleteSession,
   openFile,
-  isFileActive,
-  onFileTabClick,
+  isFileTabActive,
+  onFileTabActivate,
   onFileTabClose,
-  onConversationTabClick,
+  onConversationActivate,
 }: ConversationTabsProps) {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(sessions.length);
@@ -178,11 +178,11 @@ export function ConversationTabs({
               type="button"
               className={cn(
                 "group relative flex h-7 max-w-48 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
-                isFileActive
+                isFileTabActive
                   ? "text-foreground after:absolute after:bottom-0 after:inset-x-2 after:h-0.5 after:rounded-full after:bg-primary"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
               )}
-              onClick={onFileTabClick}
+              onClick={onFileTabActivate}
             >
               <FileIcon className="size-3 shrink-0" />
               <span className="truncate">{openFile.split("/").pop()}</span>
@@ -194,11 +194,11 @@ export function ConversationTabs({
               type="button"
               className={cn(
                 "relative flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
-                !isFileActive
+                !isFileTabActive
                   ? "text-foreground after:absolute after:bottom-0 after:inset-x-2 after:h-0.5 after:rounded-full after:bg-primary"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
               )}
-              onClick={onConversationTabClick}
+              onClick={onConversationActivate}
             >
               <MessageSquareIcon className="size-3 shrink-0" />
               <span className="truncate">Untitled</span>
@@ -209,7 +209,7 @@ export function ConversationTabs({
               sessionId: session.sessionId,
               activeSessionId,
               isStreaming,
-              isFileActive,
+              isFileTabActive,
               streamingSessions,
               unreadSessions,
             });
@@ -222,7 +222,7 @@ export function ConversationTabs({
                 type="button"
                 className={cn(
                   "group relative flex h-7 max-w-48 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
-                  isActive && !isFileActive
+                  isActive && !isFileTabActive
                     ? "text-foreground after:absolute after:bottom-0 after:inset-x-2 after:h-0.5 after:rounded-full after:bg-primary"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                   !isVisible && "hidden",
@@ -255,7 +255,7 @@ export function ConversationTabs({
                   sessionId: session.sessionId,
                   activeSessionId,
                   isStreaming,
-                  isFileActive,
+                  isFileTabActive,
                   streamingSessions,
                   unreadSessions,
                 });

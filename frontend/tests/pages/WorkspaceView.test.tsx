@@ -167,10 +167,10 @@ vi.mock("@/components/ConversationTabs", () => ({
     onDeleteSession: (id: string) => void;
     onCreateSession: () => void;
     onActivateSession: (id: string) => void;
-    onFileTabClick?: () => void;
+    onFileTabActivate?: () => void;
     unreadSessions?: Record<string, boolean>;
   }) => {
-    const { onDeleteSession, onCreateSession, onActivateSession, onFileTabClick } = props;
+    const { onDeleteSession, onCreateSession, onActivateSession, onFileTabActivate } = props;
     mocks.captureConversationTabsProps(props);
     return (
       <div data-testid="conversation-tabs">
@@ -186,7 +186,7 @@ vi.mock("@/components/ConversationTabs", () => ({
         <button type="button" data-testid="activate-session-btn" onClick={() => onActivateSession("sess-2")}>
           activate session
         </button>
-        <button type="button" data-testid="file-tab-btn" onClick={() => onFileTabClick?.()}>
+        <button type="button" data-testid="file-tab-btn" onClick={() => onFileTabActivate?.()}>
           file tab
         </button>
       </div>
@@ -203,7 +203,16 @@ vi.mock("@/components/diff/ModifiedFileList", () => ({
 }));
 
 vi.mock("@/components/ai-elements/file-tree", () => ({
-  FileTree: ({ children }: { children?: ReactNode }) => <div data-testid="file-tree">{children}</div>,
+  FileTree: ({ children, onPathSelect }: { children?: ReactNode; onPathSelect?: (path: string) => void }) => (
+    <div data-testid="file-tree">
+      {children}
+      {onPathSelect && (
+        <button type="button" data-testid="select-file-btn" onClick={() => onPathSelect("src/index.ts")}>
+          select file
+        </button>
+      )}
+    </div>
+  ),
   FileTreeFile: ({ name }: { name: string }) => <div data-testid={`file-${name}`}>{name}</div>,
   FileTreeFolder: ({ name, children }: { name: string; children?: ReactNode }) => (
     <div data-testid={`folder-${name}`}>
@@ -730,18 +739,19 @@ describe("WorkspaceView behavior", () => {
       const lastCall =
         mocks.captureConversationTabsProps.mock.calls[
           mocks.captureConversationTabsProps.mock.calls.length - 1
-        ]?.[0] as { isFileActive?: boolean } | undefined;
-      expect(lastCall?.isFileActive).toBe(false);
+        ]?.[0] as { isFileTabActive?: boolean } | undefined;
+      expect(lastCall?.isFileTabActive).toBe(false);
     });
 
-    await user.click(screen.getByTestId("file-tab-btn"));
+    // Open a file first (via file tree), then the file tab becomes active
+    await user.click(screen.getByTestId("select-file-btn"));
 
     await waitFor(() => {
       const lastCall =
         mocks.captureConversationTabsProps.mock.calls[
           mocks.captureConversationTabsProps.mock.calls.length - 1
-        ]?.[0] as { isFileActive?: boolean } | undefined;
-      expect(lastCall?.isFileActive).toBe(true);
+        ]?.[0] as { isFileTabActive?: boolean } | undefined;
+      expect(lastCall?.isFileTabActive).toBe(true);
     });
 
     await user.click(screen.getByTestId("activate-session-btn"));
@@ -755,8 +765,8 @@ describe("WorkspaceView behavior", () => {
       const lastCall =
         mocks.captureConversationTabsProps.mock.calls[
           mocks.captureConversationTabsProps.mock.calls.length - 1
-        ]?.[0] as { isFileActive?: boolean } | undefined;
-      expect(lastCall?.isFileActive).toBe(false);
+        ]?.[0] as { isFileTabActive?: boolean } | undefined;
+      expect(lastCall?.isFileTabActive).toBe(false);
     });
   });
 

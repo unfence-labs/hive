@@ -158,7 +158,7 @@ describe("ConversationTabs", () => {
       sessions: [],
       activeSessionId: undefined,
       openFile: "src/index.ts",
-      isFileActive: true,
+      isFileTabActive: true,
     });
 
     const untitledTab = screen.getByText("Untitled").parentElement as HTMLElement;
@@ -166,19 +166,19 @@ describe("ConversationTabs", () => {
     expect(untitledTab.className).not.toContain("text-accent-foreground");
   });
 
-  it("calls onConversationTabClick when clicking empty Untitled tab", async () => {
+  it("calls onConversationActivate when clicking empty Untitled tab", async () => {
     const user = userEvent.setup();
-    const onConversationTabClick = vi.fn();
+    const onConversationActivate = vi.fn();
     renderTabs({
       sessions: [],
       activeSessionId: undefined,
       openFile: "src/index.ts",
-      isFileActive: true,
-      onConversationTabClick,
+      isFileTabActive: true,
+      onConversationActivate,
     });
 
     await user.click(screen.getByRole("button", { name: "Untitled" }));
-    expect(onConversationTabClick).toHaveBeenCalledTimes(1);
+    expect(onConversationActivate).toHaveBeenCalledTimes(1);
   });
 
   it("renders three or more tabs", () => {
@@ -278,7 +278,7 @@ describe("ConversationTabs", () => {
     renderTabs({
       unreadSessions: { "sess-1": true },
       openFile: "src/index.ts",
-      isFileActive: true,
+      isFileTabActive: true,
     });
 
     const activeButHiddenConversationTab = screen.getByText("First conversation").closest("button")!;
@@ -374,41 +374,41 @@ describe("ConversationTabs — file tab", () => {
     expect(screen.getByText("App.tsx")).toBeInTheDocument();
   });
 
-  it("applies active styling to file tab when isFileActive is true", () => {
-    renderTabs({ openFile: "src/index.ts", isFileActive: true });
+  it("applies active styling to file tab when file tab is active", () => {
+    renderTabs({ openFile: "src/index.ts", isFileTabActive: true });
     const fileTab = screen.getByText("index.ts").closest("button")!;
     expect(fileTab.className).toContain("text-foreground");
     expect(fileTab.className).toContain("after:bg-primary");
   });
 
-  it("applies inactive styling to file tab when isFileActive is false", () => {
-    renderTabs({ openFile: "src/index.ts", isFileActive: false });
+  it("applies inactive styling to file tab when file tab is inactive", () => {
+    renderTabs({ openFile: "src/index.ts", isFileTabActive: false });
     const fileTab = screen.getByText("index.ts").closest("button")!;
     expect(fileTab.className).toContain("text-muted-foreground");
     expect(fileTab.className).not.toContain("text-accent-foreground");
   });
 
   it("dims conversation tab styling when file tab is active", () => {
-    renderTabs({ openFile: "src/index.ts", isFileActive: true });
+    renderTabs({ openFile: "src/index.ts", isFileTabActive: true });
     const convTab = screen.getByText("First conversation").closest("button")!;
     expect(convTab.className).toContain("text-muted-foreground");
     expect(convTab.className).not.toContain("text-accent-foreground");
   });
 
-  it("calls onFileTabClick when clicking the file tab", async () => {
+  it("calls onFileTabActivate callback when clicking the file tab", async () => {
     const user = userEvent.setup();
-    const onFileTabClick = vi.fn();
-    renderTabs({ openFile: "README.md", isFileActive: false, onFileTabClick });
+    const onFileTabActivate = vi.fn();
+    renderTabs({ openFile: "README.md", isFileTabActive: false, onFileTabActivate });
 
     await user.click(screen.getByText("README.md"));
 
-    expect(onFileTabClick).toHaveBeenCalledTimes(1);
+    expect(onFileTabActivate).toHaveBeenCalledTimes(1);
   });
 
   it("calls onFileTabClose when clicking X on the file tab", async () => {
     const user = userEvent.setup();
     const onFileTabClose = vi.fn();
-    renderTabs({ openFile: "README.md", isFileActive: true, onFileTabClose });
+    renderTabs({ openFile: "README.md", isFileTabActive: true, onFileTabClose });
 
     const fileTab = screen.getByText("README.md").closest("button")!;
     await user.hover(fileTab);
@@ -419,7 +419,7 @@ describe("ConversationTabs — file tab", () => {
   });
 
   it("renders file tab to the left of conversation tabs", () => {
-    renderTabs({ openFile: "src/app.ts", isFileActive: true });
+    renderTabs({ openFile: "src/app.ts", isFileTabActive: true });
     const fileTab = screen.getByText("app.ts").closest("button")!;
     const convTab = screen.getByText("First conversation").closest("button")!;
 
@@ -442,7 +442,7 @@ describe("ConversationTabs — file tab", () => {
     const scrollWidthSpy = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(50);
 
     try {
-      renderTabs({ openFile: "src/app.ts", isFileActive: true });
+      renderTabs({ openFile: "src/app.ts", isFileTabActive: true });
 
       const overflowTrigger = await waitFor(() => {
         const trigger = (

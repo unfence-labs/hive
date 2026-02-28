@@ -21,6 +21,23 @@ export interface Workspace {
   worktreePath?: string;
 }
 
+// ── Tab types ───────────────────────────────────────────────────────
+
+export type Tab =
+  | { type: "session"; sessionId: string }
+  | { type: "file"; path: string };
+
+export type TabId = `session:${string}` | `file:${string}`;
+
+export function tabId(tab: Tab): TabId {
+  return tab.type === "session" ? `session:${tab.sessionId}` : `file:${tab.path}`;
+}
+
+export function parseTabId(id: TabId): Tab {
+  if (id.startsWith("session:")) return { type: "session", sessionId: id.slice(8) };
+  return { type: "file", path: id.slice(5) };
+}
+
 // ── Completion / autocomplete types ─────────────────────────────────
 
 export type CompletionItemType = "slash_command" | "agent";
