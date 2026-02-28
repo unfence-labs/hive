@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { usePrStatus, useBulkPrStatus, prStatusKey } from "@/hooks/usePrStatus";
+import { usePrStatus, useBulkPrStatus, usePrStatusMap, prStatusKey } from "@/hooks/usePrStatus";
 import { api } from "@/hooks/useApi";
 import type { PrStatusResponse, PullRequestInfo } from "@/types";
 import { createWrapper } from "../test-utils";
@@ -54,28 +54,30 @@ describe("usePrStatus", () => {
     expect(api.get).not.toHaveBeenCalled();
   });
 
-  it("fetches PR status for the workspace", async () => {
-    vi.mocked(api.get).mockResolvedValueOnce({ pr: makePr({ number: 7 }) });
+  it("reads a seeded cache entry without standalone fetch", async () => {
+    const { wrapper, queryClient } = createWrapper();
+    queryClient.setQueryData(prStatusKey("ws-1"), {
+      pr: makePr({ number: 7 }),
+    } satisfies PrStatusResponse);
 
-    const { wrapper } = createWrapper();
     const { result } = renderHook(() => usePrStatus("ws-1"), { wrapper });
 
     await waitFor(() => {
       expect(result.current.pr?.number).toBe(7);
     });
 
-    expect(api.get).toHaveBeenCalledWith("/api/workspaces/ws-1/pr-status");
     expect(result.current.error).toBeNull();
     expect(result.current.loading).toBe(false);
+    expect(api.get).not.toHaveBeenCalled();
   });
 
-  it("exposes backend error messages", async () => {
-    vi.mocked(api.get).mockResolvedValueOnce({
+  it("exposes seeded error payloads", async () => {
+    const { wrapper, queryClient } = createWrapper();
+    queryClient.setQueryData(prStatusKey("ws-1"), {
       pr: null,
       error: "gh not authenticated — run `gh auth login`",
-    });
+    } satisfies PrStatusResponse);
 
-    const { wrapper } = createWrapper();
     const { result } = renderHook(() => usePrStatus("ws-1"), { wrapper });
 
     await waitFor(() => {
@@ -83,34 +85,42 @@ describe("usePrStatus", () => {
     });
 
     expect(result.current.pr).toBeNull();
+    expect(api.get).not.toHaveBeenCalled();
   });
 
-  it("reports loading=true while the request is in flight", async () => {
-    const pending = deferred<{ pr: PullRequestInfo | null; error?: string }>();
-    vi.mocked(api.get).mockReturnValueOnce(pending.promise);
+  it("reports loading=true while the shared bulk poll is in flight", async () => {
+    const pending = deferred<{ results: Record<string, PrStatusResponse> }>();
+    vi.mocked(api.post).mockReturnValueOnce(pending.promise);
 
     const { wrapper } = createWrapper();
+    renderHook(() => useBulkPrStatus(["ws-1"]), { wrapper });
     const { result } = renderHook(() => usePrStatus("ws-1"), { wrapper });
 
-    expect(result.current.loading).toBe(true);
+    await waitFor(() => {
+      expect(result.current.loading).toBe(true);
+    });
 
     await act(async () => {
-      pending.resolve({ pr: makePr({ number: 99 }) });
+      pending.resolve({ results: { "ws-1": { pr: makePr({ number: 99 }) } } });
       await Promise.resolve();
     });
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
+      expect(result.current.pr?.number).toBe(99);
     });
-    expect(result.current.pr?.number).toBe(99);
+    expect(api.get).not.toHaveBeenCalled();
   });
 
-  it("refetches when workspace id changes", async () => {
-    vi.mocked(api.get)
-      .mockResolvedValueOnce({ pr: makePr({ number: 1 }) })
-      .mockResolvedValueOnce({ pr: makePr({ number: 2 }) });
+  it("updates when workspace id changes and cache is already seeded", async () => {
+    const { wrapper, queryClient } = createWrapper();
+    queryClient.setQueryData(prStatusKey("ws-1"), {
+      pr: makePr({ number: 1 }),
+    } satisfies PrStatusResponse);
+    queryClient.setQueryData(prStatusKey("ws-2"), {
+      pr: makePr({ number: 2 }),
+    } satisfies PrStatusResponse);
 
-    const { wrapper } = createWrapper();
     const { result, rerender } = renderHook(
       ({ wsId }: { wsId: string | undefined }) => usePrStatus(wsId),
       {
@@ -128,9 +138,31 @@ describe("usePrStatus", () => {
     await waitFor(() => {
       expect(result.current.pr?.number).toBe(2);
     });
+    expect(api.get).not.toHaveBeenCalled();
+  });
+});
 
-    expect(api.get).toHaveBeenNthCalledWith(1, "/api/workspaces/ws-1/pr-status");
-    expect(api.get).toHaveBeenNthCalledWith(2, "/api/workspaces/ws-2/pr-status");
+describe("usePrStatusMap", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns statuses from shared per-workspace cache", async () => {
+    const { wrapper, queryClient } = createWrapper();
+    queryClient.setQueryData(prStatusKey("ws-1"), {
+      pr: makePr({ number: 11 }),
+    } satisfies PrStatusResponse);
+    queryClient.setQueryData(prStatusKey("ws-2"), {
+      pr: null,
+      error: "Failed to fetch PR status",
+    } satisfies PrStatusResponse);
+
+    const { result } = renderHook(() => usePrStatusMap(["ws-1", "ws-2"]), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current["ws-1"]?.pr?.number).toBe(11);
+    });
+    expect(result.current["ws-2"]?.error).toBe("Failed to fetch PR status");
   });
 });
 

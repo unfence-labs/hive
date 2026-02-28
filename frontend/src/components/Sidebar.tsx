@@ -28,7 +28,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import { useProjects } from "@/hooks/useProjects";
-import { useBulkPrStatus } from "@/hooks/usePrStatus";
+import { useBulkPrStatus, usePrStatusMap } from "@/hooks/usePrStatus";
 import { computePrDisplayCompact } from "@/lib/pr-display";
 import { BranchLabel } from "@/components/BranchLabel";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
@@ -172,7 +172,8 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     () => projects.flatMap((p) => (p.workspaces ?? []).map((ws) => ws.id)),
     [projects],
   );
-  const { results: prStatuses, loading: prLoading } = useBulkPrStatus(allWsIds);
+  const { loading: prLoading } = useBulkPrStatus(allWsIds);
+  const prStatuses = usePrStatusMap(allWsIds);
 
   const isProjectExpanded = (projectId: string) => {
     const expanded = expandedProjects[projectId];
