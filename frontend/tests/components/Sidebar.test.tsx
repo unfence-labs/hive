@@ -8,6 +8,14 @@ import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { api } from "@/hooks/useApi";
 import type { Project, PullRequestInfo, WsOutgoing } from "@/types";
 
+/** Match elements whose full textContent equals `text` (handles text split across child spans). */
+function withTextContent(text: string) {
+  return (_: string, element: Element | null): boolean => {
+    if (!element || element.textContent !== text) return false;
+    return Array.from(element.children).every((child) => child.textContent !== text);
+  };
+}
+
 vi.mock("@/hooks/useApi", () => ({
   api: {
     get: vi.fn(),
@@ -192,11 +200,11 @@ describe("Sidebar", () => {
     const user = userEvent.setup();
     renderSidebar("/projects", projects);
 
-    expect(await screen.findByText("Alpha")).toBeInTheDocument();
-    expect(screen.getByText("Beta")).toBeInTheDocument();
+    expect(await screen.findByText(withTextContent("acme/alpha"))).toBeInTheDocument();
+    expect(screen.getByText(withTextContent("acme/beta"))).toBeInTheDocument();
     expect(screen.queryByText("workspace/tokyo")).not.toBeInTheDocument();
 
-    await user.click(screen.getByText("Alpha"));
+    await user.click(screen.getByText(withTextContent("acme/alpha")));
     expect(screen.getByText("workspace/tokyo")).toBeInTheDocument();
   });
 
@@ -204,9 +212,9 @@ describe("Sidebar", () => {
     renderSidebar("/projects", projects);
 
     // Project header: button contains name, sibling div contains count
-    const alphaButton = (await screen.findByText("Alpha")).closest("button")!;
+    const alphaButton = (await screen.findByText(withTextContent("acme/alpha"))).closest("button")!;
     const alphaHeader = alphaButton.parentElement!;
-    const betaButton = screen.getByText("Beta").closest("button")!;
+    const betaButton = screen.getByText(withTextContent("acme/beta")).closest("button")!;
     const betaHeader = betaButton.parentElement!;
 
     // Alpha has 1 workspace → count "1" visible in project header
@@ -234,8 +242,8 @@ describe("Sidebar", () => {
     });
     renderSidebar("/projects", projects);
 
-    await screen.findByText("Alpha");
-    await user.click(screen.getByRole("button", { name: "Add workspace to Alpha" }));
+    await screen.findByText(withTextContent("acme/alpha"));
+    await user.click(screen.getByRole("button", { name: "Add workspace to acme/alpha" }));
 
     await waitFor(() => {
       expect(api.post).toHaveBeenCalledWith("/api/projects/p1/workspaces");
@@ -255,9 +263,9 @@ describe("Sidebar", () => {
     });
 
     renderSidebar("/projects", projects);
-    await screen.findByText("Alpha");
+    await screen.findByText(withTextContent("acme/alpha"));
 
-    await user.click(screen.getByRole("button", { name: "Add workspace to Alpha" }));
+    await user.click(screen.getByRole("button", { name: "Add workspace to acme/alpha" }));
 
     await waitFor(() => {
       expect(screen.getByTestId("location-path")).toHaveTextContent("/workspaces/w-new");
@@ -268,7 +276,7 @@ describe("Sidebar", () => {
     const { __wsMock } = await getWsMock();
     renderSidebar("/workspaces/w1", projects);
 
-    await screen.findByText("Alpha");
+    await screen.findByText(withTextContent("acme/alpha"));
     expect(screen.queryByRole("img", { name: "Agent thinking" })).not.toBeInTheDocument();
     expect(screen.getByText("workspace/tokyo")).toBeInTheDocument();
 
@@ -277,7 +285,7 @@ describe("Sidebar", () => {
     });
 
     expect(screen.getByRole("img", { name: "Agent thinking" })).toBeInTheDocument();
-    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByText(withTextContent("acme/alpha"))).toBeInTheDocument();
 
     act(() => {
       __wsMock.emit("w1", { type: "status", status: "busy", streaming: false });
@@ -344,7 +352,7 @@ describe("Sidebar", () => {
     const { __wsMock } = await getWsMock();
     renderSidebar("/workspaces/w1", multiWsProjects);
 
-    await screen.findByText("Alpha");
+    await screen.findByText(withTextContent("acme/alpha"));
 
     // Stream only w1
     act(() => {
