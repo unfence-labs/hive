@@ -9,20 +9,17 @@ import type { BulkPrStatusResponse, PrStatusResponse } from "@/types";
 
 export const prStatusKey = (wsId: string) => ["pr-status", wsId] as const;
 
-const sharedOptions = {
-  refetchInterval: 15_000,
-  staleTime: 10_000,
-  gcTime: 5 * 60_000,
-  placeholderData: keepPreviousData,
-} as const;
-
 export function usePrStatus(wsId: string | undefined) {
   const query = useQuery({
     queryKey: prStatusKey(wsId ?? ""),
     queryFn: (): Promise<PrStatusResponse> =>
       api.get<PrStatusResponse>(`/api/workspaces/${wsId}/pr-status`),
     enabled: !!wsId,
-    ...sharedOptions,
+    staleTime: 10_000,
+    gcTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
+    // No refetchInterval — data is seeded by useBulkPrStatus (Sidebar)
+    // via queryClient.setQueryData, ensuring all consumers update together.
   });
 
   return {
@@ -57,7 +54,10 @@ export function useBulkPrStatus(wsIds: string[]) {
       return data;
     },
     enabled: wsIds.length > 0,
-    ...sharedOptions,
+    refetchInterval: 15_000,
+    staleTime: 10_000,
+    gcTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
   });
 
   return {
