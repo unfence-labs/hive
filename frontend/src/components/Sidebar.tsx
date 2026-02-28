@@ -66,9 +66,9 @@ interface SidebarGroupHeaderProps {
   label: React.ReactNode;
   badge?: React.ReactNode;
   count?: number;
+  isLoading?: boolean;
   onAdd?: (e: React.MouseEvent) => void;
   addLabel?: string;
-  addContent?: React.ReactNode;
 }
 
 function SidebarGroupHeader({
@@ -76,9 +76,9 @@ function SidebarGroupHeader({
   label,
   badge,
   count,
+  isLoading,
   onAdd,
   addLabel,
-  addContent,
 }: SidebarGroupHeaderProps) {
   return (
     <div className="group relative flex w-full items-center">
@@ -100,22 +100,28 @@ function SidebarGroupHeader({
       {count !== undefined && (
         <div className="absolute inset-y-0 right-2.5 flex items-center">
           <div className="relative flex h-5 w-5 items-center justify-center">
-            <span className="text-xs tabular-nums text-muted-foreground/60 transition-opacity group-hover:opacity-0">
-              {count}
-            </span>
-            {onAdd && (
-              <button
-                type="button"
-                className="absolute inset-0 flex items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover:opacity-100"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAdd(e);
-                }}
-                aria-label={addLabel}
-                title={addLabel}
-              >
-                {addContent ?? <Plus className="h-4 w-4" />}
-              </button>
+            {isLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            ) : (
+              <>
+                <span className="text-xs tabular-nums text-muted-foreground/60 transition-opacity group-hover:opacity-0">
+                  {count}
+                </span>
+                {onAdd && (
+                  <button
+                    type="button"
+                    className="absolute inset-0 flex items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAdd(e);
+                    }}
+                    aria-label={addLabel}
+                    title={addLabel}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -258,9 +264,9 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                         }
                         label={displayLabel}
                         count={(project.workspaces ?? []).length}
+                        isLoading={creatingProjectId === project.id}
                         onAdd={() => { void handleAddWorkspace(project.id); }}
                         addLabel={`Add workspace to ${displayLabelPlain}`}
-                        addContent={creatingProjectId === project.id ? "..." : <Plus className="h-4 w-4" />}
                       />
 
                       <CollapsibleContent>
