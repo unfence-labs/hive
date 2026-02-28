@@ -4,7 +4,6 @@ import type { SubAgentInfo } from "@/lib/sub-agent";
 import { cn } from "@/lib/utils";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ContentPanel, ContentPanelBody, ContentPanelFooter } from "@/components/chat/ContentPanel";
-import ChatToolUse from "@/components/ChatToolUse";
 import { ToolCallTree } from "@/components/chat/ToolCallList";
 
 const svgProps = {
@@ -74,7 +73,7 @@ function parseContentBlocks(output: string): string | null {
   }
 }
 
-interface SubAgentCardProps {
+interface SubAgentNodeProps {
   tool: ToolCall;
   info: SubAgentInfo;
   children: ToolCall[];
@@ -82,13 +81,13 @@ interface SubAgentCardProps {
   showExecutingState?: boolean;
 }
 
-export const SubAgentCard = memo(function SubAgentCard({
+export const SubAgentNode = memo(function SubAgentNode({
   tool,
   info,
   children,
   childrenMap,
   showExecutingState,
-}: SubAgentCardProps) {
+}: SubAgentNodeProps) {
   const [expanded, setExpanded] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
 

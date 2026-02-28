@@ -311,9 +311,9 @@ describe("ToolCallList", () => {
     expect(screen.queryByText("2 tool calls, 1 subagent")).not.toBeInTheDocument();
   });
 
-  // ── SubAgentCard rendering ──────────────────────────────────────────
+  // ── SubAgentNode rendering ──────────────────────────────────────────
 
-  it("renders Task tools as SubAgentCard with agent type and children collapsed by default", async () => {
+  it("renders Task tools as SubAgentNode with agent type and children collapsed by default", async () => {
     const user = userEvent.setup();
     render(
       <ToolCallList
@@ -337,7 +337,7 @@ describe("ToolCallList", () => {
       />,
     );
 
-    // SubAgentCard header shows agent type
+    // SubAgentNode header shows agent type
     expect(screen.getByText("Explore")).toBeInTheDocument();
     expect(screen.getByText("Scan files")).toBeInTheDocument();
 
@@ -358,7 +358,7 @@ describe("ToolCallList", () => {
     expect(screen.getByText("Look into src/lib and summarize changes.")).toBeInTheDocument();
   });
 
-  it("renders nested SubAgentCards recursively", async () => {
+  it("renders nested SubAgentNodes recursively", async () => {
     const user = userEvent.setup();
     render(
       <ToolCallList
@@ -399,7 +399,7 @@ describe("ToolCallList", () => {
     expect(screen.getByText("Bash")).toBeInTheDocument();
   });
 
-  it("shows completed status badge on SubAgentCard when output exists", () => {
+  it("shows completed status badge on SubAgentNode when output exists", () => {
     render(
       <ToolCallList
         toolCalls={[
@@ -417,7 +417,7 @@ describe("ToolCallList", () => {
     expect(screen.getByText("Done")).toBeInTheDocument();
   });
 
-  it("shows shimmer animation on SubAgentCard during streaming", () => {
+  it("shows shimmer animation on SubAgentNode during streaming", () => {
     render(
       <ToolCallList
         showExecutingState
@@ -437,5 +437,280 @@ describe("ToolCallList", () => {
     // Running state uses shimmer animation on the button (same as other executing tools)
     const btn = screen.getByRole("button", { name: /Explore/i });
     expect(btn).toHaveClass("animate-shimmer");
+  });
+
+  it("does not shimmer SubAgentNode when showExecutingState is false", () => {
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "task-no-output",
+            name: "Task",
+            input: JSON.stringify({ subagent_type: "Explore", description: "Pending" }),
+            output: undefined,
+          }),
+        ]}
+      />,
+    );
+
+    const btn = screen.getByRole("button", { name: /Explore/i });
+    expect(btn).not.toHaveClass("animate-shimmer");
+  });
+
+  it("shows tool count badge on completed SubAgentNode with children", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "task-parent",
+            name: "Task",
+            input: JSON.stringify({ subagent_type: "Explore", description: "Search" }),
+            output: "Found stuff",
+          }),
+          tool({ id: "c1", name: "Read", input: "{}", parentToolUseId: "task-parent", output: "ok" }),
+          tool({ id: "c2", name: "Grep", input: "{}", parentToolUseId: "task-parent", output: "ok" }),
+          tool({ id: "c3", name: "Edit", input: "{}", parentToolUseId: "task-parent", output: "ok" }),
+        ]}
+      />,
+    );
+
+    // 4 regularTools >= 3 triggers collapse; expand summary first
+    await user.click(screen.getByText("1 subagent"));
+
+    expect(screen.getByText("Done")).toBeInTheDocument();
+    expect(screen.getByText(/3 tools/)).toBeInTheDocument();
+  });
+
+  it("shows singular tool count on SubAgentNode with one child", () => {
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "task-one",
+            name: "Task",
+            input: JSON.stringify({ subagent_type: "Plan", description: "Design" }),
+            output: "Result",
+          }),
+          tool({ id: "c1", name: "Read", input: "{}", parentToolUseId: "task-one", output: "ok" }),
+        ]}
+      />,
+    );
+
+    // 2 tools: below collapse threshold, shown directly
+    expect(screen.getByText(/· 1 tool$/)).toBeInTheDocument();
+  });
+
+  it("does not show tool count on running SubAgentNode even with children", () => {
+    render(
+      <ToolCallList
+        showExecutingState
+        toolCalls={[
+          tool({
+            id: "task-running-children",
+            name: "Task",
+            input: JSON.stringify({ subagent_type: "Explore", description: "Working" }),
+            output: undefined,
+          }),
+          tool({ id: "c1", name: "Read", input: "{}", parentToolUseId: "task-running-children" }),
+        ]}
+      />,
+    );
+
+    // Running state shows pulse dot, not tool count
+    expect(screen.queryByText(/· \d+ tools?$/)).not.toBeInTheDocument();
+  });
+
+  it("SubAgentNode shows result footer when expanded and done", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "task-result",
+            name: "Task",
+            input: JSON.stringify({ subagent_type: "Explore", description: "Search" }),
+            output: "The answer is 42",
+          }),
+        ]}
+      />,
+    );
+
+    // Expand the card
+    await user.click(screen.getByText("Explore"));
+
+    // Result footer visible
+    expect(screen.getByText("Result")).toBeInTheDocument();
+    expect(screen.getByText("The answer is 42")).toBeInTheDocument();
+  });
+
+  it("SubAgentNode parses content blocks in output for result footer", async () => {
+    const user = userEvent.setup();
+    const contentBlocks = JSON.stringify([
+      { type: "text", text: "Found the files." },
+      { type: "text", text: "Analysis complete." },
+    ]);
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "task-blocks",
+            name: "Task",
+            input: JSON.stringify({ subagent_type: "Explore", description: "Analyze" }),
+            output: contentBlocks,
+          }),
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByText("Explore"));
+    expect(screen.getByText("Result")).toBeInTheDocument();
+    // Content blocks parsed and rendered via MessageResponse
+    expect(screen.getByText(/Found the files/)).toBeInTheDocument();
+    expect(screen.getByText(/Analysis complete/)).toBeInTheDocument();
+  });
+
+  it("SubAgentNode falls back to raw output when content blocks parse fails", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "task-raw",
+            name: "Task",
+            input: JSON.stringify({ subagent_type: "Explore", description: "Scan" }),
+            output: "Just plain text",
+          }),
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByText("Explore"));
+    expect(screen.getByText("Just plain text")).toBeInTheDocument();
+  });
+
+  it("SubAgentNode does not show prompt button when no prompt", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "task-no-prompt",
+            name: "Task",
+            input: JSON.stringify({ subagent_type: "Explore", description: "No prompt" }),
+          }),
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByText("Explore"));
+    expect(screen.queryByText("Prompt")).not.toBeInTheDocument();
+  });
+
+  it("SubAgentNode defaults to 'Agent' when subagent_type is missing", () => {
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "task-default",
+            name: "Task",
+            input: JSON.stringify({ description: "Generic agent" }),
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Agent")).toBeInTheDocument();
+    expect(screen.getByText("Generic agent")).toBeInTheDocument();
+  });
+
+  it("falls back to generic ChatToolUse when Task has malformed JSON", () => {
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "task-bad",
+            name: "Task",
+            input: "not json at all",
+          }),
+        ]}
+      />,
+    );
+
+    // Should still render something (generic tool use fallback)
+    expect(screen.getByText("Task")).toBeInTheDocument();
+  });
+
+  it("TaskNodeFallback renders for non-Task tools with children", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({ id: "parent-bash", name: "Bash", input: '{"command":"ls"}', output: "ok" }),
+          tool({ id: "child-read", name: "Read", input: '{"file_path":"/a"}', parentToolUseId: "parent-bash", output: "file content" }),
+        ]}
+      />,
+    );
+
+    // Parent rendered as ChatToolUse
+    expect(screen.getByText("Bash")).toBeInTheDocument();
+    // Child hidden initially
+    expect(screen.queryByText("Read")).not.toBeInTheDocument();
+
+    // Click to expand
+    await user.click(screen.getByText("Bash"));
+    expect(screen.getByText("Read")).toBeInTheDocument();
+  });
+
+  it("filters out TaskUpdate tools from display", () => {
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({ name: "Read", input: '{"file_path":"/a"}', output: "ok" }),
+          tool({ name: "TaskUpdate", input: '{"taskId":"1","status":"completed"}', output: "ok" }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Read")).toBeInTheDocument();
+    expect(screen.queryByText("TaskUpdate")).not.toBeInTheDocument();
+  });
+
+  it("SubAgentNode description shown as code element", () => {
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "task-desc",
+            name: "Task",
+            input: JSON.stringify({ subagent_type: "Explore", description: "My description" }),
+          }),
+        ]}
+      />,
+    );
+
+    const codeEl = screen.getByText("My description");
+    expect(codeEl.tagName).toBe("CODE");
+  });
+
+  it("SubAgentNode hides description when empty", () => {
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "task-no-desc",
+            name: "Task",
+            input: JSON.stringify({ subagent_type: "Explore", description: "" }),
+          }),
+        ]}
+      />,
+    );
+
+    // No code element should be rendered for empty description
+    const buttons = screen.getAllByRole("button");
+    const agentBtn = buttons.find(b => b.textContent?.includes("Explore"));
+    expect(agentBtn).toBeDefined();
+    const codeEls = agentBtn!.querySelectorAll("code");
+    expect(codeEls).toHaveLength(0);
   });
 });

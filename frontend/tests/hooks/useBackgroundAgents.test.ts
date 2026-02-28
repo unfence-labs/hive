@@ -144,4 +144,160 @@ describe("useBackgroundAgents", () => {
     const { result } = renderHook(() => useBackgroundAgents(messages, []));
     expect(result.current.agents).toEqual([]);
   });
+
+  it("returns same EMPTY reference for repeated empty inputs (memoization)", () => {
+    const { result, rerender } = renderHook(() => useBackgroundAgents([], []));
+    const first = result.current;
+    rerender();
+    expect(result.current).toBe(first);
+  });
+
+  it("collects background agents from multiple messages", () => {
+    const messages = [
+      msg([
+        tc({
+          id: "bg-1",
+          name: "Task",
+          input: JSON.stringify({ subagent_type: "Explore", description: "A", run_in_background: true }),
+          output: "done",
+        }),
+      ]),
+      msg([
+        tc({
+          id: "bg-2",
+          name: "Task",
+          input: JSON.stringify({ subagent_type: "Plan", description: "B", run_in_background: true }),
+          output: "done",
+        }),
+      ]),
+    ];
+    const { result } = renderHook(() => useBackgroundAgents(messages, []));
+    expect(result.current.agents).toHaveLength(2);
+    expect(result.current.agents[0].toolId).toBe("bg-1");
+    expect(result.current.agents[1].toolId).toBe("bg-2");
+  });
+
+  it("mixes background agents from messages and activeToolCalls", () => {
+    const messages = [
+      msg([
+        tc({
+          id: "bg-msg",
+          name: "Task",
+          input: JSON.stringify({ subagent_type: "Explore", description: "From msg", run_in_background: true }),
+          output: "result",
+        }),
+      ]),
+    ];
+    const active: ToolCall[] = [
+      tc({
+        id: "bg-active",
+        name: "Task",
+        input: JSON.stringify({ subagent_type: "Plan", description: "From active", run_in_background: true }),
+      }),
+    ];
+    const { result } = renderHook(() => useBackgroundAgents(messages, active));
+    expect(result.current.agents).toHaveLength(2);
+    expect(result.current.agents[0].isRunning).toBe(false);
+    expect(result.current.agents[1].isRunning).toBe(true);
+    expect(result.current.runningCount).toBe(1);
+  });
+
+  it("skips messages without toolCalls", () => {
+    const messages: ChatMessage[] = [
+      {
+        id: "m1",
+        sessionId: "s1",
+        role: "user",
+        content: "Hello",
+        timestamp: new Date().toISOString(),
+      },
+      {
+        id: "m2",
+        sessionId: "s1",
+        role: "assistant",
+        content: "Hi",
+        timestamp: new Date().toISOString(),
+      },
+    ];
+    const { result } = renderHook(() => useBackgroundAgents(messages, []));
+    expect(result.current.agents).toEqual([]);
+  });
+
+  it("handles a mix of background and foreground tasks in same message", () => {
+    const messages = [
+      msg([
+        tc({
+          id: "fg",
+          name: "Task",
+          input: JSON.stringify({ subagent_type: "Explore", description: "FG", run_in_background: false }),
+          output: "done",
+        }),
+        tc({
+          id: "bg",
+          name: "Task",
+          input: JSON.stringify({ subagent_type: "Plan", description: "BG", run_in_background: true }),
+          output: "done",
+        }),
+      ]),
+    ];
+    const { result } = renderHook(() => useBackgroundAgents(messages, []));
+    expect(result.current.agents).toHaveLength(1);
+    expect(result.current.agents[0].toolId).toBe("bg");
+  });
+
+  it("handles output as empty string (still counts as completed)", () => {
+    const messages = [
+      msg([
+        tc({
+          id: "bg-empty",
+          name: "Task",
+          input: JSON.stringify({ subagent_type: "Explore", description: "Empty", run_in_background: true }),
+          output: "",
+        }),
+      ]),
+    ];
+    const { result } = renderHook(() => useBackgroundAgents(messages, []));
+    expect(result.current.agents).toHaveLength(1);
+    // empty string is not undefined, so it's completed
+    expect(result.current.agents[0].isRunning).toBe(false);
+    expect(result.current.runningCount).toBe(0);
+  });
+
+  it("handles many background agents", () => {
+    const tools = Array.from({ length: 10 }, (_, i) =>
+      tc({
+        id: `bg-${i}`,
+        name: "Task",
+        input: JSON.stringify({ subagent_type: "Explore", description: `Agent ${i}`, run_in_background: true }),
+        output: i < 5 ? "done" : undefined,
+      }),
+    );
+    const { result } = renderHook(() => useBackgroundAgents([msg(tools)], []));
+    expect(result.current.agents).toHaveLength(10);
+    expect(result.current.runningCount).toBe(5);
+  });
+
+  it("ignores non-Task tools in activeToolCalls", () => {
+    const active: ToolCall[] = [
+      tc({ name: "Bash", input: '{"command":"ls"}' }),
+      tc({ name: "Read", input: '{"file_path":"/a"}' }),
+    ];
+    const { result } = renderHook(() => useBackgroundAgents([], active));
+    expect(result.current.agents).toEqual([]);
+  });
+
+  it("model field is undefined when not provided", () => {
+    const messages = [
+      msg([
+        tc({
+          id: "no-model",
+          name: "Task",
+          input: JSON.stringify({ subagent_type: "Explore", description: "X", run_in_background: true }),
+          output: "done",
+        }),
+      ]),
+    ];
+    const { result } = renderHook(() => useBackgroundAgents(messages, []));
+    expect(result.current.agents[0].model).toBeUndefined();
+  });
 });

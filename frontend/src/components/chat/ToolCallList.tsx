@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { findPlanContent } from "@/lib/plan-state";
 import { buildChildrenMap, parseSubAgentInfo } from "@/lib/sub-agent";
 import ChatToolUse, { getToolIcon } from "@/components/ChatToolUse";
-import { SubAgentCard } from "@/components/chat/SubAgentCard";
+import { SubAgentNode } from "@/components/chat/SubAgentNode";
 import { AskUserQuestion } from "@/components/chat/AskUserQuestion";
 import { PlanProposal, type PlanStatus } from "@/components/chat/PlanProposal";
 
@@ -27,12 +27,12 @@ export function ToolCallTree({
       {tools.map((tool) => {
         const children = childrenMap.get(tool.id);
 
-        // Render Task tools as rich SubAgentCard
+        // Render Task tools as rich SubAgentNode
         if (tool.name === "Task") {
           const info = parseSubAgentInfo(tool);
           if (info) {
             return (
-              <SubAgentCard
+              <SubAgentNode
                 key={tool.id}
                 tool={tool}
                 info={info}
