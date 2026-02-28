@@ -85,7 +85,10 @@ function SidebarGroupHeader({
       <CollapsibleTrigger asChild>
         <button
           type="button"
-          className="flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-md bg-[#1e1e28] px-2.5 py-2 text-left transition-colors hover:bg-[#252532]"
+          className={cn(
+            "flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-md bg-[#1e1e28] px-2.5 py-2 text-left transition-colors hover:bg-[#252532]",
+            count !== undefined && "pr-8",
+          )}
         >
           {icon}
           <span className="min-w-0 flex-1 truncate text-xs font-semibold lowercase tracking-wider text-sidebar-foreground">
