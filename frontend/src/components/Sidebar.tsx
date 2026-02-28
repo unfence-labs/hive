@@ -38,11 +38,32 @@ import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { useAutomations } from "@/hooks/useAutomations";
 import type { Automation, DiffStatResponse } from "@/types";
 
+// ── Helpers ──────────────────────────────────────────────────────────
+
+/** Extract { owner, repo } from any git URL, or null if unparseable. */
+function parseProjectOwnerRepo(url: string): { owner: string; repo: string } | null {
+  // SCP-style: git@host:owner/repo.git
+  const scpMatch = url.match(/^[^@]+@[^:]+:([^/]+)\/([^/]+?)(?:\.git)?$/);
+  if (scpMatch) return { owner: scpMatch[1], repo: scpMatch[2] };
+
+  // URL-style: https://host/owner/repo.git or ssh://git@host/owner/repo
+  try {
+    const parsed = new URL(url);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    if (segments.length >= 2)
+      return { owner: segments[0], repo: segments[1].replace(/\.git$/, "") };
+  } catch {
+    // not a valid URL
+  }
+
+  return null;
+}
+
 // ── Shared sidebar group header ──────────────────────────────────────
 
 interface SidebarGroupHeaderProps {
   icon: React.ReactNode;
-  label: string;
+  label: React.ReactNode;
   badge?: React.ReactNode;
   count?: number;
   onAdd?: (e: React.MouseEvent) => void;
@@ -67,7 +88,7 @@ function SidebarGroupHeader({
           className="flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-md bg-[#1e1e28] px-2.5 py-2 text-left transition-colors hover:bg-[#252532]"
         >
           {icon}
-          <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wider text-sidebar-foreground">
+          <span className="min-w-0 flex-1 truncate text-xs font-semibold lowercase tracking-wider text-sidebar-foreground">
             {label}
           </span>
           {badge}
@@ -206,7 +227,13 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
               </div>
             ) : (
               <TooltipProvider delayDuration={400}>
-                {projects.map((project, index) => (
+                {projects.map((project, index) => {
+                  const parsed = parseProjectOwnerRepo(project.url);
+                  const displayLabel = parsed ? (
+                    <><span className="text-muted-foreground">{parsed.owner}/</span>{parsed.repo}</>
+                  ) : project.name;
+                  const displayLabelPlain = parsed ? `${parsed.owner}/${parsed.repo}` : project.name;
+                  return (
                   <div
                     key={project.id}
                     className={cn(index > 0 && "mt-2.5")}
@@ -226,10 +253,10 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                             className="h-5 w-5"
                           />
                         }
-                        label={project.name}
+                        label={displayLabel}
                         count={(project.workspaces ?? []).length}
                         onAdd={() => { void handleAddWorkspace(project.id); }}
-                        addLabel={`Add workspace to ${project.name}`}
+                        addLabel={`Add workspace to ${displayLabelPlain}`}
                         addContent={creatingProjectId === project.id ? "..." : <Plus className="h-4 w-4" />}
                       />
 
@@ -319,7 +346,8 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                       </CollapsibleContent>
                     </Collapsible>
                   </div>
-                ))}
+                  );
+                })}
               </TooltipProvider>
             )}
 
