@@ -243,8 +243,7 @@ export default function WorkspaceView() {
     activateTab,
     openFileTab,
     closeFileTab,
-    resetForWorkspace,
-  } = useTabs(sessionId);
+  } = useTabs(sessionId, wsId);
 
   // Clear unread only when the active conversation is actually visible.
   // If the file tab is open, keep unread state so the tab can show a dot.
@@ -325,11 +324,6 @@ export default function WorkspaceView() {
     },
     [],
   );
-
-  // Reset file viewer when switching workspaces
-  useEffect(() => {
-    resetForWorkspace();
-  }, [wsId, resetForWorkspace]);
 
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();

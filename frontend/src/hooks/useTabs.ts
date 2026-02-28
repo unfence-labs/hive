@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type { TabId } from "../types";
 
 export interface UseTabsReturn {
@@ -8,14 +8,58 @@ export interface UseTabsReturn {
   activateTab: (id: TabId) => void;
   openFileTab: (path: string) => void;
   closeFileTab: () => void;
-  resetForWorkspace: () => void;
 }
 
-export function useTabs(currentSessionId: string | undefined): UseTabsReturn {
-  const [activeTabId, setActiveTabId] = useState<TabId | null>(
-    currentSessionId ? `session:${currentSessionId}` : null,
-  );
-  const [openFile, setOpenFile] = useState<string | null>(null);
+interface TabSnapshot {
+  activeTabId: TabId | null;
+  openFile: string | null;
+}
+
+/** Module-level cache: survives component remounts, lost on page refresh. */
+const snapshotByWorkspace = new Map<string, TabSnapshot>();
+
+/** Visible for testing only. */
+export function _resetSnapshotCache() {
+  snapshotByWorkspace.clear();
+}
+
+export function useTabs(
+  currentSessionId: string | undefined,
+  wsId: string | undefined,
+): UseTabsReturn {
+  const prevWsId = useRef(wsId);
+
+  // Resolve initial state: restore from cache if available, else default.
+  const [activeTabId, setActiveTabId] = useState<TabId | null>(() => {
+    const cached = wsId ? snapshotByWorkspace.get(wsId) : undefined;
+    if (cached) return cached.activeTabId;
+    return currentSessionId ? `session:${currentSessionId}` : null;
+  });
+  const [openFile, setOpenFile] = useState<string | null>(() => {
+    const cached = wsId ? snapshotByWorkspace.get(wsId) : undefined;
+    return cached?.openFile ?? null;
+  });
+
+  // On workspace switch: save outgoing state, restore incoming state.
+  useEffect(() => {
+    if (prevWsId.current === wsId) return;
+
+    // Save outgoing workspace state.
+    if (prevWsId.current) {
+      snapshotByWorkspace.set(prevWsId.current, { activeTabId, openFile });
+    }
+    prevWsId.current = wsId;
+
+    // Restore incoming workspace state (or reset).
+    const cached = wsId ? snapshotByWorkspace.get(wsId) : undefined;
+    if (cached) {
+      setActiveTabId(cached.activeTabId);
+      setOpenFile(cached.openFile);
+    } else {
+      setActiveTabId(null);
+      setOpenFile(null);
+    }
+  }, [wsId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When currentSessionId changes and the active tab is a session tab (or null), track it.
   // If the user is on a file tab, don't disturb them.
@@ -43,12 +87,6 @@ export function useTabs(currentSessionId: string | undefined): UseTabsReturn {
     setActiveTabId(currentSessionId ? `session:${currentSessionId}` : null);
   }, [currentSessionId]);
 
-  const resetForWorkspace = useCallback(() => {
-    setOpenFile(null);
-    // Will be set by the currentSessionId sync effect on next render.
-    setActiveTabId(null);
-  }, []);
-
   const isFileTabActive = activeTabId?.startsWith("file:") ?? false;
 
   return {
@@ -58,6 +96,5 @@ export function useTabs(currentSessionId: string | undefined): UseTabsReturn {
     activateTab,
     openFileTab,
     closeFileTab,
-    resetForWorkspace,
   };
 }
