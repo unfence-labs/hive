@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { chmod, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
@@ -579,18 +579,18 @@ describe("notifications", () => {
       durationMs: 2400,
     });
 
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(notifier.events).toEqual([
-      {
-        type: "agent_turn_complete",
-        workspaceId: wsId,
-        workspaceName: wsName,
-        projectName,
-        sessionId: session.sessionId,
-        durationMs: 2400,
-      },
-    ]);
+    await vi.waitFor(() => {
+      expect(notifier.events).toEqual([
+        {
+          type: "agent_turn_complete",
+          workspaceId: wsId,
+          workspaceName: wsName,
+          projectName,
+          sessionId: session.sessionId,
+          durationMs: 2400,
+        },
+      ]);
+    });
   });
 
   it("does not notify for non-done websocket messages", async () => {
@@ -604,7 +604,7 @@ describe("notifications", () => {
       text: "chunk",
     });
 
-    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 50));
     expect(notifier.events).toEqual([]);
   });
 
@@ -633,12 +633,13 @@ describe("notifications", () => {
       sessionId: session.sessionId,
     });
 
-    await new Promise((r) => setTimeout(r, 0));
-    expect(notifier.events).toHaveLength(1);
-    expect(notifier.events[0]).toMatchObject({
-      type: "agent_turn_complete",
-      workspaceId: wsId,
-      sessionId: "persisted-session",
+    await vi.waitFor(() => {
+      expect(notifier.events).toHaveLength(1);
+      expect(notifier.events[0]).toMatchObject({
+        type: "agent_turn_complete",
+        workspaceId: wsId,
+        sessionId: "persisted-session",
+      });
     });
   });
 
@@ -655,7 +656,8 @@ describe("notifications", () => {
       });
     }).not.toThrow();
 
-    await new Promise((r) => setTimeout(r, 0));
-    expect(notifier.events).toHaveLength(1);
+    await vi.waitFor(() => {
+      expect(notifier.events).toHaveLength(1);
+    });
   });
 });
