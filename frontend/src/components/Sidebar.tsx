@@ -86,7 +86,7 @@ function SidebarGroupHeader({
         <button
           type="button"
           className={cn(
-            "flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-md bg-[#1e1e28] px-2.5 py-2 text-left transition-colors hover:bg-[#252532]",
+            "flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-md px-2.5 py-2.5 text-left transition-colors hover:bg-sidebar-accent/40",
             count !== undefined && "pr-8",
           )}
         >
@@ -251,7 +251,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                   return (
                   <div
                     key={project.id}
-                    className={cn(index > 0 && "mt-2.5")}
+                    className={cn(index > 0 && "mt-2.5 border-t border-border pt-2.5")}
                   >
                     <Collapsible
                       open={isProjectExpanded(project.id)}
@@ -293,23 +293,21 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                                     <Link
                                       to={`/workspaces/${ws.id}`}
                                       className={cn(
-                                        "block rounded-md py-1.5 pl-2 pr-2 transition-colors hover:bg-sidebar-accent/60",
+                                        "block rounded-md py-1.5 pl-2 pr-2 transition-colors",
                                         activeWsId === ws.id
-                                          ? "border-2 border-dashed border-primary/50"
-                                          : "border-2 border-transparent",
+                                          ? "bg-primary/10"
+                                          : "hover:bg-sidebar-accent/60",
                                       )}
                                     >
                                       <div className="flex items-center gap-1.5">
-                                        {wsStreaming ? (
-                                          <div className="flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-visible">
+                                        <div className="flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-visible">
+                                          {wsStreaming ? (
                                             <AgentActivityPreview size="small" />
-                                          </div>
-                                        ) : wsUnread ? (
-                                          <div className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                                          ) : wsUnread ? (
                                             <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                                          </div>
-                                        ) : null}
-                                        <BranchLabel branch={displayBranch} showIcon={!wsStreaming && !wsUnread} className="min-w-0 flex-1 text-sm" />
+                                          ) : null}
+                                        </div>
+                                        <BranchLabel branch={displayBranch} showIcon={false} className="min-w-0 flex-1 text-sm text-muted-foreground" />
                                         {wsScriptRunning && (
                                           <WaveIndicator className="shrink-0" />
                                         )}
@@ -579,10 +577,8 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
     <Link
       to={`/automations/${auto.id}`}
       className={cn(
-        "block rounded-md px-2.5 py-1.5 transition-colors hover:bg-sidebar-accent/60",
-        isActive
-          ? "border-2 border-dashed border-primary/50"
-          : "border-2 border-transparent",
+        "block rounded-md px-2.5 py-1.5 transition-colors",
+        isActive ? "bg-primary/10" : "hover:bg-sidebar-accent/60",
       )}
     >
       <div className="flex items-center gap-2">

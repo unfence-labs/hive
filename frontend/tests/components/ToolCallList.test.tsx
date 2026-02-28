@@ -414,7 +414,10 @@ describe("ToolCallList", () => {
     );
 
     expect(screen.getByText("Explore")).toBeInTheDocument();
-    expect(screen.getByText("Done")).toBeInTheDocument();
+    // Completed state shows a checkmark SVG (no "Done" text)
+    const btn = screen.getByRole("button", { name: /Explore/i });
+    const checkmark = btn.querySelector("svg polyline[points='20 6 9 17 4 12']");
+    expect(checkmark).toBeTruthy();
   });
 
   it("shows shimmer animation on SubAgentNode during streaming", () => {
@@ -478,7 +481,10 @@ describe("ToolCallList", () => {
     // 4 regularTools >= 3 triggers collapse; expand summary first
     await user.click(screen.getByText("1 subagent"));
 
-    expect(screen.getByText("Done")).toBeInTheDocument();
+    // Completed state shows checkmark SVG (no "Done" text)
+    const btn = screen.getByRole("button", { name: /Explore/i });
+    const checkmark = btn.querySelector("svg polyline[points='20 6 9 17 4 12']");
+    expect(checkmark).toBeTruthy();
     expect(screen.getByText(/3 tools/)).toBeInTheDocument();
   });
 
