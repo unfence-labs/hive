@@ -4,93 +4,16 @@ import type { ToolCall, QuestionAnswer } from "@/types";
 import { isAskUserQuestion, isExitPlanMode } from "@/types";
 import { cn } from "@/lib/utils";
 import { findPlanContent } from "@/lib/plan-state";
+import { buildChildrenMap, parseSubAgentInfo } from "@/lib/sub-agent";
 import ChatToolUse, { getToolIcon } from "@/components/ChatToolUse";
+import { SubAgentNode } from "@/components/chat/SubAgentNode";
 import { AskUserQuestion } from "@/components/chat/AskUserQuestion";
 import { PlanProposal, type PlanStatus } from "@/components/chat/PlanProposal";
-import { ContentPanel, ContentPanelBody } from "@/components/chat/ContentPanel";
 
 const COLLAPSE_THRESHOLD = 3;
 
-/** Build a map of parentToolUseId → children for hierarchical rendering. */
-function buildChildrenMap(tools: ToolCall[]): Map<string, ToolCall[]> {
-  const map = new Map<string, ToolCall[]>();
-  for (const tool of tools) {
-    if (tool.parentToolUseId) {
-      const children = map.get(tool.parentToolUseId) ?? [];
-      children.push(tool);
-      map.set(tool.parentToolUseId, children);
-    }
-  }
-  return map;
-}
-
-/** Extract the prompt text from a Task tool's input JSON. */
-function getTaskPrompt(tool: ToolCall): string | undefined {
-  try {
-    const input = JSON.parse(tool.input);
-    return input.prompt ?? input.description;
-  } catch {
-    return undefined;
-  }
-}
-
-/** A single Task node whose children are collapsed by default. */
-function TaskNode({
-  tool,
-  children,
-  childrenMap,
-  showExecutingState,
-}: {
-  tool: ToolCall;
-  children: ToolCall[];
-  childrenMap: Map<string, ToolCall[]>;
-  showExecutingState?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [promptOpen, setPromptOpen] = useState(false);
-  const prompt = open ? getTaskPrompt(tool) : undefined;
-
-  return (
-    <div>
-      <ChatToolUse
-        tool={tool}
-        isExecuting={showExecutingState ? tool.output === undefined : undefined}
-        onClick={() => setOpen(!open)}
-      />
-      {open && (
-        <div className="ml-4 border-l-2 border-muted-foreground/20 pl-3">
-          {prompt && (
-            <div className="my-0.5">
-              <button
-                type="button"
-                className="inline-flex w-fit items-center gap-2 rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-                onClick={() => setPromptOpen(!promptOpen)}
-              >
-                <svg className="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                </svg>
-                <span>Prompt</span>
-              </button>
-              {promptOpen && (
-                <ContentPanel>
-                  <ContentPanelBody>
-                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
-                      {prompt}
-                    </pre>
-                  </ContentPanelBody>
-                </ContentPanel>
-              )}
-            </div>
-          )}
-          <ToolCallTree tools={children} childrenMap={childrenMap} showExecutingState={showExecutingState} />
-        </div>
-      )}
-    </div>
-  );
-}
-
 /** Recursively render tool calls, nesting children under their parent Task. */
-function ToolCallTree({
+export function ToolCallTree({
   tools,
   childrenMap,
   showExecutingState,
@@ -103,9 +26,28 @@ function ToolCallTree({
     <>
       {tools.map((tool) => {
         const children = childrenMap.get(tool.id);
+
+        // Render Task tools as rich SubAgentNode
+        if (tool.name === "Task") {
+          const info = parseSubAgentInfo(tool);
+          if (info) {
+            return (
+              <SubAgentNode
+                key={tool.id}
+                tool={tool}
+                info={info}
+                children={children ?? []}
+                childrenMap={childrenMap}
+                showExecutingState={showExecutingState}
+              />
+            );
+          }
+        }
+
+        // Non-Task tools with children (defensive fallback)
         if (children && children.length > 0) {
           return (
-            <TaskNode
+            <TaskNodeFallback
               key={tool.id}
               tool={tool}
               children={children}
@@ -114,6 +56,7 @@ function ToolCallTree({
             />
           );
         }
+
         return (
           <ChatToolUse
             key={tool.id}
@@ -123,6 +66,36 @@ function ToolCallTree({
         );
       })}
     </>
+  );
+}
+
+/** Fallback for non-Task tools that have children (shouldn't normally happen). */
+function TaskNodeFallback({
+  tool,
+  children,
+  childrenMap,
+  showExecutingState,
+}: {
+  tool: ToolCall;
+  children: ToolCall[];
+  childrenMap: Map<string, ToolCall[]>;
+  showExecutingState?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div>
+      <ChatToolUse
+        tool={tool}
+        isExecuting={showExecutingState ? tool.output === undefined : undefined}
+        onClick={() => setOpen(!open)}
+      />
+      {open && (
+        <div className="ml-4 border-l-2 border-muted-foreground/20 pl-3">
+          <ToolCallTree tools={children} childrenMap={childrenMap} showExecutingState={showExecutingState} />
+        </div>
+      )}
+    </div>
   );
 }
 
