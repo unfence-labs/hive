@@ -5,7 +5,7 @@ import type { ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ArrowDownIcon, DownloadIcon } from "lucide-react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 
 export type ConversationProps = ComponentProps<typeof StickToBottom>;
@@ -98,6 +98,57 @@ export const ConversationScrollButton = ({
       </Button>
     )
   );
+};
+
+/**
+ * Workaround for a race condition in use-stick-to-bottom: when new content
+ * streams in (ResizeObserver fires), the library's handleScroll bails early
+ * because resizeDifference is non-zero, so it never re-engages the sticky
+ * lock even though the user has manually scrolled back to the bottom.
+ *
+ * This component listens for scroll events and calls scrollToBottom() when
+ * the user is within the threshold but the library hasn't re-locked.
+ */
+const SCROLL_LOCK_THRESHOLD_PX = 70;
+
+export const ConversationScrollLockReEngager = () => {
+  const { scrollRef, isAtBottom, scrollToBottom } = useStickToBottomContext();
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      if (isAtBottom) return;
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      if (distanceFromBottom <= SCROLL_LOCK_THRESHOLD_PX) {
+        scrollToBottom();
+      }
+    };
+
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, [scrollRef, isAtBottom, scrollToBottom]);
+
+  return null;
+};
+
+/**
+ * Scrolls to bottom whenever the trigger counter increments.
+ * Used to force scroll-to-bottom on user send / queue actions.
+ */
+export const ConversationScrollTrigger = ({ trigger }: { trigger: number }) => {
+  const { scrollToBottom } = useStickToBottomContext();
+  const prev = useRef(trigger);
+
+  useEffect(() => {
+    if (trigger !== prev.current) {
+      prev.current = trigger;
+      scrollToBottom();
+    }
+  }, [trigger, scrollToBottom]);
+
+  return null;
 };
 
 export interface ConversationMessage {

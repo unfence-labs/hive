@@ -30,6 +30,8 @@ vi.mock("@/components/ai-elements/conversation", () => ({
     title?: string;
   }) => <div data-testid="conversation-empty-state">{children ?? title}</div>,
   ConversationScrollButton: () => <button type="button" data-testid="conversation-scroll-btn">scroll</button>,
+  ConversationScrollLockReEngager: () => null,
+  ConversationScrollTrigger: () => null,
 }));
 
 vi.mock("@/components/ChatMessage", () => ({
