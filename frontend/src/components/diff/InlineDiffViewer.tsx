@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { FileDiff } from "@pierre/diffs/react";
 import {
-  parsePatchFiles,
   type SelectedLineRange,
   type DiffLineAnnotation,
   type FileDiffMetadata,
@@ -277,7 +276,7 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
     onCommentCountChange,
     onPasteToPrompt,
   }, ref) {
-  const { rawDiff, loading: isLoading, error } = useDiff(wsId, true);
+  const { patchFiles, loading: isLoading, error } = useDiff(wsId, true);
   const themeType = useThemeType();
 
   const [comments, setComments] = useState<DiffComment[]>([]);
@@ -377,19 +376,8 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
     [annotationsByFile],
   );
 
-  // Parse the full diff
-  const parsedFiles = useMemo(() => {
-    if (!rawDiff) return [];
-    try {
-      return parsePatchFiles(rawDiff);
-    } catch (e) {
-      console.error("Failed to parse patch:", e);
-      return [];
-    }
-  }, [rawDiff]);
-
   const flattenedFiles = useMemo(() => {
-    return parsedFiles.flatMap((patch, patchIndex) =>
+    return patchFiles.flatMap((patch, patchIndex) =>
       patch.files.map((fileDiff, fileIndex) => {
         let additions = 0;
         let deletions = 0;
@@ -406,7 +394,7 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
         };
       }),
     );
-  }, [parsedFiles]);
+  }, [patchFiles]);
 
   // Find the file matching filePath
   const matchedFile = useMemo(() => {

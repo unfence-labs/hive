@@ -429,11 +429,18 @@ describe("ConversationTabs — file tab", () => {
     ).toBeTruthy();
   });
 
-  it("renders a File icon in the file tab", () => {
-    renderTabs({ openFile: "package.json" });
+  it("renders a File icon in the file tab when in source mode", () => {
+    renderTabs({ openFile: "package.json", fileViewMode: "source" });
     const fileTab = screen.getByText("package.json").closest("button")!;
-    const svg = fileTab.querySelector("svg");
-    expect(svg).toBeInTheDocument();
+    expect(fileTab.querySelector("svg.lucide-file")).toBeInTheDocument();
+    expect(fileTab.querySelector("svg.lucide-git-compare-arrows")).toBeNull();
+  });
+
+  it("renders a diff icon in the file tab when in diff mode", () => {
+    renderTabs({ openFile: "package.json", fileViewMode: "diff" });
+    const fileTab = screen.getByText("package.json").closest("button")!;
+    expect(fileTab.querySelector("svg.lucide-git-compare-arrows")).toBeInTheDocument();
+    expect(fileTab.querySelector("svg.lucide-file")).toBeNull();
   });
 
   it("keeps all conversation tabs reachable via overflow when file tab consumes visible width", async () => {
