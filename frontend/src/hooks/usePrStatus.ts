@@ -1,7 +1,13 @@
 import { useMemo } from "react";
-import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
 import { api } from "./useApi";
 import type { BulkPrStatusResponse, PrStatusResponse } from "@/types";
+
+export const prStatusKey = (wsId: string) => ["pr-status", wsId] as const;
 
 const sharedOptions = {
   refetchInterval: 15_000,
@@ -12,7 +18,7 @@ const sharedOptions = {
 
 export function usePrStatus(wsId: string | undefined) {
   const query = useQuery({
-    queryKey: ["pr-status", wsId],
+    queryKey: prStatusKey(wsId ?? ""),
     queryFn: (): Promise<PrStatusResponse> =>
       api.get<PrStatusResponse>(`/api/workspaces/${wsId}/pr-status`),
     enabled: !!wsId,
@@ -29,14 +35,27 @@ export function usePrStatus(wsId: string | undefined) {
 const emptyResults: Record<string, PrStatusResponse> = {};
 
 export function useBulkPrStatus(wsIds: string[]) {
+  const queryClient = useQueryClient();
   const stableKey = useMemo(() => wsIds.slice().sort().join(","), [wsIds]);
 
   const query = useQuery({
     queryKey: ["pr-status-bulk", stableKey],
-    queryFn: (): Promise<BulkPrStatusResponse> =>
-      api.post<BulkPrStatusResponse>("/api/workspaces/pr-status/bulk", {
-        workspaceIds: wsIds,
-      }),
+    queryFn: async (): Promise<BulkPrStatusResponse> => {
+      const data = await api.post<BulkPrStatusResponse>(
+        "/api/workspaces/pr-status/bulk",
+        { workspaceIds: wsIds },
+      );
+
+      // Seed per-workspace cache so usePrStatus consumers see the
+      // same data instantly — no duplicate fetch, no UI desync.
+      if (data.results) {
+        for (const [id, status] of Object.entries(data.results)) {
+          queryClient.setQueryData(prStatusKey(id), status);
+        }
+      }
+
+      return data;
+    },
     enabled: wsIds.length > 0,
     ...sharedOptions,
   });
