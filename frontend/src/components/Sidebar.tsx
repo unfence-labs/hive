@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { getNextRun, formatTimeUntil } from "@/lib/cron";
 import { ArchiveIcon, Clock, FolderPlus, Github, Loader2, Plus, Settings } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -480,6 +481,15 @@ function describeSchedule(expression: string): string {
   return presets[expression] ?? expression;
 }
 
+function describeScheduleWithNext(expression: string): string {
+  const label = describeSchedule(expression);
+  const next = getNextRun(expression);
+  if (!next) return label;
+  const diffMs = next.getTime() - Date.now();
+  if (diffMs < 0) return `${label} · due now`;
+  return `${label} · ${formatTimeUntil(diffMs)}`;
+}
+
 function AutomationList({ onAddAutomation }: { onAddAutomation?: () => void }) {
   const { data: automations, isLoading } = useAutomations();
   const { pathname } = useLocation();
@@ -602,7 +612,7 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
         {isRunning && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-blue-400" />}
       </div>
       <div className="mt-0.5 pl-4 text-[11px] text-muted-foreground">
-        {auto.enabled ? describeSchedule(auto.trigger.expression) : "Disabled"}
+        {auto.enabled ? describeScheduleWithNext(auto.trigger.expression) : "Disabled"}
       </div>
     </Link>
   );

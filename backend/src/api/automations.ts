@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { nanoid } from "nanoid";
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { Cron } from "croner";
 import {
@@ -215,4 +215,44 @@ export async function automationRoutes(
     }
     return loadRuns(req.params.id, dataDir);
   });
+
+  // ── Get run messages ──────────────────────────────────────────────
+  app.get<{ Params: { id: string; runId: string } }>(
+    "/api/automations/:id/runs/:runId/messages",
+    async (req, reply) => {
+      const { id, runId } = req.params;
+
+      const automations = await loadAutomations(dataDir);
+      if (!automations.find((a) => a.id === id)) {
+        return reply.status(404).send({ error: "Automation not found" });
+      }
+
+      const runs = await loadRuns(id, dataDir);
+      const run = runs.find((r) => r.id === runId);
+      if (!run) {
+        return reply.status(404).send({ error: "Run not found" });
+      }
+
+      const messagesPath = join(
+        dataDir,
+        "automations",
+        id,
+        "sessions",
+        run.sessionId,
+        "messages.jsonl",
+      );
+
+      try {
+        const raw = await readFile(messagesPath, "utf-8");
+        const messages = raw
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => JSON.parse(line));
+        return messages;
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+        throw err;
+      }
+    },
+  );
 }

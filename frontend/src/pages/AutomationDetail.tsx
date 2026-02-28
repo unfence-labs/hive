@@ -1,11 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   CheckCircle2,
   ChevronDown,
   Clock,
+  FileText,
   Loader2,
+  Pencil,
   Play,
   Trash2,
 } from "lucide-react";
@@ -20,6 +22,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { SettingsHeader } from "@/components/AppLayout";
+import AutomationDialog from "@/components/CreateAutomationDialog";
+import AutomationRunLogSheet from "@/components/AutomationRunLogSheet";
 import {
   useAutomation,
   useAutomationRuns,
@@ -29,6 +33,7 @@ import {
 } from "@/hooks/useAutomations";
 import { usePromptTemplates } from "@/hooks/usePromptTemplates";
 import { useProjects } from "@/hooks/useProjects";
+import { getNextRun, formatTimeUntil } from "@/lib/cron";
 import { cn } from "@/lib/utils";
 import type { AutomationRun } from "@/types";
 
@@ -43,6 +48,8 @@ export default function AutomationDetail() {
   const { data: templates } = usePromptTemplates();
   const { projects } = useProjects();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [logRun, setLogRun] = useState<AutomationRun | null>(null);
 
   const templateNames = useMemo(() => {
     const map: Record<string, string> = {};
@@ -112,6 +119,15 @@ export default function AutomationDetail() {
           <div className="ml-auto flex gap-2">
             <button
               type="button"
+              onClick={() => setShowEditDialog(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+            >
+              <Pencil className="h-3 w-3" />
+              Edit
+            </button>
+
+            <button
+              type="button"
               onClick={handleTrigger}
               disabled={isRunning || triggerMutation.isPending}
               className={cn(
@@ -145,6 +161,7 @@ export default function AutomationDetail() {
           </h2>
           <div className="space-y-px overflow-hidden rounded-lg border border-border/50">
             <ConfigRow label="Schedule" value={auto.trigger.expression} />
+            {auto.enabled && <NextRunRow expression={auto.trigger.expression} isRunning={isRunning} />}
             <ConfigRow label="Model" value={auto.action.modelId} />
             {auto.projectId && <ConfigRow label="Project" value={projectNames[auto.projectId] ?? auto.projectId} />}
             {auto.action.systemPromptId && (
@@ -184,7 +201,7 @@ export default function AutomationDetail() {
           ) : (
             <div className="space-y-1.5">
               {runs.map((run) => (
-                <RunRow key={run.id} run={run} />
+                <RunRow key={run.id} run={run} onViewLog={setLogRun} />
               ))}
             </div>
           )}
@@ -210,6 +227,18 @@ export default function AutomationDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AutomationDialog
+        open={showEditDialog}
+        onOpenChange={setShowEditDialog}
+        automation={auto}
+      />
+
+      <AutomationRunLogSheet
+        automationId={auto.id}
+        run={logRun}
+        onClose={() => setLogRun(null)}
+      />
     </div>
   );
 }
@@ -266,6 +295,27 @@ function ConfigBlock({ label, content }: { label: string; content: string }) {
   );
 }
 
+function NextRunRow({ expression, isRunning }: { expression: string; isRunning: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  if (isRunning) {
+    return <ConfigRow label="Next Run" value="Running now" />;
+  }
+
+  const nextRun = getNextRun(expression);
+  if (!nextRun) return null;
+
+  const diffMs = nextRun.getTime() - now;
+  const value = diffMs <= 0 ? "due now" : formatTimeUntil(diffMs);
+
+  return <ConfigRow label="Next Run" value={value} />;
+}
+
 function formatRelativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const seconds = Math.floor(diff / 1000);
@@ -278,10 +328,11 @@ function formatRelativeTime(iso: string): string {
   return `${days}d ago`;
 }
 
-function RunRow({ run }: { run: AutomationRun }) {
+function RunRow({ run, onViewLog }: { run: AutomationRun; onViewLog: (run: AutomationRun) => void }) {
   const [expanded, setExpanded] = useState(false);
   const duration = run.durationMs ? `${Math.round(run.durationMs / 1000)}s` : "--";
   const hasDetails = !!(run.summary || run.error);
+  const canViewLog = run.status !== "running";
 
   return (
     <div className="overflow-hidden rounded-lg border border-border/50">
@@ -311,6 +362,24 @@ function RunRow({ run }: { run: AutomationRun }) {
         {run.summary && (
           <span className="min-w-0 flex-1 truncate text-right text-foreground/60">
             {run.summary.slice(0, 80)}
+          </span>
+        )}
+
+        {canViewLog && (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              onViewLog(run);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.stopPropagation(); onViewLog(run); }
+            }}
+            className="ml-auto shrink-0 inline-flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+          >
+            <FileText className="h-3 w-3" />
+            Log
           </span>
         )}
 
