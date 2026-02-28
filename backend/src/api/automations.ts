@@ -233,26 +233,27 @@ export async function automationRoutes(
         return reply.status(404).send({ error: "Run not found" });
       }
 
-      const messagesPath = join(
-        dataDir,
-        "automations",
-        id,
-        "sessions",
-        run.sessionId,
-        "messages.jsonl",
-      );
+      const sessDir = join(dataDir, "automations", id, "sessions", run.sessionId);
 
+      let messages: unknown[] = [];
       try {
-        const raw = await readFile(messagesPath, "utf-8");
-        const messages = raw
+        const raw = await readFile(join(sessDir, "messages.jsonl"), "utf-8");
+        messages = raw
           .split("\n")
           .filter(Boolean)
           .map((line) => JSON.parse(line));
-        return messages;
       } catch (err: unknown) {
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
-        throw err;
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
       }
+
+      let systemPrompt: string | undefined;
+      try {
+        systemPrompt = await readFile(join(sessDir, "system-prompt.txt"), "utf-8");
+      } catch {
+        // No system prompt file — fine
+      }
+
+      return { messages, systemPrompt }
     },
   );
 }

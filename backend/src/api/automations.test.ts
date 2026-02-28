@@ -230,11 +230,32 @@ describe("GET /api/automations/:id/runs/:runId/messages", () => {
       url: "/api/automations/auto-1/runs/run-1/messages",
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toHaveLength(1);
-    expect(res.json()[0].content).toBe("Done.");
+    const body = res.json();
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].content).toBe("Done.");
+    expect(body.systemPrompt).toBeUndefined();
   });
 
-  it("returns empty array when no messages file exists", async () => {
+  it("returns system prompt when available", async () => {
+    await saveAutomations([makeAutomation()], dataDir);
+    await addRun("auto-1", run, dataDir);
+
+    const sessDir = join(dataDir, "automations", "auto-1", "sessions", "sess-1");
+    await mkdir(sessDir, { recursive: true });
+    await writeFile(join(sessDir, "messages.jsonl"), '{"id":"m1","role":"user","content":"hi"}\n', "utf-8");
+    await writeFile(join(sessDir, "system-prompt.txt"), "You are a security auditor.", "utf-8");
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/automations/auto-1/runs/run-1/messages",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.messages).toHaveLength(1);
+    expect(body.systemPrompt).toBe("You are a security auditor.");
+  });
+
+  it("returns empty messages when no messages file exists", async () => {
     await saveAutomations([makeAutomation()], dataDir);
     await addRun("auto-1", run, dataDir);
 
@@ -243,7 +264,7 @@ describe("GET /api/automations/:id/runs/:runId/messages", () => {
       url: "/api/automations/auto-1/runs/run-1/messages",
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual([]);
+    expect(res.json().messages).toEqual([]);
   });
 
   it("returns 404 when run does not exist", async () => {

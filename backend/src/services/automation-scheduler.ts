@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { Cron } from "croner";
 import { nanoid } from "nanoid";
 import {
@@ -199,6 +199,13 @@ export class AutomationScheduler {
     });
 
     this.activeRuns.set(autoId, { run, session });
+
+    // Persist resolved system prompt for run log viewer
+    if (systemPrompt) {
+      const sessDir = join(autoDir, "sessions", run.sessionId);
+      await mkdir(sessDir, { recursive: true });
+      await writeFile(join(sessDir, "system-prompt.txt"), systemPrompt, "utf-8").catch(() => {});
+    }
 
     // Listen for completion
     return new Promise<AutomationRun>((resolve) => {

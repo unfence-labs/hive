@@ -91,10 +91,15 @@ export function useTriggerAutomation() {
   });
 }
 
+export interface RunMessagesResponse {
+  messages: ChatMessage[];
+  systemPrompt?: string;
+}
+
 export function useAutomationRunMessages(automationId: string | undefined, runId: string | undefined) {
   return useQuery({
     queryKey: ["automation-run-messages", automationId, runId],
-    queryFn: () => api.get<ChatMessage[]>(`/api/automations/${automationId}/runs/${runId}/messages`),
+    queryFn: () => api.get<RunMessagesResponse>(`/api/automations/${automationId}/runs/${runId}/messages`),
     enabled: !!automationId && !!runId,
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,

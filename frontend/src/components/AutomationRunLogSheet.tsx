@@ -1,4 +1,5 @@
-import { Loader2 } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, Loader2 } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -7,6 +8,7 @@ import {
 } from "@/components/ui/sheet";
 import ChatConversation from "@/components/ChatConversation";
 import { useAutomationRunMessages } from "@/hooks/useAutomations";
+import { cn } from "@/lib/utils";
 import type { AutomationRun } from "@/types";
 
 interface AutomationRunLogSheetProps {
@@ -20,10 +22,13 @@ export default function AutomationRunLogSheet({
   run,
   onClose,
 }: AutomationRunLogSheetProps) {
-  const { data: messages, isLoading } = useAutomationRunMessages(
+  const { data, isLoading } = useAutomationRunMessages(
     run ? automationId : undefined,
     run?.id,
   );
+
+  const messages = data?.messages;
+  const systemPrompt = data?.systemPrompt;
 
   const startedAt = run?.startedAt
     ? new Date(run.startedAt).toLocaleString()
@@ -35,6 +40,8 @@ export default function AutomationRunLogSheet({
         <SheetHeader className="shrink-0 px-4 py-3 border-b border-border/50">
           <SheetTitle className="text-sm">Run Log · {startedAt}</SheetTitle>
         </SheetHeader>
+
+        {systemPrompt && <SystemPromptBanner content={systemPrompt} />}
 
         <div className="min-h-0 flex-1 flex flex-col">
           {isLoading ? (
@@ -62,5 +69,32 @@ export default function AutomationRunLogSheet({
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function SystemPromptBanner({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="shrink-0 border-b border-border/50 bg-muted/20">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-4 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <span className="font-medium">System Prompt</span>
+        <ChevronDown
+          className={cn(
+            "ml-auto h-3 w-3 transition-transform",
+            expanded && "rotate-180",
+          )}
+        />
+      </button>
+      {expanded && (
+        <pre className="max-h-60 overflow-auto whitespace-pre-wrap px-4 pb-3 text-xs text-foreground/80 font-mono">
+          {content}
+        </pre>
+      )}
+    </div>
   );
 }
