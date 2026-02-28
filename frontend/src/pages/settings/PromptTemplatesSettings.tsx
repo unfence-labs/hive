@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Loader2, Plus, Pencil, Trash2, Save, X, RotateCcw, ChevronRight } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Loader2, Plus, Trash2, Save, X, RotateCcw, ChevronRight, HelpCircle, Sparkles } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,11 +11,21 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
   Collapsible,
   CollapsibleTrigger,
   CollapsibleContent,
 } from "@/components/ui/collapsible";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingsHeader } from "@/components/AppLayout";
 import {
   usePromptTemplates,
@@ -33,149 +43,15 @@ import { PromptFlowExplainer } from "@/components/PromptFlowExplainer";
 import { cn } from "@/lib/utils";
 import type { PromptTemplate } from "@/types";
 
-// ── Main page ──────────────────────────────────────────────────────────
+// ── Types ──────────────────────────────────────────────────────────────
 
-export default function PromptTemplatesSettings() {
-  const { data: templates, isLoading: templatesLoading } = usePromptTemplates();
-  const { isLoading: baseLoading } = useBasePrompt();
-  const [showCreate, setShowCreate] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<PromptTemplate | null>(null);
+type Selection =
+  | { kind: "base" }
+  | { kind: "template"; id: string }
+  | { kind: "create"; type: "system" | "user" }
+  | null;
 
-  const systemTemplates = templates?.filter((t) => t.type === "system") ?? [];
-  const userTemplates = templates?.filter((t) => t.type === "user") ?? [];
-
-  if (templatesLoading || baseLoading) return null;
-
-  return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <SettingsHeader>
-        <h1 className="text-sm font-medium">Prompts</h1>
-      </SettingsHeader>
-
-      <div className="flex-1 overflow-auto px-4 py-5">
-        <div className="max-w-4xl space-y-8">
-          {/* ── Base System Prompt ──────────────────────────────────── */}
-          <BasePromptSection />
-
-          {/* ── Separator ──────────────────────────────────────────── */}
-          <div className="border-t border-border/50" />
-
-          {/* ── Git Context ──────────────────────────────────────── */}
-          <div className="space-y-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-medium text-foreground">Git Context</h2>
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  Enforced
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                The following git context is also appended automatically at session start.
-              </p>
-            </div>
-            <PromptEditor
-              value={GIT_CONTEXT_PLACEHOLDER}
-              readOnly
-              maxHeight="10rem"
-            />
-          </div>
-
-          {/* ── Separator ──────────────────────────────────────────── */}
-          <div className="border-t border-border/50" />
-
-          {/* ── Template Library ────────────────────────────────────── */}
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-base font-medium text-foreground">
-                Automation Prompt Library
-              </h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Reusable system and user prompts for your automations.
-              </p>
-            </div>
-
-            {!showCreate && (
-              <button
-                type="button"
-                onClick={() => setShowCreate(true)}
-                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/10"
-              >
-                <Plus className="h-3 w-3" />
-                Add Template
-              </button>
-            )}
-
-            {showCreate && (
-              <CreateTemplateForm onClose={() => setShowCreate(false)} />
-            )}
-
-            {systemTemplates.length > 0 && (
-              <TemplateGroup
-                label="System Prompts"
-                templates={systemTemplates}
-                editingId={editingId}
-                onEdit={setEditingId}
-                onDelete={setDeleteTarget}
-              />
-            )}
-
-            {userTemplates.length > 0 && (
-              <TemplateGroup
-                label="User Prompts"
-                templates={userTemplates}
-                editingId={editingId}
-                onEdit={setEditingId}
-                onDelete={setDeleteTarget}
-              />
-            )}
-
-            {systemTemplates.length === 0 && userTemplates.length === 0 && !showCreate && (
-              <p className="text-xs text-muted-foreground">No templates yet.</p>
-            )}
-          </div>
-          
-          {/* ── Separator ──────────────────────────────────────────── */}
-          <div className="border-t border-border/50" />
-
-          {/* ── Explainer ──────────────────────────────────────────── */}
-          <PromptFlowExplainer />
-        </div>
-      </div>
-
-      {/* Delete confirmation */}
-      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete template</AlertDialogTitle>
-            <AlertDialogDescription>
-              Delete "{deleteTarget?.name}"? This cannot be undone. Templates referenced by automations cannot be deleted.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <DeleteButton template={deleteTarget} onDone={() => setDeleteTarget(null)} />
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
-}
-
-// ── Base System Prompt ─────────────────────────────────────────────────
-
-const GIT_CONTEXT_PLACEHOLDER = `# Git Context (snapshot at session start)
-
-Project: {PROJECT}
-Workspace: {WORKSPACE}
-Current branch: (resolved from worktree)
-Main branch: {DEFAULT_BRANCH}
-
-Status:
-(live git status --short)
-
-Recent commits:
-(last 10 commits via git log --oneline)`;
+// ── Constants ──────────────────────────────────────────────────────────
 
 const TEMPLATE_VARIABLES = [
   { token: "{DIR}", desc: "workspace path" },
@@ -183,157 +59,417 @@ const TEMPLATE_VARIABLES = [
   { token: "{PROJECT}", desc: "project name" },
 ] as const;
 
-function BasePromptSection() {
+// ── Main page ──────────────────────────────────────────────────────────
+
+export default function PromptTemplatesSettings() {
+  const { data: templates, isLoading: templatesLoading } = usePromptTemplates();
+  const { data: baseData, isLoading: baseLoading } = useBasePrompt();
+  const [selection, setSelection] = useState<Selection>({ kind: "base" });
+  const [deleteTarget, setDeleteTarget] = useState<PromptTemplate | null>(null);
+  const [showFlowDialog, setShowFlowDialog] = useState(false);
+
+  const systemTemplates = useMemo(
+    () => templates?.filter((t) => t.type === "system") ?? [],
+    [templates],
+  );
+  const userTemplates = useMemo(
+    () => templates?.filter((t) => t.type === "user") ?? [],
+    [templates],
+  );
+
+  // Resolve the selected template object
+  const selectedTemplate = useMemo(() => {
+    if (selection?.kind !== "template") return null;
+    return templates?.find((t) => t.id === selection.id) ?? null;
+  }, [selection, templates]);
+
+  // If selected template was deleted externally, fall back to base
+  if (selection?.kind === "template" && templates && !selectedTemplate) {
+    setSelection({ kind: "base" });
+  }
+
+  if (templatesLoading || baseLoading) return null;
+
+  const handleDelete = (template: PromptTemplate) => {
+    setDeleteTarget(template);
+  };
+
+  const handleDeleteDone = () => {
+    if (deleteTarget && selection?.kind === "template" && selection.id === deleteTarget.id) {
+      setSelection({ kind: "base" });
+    }
+    setDeleteTarget(null);
+  };
+
+  const handleCreated = (id: string) => {
+    setSelection({ kind: "template", id });
+  };
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      <SettingsHeader>
+        <h1 className="text-sm font-medium">Prompts</h1>
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={() => setShowFlowDialog(true)}
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+        >
+          <HelpCircle className="h-3 w-3" />
+          How it works
+        </button>
+      </SettingsHeader>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* ── Left Panel ─────────────────────────────────────────── */}
+        <LeftPanel
+          selection={selection}
+          onSelect={setSelection}
+          baseData={baseData ?? null}
+          systemTemplates={systemTemplates}
+          userTemplates={userTemplates}
+        />
+
+        {/* ── Right Panel ────────────────────────────────────────── */}
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <RightPanel
+            selection={selection}
+            selectedTemplate={selectedTemplate}
+            onDelete={handleDelete}
+            onCreated={handleCreated}
+            onCancel={() => setSelection({ kind: "base" })}
+          />
+        </div>
+      </div>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => !open && handleDeleteDone()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete template</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete &ldquo;{deleteTarget?.name}&rdquo;? This cannot be undone. Templates referenced
+              by automations cannot be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <DeleteButton template={deleteTarget} onDone={handleDeleteDone} />
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* How it works dialog */}
+      <Dialog open={showFlowDialog} onOpenChange={setShowFlowDialog}>
+        <DialogContent className="max-h-[80vh] overflow-auto sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Prompt Construction Flow</DialogTitle>
+            <DialogDescription>
+              How your prompts are assembled before being sent to the AI model.
+            </DialogDescription>
+          </DialogHeader>
+          <PromptFlowExplainer />
+          <DialogFooter showCloseButton />
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ── Left Panel ─────────────────────────────────────────────────────────
+
+interface BasePromptSummary {
+  isDefault: boolean;
+}
+
+function LeftPanel({
+  selection,
+  onSelect,
+  baseData,
+  systemTemplates,
+  userTemplates,
+}: {
+  selection: Selection;
+  onSelect: (s: Selection) => void;
+  baseData: BasePromptSummary | null;
+  systemTemplates: PromptTemplate[];
+  userTemplates: PromptTemplate[];
+}) {
+  return (
+    <div className="flex w-64 shrink-0 flex-col border-r border-border/50">
+      <ScrollArea className="flex-1">
+        <div className="p-2">
+          {/* Pinned: Base Prompt */}
+          <ListItem
+            label="Build Agent Prompt"
+            icon={<Sparkles className="h-3 w-3 text-primary" />}
+            badge={baseData?.isDefault ? "Default" : "Custom"}
+            badgeVariant={baseData?.isDefault ? "secondary" : "default"}
+            isSelected={selection?.kind === "base"}
+            onClick={() => onSelect({ kind: "base" })}
+          />
+
+          <div className="my-2 border-t border-border/30" />
+
+          {/* System templates */}
+          {systemTemplates.length > 0 && (
+            <div className="mb-1">
+              <h3 className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                System
+              </h3>
+              {systemTemplates.map((tpl) => (
+                <ListItem
+                  key={tpl.id}
+                  label={tpl.name}
+                  isSelected={selection?.kind === "template" && selection.id === tpl.id}
+                  onClick={() => onSelect({ kind: "template", id: tpl.id })}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* User templates */}
+          {userTemplates.length > 0 && (
+            <div className="mb-1">
+              <h3 className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                User
+              </h3>
+              {userTemplates.map((tpl) => (
+                <ListItem
+                  key={tpl.id}
+                  label={tpl.name}
+                  isSelected={selection?.kind === "template" && selection.id === tpl.id}
+                  onClick={() => onSelect({ kind: "template", id: tpl.id })}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </ScrollArea>
+
+      {/* Add Template button */}
+      <div className="border-t border-border/30 p-2">
+        <button
+          type="button"
+          onClick={() => onSelect({ kind: "create", type: "system" })}
+          className={cn(
+            "inline-flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/10",
+            selection?.kind === "create" && "border-primary bg-primary/10",
+          )}
+        >
+          <Plus className="h-3 w-3" />
+          Add Template
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── List Item ──────────────────────────────────────────────────────────
+
+function ListItem({
+  label,
+  icon,
+  badge,
+  badgeVariant = "secondary",
+  isSelected,
+  onClick,
+}: {
+  label: string;
+  icon?: React.ReactNode;
+  badge?: string;
+  badgeVariant?: "default" | "secondary";
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+        isSelected
+          ? "bg-primary/15 text-foreground"
+          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+      )}
+    >
+      {icon}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {badge && (
+        <Badge
+          variant={badgeVariant}
+          className="shrink-0 px-1.5 py-0 text-[10px]"
+        >
+          {badge}
+        </Badge>
+      )}
+    </button>
+  );
+}
+
+// ── Right Panel ────────────────────────────────────────────────────────
+
+function RightPanel({
+  selection,
+  selectedTemplate,
+  onDelete,
+  onCreated,
+  onCancel,
+}: {
+  selection: Selection;
+  selectedTemplate: PromptTemplate | null;
+  onDelete: (t: PromptTemplate) => void;
+  onCreated: (id: string) => void;
+  onCancel: () => void;
+}) {
+  if (selection?.kind === "base") {
+    return <BasePromptDetail />;
+  }
+
+  if (selection?.kind === "template" && selectedTemplate) {
+    return (
+      <TemplateDetail
+        key={selectedTemplate.id}
+        template={selectedTemplate}
+        onDelete={() => onDelete(selectedTemplate)}
+      />
+    );
+  }
+
+  if (selection?.kind === "create") {
+    return (
+      <CreateTemplateForm
+        initialType={selection.type}
+        onCreated={onCreated}
+        onCancel={onCancel}
+      />
+    );
+  }
+
+  return <EmptyState />;
+}
+
+// ── Base Prompt Detail ─────────────────────────────────────────────────
+
+function BasePromptDetail() {
   const { data } = useBasePrompt();
   const updateMutation = useUpdateBasePrompt();
   const resetMutation = useResetBasePrompt();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(data?.content ?? "");
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showDefault, setShowDefault] = useState(false);
 
   if (!data) return null;
 
-  const startEdit = () => {
-    setDraft(data.content);
-    setEditing(true);
-  };
+  const isDirty = draft !== data.content;
 
   const handleSave = async () => {
     if (!draft.trim()) return;
     await updateMutation.mutateAsync(draft);
-    setEditing(false);
   };
 
   const handleReset = async () => {
     await resetMutation.mutateAsync();
     setShowResetConfirm(false);
-    setEditing(false);
+    setShowDefault(false);
+    setDraft(data.defaultContent);
   };
 
   return (
-    <section className="space-y-3">
-      <div>
+    <div className="flex h-full flex-col overflow-hidden px-5 pt-5 pb-2" key={data.isDefault ? "default" : "custom"}>
+      {/* Header */}
+      <div className="mb-4 shrink-0">
         <div className="flex items-center gap-2">
-          <h2 className="text-base font-medium text-foreground">
-            Build Agent Prompt
-          </h2>
-          <span
+          <h2 className="text-base font-medium text-foreground">Build Agent Prompt</h2>
+          <Badge
+            variant="secondary"
             className={cn(
-              "rounded-full px-2 py-0.5 text-[10px] font-medium",
-              data.isDefault
-                ? "bg-muted text-muted-foreground"
-                : "bg-primary/10 text-primary",
+              "text-[10px]",
+              !data.isDefault && "bg-primary/10 text-primary",
             )}
           >
             {data.isDefault ? "Default" : "Custom"}
-          </span>
+          </Badge>
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
           Injected into every build agent session under workspaces.
         </p>
       </div>
 
-      {editing ? (
-        <div className="space-y-3 rounded-lg border border-primary/30 bg-card/50 p-4">
-          <PromptEditor value={draft} onChange={setDraft} maxHeight="24rem" />
+      {/* Editor */}
+      <div className="min-h-0 flex-1">
+        <PromptEditor value={draft} onChange={setDraft} maxHeight="100%" />
+      </div>
 
-          {/* Template variables hint */}
-          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/70">
-            <span className="font-medium text-muted-foreground">Variables:</span>
-            {TEMPLATE_VARIABLES.map((v) => (
-              <span key={v.token}>
-                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">{v.token}</code>
-                {" "}
-                <span className="text-muted-foreground/50">{v.desc}</span>
-              </span>
-            ))}
-          </div>
+      {/* Template variables hint */}
+      <div className="mt-3 flex shrink-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/70">
+        <span className="font-medium text-muted-foreground">Variables:</span>
+        {TEMPLATE_VARIABLES.map((v) => (
+          <span key={v.token}>
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">{v.token}</code>{" "}
+            <span className="text-muted-foreground/50">{v.desc}</span>
+          </span>
+        ))}
+      </div>
 
-          {/* Collapsible default view */}
-          {!data.isDefault && (
-            <Collapsible open={showDefault} onOpenChange={setShowDefault}>
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="inline-flex cursor-pointer items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  <ChevronRight
-                    className={cn(
-                      "h-3 w-3 transition-transform",
-                      showDefault && "rotate-90",
-                    )}
-                  />
-                  View default prompt
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="mt-2">
-                  <PromptEditor value={data.defaultContent} readOnly maxHeight="12rem" />
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-          )}
-
-          {/* Actions */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void handleSave()}
-              disabled={!draft.trim() || updateMutation.isPending}
-              className={cn(
-                "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
-                (!draft.trim() || updateMutation.isPending) && "pointer-events-none opacity-60",
-              )}
-            >
-              {updateMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-              Save
-            </button>
-            <button
-              type="button"
-              onClick={() => { setEditing(false); setShowDefault(false); }}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <X className="h-3 w-3" />
-              Cancel
-            </button>
-            {!data.isDefault && (
+      {/* Collapsible default view */}
+      {!data.isDefault && (
+        <div className="mt-3 shrink-0">
+          <Collapsible open={showDefault} onOpenChange={setShowDefault}>
+            <CollapsibleTrigger asChild>
               <button
                 type="button"
-                onClick={() => setShowResetConfirm(true)}
-                className="ml-auto inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-red-400"
+                className="inline-flex cursor-pointer items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
-                <RotateCcw className="h-3 w-3" />
-                Reset to default
+                <ChevronRight
+                  className={cn("h-3 w-3 transition-transform", showDefault && "rotate-90")}
+                />
+                View default prompt
               </button>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="group rounded-lg border border-border/50 bg-card/50 p-4">
-          <div className="flex items-start justify-between">
-            <p className="line-clamp-3 min-w-0 flex-1 whitespace-pre-wrap text-xs text-muted-foreground">
-              {data.content}
-            </p>
-            <button
-              type="button"
-              onClick={startEdit}
-              aria-label="Edit prompt"
-              className="ml-2 shrink-0 cursor-pointer rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
-            >
-              <Pencil className="h-3 w-3" />
-            </button>
-          </div>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="mt-2">
+                <PromptEditor value={data.defaultContent} readOnly maxHeight="12rem" />
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
       )}
 
-      {/* Reset confirmation dialog */}
+      {/* Actions */}
+      <div className="mt-4 flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void handleSave()}
+          disabled={!isDirty || !draft.trim() || updateMutation.isPending}
+          className={cn(
+            "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
+            (!isDirty || !draft.trim() || updateMutation.isPending) && "pointer-events-none opacity-60",
+          )}
+        >
+          {updateMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+          Save
+        </button>
+        {!data.isDefault && (
+          <button
+            type="button"
+            onClick={() => setShowResetConfirm(true)}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-red-400"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Reset to default
+          </button>
+        )}
+      </div>
+
+      {/* Reset confirmation */}
       <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Reset to default</AlertDialogTitle>
             <AlertDialogDescription>
-              Your custom base prompt will be removed and replaced with the default system prompt. This cannot be undone.
+              Your custom base prompt will be removed and replaced with the default system prompt.
+              This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -347,11 +483,208 @@ function BasePromptSection() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </div>
   );
 }
 
-// ── Template Library components ────────────────────────────────────────
+// ── Template Detail ────────────────────────────────────────────────────
+
+function TemplateDetail({
+  template,
+  onDelete,
+}: {
+  template: PromptTemplate;
+  onDelete: () => void;
+}) {
+  const updateMutation = useUpdatePromptTemplate();
+  const [draftName, setDraftName] = useState(template.name);
+  const [draftContent, setDraftContent] = useState(template.content);
+
+  const isDirty = draftName !== template.name || draftContent !== template.content;
+  const isValid = draftName.trim() && draftContent.trim();
+
+  const handleSave = async () => {
+    if (!isValid) return;
+    await updateMutation.mutateAsync({
+      id: template.id,
+      name: draftName.trim(),
+      content: draftContent.trim(),
+    });
+  };
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden px-5 pt-5 pb-2">
+      {/* Header */}
+      <div className="mb-4 shrink-0">
+        <div className="flex items-center gap-3">
+          <Input
+            value={draftName}
+            onChange={(e) => setDraftName(e.target.value)}
+            className="text-sm font-medium"
+            placeholder="Template name"
+          />
+          <Badge variant="secondary" className="shrink-0 text-[10px]">
+            {template.type}
+          </Badge>
+        </div>
+      </div>
+
+      {/* Editor */}
+      <div className="min-h-0 flex-1">
+        <PromptEditor
+          value={draftContent}
+          onChange={setDraftContent}
+          maxHeight="100%"
+          placeholder={template.type === "system" ? "You are a code auditor..." : "Review the codebase and..."}
+        />
+      </div>
+
+      {/* Actions */}
+      <div className="mt-4 flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void handleSave()}
+          disabled={!isDirty || !isValid || updateMutation.isPending}
+          className={cn(
+            "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
+            (!isDirty || !isValid || updateMutation.isPending) && "pointer-events-none opacity-60",
+          )}
+        >
+          {updateMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-red-400"
+        >
+          <Trash2 className="h-3 w-3" />
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Create Template Form ───────────────────────────────────────────────
+
+function CreateTemplateForm({
+  initialType,
+  onCreated,
+  onCancel,
+}: {
+  initialType: "system" | "user";
+  onCreated: (id: string) => void;
+  onCancel: () => void;
+}) {
+  const createMutation = useCreatePromptTemplate();
+  const [name, setName] = useState("");
+  const [type, setType] = useState<"system" | "user">(initialType);
+  const [content, setContent] = useState("");
+
+  const isValid = name.trim() && content.trim();
+
+  const handleSubmit = async () => {
+    if (!isValid) return;
+    const result = await createMutation.mutateAsync({
+      name: name.trim(),
+      type,
+      content: content.trim(),
+    });
+    onCreated(result.id);
+  };
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden px-5 pt-5 pb-2">
+      {/* Header */}
+      <div className="mb-4 shrink-0">
+        <h2 className="text-base font-medium text-foreground">New Template</h2>
+      </div>
+
+      {/* Name */}
+      <div className="mb-3 shrink-0">
+        <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Name</label>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Code Audit System Prompt"
+          className="text-sm"
+        />
+      </div>
+
+      {/* Type */}
+      <div className="mb-3 shrink-0">
+        <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Type</label>
+        <div className="flex gap-2">
+          {(["system", "user"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setType(t)}
+              className={cn(
+                "cursor-pointer rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                type === t
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t === "system" ? "System" : "User"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="mb-1.5 shrink-0">
+        <label className="block text-xs font-medium text-muted-foreground">Content</label>
+      </div>
+      <div className="min-h-0 flex-1">
+        <PromptEditor
+          value={content}
+          onChange={setContent}
+          maxHeight="100%"
+          placeholder={type === "system" ? "You are a code auditor..." : "Review the codebase and..."}
+        />
+      </div>
+
+      {/* Actions */}
+      <div className="mt-4 flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void handleSubmit()}
+          disabled={!isValid || createMutation.isPending}
+          className={cn(
+            "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
+            (!isValid || createMutation.isPending) && "pointer-events-none opacity-60",
+          )}
+        >
+          {createMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+          Create
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <X className="h-3 w-3" />
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Empty State ────────────────────────────────────────────────────────
+
+function EmptyState() {
+  return (
+    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      Select a prompt to edit
+    </div>
+  );
+}
+
+// ── Delete Button ──────────────────────────────────────────────────────
 
 function DeleteButton({ template, onDone }: { template: PromptTemplate | null; onDone: () => void }) {
   const deleteMutation = useDeletePromptTemplate();
@@ -374,211 +707,6 @@ function DeleteButton({ template, onDone }: { template: PromptTemplate | null; o
       >
         Delete
       </AlertDialogAction>
-    </div>
-  );
-}
-
-function CreateTemplateForm({ onClose }: { onClose: () => void }) {
-  const createMutation = useCreatePromptTemplate();
-  const [name, setName] = useState("");
-  const [type, setType] = useState<"system" | "user">("system");
-  const [content, setContent] = useState("");
-
-  const isValid = name.trim() && content.trim();
-
-  const handleSubmit = async () => {
-    if (!isValid) return;
-    await createMutation.mutateAsync({ name: name.trim(), type, content: content.trim() });
-    onClose();
-  };
-
-  return (
-    <section className="rounded-lg border border-border/50 bg-card/50 p-5">
-      <div className="space-y-3">
-        <div>
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Name</label>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Code Audit System Prompt"
-            className="text-sm"
-          />
-        </div>
-
-        <div>
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Type</label>
-          <div className="flex gap-2">
-            {(["system", "user"] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setType(t)}
-                className={cn(
-                  "cursor-pointer rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                  type === t
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {t === "system" ? "System" : "User"}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Content</label>
-          <PromptEditor
-            value={content}
-            onChange={setContent}
-            maxHeight="16rem"
-            placeholder={type === "system" ? "You are a code auditor..." : "Review the codebase and..."}
-          />
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void handleSubmit()}
-            disabled={!isValid || createMutation.isPending}
-            className={cn(
-              "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
-              (!isValid || createMutation.isPending) && "pointer-events-none opacity-60",
-            )}
-          >
-            {createMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-            Save
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <X className="h-3 w-3" />
-            Cancel
-          </button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function TemplateGroup({
-  label,
-  templates,
-  editingId,
-  onEdit,
-  onDelete,
-}: {
-  label: string;
-  templates: PromptTemplate[];
-  editingId: string | null;
-  onEdit: (id: string | null) => void;
-  onDelete: (t: PromptTemplate) => void;
-}) {
-  return (
-    <div>
-      <h3 className="mb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-        {label}
-      </h3>
-      <div className="space-y-2">
-        {templates.map((tpl) =>
-          editingId === tpl.id ? (
-            <EditTemplateForm key={tpl.id} template={tpl} onClose={() => onEdit(null)} />
-          ) : (
-            <TemplateCard key={tpl.id} template={tpl} onEdit={() => onEdit(tpl.id)} onDelete={() => onDelete(tpl)} />
-          ),
-        )}
-      </div>
-    </div>
-  );
-}
-
-function TemplateCard({
-  template,
-  onEdit,
-  onDelete,
-}: {
-  template: PromptTemplate;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const preview = template.content.split("\n").slice(0, 2).join("\n");
-
-  return (
-    <div className="group rounded-lg border border-border/50 bg-card/50 p-4">
-      <div className="flex items-start justify-between">
-        <div className="min-w-0 flex-1">
-          <span className="text-sm font-medium text-foreground">{template.name}</span>
-          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{preview}</p>
-        </div>
-        <div className="ml-2 flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-          <button
-            type="button"
-            onClick={onEdit}
-            aria-label="Edit template"
-            className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <Pencil className="h-3 w-3" />
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            aria-label="Delete template"
-            className="cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:text-red-400"
-          >
-            <Trash2 className="h-3 w-3" />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function EditTemplateForm({ template, onClose }: { template: PromptTemplate; onClose: () => void }) {
-  const updateMutation = useUpdatePromptTemplate();
-  const [name, setName] = useState(template.name);
-  const [content, setContent] = useState(template.content);
-
-  const isValid = name.trim() && content.trim();
-
-  const handleSave = async () => {
-    if (!isValid) return;
-    await updateMutation.mutateAsync({ id: template.id, name: name.trim(), content: content.trim() });
-    onClose();
-  };
-
-  return (
-    <div className="rounded-lg border border-primary/30 bg-card/50 p-4">
-      <div className="space-y-3">
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="text-sm"
-        />
-        <PromptEditor value={content} onChange={setContent} maxHeight="16rem" />
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={!isValid || updateMutation.isPending}
-            className={cn(
-              "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
-              (!isValid || updateMutation.isPending) && "pointer-events-none opacity-60",
-            )}
-          >
-            {updateMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-            Save
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
