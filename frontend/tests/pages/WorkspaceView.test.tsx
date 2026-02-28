@@ -282,6 +282,7 @@ function TestControls() {
   const navigate = useNavigate();
   return (
     <div>
+      <button type="button" onClick={() => navigate("/workspaces/ws-1")}>go ws-1</button>
       <button type="button" onClick={() => navigate("/workspaces/ws-2")}>go ws-2</button>
     </div>
   );
@@ -767,6 +768,48 @@ describe("WorkspaceView behavior", () => {
           mocks.captureConversationTabsProps.mock.calls.length - 1
         ]?.[0] as { isFileTabActive?: boolean } | undefined;
       expect(lastCall?.isFileTabActive).toBe(false);
+    });
+  });
+
+  it("restores file tab state when navigating away and back to a workspace", async () => {
+    const user = userEvent.setup();
+    mocks.useConversation.mockImplementation((targetWsId?: string) => buildConversationState({
+      sessionId: targetWsId === "ws-2" ? "sess-2" : "sess-1",
+    }));
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    await user.click(screen.getByTestId("select-file-btn"));
+    await waitFor(() => {
+      const lastCall =
+        mocks.captureConversationTabsProps.mock.calls[
+          mocks.captureConversationTabsProps.mock.calls.length - 1
+        ]?.[0] as { isFileTabActive?: boolean; openFile?: string | null } | undefined;
+      expect(lastCall?.isFileTabActive).toBe(true);
+      expect(lastCall?.openFile).toBe("src/index.ts");
+    });
+
+    await user.click(screen.getByRole("button", { name: "go ws-2" }));
+    await screen.findByText("kyoto");
+    await waitFor(() => {
+      const lastCall =
+        mocks.captureConversationTabsProps.mock.calls[
+          mocks.captureConversationTabsProps.mock.calls.length - 1
+        ]?.[0] as { isFileTabActive?: boolean; openFile?: string | null } | undefined;
+      expect(lastCall?.isFileTabActive).toBe(false);
+      expect(lastCall?.openFile).toBeNull();
+    });
+
+    await user.click(screen.getByRole("button", { name: "go ws-1" }));
+    await screen.findByText("tokyo");
+    await waitFor(() => {
+      const lastCall =
+        mocks.captureConversationTabsProps.mock.calls[
+          mocks.captureConversationTabsProps.mock.calls.length - 1
+        ]?.[0] as { isFileTabActive?: boolean; openFile?: string | null } | undefined;
+      expect(lastCall?.isFileTabActive).toBe(true);
+      expect(lastCall?.openFile).toBe("src/index.ts");
     });
   });
 

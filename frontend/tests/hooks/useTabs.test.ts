@@ -1,8 +1,11 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { useTabs, _resetSnapshotCache } from "@/hooks/useTabs";
 
-afterEach(() => _resetSnapshotCache());
+afterEach(() => {
+  cleanup();
+  _resetSnapshotCache();
+});
 
 describe("useTabs", () => {
   it("defaults active tab to the current session", () => {
@@ -138,5 +141,17 @@ describe("useTabs", () => {
     expect(result.current.openFile).toBeNull();
     // session sync effect sets it
     expect(result.current.activeTabId).toBe("session:s3");
+  });
+
+  it("persists latest tab snapshot across unmount/remount in the same workspace", () => {
+    const first = renderHook(() => useTabs("s1", "ws1"));
+    act(() => first.result.current.openFileTab("src/a.ts"));
+    act(() => first.result.current.activateTab("session:s1"));
+    first.unmount();
+
+    const second = renderHook(() => useTabs("s1", "ws1"));
+    expect(second.result.current.openFile).toBe("src/a.ts");
+    expect(second.result.current.activeTabId).toBe("session:s1");
+    expect(second.result.current.isFileTabActive).toBe(false);
   });
 });

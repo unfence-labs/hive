@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { TabId } from "../types";
+import { parseTabId, tabId, type TabId } from "../types";
 
 export interface UseTabsReturn {
   activeTabId: TabId | null;
@@ -28,12 +28,14 @@ export function useTabs(
   wsId: string | undefined,
 ): UseTabsReturn {
   const prevWsId = useRef(wsId);
+  const latestSnapshot = useRef<TabSnapshot>({ activeTabId: null, openFile: null });
+  const latestWsId = useRef<string | undefined>(wsId);
 
   // Resolve initial state: restore from cache if available, else default.
   const [activeTabId, setActiveTabId] = useState<TabId | null>(() => {
     const cached = wsId ? snapshotByWorkspace.get(wsId) : undefined;
     if (cached) return cached.activeTabId;
-    return currentSessionId ? `session:${currentSessionId}` : null;
+    return currentSessionId ? tabId({ type: "session", sessionId: currentSessionId }) : null;
   });
   const [openFile, setOpenFile] = useState<string | null>(() => {
     const cached = wsId ? snapshotByWorkspace.get(wsId) : undefined;
@@ -67,7 +69,7 @@ export function useTabs(
     if (!currentSessionId) return;
     setActiveTabId((prev) => {
       if (!prev || prev.startsWith("session:")) {
-        return `session:${currentSessionId}`;
+        return tabId({ type: "session", sessionId: currentSessionId });
       }
       return prev;
     });
@@ -79,15 +81,28 @@ export function useTabs(
 
   const openFileTab = useCallback((path: string) => {
     setOpenFile(path);
-    setActiveTabId(`file:${path}`);
+    setActiveTabId(tabId({ type: "file", path }));
   }, []);
 
   const closeFileTab = useCallback(() => {
     setOpenFile(null);
-    setActiveTabId(currentSessionId ? `session:${currentSessionId}` : null);
+    setActiveTabId(currentSessionId ? tabId({ type: "session", sessionId: currentSessionId }) : null);
   }, [currentSessionId]);
 
-  const isFileTabActive = activeTabId?.startsWith("file:") ?? false;
+  useEffect(() => {
+    latestSnapshot.current = { activeTabId, openFile };
+    latestWsId.current = wsId;
+  }, [activeTabId, openFile, wsId]);
+
+  // Preserve current workspace tab state across unmount/remount cycles.
+  useEffect(() => {
+    return () => {
+      if (!latestWsId.current) return;
+      snapshotByWorkspace.set(latestWsId.current, latestSnapshot.current);
+    };
+  }, []);
+
+  const isFileTabActive = activeTabId ? parseTabId(activeTabId).type === "file" : false;
 
   return {
     activeTabId,
