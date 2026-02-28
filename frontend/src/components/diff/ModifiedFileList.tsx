@@ -1,23 +1,30 @@
+import { cn } from "@/lib/utils";
 import type { DiffFileStat } from "@/types";
 
 interface ModifiedFileListProps {
   committed: DiffFileStat[];
   uncommitted: DiffFileStat[];
   onFileClick: (filePath: string) => void;
+  activeFile?: string;
 }
 
 function FileRow({
   stat,
   onFileClick,
+  isActive,
 }: {
   stat: DiffFileStat;
   onFileClick: (filePath: string) => void;
+  isActive: boolean;
 }) {
   return (
     <button
       key={stat.file}
       type="button"
-      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs font-mono hover:bg-muted/50"
+      className={cn(
+        "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs font-mono hover:bg-muted/50",
+        isActive && "bg-accent/10 ring-1 ring-accent/20",
+      )}
       onClick={() => onFileClick(stat.file)}
     >
       <span className="min-w-0 flex-1 truncate text-muted-foreground">
@@ -59,6 +66,7 @@ export function ModifiedFileList({
   committed,
   uncommitted,
   onFileClick,
+  activeFile,
 }: ModifiedFileListProps) {
   if (committed.length === 0 && uncommitted.length === 0) {
     return (
@@ -75,7 +83,7 @@ export function ModifiedFileList({
           <SectionHeader label="Uncommitted" stats={uncommitted} />
           <div className="space-y-0.5">
             {uncommitted.map((stat) => (
-              <FileRow key={stat.file} stat={stat} onFileClick={onFileClick} />
+              <FileRow key={stat.file} stat={stat} onFileClick={onFileClick} isActive={stat.file === activeFile} />
             ))}
           </div>
         </div>
@@ -85,7 +93,7 @@ export function ModifiedFileList({
           <SectionHeader label="Committed" stats={committed} />
           <div className="space-y-0.5">
             {committed.map((stat) => (
-              <FileRow key={stat.file} stat={stat} onFileClick={onFileClick} />
+              <FileRow key={stat.file} stat={stat} onFileClick={onFileClick} isActive={stat.file === activeFile} />
             ))}
           </div>
         </div>

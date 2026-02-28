@@ -1,3 +1,18 @@
+// matchMedia stub for modules that import useThemeType (e.g. InlineDiffViewer)
+Object.defineProperty(window, "matchMedia", {
+  writable: true,
+  value: (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }),
+});
+
 import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -194,8 +209,8 @@ vi.mock("@/components/ConversationTabs", () => ({
   },
 }));
 
-vi.mock("@/components/diff/GitDiffModal", () => ({
-  GitDiffModal: () => <div data-testid="git-diff-modal">git-diff-modal</div>,
+vi.mock("@/components/diff/InlineDiffViewer", () => ({
+  InlineDiffViewer: () => <div data-testid="inline-diff-viewer">inline-diff-viewer</div>,
 }));
 
 vi.mock("@/components/diff/ModifiedFileList", () => ({
