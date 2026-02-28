@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -188,6 +189,11 @@ export default function AutomationDialog({ open, onOpenChange, automation }: Aut
       <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEditMode ? "Edit Automation" : "New Automation"}</DialogTitle>
+          <DialogDescription>
+            {isEditMode
+              ? "Update schedule, prompts, model, and notification behavior."
+              : "Create a scheduled automation with prompts, model, and notifications."}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">

@@ -267,6 +267,20 @@ describe("GET /api/automations/:id/runs/:runId/messages", () => {
     expect(res.json().messages).toEqual([]);
   });
 
+  it("returns 500 when system prompt path is unreadable", async () => {
+    await saveAutomations([makeAutomation()], dataDir);
+    await addRun("auto-1", run, dataDir);
+
+    const sessDir = join(dataDir, "automations", "auto-1", "sessions", "sess-1");
+    await mkdir(join(sessDir, "system-prompt.txt"), { recursive: true });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/automations/auto-1/runs/run-1/messages",
+    });
+    expect(res.statusCode).toBe(500);
+  });
+
   it("returns 404 when run does not exist", async () => {
     await saveAutomations([makeAutomation()], dataDir);
 

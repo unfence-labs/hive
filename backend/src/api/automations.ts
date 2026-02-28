@@ -249,11 +249,11 @@ export async function automationRoutes(
       let systemPrompt: string | undefined;
       try {
         systemPrompt = await readFile(join(sessDir, "system-prompt.txt"), "utf-8");
-      } catch {
-        // No system prompt file — fine
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
       }
 
-      return { messages, systemPrompt }
+      return { messages, systemPrompt };
     },
   );
 }

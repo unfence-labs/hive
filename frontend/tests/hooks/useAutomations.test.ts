@@ -4,13 +4,14 @@ import {
   useAutomations,
   useAutomation,
   useAutomationRuns,
+  useAutomationRunMessages,
   useCreateAutomation,
   useUpdateAutomation,
   useDeleteAutomation,
   useTriggerAutomation,
 } from "@/hooks/useAutomations";
 import { api } from "@/hooks/useApi";
-import type { Automation, AutomationRun } from "@/types";
+import type { Automation, AutomationRun, ChatMessage } from "@/types";
 import { createWrapper } from "../test-utils";
 
 vi.mock("@/hooks/useApi", () => ({
@@ -193,6 +194,9 @@ describe("useUpdateAutomation", () => {
     expect(invalidateSpy).toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: ["automations"] }),
     );
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ["automations", "auto-1"] }),
+    );
   });
 });
 
@@ -259,5 +263,46 @@ describe("useTriggerAutomation", () => {
     expect(invalidateSpy).toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: ["automations"] }),
     );
+  });
+});
+
+describe("useAutomationRunMessages", () => {
+  it("fetches messages for an automation run", async () => {
+    const message: ChatMessage = {
+      id: "msg-1",
+      sessionId: "sess-1",
+      role: "assistant",
+      content: "Done.",
+      timestamp: "2026-01-01T00:00:00Z",
+    };
+    const response = {
+      messages: [message],
+      systemPrompt: "You are a reviewer.",
+    };
+    vi.mocked(api.get).mockResolvedValueOnce(response);
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(
+      () => useAutomationRunMessages("auto-1", "run-1"),
+      { wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.data).toEqual(response);
+    });
+
+    expect(api.get).toHaveBeenCalledWith("/api/automations/auto-1/runs/run-1/messages");
+  });
+
+  it("does not fetch when automation id is missing", () => {
+    const { wrapper } = createWrapper();
+    renderHook(() => useAutomationRunMessages(undefined, "run-1"), { wrapper });
+    expect(api.get).not.toHaveBeenCalled();
+  });
+
+  it("does not fetch when run id is missing", () => {
+    const { wrapper } = createWrapper();
+    renderHook(() => useAutomationRunMessages("auto-1", undefined), { wrapper });
+    expect(api.get).not.toHaveBeenCalled();
   });
 });
