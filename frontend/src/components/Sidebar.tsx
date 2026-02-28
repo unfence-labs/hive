@@ -148,6 +148,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
+  const [archivingWsId, setArchivingWsId] = useState<string | null>(null);
   const liveData = useWorkspaceLiveDataContext();
 
   // Derive active tab from route
@@ -211,9 +212,14 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   };
 
   const doArchive = async (wsId: string) => {
-    const wasActive = activeWsId === wsId;
-    await archiveWorkspace(wsId);
-    if (wasActive) navigate("/projects");
+    setArchivingWsId(wsId);
+    try {
+      const wasActive = activeWsId === wsId;
+      await archiveWorkspace(wsId);
+      if (wasActive) navigate("/projects");
+    } finally {
+      setArchivingWsId(null);
+    }
   };
 
   return (
@@ -278,9 +284,10 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                             const displayBranch = wsLive?.branch ?? ws.branch;
                             const wsUnread = !wsStreaming && Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
                             const prStatus = prStatuses[ws.id];
+                            const wsArchiving = archivingWsId === ws.id;
 
                             return (
-                              <div key={ws.id} className="group/ws relative">
+                              <div key={ws.id} className={cn("group/ws relative transition-opacity", wsArchiving && "pointer-events-none opacity-40")}>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <Link
@@ -333,7 +340,11 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                                   </TooltipContent>
                                 </Tooltip>
 
-                                {!wsScriptRunning && (
+                                {wsArchiving ? (
+                                  <div className="absolute right-1.5 top-1.5 p-0.5">
+                                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                                  </div>
+                                ) : !wsScriptRunning && (
                                   <button
                                     type="button"
                                     className="absolute right-1.5 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"
