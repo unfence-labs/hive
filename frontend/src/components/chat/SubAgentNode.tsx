@@ -141,12 +141,9 @@ export const SubAgentNode = memo(function SubAgentNode({
             </span>
           )}
           {isDone && (
-            <span className="flex shrink-0 items-center gap-1 text-green-500">
-              <svg className="size-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-              <span className="text-[10px] font-medium">Done</span>
-            </span>
+            <svg className="size-3 shrink-0 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
           )}
         </button>
       </div>
