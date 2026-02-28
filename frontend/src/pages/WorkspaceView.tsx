@@ -26,6 +26,7 @@ import { PrStatusSection } from "@/components/PrStatusSection";
 import ScriptPanel from "@/components/ScriptPanel";
 import TaskTracker from "@/components/TaskTracker";
 import { useTasks } from "@/hooks/useTasks";
+import { useBackgroundAgents } from "@/hooks/useBackgroundAgents";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -277,6 +278,7 @@ export default function WorkspaceView() {
   }, [queuedMessage, isStreaming, workspaceStatus, pendingToolInputs, sendMessage]);
 
   const { tasks, currentTask, counts: taskCounts } = useTasks(messages, activeToolCalls);
+  const { agents: backgroundAgents, runningCount: bgRunningCount } = useBackgroundAgents(messages, activeToolCalls);
 
   const { sessions, createSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
 
@@ -587,12 +589,14 @@ export default function WorkspaceView() {
               onClearQueue={() => setQueuedMessage(null)}
               scrollToBottomTrigger={scrollToBottomTrigger}
             />
-            {tasks.length > 0 && !pendingToolInputs.some((p) => p.toolName === "AskUserQuestion") && (
+            {(tasks.length > 0 || backgroundAgents.length > 0) && !pendingToolInputs.some((p) => p.toolName === "AskUserQuestion") && (
               <TaskTracker
                 tasks={tasks}
                 currentTask={currentTask}
                 counts={taskCounts}
                 isStreaming={isStreaming}
+                backgroundAgents={backgroundAgents}
+                backgroundRunningCount={bgRunningCount}
               />
             )}
             {pendingToolInputs.some((p) => p.toolName === "AskUserQuestion") ? (

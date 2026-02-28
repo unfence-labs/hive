@@ -2,6 +2,7 @@ import { useState, memo } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TrackedTask, TaskCounts } from "@/hooks/useTasks";
+import type { BackgroundAgent } from "@/hooks/useBackgroundAgents";
 
 const svgProps = {
   className: "size-3",
@@ -35,11 +36,37 @@ function StatusIcon({ status }: { status: TrackedTask["status"] }) {
   }
 }
 
+function AgentStatusIcon({ isRunning }: { isRunning: boolean }) {
+  if (isRunning) {
+    return (
+      <span className="inline-block size-2 animate-pulse rounded-full bg-primary" />
+    );
+  }
+  return (
+    <svg {...svgProps} className="size-3 text-green-500">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+const botIcon = (
+  <svg {...svgProps} className="size-3 text-muted-foreground/60">
+    <path d="M12 8V4H8" />
+    <rect width="16" height="12" x="4" y="8" rx="2" />
+    <path d="M2 14h2" />
+    <path d="M20 14h2" />
+    <path d="M15 13v2" />
+    <path d="M9 13v2" />
+  </svg>
+);
+
 interface TaskTrackerProps {
   tasks: TrackedTask[];
   currentTask: TrackedTask | undefined;
   counts: TaskCounts;
   isStreaming?: boolean;
+  backgroundAgents?: BackgroundAgent[];
+  backgroundRunningCount?: number;
 }
 
 const TaskTracker = memo(function TaskTracker({
@@ -47,10 +74,16 @@ const TaskTracker = memo(function TaskTracker({
   currentTask,
   counts,
   isStreaming,
+  backgroundAgents = [],
+  backgroundRunningCount = 0,
 }: TaskTrackerProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [tasksExpanded, setTasksExpanded] = useState(false);
+  const [agentsExpanded, setAgentsExpanded] = useState(false);
 
-  if (tasks.length === 0) return null;
+  const hasTasks = tasks.length > 0;
+  const hasAgents = backgroundAgents.length > 0;
+
+  if (!hasTasks && !hasAgents) return null;
 
   const allDone = counts.completed === counts.total;
   const collapsedLabel = currentTask
@@ -59,56 +92,126 @@ const TaskTracker = memo(function TaskTracker({
       ? "All tasks completed"
       : `${counts.pending} task${counts.pending === 1 ? "" : "s"} remaining`;
 
+  const agentLabel = backgroundRunningCount > 0
+    ? `${backgroundRunningCount} background agent${backgroundRunningCount !== 1 ? "s" : ""} running`
+    : "All background agents completed";
+
   return (
     <div className="border-t border-border/50 bg-background px-4 py-1.5">
-      <button
-        type="button"
-        className="inline-flex w-full items-center gap-2 rounded-md py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <ChevronRightIcon
-          className={cn(
-            "size-3.5 shrink-0 transition-transform",
-            expanded && "rotate-90",
-          )}
-        />
-        <span
-          className={cn(
-            "min-w-0 truncate",
-            currentTask && isStreaming && "animate-shimmer",
-          )}
-        >
-          {collapsedLabel}
-        </span>
-        <span className="ml-auto shrink-0 text-[11px] text-muted-foreground/50">
-          {counts.completed}/{counts.total}
-        </span>
-      </button>
-
-      {expanded && (
-        <div className="mt-1 space-y-0.5 pb-0.5">
-          {tasks.map((task) => (
-            <div
-              key={task.id}
-              className="flex items-center gap-2 py-0.5 pl-5 text-xs text-muted-foreground"
+      {/* Tasks section */}
+      {hasTasks && (
+        <>
+          <button
+            type="button"
+            className="inline-flex w-full items-center gap-2 rounded-md py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            onClick={() => setTasksExpanded(!tasksExpanded)}
+          >
+            <ChevronRightIcon
+              className={cn(
+                "size-3.5 shrink-0 transition-transform",
+                tasksExpanded && "rotate-90",
+              )}
+            />
+            <span
+              className={cn(
+                "min-w-0 truncate",
+                currentTask && isStreaming && "animate-shimmer",
+              )}
             >
-              <span className="flex shrink-0 items-center justify-center" style={{ width: 12 }}>
-                <StatusIcon status={task.status} />
-              </span>
-              <span
-                className={cn(
-                  "min-w-0 truncate",
-                  task.status === "completed" && "line-through text-muted-foreground/50",
-                  task.status === "in_progress" && "text-foreground",
-                )}
-              >
-                {task.status === "in_progress"
-                  ? (task.activeForm ?? task.subject)
-                  : task.subject}
-              </span>
+              {collapsedLabel}
+            </span>
+            <span className="ml-auto shrink-0 text-[11px] text-muted-foreground/50">
+              {counts.completed}/{counts.total}
+            </span>
+          </button>
+
+          {tasksExpanded && (
+            <div className="mt-1 space-y-0.5 pb-0.5">
+              {tasks.map((task) => (
+                <div
+                  key={task.id}
+                  className="flex items-center gap-2 py-0.5 pl-5 text-xs text-muted-foreground"
+                >
+                  <span className="flex shrink-0 items-center justify-center" style={{ width: 12 }}>
+                    <StatusIcon status={task.status} />
+                  </span>
+                  <span
+                    className={cn(
+                      "min-w-0 truncate",
+                      task.status === "completed" && "line-through text-muted-foreground/50",
+                      task.status === "in_progress" && "text-foreground",
+                    )}
+                  >
+                    {task.status === "in_progress"
+                      ? (task.activeForm ?? task.subject)
+                      : task.subject}
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
+      )}
+
+      {/* Divider between sections */}
+      {hasTasks && hasAgents && (
+        <div className="my-1 border-t border-border/30" />
+      )}
+
+      {/* Background agents section */}
+      {hasAgents && (
+        <>
+          <button
+            type="button"
+            className="inline-flex w-full items-center gap-2 rounded-md py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            onClick={() => setAgentsExpanded(!agentsExpanded)}
+          >
+            <ChevronRightIcon
+              className={cn(
+                "size-3.5 shrink-0 transition-transform",
+                agentsExpanded && "rotate-90",
+              )}
+            />
+            <span className="shrink-0">{botIcon}</span>
+            <span
+              className={cn(
+                "min-w-0 truncate",
+                backgroundRunningCount > 0 && isStreaming && "animate-shimmer",
+              )}
+            >
+              {agentLabel}
+            </span>
+            <span className="ml-auto shrink-0 text-[11px] text-muted-foreground/50">
+              {backgroundAgents.length - backgroundRunningCount}/{backgroundAgents.length}
+            </span>
+          </button>
+
+          {agentsExpanded && (
+            <div className="mt-1 space-y-0.5 pb-0.5">
+              {backgroundAgents.map((agent) => (
+                <div
+                  key={agent.toolId}
+                  className="flex items-center gap-2 py-0.5 pl-5 text-xs text-muted-foreground"
+                >
+                  <span className="flex shrink-0 items-center justify-center" style={{ width: 12 }}>
+                    <AgentStatusIcon isRunning={agent.isRunning} />
+                  </span>
+                  <span className="shrink-0 font-medium text-muted-foreground/70">
+                    {agent.subagentType}
+                  </span>
+                  <span
+                    className={cn(
+                      "min-w-0 truncate",
+                      agent.isRunning ? "text-foreground" : "text-muted-foreground/50",
+                    )}
+                  >
+                    {agent.description}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

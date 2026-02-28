@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import TaskTracker from "@/components/TaskTracker";
 import type { TrackedTask, TaskCounts } from "@/hooks/useTasks";
+import type { BackgroundAgent } from "@/hooks/useBackgroundAgents";
 
 function task(overrides: Partial<TrackedTask> & { id: string; subject: string }): TrackedTask {
   return { status: "pending", ...overrides };
@@ -15,6 +16,10 @@ function counts(tasks: TrackedTask[]): TaskCounts {
     inProgress: tasks.filter((t) => t.status === "in_progress").length,
     pending: tasks.filter((t) => t.status === "pending").length,
   };
+}
+
+function agent(overrides: Partial<BackgroundAgent> & { toolId: string; subagentType: string }): BackgroundAgent {
+  return { description: "", isRunning: true, ...overrides };
 }
 
 describe("TaskTracker", () => {
@@ -118,7 +123,7 @@ describe("TaskTracker", () => {
     expect(screen.queryByText("First task")).not.toBeInTheDocument();
     expect(screen.queryByText("Third task")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button"));
+    await user.click(screen.getByText("Working on second"));
 
     // After expand: all tasks visible
     expect(screen.getByText("First task")).toBeInTheDocument();
@@ -137,11 +142,148 @@ describe("TaskTracker", () => {
       <TaskTracker tasks={tasks} currentTask={undefined} counts={counts(tasks)} />,
     );
 
-    const toggle = screen.getByRole("button");
+    const toggle = screen.getByText("1 task remaining");
     await user.click(toggle);
     expect(screen.getByText("First task")).toBeInTheDocument();
 
     await user.click(toggle);
     expect(screen.queryByText("First task")).not.toBeInTheDocument();
+  });
+
+  // ── Background agents ───────────────────────────────────────────────
+
+  it("renders nothing when both tasks and background agents are empty", () => {
+    const { container } = render(
+      <TaskTracker
+        tasks={[]}
+        currentTask={undefined}
+        counts={{ total: 0, completed: 0, inProgress: 0, pending: 0 }}
+        backgroundAgents={[]}
+        backgroundRunningCount={0}
+      />,
+    );
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("renders background agents section when agents exist without tasks", () => {
+    const agents = [
+      agent({ toolId: "a1", subagentType: "Explore", description: "Searching codebase", isRunning: true }),
+    ];
+    render(
+      <TaskTracker
+        tasks={[]}
+        currentTask={undefined}
+        counts={{ total: 0, completed: 0, inProgress: 0, pending: 0 }}
+        backgroundAgents={agents}
+        backgroundRunningCount={1}
+      />,
+    );
+
+    expect(screen.getByText("1 background agent running")).toBeInTheDocument();
+  });
+
+  it("shows plural form for multiple running background agents", () => {
+    const agents = [
+      agent({ toolId: "a1", subagentType: "Explore", description: "Search", isRunning: true }),
+      agent({ toolId: "a2", subagentType: "Plan", description: "Design", isRunning: true }),
+    ];
+    render(
+      <TaskTracker
+        tasks={[]}
+        currentTask={undefined}
+        counts={{ total: 0, completed: 0, inProgress: 0, pending: 0 }}
+        backgroundAgents={agents}
+        backgroundRunningCount={2}
+      />,
+    );
+
+    expect(screen.getByText("2 background agents running")).toBeInTheDocument();
+  });
+
+  it("shows 'All background agents completed' when none are running", () => {
+    const agents = [
+      agent({ toolId: "a1", subagentType: "Explore", description: "Done", isRunning: false }),
+    ];
+    render(
+      <TaskTracker
+        tasks={[]}
+        currentTask={undefined}
+        counts={{ total: 0, completed: 0, inProgress: 0, pending: 0 }}
+        backgroundAgents={agents}
+        backgroundRunningCount={0}
+      />,
+    );
+
+    expect(screen.getByText("All background agents completed")).toBeInTheDocument();
+  });
+
+  it("expands background agents to show details", async () => {
+    const user = userEvent.setup();
+    const agents = [
+      agent({ toolId: "a1", subagentType: "Explore", description: "Searching codebase", isRunning: true }),
+      agent({ toolId: "a2", subagentType: "Plan", description: "Architecture review", isRunning: false }),
+    ];
+    render(
+      <TaskTracker
+        tasks={[]}
+        currentTask={undefined}
+        counts={{ total: 0, completed: 0, inProgress: 0, pending: 0 }}
+        backgroundAgents={agents}
+        backgroundRunningCount={1}
+      />,
+    );
+
+    // Before expand: details not visible
+    expect(screen.queryByText("Searching codebase")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("1 background agent running"));
+
+    // After expand: agent details visible
+    expect(screen.getByText("Explore")).toBeInTheDocument();
+    expect(screen.getByText("Searching codebase")).toBeInTheDocument();
+    expect(screen.getByText("Plan")).toBeInTheDocument();
+    expect(screen.getByText("Architecture review")).toBeInTheDocument();
+  });
+
+  it("shows both tasks and agents sections with divider", () => {
+    const tasks = [
+      task({ id: "1", subject: "Fix bug", status: "in_progress" }),
+    ];
+    const agents = [
+      agent({ toolId: "a1", subagentType: "Explore", description: "Search", isRunning: true }),
+    ];
+    render(
+      <TaskTracker
+        tasks={tasks}
+        currentTask={tasks[0]}
+        counts={counts(tasks)}
+        backgroundAgents={agents}
+        backgroundRunningCount={1}
+      />,
+    );
+
+    // Both sections visible
+    expect(screen.getByText("Fix bug")).toBeInTheDocument();
+    expect(screen.getByText("1 background agent running")).toBeInTheDocument();
+  });
+
+  it("shows completed/total badge for background agents", () => {
+    const agents = [
+      agent({ toolId: "a1", subagentType: "Explore", isRunning: false }),
+      agent({ toolId: "a2", subagentType: "Plan", isRunning: true }),
+      agent({ toolId: "a3", subagentType: "Bash", isRunning: false }),
+    ];
+    render(
+      <TaskTracker
+        tasks={[]}
+        currentTask={undefined}
+        counts={{ total: 0, completed: 0, inProgress: 0, pending: 0 }}
+        backgroundAgents={agents}
+        backgroundRunningCount={1}
+      />,
+    );
+
+    // 2 completed out of 3
+    expect(screen.getByText("2/3")).toBeInTheDocument();
   });
 });

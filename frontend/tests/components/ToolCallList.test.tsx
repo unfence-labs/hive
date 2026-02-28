@@ -311,7 +311,9 @@ describe("ToolCallList", () => {
     expect(screen.queryByText("2 tool calls, 1 subagent")).not.toBeInTheDocument();
   });
 
-  it("keeps Task children and prompt collapsed by default, then reveals them on demand", async () => {
+  // ── SubAgentCard rendering ──────────────────────────────────────────
+
+  it("renders Task tools as SubAgentCard with agent type and children collapsed by default", async () => {
     const user = userEvent.setup();
     render(
       <ToolCallList
@@ -335,21 +337,28 @@ describe("ToolCallList", () => {
       />,
     );
 
+    // SubAgentCard header shows agent type
+    expect(screen.getByText("Explore")).toBeInTheDocument();
+    expect(screen.getByText("Scan files")).toBeInTheDocument();
+
+    // Children collapsed by default
     expect(screen.queryByText("Read")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Prompt" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Prompt")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Task \(Explore\)/i }));
+    // Click header to expand
+    await user.click(screen.getByText("Explore"));
 
+    // Children and Prompt now visible
     expect(screen.getByText("Read")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Prompt" })).toBeInTheDocument();
+    expect(screen.getByText("Prompt")).toBeInTheDocument();
     expect(screen.queryByText("Look into src/lib and summarize changes.")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Prompt" }));
-
+    // Toggle prompt
+    await user.click(screen.getByText("Prompt"));
     expect(screen.getByText("Look into src/lib and summarize changes.")).toBeInTheDocument();
   });
 
-  it("renders nested Task trees recursively", async () => {
+  it("renders nested SubAgentCards recursively", async () => {
     const user = userEvent.setup();
     render(
       <ToolCallList
@@ -376,16 +385,57 @@ describe("ToolCallList", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: /Task \(Explore\)/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Task \(Plan\)/i })).not.toBeInTheDocument();
+    // Root card visible with agent type
+    expect(screen.getByText("Explore")).toBeInTheDocument();
+    // Nested card not visible yet
+    expect(screen.queryByText("Plan")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Task \(Explore\)/i }));
+    // Expand root card — nested Plan card visible (with Bash in its peek row since Plan is running)
+    await user.click(screen.getByText("Explore"));
+    expect(screen.getByText("Plan")).toBeInTheDocument();
 
-    expect(screen.getByRole("button", { name: /Task \(Plan\)/i })).toBeInTheDocument();
-    expect(screen.queryByText("Bash")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /Task \(Plan\)/i }));
-
+    // Expand nested card — Bash is now in the expanded body (may also be in peek row)
+    await user.click(screen.getByText("Plan"));
     expect(screen.getByText("Bash")).toBeInTheDocument();
+  });
+
+  it("shows completed status badge on SubAgentCard when output exists", () => {
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "task-done",
+            name: "Task",
+            input: JSON.stringify({ subagent_type: "Explore", description: "Search" }),
+            output: "Found 5 files",
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Explore")).toBeInTheDocument();
+    expect(screen.getByText("Done")).toBeInTheDocument();
+  });
+
+  it("shows shimmer animation on SubAgentCard during streaming", () => {
+    render(
+      <ToolCallList
+        showExecutingState
+        toolCalls={[
+          tool({
+            id: "task-running",
+            name: "Task",
+            input: JSON.stringify({ subagent_type: "Explore", description: "Searching" }),
+            output: undefined,
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Explore")).toBeInTheDocument();
+    expect(screen.getByText("Searching")).toBeInTheDocument();
+    // Running state uses shimmer animation on the button (same as other executing tools)
+    const btn = screen.getByRole("button", { name: /Explore/i });
+    expect(btn).toHaveClass("animate-shimmer");
   });
 });
