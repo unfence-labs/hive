@@ -68,4 +68,23 @@ describe("ModifiedFileList", () => {
     await user.click(screen.getByRole("button", { name: /new-file\.ts/i }));
     expect(onFileClick).toHaveBeenCalledWith("src/new-file.ts");
   });
+
+  it("highlights the active file row", () => {
+    render(
+      <ModifiedFileList
+        committed={[]}
+        uncommitted={[
+          stat({ file: "src/a.ts", additions: 1 }),
+          stat({ file: "src/b.ts", additions: 2 }),
+        ]}
+        onFileClick={() => {}}
+        activeFile="src/a.ts"
+      />,
+    );
+
+    const aBtn = screen.getByRole("button", { name: /a\.ts/i });
+    const bBtn = screen.getByRole("button", { name: /b\.ts/i });
+    expect(aBtn.className).toContain("ring");
+    expect(bBtn.className).not.toContain("ring");
+  });
 });

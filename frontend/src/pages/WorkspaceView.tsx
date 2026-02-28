@@ -14,12 +14,13 @@ import {
   FileTreeFolder,
 } from "@/components/ai-elements/file-tree";
 import ChatConversation from "@/components/ChatConversation";
-import ChatInput from "@/components/ChatInput";
+import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 import QuestionPanel from "@/components/chat/QuestionPanel";
 import { ConversationTabs } from "@/components/ConversationTabs";
 import { FileViewer } from "@/components/FileViewer";
+import { FileContentToolbar } from "@/components/FileContentToolbar";
 import { BranchLabel } from "@/components/BranchLabel";
-import { GitDiffModal } from "@/components/diff/GitDiffModal";
+import { InlineDiffViewer, type InlineDiffViewerHandle } from "@/components/diff/InlineDiffViewer";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { PrStatusSection } from "@/components/PrStatusSection";
 import ScriptPanel from "@/components/ScriptPanel";
@@ -133,10 +134,6 @@ export default function WorkspaceView() {
   });
   const [isDraggingSplit, setIsDraggingSplit] = useState(false);
 
-  // Diff modal state
-  const [diffModalOpen, setDiffModalOpen] = useState(false);
-  const [diffModalFile, setDiffModalFile] = useState<string | undefined>();
-
   // Live data via WebSocket (branch + diff stats)
   const liveData = useWorkspaceLiveDataContext();
   const clearUnread = useClearUnread();
@@ -239,9 +236,12 @@ export default function WorkspaceView() {
 
   const {
     openFile,
+    fileViewMode,
     isFileTabActive,
     activateTab,
     openFileTab,
+    openDiffTab,
+    setFileViewMode,
     closeFileTab,
   } = useTabs(sessionId, wsId);
 
@@ -365,9 +365,10 @@ export default function WorkspaceView() {
   }, [openFileTab]);
 
   const handleModifiedFileClick = useCallback((filePath: string) => {
-    setDiffModalFile(filePath);
-    setDiffModalOpen(true);
-  }, []);
+    setSelectedPath(filePath);
+    openDiffTab(filePath);
+    setSidebarTab("modified");
+  }, [openDiffTab]);
 
   const handleHandOff = useCallback(async (planContent: string, planPath?: string) => {
     dismissPlan("Plan handed off to a new session.");
@@ -418,8 +419,36 @@ export default function WorkspaceView() {
     [hasPendingPlan, hasPendingExitPlanInput, rejectToolInput, sendMessage],
   );
 
-  // sendMessage is already a stable callback from useConversation
-  const handleAddToPrompt = sendMessage;
+  // Refs for inline diff → chat input bridge
+  const chatInputRef = useRef<ChatInputHandle>(null);
+  const diffViewerRef = useRef<InlineDiffViewerHandle>(null);
+
+  // Inline diff state
+  const [diffStyle, setDiffStyle] = useState<"split" | "unified">(() => {
+    const stored = localStorage.getItem("diff-style");
+    return stored === "split" ? "split" : "unified";
+  });
+  const handleDiffStyleChange = useCallback((style: "split" | "unified") => {
+    setDiffStyle(style);
+    localStorage.setItem("diff-style", style);
+  }, []);
+  const [diffCommentCount, setDiffCommentCount] = useState(0);
+
+  const isFileModified = useMemo(() => {
+    if (!openFile) return false;
+    return [...diffCommitted, ...diffUncommitted].some(
+      (s) => s.file === openFile || openFile.endsWith(`/${s.file}`),
+    );
+  }, [openFile, diffCommitted, diffUncommitted]);
+
+  const handlePasteToPrompt = useCallback(() => {
+    diffViewerRef.current?.pasteToPrompt();
+  }, []);
+
+  const handleDiffPasteText = useCallback((text: string) => {
+    if (sessionId) activateTab(`session:${sessionId}`);
+    requestAnimationFrame(() => chatInputRef.current?.appendText(text));
+  }, [sessionId, activateTab]);
 
   // Full skeleton on initial load
   if (workspaceQuery.isLoading) {
@@ -530,6 +559,7 @@ export default function WorkspaceView() {
             onDeleteSession={handleDeleteSession}
             openFile={openFile}
             isFileTabActive={isFileTabActive}
+            fileViewMode={fileViewMode}
             onFileTabActivate={() => openFile && activateTab(`file:${openFile}`)}
             onFileTabClose={closeFileTab}
             onConversationActivate={() => sessionId && activateTab(`session:${sessionId}`)}
@@ -582,6 +612,7 @@ export default function WorkspaceView() {
                   />
                 )}
                 <ChatInput
+                  ref={chatInputRef}
                   wsId={wsId}
                   sessionId={sessionId}
                   lockedProvider={effectiveLockedProvider}
@@ -601,7 +632,28 @@ export default function WorkspaceView() {
           </div>
           {isFileTabActive && openFile && wsId && (
             <div className="flex min-h-0 flex-1 flex-col">
-              <FileViewer wsId={wsId} filePath={openFile} />
+              <FileContentToolbar
+                filePath={openFile}
+                mode={fileViewMode}
+                onModeChange={setFileViewMode}
+                isModified={isFileModified}
+                diffStyle={diffStyle}
+                onDiffStyleChange={handleDiffStyleChange}
+                commentCount={diffCommentCount}
+                onPasteToPrompt={handlePasteToPrompt}
+              />
+              {fileViewMode === "source" ? (
+                <FileViewer wsId={wsId} filePath={openFile} />
+              ) : (
+                <InlineDiffViewer
+                  ref={diffViewerRef}
+                  wsId={wsId}
+                  filePath={openFile}
+                  diffStyle={diffStyle}
+                  onCommentCountChange={setDiffCommentCount}
+                  onPasteToPrompt={handleDiffPasteText}
+                />
+              )}
             </div>
           )}
         </div>
@@ -654,6 +706,7 @@ export default function WorkspaceView() {
                   committed={diffCommitted}
                   uncommitted={diffUncommitted}
                   onFileClick={handleModifiedFileClick}
+                  activeFile={isFileTabActive && fileViewMode === "diff" ? openFile ?? undefined : undefined}
                 />
               )}
               {sidebarTab === "all" && fileTreeError && (
@@ -702,16 +755,6 @@ export default function WorkspaceView() {
         </aside>
       </div>
 
-      {/* Diff modal */}
-      {wsId && (
-        <GitDiffModal
-          open={diffModalOpen}
-          onOpenChange={setDiffModalOpen}
-          wsId={wsId}
-          initialFile={diffModalFile}
-          onAddToPrompt={handleAddToPrompt}
-        />
-      )}
     </div>
   );
 }

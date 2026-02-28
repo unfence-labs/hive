@@ -3,7 +3,6 @@ import { parsePatchFiles, type ParsedPatch } from "@pierre/diffs";
 import { api } from "./useApi";
 
 interface DiffData {
-  rawDiff: string;
   patchFiles: ParsedPatch[];
 }
 
@@ -17,7 +16,6 @@ export function useDiff(wsId: string | undefined, enabled = false) {
         `/api/workspaces/${wsId}/diff`,
       );
       return {
-        rawDiff: diff,
         patchFiles: diff ? parsePatchFiles(diff) : [],
       };
     },
@@ -27,7 +25,6 @@ export function useDiff(wsId: string | undefined, enabled = false) {
   });
 
   return {
-    rawDiff: query.data?.rawDiff ?? "",
     patchFiles: query.data?.patchFiles ?? [],
     loading: query.isLoading,
     error: query.error?.message ?? null,

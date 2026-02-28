@@ -30,7 +30,6 @@ describe("useDiff", () => {
 
     expect(api.get).not.toHaveBeenCalled();
     expect(result.current.patchFiles).toEqual([]);
-    expect(result.current.rawDiff).toBe("");
     expect(result.current.error).toBeNull();
   });
 
@@ -55,7 +54,7 @@ describe("useDiff", () => {
     const { result } = renderHook(() => useDiff("ws-1", true), { wrapper });
 
     await waitFor(() => {
-      expect(result.current.rawDiff).toBe("patch-content");
+      expect(result.current.loading).toBe(false);
     });
 
     expect(api.get).toHaveBeenCalledWith("/api/workspaces/ws-1/diff");
@@ -77,7 +76,6 @@ describe("useDiff", () => {
 
     expect(parsePatchFiles).not.toHaveBeenCalled();
     expect(result.current.patchFiles).toEqual([]);
-    expect(result.current.rawDiff).toBe("");
   });
 
   it("sets error when fetch fails", async () => {
@@ -88,6 +86,22 @@ describe("useDiff", () => {
 
     await waitFor(() => {
       expect(result.current.error).toBe("boom");
+    });
+
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("surfaces parser errors when diff content is invalid", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ diff: "broken-patch" });
+    vi.mocked(parsePatchFiles).mockImplementationOnce(() => {
+      throw new Error("invalid patch");
+    });
+    const { wrapper } = createWrapper();
+
+    const { result } = renderHook(() => useDiff("ws-1", true), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.error).toBe("invalid patch");
     });
 
     expect(result.current.loading).toBe(false);

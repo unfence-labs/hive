@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { MessageSquareIcon, PlusIcon, XIcon, MoreHorizontalIcon, FileIcon } from "lucide-react";
+import { MessageSquareIcon, PlusIcon, XIcon, MoreHorizontalIcon, FileIcon, GitCompareArrowsIcon } from "lucide-react";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import {
   DropdownMenu,
@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import type { SessionMetadata } from "@/types";
+import type { FileViewMode } from "@/hooks/useTabs";
 
 const MAX_SESSIONS_PER_WORKSPACE = 4;
 
@@ -33,6 +34,7 @@ interface ConversationTabsProps {
   onDeleteSession: (sessionId: string) => void;
   openFile?: string | null;
   isFileTabActive?: boolean;
+  fileViewMode?: FileViewMode;
   onFileTabActivate?: () => void;
   onFileTabClose?: () => void;
   onConversationActivate?: () => void;
@@ -121,6 +123,7 @@ export function ConversationTabs({
   onDeleteSession,
   openFile,
   isFileTabActive,
+  fileViewMode,
   onFileTabActivate,
   onFileTabClose,
   onConversationActivate,
@@ -184,7 +187,11 @@ export function ConversationTabs({
               )}
               onClick={onFileTabActivate}
             >
-              <FileIcon className="size-3 shrink-0" />
+              {fileViewMode === "diff" ? (
+                <GitCompareArrowsIcon className="size-3 shrink-0 text-primary" />
+              ) : (
+                <FileIcon className="size-3 shrink-0" />
+              )}
               <span className="truncate">{openFile.split("/").pop()}</span>
               <TabCloseAction onClose={() => onFileTabClose?.()} />
             </button>

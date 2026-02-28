@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ComponentProps } from "react";
-import ChatInput from "@/components/ChatInput";
+import { createRef, type ComponentProps } from "react";
+import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 
 vi.mock("@/hooks/useModels", () => ({
   useModels: () => ({
@@ -74,6 +74,41 @@ describe("ChatInput", () => {
 
     expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
+  });
+
+  it("appends text through the imperative ref API", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const ref = createRef<ChatInputHandle>();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ChatInput
+          ref={ref}
+          onSend={vi.fn(() => true)}
+          onStop={vi.fn()}
+          onQueue={vi.fn()}
+          disabled={false}
+          isStreaming={false}
+          connectionStatus="connected"
+          messages={[]}
+        />
+      </QueryClientProvider>,
+    );
+
+    const input = screen.getByPlaceholderText("Send a message...");
+    expect(input).toHaveValue("");
+
+    act(() => {
+      ref.current?.appendText("First note");
+    });
+    expect(input).toHaveValue("First note");
+
+    act(() => {
+      ref.current?.appendText("Second note");
+    });
+    expect(input).toHaveValue("First note\n\nSecond note");
   });
 
   it("sends message on Send button click", async () => {

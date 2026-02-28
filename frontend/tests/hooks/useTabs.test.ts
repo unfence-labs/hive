@@ -89,6 +89,47 @@ describe("useTabs", () => {
     expect(result.current.openFile).toBeNull();
   });
 
+  // ---- fileViewMode ----
+
+  it("defaults fileViewMode to source", () => {
+    const { result } = renderHook(() => useTabs("s1", "ws1"));
+    expect(result.current.fileViewMode).toBe("source");
+  });
+
+  it("openFileTab sets mode to source", () => {
+    const { result } = renderHook(() => useTabs("s1", "ws1"));
+    act(() => result.current.openDiffTab("a.ts"));
+    expect(result.current.fileViewMode).toBe("diff");
+    act(() => result.current.openFileTab("b.ts"));
+    expect(result.current.fileViewMode).toBe("source");
+  });
+
+  it("openDiffTab sets mode to diff", () => {
+    const { result } = renderHook(() => useTabs("s1", "ws1"));
+    act(() => result.current.openDiffTab("a.ts"));
+    expect(result.current.activeTabId).toBe("file:a.ts");
+    expect(result.current.openFile).toBe("a.ts");
+    expect(result.current.fileViewMode).toBe("diff");
+    expect(result.current.isFileTabActive).toBe(true);
+  });
+
+  it("setFileViewMode toggles mode in place", () => {
+    const { result } = renderHook(() => useTabs("s1", "ws1"));
+    act(() => result.current.openFileTab("a.ts"));
+    expect(result.current.fileViewMode).toBe("source");
+    act(() => result.current.setFileViewMode("diff"));
+    expect(result.current.fileViewMode).toBe("diff");
+    expect(result.current.openFile).toBe("a.ts");
+  });
+
+  it("closeFileTab resets fileViewMode to source", () => {
+    const { result } = renderHook(() => useTabs("s1", "ws1"));
+    act(() => result.current.openDiffTab("a.ts"));
+    expect(result.current.fileViewMode).toBe("diff");
+    act(() => result.current.closeFileTab());
+    expect(result.current.fileViewMode).toBe("source");
+  });
+
   // ---- workspace switch persistence ----
 
   it("restores file tab when switching back to a workspace", () => {
@@ -141,6 +182,24 @@ describe("useTabs", () => {
     expect(result.current.openFile).toBeNull();
     // session sync effect sets it
     expect(result.current.activeTabId).toBe("session:s3");
+  });
+
+  it("restores fileViewMode when switching back to a workspace", () => {
+    const { result, rerender } = renderHook(
+      ({ sid, ws }) => useTabs(sid, ws),
+      { initialProps: { sid: "s1", ws: "ws1" } },
+    );
+    act(() => result.current.openDiffTab("a.ts"));
+    expect(result.current.fileViewMode).toBe("diff");
+
+    // Switch to ws2
+    rerender({ sid: "s3", ws: "ws2" });
+    expect(result.current.fileViewMode).toBe("source");
+
+    // Switch back to ws1
+    rerender({ sid: "s1", ws: "ws1" });
+    expect(result.current.fileViewMode).toBe("diff");
+    expect(result.current.openFile).toBe("a.ts");
   });
 
   it("persists latest tab snapshot across unmount/remount in the same workspace", () => {

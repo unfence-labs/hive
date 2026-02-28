@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback, type MutableRefObject, type KeyboardEvent, type ChangeEvent } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, forwardRef, useImperativeHandle, type MutableRefObject, type KeyboardEvent, type ChangeEvent } from "react";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 import {
   PromptInput,
@@ -26,6 +26,10 @@ import { useContextUsage } from "@/hooks/useContextUsage";
 import { useModels } from "@/hooks/useModels";
 import { useChatInputDraftPersistence } from "@/hooks/useChatInputDraftPersistence";
 import { fuzzyMatchFiles, disambiguateDisplayName, type FuzzyResult } from "@/lib/fuzzy-match";
+
+export interface ChatInputHandle {
+  appendText: (text: string) => void;
+}
 
 interface ChatInputProps {
   wsId?: string;
@@ -76,7 +80,7 @@ function ChatInputAttachments({
   return <AttachmentPreview files={attachments.files} onRemove={attachments.remove} />;
 }
 
-export default function ChatInput({
+const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput({
   wsId,
   sessionId,
   lockedProvider,
@@ -90,7 +94,7 @@ export default function ChatInput({
   queuedMessage,
   onQueue,
   agentPlanMode,
-}: ChatInputProps) {
+}, ref) {
   const [value, setValue] = useState("");
   const [thinkingEnabled, setThinkingEnabled] = useState(true);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("high");
@@ -101,6 +105,14 @@ export default function ChatInput({
   const [fileMentions, setFileMentions] = useState<FileMention[]>([]);
   const attachmentsRef = useRef<AttachmentsContext | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    appendText: (text: string) => {
+      setValue((prev) => (prev ? `${prev}\n\n${text}` : text));
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+  }), []);
+
   const isDisconnected = connectionStatus === "disconnected";
   const hasQueuedMessage = !!queuedMessage;
   const isInputDisabled = disabled || isDisconnected || hasQueuedMessage;
@@ -474,4 +486,6 @@ export default function ChatInput({
       </div>
     </div>
   );
-}
+});
+
+export default ChatInput;
