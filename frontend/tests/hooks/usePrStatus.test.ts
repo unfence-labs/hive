@@ -1,8 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { usePrStatus, useBulkPrStatus } from "@/hooks/usePrStatus";
+import { usePrStatus, useBulkPrStatus, prStatusKey } from "@/hooks/usePrStatus";
 import { api } from "@/hooks/useApi";
-import type { PullRequestInfo } from "@/types";
+import type { PrStatusResponse, PullRequestInfo } from "@/types";
 import { createWrapper } from "../test-utils";
 
 vi.mock("@/hooks/useApi", () => ({
@@ -253,5 +253,54 @@ describe("useBulkPrStatus", () => {
     await waitFor(() => {
       expect(result.current.results["ws-2"]?.pr?.number).toBe(2);
     });
+  });
+
+  it("seeds per-workspace cache entries after bulk fetch", async () => {
+    vi.mocked(api.post).mockResolvedValueOnce({
+      results: {
+        "ws-1": { pr: makePr({ number: 10 }) },
+        "ws-2": { pr: null, error: "gh not authenticated" },
+      },
+    });
+
+    const { wrapper, queryClient } = createWrapper();
+    renderHook(() => useBulkPrStatus(["ws-1", "ws-2"]), { wrapper });
+
+    await waitFor(() => {
+      const ws1 = queryClient.getQueryData(prStatusKey("ws-1")) as
+        | PrStatusResponse
+        | undefined;
+      expect(ws1?.pr?.number).toBe(10);
+    });
+
+    const ws2 = queryClient.getQueryData(prStatusKey("ws-2")) as
+      | PrStatusResponse
+      | undefined;
+    expect(ws2?.pr).toBeNull();
+    expect(ws2?.error).toBe("gh not authenticated");
+  });
+});
+
+describe("usePrStatus reads bulk-seeded cache", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns data seeded by bulk without making a standalone request", async () => {
+    const { wrapper, queryClient } = createWrapper();
+
+    // Pre-seed the per-workspace cache as if bulk had populated it
+    queryClient.setQueryData(prStatusKey("ws-1"), {
+      pr: makePr({ number: 77 }),
+    } satisfies PrStatusResponse);
+
+    const { result } = renderHook(() => usePrStatus("ws-1"), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.pr?.number).toBe(77);
+    });
+
+    // No standalone GET request should have fired
+    expect(api.get).not.toHaveBeenCalled();
   });
 });
