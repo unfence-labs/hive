@@ -108,7 +108,7 @@ describe("NotificationSettings", () => {
 
   it("keeps Test button disabled until both credentials are non-empty after trim", async () => {
     const user = userEvent.setup();
-    await renderReady();
+    await renderReady({ enabled: true });
 
     const tg = telegramSection();
     const testButton = tg.getByRole("button", { name: "Test" });
@@ -154,7 +154,7 @@ describe("NotificationSettings", () => {
     const user = userEvent.setup();
     mocks.put.mockRejectedValueOnce(new Error("boom"));
 
-    await renderReady({ botToken: "token", chatId: "chat" });
+    await renderReady({ enabled: true, botToken: "token", chatId: "chat" });
 
     await user.click(telegramSection().getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Failed to save")).toBeInTheDocument();
@@ -167,7 +167,7 @@ describe("NotificationSettings", () => {
     const user = userEvent.setup();
     mocks.post.mockResolvedValueOnce({ ok: true });
 
-    await renderReady({ botToken: "token", chatId: "chat" });
+    await renderReady({ enabled: true, botToken: "token", chatId: "chat" });
 
     await user.click(telegramSection().getByRole("button", { name: "Test" }));
 
@@ -184,7 +184,7 @@ describe("NotificationSettings", () => {
     const user = userEvent.setup();
     mocks.post.mockResolvedValueOnce({ ok: false, error: "chat not found" });
 
-    await renderReady({ botToken: "token", chatId: "chat" });
+    await renderReady({ enabled: true, botToken: "token", chatId: "chat" });
 
     await user.click(telegramSection().getByRole("button", { name: "Test" }));
 
@@ -195,7 +195,7 @@ describe("NotificationSettings", () => {
     const user = userEvent.setup();
     mocks.post.mockRejectedValueOnce(new Error("network"));
 
-    await renderReady({ botToken: "token", chatId: "chat" });
+    await renderReady({ enabled: true, botToken: "token", chatId: "chat" });
 
     await user.click(telegramSection().getByRole("button", { name: "Test" }));
 

@@ -249,7 +249,7 @@ function TelegramForm({ initial }: { initial: TelegramConfig }) {
       </div>
 
       <div className="mt-4">
-        <FormActions hasCredentials={hasCredentials} {...channel} />
+        <FormActions {...channel} hasCredentials={hasCredentials} />
       </div>
     </NotificationSection>
   );
@@ -374,7 +374,7 @@ function ApnsForm({ initial }: { initial: ApnsConfig }) {
       </div>
 
       <div className="mt-4">
-        <FormActions hasCredentials={hasCredentials} {...channel} />
+        <FormActions {...channel} hasCredentials={hasCredentials} />
       </div>
     </NotificationSection>
   );
@@ -385,24 +385,26 @@ function ApnsForm({ initial }: { initial: ApnsConfig }) {
 // ---------------------------------------------------------------------------
 
 function FormActions({
-  saving, testing, hasCredentials, onTest, onSave, feedback,
+  saving, testing, hasCredentials, enabled, onTest, onSave, feedback,
 }: {
   saving: boolean;
   testing: boolean;
   hasCredentials: boolean;
+  enabled: boolean;
   onTest: () => void;
   onSave: () => void;
   feedback: Feedback;
 }) {
+  const disabled = !enabled;
   return (
     <div className="flex items-center gap-2">
       <button
         type="button"
         onClick={onTest}
-        disabled={testing || !hasCredentials}
+        disabled={disabled || testing || !hasCredentials}
         className={cn(
           "inline-flex cursor-pointer items-center gap-2 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
-          (testing || !hasCredentials) && "pointer-events-none opacity-60",
+          (disabled || testing || !hasCredentials) && "pointer-events-none opacity-60",
         )}
       >
         {testing
@@ -414,10 +416,10 @@ function FormActions({
       <button
         type="button"
         onClick={onSave}
-        disabled={saving}
+        disabled={disabled || saving}
         className={cn(
           "inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
-          saving && "pointer-events-none opacity-60",
+          (disabled || saving) && "pointer-events-none opacity-60",
         )}
       >
         {saving

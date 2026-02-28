@@ -66,9 +66,9 @@ interface SidebarGroupHeaderProps {
   label: React.ReactNode;
   badge?: React.ReactNode;
   count?: number;
+  isLoading?: boolean;
   onAdd?: (e: React.MouseEvent) => void;
   addLabel?: string;
-  addContent?: React.ReactNode;
 }
 
 function SidebarGroupHeader({
@@ -76,16 +76,19 @@ function SidebarGroupHeader({
   label,
   badge,
   count,
+  isLoading,
   onAdd,
   addLabel,
-  addContent,
 }: SidebarGroupHeaderProps) {
   return (
     <div className="group relative flex w-full items-center">
       <CollapsibleTrigger asChild>
         <button
           type="button"
-          className="flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-md bg-[#1e1e28] px-2.5 py-2 text-left transition-colors hover:bg-[#252532]"
+          className={cn(
+            "flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-md bg-[#1e1e28] px-2.5 py-2 text-left transition-colors hover:bg-[#252532]",
+            count !== undefined && "pr-8",
+          )}
         >
           {icon}
           <span className="min-w-0 flex-1 truncate text-xs font-semibold lowercase tracking-wider text-sidebar-foreground">
@@ -97,22 +100,28 @@ function SidebarGroupHeader({
       {count !== undefined && (
         <div className="absolute inset-y-0 right-2.5 flex items-center">
           <div className="relative flex h-5 w-5 items-center justify-center">
-            <span className="text-xs tabular-nums text-muted-foreground/60 transition-opacity group-hover:opacity-0">
-              {count}
-            </span>
-            {onAdd && (
-              <button
-                type="button"
-                className="absolute inset-0 flex items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover:opacity-100"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onAdd(e);
-                }}
-                aria-label={addLabel}
-                title={addLabel}
-              >
-                {addContent ?? <Plus className="h-4 w-4" />}
-              </button>
+            {isLoading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+            ) : (
+              <>
+                <span className="text-xs tabular-nums text-muted-foreground/60 transition-opacity group-hover:opacity-0">
+                  {count}
+                </span>
+                {onAdd && (
+                  <button
+                    type="button"
+                    className="absolute inset-0 flex items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAdd(e);
+                    }}
+                    aria-label={addLabel}
+                    title={addLabel}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -139,6 +148,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
+  const [archivingWsId, setArchivingWsId] = useState<string | null>(null);
   const liveData = useWorkspaceLiveDataContext();
 
   // Derive active tab from route
@@ -202,9 +212,14 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   };
 
   const doArchive = async (wsId: string) => {
-    const wasActive = activeWsId === wsId;
-    await archiveWorkspace(wsId);
-    if (wasActive) navigate("/projects");
+    setArchivingWsId(wsId);
+    try {
+      const wasActive = activeWsId === wsId;
+      await archiveWorkspace(wsId);
+      if (wasActive) navigate("/projects");
+    } finally {
+      setArchivingWsId(null);
+    }
   };
 
   return (
@@ -255,9 +270,9 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                         }
                         label={displayLabel}
                         count={(project.workspaces ?? []).length}
+                        isLoading={creatingProjectId === project.id}
                         onAdd={() => { void handleAddWorkspace(project.id); }}
                         addLabel={`Add workspace to ${displayLabelPlain}`}
-                        addContent={creatingProjectId === project.id ? "..." : <Plus className="h-4 w-4" />}
                       />
 
                       <CollapsibleContent>
@@ -269,9 +284,10 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                             const displayBranch = wsLive?.branch ?? ws.branch;
                             const wsUnread = !wsStreaming && Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
                             const prStatus = prStatuses[ws.id];
+                            const wsArchiving = archivingWsId === ws.id;
 
                             return (
-                              <div key={ws.id} className="group/ws relative">
+                              <div key={ws.id} className={cn("group/ws relative transition-opacity", wsArchiving && "pointer-events-none opacity-40")}>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <Link
@@ -324,7 +340,11 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                                   </TooltipContent>
                                 </Tooltip>
 
-                                {!wsScriptRunning && (
+                                {wsArchiving ? (
+                                  <div className="absolute right-1.5 top-1.5 p-0.5">
+                                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                                  </div>
+                                ) : !wsScriptRunning && (
                                   <button
                                     type="button"
                                     className="absolute right-1.5 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"
