@@ -4,6 +4,8 @@ import {
   ConversationContent,
   ConversationEmptyState,
   ConversationScrollButton,
+  ConversationScrollLockReEngager,
+  ConversationScrollTrigger,
 } from "@/components/ai-elements/conversation";
 import ChatMessage from "@/components/ChatMessage";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
@@ -38,6 +40,7 @@ interface ChatConversationProps {
   agentPlanMode?: boolean;
   queuedMessage?: QueuedMessage | null;
   onClearQueue?: () => void;
+  scrollToBottomTrigger?: number;
 }
 
 export default function ChatConversation({
@@ -60,6 +63,7 @@ export default function ChatConversation({
   error,
   queuedMessage,
   onClearQueue,
+  scrollToBottomTrigger = 0,
 }: ChatConversationProps) {
   const [elapsed, setElapsed] = useState(0);
 
@@ -265,6 +269,8 @@ export default function ChatConversation({
         )}
       </ConversationContent>
       <ConversationScrollButton />
+      <ConversationScrollLockReEngager />
+      <ConversationScrollTrigger trigger={scrollToBottomTrigger} />
     </Conversation>
   );
 }

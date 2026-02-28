@@ -254,6 +254,9 @@ export default function WorkspaceView() {
     }
   }, [isFileTabActive, wsId, sessionId, liveData, clearUnread]);
 
+  // ── Scroll-to-bottom trigger: incremented on send/queue to force scroll ──
+  const [scrollToBottomTrigger, setScrollToBottomTrigger] = useState(0);
+
   // ── Message queue: lets users type one follow-up while agent is busy ──
   const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
 
@@ -405,9 +408,12 @@ export default function WorkspaceView() {
     (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]): boolean => {
       if (hasPendingPlan && hasPendingExitPlanInput) {
         rejectToolInput(content);
+        setScrollToBottomTrigger((c) => c + 1);
         return true;
       }
-      return sendMessage(content, images, options, undefined, fileMentions);
+      const sent = sendMessage(content, images, options, undefined, fileMentions);
+      if (sent) setScrollToBottomTrigger((c) => c + 1);
+      return sent;
     },
     [hasPendingPlan, hasPendingExitPlanInput, rejectToolInput, sendMessage],
   );
@@ -549,6 +555,7 @@ export default function WorkspaceView() {
               error={error}
               queuedMessage={queuedMessage}
               onClearQueue={() => setQueuedMessage(null)}
+              scrollToBottomTrigger={scrollToBottomTrigger}
             />
             {tasks.length > 0 && !pendingToolInputs.some((p) => p.toolName === "AskUserQuestion") && (
               <TaskTracker
@@ -586,7 +593,7 @@ export default function WorkspaceView() {
                   placeholder={hasPendingPlan ? "Enter your plan adjustments here..." : undefined}
                   messages={messages}
                   queuedMessage={queuedMessage}
-                  onQueue={setQueuedMessage}
+                  onQueue={(msg) => { setQueuedMessage(msg); setScrollToBottomTrigger((c) => c + 1); }}
                   agentPlanMode={agentPlanMode}
                 />
               </div>
