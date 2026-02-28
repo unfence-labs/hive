@@ -299,9 +299,9 @@ export type WsOutgoing =
   | { type: "tool_use"; sessionId: string; id: string; name: string; input: string; parentToolUseId?: string }
   | { type: "tool_result"; sessionId: string; toolUseId: string; output: string }
   | { type: "tool_input_required"; sessionId: string; requestId: string; toolName: string; toolUseId: string; input: unknown }
-  | { type: "done"; sessionId: string; durationMs?: number; inputTokens?: number; outputTokens?: number }
+  | { type: "done"; sessionId: string; durationMs?: number; inputTokens?: number; outputTokens?: number; pendingToolName?: string }
   | { type: "error"; message: string; sessionId?: string }
-  | { type: "cancelled"; sessionId: string }
+  | { type: "cancelled"; sessionId: string; errorDetail?: string; userInitiated?: boolean; durationMs?: number }
   | { type: "status"; status: WorkspaceStatus; sessionId?: string; streaming?: boolean; streamingStartedAt?: number; lockedProvider?: string }
   | { type: "user_message"; message: ChatMessage }
   | { type: "history"; messages: ChatMessage[]; sessionId?: string }

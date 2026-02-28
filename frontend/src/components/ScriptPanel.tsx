@@ -66,6 +66,14 @@ export default function ScriptPanel({
 
   const [activeTab, setActiveTab] = useState<string>(tabs[0]?.key ?? "terminal");
 
+  // When config loads and tabs change, reset to first tab (e.g. "setup") if current tab is just the default "terminal"
+  const firstTabKey = tabs[0]?.key ?? "terminal";
+  useEffect(() => {
+    if (firstTabKey !== "terminal") {
+      setActiveTab((prev) => prev === "terminal" ? firstTabKey : prev);
+    }
+  }, [firstTabKey]);
+
   // If the active tab no longer exists in config, fall back to first
   const effectiveTab = tabs.find((t) => t.key === activeTab)?.key ?? tabs[0]?.key ?? "terminal";
   const tabInfo = tabs.find((t) => t.key === effectiveTab);

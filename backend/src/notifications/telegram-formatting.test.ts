@@ -1,13 +1,17 @@
 /**
- * Tests for Telegram message formatting of automation_run_complete events.
- * The original telegram.test.ts covers agent_turn_complete; this file focuses
- * on the new automation notification variant.
+ * Tests for Telegram message formatting of notification event types.
+ * The original telegram.test.ts covers agent_turn_complete basics; this file
+ * covers automation events and the newer notification variants.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TelegramChannel } from "./telegram.js";
 import type { NotificationEvent } from "./types.js";
 
 type AutomationRunEvent = Extract<NotificationEvent, { type: "automation_run_complete" }>;
+type NeedsInputEvent = Extract<NotificationEvent, { type: "agent_needs_input" }>;
+type ProposedPlanEvent = Extract<NotificationEvent, { type: "agent_proposed_plan" }>;
+type FailedEvent = Extract<NotificationEvent, { type: "agent_failed" }>;
+type TurnCompleteEvent = Extract<NotificationEvent, { type: "agent_turn_complete" }>;
 
 function automationEvent(overrides: Partial<AutomationRunEvent> = {}): AutomationRunEvent {
   return {
@@ -60,7 +64,7 @@ describe("automation_run_complete formatting", () => {
     const body = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
     expect(body.text).toContain("Automation: Daily Code Review");
     expect(body.text).toContain("✅ Success");
-    expect(body.text).toContain("Duration: 121s");
+    expect(body.text).toContain("Duration: 2m 1s");
     expect(body.text).toContain("Reviewed 12 files, found 3 issues.");
   });
 
@@ -186,5 +190,114 @@ describe("automation_run_complete formatting", () => {
 
     body = JSON.parse(String(fetchMock.mock.calls[1]![1]?.body));
     expect(body.text).toContain("real error");
+  });
+});
+
+const wsCtx = {
+  workspaceId: "ws-1",
+  workspaceName: "tokyo",
+  projectName: "hive",
+  sessionId: "s-1",
+};
+
+describe("agent_needs_input formatting", () => {
+  it("formats with question mark emoji", async () => {
+    const fetchMock = mockFetch();
+    const channel = withEnv("token", "chat");
+    const event: NeedsInputEvent = { type: "agent_needs_input", ...wsCtx };
+
+    await channel.send(event);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
+    expect(body.text).toContain("❓");
+    expect(body.text).toContain("Agent needs input");
+    expect(body.text).toContain("Project: hive");
+    expect(body.text).toContain("Workspace: tokyo");
+  });
+});
+
+describe("agent_proposed_plan formatting", () => {
+  it("formats with clipboard emoji", async () => {
+    const fetchMock = mockFetch();
+    const channel = withEnv("token", "chat");
+    const event: ProposedPlanEvent = { type: "agent_proposed_plan", ...wsCtx };
+
+    await channel.send(event);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
+    expect(body.text).toContain("📋");
+    expect(body.text).toContain("Agent proposed a plan");
+    expect(body.text).toContain("Workspace: tokyo");
+  });
+});
+
+describe("agent_failed formatting", () => {
+  it("formats with error detail and duration", async () => {
+    const fetchMock = mockFetch();
+    const channel = withEnv("token", "chat");
+    const event: FailedEvent = {
+      type: "agent_failed",
+      ...wsCtx,
+      durationMs: 92000,
+      errorDetail: "exit code 1 | stderr: out of memory",
+    };
+
+    await channel.send(event);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
+    expect(body.text).toContain("❌");
+    expect(body.text).toContain("Agent failed");
+    expect(body.text).toContain("Duration: 1m 32s");
+    expect(body.text).toContain("out of memory");
+  });
+
+  it("omits error detail when not provided", async () => {
+    const fetchMock = mockFetch();
+    const channel = withEnv("token", "chat");
+    const event: FailedEvent = { type: "agent_failed", ...wsCtx };
+
+    await channel.send(event);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
+    expect(body.text).toContain("Agent failed");
+    expect(body.text).not.toContain("Duration:");
+  });
+});
+
+describe("agent_turn_complete with summary", () => {
+  it("includes summary when provided", async () => {
+    const fetchMock = mockFetch();
+    const channel = withEnv("token", "chat");
+    const event: TurnCompleteEvent = {
+      type: "agent_turn_complete",
+      ...wsCtx,
+      durationMs: 92000,
+      summary: "Refactored 5 files and added tests.",
+    };
+
+    await channel.send(event);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
+    expect(body.text).toContain("Agent finished");
+    expect(body.text).toContain("Duration: 1m 32s");
+    expect(body.text).toContain("Refactored 5 files and added tests.");
+  });
+
+  it("omits summary when not provided", async () => {
+    const fetchMock = mockFetch();
+    const channel = withEnv("token", "chat");
+    const event: TurnCompleteEvent = {
+      type: "agent_turn_complete",
+      ...wsCtx,
+      durationMs: 5000,
+    };
+
+    await channel.send(event);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
+    expect(body.text).toContain("Agent finished");
+    expect(body.text).toContain("Duration: 5s");
+    // No trailing content after duration
+    expect(body.text).not.toContain("\n\n");
   });
 });

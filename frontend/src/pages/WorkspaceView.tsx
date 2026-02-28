@@ -545,6 +545,7 @@ export default function WorkspaceView() {
               defaultBranch={workspace?.defaultBranch}
               fileCount={fileCount}
               switchCounter={switchCounter}
+              agentPlanMode={agentPlanMode}
               error={error}
               queuedMessage={queuedMessage}
               onClearQueue={() => setQueuedMessage(null)}

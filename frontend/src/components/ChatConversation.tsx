@@ -35,6 +35,7 @@ interface ChatConversationProps {
   fileCount?: number;
   switchCounter: number;
   error?: string;
+  agentPlanMode?: boolean;
   queuedMessage?: QueuedMessage | null;
   onClearQueue?: () => void;
 }
@@ -55,6 +56,7 @@ export default function ChatConversation({
   defaultBranch,
   fileCount,
   switchCounter,
+  agentPlanMode,
   error,
   queuedMessage,
   onClearQueue,
@@ -148,7 +150,9 @@ export default function ChatConversation({
       (m) => m.role === "assistant" && hasExitPlanModeTool(m),
     );
     if (hasLaterPlan) return "revised";
-    if (isStreaming && after.some((m) => m.role === "user")) return "revised";
+    // While streaming after a rejection, agentPlanMode stays true — mark as revised
+    // even before the new plan arrives. After approval, agentPlanMode is false.
+    if (isStreaming && agentPlanMode && after.some((m) => m.role === "user")) return "revised";
     return "approved";
   };
 

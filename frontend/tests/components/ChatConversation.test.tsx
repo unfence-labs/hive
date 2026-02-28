@@ -467,9 +467,10 @@ describe("ChatConversation plan status behavior", () => {
     expect(screen.getByTestId("msg-a2")).toHaveAttribute("data-plan-status", "interactive");
   });
 
-  it("marks a plan as revised while streaming after user feedback", () => {
+  it("marks plan as revised while streaming after rejection (agentPlanMode=true)", () => {
     renderConversation({
       isStreaming: true,
+      agentPlanMode: true,
       messages: [
         assistantWithPlan("a1", "Plan A"),
         {
@@ -483,6 +484,25 @@ describe("ChatConversation plan status behavior", () => {
     });
 
     expect(screen.getByTestId("msg-a1")).toHaveAttribute("data-plan-status", "revised");
+  });
+
+  it("keeps plan as approved while streaming after approval (agentPlanMode=false)", () => {
+    renderConversation({
+      isStreaming: true,
+      agentPlanMode: false,
+      messages: [
+        assistantWithPlan("a1", "Plan A"),
+        {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "Plan approved. Proceed with implementation.",
+          timestamp: "2026-02-20T00:00:01.000Z",
+        },
+      ],
+    });
+
+    expect(screen.getByTestId("msg-a1")).toHaveAttribute("data-plan-status", "approved");
   });
 });
 

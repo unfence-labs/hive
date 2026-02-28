@@ -1,4 +1,5 @@
 import type { NotificationChannel, NotificationEvent } from "./types.js";
+import { formatDuration } from "../utils/format.js";
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -12,19 +13,49 @@ function formatMessage(event: NotificationEvent): string {
   switch (event.type) {
     case "agent_turn_complete": {
       const duration =
-        event.durationMs != null ? `\nDuration: ${Math.round(event.durationMs / 1000)}s` : "";
+        event.durationMs != null ? `\nDuration: ${formatDuration(event.durationMs)}` : "";
+      const summary =
+        event.summary ? `\n\n${escapeHtml(truncate(event.summary, 4000))}` : "";
       return (
         `🤖 <b>Agent finished</b>\n` +
         `Project: ${escapeHtml(event.projectName)}\n` +
         `Workspace: ${escapeHtml(event.workspaceName)}` +
-        duration
+        duration +
+        summary
+      );
+    }
+    case "agent_needs_input": {
+      return (
+        `❓ <b>Agent needs input</b>\n` +
+        `Project: ${escapeHtml(event.projectName)}\n` +
+        `Workspace: ${escapeHtml(event.workspaceName)}`
+      );
+    }
+    case "agent_proposed_plan": {
+      return (
+        `📋 <b>Agent proposed a plan</b>\n` +
+        `Project: ${escapeHtml(event.projectName)}\n` +
+        `Workspace: ${escapeHtml(event.workspaceName)}`
+      );
+    }
+    case "agent_failed": {
+      const duration =
+        event.durationMs != null ? `\nDuration: ${formatDuration(event.durationMs)}` : "";
+      const detail =
+        event.errorDetail ? `\n\n${escapeHtml(truncate(event.errorDetail, 4000))}` : "";
+      return (
+        `❌ <b>Agent failed</b>\n` +
+        `Project: ${escapeHtml(event.projectName)}\n` +
+        `Workspace: ${escapeHtml(event.workspaceName)}` +
+        duration +
+        detail
       );
     }
     case "automation_run_complete": {
       const statusIcon = event.status === "success" ? "✅" : "❌";
       const statusLabel = event.status === "success" ? "Success" : "Failed";
       const duration =
-        event.durationMs != null ? `\nDuration: ${Math.round(event.durationMs / 1000)}s` : "";
+        event.durationMs != null ? `\nDuration: ${formatDuration(event.durationMs)}` : "";
       const project = event.projectName ? `\nProject: ${escapeHtml(event.projectName)}` : "";
 
       let body = "";

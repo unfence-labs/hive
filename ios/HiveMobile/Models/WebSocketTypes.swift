@@ -112,9 +112,9 @@ enum WsOutgoing: Decodable {
     case toolUse(sessionId: String, id: String, name: String, input: String, parentToolUseId: String?)
     case toolResult(sessionId: String, toolUseId: String, output: String)
     case toolInputRequired(sessionId: String, requestId: String, toolName: String, toolUseId: String, input: String)
-    case done(sessionId: String, durationMs: Int?, inputTokens: Int?, outputTokens: Int?)
+    case done(sessionId: String, durationMs: Int?, inputTokens: Int?, outputTokens: Int?, pendingToolName: String?)
     case error(message: String, sessionId: String?)
-    case cancelled(sessionId: String)
+    case cancelled(sessionId: String, errorDetail: String?, userInitiated: Bool?, durationMs: Int?)
     case status(status: WorkspaceStatus, sessionId: String?, streaming: Bool?, streamingStartedAt: Double?, lockedProvider: String?)
     case userMessage(message: ChatMessage)
     case history(messages: [ChatMessage], sessionId: String?)
@@ -126,7 +126,8 @@ enum WsOutgoing: Decodable {
     private enum CodingKeys: String, CodingKey {
         case type, sessionId, text, id, name, input, output
         case parentToolUseId, toolUseId, requestId, toolName
-        case durationMs, inputTokens, outputTokens
+        case durationMs, inputTokens, outputTokens, pendingToolName
+        case errorDetail, userInitiated
         case message, status, streaming, streamingStartedAt, lockedProvider
         case messages, info, stats
         case scriptType, state, exitCode
@@ -206,15 +207,28 @@ enum WsOutgoing: Decodable {
             } else {
                 doneOutputTokens = nil
             }
+            let donePendingToolName = try container.decodeIfPresent(String.self, forKey: .pendingToolName)
             self = .done(sessionId: doneSessionId, durationMs: doneDuration,
-                         inputTokens: doneInputTokens, outputTokens: doneOutputTokens)
+                         inputTokens: doneInputTokens, outputTokens: doneOutputTokens,
+                         pendingToolName: donePendingToolName)
         case "error":
             self = .error(
                 message: try container.decode(String.self, forKey: .message),
                 sessionId: try container.decodeIfPresent(String.self, forKey: .sessionId)
             )
         case "cancelled":
-            self = .cancelled(sessionId: try container.decode(String.self, forKey: .sessionId))
+            let cancelledSid = try container.decode(String.self, forKey: .sessionId)
+            let cancelledErrorDetail = try container.decodeIfPresent(String.self, forKey: .errorDetail)
+            let cancelledUserInitiated = try container.decodeIfPresent(Bool.self, forKey: .userInitiated)
+            let cancelledDuration: Int?
+            if let intVal = try? container.decodeIfPresent(Int.self, forKey: .durationMs) {
+                cancelledDuration = intVal
+            } else if let doubleVal = try? container.decodeIfPresent(Double.self, forKey: .durationMs) {
+                cancelledDuration = Int(doubleVal)
+            } else {
+                cancelledDuration = nil
+            }
+            self = .cancelled(sessionId: cancelledSid, errorDetail: cancelledErrorDetail, userInitiated: cancelledUserInitiated, durationMs: cancelledDuration)
         case "status":
             self = .status(
                 status: try container.decode(WorkspaceStatus.self, forKey: .status),
