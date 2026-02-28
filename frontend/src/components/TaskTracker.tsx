@@ -19,8 +19,7 @@ function StatusIcon({ status }: { status: TrackedTask["status"] }) {
     case "completed":
       return (
         <svg {...svgProps} className="size-3 text-green-500">
-          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-          <polyline points="22 4 12 14.01 9 11.01" />
+          <polyline points="20 6 9 17 4 12" />
         </svg>
       );
     case "in_progress":
@@ -48,17 +47,6 @@ function AgentStatusIcon({ isRunning }: { isRunning: boolean }) {
     </svg>
   );
 }
-
-const botIcon = (
-  <svg {...svgProps} className="size-3 text-muted-foreground/60">
-    <path d="M12 8V4H8" />
-    <rect width="16" height="12" x="4" y="8" rx="2" />
-    <path d="M2 14h2" />
-    <path d="M20 14h2" />
-    <path d="M15 13v2" />
-    <path d="M9 13v2" />
-  </svg>
-);
 
 interface TaskTrackerProps {
   tasks: TrackedTask[];
@@ -172,7 +160,6 @@ const TaskTracker = memo(function TaskTracker({
                 agentsExpanded && "rotate-90",
               )}
             />
-            <span className="shrink-0">{botIcon}</span>
             <span
               className={cn(
                 "min-w-0 truncate",
