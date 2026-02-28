@@ -23,7 +23,7 @@ function FileRow({
       type="button"
       className={cn(
         "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs font-mono hover:bg-muted/50",
-        isActive && "bg-accent/10 ring-1 ring-accent/20",
+        isActive && "bg-primary/10 ring-1 ring-primary/20",
       )}
       onClick={() => onFileClick(stat.file)}
     >

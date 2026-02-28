@@ -1,4 +1,4 @@
-import { FileTextIcon, GitCompareArrowsIcon, Columns2Icon, Rows3Icon, MessageSquarePlusIcon } from "lucide-react";
+import { Columns2Icon, Rows3Icon, MessageSquarePlusIcon } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { FileViewMode } from "@/hooks/useTabs";
@@ -38,21 +38,50 @@ export function FileContentToolbar({
 
   return (
     <TooltipProvider>
-      <div className="flex h-10 shrink-0 items-center gap-3 border-b border-border px-3">
+      <div className="flex h-10 shrink-0 items-center gap-3 border-b border-border/50 px-3">
         {/* File path */}
-        <div className="flex min-w-0 items-center gap-1.5">
-          {mode === "diff" ? (
-            <GitCompareArrowsIcon className="h-3.5 w-3.5 shrink-0 text-primary" />
-          ) : (
-            <FileTextIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          )}
-          <span className="truncate text-xs">
-            <span className="text-muted-foreground">{directory}</span>
-            <span className="font-medium">{basename}</span>
-          </span>
-        </div>
+        <span className="min-w-0 truncate text-xs">
+          <span className="text-muted-foreground">{directory}</span>
+          <span className="font-medium">{basename}</span>
+        </span>
 
         <div className="ml-auto flex items-center gap-2">
+          {/* Diff-only controls */}
+          {mode === "diff" && (
+            <>
+              {commentCount > 0 && (
+                <button
+                  type="button"
+                  onClick={onPasteToPrompt}
+                  className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                >
+                  <MessageSquarePlusIcon className="size-3" />
+                  Paste to prompt ({commentCount})
+                </button>
+              )}
+              <div className="flex items-center rounded-lg bg-muted p-0.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" onClick={() => onDiffStyleChange("split")} className={toggleCls(diffStyle === "split")}>
+                      <Columns2Icon className="size-3" />
+                      Split
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Side-by-side view</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" onClick={() => onDiffStyleChange("unified")} className={toggleCls(diffStyle === "unified")}>
+                      <Rows3Icon className="size-3" />
+                      Stacked
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Unified view</TooltipContent>
+                </Tooltip>
+              </div>
+            </>
+          )}
+
           {/* Source / Diff toggle */}
           <div className="flex items-center rounded-lg bg-muted p-0.5">
             <button type="button" onClick={() => onModeChange("source")} className={toggleCls(mode === "source")}>
@@ -72,43 +101,6 @@ export function FileContentToolbar({
               {!isModified && <TooltipContent>No changes for this file</TooltipContent>}
             </Tooltip>
           </div>
-
-          {/* Diff-only controls */}
-          {mode === "diff" && (
-            <>
-              <div className="flex items-center rounded-lg bg-muted p-0.5">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button type="button" onClick={() => onDiffStyleChange("split")} className={toggleCls(diffStyle === "split")}>
-                      <Columns2Icon className="h-3 w-3" />
-                      Split
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Side-by-side view</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button type="button" onClick={() => onDiffStyleChange("unified")} className={toggleCls(diffStyle === "unified")}>
-                      <Rows3Icon className="h-3 w-3" />
-                      Stacked
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Unified view</TooltipContent>
-                </Tooltip>
-              </div>
-
-              {commentCount > 0 && (
-                <button
-                  type="button"
-                  onClick={onPasteToPrompt}
-                  className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  <MessageSquarePlusIcon className="h-3 w-3" />
-                  Paste to prompt ({commentCount})
-                </button>
-              )}
-            </>
-          )}
         </div>
       </div>
     </TooltipProvider>

@@ -420,7 +420,7 @@ export default function WorkspaceView() {
   // Inline diff state
   const [diffStyle, setDiffStyle] = useState<"split" | "unified">(() => {
     const stored = localStorage.getItem("diff-style");
-    return stored === "unified" ? "unified" : "split";
+    return stored === "split" ? "split" : "unified";
   });
   const handleDiffStyleChange = useCallback((style: "split" | "unified") => {
     setDiffStyle(style);

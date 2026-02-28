@@ -104,7 +104,7 @@ const MemoizedFileDiffComponent = memo(
     const renderAnnotation = useCallback(
       (annotation: DiffLineAnnotation<DiffComment>) => (
         <div className="flex items-center gap-2 border-l-2 border-primary bg-primary/10 px-2 py-1 text-xs">
-          <MessageSquarePlusIcon className="h-3 w-3 shrink-0 text-primary" />
+          <MessageSquarePlusIcon className="size-3 shrink-0 text-primary" />
           <span className="text-foreground">
             {annotation.metadata?.comment}
           </span>
@@ -115,7 +115,7 @@ const MemoizedFileDiffComponent = memo(
             }
             className="ml-auto p-0.5 text-muted-foreground hover:text-foreground"
           >
-            <XIcon className="h-3 w-3" />
+            <XIcon className="size-3" />
           </button>
         </div>
       ),
@@ -123,8 +123,8 @@ const MemoizedFileDiffComponent = memo(
     );
 
     return (
-      <div className="border border-border">
-        <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-muted px-3 py-2">
+      <div className="border border-border/50">
+        <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border/50 bg-muted px-3 py-2">
           <FileTextIcon
             className={cn(
               "h-[1em] w-[1em] shrink-0",
@@ -220,8 +220,8 @@ const CommentInputBar = memo(function CommentInputBar({
   const displayName = activeFileName?.split("/").pop() ?? "";
 
   return (
-    <div className="flex h-10 items-center gap-2 border-t border-border bg-muted px-3">
-      <MessageSquarePlusIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+    <div className="flex h-10 items-center gap-2 border-t border-border/50 bg-muted px-3">
+      <MessageSquarePlusIcon className="size-4 shrink-0 text-muted-foreground" />
       <span className="shrink-0 text-xs text-muted-foreground">
         {displayName}:{selectedRange.start}
         {selectedRange.end !== selectedRange.start &&
@@ -240,16 +240,16 @@ const CommentInputBar = memo(function CommentInputBar({
         type="button"
         onClick={handleSubmit}
         disabled={!inputValue.trim()}
-        className="rounded bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
       >
         Add
       </button>
       <button
         type="button"
         onClick={onCancel}
-        className="p-1 text-muted-foreground hover:text-foreground"
+        className="rounded-md p-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
       >
-        <XIcon className="h-3.5 w-3.5" />
+        <XIcon className="size-3.5" />
       </button>
     </div>
   );
@@ -419,7 +419,7 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
   if (isLoading && !matchedFile) {
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground">
-        <Loader2Icon className="mr-2 h-5 w-5 animate-spin" />
+        <Loader2Icon className="mr-2 size-5 animate-spin" />
         Loading diff...
       </div>
     );
@@ -430,7 +430,7 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
     return (
       <div className="flex flex-1 items-center justify-center">
         <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-4 text-destructive">
-          <AlertCircleIcon className="h-4 w-4 shrink-0" />
+          <AlertCircleIcon className="size-4 shrink-0" />
           <span className="text-sm">{error}</span>
         </div>
       </div>
@@ -450,8 +450,8 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Hint / comment bar */}
       {!selectedRange && comments.length === 0 && (
-        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3 text-muted-foreground">
-          <MessageSquarePlusIcon className="h-3.5 w-3.5 shrink-0" />
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/50 px-3 text-muted-foreground">
+          <MessageSquarePlusIcon className="size-3.5 shrink-0" />
           <span className="text-xs">
             Click on line numbers to select code and add comments
           </span>
