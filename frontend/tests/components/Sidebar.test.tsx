@@ -295,44 +295,36 @@ describe("Sidebar", () => {
     expect(screen.getByText("workspace/tokyo")).toBeInTheDocument();
   });
 
-  it("hides GitBranch icon when streaming and restores it when idle", async () => {
+  it("shows orbit loader when streaming and removes it when idle", async () => {
     const { __wsMock } = await getWsMock();
     renderSidebar("/workspaces/w1", projects);
 
     await screen.findByText("workspace/tokyo");
 
-    // Before streaming: BranchLabel renders its GitBranch SVG icon
+    // Before streaming: no SVG icons (GitBranch icon is always hidden)
     const workspaceLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
     const svgsBefore = workspaceLink.querySelectorAll("svg");
-    expect(svgsBefore.length).toBe(1);
-    // The single SVG is the GitBranch icon (class includes "lucide")
-    expect(svgsBefore[0].classList.toString()).toContain("lucide");
+    expect(svgsBefore.length).toBe(0);
 
     act(() => {
       __wsMock.emit("w1", { type: "status", status: "busy", streaming: true });
     });
 
-    // While streaming: orbit loader SVG replaces the GitBranch icon
+    // While streaming: orbit loader SVG appears
     const svgsStreaming = workspaceLink.querySelectorAll("svg");
     const orbitSvg = Array.from(svgsStreaming).find(
       (svg) => svg.getAttribute("aria-label") === "Agent thinking",
     );
     expect(orbitSvg).toBeTruthy();
-    // GitBranch icon should be gone (showIcon=false on BranchLabel)
-    const lucideSvg = Array.from(svgsStreaming).find((svg) =>
-      svg.classList.toString().includes("lucide-git-branch"),
-    );
-    expect(lucideSvg).toBeFalsy();
 
     act(() => {
       __wsMock.emit("w1", { type: "status", status: "busy", streaming: false });
     });
 
-    // After streaming stops: back to GitBranch, no orbit loader
+    // After streaming stops: no SVGs again
     expect(screen.queryByRole("img", { name: "Agent thinking" })).not.toBeInTheDocument();
     const svgsAfter = workspaceLink.querySelectorAll("svg");
-    expect(svgsAfter.length).toBe(1);
-    expect(svgsAfter[0].classList.toString()).toContain("lucide");
+    expect(svgsAfter.length).toBe(0);
   });
 
   it("does not show orbit loader on non-streaming workspaces", async () => {
@@ -475,9 +467,9 @@ describe("Sidebar", () => {
 
     await screen.findByText("workspace/tokyo");
     const workspaceLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
-    // No wave indicator initially
+    // No wave indicator initially (no SVGs — GitBranch icon is always hidden)
     const svgsBefore = workspaceLink.querySelectorAll("svg");
-    expect(svgsBefore).toHaveLength(1); // only GitBranch
+    expect(svgsBefore).toHaveLength(0);
 
     act(() => {
       __wsMock.emit("w1", { type: "script_status", scriptType: "run", state: "running" });
@@ -485,7 +477,7 @@ describe("Sidebar", () => {
 
     // Wave indicator SVG should appear (the inline SVG with viewBox="0 0 12 12")
     const svgsAfter = workspaceLink.querySelectorAll("svg");
-    expect(svgsAfter.length).toBeGreaterThan(1);
+    expect(svgsAfter.length).toBeGreaterThan(0);
   });
 
   it("hides wave indicator when script finishes", async () => {
@@ -499,13 +491,13 @@ describe("Sidebar", () => {
     });
 
     const workspaceLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
-    expect(workspaceLink.querySelectorAll("svg").length).toBeGreaterThan(1);
+    expect(workspaceLink.querySelectorAll("svg").length).toBeGreaterThan(0);
 
     act(() => {
       __wsMock.emit("w1", { type: "script_status", scriptType: "run", state: "done", exitCode: 0 });
     });
 
-    expect(workspaceLink.querySelectorAll("svg")).toHaveLength(1); // back to GitBranch only
+    expect(workspaceLink.querySelectorAll("svg")).toHaveLength(0); // no SVGs at rest
   });
 
   it("hides archive button when script is running", async () => {
