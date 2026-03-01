@@ -17,6 +17,7 @@ import {
   activateSession,
   hardDeleteSession,
   getSpecificSessionMessages,
+  stopAllSessions,
   _clearActiveSessions,
   setNotifier,
 } from "./agent-manager.js";
@@ -268,6 +269,25 @@ describe("stopStreaming", () => {
 
   it("throws when no session exists", () => {
     expect(() => stopStreaming(wsId)).toThrow("No active session");
+  });
+});
+
+describe("stopAllSessions", () => {
+  it("parks all loaded sessions across workspaces", async () => {
+    const otherWs = await createWorkspace(projectId, dataDir);
+    const { session: sessionA } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const { session: sessionB } = await getOrCreateSession(otherWs.id, dataDir, CONV_CMD);
+    const stopA = vi.spyOn(sessionA, "stop");
+    const stopB = vi.spyOn(sessionB, "stop");
+
+    stopAllSessions();
+
+    expect(stopA).toHaveBeenCalledWith("park");
+    expect(stopB).toHaveBeenCalledWith("park");
+  });
+
+  it("is a no-op when no sessions are loaded", () => {
+    expect(() => stopAllSessions()).not.toThrow();
   });
 });
 

@@ -1566,6 +1566,14 @@ describe("WorkspaceView sidebar split resize", () => {
     expect(separator.className).toContain("cursor-row-resize");
   });
 
+  it("adds an accessible label on the drag handle", async () => {
+    setupMocks(SCRIPTS_CONFIG);
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    expect(screen.getByRole("separator", { name: "Resize panel" })).toBeInTheDocument();
+  });
+
   it("initializes split from localStorage", async () => {
     localStorage.setItem("sidebar-split", "0.3");
     setupMocks(SCRIPTS_CONFIG);
@@ -1702,6 +1710,35 @@ describe("WorkspaceView sidebar split resize", () => {
     });
 
     fireEvent(document, new PointerEvent("pointerup", { clientX: 210, clientY: 280, bubbles: true }));
+  });
+
+  it("removes document pointer listeners when unmounting mid-drag", async () => {
+    setupMocks(SCRIPTS_CONFIG);
+    const view = renderWorkspace();
+    await screen.findByText("tokyo");
+
+    const separator = screen.getByRole("separator");
+    const container = separator.parentElement as HTMLElement;
+    vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
+      top: 0, left: 0, bottom: 400, right: 420,
+      width: 420, height: 400,
+      x: 0, y: 0, toJSON: () => {},
+    });
+
+    const addSpy = vi.spyOn(document, "addEventListener");
+    const removeSpy = vi.spyOn(document, "removeEventListener");
+
+    fireEvent.pointerDown(separator, { clientX: 210, clientY: 200 });
+
+    const pointerMoveHandler = addSpy.mock.calls.find((call) => call[0] === "pointermove")?.[1];
+    const pointerUpHandler = addSpy.mock.calls.find((call) => call[0] === "pointerup")?.[1];
+    expect(pointerMoveHandler).toBeDefined();
+    expect(pointerUpHandler).toBeDefined();
+
+    view.unmount();
+
+    expect(removeSpy).toHaveBeenCalledWith("pointermove", pointerMoveHandler);
+    expect(removeSpy).toHaveBeenCalledWith("pointerup", pointerUpHandler);
   });
 
   it("file tree uses split sizing even when no scripts are configured", async () => {
