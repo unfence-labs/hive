@@ -732,6 +732,15 @@ export function getStreamingSessionIds(wsId: string): string[] {
     .map((s) => s.sessionId);
 }
 
+/** Park all in-memory sessions (for graceful shutdown). */
+export function stopAllSessions(): void {
+  for (const sessions of loadedSessionsByWorkspace.values()) {
+    for (const session of sessions.values()) {
+      session.stop("park");
+    }
+  }
+}
+
 // ── Test helpers ────────────────────────────────────────────────────
 
 /** For testing: clear all active sessions. */
