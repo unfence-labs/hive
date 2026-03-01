@@ -4,6 +4,7 @@ import type { WsIncoming, WsOutgoing, HubOutgoing } from "@/types";
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
 type MessageHandler = (msg: WsOutgoing) => void;
+type GlobalMessageHandler = (workspaceId: string, msg: WsOutgoing) => void;
 type StatusListener = () => void;
 type StatusMessage = Extract<WsOutgoing, { type: "status" }>;
 export type HistoryMessage = Extract<WsOutgoing, { type: "history" }>;
@@ -45,6 +46,7 @@ class WsTransport {
   };
   private subscriptions = new Map<string, WorkspaceSubscription>();
   private subscribedWorkspaceIds = new Set<string>();
+  private globalListeners = new Set<GlobalMessageHandler>();
 
   /** Connect to a workspace (subscribes it via the hub). */
   connect(workspaceId: string): void {
@@ -168,6 +170,12 @@ class WsTransport {
     };
   };
 
+  /** Register a listener for ALL incoming workspace messages (used by toast notifications). */
+  onGlobalMessage(handler: GlobalMessageHandler): () => void {
+    this.globalListeners.add(handler);
+    return () => { this.globalListeners.delete(handler); };
+  }
+
   /** useSyncExternalStore getSnapshot contract (per workspace). */
   getStatus = (workspaceId: string): ConnectionStatus => {
     const sub = this.subscriptions.get(workspaceId);
@@ -268,6 +276,10 @@ class WsTransport {
 
   private handleIncomingEnvelope(envelope: HubOutgoing): void {
     const { workspaceId, event: msg } = envelope;
+
+    // Notify global listeners (toast notifications, etc.) regardless of subscription state
+    for (const listener of this.globalListeners) listener(workspaceId, msg);
+
     const sub = this.subscriptions.get(workspaceId);
     if (!sub) return;
 

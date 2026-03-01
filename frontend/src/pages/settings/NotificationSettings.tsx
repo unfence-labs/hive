@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Eye, EyeOff, Send, Save, Loader2, Smartphone } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
@@ -53,6 +53,7 @@ export default function NotificationSettings() {
       </SettingsHeader>
 
       <div className="max-w-2xl space-y-6 px-4 py-5">
+        <LocalToastsSection />
         <TelegramForm initial={telegram} />
         <ApnsForm initial={apns} />
       </div>
@@ -126,6 +127,49 @@ function useNotificationChannel(opts: {
     onSave: () => saveMutation.mutate(),
     onTest: () => testMutation.mutate(),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Local toasts — localStorage-backed toggle
+// ---------------------------------------------------------------------------
+
+const LOCAL_TOASTS_KEY = "hive:local-toasts-enabled";
+
+const localToastsListeners = new Set<() => void>();
+
+export function getLocalToastsEnabled(): boolean {
+  try {
+    return localStorage.getItem(LOCAL_TOASTS_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function setLocalToastsEnabled(v: boolean) {
+  localStorage.setItem(LOCAL_TOASTS_KEY, String(v));
+  localToastsListeners.forEach((fn) => fn());
+}
+
+export function useLocalToastsEnabled(): boolean {
+  return useSyncExternalStore(
+    (cb) => { localToastsListeners.add(cb); return () => { localToastsListeners.delete(cb); }; },
+    getLocalToastsEnabled,
+  );
+}
+
+function LocalToastsSection() {
+  const enabled = useLocalToastsEnabled();
+  return (
+    <NotificationSection
+      id="local-toasts"
+      title="In-App Toasts"
+      description="Show toast notifications when agents finish in background workspaces."
+      enabled={enabled}
+      onToggle={setLocalToastsEnabled}
+    >
+      <div />
+    </NotificationSection>
+  );
 }
 
 // ---------------------------------------------------------------------------

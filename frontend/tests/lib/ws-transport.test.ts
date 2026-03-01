@@ -259,6 +259,54 @@ describe("wsTransport", () => {
     expect(received).toEqual([]);
   });
 
+  it("notifies global listeners for messages from any workspace id", () => {
+    wsTransport.connect("ws-1");
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+
+    const global = vi.fn();
+    wsTransport.onGlobalMessage(global);
+
+    socket.hubMessage("ws-1", { type: "status", status: "idle", streaming: false });
+    socket.hubMessage("ws-unsubscribed", { type: "error", message: "boom" });
+
+    expect(global).toHaveBeenCalledTimes(2);
+    expect(global).toHaveBeenNthCalledWith(1, "ws-1", { type: "status", status: "idle", streaming: false });
+    expect(global).toHaveBeenNthCalledWith(2, "ws-unsubscribed", { type: "error", message: "boom" });
+  });
+
+  it("stops notifying a global listener after unsubscribe", () => {
+    wsTransport.connect("ws-1");
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+
+    const global = vi.fn();
+    const unsubscribe = wsTransport.onGlobalMessage(global);
+
+    socket.hubMessage("ws-1", { type: "status", status: "busy", streaming: true });
+    unsubscribe();
+    socket.hubMessage("ws-1", { type: "status", status: "idle", streaming: false });
+
+    expect(global).toHaveBeenCalledTimes(1);
+    expect(global).toHaveBeenLastCalledWith("ws-1", { type: "status", status: "busy", streaming: true });
+  });
+
+  it("notifies all registered global listeners", () => {
+    wsTransport.connect("ws-1");
+    const socket = MockWebSocket.instances[0]!;
+    socket.open();
+
+    const listenerA = vi.fn();
+    const listenerB = vi.fn();
+    wsTransport.onGlobalMessage(listenerA);
+    wsTransport.onGlobalMessage(listenerB);
+
+    socket.hubMessage("ws-1", { type: "done", sessionId: "sess-1" });
+
+    expect(listenerA).toHaveBeenCalledWith("ws-1", { type: "done", sessionId: "sess-1" });
+    expect(listenerB).toHaveBeenCalledWith("ws-1", { type: "done", sessionId: "sess-1" });
+  });
+
   it("reconnects with backoff after unexpected close while subscribed", () => {
     wsTransport.connect("ws-1");
     const first = MockWebSocket.instances[0]!;

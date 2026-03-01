@@ -419,6 +419,11 @@ function reducer(state: ConversationState, action: Action): ConversationState {
 /** Remembers which session was last viewed per workspace (module-level, survives re-mounts). */
 const savedSessionByWorkspace = new Map<string, string>();
 
+/** Pre-seed the session to restore when navigating to a workspace. */
+export function setSavedSession(workspaceId: string, sessionId: string) {
+  savedSessionByWorkspace.set(workspaceId, sessionId);
+}
+
 /** @internal Test-only: clear saved session memory between tests. */
 export function _resetSavedSessions() {
   savedSessionByWorkspace.clear();

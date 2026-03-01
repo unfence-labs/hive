@@ -21,6 +21,7 @@ vi.mock("@/hooks/useApi", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
+  localStorage.removeItem("hive:local-toasts-enabled");
 });
 
 const defaultApns = {
@@ -32,14 +33,16 @@ async function renderReady(config?: {
   botToken?: string;
   chatId?: string;
 }) {
-  mocks.get.mockResolvedValueOnce({
+  const response = {
     telegram: {
       enabled: config?.enabled ?? false,
       botToken: config?.botToken ?? "",
       chatId: config?.chatId ?? "",
     },
     apns: { ...defaultApns },
-  });
+  };
+  mocks.get.mockResolvedValue(response);
+  mocks.get.mockResolvedValueOnce(response);
 
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -60,6 +63,26 @@ function telegramSection() {
 }
 
 describe("NotificationSettings", () => {
+  it("defaults local in-app toasts toggle to enabled when unset", async () => {
+    await renderReady();
+
+    expect(screen.getByRole("switch", { name: "In-App Toasts" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("reads and persists local in-app toasts toggle state in localStorage", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("hive:local-toasts-enabled", "false");
+
+    await renderReady();
+
+    const toggle = screen.getByRole("switch", { name: "In-App Toasts" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(localStorage.getItem("hive:local-toasts-enabled")).toBe("true");
+  });
+
   it("loads and displays Telegram settings from backend", async () => {
     await renderReady({ enabled: true, botToken: "token-1", chatId: "chat-1" });
 
