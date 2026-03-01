@@ -1,6 +1,6 @@
 # Hive — TODO
 
-_Last cleanup: February 21, 2026._
+_Last cleanup: March 1, 2026._
 
 This list only contains open items. Completed and obsolete items were removed.
 
@@ -35,21 +35,27 @@ This list only contains open items. Completed and obsolete items were removed.
 - [ ] **Workspace rename/alias**
   Allow manual naming/renaming of workspaces. Auto-naming via `naming.ts` exists but there is no UI to override it.
 
-- [ ] **Mobile sidebar behavior**
-  Add collapse/drawer behavior for smaller viewports.
-
 - [ ] **Codex session resume verification**
   Verify that Codex thread IDs are correctly persisted and resumed across session reloads. Currently best-effort.
 
 - [ ] **Distinguish redacted thinking in UI**
   `redacted_thinking` blocks are logged as `[redacted]` but rendered identically to regular thinking. Add visual distinction.
 
+- [ ] **iOS file viewer/diff viewer**
+  Currently tool output is shown as raw text. Add proper file viewing and inline diff support.
+
+- [ ] **iOS automations & prompt templates UI**
+  Swift model types exist but there is no UI for managing automations or prompt templates on iOS.
+
+- [ ] **Live WS streaming for automation runs**
+  Frontend currently uses REST polling only. Add `sync_automations` hub subscription for real-time run output.
+
 ## P2 (Infra + Platform)
 
 - [ ] Add `.env.example` for backend/frontend env vars.
 - [ ] Add retention/cleanup policy for old sessions/logs/archives.
 - [ ] Add system status endpoint (disk usage, project/workspace/session counts).
-- [ ] iOS file viewer/diff viewer (currently tool output is shown as raw text).
+- [ ] Gemini provider hardening — less battle-tested than Claude/Codex, stream adapter edge cases may surface.
 
 ## P3 (Security + Extensibility)
 
