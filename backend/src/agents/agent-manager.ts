@@ -7,7 +7,7 @@ import { saveProject, getDataDir, loadProject, withProjectStateLock } from "../s
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
 import { runNamingTask } from "./naming.js";
 import { NotFoundError } from "../utils/errors.js";
-import { extractSummary } from "../utils/summary-extractor.js";
+import { extractSummary, extractPreview } from "../utils/summary-extractor.js";
 import type { ChatMessage, SessionMetadata } from "../types.js";
 import { Notifier } from "../notifications/notifier.js";
 import { TelegramChannel } from "../notifications/telegram.js";
@@ -445,7 +445,7 @@ function attachNotificationListener(
           let summary: string | undefined;
           try {
             const messages = await session.getMessages();
-            summary = extractSummary(messages);
+            summary = extractSummary(messages) ?? extractPreview(messages);
           } catch { /* non-fatal */ }
           n.notify({
             type: "agent_turn_complete",

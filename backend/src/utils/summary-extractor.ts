@@ -20,3 +20,23 @@ export function extractSummaryFromText(text: string): string | undefined {
   const trimmed = match[1].trim();
   return trimmed || undefined;
 }
+
+/**
+ * Fallback preview: return the first `maxLen` characters of the last
+ * assistant message content (trimmed). Used when no structured
+ * "## Summary" section is present.
+ */
+export function extractPreview(
+  messages: ChatMessage[],
+  maxLen = 500,
+): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") {
+      const text = messages[i].content.trim();
+      if (!text) continue;
+      if (text.length <= maxLen) return text;
+      return text.slice(0, maxLen) + "…";
+    }
+  }
+  return undefined;
+}

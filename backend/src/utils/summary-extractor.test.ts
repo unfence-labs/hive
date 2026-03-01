@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractSummary, extractSummaryFromText } from "./summary-extractor.js";
+import { extractSummary, extractSummaryFromText, extractPreview } from "./summary-extractor.js";
 import type { ChatMessage } from "../types.js";
 
 function msg(role: "user" | "assistant", content: string): ChatMessage {
@@ -69,5 +69,51 @@ describe("extractSummary", () => {
   it("returns undefined when assistant has no summary", () => {
     const messages = [msg("assistant", "Just text, no summary")];
     expect(extractSummary(messages)).toBeUndefined();
+  });
+});
+
+describe("extractPreview", () => {
+  it("returns content of last assistant message", () => {
+    const messages = [
+      msg("user", "Do something"),
+      msg("assistant", "Here is what I did."),
+    ];
+    expect(extractPreview(messages)).toBe("Here is what I did.");
+  });
+
+  it("truncates at maxLen and appends ellipsis", () => {
+    const long = "A".repeat(600);
+    const messages = [msg("assistant", long)];
+    const result = extractPreview(messages, 500);
+    expect(result).toHaveLength(501); // 500 chars + "…"
+    expect(result!.endsWith("…")).toBe(true);
+  });
+
+  it("returns full text when under maxLen", () => {
+    const messages = [msg("assistant", "Short text")];
+    expect(extractPreview(messages, 500)).toBe("Short text");
+  });
+
+  it("skips empty/whitespace-only assistant messages", () => {
+    const messages = [
+      msg("assistant", "First answer"),
+      msg("user", "Continue"),
+      msg("assistant", "   "),
+    ];
+    expect(extractPreview(messages)).toBe("First answer");
+  });
+
+  it("returns undefined when no assistant messages", () => {
+    expect(extractPreview([msg("user", "Hello")])).toBeUndefined();
+  });
+
+  it("returns undefined for empty list", () => {
+    expect(extractPreview([])).toBeUndefined();
+  });
+
+  it("respects custom maxLen", () => {
+    const messages = [msg("assistant", "Hello world, this is a test")];
+    const result = extractPreview(messages, 10);
+    expect(result).toBe("Hello worl…");
   });
 });
