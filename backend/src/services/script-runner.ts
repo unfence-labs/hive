@@ -154,6 +154,15 @@ export function getScriptProcess(wsId: string, type: ScriptType): ScriptProcess 
   return activeScripts.get(key(wsId, type));
 }
 
+/** Stop all running scripts across all workspaces (for graceful shutdown). */
+export function stopAllScripts(): void {
+  for (const k of [...activeScripts.keys()]) {
+    const [wsId, ...rest] = k.split(":");
+    const type = rest.join(":");
+    if (wsId && type) stopScript(wsId, type);
+  }
+}
+
 /** For test cleanup. */
 export function _clearAll(): void {
   for (const proc of activeScripts.values()) {

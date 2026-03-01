@@ -617,7 +617,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       this._metadata.updatedAt = new Date().toISOString();
       this.persistQueue = this.persistQueue
         .then(() => this.saveMetadata())
-        .catch(() => {});
+        .catch((err) => console.error("[session] Persist metadata failed:", err));
 
       const unansweredBlockingTools = killedForBlockingTool
         ? toolCalls.filter((tc) => blockingToolNames.has(tc.name))
@@ -746,7 +746,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this._metadata.updatedAt = new Date().toISOString();
     this.persistQueue = this.persistQueue
       .then(() => this.saveMetadata())
-      .catch(() => {});
+      .catch((err) => console.error("[session] Persist metadata failed:", err));
   }
 
   private async appendMessage(msg: ChatMessage): Promise<void> {
@@ -754,15 +754,15 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       await mkdir(this.sessionDir, { recursive: true });
       const messagesPath = join(this.sessionDir, "messages.jsonl");
       await appendFile(messagesPath, JSON.stringify(msg) + "\n", "utf-8");
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      console.error("[session] appendMessage failed:", err);
     }
   }
 
   private enqueuePersist(msg: ChatMessage): Promise<void> {
     this.persistQueue = this.persistQueue
       .then(() => this.appendMessage(msg))
-      .catch(() => {});
+      .catch((err) => console.error("[session] Persist message failed:", err));
     return this.persistQueue;
   }
 
@@ -775,8 +775,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       await mkdir(this.sessionDir, { recursive: true });
       const metaPath = join(this.sessionDir, "metadata.json");
       await writeFile(metaPath, JSON.stringify(this._metadata, null, 2), "utf-8");
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      console.error("[session] saveMetadata failed:", err);
     }
   }
 }

@@ -182,8 +182,13 @@ export class AutomationScheduler {
     // Inject git context for project-linked automations
     if (auto.projectId) {
       const project = await loadProject(auto.projectId, this.dataDir);
+      if (!project) {
+        const error = `Project ${auto.projectId} not found (deleted?)`;
+        await this.completeRun(auto, run.id, "failure", undefined, error, now);
+        return { ...run, status: "failure", error };
+      }
       const ctx = await getGitContext(workspacePath, defaultBranch);
-      const gitBlock = formatGitContextBlock(ctx, { projectName: project?.name });
+      const gitBlock = formatGitContextBlock(ctx, { projectName: project.name });
       systemPrompt = systemPrompt ? systemPrompt + "\n\n" + gitBlock : gitBlock;
     }
 
@@ -204,7 +209,8 @@ export class AutomationScheduler {
     if (systemPrompt) {
       const sessDir = join(autoDir, "sessions", run.sessionId);
       await mkdir(sessDir, { recursive: true });
-      await writeFile(join(sessDir, "system-prompt.txt"), systemPrompt, "utf-8").catch(() => {});
+      await writeFile(join(sessDir, "system-prompt.txt"), systemPrompt, "utf-8")
+        .catch((err) => console.error("[scheduler] Persist system prompt failed:", err));
     }
 
     // Listen for completion
@@ -274,8 +280,13 @@ export class AutomationScheduler {
         await git(["checkout", defaultBranch], wsPath);
         await git(["reset", "--hard", `origin/${defaultBranch}`], wsPath);
         return { workspacePath: wsPath, defaultBranch };
-      } catch {
-        // Does not exist — create worktree
+      } catch (err) {
+        // Only treat "not a git repo" / missing directory as "needs worktree creation"
+        const msg = err instanceof Error ? err.message : "";
+        const isNotExists =
+          /not a git repository/i.test(msg) || /no such file or directory/i.test(msg);
+        if (!isNotExists) throw err;
+
         await mkdir(join(this.dataDir, "automations", auto.id), { recursive: true });
         const defaultBranch = await resolveDefaultBranch(bareRepo);
         await git(["worktree", "add", wsPath, defaultBranch], bareRepo);

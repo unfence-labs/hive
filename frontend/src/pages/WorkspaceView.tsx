@@ -128,6 +128,10 @@ export default function WorkspaceView() {
 
   // Sidebar split: fraction of height given to file tree (vs ScriptPanel)
   const splitContainerRef = useRef<HTMLDivElement>(null);
+  const pointerHandlersRef = useRef<{
+    move: (e: PointerEvent) => void;
+    up: (e: PointerEvent) => void;
+  } | null>(null);
   const [sidebarSplit, setSidebarSplit] = useState<number>(() => {
     const stored = localStorage.getItem("sidebar-split");
     const parsed = stored ? parseFloat(stored) : NaN;
@@ -322,13 +326,27 @@ export default function WorkspaceView() {
         setIsDraggingSplit(false);
         document.removeEventListener("pointermove", onPointerMove);
         document.removeEventListener("pointerup", onPointerUp);
+        pointerHandlersRef.current = null;
       };
 
+      pointerHandlersRef.current = { move: onPointerMove, up: onPointerUp };
       document.addEventListener("pointermove", onPointerMove);
       document.addEventListener("pointerup", onPointerUp);
     },
     [],
   );
+
+  // Clean up leaked pointer listeners on unmount (e.g. navigate mid-drag)
+  useEffect(() => {
+    return () => {
+      const handlers = pointerHandlersRef.current;
+      if (handlers) {
+        document.removeEventListener("pointermove", handlers.move);
+        document.removeEventListener("pointerup", handlers.up);
+        pointerHandlersRef.current = null;
+      }
+    };
+  }, []);
 
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();
@@ -737,6 +755,7 @@ export default function WorkspaceView() {
             <div
               role="separator"
               aria-orientation="horizontal"
+              aria-label="Resize panel"
               className="group relative h-1.5 shrink-0 cursor-row-resize select-none"
               onPointerDown={handleDividerPointerDown}
             >

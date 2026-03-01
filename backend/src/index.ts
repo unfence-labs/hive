@@ -10,8 +10,8 @@ import { sessionRoutes } from "./api/agents.js";
 import { streamRoutes } from "./ws/stream.js";
 import { createAuthHook } from "./utils/auth.js";
 import { createRateLimitHook } from "./utils/rate-limit.js";
-import { ensureDataDir, getDataDir } from "./state/state.js";
-import { type SessionOptions, rebuildNotifier } from "./agents/agent-manager.js";
+import { ensureDataDir, getDataDir, loadAllProjects, saveProject } from "./state/state.js";
+import { type SessionOptions, rebuildNotifier, stopAllSessions } from "./agents/agent-manager.js";
 import { GitSyncService } from "./services/git-sync.js";
 import { settingsRoutes } from "./api/settings.js";
 import { agentSettingsRoutes } from "./api/agents-settings.js";
@@ -27,6 +27,7 @@ import { broadcastToWorkspace } from "./ws/stream.js";
 import type { StreamRoutesOptions } from "./ws/stream.js";
 import { preflight } from "./utils/preflight.js";
 import { detectAvailableProviders } from "./agents/providers/registry.js";
+import { stopAllScripts } from "./services/script-runner.js";
 
 const HOST = process.env.HOST ?? "127.0.0.1";
 const PORT = Number(process.env.PORT ?? 3000);
@@ -114,12 +115,35 @@ export async function buildApp(opts: BuildAppOptions = {}) {
 
 const BRANCH_SYNC_INTERVAL_MS = 10_000;
 
+/** Reset workspaces left in "busy" state from a previous unclean shutdown. */
+async function reconcileStaleWorkspaces(dataDir: string): Promise<void> {
+  const projects = await loadAllProjects(dataDir);
+  let fixed = 0;
+  for (const project of projects) {
+    let dirty = false;
+    for (const ws of project.workspaces) {
+      if (ws.status === "busy") {
+        ws.status = "idle";
+        dirty = true;
+        fixed++;
+      }
+    }
+    if (dirty) {
+      await saveProject(project, dataDir);
+    }
+  }
+  if (fixed > 0) {
+    console.log(`[server] Reconciled ${fixed} stale busy workspace(s) to idle`);
+  }
+}
+
 async function main() {
   await preflight();
   await detectAvailableProviders();
 
   const dataDir = getDataDir();
   await ensureDataDir(dataDir);
+  await reconcileStaleWorkspaces(dataDir);
 
   const config = await loadConfig(dataDir);
   rebuildNotifier(config);
@@ -150,6 +174,26 @@ async function main() {
   await scheduler.start();
 
   await app.listen({ host: HOST, port: PORT });
+
+  // Graceful shutdown on SIGTERM/SIGINT
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[server] ${signal} received, shutting down...`);
+
+    stopAllSessions();
+    stopAllScripts();
+
+    await app.close();
+
+    // Give persist queues a moment to flush
+    await new Promise((r) => setTimeout(r, 1000));
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 }
 
 main().catch((err) => {

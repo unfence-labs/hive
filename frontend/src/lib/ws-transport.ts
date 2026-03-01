@@ -255,8 +255,10 @@ class WsTransport {
       try {
         const envelope = JSON.parse(event.data as string) as HubOutgoing;
         this.handleIncomingEnvelope(envelope);
-      } catch {
-        // Ignore malformed messages
+      } catch (err) {
+        if (import.meta.env.DEV) {
+          console.warn("[ws] Failed to parse message:", err);
+        }
       }
     };
 
