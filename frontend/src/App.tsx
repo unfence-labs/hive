@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { Toaster } from "sileo";
+import "sileo/styles.css";
 import AppLayout from "@/components/AppLayout";
 import WorkspaceView from "@/pages/WorkspaceView";
 import AccountSettings from "@/pages/settings/AccountSettings";
@@ -12,13 +14,20 @@ import AddProjectDialog from "@/components/AddProjectDialog";
 import EmptyStateLogo from "@/components/EmptyStateLogo";
 import AutomationsHome from "@/pages/AutomationsHome";
 import { useProjects } from "@/hooks/useProjects";
+import type { Project } from "@/types";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
+import { useNotificationToasts } from "@/hooks/useNotificationToasts";
 import { wsTransport } from "@/lib/ws-transport";
 
 const AutomationDetail = lazy(() => import("@/pages/AutomationDetail"));
 const PromptTemplatesSettings = lazy(() => import("@/pages/settings/PromptTemplatesSettings"));
 const CreateAutomationDialog = lazy(() => import("@/components/CreateAutomationDialog"));
+
+function NotificationToastsBridge({ projects }: { projects: Project[] }) {
+  useNotificationToasts(projects);
+  return null;
+}
 
 export default function App() {
   const { projects, loading, fetchProjects, createProjectWithWorkspace } = useProjects();
@@ -48,6 +57,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <WorkspaceLiveDataProvider workspaceIds={workspaceIds}>
+        <Toaster position="top-center" theme="dark" />
+        <NotificationToastsBridge projects={projects} />
         <AddProjectDialog
           open={showAddProject}
           onOpenChange={setShowAddProject}

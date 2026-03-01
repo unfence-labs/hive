@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "@/App";
 
 function renderApp() {
@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   syncWorkspaces: vi.fn(),
   disconnectAll: vi.fn(),
   onMessage: vi.fn(() => ({ unsubscribe: vi.fn(), hadBufferedMessages: false })),
+  onGlobalMessage: vi.fn(() => vi.fn()),
   projects: [] as Array<{
     id: string;
     name: string;
@@ -73,6 +74,7 @@ vi.mock("@/lib/ws-transport", () => ({
     syncWorkspaces: mocks.syncWorkspaces,
     disconnectAll: mocks.disconnectAll,
     onMessage: mocks.onMessage,
+    onGlobalMessage: mocks.onGlobalMessage,
   },
 }));
 
