@@ -1,6 +1,6 @@
 # Hive
 
-Hive is an orchestrator for running multiple AI agent conversations (Claude, Codex) in parallel across isolated Git workspaces. It can run locally or as a remote backend with a Tauri desktop client connected over Tailscale.
+Hive is an orchestrator for running multiple AI agent conversations (Claude, Codex, Gemini) in parallel across isolated Git workspaces. It can run locally or as a remote backend with a Tauri desktop client connected over Tailscale.
 
 It manages:
 - projects as bare repositories,
@@ -12,52 +12,81 @@ It manages:
 **Core**
 - Project import (`git clone --bare`) with repository URL validation and remote fetch.
 - Workspace lifecycle (create, list, delete, archive, merge) with auto-naming via dedicated Claude subprocess.
-- Multi-session support per workspace (create, list, activate, delete, switch, replay history).
+- Multi-session support per workspace (create, list, activate, delete, switch, replay history; max 4 sessions).
 - Conversation WebSocket with session focus, history replay, buffered event replay, and per-session streaming status.
-- Interactive Claude tool loop for `AskUserQuestion` and `ExitPlanMode` with plan proposal cards.
+- Interactive Claude tool loop for `AskUserQuestion` and `ExitPlanMode` with plan proposal cards, floating action bar, and hand-off to new session.
 - Image attachments resized via sharp (max 1568px, JPEG q80) and persisted per session.
 - SSH terminal access via external terminal apps (replaces previous in-app terminal).
+- Interactive terminal tab (PTY shell) in workspace panel, no `hive.json` config needed.
 - File tree + file content viewer with Shiki syntax highlighting.
-- Unified diff + committed/uncommitted/untracked diff stats.
+- Inline diff viewer (`@pierre/diffs/react`) with split/unified modes, line selection, diff comments, and paste-to-prompt.
+- Context window usage ring (green/yellow/red thresholds) in chat input footer.
+- Sub-agent tracking: Task tool calls rendered as collapsible nodes with nested child tools, background agents tracked in status bar.
+- Task tracker: collapsible bar showing TaskCreate/TaskUpdate-derived task progress.
+- Unread badges per-session in sidebar and session tabs.
+- Message queue: type and submit one follow-up while the agent is streaming.
+- `#file` mention autocomplete with fuzzy matching in chat input.
+- Commit & Push quick-action button in chat input.
 
 **Multi-provider support**
 - Provider abstraction layer: `AgentProvider` interface with CLI arg building, env config, and stream adapters.
-- Claude provider (streaming JSON) and Codex provider (JSONL with stream adapter normalization).
+- Claude provider (streaming JSON), Codex provider (JSONL with stream adapter), Gemini provider (NDJSON with tool name mapping).
 - Model catalog API (`GET /api/models`) for frontend/iOS model discovery, grouped by provider.
 - Model selector UI with provider icons, default badges, and NEW indicators.
 - Provider locked per session after first message — prevents mid-conversation provider switches.
 - Provider-aware controls: thinking toggle (Claude) vs thinking level cycling (Codex), plan mode gating, completions gating.
+- Agent settings page: per-provider version display with npm update check.
 
 **Live sync**
 - Real-time branch name and diff-stat snapshots via background git polling over WebSocket.
-- PR status via on-demand REST endpoint (`GET /api/workspaces/:wsId/pr-status`) with 15s TTL cache, reducing GitHub API rate limit consumption.
+- PR status via bulk REST endpoint (`POST /api/workspaces/bulk-pr-status`) seeding per-workspace cache, eliminating duplicate polling.
 - Enriched PR display: review state (approved/changes_requested), checks counts (passed/total), mergeable state (13-state priority ladder including draft, closed, blocked, unstable).
 - Script execution status broadcasting (`script_status` WS messages).
 
 **Automation**
+- Scheduled agent automations with cron expressions (croner), per-project or global.
+- Prompt template library: CRUD with YAML frontmatter `.md` files, system/user types, deletion guard when referenced by automation.
+- Base prompt editor: customizable system prompt with `{PROJECT}`, `{DIR}`, `{DEFAULT_BRANCH}` template variables (CodeMirror 6 with variable highlighting).
+- Prompt flow explainer: interactive diagram showing how system prompt is assembled.
+- Automation run log viewer: slide-over sheet with full agent conversation + system prompt banner.
+- Automation editing: inline config modification via creation dialog in edit mode.
+- Git context injection into automation system prompts for project-linked automations.
+- Cron preview (next 3 runs) and next-run countdown in sidebar and detail view.
 - Workspace setup/run scripts via `hive.json` with PTY execution and live terminal output.
 - Slash-command / agent autocomplete scanning from user and project `.claude` directories.
 
 **Integrations**
 - GitHub OAuth device flow for `gh` CLI authentication and git credential setup.
-- Telegram notifications on agent turn completion (UI-configurable bot token + chat ID).
-- Preflight dependency checks on startup (git, claude, gh required; codex optional).
+- Telegram notifications: turn complete (with duration + summary), needs input, proposed plan, agent failed, automation run complete.
+- Apple Push Notifications (APNs): zero-dependency HTTP/2 + ES256 JWT channel with auto token pruning. Suppressed in foreground.
+- Preflight dependency checks on startup (git, claude, gh required; codex, gemini optional).
 
 **Settings**
 - Tailscale connection config (IP + port) with health check indicator.
 - Appearance settings (accent color picker).
 - Account settings (GitHub connect/disconnect with profile display).
-- Notification settings (Telegram enable/disable, test message).
+- Notification settings (Telegram + APNs, instant-apply toggles, test message).
+- Agent settings (installed providers, versions, update availability).
+- Prompt settings (base prompt editor, template library, prompt flow explainer).
 - Per-repository detail view with deletion controls.
 
 **Desktop**
 - Tauri v2 desktop app (macOS `.dmg`, Windows `.exe`) with native titlebar integration.
 - macOS traffic light positioning, drag regions, and App Transport Security exceptions for Tailscale HTTP.
+- Sidebar collapse toggle (Cmd/Ctrl+B) with CSS transition and fullscreen detection.
+- VS Code remote SSH workspace opening via `vscode://vscode-remote/ssh-remote+` URIs.
 
 **iOS**
-- Native SwiftUI app with chat, model selection, session switching, and Live Activity.
+- Native SwiftUI app with chat, model selection, session switching (max 4), and push notifications (APNs).
 - Dynamic model catalog from API with provider-grouped picker and session locking.
-- PR status polling with enriched display matching the web frontend.
+- PR status bulk polling with enriched display matching the web frontend.
+- Push notifications with foreground suppression and cold-start bridging via `CompletedWorkspacesStore`.
+- Foreground reconnect (2s debounce) with background stream catchup.
+- Context window usage ring matching frontend thresholds.
+- Task tracker with collapsible task list.
+- `#file` and `@agent` mention highlighting in messages.
+- Copy-to-clipboard on agent messages.
+- Per-session plan mode state and CANCELLED badge for dismissed questions.
 
 **Security**
 - Optional auth token + in-memory request rate limiting.
@@ -70,6 +99,7 @@ It manages:
 - Claude CLI installed and authenticated (`claude` command)
 - Optional: GitHub CLI (`gh`) for PR status in the UI
 - Optional: Codex CLI (`codex`) for OpenAI model support
+- Optional: Gemini CLI (`gemini`) for Google model support
 - Optional (desktop app): Rust >= 1.77 for Tauri builds
 - Optional (remote setup): Tailscale for secure backend connectivity
 
@@ -223,16 +253,20 @@ npm test
 | `GET` | `/api/workspaces/:wsId/diff/stat` | Diff stats (`committed` + `uncommitted`) |
 | `GET` | `/api/workspaces/:wsId/files` | Workspace file tree |
 | `GET` | `/api/workspaces/:wsId/file?path=<file>` | Read workspace file content |
+| `GET` | `/api/workspaces/:wsId/file-completions` | File paths for `#` mention autocomplete |
 | `POST` | `/api/workspaces/:wsId/merge` | Merge workspace branch into default branch |
 | `POST` | `/api/workspaces/:wsId/archive` | Archive workspace and remove worktree |
 | `GET` | `/api/workspaces/:wsId/completions` | Completion items for `/` and `@` autocomplete |
 | `GET` | `/api/workspaces/:wsId/pr-status` | PR status (state, checks, reviews, mergeable) with 15s cache |
+| `POST` | `/api/workspaces/bulk-pr-status` | Bulk PR status for multiple workspaces |
+| `POST` | `/api/workspaces/:wsId/terminal/start` | Start interactive terminal PTY |
+| `DELETE` | `/api/workspaces/:wsId/terminal/stop` | Stop interactive terminal |
 
 ### Models
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/models` | Model catalog (providers, capabilities, defaults) |
+| `GET` | `/api/models` | Model catalog (providers, capabilities, contextWindow, defaults) |
 
 ### Sessions
 
@@ -248,13 +282,46 @@ npm test
 | `DELETE` | `/api/workspaces/:wsId/sessions/:sessionId` | Hard-delete a session |
 | `GET` | `/api/workspaces/:wsId/sessions/:sessionId/messages` | Get messages for a specific session |
 
+### Automations
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/automations` | List automations |
+| `POST` | `/api/automations` | Create automation |
+| `GET` | `/api/automations/:id` | Get automation |
+| `PUT` | `/api/automations/:id` | Update automation |
+| `DELETE` | `/api/automations/:id` | Delete automation |
+| `POST` | `/api/automations/:id/trigger` | Manually trigger automation |
+| `GET` | `/api/automations/:id/runs` | List automation runs |
+| `GET` | `/api/automations/:id/runs/:runId/messages` | Get run messages + system prompt |
+
+### Prompt Templates
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/prompts/templates` | List templates |
+| `POST` | `/api/prompts/templates` | Create template |
+| `GET` | `/api/prompts/templates/:id` | Get template |
+| `PUT` | `/api/prompts/templates/:id` | Update template |
+| `DELETE` | `/api/prompts/templates/:id` | Delete template (blocked if referenced by automation) |
+
+### Base Prompt
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/prompts/base` | Get base prompt (content, isDefault, defaultContent) |
+| `PUT` | `/api/prompts/base` | Update base prompt |
+| `DELETE` | `/api/prompts/base` | Reset base prompt to default |
+
 ### Settings
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/settings/notifications` | Get notification config (Telegram) |
+| `GET` | `/api/settings/notifications` | Get notification config (Telegram + APNs) |
 | `PUT` | `/api/settings/notifications` | Update notification config |
-| `POST` | `/api/settings/notifications/test` | Send a test Telegram message |
+| `POST` | `/api/settings/notifications/test` | Send a test notification |
+| `POST` | `/api/settings/apns-token` | Register APNs device token |
+| `GET` | `/api/settings/agents` | Provider versions + update availability |
 
 ### Account
 
@@ -275,19 +342,19 @@ npm test
 
 ## WebSocket API
 
-### Conversation stream
+### Hub (multiplexed)
 
-- Endpoint: `ws://<host>/ws/session/:wsId`
+- Endpoint: `ws://<host>/ws/hub`
 - Auth: `Authorization: Bearer <token>`, `x-hive-token`, or `?token=<token>`
 
 Client -> server:
-- `{ "type": "switch_session", "sessionId": "..." }`
-- `{ "type": "user_message", "content": "...", "images": [...], "options": { "planMode": boolean, "thinkingEnabled": boolean, "thinkingLevel": "low"|"medium"|"high"|"xhigh", "modelId": "provider:model" }, "sessionId": "..." }`
-- `{ "type": "stop", "sessionId": "..." }`
-- `{ "type": "tool_input_response", "requestId": "...", "toolName": "AskUserQuestion|ExitPlanMode", "result": ... , "sessionId": "..." }`
+- `{ "type": "sync_workspaces", "workspaceIds": ["..."] }`
+- `{ "type": "user_message", "content": "...", "images": [...], "options": { "planMode": boolean, "thinkingEnabled": boolean, "thinkingLevel": "low"|"medium"|"high"|"xhigh", "modelId": "provider:model" }, "sessionId": "...", "workspaceId": "..." }`
+- `{ "type": "stop", "sessionId": "...", "workspaceId": "..." }`
+- `{ "type": "tool_input_response", "requestId": "...", "toolName": "AskUserQuestion|ExitPlanMode", "result": ..., "sessionId": "...", "workspaceId": "..." }`
 
-Server -> client (main types):
-- `status` (includes `lockedProvider` when set), `history`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `tool_input_required`, `done`, `cancelled`, `error`, `branch_info`, `diff_stats`, `script_status`
+Server -> client (wrapped in `HubOutgoing` envelopes `{ workspaceId, event }`):
+- `status` (includes `lockedProvider`), `history`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `tool_input_required`, `done` (with `durationMs`, `pendingToolName`), `cancelled` (with `errorDetail`, `userInitiated`), `error`, `branch_info`, `diff_stats`, `script_status`, `plan_mode_changed`
 
 ### Script stream
 
@@ -304,45 +371,77 @@ Hierarchy:
 
 Backend key modules:
 - `backend/src/api/projects.ts` project CRUD + fetch
-- `backend/src/api/workspaces.ts` workspace CRUD + diff/stat + files + merge + archive + PR status
+- `backend/src/api/workspaces.ts` workspace CRUD + diff/stat + files + merge + archive + PR status + file-completions + terminal
 - `backend/src/api/agents.ts` session routes (single + multi-session)
 - `backend/src/api/completions.ts` completion scanning endpoint
 - `backend/src/api/models.ts` model catalog endpoint
-- `backend/src/api/settings.ts` notification config CRUD
+- `backend/src/api/settings.ts` notification config CRUD + APNs token registration
 - `backend/src/api/account.ts` GitHub OAuth device flow + CLI integration
 - `backend/src/api/scripts.ts` setup/run script lifecycle
-- `backend/src/ws/stream.ts` conversation WebSocket protocol
+- `backend/src/api/agents-settings.ts` provider version check + npm update detection
+- `backend/src/api/base-prompt.ts` base system prompt CRUD
+- `backend/src/api/automations.ts` automation CRUD + trigger + run history + run messages
+- `backend/src/api/prompt-templates.ts` prompt template CRUD
+- `backend/src/ws/stream.ts` multiplexed hub WebSocket protocol
 - `backend/src/ws/script.ts` script execution WebSocket
 - `backend/src/agents/agent-manager.ts` in-memory session registry, persistence, switching
 - `backend/src/agents/conversation-session.ts` agent process lifecycle per turn (provider-aware)
+- `backend/src/agents/system-prompt.ts` system prompt construction (base prompt loading, template vars, git context)
 - `backend/src/agents/naming.ts` branch + session auto-naming via dedicated Claude subprocess
-- `backend/src/agents/providers/` provider abstraction (types, registry, claude, codex, codex-stream-adapter)
+- `backend/src/agents/providers/` provider abstraction (types, registry, claude, codex, codex-stream-adapter, gemini, gemini-stream-adapter)
 - `backend/src/services/git-sync.ts` branch/diff polling and workspace broadcasts
-- `backend/src/services/script-runner.ts` PTY-based script execution with status broadcasting
-- `backend/src/notifications/` Telegram notification channel + event dispatcher
+- `backend/src/services/script-runner.ts` PTY-based script execution + interactive terminal
+- `backend/src/services/automation-scheduler.ts` cron scheduling, ConversationSession execution, git context injection
+- `backend/src/notifications/` notification channels (Telegram, APNs) + event dispatcher + types
 - `backend/src/state/state.ts` JSON persistence + per-project locks
 - `backend/src/state/config.ts` file-based app config (`config.json`)
-- `backend/src/utils/preflight.ts` startup dependency checks (git, claude, gh; codex optional)
+- `backend/src/state/automations.ts` automation + run persistence
+- `backend/src/state/prompt-templates.ts` template persistence
+- `backend/src/state/base-prompt.ts` base prompt persistence
+- `backend/src/utils/preflight.ts` startup dependency checks (git, claude, gh; codex/gemini optional)
 - `backend/src/utils/github.ts` GitHub URL parsing, `gh` CLI wrapper, PR status fetching
 - `backend/src/utils/hive-config.ts` `hive.json` parser for workspace scripts
 
 Frontend key modules:
-- `frontend/src/pages/WorkspaceView.tsx` main chat/file tree/diff/scripts/PR status UI
-- `frontend/src/pages/settings/` settings pages (Appearance, Connection, Account, Notifications, ProjectDetail)
+- `frontend/src/pages/WorkspaceView.tsx` main chat/inline diff/file tree/scripts/PR status UI
+- `frontend/src/pages/AutomationDetail.tsx` automation config + run history + run log
+- `frontend/src/pages/settings/` settings pages (Appearance, Connection, Account, Notifications, Agents, Prompts, ProjectDetail)
+- `frontend/src/contexts/WorkspaceLiveDataContext.tsx` WS live data context + unread tracking
 - `frontend/src/hooks/useConversation.ts` reducer-driven conversation state + tool responses + lockedProvider
-- `frontend/src/hooks/useSessions.ts` multi-session operations
-- `frontend/src/hooks/useWorkspaceLiveData.ts` live status/branch/diff/script data from WS
+- `frontend/src/hooks/useSessions.ts` multi-session operations (max 4)
+- `frontend/src/hooks/useWorkspaceLiveData.ts` live status/branch/diff/script data + unread tracking
 - `frontend/src/hooks/useModels.ts` model catalog fetch + selection + provider lock
-- `frontend/src/hooks/usePrStatus.ts` PR status REST polling (15s)
+- `frontend/src/hooks/usePrStatus.ts` PR status (reads from bulk-seeded cache, no independent timer)
+- `frontend/src/hooks/useTabs.ts` multi-tab state with workspace snapshot cache, source/diff modes
+- `frontend/src/hooks/useTasks.ts` task progress from TaskCreate/TaskUpdate tool calls
+- `frontend/src/hooks/useBackgroundAgents.ts` background Task agent tracking
+- `frontend/src/hooks/useContextUsage.ts` context window usage calculation
+- `frontend/src/hooks/useBasePrompt.ts` base prompt CRUD
+- `frontend/src/hooks/useDiff.ts` diff fetching for inline viewer
+- `frontend/src/hooks/useFileCompletions.ts` `#` file mention completions
+- `frontend/src/hooks/useSidebarCollapsed.ts` sidebar collapse state + keyboard shortcut
+- `frontend/src/hooks/useWsCacheInvalidation.ts` centralized WS-driven query invalidation
 - `frontend/src/hooks/useProjects.ts` project/workspace state
-- `frontend/src/hooks/useScripts.ts` script start/stop/status
-- `frontend/src/hooks/useConnectionStatus.ts` backend health check
-- `frontend/src/hooks/useTailscaleConfig.ts` Tailscale connection config
-- `frontend/src/hooks/useServerUrl.ts` configurable backend URL resolution
+- `frontend/src/hooks/useScripts.ts` script start/stop/status + terminal
+- `frontend/src/hooks/useAutomations.ts` automation CRUD + trigger + run history + run messages
+- `frontend/src/hooks/usePromptTemplates.ts` prompt template CRUD
 - `frontend/src/lib/ws-transport.ts` resilient WS transport + replay buffer
-- `frontend/src/components/Sidebar.tsx` project/workspace nav + archive/delete
+- `frontend/src/lib/plan-state.ts` plan mode logic (detection, content extraction)
+- `frontend/src/lib/sub-agent.ts` Task tool parsing + children map
+- `frontend/src/lib/pr-display.ts` PR state -> icon/color/label mapping
+- `frontend/src/lib/cron.ts` cron utilities (next runs, countdown formatting)
+- `frontend/src/lib/format-usage.ts` token count formatting + usage colors
+- `frontend/src/lib/file-mentions.ts` `#file`/`@agent` mention parsing
+- `frontend/src/lib/fuzzy-match.ts` fuzzy file matching for autocomplete
+- `frontend/src/components/Sidebar.tsx` project/workspace nav + build/automation tabs + collapse + unread + PR status
+- `frontend/src/components/ChatInput.tsx` message input + file autocomplete + context ring + quick actions
+- `frontend/src/components/TaskTracker.tsx` task list + background agents status bar
+- `frontend/src/components/diff/InlineDiffViewer.tsx` inline diff with split/unified + comments + paste-to-prompt
+- `frontend/src/components/chat/SubAgentNode.tsx` collapsible Task tool rendering
+- `frontend/src/components/chat/PlanActionBar.tsx` plan approval floating bar
+- `frontend/src/components/chat/ContextRing.tsx` SVG usage ring
 - `frontend/src/components/chat/ModelSelector.tsx` provider-grouped model picker
-- `frontend/src/components/PrStatusSection.tsx` enriched PR status display
+- `frontend/src/components/PromptEditor.tsx` CodeMirror 6 editor with template variable highlighting
 - `frontend/src-tauri/` Tauri v2 desktop app (Rust shell, config, icons)
 
 ## Data Layout
@@ -350,8 +449,17 @@ Frontend key modules:
 ```text
 $DATA_DIR/
 ├── config.json
+├── automations.json
 ├── prompts/
-│   └── base.md
+│   ├── base.md
+│   └── <template-id>.md
+├── automations/
+│   └── <auto-id>/
+│       ├── runs/
+│       │   └── <run-id>/
+│       │       ├── messages.jsonl
+│       │       └── system-prompt.md
+│       └── workspace/
 └── proj-<id>/
     ├── state.json
     ├── repo.git/
