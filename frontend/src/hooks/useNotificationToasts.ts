@@ -38,36 +38,44 @@ export function useNotificationToasts(projects: Project[]): void {
         }
       }
 
-      const goToWorkspace = (sessionId?: string) => () => {
+      // Navigate to the workspace/session and dismiss the toast.
+      // `toastId` is captured by reference — already assigned when onClick fires.
+      let toastId: string;
+      const go = (sessionId?: string) => {
+        sileo.dismiss(toastId);
         if (sessionId) setSavedSession(workspaceId, sessionId);
         navigateRef.current(`/workspaces/${workspaceId}`);
       };
 
       if (msg.type === "done" && msg.sessionId) {
+        const sid = msg.sessionId;
         const duration = msg.durationMs ? ` in ${formatElapsed(msg.durationMs)}` : "";
-        sileo.success({
+        toastId = sileo.success({
           title: label,
           description: `Turn complete${duration}`,
-          button: { title: "View", onClick: goToWorkspace(msg.sessionId) },
+          button: { title: "View", onClick: () => go(sid) },
         });
       } else if (msg.type === "cancelled" && !msg.userInitiated && msg.sessionId) {
-        sileo.error({
+        const sid = msg.sessionId;
+        toastId = sileo.error({
           title: label,
           description: msg.errorDetail ?? "Agent failed",
-          button: { title: "View", onClick: goToWorkspace(msg.sessionId) },
+          button: { title: "View", onClick: () => go(sid) },
         });
       } else if (msg.type === "error") {
-        sileo.error({
+        const sid = msg.sessionId;
+        toastId = sileo.error({
           title: label,
           description: msg.message,
-          button: { title: "View", onClick: goToWorkspace(msg.sessionId) },
+          button: { title: "View", onClick: () => go(sid) },
         });
       } else if (msg.type === "tool_input_required" && msg.sessionId) {
+        const sid = msg.sessionId;
         const isPlan = msg.toolName === "ExitPlanMode";
-        sileo.warning({
+        toastId = sileo.warning({
           title: label,
           description: isPlan ? "Plan ready for review" : "Agent needs input",
-          button: { title: isPlan ? "Review" : "Respond", onClick: goToWorkspace(msg.sessionId) },
+          button: { title: isPlan ? "Review" : "Respond", onClick: () => go(sid) },
         });
       }
     });

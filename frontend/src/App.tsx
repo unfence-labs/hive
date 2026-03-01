@@ -57,7 +57,19 @@ export default function App() {
   return (
     <BrowserRouter>
       <WorkspaceLiveDataProvider workspaceIds={workspaceIds}>
-        <Toaster position="top-center" theme="dark" />
+        <Toaster
+          position="top-right"
+          theme="dark"
+          options={{
+            fill: "#16161e",
+            styles: {
+              title: "text-[oklch(0.93_0.005_260)]!",
+              description: "text-[oklch(0.707_0.022_261.325)]!",
+              badge: "bg-[#262636]!",
+              button: "bg-[#262636]! text-[oklch(0.93_0.005_260)]! hover:bg-[#2e2e40]!",
+            },
+          }}
+        />
         <NotificationToastsBridge projects={projects} />
         <AddProjectDialog
           open={showAddProject}
