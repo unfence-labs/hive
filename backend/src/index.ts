@@ -1,3 +1,5 @@
+import os from "node:os";
+import { statfsSync } from "node:fs";
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
@@ -80,7 +82,24 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     }),
   );
 
-  app.get("/health", async () => ({ status: "ok", env: process.env.NODE_ENV ?? "development" }));
+  app.get("/health", async () => {
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const disk = statfsSync("/");
+    const diskTotal = disk.blocks * disk.bsize;
+    const diskFree = disk.bavail * disk.bsize;
+    const cpuPercent = Math.min(100, Math.round((os.loadavg()[0] / (os.cpus().length || 1)) * 100));
+
+    return {
+      status: "ok",
+      env: process.env.NODE_ENV ?? "development",
+      system: {
+        cpuPercent,
+        memPercent: Math.round(((totalMem - freeMem) / totalMem) * 100),
+        diskPercent: Math.round(((diskTotal - diskFree) / diskTotal) * 100),
+      },
+    };
+  });
 
   await app.register((instance: FastifyInstance) => projectRoutes(instance));
   await app.register((instance: FastifyInstance) => workspaceRoutes(instance));

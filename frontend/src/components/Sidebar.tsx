@@ -37,6 +37,7 @@ import { api } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { useAutomations } from "@/hooks/useAutomations";
+import { ServerMetrics } from "@/components/ServerMetrics";
 import type { Automation, DiffStatResponse } from "@/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -400,24 +401,27 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
         )}
       </div>
 
-      {/* ── Footer: tabs + settings ─────────────────────────────────── */}
+      {/* ── Footer: tabs + metrics + settings ────────────────────────── */}
       <div className="flex items-center border-t border-border/50 px-2 py-1.5">
-        <div className="flex flex-1 gap-0.5">
-          {(["build", "automation"] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => handleTabClick(tab)}
-              className={cn(
-                "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                activeTab === tab
-                  ? "bg-sidebar-accent text-sidebar-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/40 hover:text-sidebar-foreground",
-              )}
-            >
-              {tab === "build" ? "Build" : "Automation"}
-            </button>
-          ))}
+        <div className="flex flex-1 items-center gap-2">
+          <div className="flex gap-0.5">
+            {(["build", "automation"] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => handleTabClick(tab)}
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  activeTab === tab
+                    ? "bg-sidebar-accent text-sidebar-foreground"
+                    : "text-muted-foreground hover:bg-sidebar-accent/40 hover:text-sidebar-foreground",
+                )}
+              >
+                {tab === "build" ? "Build" : "Automation"}
+              </button>
+            ))}
+          </div>
+          <ServerMetrics />
         </div>
         <Link
           to="/settings"
