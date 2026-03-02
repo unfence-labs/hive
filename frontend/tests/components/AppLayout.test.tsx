@@ -4,6 +4,17 @@ import { describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import AppLayout from "@/components/AppLayout";
 
+vi.mock("react-resizable-panels", () => {
+  const React = require("react");
+  return {
+    Group: ({ children, style, className }: any) => React.createElement("div", { style, className }, children),
+    Panel: ({ children, style, className }: any) => React.createElement("div", { style, className }, children),
+    Separator: ({ className }: any) => React.createElement("div", { className }),
+    usePanelRef: () => ({ current: { collapse: () => {}, expand: () => {}, isCollapsed: () => false } }),
+    useDefaultLayout: () => ({ defaultLayout: undefined, onLayoutChanged: () => {} }),
+  };
+});
+
 vi.mock("@/hooks/useApi", () => ({
   api: {
     get: vi.fn().mockResolvedValue([]),

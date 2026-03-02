@@ -225,7 +225,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   };
 
   return (
-    <div className="flex h-full w-72 flex-col border-r border-border/50 bg-sidebar text-sidebar-foreground">
+    <div className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
       <div
         className="shrink-0"
         style={{ height: "max(var(--titlebar-inset, 0px), 3rem)" }}
