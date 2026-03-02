@@ -13,6 +13,7 @@ vi.mock("node:child_process", () => ({
 
 import { spawn } from "node:child_process";
 import { ConversationSession } from "./conversation-session.js";
+import * as providerRegistry from "./providers/registry.js";
 
 const mockSpawn = vi.mocked(spawn);
 
@@ -1421,6 +1422,16 @@ describe("ConversationSession", () => {
 
     session.sendMessage("Hello");
     expect(session.metadata.lockedProvider).toBe("claude");
+  });
+
+  it("resolves provider once per sendMessage call", () => {
+    const resolveSpy = vi.spyOn(providerRegistry, "resolveProvider");
+    const session = createSession({ sessionId: "resolve-once" });
+
+    session.sendMessage("Hello", { model: "claude:opus-4-6" });
+
+    expect(resolveSpy).toHaveBeenCalledTimes(1);
+    expect(resolveSpy).toHaveBeenCalledWith("claude:opus-4-6");
   });
 
   it("throws when trying to switch providers mid-session", () => {

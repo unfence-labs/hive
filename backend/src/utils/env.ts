@@ -25,6 +25,10 @@ const STRIPPED_PREFIXES = [
  * Build a clean environment for workspace child processes.
  * Strips backend-specific vars, then merges optional provider overrides.
  */
+export const DEBUG_AGENT_LOGS = ["1", "true", "yes", "on"].includes(
+  (process.env.HIVE_DEBUG_AGENT_LOGS ?? "").trim().toLowerCase(),
+);
+
 export function buildWorkspaceEnv(
   extra?: Record<string, string>,
 ): Record<string, string> {

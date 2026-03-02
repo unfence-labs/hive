@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
 import { bareRepoPath } from "../utils/paths.js";
 import { saveProject, loadProject, loadAllProjects, getDataDir } from "../state/state.js";
+import { notifyProjectDeleted } from "../state/workspace-index.js";
 import { validateRepositoryUrl } from "../utils/repo-url.js";
 import { NotFoundError } from "../utils/errors.js";
 import type { ProjectState } from "../types.js";
@@ -62,6 +63,7 @@ export async function deleteProject(
 ): Promise<void> {
   const projectDir = join(dataDir, projectId);
   await rm(projectDir, { recursive: true, force: true });
+  notifyProjectDeleted(projectId);
 }
 
 export async function fetchProject(

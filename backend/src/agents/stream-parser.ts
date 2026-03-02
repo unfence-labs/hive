@@ -1,9 +1,6 @@
 import { EventEmitter } from "node:events";
 import type { CliJsonLine } from "../types.js";
-
-const DEBUG_AGENT_LOGS = ["1", "true", "yes", "on"].includes(
-  (process.env.HIVE_DEBUG_AGENT_LOGS ?? "").trim().toLowerCase(),
-);
+import { DEBUG_AGENT_LOGS } from "../utils/env.js";
 
 export type StreamParserEvent = {
   assistant: [data: Extract<CliJsonLine, { type: "assistant" }>];

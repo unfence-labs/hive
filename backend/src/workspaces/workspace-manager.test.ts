@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { rm, writeFile, mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -16,6 +16,8 @@ import {
 } from "./workspace-manager.js";
 import { git } from "../utils/git.js";
 import { loadProject, saveProject } from "../state/state.js";
+import * as stateStore from "../state/state.js";
+import { initWorkspaceIndex, _clearForTests as clearWorkspaceIndexForTests } from "../state/workspace-index.js";
 
 let tempDir: string;
 let dataDir: string;
@@ -23,6 +25,7 @@ let fixtureRepoUrl: string;
 let projectId: string;
 
 beforeEach(async () => {
+  clearWorkspaceIndexForTests();
   tempDir = await createTempDir("hive-ws-test-");
   dataDir = join(tempDir, "data");
   const fixtureDir = join(tempDir, "fixtures");
@@ -36,6 +39,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  clearWorkspaceIndexForTests();
   await rm(tempDir, { recursive: true, force: true });
 });
 
@@ -157,6 +161,19 @@ describe("getWorkspace", () => {
   it("returns null for non-existent workspace", async () => {
     const result = await getWorkspace("nonexistent", dataDir);
     expect(result).toBeNull();
+  });
+
+  it("uses the in-memory index path after initialization (no loadAllProjects scan)", async () => {
+    const created = await createWorkspace(projectId, dataDir);
+    await initWorkspaceIndex(dataDir);
+
+    const loadAllSpy = vi.spyOn(stateStore, "loadAllProjects");
+
+    const result = await getWorkspace(created.id, dataDir);
+
+    expect(result).not.toBeNull();
+    expect(result!.workspace.id).toBe(created.id);
+    expect(loadAllSpy).not.toHaveBeenCalled();
   });
 });
 

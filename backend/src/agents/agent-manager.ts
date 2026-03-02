@@ -500,6 +500,7 @@ async function createSession(
         currentBranch: ctx.workspace.branch,
         workspaceName: ctx.workspace.name,
         command: options?.command,
+        withBranchRenameLock: (fn) => withWorkspaceLock(ctx.workspace.id, fn),
       },
       (title: string) => session.setTitle(title),
     ).catch((err) => {

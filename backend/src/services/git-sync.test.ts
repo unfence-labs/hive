@@ -271,6 +271,81 @@ describe("GitSyncService", () => {
     expect(service.getCachedDiffStats(ws.id)).toBeUndefined();
   });
 
+  it("syncs all workspaces correctly with concurrent execution", async () => {
+    const ws1 = await createWorkspace(projectId, dataDir);
+    const ws2 = await createWorkspace(projectId, dataDir);
+    const ws3 = await createWorkspace(projectId, dataDir);
+    const ws1Path = join(workspacesDir(dataDir, projectId), ws1.name);
+    const ws3Path = join(workspacesDir(dataDir, projectId), ws3.name);
+
+    // Rename branches on ws1 and ws3 to verify all workspaces are processed
+    await git(["branch", "-m", "branch-one"], ws1Path);
+    await git(["branch", "-m", "branch-three"], ws3Path);
+
+    await service.poll();
+
+    // All 3 workspaces were synced with correct data
+    expect(service.getCachedBranchInfo(ws1.id)?.name).toBe("branch-one");
+    expect(service.getCachedBranchInfo(ws2.id)?.name).toBe(`workspace/${ws2.name}`);
+    expect(service.getCachedBranchInfo(ws3.id)?.name).toBe("branch-three");
+
+    // Branch renames persisted to disk
+    const state = await loadProject(projectId, dataDir);
+    expect(state!.workspaces.find((w) => w.id === ws1.id)!.branch).toBe("branch-one");
+    expect(state!.workspaces.find((w) => w.id === ws3.id)!.branch).toBe("branch-three");
+  });
+
+  it("ignores a concurrent poll call while one sync cycle is already running", async () => {
+    await createWorkspace(projectId, dataDir);
+
+    const serviceWithPrivateSync = service as unknown as {
+      syncWorkspace: (...args: unknown[]) => Promise<void>;
+    };
+    const originalSyncWorkspace = serviceWithPrivateSync.syncWorkspace.bind(serviceWithPrivateSync);
+    let releaseFirstSync: (() => void) | undefined;
+    const firstSyncGate = new Promise<void>((resolve) => {
+      releaseFirstSync = resolve;
+    });
+
+    const syncWorkspaceSpy = vi.spyOn(serviceWithPrivateSync, "syncWorkspace");
+    syncWorkspaceSpy.mockImplementationOnce(async (...args: unknown[]) => {
+      await firstSyncGate;
+      return originalSyncWorkspace(...args);
+    });
+
+    const firstPoll = service.poll();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const secondPoll = service.poll();
+
+    // Should resolve immediately because `syncing` is already true.
+    await expect(secondPoll).resolves.toBeUndefined();
+
+    releaseFirstSync?.();
+    await firstPoll;
+
+    expect(syncWorkspaceSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues syncing healthy workspaces when one worktree is missing", async () => {
+    const ws1 = await createWorkspace(projectId, dataDir);
+    const ws2 = await createWorkspace(projectId, dataDir);
+    const ws3 = await createWorkspace(projectId, dataDir);
+    const ws2Path = join(workspacesDir(dataDir, projectId), ws2.name);
+    const ws3Path = join(workspacesDir(dataDir, projectId), ws3.name);
+
+    await rm(ws2Path, { recursive: true, force: true });
+    await git(["branch", "-m", "healthy-branch"], ws3Path);
+
+    await expect(service.poll()).resolves.not.toThrow();
+
+    expect(service.getCachedBranchInfo(ws1.id)?.name).toBe(`workspace/${ws1.name}`);
+    expect(service.getCachedBranchInfo(ws2.id)).toBeUndefined();
+    expect(service.getCachedBranchInfo(ws3.id)?.name).toBe("healthy-branch");
+
+    const state = await loadProject(projectId, dataDir);
+    expect(state!.workspaces.find((w) => w.id === ws3.id)!.branch).toBe("healthy-branch");
+  });
+
   it("maintains independent caches per workspace", async () => {
     const ws1 = await createWorkspace(projectId, dataDir);
     const ws2 = await createWorkspace(projectId, dataDir);

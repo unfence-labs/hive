@@ -94,6 +94,7 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
   app.delete<{ Params: { wsId: string } }>("/api/workspaces/:wsId", async (req, reply) => {
     try {
       await deleteWorkspace(req.params.wsId, dataDir);
+      prCache.delete(req.params.wsId);
       return reply.status(204).send();
     } catch (err: unknown) {
       return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });
@@ -281,6 +282,7 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
       // End loaded sessions before archiving to avoid stale in-memory state.
       await endSession(req.params.wsId, dataDir);
       await archiveWorkspace(req.params.wsId, dataDir);
+      prCache.delete(req.params.wsId);
       return reply.status(204).send();
     } catch (err: unknown) {
       return reply

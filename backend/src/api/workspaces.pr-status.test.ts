@@ -239,6 +239,69 @@ describe("GET /api/workspaces/:wsId/pr-status", () => {
     nowSpy.mockRestore();
   });
 
+  it("invalidates cached PR status after workspace deletion", async () => {
+    mocks.fetchPrForBranch
+      .mockResolvedValueOnce({ pr: makePr({ number: 1 }) })
+      .mockResolvedValueOnce({ pr: makePr({ number: 2 }) });
+    mocks.deleteWorkspace.mockResolvedValueOnce(undefined);
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(100_000);
+
+    await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,
+    });
+    expect(mocks.fetchPrForBranch).toHaveBeenCalledTimes(1);
+
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/api/workspaces/${WORKSPACE_ID}`,
+    });
+    expect(del.statusCode).toBe(204);
+
+    const afterDelete = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,
+    });
+
+    expect(afterDelete.statusCode).toBe(200);
+    expect(afterDelete.json()).toEqual({ pr: makePr({ number: 2 }) });
+    expect(mocks.fetchPrForBranch).toHaveBeenCalledTimes(2);
+
+    nowSpy.mockRestore();
+  });
+
+  it("invalidates cached PR status after workspace archival", async () => {
+    mocks.fetchPrForBranch
+      .mockResolvedValueOnce({ pr: makePr({ number: 10 }) })
+      .mockResolvedValueOnce({ pr: makePr({ number: 11 }) });
+    mocks.endSession.mockResolvedValueOnce(undefined);
+    mocks.archiveWorkspace.mockResolvedValueOnce(undefined);
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(200_000);
+
+    await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,
+    });
+    expect(mocks.fetchPrForBranch).toHaveBeenCalledTimes(1);
+
+    const archived = await app.inject({
+      method: "POST",
+      url: `/api/workspaces/${WORKSPACE_ID}/archive`,
+    });
+    expect(archived.statusCode).toBe(204);
+
+    const afterArchive = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,
+    });
+
+    expect(afterArchive.statusCode).toBe(200);
+    expect(afterArchive.json()).toEqual({ pr: makePr({ number: 11 }) });
+    expect(mocks.fetchPrForBranch).toHaveBeenCalledTimes(2);
+
+    nowSpy.mockRestore();
+  });
+
   it("returns 500 when an unexpected error bubbles up", async () => {
     mocks.fetchPrForBranch.mockRejectedValueOnce(new Error("boom"));
 
