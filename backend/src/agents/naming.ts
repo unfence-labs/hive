@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { basename } from "node:path";
 import { git } from "../utils/git.js";
 import { buildWorkspaceEnv, DEBUG_AGENT_LOGS } from "../utils/env.js";
 
@@ -38,7 +39,8 @@ Rules for session_title:
 - Sentence case, concise summary of the task
 - No commit-style prefixes (Add, Fix, Update, Refactor)`;
 
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 30_000;
+const RENAME_RETRY_DELAYS_MS = [120, 250];
 
 const PREFIX_PATTERN = /^(?:feat|fix|chore|docs|refactor|test|style|perf|ci|build|workspace)\//;
 
@@ -149,17 +151,45 @@ export async function generateNames(ctx: NamingContext): Promise<NamingResult> {
   });
 }
 
+function resolveNamingCommand(command?: string): string | null {
+  const fallback = command ?? "claude";
+  const cmd = basename(fallback).toLowerCase();
+  // Test harnesses pass shell binaries here; skip naming in that case.
+  if (["bash", "sh", "zsh"].includes(cmd)) return null;
+  // Naming prompt/args are Claude-specific; fall back to Claude for other providers.
+  if (["codex", "gemini"].includes(cmd)) return "claude";
+  return fallback;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+}
+
+function isTransientGitRenameError(err: unknown): boolean {
+  const text = errorText(err);
+  return (
+    text.includes("cannot lock ref") ||
+    text.includes("unable to create") ||
+    text.includes("another git process seems to be running") ||
+    text.includes("index.lock") ||
+    text.includes("refs/heads")
+  );
+}
+
 export async function runNamingTask(
   ctx: NamingContext,
   onTitleReady: (title: string) => void,
 ): Promise<void> {
-  // Skip in test mode (tests use command = "bash")
-  const command = ctx.command ?? "claude";
-  if (command !== "claude") return;
+  const command = resolveNamingCommand(ctx.command);
+  if (!command) return;
 
   const shouldRenameBranch = ctx.currentBranch.startsWith("workspace/");
 
-  const result = await generateNames(ctx);
+  const result = await generateNames({ ...ctx, command });
 
   if (result.sessionTitle) {
     const title = result.sessionTitle.slice(0, 60);
@@ -170,8 +200,6 @@ export async function runNamingTask(
     const sanitized = sanitizeBranchName(result.branchName);
     if (!sanitized) return;
 
-    const existing = await listExistingBranches(ctx.bareRepo);
-    const finalName = ensureUniqueBranch(sanitized, existing);
     const renameIfStillWorkspaceBranch = async (): Promise<void> => {
       // Guard: branch may have been renamed manually in the meantime
       try {
@@ -182,13 +210,32 @@ export async function runNamingTask(
           }
           return;
         }
-      } catch {
+      } catch (err) {
+        if (DEBUG_AGENT_LOGS) {
+          console.log("[naming] failed to resolve current branch, skipping rename:", errorText(err));
+        }
         return;
       }
 
-      await git(["branch", "-m", finalName], ctx.cwd);
-      if (DEBUG_AGENT_LOGS) {
-        console.log(`[naming] renamed branch: ${ctx.currentBranch} → ${finalName}`);
+      let finalName = ensureUniqueBranch(sanitized, await listExistingBranches(ctx.bareRepo));
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await git(["branch", "-m", finalName], ctx.cwd);
+          if (DEBUG_AGENT_LOGS) {
+            console.log(`[naming] renamed branch: ${ctx.currentBranch} → ${finalName}`);
+          }
+          return;
+        } catch (err) {
+          const hasRetryLeft = attempt < RENAME_RETRY_DELAYS_MS.length;
+          if (!hasRetryLeft || !isTransientGitRenameError(err)) {
+            throw err;
+          }
+          if (DEBUG_AGENT_LOGS) {
+            console.log(`[naming] transient rename failure (attempt ${attempt + 1}), retrying:`, errorText(err));
+          }
+          await sleep(RENAME_RETRY_DELAYS_MS[attempt]!);
+          finalName = ensureUniqueBranch(sanitized, await listExistingBranches(ctx.bareRepo));
+        }
       }
     };
 
