@@ -86,6 +86,7 @@ export default function ScriptPanel({
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const connectedTabRef = useRef<string | null>(null);
 
   // Incremented on re-run to force the terminal init effect to re-fire
@@ -121,11 +122,19 @@ export default function ScriptPanel({
     termRef.current = term;
     fitAddonRef.current = fitAddon;
 
+    // Attach ResizeObserver so fit() fires on every panel resize
+    resizeObserverRef.current?.disconnect();
+    const observer = new ResizeObserver(() => fitAddon.fit());
+    observer.observe(el);
+    resizeObserverRef.current = observer;
+
     connectedTabRef.current = effectiveTab;
     onConnectOutput(effectiveTab, term);
   }, [effectiveTab, onConnectOutput]);
 
   const destroyTerminal = useCallback(() => {
+    resizeObserverRef.current?.disconnect();
+    resizeObserverRef.current = null;
     if (termRef.current) {
       onDisconnectOutput();
       termRef.current.dispose();
@@ -155,18 +164,6 @@ export default function ScriptPanel({
     return undefined;
   }, [effectiveTab, shouldShowTerminal, destroyTerminal, initTerminal]);
 
-  // ResizeObserver for fitting
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const observer = new ResizeObserver(() => {
-      fitAddonRef.current?.fit();
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -194,7 +191,7 @@ export default function ScriptPanel({
 
   if (tabs.length === 0) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-full min-h-0 flex-col">
         <div className="flex h-9 items-center border-t border-border/50 px-3">
           <span className="text-xs uppercase tracking-wide text-muted-foreground">Scripts</span>
         </div>
@@ -216,7 +213,7 @@ export default function ScriptPanel({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       {/* Tab bar */}
       <div className="flex h-9 items-center gap-3 border-t border-border/50 px-3">
         {tabs.map((tab) => {
@@ -271,7 +268,7 @@ export default function ScriptPanel({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {shouldShowTerminal ? (
           <>
-            <div ref={containerRef} className="h-full w-full px-3" style={{ backgroundColor: "#09090f" }} />
+            <div ref={containerRef} className="h-full w-full overflow-hidden px-3" style={{ backgroundColor: "#09090f" }} />
             {/* Port badge */}
             {!isSetupTab && !isTerminalTab && config?.port && currentStatus.state === "running" && (
               <div className="absolute bottom-2 right-2">
