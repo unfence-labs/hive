@@ -401,10 +401,10 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
         )}
       </div>
 
-      {/* ── Footer: tabs + metrics + settings ────────────────────────── */}
-      <div className="flex items-center border-t border-border/50 px-2 py-1.5">
-        <div className="flex flex-1 items-center gap-2">
-          <div className="flex gap-0.5">
+      {/* ── Footer: tabs + metrics/settings ─────────────────────────── */}
+      <div className="shrink-0 border-t border-border/50">
+        <div className="flex items-center px-2 py-1.5">
+          <div className="flex flex-1 gap-0.5">
             {(["build", "automation"] as const).map((tab) => (
               <button
                 key={tab}
@@ -421,17 +421,20 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
               </button>
             ))}
           </div>
+          <Link
+            to="/settings"
+            state={{ from: pathname }}
+            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
+            aria-label="Settings"
+            title="Settings"
+          >
+            <Settings className="h-4 w-4" />
+          </Link>
+        </div>
+        <div className="mx-2 border-t border-border/50" />
+        <div className="px-3 pb-2 pt-1.5">
           <ServerMetrics />
         </div>
-        <Link
-          to="/settings"
-          state={{ from: pathname }}
-          className="rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
-          aria-label="Settings"
-          title="Settings"
-        >
-          <Settings className="h-4 w-4" />
-        </Link>
       </div>
 
       <AlertDialog

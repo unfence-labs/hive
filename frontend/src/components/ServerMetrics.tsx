@@ -7,22 +7,24 @@ import {
 import { useServerMetrics } from "@/hooks/useServerMetrics";
 import { usageStrokeColor } from "@/lib/format-usage";
 
-interface MetricDotProps {
+interface MetricBarProps {
   label: string;
   percent: number;
 }
 
-function MetricDot({ label, percent }: MetricDotProps) {
+function MetricBar({ label, percent }: MetricBarProps) {
   const color = usageStrokeColor(percent / 100);
   return (
-    <div className="flex items-center gap-1">
-      <div
-        className="h-1.5 w-1.5 rounded-full"
-        style={{ backgroundColor: color }}
-      />
-      <span className="text-[10px] leading-none text-muted-foreground">
+    <div className="flex flex-1 items-center gap-1">
+      <span className="shrink-0 text-[10px] font-medium text-muted-foreground">
         {label}
       </span>
+      <div className="h-1 flex-1 rounded-full bg-muted/40">
+        <div
+          className="h-full rounded-full transition-[width] duration-700 ease-out"
+          style={{ width: `${percent}%`, backgroundColor: color }}
+        />
+      </div>
     </div>
   );
 }
@@ -42,10 +44,10 @@ export function ServerMetrics() {
     <TooltipProvider delayDuration={300}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="flex items-center gap-2 px-1 cursor-default">
-            <MetricDot label="CPU" percent={metrics.cpuPercent} />
-            <MetricDot label="MEM" percent={metrics.memPercent} />
-            <MetricDot label="DSK" percent={metrics.diskPercent} />
+          <div className="flex items-center gap-2.5 cursor-default">
+            <MetricBar label="CPU" percent={metrics.cpuPercent} />
+            <MetricBar label="MEM" percent={metrics.memPercent} />
+            <MetricBar label="DSK" percent={metrics.diskPercent} />
           </div>
         </TooltipTrigger>
         <TooltipContent side="top">{tooltip}</TooltipContent>
