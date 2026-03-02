@@ -64,6 +64,7 @@ export function updateLiveApnsToken(token: string): void {
 const loadedSessionsByWorkspace = new Map<string, Map<string, ConversationSession>>();
 const activeSessionIds = new Map<string, string>();
 const workspaceLocks = new Map<string, Promise<void>>();
+const workspaceBranchRenameLocks = new Map<string, Promise<void>>();
 
 export interface SessionOptions {
   command?: string;
@@ -87,6 +88,26 @@ async function withWorkspaceLock<T>(wsId: string, fn: () => Promise<T>): Promise
     release?.();
     if (workspaceLocks.get(wsId) === queued) {
       workspaceLocks.delete(wsId);
+    }
+  }
+}
+
+async function withWorkspaceBranchRenameLock<T>(wsId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = workspaceBranchRenameLocks.get(wsId) ?? Promise.resolve();
+  let release: (() => void) | undefined;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = prev.then(() => current);
+  workspaceBranchRenameLocks.set(wsId, queued);
+
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release?.();
+    if (workspaceBranchRenameLocks.get(wsId) === queued) {
+      workspaceBranchRenameLocks.delete(wsId);
     }
   }
 }
@@ -500,7 +521,7 @@ async function createSession(
         currentBranch: ctx.workspace.branch,
         workspaceName: ctx.workspace.name,
         command: options?.command,
-        withBranchRenameLock: (fn) => withWorkspaceLock(ctx.workspace.id, fn),
+        withBranchRenameLock: (fn) => withWorkspaceBranchRenameLock(ctx.workspace.id, fn),
       },
       (title: string) => session.setTitle(title),
     ).catch((err) => {

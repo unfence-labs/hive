@@ -188,7 +188,7 @@ describe("generateNames", () => {
     mockSpawn.mockReturnValue(proc);
 
     const pending = generateNames(baseContext("claude"));
-    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(30_000);
 
     await expect(pending).resolves.toEqual({});
     expect(proc.kill).toHaveBeenCalledWith("SIGKILL");
@@ -216,13 +216,38 @@ describe("generateNames", () => {
 });
 
 describe("runNamingTask", () => {
-  it("skips the naming task when command is not claude", async () => {
+  it("skips the naming task when command is a shell test harness", async () => {
     const onTitleReady = vi.fn();
     await runNamingTask(baseContext("bash"), onTitleReady);
 
     expect(mockSpawn).not.toHaveBeenCalled();
     expect(mockGit).not.toHaveBeenCalled();
     expect(onTitleReady).not.toHaveBeenCalled();
+  });
+
+  it("falls back to claude naming when session command is codex", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    queueMicrotask(() => {
+      proc._stdout.emit("data", Buffer.from(JSON.stringify({
+        branch_name: "valid-name",
+        session_title: "Valid title",
+      })));
+      proc.emit("close", 0);
+    });
+
+    const onTitleReady = vi.fn();
+    await runNamingTask(
+      { ...baseContext("codex"), currentBranch: "feature/manual-branch" },
+      onTitleReady,
+    );
+
+    expect(onTitleReady).toHaveBeenCalledWith("Valid title");
+    expect(mockSpawn).toHaveBeenCalledWith(
+      "claude",
+      expect.any(Array),
+      expect.any(Object),
+    );
   });
 
   it("sets title even when branch should not be renamed", async () => {
@@ -261,8 +286,8 @@ describe("runNamingTask", () => {
     });
 
     mockGit
-      .mockResolvedValueOnce({ stdout: "main\nadd-auth", stderr: "" })
       .mockResolvedValueOnce({ stdout: "workspace/hyderabad", stderr: "" })
+      .mockResolvedValueOnce({ stdout: "main\nadd-auth", stderr: "" })
       .mockResolvedValueOnce({ stdout: "", stderr: "" });
 
     const onTitleReady = vi.fn();
@@ -271,19 +296,72 @@ describe("runNamingTask", () => {
     expect(onTitleReady).toHaveBeenCalledWith("Add auth");
     expect(mockGit).toHaveBeenNthCalledWith(
       1,
-      ["branch", "--format=%(refname:short)"],
-      "/tmp/repo.git",
+      ["rev-parse", "--abbrev-ref", "HEAD"],
+      "/tmp/workspace",
     );
     expect(mockGit).toHaveBeenNthCalledWith(
       2,
-      ["rev-parse", "--abbrev-ref", "HEAD"],
-      "/tmp/workspace",
+      ["branch", "--format=%(refname:short)"],
+      "/tmp/repo.git",
     );
     expect(mockGit).toHaveBeenNthCalledWith(
       3,
       ["branch", "-m", "add-auth-2"],
       "/tmp/workspace",
     );
+  });
+
+  it("retries branch rename on transient git lock contention", async () => {
+    vi.useFakeTimers();
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    queueMicrotask(() => {
+      proc._stdout.emit("data", Buffer.from(JSON.stringify({
+        branch_name: "valid-name",
+        session_title: "Valid title",
+      })));
+      proc.emit("close", 0);
+    });
+
+    mockGit
+      .mockResolvedValueOnce({ stdout: "workspace/hyderabad", stderr: "" })
+      .mockResolvedValueOnce({ stdout: "main", stderr: "" })
+      .mockRejectedValueOnce(new Error("fatal: cannot lock ref 'refs/heads/valid-name'"))
+      .mockResolvedValueOnce({ stdout: "main", stderr: "" })
+      .mockResolvedValueOnce({ stdout: "", stderr: "" });
+
+    const pending = runNamingTask(baseContext("claude"), vi.fn());
+    await vi.advanceTimersByTimeAsync(500);
+    await pending;
+
+    expect(mockGit).toHaveBeenCalledWith(["branch", "-m", "valid-name"], "/tmp/workspace");
+    const renameCalls = mockGit.mock.calls.filter(
+      (c) => c[0][0] === "branch" && c[0][1] === "-m",
+    );
+    expect(renameCalls).toHaveLength(2);
+  });
+
+  it("does not retry branch rename on non-transient git errors", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    queueMicrotask(() => {
+      proc._stdout.emit("data", Buffer.from(JSON.stringify({
+        branch_name: "valid-name",
+        session_title: "Valid title",
+      })));
+      proc.emit("close", 0);
+    });
+
+    mockGit
+      .mockResolvedValueOnce({ stdout: "workspace/hyderabad", stderr: "" })
+      .mockResolvedValueOnce({ stdout: "main", stderr: "" })
+      .mockRejectedValueOnce(new Error("fatal: invalid branch name"));
+
+    await expect(runNamingTask(baseContext("claude"), vi.fn())).rejects.toThrow("invalid branch name");
+    const renameCalls = mockGit.mock.calls.filter(
+      (c) => c[0][0] === "branch" && c[0][1] === "-m",
+    );
+    expect(renameCalls).toHaveLength(1);
   });
 
   it("does not rename when sanitized branch name is empty", async () => {
@@ -316,14 +394,13 @@ describe("runNamingTask", () => {
     });
 
     mockGit
-      .mockResolvedValueOnce({ stdout: "main", stderr: "" })
       .mockResolvedValueOnce({ stdout: "feature/already-renamed", stderr: "" });
 
     const onTitleReady = vi.fn();
     await runNamingTask(baseContext("claude"), onTitleReady);
 
     expect(onTitleReady).toHaveBeenCalledWith("Valid title");
-    expect(mockGit).toHaveBeenCalledTimes(2);
+    expect(mockGit).toHaveBeenCalledTimes(1);
     expect(mockGit).not.toHaveBeenCalledWith(["branch", "-m", "valid-name"], "/tmp/workspace");
   });
 
@@ -339,8 +416,8 @@ describe("runNamingTask", () => {
     });
 
     mockGit
-      .mockResolvedValueOnce({ stdout: "main", stderr: "" })
       .mockResolvedValueOnce({ stdout: "workspace/hyderabad", stderr: "" })
+      .mockResolvedValueOnce({ stdout: "main", stderr: "" })
       .mockResolvedValueOnce({ stdout: "", stderr: "" });
 
     const order: string[] = [];
@@ -361,9 +438,14 @@ describe("runNamingTask", () => {
     expect(lockCalls).toBe(1);
     expect(order).toEqual(["lock-start", "lock-end"]);
     expect(mockGit).toHaveBeenNthCalledWith(
-      2,
+      1,
       ["rev-parse", "--abbrev-ref", "HEAD"],
       "/tmp/workspace",
+    );
+    expect(mockGit).toHaveBeenNthCalledWith(
+      2,
+      ["branch", "--format=%(refname:short)"],
+      "/tmp/repo.git",
     );
     expect(mockGit).toHaveBeenNthCalledWith(
       3,
@@ -409,10 +491,9 @@ describe("runNamingTask", () => {
     });
 
     mockGit
-      .mockResolvedValueOnce({ stdout: "", stderr: "" })
       .mockRejectedValueOnce(new Error("git failed"));
 
     await expect(runNamingTask(baseContext("claude"), vi.fn())).resolves.toBeUndefined();
-    expect(mockGit).toHaveBeenCalledTimes(2);
+    expect(mockGit).toHaveBeenCalledTimes(1);
   });
 });
