@@ -17,6 +17,7 @@ export function ResizeHandle({
   return (
     <Separator
       disabled={disabled}
+      style={{ outline: "none" }}
       className={cn(
         "group relative flex shrink-0 items-center justify-center bg-transparent",
         isVertical ? "w-1.5" : "h-1.5",

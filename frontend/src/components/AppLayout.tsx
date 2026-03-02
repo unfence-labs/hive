@@ -1,10 +1,28 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation, useOutletContext } from "react-router-dom";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import Sidebar from "./Sidebar";
 import SettingsSidebar from "./SettingsSidebar";
 import { ResizeHandle } from "./ResizeHandle";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
+
+/**
+ * Temporarily enable a CSS transition on a panel's outer element so that
+ * programmatic collapse/expand (e.g. Cmd+B) animates smoothly.
+ *
+ * react-resizable-panels intentionally sets no transitions (they'd break
+ * drag tracking), so we inject one right before the action and strip it
+ * once the animation finishes.
+ */
+function animatePanelTransition(el: HTMLElement, durationMs = 200) {
+  el.style.transition = `flex-grow ${durationMs}ms ease-in-out`;
+  const cleanup = () => {
+    el.style.transition = "";
+    el.removeEventListener("transitionend", cleanup);
+  };
+  el.addEventListener("transitionend", cleanup);
+  setTimeout(cleanup, durationMs + 100);
+}
 
 export interface LayoutContext {
   collapsed: boolean;
@@ -42,6 +60,7 @@ export default function AppLayout({ onAddProject, onAddAutomation }: AppLayoutPr
   const { backendEnv } = useConnectionStatus();
 
   const sidebarPanelRef = usePanelRef();
+  const sidebarElementRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState(false);
 
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
@@ -51,7 +70,11 @@ export default function AppLayout({ onAddProject, onAddAutomation }: AppLayoutPr
 
   const toggleSidebar = useCallback(() => {
     const panel = sidebarPanelRef.current;
+    const el = sidebarElementRef.current;
     if (!panel) return;
+
+    if (el) animatePanelTransition(el);
+
     if (panel.isCollapsed()) {
       panel.expand();
     } else {
@@ -102,6 +125,7 @@ export default function AppLayout({ onAddProject, onAddAutomation }: AppLayoutPr
         <Panel
           id="sidebar"
           panelRef={sidebarPanelRef}
+          elementRef={sidebarElementRef}
           collapsible
           collapsedSize={0}
           minSize={200}
