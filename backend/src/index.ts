@@ -1,3 +1,5 @@
+import os from "node:os";
+import { statfsSync } from "node:fs";
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
@@ -54,6 +56,39 @@ interface BuildAppOptions {
   scheduler?: AutomationScheduler;
 }
 
+// ── CPU usage sampling ──────────────────────────────────────────────
+// Sample os.cpus() periodically and compute real CPU % from idle delta.
+
+function snapshotCpuTimes() {
+  let idle = 0;
+  let total = 0;
+  for (const cpu of os.cpus()) {
+    const t = cpu.times;
+    idle += t.idle;
+    total += t.idle + t.user + t.nice + t.sys + t.irq;
+  }
+  return { idle, total };
+}
+
+let prevCpu = snapshotCpuTimes();
+let cpuPercentCache = -1; // -1 = no sample yet
+
+setInterval(() => {
+  const curr = snapshotCpuTimes();
+  const idleDelta = curr.idle - prevCpu.idle;
+  const totalDelta = curr.total - prevCpu.total;
+  cpuPercentCache = totalDelta > 0 ? Math.round((1 - idleDelta / totalDelta) * 100) : 0;
+  prevCpu = curr;
+}, 5_000).unref();
+
+function getCpuPercent(): number {
+  if (cpuPercentCache >= 0) return cpuPercentCache;
+  // No delta yet — fall back to load average as rough estimate
+  return Math.min(100, Math.round((os.loadavg()[0] / (os.cpus().length || 1)) * 100));
+}
+
+// ─────────────────────────────────────────────────────────────────────
+
 export async function buildApp(opts: BuildAppOptions = {}) {
   const authToken = process.env.HIVE_AUTH_TOKEN?.trim();
   const rateLimitMax = parsePositiveNumber(process.env.HIVE_RATE_LIMIT_MAX, DEFAULT_RATE_LIMIT_MAX);
@@ -80,7 +115,24 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     }),
   );
 
-  app.get("/health", async () => ({ status: "ok", env: process.env.NODE_ENV ?? "development" }));
+  app.get("/health", async () => {
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const disk = statfsSync("/");
+    const diskTotal = disk.blocks * disk.bsize;
+    const diskFree = disk.bavail * disk.bsize;
+    const cpuPercent = getCpuPercent();
+
+    return {
+      status: "ok",
+      env: process.env.NODE_ENV ?? "development",
+      system: {
+        cpuPercent,
+        memPercent: Math.round(((totalMem - freeMem) / totalMem) * 100),
+        diskPercent: Math.round(((diskTotal - diskFree) / diskTotal) * 100),
+      },
+    };
+  });
 
   await app.register((instance: FastifyInstance) => projectRoutes(instance));
   await app.register((instance: FastifyInstance) => workspaceRoutes(instance));

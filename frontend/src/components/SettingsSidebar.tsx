@@ -5,6 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { useProjects } from "@/hooks/useProjects";
+import { SidebarShell } from "@/components/SidebarShell";
 
 export default function SettingsSidebar() {
   const { projects } = useProjects();
@@ -13,25 +14,21 @@ export default function SettingsSidebar() {
   const { pathname } = location;
   const returnTo = useRef((location.state as { from?: string } | null)?.from ?? "/projects");
 
-  return (
-    <div className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
-      <div
-        className="flex min-h-12 shrink-0 items-center px-3"
-        style={{ height: "max(var(--titlebar-inset, 0px), 3rem)" }}
-        data-tauri-drag-region
+  const footerActions = (
+    <div className="flex items-center justify-end px-2 py-1.5">
+      <button
+        type="button"
+        onClick={() => navigate(returnTo.current)}
+        className="flex items-center gap-2 rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
       >
-        <div className="ml-auto">
-          <button
-            type="button"
-            onClick={() => navigate(returnTo.current)}
-            className="flex items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Back
-          </button>
-        </div>
-      </div>
+        <ArrowLeft className="h-3 w-3" />
+        Back
+      </button>
+    </div>
+  );
 
+  return (
+    <SidebarShell footerActions={footerActions}>
       <ScrollArea className="flex-1">
         <div className="px-3 py-3">
           <SidebarSection label="General">
@@ -100,7 +97,7 @@ export default function SettingsSidebar() {
           )}
         </div>
       </ScrollArea>
-    </div>
+    </SidebarShell>
   );
 }
 
