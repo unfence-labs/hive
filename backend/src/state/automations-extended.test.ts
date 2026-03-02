@@ -13,6 +13,8 @@ import {
   addRun,
   updateRun,
   withAutomationsLock,
+  withAutomationRunLock,
+  _clearAutomationLocksForTests,
 } from "./automations.js";
 import type { Automation, AutomationRun } from "../types.js";
 
@@ -50,6 +52,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  _clearAutomationLocksForTests();
   await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
 });
 
@@ -207,5 +210,67 @@ describe("loadRuns edge cases", () => {
   it("returns empty array for non-existent automation", async () => {
     const result = await loadRuns("nonexistent", dataDir);
     expect(result).toEqual([]);
+  });
+});
+
+describe("withAutomationRunLock", () => {
+  it("serializes concurrent addRun calls for the same automation", async () => {
+    const calls = Array.from({ length: 5 }, (_, i) =>
+      addRun("auto-1", makeRun({ id: `run-${i}`, automationId: "auto-1" }), dataDir),
+    );
+    await Promise.all(calls);
+
+    const loaded = await loadRuns("auto-1", dataDir);
+    expect(loaded).toHaveLength(5);
+    for (let i = 0; i < 5; i++) {
+      expect(loaded.find((r) => r.id === `run-${i}`)).toBeDefined();
+    }
+  });
+
+  it("allows concurrent addRun calls for different automations", async () => {
+    const calls = [
+      addRun("auto-1", makeRun({ id: "run-a", automationId: "auto-1" }), dataDir),
+      addRun("auto-2", makeRun({ id: "run-b", automationId: "auto-2" }), dataDir),
+      addRun("auto-3", makeRun({ id: "run-c", automationId: "auto-3" }), dataDir),
+    ];
+    await Promise.all(calls);
+
+    expect(await loadRuns("auto-1", dataDir)).toHaveLength(1);
+    expect(await loadRuns("auto-2", dataDir)).toHaveLength(1);
+    expect(await loadRuns("auto-3", dataDir)).toHaveLength(1);
+  });
+
+  it("serializes addRun and updateRun for the same automation", async () => {
+    await addRun("auto-1", makeRun({ id: "run-1", automationId: "auto-1" }), dataDir);
+
+    // Fire concurrent update + add
+    await Promise.all([
+      updateRun("auto-1", "run-1", { status: "failure" }, dataDir),
+      addRun("auto-1", makeRun({ id: "run-2", automationId: "auto-1" }), dataDir),
+    ]);
+
+    const loaded = await loadRuns("auto-1", dataDir);
+    expect(loaded).toHaveLength(2);
+    const run1 = loaded.find((r) => r.id === "run-1");
+    expect(run1?.status).toBe("failure");
+  });
+
+  it("releases lock even when inner function throws", async () => {
+    await expect(
+      withAutomationRunLock("auto-1", async () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+
+    // Lock should be released — this should not deadlock
+    const result = await withAutomationRunLock("auto-1", async () => "ok");
+    expect(result).toBe("ok");
+  });
+
+  it("cleans up lock Map entry when queue drains", async () => {
+    await withAutomationRunLock("auto-1", async () => {});
+    // After the lock fully drains, _clearAutomationLocksForTests should be a no-op
+    // (the Map entry was already deleted by the cleanup in finally)
+    _clearAutomationLocksForTests();
   });
 });

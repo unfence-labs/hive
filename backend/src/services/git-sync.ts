@@ -13,6 +13,24 @@ import type { BranchInfo, DiffStatResponse, Workspace } from "../types.js";
 type BranchChangeCallback = (wsId: string, info: BranchInfo) => void;
 type DiffStatsChangeCallback = (wsId: string, stats: DiffStatResponse) => void;
 
+const GIT_SYNC_CONCURRENCY = 6;
+
+async function withConcurrency<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  const executing = new Set<Promise<void>>();
+  for (const item of items) {
+    const p = fn(item).finally(() => executing.delete(p));
+    executing.add(p);
+    if (executing.size >= limit) {
+      await Promise.race(executing);
+    }
+  }
+  await Promise.allSettled([...executing]);
+}
+
 export async function getBranchName(wsPath: string): Promise<string> {
   const { stdout } = await git(["rev-parse", "--abbrev-ref", "HEAD"], wsPath);
   return stdout;
@@ -76,14 +94,11 @@ export class GitSyncService {
           continue;
         }
 
-        for (const workspace of project.workspaces) {
-          await this.syncWorkspace(
-            project.id,
-            workspace,
-            bare,
-            defaultBranch,
-          );
-        }
+        await withConcurrency(
+          project.workspaces,
+          GIT_SYNC_CONCURRENCY,
+          (workspace) => this.syncWorkspace(project.id, workspace, bare, defaultBranch),
+        );
       }
     } finally {
       this.syncing = false;

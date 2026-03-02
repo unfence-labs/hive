@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import type { ProjectState } from "../types.js";
 import { DEFAULT_BASE_PROMPT } from "../agents/system-prompt.js";
+import { notifyProjectSaved } from "./workspace-index.js";
 
 const projectLocks = new Map<string, Promise<void>>();
 
@@ -60,6 +61,7 @@ export async function saveProject(
   const tmp = join(dir, `state.${randomUUID()}.tmp`);
   await writeFile(tmp, JSON.stringify(state, null, 2), "utf-8");
   await rename(tmp, target);
+  notifyProjectSaved(state);
 }
 
 function projectLockKey(projectId: string, dataDir: string): string {

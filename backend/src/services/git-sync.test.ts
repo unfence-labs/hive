@@ -271,6 +271,30 @@ describe("GitSyncService", () => {
     expect(service.getCachedDiffStats(ws.id)).toBeUndefined();
   });
 
+  it("syncs all workspaces correctly with concurrent execution", async () => {
+    const ws1 = await createWorkspace(projectId, dataDir);
+    const ws2 = await createWorkspace(projectId, dataDir);
+    const ws3 = await createWorkspace(projectId, dataDir);
+    const ws1Path = join(workspacesDir(dataDir, projectId), ws1.name);
+    const ws3Path = join(workspacesDir(dataDir, projectId), ws3.name);
+
+    // Rename branches on ws1 and ws3 to verify all workspaces are processed
+    await git(["branch", "-m", "branch-one"], ws1Path);
+    await git(["branch", "-m", "branch-three"], ws3Path);
+
+    await service.poll();
+
+    // All 3 workspaces were synced with correct data
+    expect(service.getCachedBranchInfo(ws1.id)?.name).toBe("branch-one");
+    expect(service.getCachedBranchInfo(ws2.id)?.name).toBe(`workspace/${ws2.name}`);
+    expect(service.getCachedBranchInfo(ws3.id)?.name).toBe("branch-three");
+
+    // Branch renames persisted to disk
+    const state = await loadProject(projectId, dataDir);
+    expect(state!.workspaces.find((w) => w.id === ws1.id)!.branch).toBe("branch-one");
+    expect(state!.workspaces.find((w) => w.id === ws3.id)!.branch).toBe("branch-three");
+  });
+
   it("maintains independent caches per workspace", async () => {
     const ws1 = await createWorkspace(projectId, dataDir);
     const ws2 = await createWorkspace(projectId, dataDir);

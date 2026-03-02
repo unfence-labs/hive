@@ -4,7 +4,8 @@ import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
 import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/paths.js";
 import { pickCityName } from "../utils/city-names.js";
-import { loadProject, saveProject, getDataDir, withProjectStateLock } from "../state/state.js";
+import { loadProject, loadAllProjects, saveProject, getDataDir, withProjectStateLock } from "../state/state.js";
+import { isInitialized, lookupWorkspace } from "../state/workspace-index.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../utils/errors.js";
 import { stopAllForWorkspace } from "../services/script-runner.js";
 import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffStatResponse } from "../types.js";
@@ -161,7 +162,13 @@ export async function getWorkspace(
   wsId: string,
   dataDir = getDataDir()
 ): Promise<{ projectState: ProjectState; workspace: Workspace } | null> {
-  const { loadAllProjects } = await import("../state/state.js");
+  // Fast path: O(1) lookup from the in-memory index
+  if (isInitialized()) {
+    const entry = lookupWorkspace(wsId);
+    if (entry) return { projectState: entry.projectState, workspace: entry.workspace };
+    return null;
+  }
+  // Fallback: disk scan (before index is initialized, or in tests)
   const all = await loadAllProjects(dataDir);
   const found = findProjectByWorkspace(all, wsId);
   if (!found) return null;
