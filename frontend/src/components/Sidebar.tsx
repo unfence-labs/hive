@@ -37,7 +37,7 @@ import { api } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { useAutomations } from "@/hooks/useAutomations";
-import { ServerMetrics } from "@/components/ServerMetrics";
+import { SidebarShell } from "@/components/SidebarShell";
 import type { Automation, DiffStatResponse } from "@/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -225,14 +225,39 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     }
   };
 
-  return (
-    <div className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
-      <div
-        className="shrink-0"
-        style={{ height: "max(var(--titlebar-inset, 0px), 3rem)" }}
-        data-tauri-drag-region
-      />
+  const footerActions = (
+    <div className="flex items-center px-2 py-1.5">
+      <div className="flex flex-1 gap-0.5">
+        {(["build", "automation"] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => handleTabClick(tab)}
+            className={cn(
+              "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+              activeTab === tab
+                ? "bg-sidebar-accent text-sidebar-foreground"
+                : "text-muted-foreground hover:bg-sidebar-accent/40 hover:text-sidebar-foreground",
+            )}
+          >
+            {tab === "build" ? "Build" : "Automation"}
+          </button>
+        ))}
+      </div>
+      <Link
+        to="/settings"
+        state={{ from: pathname }}
+        className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
+        aria-label="Settings"
+        title="Settings"
+      >
+        <Settings className="h-4 w-4" />
+      </Link>
+    </div>
+  );
 
+  return (
+    <SidebarShell footerActions={footerActions}>
       {/* ── Tab content ─────────────────────────────────────────────── */}
       {activeTab === "build" ? (
         <ScrollArea className="flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full">
@@ -401,42 +426,6 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
         )}
       </div>
 
-      {/* ── Footer: tabs + metrics/settings ─────────────────────────── */}
-      <div className="shrink-0 border-t border-border/50">
-        <div className="flex items-center px-2 py-1.5">
-          <div className="flex flex-1 gap-0.5">
-            {(["build", "automation"] as const).map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => handleTabClick(tab)}
-                className={cn(
-                  "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                  activeTab === tab
-                    ? "bg-sidebar-accent text-sidebar-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/40 hover:text-sidebar-foreground",
-                )}
-              >
-                {tab === "build" ? "Build" : "Automation"}
-              </button>
-            ))}
-          </div>
-          <Link
-            to="/settings"
-            state={{ from: pathname }}
-            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
-            aria-label="Settings"
-            title="Settings"
-          >
-            <Settings className="h-4 w-4" />
-          </Link>
-        </div>
-        <div className="mx-2 border-t border-border/50" />
-        <div className="px-3 pb-2 pt-1.5">
-          <ServerMetrics />
-        </div>
-      </div>
-
       <AlertDialog
         open={archiveTarget !== null}
         onOpenChange={(open) => !open && setArchiveTarget(null)}
@@ -462,7 +451,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
         </AlertDialogContent>
       </AlertDialog>
 
-    </div>
+    </SidebarShell>
   );
 }
 

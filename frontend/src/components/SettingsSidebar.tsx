@@ -5,7 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { useProjects } from "@/hooks/useProjects";
-import { ServerMetrics } from "@/components/ServerMetrics";
+import { SidebarShell } from "@/components/SidebarShell";
 
 export default function SettingsSidebar() {
   const { projects } = useProjects();
@@ -14,14 +14,21 @@ export default function SettingsSidebar() {
   const { pathname } = location;
   const returnTo = useRef((location.state as { from?: string } | null)?.from ?? "/projects");
 
-  return (
-    <div className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
-      <div
-        className="shrink-0"
-        style={{ height: "max(var(--titlebar-inset, 0px), 3rem)" }}
-        data-tauri-drag-region
-      />
+  const footerActions = (
+    <div className="flex items-center justify-end px-2 py-1.5">
+      <button
+        type="button"
+        onClick={() => navigate(returnTo.current)}
+        className="flex items-center gap-2 rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
+      >
+        <ArrowLeft className="h-3 w-3" />
+        Back
+      </button>
+    </div>
+  );
 
+  return (
+    <SidebarShell footerActions={footerActions}>
       <ScrollArea className="flex-1">
         <div className="px-3 py-3">
           <SidebarSection label="General">
@@ -90,25 +97,7 @@ export default function SettingsSidebar() {
           )}
         </div>
       </ScrollArea>
-
-      {/* ── Footer: back button + metrics ──────────────────────────── */}
-      <div className="shrink-0 border-t border-border/50">
-        <div className="flex items-center justify-end px-2 py-1.5">
-          <button
-            type="button"
-            onClick={() => navigate(returnTo.current)}
-            className="flex items-center gap-2 rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
-          >
-            <ArrowLeft className="h-3 w-3" />
-            Back
-          </button>
-        </div>
-        <div className="mx-2 border-t border-border/50" />
-        <div className="px-3 pb-2 pt-1.5">
-          <ServerMetrics />
-        </div>
-      </div>
-    </div>
+    </SidebarShell>
   );
 }
 
