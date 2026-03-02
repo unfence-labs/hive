@@ -9,7 +9,7 @@ import { resolveProvider } from "./providers/registry.js";
 import { CodexStreamAdapter } from "./providers/codex-stream-adapter.js";
 import { GeminiStreamAdapter } from "./providers/gemini-stream-adapter.js";
 import type { AgentProvider, StreamAdapter } from "./providers/types.js";
-import { buildWorkspaceEnv } from "../utils/env.js";
+import { buildWorkspaceEnv, DEBUG_AGENT_LOGS } from "../utils/env.js";
 import type {
   ChatMessage,
   ContentBlock,
@@ -25,9 +25,6 @@ import type {
 
 const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
 const MAX_ERROR_DETAIL_LENGTH = 280;
-const DEBUG_AGENT_LOGS = ["1", "true", "yes", "on"].includes(
-  (process.env.HIVE_DEBUG_AGENT_LOGS ?? "").trim().toLowerCase(),
-);
 
 /** Gemini CLI writes informational/retry messages to stderr; suppress these from error events. */
 const GEMINI_STDERR_NOISE = [
@@ -211,12 +208,13 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     }
 
     // Lock provider on first message, validate on subsequent messages
+    let resolved: { provider: AgentProvider; modelId: string } | undefined;
     if (!this.testCommand) {
-      const { provider: resolvedProvider } = resolveProvider(msgOptions?.model);
+      resolved = resolveProvider(msgOptions?.model);
 
       if (!this._metadata.lockedProvider) {
-        this._metadata.lockedProvider = resolvedProvider.id;
-      } else if (this._metadata.lockedProvider !== resolvedProvider.id) {
+        this._metadata.lockedProvider = resolved.provider.id;
+      } else if (this._metadata.lockedProvider !== resolved.provider.id) {
         throw new Error(`Provider mismatch: session locked to "${this._metadata.lockedProvider}"`);
       }
     }
@@ -236,7 +234,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           dataUrl: `/api/workspaces/${this.workspaceId}/sessions/${this.sessionId}/attachments/${s.filename}`,
         }));
         this.emitUserMessage(content, urlImages, fileMentions);
-        this.spawnCli(this.buildPromptWithImages(promptContent, saved.map((s) => s.path)), msgOptions);
+        this.spawnCli(this.buildPromptWithImages(promptContent, saved.map((s) => s.path)), msgOptions, resolved);
       }).catch((err) => {
         this._status = "error";
         this._streamingStartedAt = null;
@@ -244,7 +242,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       });
     } else {
       this.emitUserMessage(content, undefined, fileMentions);
-      this.spawnCli(promptContent, msgOptions);
+      this.spawnCli(promptContent, msgOptions, resolved);
     }
   }
 
@@ -312,13 +310,17 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   }
 
   /** Spawn a CLI process for a single turn, delegating to the resolved provider. */
-  private spawnCli(content: string, msgOptions?: MessageOptions): void {
+  private spawnCli(
+    content: string,
+    msgOptions?: MessageOptions,
+    preResolved?: { provider: AgentProvider; modelId: string },
+  ): void {
     const isFirstMessage = this.messageCount === 1;
 
-    // Resolve which provider handles this model
+    // Use pre-resolved provider when available, otherwise resolve fresh
     const { provider, modelId } = this.testCommand
       ? { provider: null as AgentProvider | null, modelId: "" }
-      : resolveProvider(msgOptions?.model);
+      : (preResolved ?? resolveProvider(msgOptions?.model));
 
     // Pre-generate a session ID for CLI continuity
     if (!this.cliSessionId) {

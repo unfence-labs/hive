@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { git } from "../utils/git.js";
-import { buildWorkspaceEnv } from "../utils/env.js";
+import { buildWorkspaceEnv, DEBUG_AGENT_LOGS } from "../utils/env.js";
 
 export interface NamingContext {
   userMessage: string;
@@ -9,6 +9,7 @@ export interface NamingContext {
   currentBranch: string;
   workspaceName: string;
   command?: string;
+  withBranchRenameLock?: <T>(fn: () => Promise<T>) => Promise<T>;
 }
 
 export interface NamingResult {
@@ -38,9 +39,6 @@ Rules for session_title:
 - No commit-style prefixes (Add, Fix, Update, Refactor)`;
 
 const TIMEOUT_MS = 15_000;
-const DEBUG_AGENT_LOGS = ["1", "true", "yes", "on"].includes(
-  (process.env.HIVE_DEBUG_AGENT_LOGS ?? "").trim().toLowerCase(),
-);
 
 const PREFIX_PATTERN = /^(?:feat|fix|chore|docs|refactor|test|style|perf|ci|build|workspace)\//;
 
@@ -174,23 +172,30 @@ export async function runNamingTask(
 
     const existing = await listExistingBranches(ctx.bareRepo);
     const finalName = ensureUniqueBranch(sanitized, existing);
-
-    // Guard: branch may have been renamed manually in the meantime
-    try {
-      const { stdout: currentBranch } = await git(["rev-parse", "--abbrev-ref", "HEAD"], ctx.cwd);
-      if (!currentBranch.startsWith("workspace/")) {
-        if (DEBUG_AGENT_LOGS) {
-          console.log("[naming] branch already renamed, skipping:", currentBranch);
+    const renameIfStillWorkspaceBranch = async (): Promise<void> => {
+      // Guard: branch may have been renamed manually in the meantime
+      try {
+        const { stdout: currentBranch } = await git(["rev-parse", "--abbrev-ref", "HEAD"], ctx.cwd);
+        if (!currentBranch.startsWith("workspace/")) {
+          if (DEBUG_AGENT_LOGS) {
+            console.log("[naming] branch already renamed, skipping:", currentBranch);
+          }
+          return;
         }
+      } catch {
         return;
       }
-    } catch {
-      return;
-    }
 
-    await git(["branch", "-m", finalName], ctx.cwd);
-    if (DEBUG_AGENT_LOGS) {
-      console.log(`[naming] renamed branch: ${ctx.currentBranch} → ${finalName}`);
+      await git(["branch", "-m", finalName], ctx.cwd);
+      if (DEBUG_AGENT_LOGS) {
+        console.log(`[naming] renamed branch: ${ctx.currentBranch} → ${finalName}`);
+      }
+    };
+
+    if (ctx.withBranchRenameLock) {
+      await ctx.withBranchRenameLock(renameIfStillWorkspaceBranch);
+    } else {
+      await renameIfStillWorkspaceBranch();
     }
   }
 }

@@ -327,6 +327,76 @@ describe("runNamingTask", () => {
     expect(mockGit).not.toHaveBeenCalledWith(["branch", "-m", "valid-name"], "/tmp/workspace");
   });
 
+  it("runs rename inside withBranchRenameLock when provided", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    queueMicrotask(() => {
+      proc._stdout.emit("data", Buffer.from(JSON.stringify({
+        branch_name: "valid-name",
+        session_title: "Valid title",
+      })));
+      proc.emit("close", 0);
+    });
+
+    mockGit
+      .mockResolvedValueOnce({ stdout: "main", stderr: "" })
+      .mockResolvedValueOnce({ stdout: "workspace/hyderabad", stderr: "" })
+      .mockResolvedValueOnce({ stdout: "", stderr: "" });
+
+    const order: string[] = [];
+    let lockCalls = 0;
+    const withBranchRenameLock: NonNullable<Parameters<typeof runNamingTask>[0]["withBranchRenameLock"]> = async <T>(fn: () => Promise<T>) => {
+      lockCalls++;
+      order.push("lock-start");
+      const result = await fn();
+      order.push("lock-end");
+      return result;
+    };
+
+    await runNamingTask(
+      { ...baseContext("claude"), withBranchRenameLock },
+      vi.fn(),
+    );
+
+    expect(lockCalls).toBe(1);
+    expect(order).toEqual(["lock-start", "lock-end"]);
+    expect(mockGit).toHaveBeenNthCalledWith(
+      2,
+      ["rev-parse", "--abbrev-ref", "HEAD"],
+      "/tmp/workspace",
+    );
+    expect(mockGit).toHaveBeenNthCalledWith(
+      3,
+      ["branch", "-m", "valid-name"],
+      "/tmp/workspace",
+    );
+  });
+
+  it("does not call withBranchRenameLock when rename is skipped", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    queueMicrotask(() => {
+      proc._stdout.emit("data", Buffer.from(JSON.stringify({
+        branch_name: "valid-name",
+        session_title: "Valid title",
+      })));
+      proc.emit("close", 0);
+    });
+
+    let lockCalls = 0;
+    const withBranchRenameLock: NonNullable<Parameters<typeof runNamingTask>[0]["withBranchRenameLock"]> = async <T>(fn: () => Promise<T>) => {
+      lockCalls++;
+      return fn();
+    };
+
+    await runNamingTask(
+      { ...baseContext("claude"), currentBranch: "feature/manual", withBranchRenameLock },
+      vi.fn(),
+    );
+
+    expect(lockCalls).toBe(0);
+  });
+
   it("swallows rev-parse failure and does not rename", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
