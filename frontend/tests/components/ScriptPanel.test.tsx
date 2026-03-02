@@ -81,17 +81,18 @@ describe("ScriptPanel", () => {
     vi.useRealTimers();
   });
 
-  it("renders terminal tab when no scripts are defined", () => {
+  it("renders placeholder when no scripts are defined", () => {
     renderPanel({ config: {} });
 
-    // Terminal tab is always present even without hive.json scripts
-    expect(screen.getByText("Start terminal")).toBeInTheDocument();
+    expect(screen.getByText("hive.json")).toBeInTheDocument();
+    expect(screen.queryByText("Start terminal")).not.toBeInTheDocument();
   });
 
-  it("renders terminal tab when config is null", () => {
+  it("renders placeholder when config is null", () => {
     renderPanel({ config: null });
 
-    expect(screen.getByText("Start terminal")).toBeInTheDocument();
+    expect(screen.getByText("hive.json")).toBeInTheDocument();
+    expect(screen.queryByText("Start terminal")).not.toBeInTheDocument();
   });
 
   it("starts setup script from idle state", async () => {
@@ -106,10 +107,16 @@ describe("ScriptPanel", () => {
   });
 
   it("starts terminal from idle state when terminal tab is selected", async () => {
-    const { onStart, onStartTerminal } = renderPanel({ config: null, status: {} });
+    const { onStart, onStartTerminal } = renderPanel();
+
+    // Switch to terminal tab first
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Terminal"));
+      await Promise.resolve();
+    });
 
     await act(async () => {
-      fireEvent.click(screen.getByText("Start terminal"));
+      fireEvent.click(screen.getByTitle("Start terminal"));
       await Promise.resolve();
     });
 

@@ -64,7 +64,7 @@ describe("ChatInput autocomplete", () => {
       />,
     );
 
-    await user.type(screen.getByPlaceholderText("Send a message..."), "/he");
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "/he");
 
     expect(screen.getByRole("button", { name: /\/help/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /@reviewer/i })).not.toBeInTheDocument();
@@ -90,7 +90,7 @@ describe("ChatInput autocomplete", () => {
       />,
     );
 
-    await user.type(screen.getByPlaceholderText("Send a message..."), "@re");
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "@re");
 
     expect(screen.getByRole("button", { name: /@reviewer/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /\/help/i })).not.toBeInTheDocument();
@@ -115,7 +115,7 @@ describe("ChatInput autocomplete", () => {
       />,
     );
 
-    const input = screen.getByPlaceholderText("Send a message...");
+    const input = screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands");
     await user.type(input, "please /he");
     await user.click(screen.getByRole("button", { name: /\/help/i }));
 
@@ -144,7 +144,7 @@ describe("ChatInput autocomplete", () => {
       />,
     );
 
-    const input = screen.getByPlaceholderText("Send a message...");
+    const input = screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands");
     await user.type(input, "/");
     await user.keyboard("{ArrowDown}{Enter}");
 
@@ -171,7 +171,7 @@ describe("ChatInput autocomplete", () => {
       />,
     );
 
-    await user.type(screen.getByPlaceholderText("Send a message..."), "/h");
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "/h");
     expect(screen.getByRole("button", { name: /\/help/i })).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
@@ -197,7 +197,7 @@ describe("ChatInput autocomplete", () => {
       />,
     );
 
-    await user.type(screen.getByPlaceholderText("Send a message..."), "abc/help");
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "abc/help");
 
     expect(screen.queryByRole("button", { name: /\/help/i })).not.toBeInTheDocument();
   });
@@ -230,7 +230,7 @@ describe("ChatInput autocomplete", () => {
       />,
     );
 
-    await user.type(screen.getByPlaceholderText("Send a message..."), "/he");
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "/he");
 
     expect(screen.queryByRole("button", { name: /\/help/i })).not.toBeInTheDocument();
   });
