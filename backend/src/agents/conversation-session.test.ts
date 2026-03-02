@@ -132,7 +132,7 @@ describe("ConversationSession", () => {
 
   function createSession(opts?: { sessionId?: string; command?: string; skipPermissions?: boolean }) {
     return new ConversationSession({
-      cwd: "/tmp/test",
+      cwd: join(tempDir, "worktree"),
       dataDir: tempDir,
       workspaceId: "ws-test",
       sessionId: opts?.sessionId,
@@ -798,7 +798,7 @@ describe("ConversationSession", () => {
 
     // Load from disk
     const session2 = await ConversationSession.load({
-      cwd: "/tmp/test",
+      cwd: join(tempDir, "worktree"),
       dataDir: tempDir,
       workspaceId: "ws-test",
       sessionId: "load-test",
@@ -1092,7 +1092,7 @@ describe("ConversationSession", () => {
     session.sendMessage("Photo", undefined, images);
     await new Promise((r) => setTimeout(r, 200));
 
-    const attachmentsDir = join(tempDir, "sessions", "img-ext", "attachments");
+    const attachmentsDir = join(tempDir, "worktree", ".attachments");
     const files = await readdir(attachmentsDir);
     expect(files).toHaveLength(1);
     expect(files[0]).toMatch(/\.jpg$/);
@@ -1111,7 +1111,7 @@ describe("ConversationSession", () => {
     session.sendMessage("Two images", undefined, images);
     await new Promise((r) => setTimeout(r, 200));
 
-    const attachmentsDir = join(tempDir, "sessions", "img-multi", "attachments");
+    const attachmentsDir = join(tempDir, "worktree", ".attachments");
     const files = await readdir(attachmentsDir);
     expect(files).toHaveLength(2);
   });
@@ -1156,7 +1156,7 @@ describe("ConversationSession", () => {
     session.sendMessage("Match test", undefined, images);
     await new Promise((r) => setTimeout(r, 200));
 
-    const attachmentsDir = join(tempDir, "sessions", "img-url-match", "attachments");
+    const attachmentsDir = join(tempDir, "worktree", ".attachments");
     const files = await readdir(attachmentsDir);
     expect(files).toHaveLength(1);
 

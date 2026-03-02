@@ -744,7 +744,9 @@ export async function resolveSessionAttachmentPath(
 ): Promise<string | null> {
   const result = await getWorkspace(wsId, dataDir);
   if (!result) return null;
-  return join(dataDir, result.projectState.id, "sessions", sessionId, "attachments", filename);
+  const { projectState, workspace } = result;
+  const wsPath = join(dataDir, projectState.id, "workspaces", workspace.name);
+  return join(wsPath, ".attachments", filename);
 }
 
 /** Return session IDs currently streaming in a workspace. */

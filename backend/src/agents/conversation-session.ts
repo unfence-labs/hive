@@ -271,7 +271,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   }
 
   private async saveImagesToDisk(images: ImageAttachment[]): Promise<{ path: string; filename: string }[]> {
-    const attachmentsDir = join(this.sessionDir, "attachments");
+    const attachmentsDir = join(this.cwd, ".attachments");
     await mkdir(attachmentsDir, { recursive: true });
 
     const results: { path: string; filename: string }[] = [];
