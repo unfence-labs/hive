@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import { ChevronDownIcon, TerminalIcon } from "lucide-react";
 import { VscodeIcon, Iterm2Icon } from "@/components/icons/software-icons";
 import { api } from "@/hooks/useApi";
@@ -44,6 +45,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useTerminalApps } from "@/hooks/useTerminalApps";
 import { openTerminalSsh } from "@/lib/terminal";
 import { useLayoutContext } from "@/components/AppLayout";
+import { ResizeHandle } from "@/components/ResizeHandle";
 import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
@@ -125,19 +127,6 @@ export default function WorkspaceView() {
 
   // Sidebar tab state
   const [sidebarTab, setSidebarTab] = useState<"all" | "modified">("all");
-
-  // Sidebar split: fraction of height given to file tree (vs ScriptPanel)
-  const splitContainerRef = useRef<HTMLDivElement>(null);
-  const pointerHandlersRef = useRef<{
-    move: (e: PointerEvent) => void;
-    up: (e: PointerEvent) => void;
-  } | null>(null);
-  const [sidebarSplit, setSidebarSplit] = useState<number>(() => {
-    const stored = localStorage.getItem("sidebar-split");
-    const parsed = stored ? parseFloat(stored) : NaN;
-    return Number.isFinite(parsed) && parsed > 0 && parsed < 1 ? parsed : 0.5;
-  });
-  const [isDraggingSplit, setIsDraggingSplit] = useState(false);
 
   // Live data via WebSocket (branch + diff stats)
   const liveData = useWorkspaceLiveDataContext();
@@ -302,51 +291,34 @@ export default function WorkspaceView() {
     disconnectOutput: disconnectScriptOutput,
   } = useScripts(wsId);
 
-  // Sidebar split drag handler
-  const handleDividerPointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      const container = splitContainerRef.current;
-      if (!container) return;
+  // ── Resizable panels ──
+  const rightPanelRef = usePanelRef();
+  const { defaultLayout: wsLayout, onLayoutChanged: onWsLayoutChanged } = useDefaultLayout({
+    id: "hive-workspace",
+    storage: localStorage,
+  });
+  const { defaultLayout: splitLayout, onLayoutChanged: onSplitLayoutChanged } = useDefaultLayout({
+    id: "hive-right-split",
+    storage: localStorage,
+  });
 
-      const containerRect = container.getBoundingClientRect();
-      const totalHeight = containerRect.height;
-      setIsDraggingSplit(true);
-
-      const onPointerMove = (moveEvent: PointerEvent) => {
-        const offsetY = moveEvent.clientY - containerRect.top;
-        const clamped = Math.min(0.85, Math.max(0.15, offsetY / totalHeight));
-        setSidebarSplit(clamped);
-      };
-
-      const onPointerUp = (upEvent: PointerEvent) => {
-        const offsetY = upEvent.clientY - containerRect.top;
-        const clamped = Math.min(0.85, Math.max(0.15, offsetY / totalHeight));
-        localStorage.setItem("sidebar-split", String(clamped));
-        setIsDraggingSplit(false);
-        document.removeEventListener("pointermove", onPointerMove);
-        document.removeEventListener("pointerup", onPointerUp);
-        pointerHandlersRef.current = null;
-      };
-
-      pointerHandlersRef.current = { move: onPointerMove, up: onPointerUp };
-      document.addEventListener("pointermove", onPointerMove);
-      document.addEventListener("pointerup", onPointerUp);
-    },
-    [],
+  // Responsive: collapse right panel below lg breakpoint
+  const [isLg, setIsLg] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 1024px)").matches : true,
   );
-
-  // Clean up leaked pointer listeners on unmount (e.g. navigate mid-drag)
   useEffect(() => {
-    return () => {
-      const handlers = pointerHandlersRef.current;
-      if (handlers) {
-        document.removeEventListener("pointermove", handlers.move);
-        document.removeEventListener("pointerup", handlers.up);
-        pointerHandlersRef.current = null;
-      }
-    };
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const handler = (e: MediaQueryListEvent) => setIsLg(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
   }, []);
+  useEffect(() => {
+    if (!isLg) {
+      rightPanelRef.current?.collapse();
+    } else {
+      rightPanelRef.current?.expand();
+    }
+  }, [isLg, rightPanelRef]);
 
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();
@@ -492,11 +464,17 @@ export default function WorkspaceView() {
   return (
     <div className="flex h-full flex-col">
       {/* Chat area + right panel */}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <Group
+        orientation="horizontal"
+        defaultLayout={wsLayout}
+        onLayoutChanged={onWsLayoutChanged}
+        style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
+      >
+        <Panel id="chat" minSize="40%">
+        <div className="flex min-w-0 h-full flex-col overflow-hidden">
           <div
             className="relative z-20 flex h-12 items-center gap-2 border-b border-border/50 pr-4 backdrop-blur-sm transition-[padding-left] duration-200 ease-in-out"
-            style={{ paddingLeft: collapsed ? "calc(max(var(--traffic-light-clearance, 0px), 1rem) + 28px)" : "1rem" }}
+            style={{ paddingLeft: collapsed ? "max(var(--traffic-light-clearance, 0px), 1rem)" : "1rem" }}
             data-tauri-drag-region
           >
             <span className="truncate text-sm font-semibold text-foreground">{workspace?.projectName ?? workspace?.name}</span>
@@ -679,104 +657,108 @@ export default function WorkspaceView() {
             </div>
           )}
         </div>
+        </Panel>
 
-        <aside className="hidden w-[420px] shrink-0 border-l border-border/50 bg-sidebar lg:flex lg:flex-col">
-          <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4" data-tauri-drag-region>
-            <button
-              type="button"
-              className={cn(
-                "text-xs uppercase tracking-wide transition-colors",
-                sidebarTab === "all"
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setSidebarTab("all")}
+        <ResizeHandle orientation="vertical" disabled={!isLg} className={!isLg ? "hidden" : ""} />
+
+        <Panel
+          id="right-sidebar"
+          panelRef={rightPanelRef}
+          collapsible
+          collapsedSize={0}
+          minSize={280}
+          maxSize={600}
+          defaultSize="25%"
+          className="bg-sidebar"
+        >
+          <div className="flex h-full flex-col">
+            <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4" data-tauri-drag-region>
+              <button
+                type="button"
+                className={cn(
+                  "text-xs uppercase tracking-wide transition-colors",
+                  sidebarTab === "all"
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setSidebarTab("all")}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
+                  sidebarTab === "modified"
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setSidebarTab("modified")}
+              >
+                Modified
+                {diffTotalCount > 0 && (
+                  <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                    {diffTotalCount}
+                  </Badge>
+                )}
+              </button>
+            </div>
+            <Group
+              orientation="vertical"
+              defaultLayout={splitLayout}
+              onLayoutChanged={onSplitLayoutChanged}
+              style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
             >
-              All
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
-                sidebarTab === "modified"
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setSidebarTab("modified")}
-            >
-              Modified
-              {diffTotalCount > 0 && (
-                <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-                  {diffTotalCount}
-                </Badge>
-              )}
-            </button>
-          </div>
-          <div
-            ref={splitContainerRef}
-            className={cn(
-              "flex min-h-0 flex-1 flex-col overflow-hidden",
-              isDraggingSplit && "select-none [&_*]:pointer-events-none",
-            )}
-          >
-            <div
-              className="overflow-auto p-3"
-              style={{ height: `${sidebarSplit * 100}%`, flexShrink: 0 }}
-            >
-              {sidebarTab === "modified" && (
-                <ModifiedFileList
-                  committed={diffCommitted}
-                  uncommitted={diffUncommitted}
-                  onFileClick={handleModifiedFileClick}
-                  activeFile={isFileTabActive && fileViewMode === "diff" ? openFile ?? undefined : undefined}
-                />
-              )}
-              {sidebarTab === "all" && fileTreeError && (
-                <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
-                  {fileTreeError}
-                </div>
-              )}
-              {sidebarTab === "all" && !fileTreeError && (
-                <FileTree
-                  expanded={expandedPaths}
-                  onExpandedChange={setExpandedPaths}
-                  onPathSelect={handleFileTreeSelect}
-                  selectedPath={selectedPath}
-                >
-                  {fileTree.length ? (
-                    renderFileTreeNodes(fileTree)
-                  ) : (
-                    <div className="px-2 py-1 text-xs text-muted-foreground">No files found.</div>
+              <Panel id="file-tree" defaultSize="50%" minSize="15%" maxSize="85%">
+                <div className="h-full overflow-auto p-3">
+                  {sidebarTab === "modified" && (
+                    <ModifiedFileList
+                      committed={diffCommitted}
+                      uncommitted={diffUncommitted}
+                      onFileClick={handleModifiedFileClick}
+                      activeFile={isFileTabActive && fileViewMode === "diff" ? openFile ?? undefined : undefined}
+                    />
                   )}
-                </FileTree>
-              )}
-            </div>
-
-            <div
-              role="separator"
-              aria-orientation="horizontal"
-              aria-label="Resize panel"
-              className="group relative h-1.5 shrink-0 cursor-row-resize select-none"
-              onPointerDown={handleDividerPointerDown}
-            >
-              <div className="absolute inset-x-0 top-[2px] h-px bg-border/50 transition-colors group-hover:bg-border" />
-            </div>
-
-            <ScriptPanel
-              key={wsId}
-              config={scriptsConfig}
-              status={scriptsStatus}
-              onStart={startScript}
-              onStop={stopScript}
-              onStartTerminal={startTerminal}
-              onStopTerminal={stopTerminal}
-              onConnectOutput={connectScriptOutput}
-              onDisconnectOutput={disconnectScriptOutput}
-            />
+                  {sidebarTab === "all" && fileTreeError && (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                      {fileTreeError}
+                    </div>
+                  )}
+                  {sidebarTab === "all" && !fileTreeError && (
+                    <FileTree
+                      expanded={expandedPaths}
+                      onExpandedChange={setExpandedPaths}
+                      onPathSelect={handleFileTreeSelect}
+                      selectedPath={selectedPath}
+                    >
+                      {fileTree.length ? (
+                        renderFileTreeNodes(fileTree)
+                      ) : (
+                        <div className="px-2 py-1 text-xs text-muted-foreground">No files found.</div>
+                      )}
+                    </FileTree>
+                  )}
+                </div>
+              </Panel>
+              <ResizeHandle orientation="horizontal" />
+              <Panel id="scripts" minSize="15%">
+                <ScriptPanel
+                  key={wsId}
+                  config={scriptsConfig}
+                  status={scriptsStatus}
+                  onStart={startScript}
+                  onStop={stopScript}
+                  onStartTerminal={startTerminal}
+                  onStopTerminal={stopTerminal}
+                  onConnectOutput={connectScriptOutput}
+                  onDisconnectOutput={disconnectScriptOutput}
+                />
+              </Panel>
+            </Group>
+            <PrStatusSection wsId={wsId} />
           </div>
-          <PrStatusSection wsId={wsId} />
-        </aside>
-      </div>
+        </Panel>
+      </Group>
 
     </div>
   );

@@ -370,7 +370,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
           <PromptInputTextarea
             ref={textareaRef}
             className="min-h-[100px] max-h-40 bg-transparent text-sm placeholder:text-muted-foreground/40"
-            placeholder={isDisconnected ? "Reconnecting..." : (customPlaceholder ?? "Send a message...")}
+            placeholder={isDisconnected ? "Reconnecting..." : (customPlaceholder ?? "Send message, #mention files, @call agents, run /commands")}
             value={value}
             onChange={handleChange}
             onKeyDown={handleKeyDown}

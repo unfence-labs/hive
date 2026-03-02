@@ -76,7 +76,7 @@ function rerenderChatInput(
 }
 
 function getInput(): HTMLTextAreaElement {
-  return screen.getByPlaceholderText("Send a message...") as HTMLTextAreaElement;
+  return screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands") as HTMLTextAreaElement;
 }
 
 function inputValue(): string {

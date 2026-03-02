@@ -97,7 +97,7 @@ describe("ChatInput", () => {
       </QueryClientProvider>,
     );
 
-    const input = screen.getByPlaceholderText("Send a message...");
+    const input = screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands");
     expect(input).toHaveValue("");
 
     act(() => {
@@ -115,7 +115,7 @@ describe("ChatInput", () => {
     const user = userEvent.setup();
     const { onSend } = renderChatInput();
 
-    await user.type(screen.getByPlaceholderText("Send a message..."), "hello");
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true }, undefined);
@@ -125,7 +125,7 @@ describe("ChatInput", () => {
     const user = userEvent.setup();
     const { onSend } = renderChatInput();
 
-    await user.type(screen.getByPlaceholderText("Send a message..."), "hello{enter}");
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello{enter}");
 
     expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true }, undefined);
   });
@@ -134,7 +134,7 @@ describe("ChatInput", () => {
     const user = userEvent.setup();
     const { onSend } = renderChatInput();
 
-    await user.type(screen.getByPlaceholderText("Send a message..."), "hello{shift>}{enter}{/shift}");
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello{shift>}{enter}{/shift}");
 
     expect(onSend).not.toHaveBeenCalled();
   });
@@ -145,7 +145,7 @@ describe("ChatInput", () => {
 
     await user.click(screen.getByRole("button", { name: "Toggle thinking" }));
     await user.click(screen.getByRole("button", { name: "Toggle plan mode" }));
-    await user.type(screen.getByPlaceholderText("Send a message..."), "hello");
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: true, thinkingEnabled: false }, undefined);
@@ -159,7 +159,7 @@ describe("ChatInput", () => {
     await user.click(screen.getByRole("button", { name: "Toggle plan mode" }));
     await user.click(screen.getByRole("button", { name: "Toggle thinking" }));
     await user.click(screen.getByRole("button", { name: "Toggle plan mode" }));
-    await user.type(screen.getByPlaceholderText("Send a message..."), "hello");
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true }, undefined);
@@ -169,7 +169,7 @@ describe("ChatInput", () => {
     const user = userEvent.setup();
     const { onSend } = renderChatInput({ agentPlanMode: true });
 
-    await user.type(screen.getByPlaceholderText("Send a message..."), "hello");
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(onSend).toHaveBeenCalledWith("hello", undefined, {
@@ -184,7 +184,7 @@ describe("ChatInput", () => {
     const { onSend, rerender } = renderChatInput({ agentPlanMode: true });
 
     rerender({ agentPlanMode: false });
-    await user.type(screen.getByPlaceholderText("Send a message..."), "hello");
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(onSend).toHaveBeenCalledWith("hello", undefined, {
@@ -216,7 +216,7 @@ describe("ChatInput", () => {
     const user = userEvent.setup();
     const { onSend } = renderChatInput({ onSend: vi.fn(() => false) });
 
-    const input = screen.getByPlaceholderText("Send a message...");
+    const input = screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands");
     await user.type(input, "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
@@ -245,7 +245,7 @@ describe("ChatInput", () => {
     const user = userEvent.setup();
     renderChatInput();
 
-    await user.type(screen.getByPlaceholderText("Send a message..."), "a");
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "a");
 
     expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled();
   });
@@ -253,14 +253,14 @@ describe("ChatInput", () => {
   it("disables input and attachment controls when disabled prop is true", () => {
     renderChatInput({ disabled: true });
 
-    expect(screen.getByPlaceholderText("Send a message...")).toBeDisabled();
+    expect(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands")).toBeDisabled();
   });
 
   it("clears text input after successful send", async () => {
     const user = userEvent.setup();
     renderChatInput();
 
-    const input = screen.getByPlaceholderText("Send a message...");
+    const input = screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands");
     await user.type(input, "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
@@ -270,7 +270,7 @@ describe("ChatInput", () => {
   it("keeps input enabled when connecting (only disconnected disables)", () => {
     renderChatInput({ connectionStatus: "connecting" });
     // "connecting" still uses the default placeholder and doesn't disable input
-    expect(screen.getByPlaceholderText("Send a message...")).not.toBeDisabled();
+    expect(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands")).not.toBeDisabled();
   });
 
   // ── Message queue tests ───────────────────────────────────────────
@@ -278,7 +278,7 @@ describe("ChatInput", () => {
   it("enables textarea during streaming so user can type a follow-up", () => {
     renderChatInput({ isStreaming: true });
 
-    expect(screen.getByPlaceholderText("Send a message...")).not.toBeDisabled();
+    expect(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands")).not.toBeDisabled();
   });
 
   it("disables textarea when a queued message exists", () => {
@@ -287,14 +287,14 @@ describe("ChatInput", () => {
       queuedMessage: { content: "queued follow-up" },
     });
 
-    expect(screen.getByPlaceholderText("Send a message...")).toBeDisabled();
+    expect(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands")).toBeDisabled();
   });
 
   it("calls onQueue instead of onSend when submitting during streaming", async () => {
     const user = userEvent.setup();
     const { onSend, onQueue } = renderChatInput({ isStreaming: true });
 
-    await user.type(screen.getByPlaceholderText("Send a message..."), "follow up");
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "follow up");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(onQueue).toHaveBeenCalledWith({

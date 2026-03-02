@@ -47,8 +47,10 @@ function buildTabs(config: HiveConfig | null): TabInfo[] {
       tabs.push({ key: name, label: name.charAt(0).toUpperCase() + name.slice(1), isSetup: false, isTerminal: false });
     }
   }
-  // Always add terminal tab
-  tabs.push({ key: "terminal", label: "Terminal", isSetup: false, isTerminal: true });
+  // Only add terminal tab when hive.json exists (has scripts)
+  if (tabs.length > 0) {
+    tabs.push({ key: "terminal", label: "Terminal", isSetup: false, isTerminal: true });
+  }
   return tabs;
 }
 
@@ -189,6 +191,29 @@ export default function ScriptPanel({
       setRunGeneration((g) => g + 1);
     }
   };
+
+  if (tabs.length === 0) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex h-9 items-center border-t border-border/50 px-3">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">Scripts</span>
+        </div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-muted-foreground">
+          <p className="text-xs">
+            Add a <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">hive.json</code> to your repo to define setup &amp; run scripts.
+          </p>
+          <pre className="mt-1 w-full max-w-56 rounded-md bg-muted/50 px-3 py-2 text-left text-[11px] leading-relaxed">{`{
+  "scripts": {
+    "setup": "npm install",
+    "run": {
+      "dev": "npm run dev"
+    }
+  }
+}`}</pre>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
