@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { createProject } from "../projects/project-manager.js";
 import { createWorkspace } from "../workspaces/workspace-manager.js";
+import { deleteWorkspace, archiveWorkspace } from "../workspaces/workspace-manager.js";
 import { saveProject, loadProject } from "./state.js";
 import { deleteProject } from "../projects/project-manager.js";
 import {
@@ -267,5 +268,51 @@ describe("workspace-index", () => {
     await deleteProject(project.id, dataDir);
 
     expect(lookupWorkspace(ws.id)).toBeNull();
+  });
+
+  it("integrates with deleteWorkspace and removes the index entry", async () => {
+    const project = await createProject(fixtureRepoUrl, dataDir);
+    await initWorkspaceIndex(dataDir);
+    const ws = await createWorkspace(project.id, dataDir);
+
+    expect(lookupWorkspace(ws.id)).not.toBeNull();
+
+    await deleteWorkspace(ws.id, dataDir);
+
+    expect(lookupWorkspace(ws.id)).toBeNull();
+  });
+
+  it("integrates with archiveWorkspace and removes the index entry", async () => {
+    const project = await createProject(fixtureRepoUrl, dataDir);
+    await initWorkspaceIndex(dataDir);
+    const ws = await createWorkspace(project.id, dataDir);
+
+    expect(lookupWorkspace(ws.id)).not.toBeNull();
+
+    await archiveWorkspace(ws.id, dataDir);
+
+    expect(lookupWorkspace(ws.id)).toBeNull();
+  });
+
+  it("tracks branch updates persisted through saveProject", async () => {
+    const project = await createProject(fixtureRepoUrl, dataDir);
+    await initWorkspaceIndex(dataDir);
+    const ws = await createWorkspace(project.id, dataDir);
+
+    expect(lookupWorkspace(ws.id)!.workspace.branch).toBe(`workspace/${ws.name}`);
+
+    const state = await loadProject(project.id, dataDir);
+    expect(state).not.toBeNull();
+    const target = state!.workspaces.find((w) => w.id === ws.id);
+    expect(target).toBeDefined();
+    target!.branch = "workspace/renamed-from-test";
+    await saveProject(state!, dataDir);
+
+    const updated = lookupWorkspace(ws.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.workspace.branch).toBe("workspace/renamed-from-test");
+    expect(updated!.projectState.workspaces.find((w) => w.id === ws.id)?.branch).toBe(
+      "workspace/renamed-from-test",
+    );
   });
 });

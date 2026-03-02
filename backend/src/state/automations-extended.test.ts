@@ -214,6 +214,44 @@ describe("loadRuns edge cases", () => {
 });
 
 describe("withAutomationRunLock", () => {
+  it("executes queued operations in FIFO order for the same automation", async () => {
+    const order: string[] = [];
+
+    await Promise.all([
+      withAutomationRunLock("auto-1", async () => {
+        order.push("first-start");
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        order.push("first-end");
+      }),
+      withAutomationRunLock("auto-1", async () => {
+        order.push("second-start");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        order.push("second-end");
+      }),
+    ]);
+
+    expect(order).toEqual(["first-start", "first-end", "second-start", "second-end"]);
+  });
+
+  it("does not block different automation IDs behind each other", async () => {
+    let firstEndedAt = 0;
+    let secondStartedAt = 0;
+    const base = Date.now();
+
+    await Promise.all([
+      withAutomationRunLock("auto-1", async () => {
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        firstEndedAt = Date.now() - base;
+      }),
+      withAutomationRunLock("auto-2", async () => {
+        secondStartedAt = Date.now() - base;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }),
+    ]);
+
+    expect(secondStartedAt).toBeLessThan(firstEndedAt);
+  });
+
   it("serializes concurrent addRun calls for the same automation", async () => {
     const calls = Array.from({ length: 5 }, (_, i) =>
       addRun("auto-1", makeRun({ id: `run-${i}`, automationId: "auto-1" }), dataDir),
@@ -253,6 +291,36 @@ describe("withAutomationRunLock", () => {
     expect(loaded).toHaveLength(2);
     const run1 = loaded.find((r) => r.id === "run-1");
     expect(run1?.status).toBe("failure");
+  });
+
+  it("applies concurrent updates to the same run deterministically in call order", async () => {
+    await addRun("auto-1", makeRun({ id: "run-ordered", automationId: "auto-1" }), dataDir);
+
+    await Promise.all([
+      updateRun("auto-1", "run-ordered", { status: "failure" }, dataDir),
+      updateRun("auto-1", "run-ordered", { status: "success" }, dataDir),
+      updateRun("auto-1", "run-ordered", { status: "failure" }, dataDir),
+    ]);
+
+    const loaded = await loadRuns("auto-1", dataDir);
+    const run = loaded.find((r) => r.id === "run-ordered");
+    expect(run?.status).toBe("failure");
+  });
+
+  it("handles high-concurrency addRun without lost writes and keeps max cap", async () => {
+    const calls = Array.from({ length: 80 }, (_, i) =>
+      addRun("auto-1", makeRun({ id: `run-${i}`, automationId: "auto-1" }), dataDir),
+    );
+    await Promise.all(calls);
+
+    const loaded = await loadRuns("auto-1", dataDir);
+    expect(loaded).toHaveLength(50);
+
+    // With newest-first ordering and MAX_RUNS=50, retained IDs are run-79..run-30
+    for (let i = 79; i >= 30; i--) {
+      expect(loaded.find((r) => r.id === `run-${i}`)).toBeDefined();
+    }
+    expect(loaded.find((r) => r.id === "run-29")).toBeUndefined();
   });
 
   it("releases lock even when inner function throws", async () => {
