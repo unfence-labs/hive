@@ -79,7 +79,7 @@ setInterval(() => {
   const totalDelta = curr.total - prevCpu.total;
   cpuPercentCache = totalDelta > 0 ? Math.round((1 - idleDelta / totalDelta) * 100) : 0;
   prevCpu = curr;
-}, 5_000);
+}, 5_000).unref();
 
 function getCpuPercent(): number {
   if (cpuPercentCache >= 0) return cpuPercentCache;
