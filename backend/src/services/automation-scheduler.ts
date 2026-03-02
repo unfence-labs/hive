@@ -155,7 +155,15 @@ export class AutomationScheduler {
     await addRun(autoId, run, this.dataDir);
 
     // Ensure workspace
-    const { workspacePath, defaultBranch } = await this.ensureWorkspace(auto);
+    let workspacePath: string;
+    let defaultBranch: string | undefined;
+    try {
+      ({ workspacePath, defaultBranch } = await this.ensureWorkspace(auto));
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      await this.completeRun(auto, run.id, "failure", undefined, error, now);
+      return { ...run, status: "failure", error };
+    }
 
     // Update automation with workspace path if needed
     if (!auto.workspacePath) {

@@ -212,6 +212,7 @@ describe("wsTransport", () => {
   });
 
   it("dispatches parsed incoming messages to handlers (via hub envelope)", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     wsTransport.connect("ws-1");
     const socket = MockWebSocket.instances[0]!;
     socket.open();
@@ -225,6 +226,10 @@ describe("wsTransport", () => {
     socket.message("not-json");
 
     expect(received).toEqual([{ type: "status", status: "idle", streaming: false }]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[ws] Failed to parse message:",
+      expect.any(SyntaxError),
+    );
     unsubscribe();
   });
 

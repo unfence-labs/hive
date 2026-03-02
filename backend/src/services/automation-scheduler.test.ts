@@ -506,6 +506,76 @@ describe("AutomationScheduler", () => {
 
       scheduler.stop();
     });
+
+    it("creates a worktree when existing workspace path is not a git repo", async () => {
+      const { loadProject } = await import("../state/state.js");
+      const { git } = await import("../utils/git.js");
+      vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" } as never);
+      vi.mocked(git).mockImplementationOnce(async () => {
+        throw new Error("not a git repository");
+      });
+
+      const auto = makeAutomation({ projectId: "proj-1" });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.status).toBe("success");
+      expect(git).toHaveBeenCalledWith(
+        ["worktree", "add", expect.stringContaining("/workspace"), "main"],
+        "/tmp/bare",
+      );
+
+      scheduler.stop();
+    });
+
+    it("marks run as failure when workspace setup throws unexpected git errors", async () => {
+      const { loadProject } = await import("../state/state.js");
+      const { git } = await import("../utils/git.js");
+      vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" } as never);
+      vi.mocked(git).mockImplementationOnce(async () => {
+        throw new Error("Permission denied");
+      });
+
+      const auto = makeAutomation({
+        projectId: "proj-1",
+        notification: { onComplete: false, onFailure: false },
+      });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.status).toBe("failure");
+      expect(run.error).toContain("Permission denied");
+      const persistedRuns = await loadRuns("auto-1", dataDir);
+      expect(persistedRuns[0]?.status).toBe("failure");
+      expect(persistedRuns[0]?.error).toContain("Permission denied");
+
+      scheduler.stop();
+    });
+
+    it("fails cleanly when project is deleted between workspace setup and git-context injection", async () => {
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject)
+        .mockResolvedValueOnce({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" } as never)
+        .mockResolvedValueOnce(null as never);
+
+      const auto = makeAutomation({
+        projectId: "proj-1",
+        notification: { onComplete: false, onFailure: false },
+      });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.status).toBe("failure");
+      expect(run.error).toBe("Project proj-1 not found (deleted?)");
+
+      scheduler.stop();
+    });
   });
 
   describe("git context injection", () => {

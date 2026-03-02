@@ -77,6 +77,7 @@ import {
   startScript,
   stopScript,
   stopAllForWorkspace,
+  stopAllScripts,
   getScriptStatus,
   getScriptProcess,
   _clearAll,
@@ -296,6 +297,20 @@ describe("script-runner", () => {
     expect(getScriptProcess("ws-1", "setup")).toBeUndefined();
     expect(getScriptProcess("ws-1", "backend")).toBeUndefined();
     expect(getScriptProcess("ws-1", "frontend")).toBeUndefined();
+  });
+
+  it("stops all scripts across all workspaces", () => {
+    startScript("ws-1", "setup", "npm ci", "/tmp/workspace");
+    startScript("ws-1", "run:watch", "npm run dev", "/tmp/workspace");
+    startScript("ws-2", "backend", "npm run dev", "/tmp/workspace");
+
+    stopAllScripts();
+
+    expect(mocks.processes[0]?.kill).toHaveBeenCalledTimes(1);
+    expect(mocks.processes[1]?.kill).toHaveBeenCalledTimes(1);
+    expect(mocks.processes[2]?.kill).toHaveBeenCalledTimes(1);
+    expect(Object.keys(getScriptStatus("ws-1"))).toHaveLength(0);
+    expect(Object.keys(getScriptStatus("ws-2"))).toHaveLength(0);
   });
 
   it("clears all active scripts during test cleanup", () => {
