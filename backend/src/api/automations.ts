@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { nanoid } from "nanoid";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { git } from "../utils/git.js";
+import { removeWorktreeAndPruneBestEffort } from "../utils/git-worktree.js";
 import { bareRepoPath } from "../utils/paths.js";
 import { Cron } from "croner";
 import {
@@ -190,11 +190,7 @@ export async function automationRoutes(
     if (auto.projectId) {
       const bare = bareRepoPath(dataDir, auto.projectId);
       const wsPath = join(autoDir, "workspace");
-      try {
-        await git(["worktree", "remove", "--force", wsPath], bare);
-      } catch {
-        await git(["worktree", "prune"], bare).catch(() => {});
-      }
+      await removeWorktreeAndPruneBestEffort(bare, wsPath);
     }
 
     await rm(autoDir, { recursive: true, force: true }).catch(() => {});

@@ -1,7 +1,11 @@
-import { rm, readdir, readFile, stat, mkdir, writeFile, rename } from "node:fs/promises";
+import { readdir, readFile, stat, mkdir, writeFile, rename } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
+import {
+  addWorktreeWithNewBranch,
+  removeWorktreeOrDeleteDirectory,
+} from "../utils/git-worktree.js";
 import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/paths.js";
 import { pickCityName } from "../utils/city-names.js";
 import { loadProject, loadAllProjects, saveProject, getDataDir, withProjectStateLock } from "../state/state.js";
@@ -130,7 +134,7 @@ export async function createWorkspace(
       }
 
       // Create worktree from the default branch
-      await git(["worktree", "add", "-b", branch, wsPath, defaultBranch], bare);
+      await addWorktreeWithNewBranch(bare, wsPath, branch, defaultBranch);
 
       const workspace: Workspace = {
         id: `ws-${nanoid(8)}`,
@@ -197,13 +201,7 @@ export async function deleteWorkspace(
       const wsPath = join(workspacesDir(dataDir, projectId), workspace.name);
 
       // Remove the worktree
-      try {
-        await git(["worktree", "remove", wsPath, "--force"], bare);
-      } catch {
-        // Fallback: just remove the directory
-        await rm(wsPath, { recursive: true, force: true });
-        await git(["worktree", "prune"], bare);
-      }
+      await removeWorktreeOrDeleteDirectory(bare, wsPath);
 
       // Remove the branch
       try {
@@ -278,12 +276,7 @@ export async function archiveWorkspace(
       }
 
       // Remove the worktree (keep the branch for potential restore)
-      try {
-        await git(["worktree", "remove", wsPath, "--force"], bare);
-      } catch {
-        await rm(wsPath, { recursive: true, force: true });
-        await git(["worktree", "prune"], bare);
-      }
+      await removeWorktreeOrDeleteDirectory(bare, wsPath);
 
       // Update state — remove workspace from project
       latest.workspaces = latest.workspaces.filter((ws) => ws.id !== wsId);
@@ -582,12 +575,7 @@ export async function mergeWorkspace(
     await git(["update-ref", `refs/heads/${defaultBranch}`, mergeHash], bare);
   } finally {
     // Cleanup temp worktree
-    try {
-      await git(["worktree", "remove", tempPath, "--force"], bare);
-    } catch {
-      await rm(tempPath, { recursive: true, force: true });
-      await git(["worktree", "prune"], bare);
-    }
+    await removeWorktreeOrDeleteDirectory(bare, tempPath);
   }
 
   // Now delete the workspace

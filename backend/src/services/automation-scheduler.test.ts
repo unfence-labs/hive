@@ -514,6 +514,26 @@ describe("AutomationScheduler", () => {
       scheduler.stop();
     });
 
+    it("cleans untracked and ignored files when reusing an existing project workspace", async () => {
+      const { loadProject } = await import("../state/state.js");
+      const { git } = await import("../utils/git.js");
+      vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" } as never);
+
+      const auto = makeAutomation({ projectId: "proj-1" });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.status).toBe("success");
+      expect(git).toHaveBeenCalledWith(
+        ["clean", "-ffdx"],
+        join(dataDir, "automations", "auto-1", "workspace"),
+      );
+
+      scheduler.stop();
+    });
+
     it("creates a worktree when existing workspace path is not a git repo", async () => {
       const { loadProject } = await import("../state/state.js");
       const { git } = await import("../utils/git.js");
@@ -532,6 +552,43 @@ describe("AutomationScheduler", () => {
       expect(git).toHaveBeenCalledWith(
         ["worktree", "add", expect.stringContaining("/workspace"), "main"],
         "/tmp/bare",
+      );
+      expect(git).toHaveBeenCalledWith(
+        ["reset", "--hard", "origin/main"],
+        join(dataDir, "automations", "auto-1", "workspace"),
+      );
+      expect(git).toHaveBeenCalledWith(
+        ["clean", "-ffdx"],
+        join(dataDir, "automations", "auto-1", "workspace"),
+      );
+
+      scheduler.stop();
+    });
+
+    it("falls back to FETCH_HEAD reset when origin branch ref is unavailable", async () => {
+      const { loadProject } = await import("../state/state.js");
+      const { git } = await import("../utils/git.js");
+      vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" } as never);
+      vi.mocked(git).mockImplementation(async (args) => {
+        if (args[0] === "status") {
+          throw new Error("not a git repository");
+        }
+        if (args[0] === "reset" && args[2] === "origin/main") {
+          throw new Error("unknown revision");
+        }
+        return { stdout: "", stderr: "" };
+      });
+
+      const auto = makeAutomation({ projectId: "proj-1" });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.status).toBe("success");
+      expect(git).toHaveBeenCalledWith(
+        ["reset", "--hard", "FETCH_HEAD"],
+        join(dataDir, "automations", "auto-1", "workspace"),
       );
 
       scheduler.stop();
