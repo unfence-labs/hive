@@ -7,10 +7,32 @@ function tool(overrides: Partial<ToolCall> & { name: string; input: string }): T
 }
 
 describe("parseSubAgentInfo", () => {
-  it("returns null for non-Task tools", () => {
+  it("returns null for non-Task/Agent tools", () => {
     expect(parseSubAgentInfo(tool({ name: "Bash", input: '{"command":"ls"}' }))).toBeNull();
     expect(parseSubAgentInfo(tool({ name: "Read", input: '{"file_path":"/a.ts"}' }))).toBeNull();
     expect(parseSubAgentInfo(tool({ name: "Edit", input: "{}" }))).toBeNull();
+  });
+
+  it("parses 'Agent' tool name (v2.1.63+ CLI rename)", () => {
+    const result = parseSubAgentInfo(
+      tool({
+        name: "Agent",
+        input: JSON.stringify({
+          subagent_type: "Explore",
+          description: "Search codebase",
+          prompt: "Find all test files",
+          run_in_background: true,
+        }),
+      }),
+    );
+
+    expect(result).toEqual({
+      subagentType: "Explore",
+      description: "Search codebase",
+      prompt: "Find all test files",
+      runInBackground: true,
+      model: undefined,
+    });
   });
 
   it("parses a complete Task input", () => {

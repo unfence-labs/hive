@@ -429,7 +429,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
               });
             }
 
-            if (block.name === "Task") {
+            if (block.name === "Task" || block.name === "Agent") {
               pendingTaskStack.push(block.id);
             }
 
