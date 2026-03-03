@@ -279,15 +279,19 @@ describe("stopAllSessions", () => {
     const { session: sessionB } = await getOrCreateSession(otherWs.id, dataDir, CONV_CMD);
     const stopA = vi.spyOn(sessionA, "stop");
     const stopB = vi.spyOn(sessionB, "stop");
+    const drainA = vi.spyOn(sessionA, "drain");
+    const drainB = vi.spyOn(sessionB, "drain");
 
-    stopAllSessions();
+    await stopAllSessions();
 
     expect(stopA).toHaveBeenCalledWith("park");
     expect(stopB).toHaveBeenCalledWith("park");
+    expect(drainA).toHaveBeenCalledTimes(1);
+    expect(drainB).toHaveBeenCalledTimes(1);
   });
 
-  it("is a no-op when no sessions are loaded", () => {
-    expect(() => stopAllSessions()).not.toThrow();
+  it("is a no-op when no sessions are loaded", async () => {
+    await expect(stopAllSessions()).resolves.toBeUndefined();
   });
 });
 

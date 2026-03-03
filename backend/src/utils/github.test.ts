@@ -131,6 +131,25 @@ describe("isGhInstalled", () => {
     execFileMock.mockImplementation(mockExecFileSuccess("gh version 2.40.0"));
     expect(await isGhInstalled()).toBe(true);
   });
+
+  it("rechecks gh after ENOENT cooldown expires", async () => {
+    const execFileMock = await getExecFileMock();
+    let now = 100_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    execFileMock.mockImplementationOnce(mockExecFileError({ code: "ENOENT" }));
+
+    expect(await isGhInstalled()).toBe(false);
+
+    execFileMock.mockClear();
+    expect(await isGhInstalled()).toBe(false);
+    expect(execFileMock).not.toHaveBeenCalled();
+
+    now += 60_001;
+    execFileMock.mockImplementationOnce(mockExecFileSuccess("gh version 2.40.0"));
+    expect(await isGhInstalled()).toBe(true);
+
+    nowSpy.mockRestore();
+  });
 });
 
 // ── gh() wrapper ────────────────────────────────────────────────────
@@ -503,22 +522,32 @@ describe("fetchPrForBranch", () => {
 
   // ── Error handling ──────────────────────────────────────────────────
 
-  it("permanently disables gh on ENOENT error", async () => {
+  it("temporarily disables gh on ENOENT and retries after cooldown", async () => {
     const execFileMock = await getExecFileMock();
-    execFileMock.mockImplementation(
-      mockExecFileError({ code: "ENOENT" }),
-    );
+    let now = 100_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    execFileMock.mockImplementationOnce(mockExecFileError({ code: "ENOENT" }));
 
     const first = await fetchPrForBranch("acme", "widget", "branch-1");
     expect(first.pr).toBeNull();
     expect(first.error).toBe("gh CLI not installed");
 
-    // Second call should skip gh entirely (fast-path)
+    // Second call should skip gh entirely while in cooldown
     execFileMock.mockClear();
     const second = await fetchPrForBranch("acme", "widget", "branch-2");
     expect(second.pr).toBeNull();
     expect(second.error).toBe("gh CLI not installed");
     expect(execFileMock).not.toHaveBeenCalled();
+
+    // After cooldown, gh should be tried again
+    now += 60_001;
+    execFileMock.mockImplementationOnce(mockExecFileSuccess("[]"));
+    const third = await fetchPrForBranch("acme", "widget", "branch-3");
+    expect(third.pr).toBeNull();
+    expect(third.error).toBeUndefined();
+    expect(execFileMock).toHaveBeenCalled();
+
+    nowSpy.mockRestore();
   });
 
   it("returns auth error message when stderr contains 'auth login'", async () => {

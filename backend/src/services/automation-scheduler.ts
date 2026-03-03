@@ -188,7 +188,7 @@ export class AutomationScheduler {
     }
 
     // Inject git context for project-linked automations
-    let projectName = "";
+    let projectName = "unknown";
     if (auto.projectId) {
       const project = await loadProject(auto.projectId, this.dataDir);
       if (!project) {

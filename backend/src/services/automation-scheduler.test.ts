@@ -646,6 +646,36 @@ describe("AutomationScheduler", () => {
       scheduler.stop();
     });
 
+    it("interpolates {PROJECT}, {DIR}, and {DEFAULT_BRANCH} in system prompts", async () => {
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "My App", repoUrl: "https://github.com/test/repo" } as never);
+
+      const auto = makeAutomation({
+        projectId: "proj-1",
+        action: {
+          type: "agent",
+          modelId: "claude:opus-4-6",
+          userPromptInline: "Review code",
+          systemPromptInline: "Project={PROJECT}\nDir={DIR}\nBranch={DEFAULT_BRANCH}",
+        },
+      });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.triggerNow("auto-1");
+
+      const lastCall = sessionConstructorCalls[sessionConstructorCalls.length - 1];
+      const sysPrompt = lastCall.systemPrompt as string;
+      expect(sysPrompt).toContain("Project=My App");
+      expect(sysPrompt).toContain(`Dir=${join(dataDir, "automations", "auto-1", "workspace")}`);
+      expect(sysPrompt).toContain("Branch=main");
+      expect(sysPrompt).not.toContain("{PROJECT}");
+      expect(sysPrompt).not.toContain("{DIR}");
+      expect(sysPrompt).not.toContain("{DEFAULT_BRANCH}");
+
+      scheduler.stop();
+    });
+
     it("calls getGitContext with workspace path and default branch", async () => {
       const { loadProject } = await import("../state/state.js");
       vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" } as never);
