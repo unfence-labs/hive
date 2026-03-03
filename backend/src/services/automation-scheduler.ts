@@ -16,8 +16,13 @@ import { extractSummary } from "../utils/summary-extractor.js";
 import { getNotifier } from "../agents/agent-manager.js";
 import { loadProject } from "../state/state.js";
 import { git } from "../utils/git.js";
+import {
+  addWorktreeFromBranch,
+  isMissingOrNotGitRepositoryError,
+  refreshWorktreeToRemoteBranch,
+} from "../utils/git-worktree.js";
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
-import { getGitContext, formatGitContextBlock } from "../agents/system-prompt.js";
+import { getGitContext, formatGitContextBlock, interpolatePromptVariables } from "../agents/system-prompt.js";
 import type { Automation, AutomationRun, WsOutgoing } from "../types.js";
 
 const SUMMARY_INSTRUCTION =
@@ -188,6 +193,7 @@ export class AutomationScheduler {
     }
 
     // Inject git context for project-linked automations
+    let projectName = "unknown";
     if (auto.projectId) {
       const project = await loadProject(auto.projectId, this.dataDir);
       if (!project) {
@@ -195,9 +201,19 @@ export class AutomationScheduler {
         await this.completeRun(auto, run.id, "failure", undefined, error, now);
         return { ...run, status: "failure", error };
       }
+      projectName = project.name;
       const ctx = await getGitContext(workspacePath, defaultBranch);
-      const gitBlock = formatGitContextBlock(ctx, { projectName: project.name });
+      const gitBlock = formatGitContextBlock(ctx, { projectName });
       systemPrompt = systemPrompt ? systemPrompt + "\n\n" + gitBlock : gitBlock;
+    }
+
+    // Interpolate template variables
+    if (systemPrompt) {
+      systemPrompt = interpolatePromptVariables(systemPrompt, {
+        projectName,
+        cwd: workspacePath,
+        defaultBranch: defaultBranch ?? "main",
+      });
     }
 
     // Create session
@@ -284,20 +300,17 @@ export class AutomationScheduler {
         await git(["status", "--porcelain"], wsPath);
         // Exists — update to latest
         const defaultBranch = await resolveDefaultBranch(bareRepo);
-        await git(["fetch", "origin", defaultBranch], wsPath);
-        await git(["checkout", defaultBranch], wsPath);
-        await git(["reset", "--hard", `origin/${defaultBranch}`], wsPath);
+        await refreshWorktreeToRemoteBranch(wsPath, defaultBranch);
         return { workspacePath: wsPath, defaultBranch };
       } catch (err) {
         // Only treat "not a git repo" / missing directory as "needs worktree creation"
-        const msg = err instanceof Error ? err.message : "";
-        const isNotExists =
-          /not a git repository/i.test(msg) || /no such file or directory/i.test(msg);
-        if (!isNotExists) throw err;
+        if (!isMissingOrNotGitRepositoryError(err)) throw err;
 
         await mkdir(join(this.dataDir, "automations", auto.id), { recursive: true });
         const defaultBranch = await resolveDefaultBranch(bareRepo);
-        await git(["worktree", "add", wsPath, defaultBranch], bareRepo);
+        await addWorktreeFromBranch(bareRepo, wsPath, defaultBranch);
+        // Ensure first-run worktree also starts from latest remote state.
+        await refreshWorktreeToRemoteBranch(wsPath, defaultBranch);
         return { workspacePath: wsPath, defaultBranch };
       }
     } else {

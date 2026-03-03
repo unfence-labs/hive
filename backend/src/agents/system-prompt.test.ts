@@ -3,7 +3,14 @@ import { join } from "node:path";
 import { rm, writeFile, mkdir } from "node:fs/promises";
 import { createTempDir } from "../utils/test-helpers.js";
 import { git } from "../utils/git.js";
-import { getGitContext, buildSystemPrompt, loadBasePrompt, formatGitContextBlock, DEFAULT_BASE_PROMPT } from "./system-prompt.js";
+import {
+  getGitContext,
+  buildSystemPrompt,
+  loadBasePrompt,
+  formatGitContextBlock,
+  interpolatePromptVariables,
+  DEFAULT_BASE_PROMPT,
+} from "./system-prompt.js";
 import type { GitContext } from "./system-prompt.js";
 
 let tempDir: string;
@@ -174,6 +181,34 @@ describe("buildSystemPrompt", () => {
     });
     expect(prompt).toContain("Explicit override.");
     expect(prompt).not.toContain("From file.");
+  });
+});
+
+describe("interpolatePromptVariables", () => {
+  it("replaces all supported placeholders", () => {
+    const result = interpolatePromptVariables(
+      "Project={PROJECT}; Dir={DIR}; Branch={DEFAULT_BRANCH}",
+      {
+        projectName: "hive",
+        cwd: "/tmp/workspace",
+        defaultBranch: "main",
+      },
+    );
+
+    expect(result).toBe("Project=hive; Dir=/tmp/workspace; Branch=main");
+  });
+
+  it("replaces repeated placeholders globally", () => {
+    const result = interpolatePromptVariables(
+      "{PROJECT}:{PROJECT}:{DEFAULT_BRANCH}:{DEFAULT_BRANCH}",
+      {
+        projectName: "hive",
+        cwd: "/tmp/workspace",
+        defaultBranch: "develop",
+      },
+    );
+
+    expect(result).toBe("hive:hive:develop:develop");
   });
 });
 

@@ -754,13 +754,16 @@ export function getStreamingSessionIds(wsId: string): string[] {
     .map((s) => s.sessionId);
 }
 
-/** Park all in-memory sessions (for graceful shutdown). */
-export function stopAllSessions(): void {
+/** Park all in-memory sessions and drain persist queues (for graceful shutdown). */
+export async function stopAllSessions(): Promise<void> {
+  const drains: Promise<void>[] = [];
   for (const sessions of loadedSessionsByWorkspace.values()) {
     for (const session of sessions.values()) {
       session.stop("park");
+      drains.push(session.drain());
     }
   }
+  await Promise.allSettled(drains);
 }
 
 // ── Test helpers ────────────────────────────────────────────────────

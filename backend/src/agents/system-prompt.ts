@@ -20,6 +20,12 @@ export interface SystemPromptOptions {
   promptsDir?: string;
 }
 
+export interface PromptInterpolationValues {
+  projectName: string;
+  cwd: string;
+  defaultBranch: string;
+}
+
 export const DEFAULT_BASE_PROMPT = `You are an AI coding agent running inside Hive, a macOS app that helps developers ship faster by running multiple coding agents in parallel across workspaces.
 You're working on a project called **{PROJECT}**. Your work should take place in the {DIR} directory (unless otherwise directed), which has been set up for you to work in.
 The target branch for this workspace is {DEFAULT_BRANCH}. Use this for actions like creating new PRs, bisecting, etc., unless you're told otherwise.
@@ -35,7 +41,10 @@ All code, comments, and variable names must be in English.`;
 export async function loadBasePrompt(promptsDir: string): Promise<string> {
   try {
     return await readFile(join(promptsDir, "base.md"), "utf-8");
-  } catch {
+  } catch (err: unknown) {
+    if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn("[system-prompt] Failed to load base.md, using default:", err);
+    }
     return DEFAULT_BASE_PROMPT;
   }
 }
@@ -108,6 +117,17 @@ export function formatGitContextBlock(
   return gitLines.join("\n");
 }
 
+/** Replace prompt placeholders with concrete workspace/project values. */
+export function interpolatePromptVariables(
+  prompt: string,
+  values: PromptInterpolationValues,
+): string {
+  return prompt
+    .replace(/\{DIR}/g, values.cwd)
+    .replace(/\{DEFAULT_BRANCH}/g, values.defaultBranch)
+    .replace(/\{PROJECT}/g, values.projectName);
+}
+
 /**
  * Build a system prompt by merging a base prompt with dynamic git context.
  */
@@ -126,10 +146,11 @@ export async function buildSystemPrompt(opts: SystemPromptOptions): Promise<stri
   }
 
   // Interpolate template variables
-  basePrompt = basePrompt
-    .replace(/\{DIR}/g, cwd)
-    .replace(/\{DEFAULT_BRANCH}/g, ctx.defaultBranch)
-    .replace(/\{PROJECT}/g, projectName ?? "unknown");
+  basePrompt = interpolatePromptVariables(basePrompt, {
+    cwd,
+    defaultBranch: ctx.defaultBranch,
+    projectName: projectName ?? "unknown",
+  });
 
   const sections: string[] = [basePrompt];
   sections.push(formatGitContextBlock(ctx, { projectName, workspaceName }));

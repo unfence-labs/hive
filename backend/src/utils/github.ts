@@ -4,9 +4,12 @@ import type { PullRequestInfo } from "../types.js";
 
 const execFile = promisify(execFileCb);
 
-// After the first ENOENT, skip all future `gh` calls for this process.
+const GH_RETRY_COOLDOWN_MS = 60_000;
+
+// After ENOENT, skip `gh` calls until cooldown expires.
 let ghAvailable: boolean | null = null;
 let ghUnavailableReason = "";
+let ghUnavailableAt = 0;
 
 export function parseGitHubRepo(
   url: string,
@@ -40,19 +43,27 @@ export async function gh(
 
 /** Check whether the `gh` binary is on PATH. Caches the result. */
 export async function isGhInstalled(): Promise<boolean> {
-  if (ghAvailable !== null) return ghAvailable;
+  if (ghAvailable === true) return true;
+  if (ghAvailable === false && Date.now() - ghUnavailableAt < GH_RETRY_COOLDOWN_MS) {
+    return false;
+  }
   try {
     await execFile("gh", ["--version"]);
     ghAvailable = true;
+    ghUnavailableReason = "";
+    ghUnavailableAt = 0;
     return true;
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       ghAvailable = false;
       ghUnavailableReason = "gh CLI not installed";
+      ghUnavailableAt = Date.now();
       return false;
     }
     // gh exists but errored for some other reason
     ghAvailable = true;
+    ghUnavailableReason = "";
+    ghUnavailableAt = 0;
     return true;
   }
 }
@@ -152,8 +163,8 @@ export async function fetchPrForBranch(
   repo: string,
   branch: string,
 ): Promise<{ pr: PullRequestInfo | null; error?: string }> {
-  // Fast-path: gh was already found to be unavailable.
-  if (ghAvailable === false) {
+  // Fast-path: gh was recently found unavailable.
+  if (ghAvailable === false && Date.now() - ghUnavailableAt < GH_RETRY_COOLDOWN_MS) {
     return { pr: null, error: ghUnavailableReason };
   }
 
@@ -174,6 +185,8 @@ export async function fetchPrForBranch(
     ]);
 
     ghAvailable = true;
+    ghUnavailableReason = "";
+    ghUnavailableAt = 0;
 
     const items: GhPrItem[] = JSON.parse(stdout);
     if (!items.length) return { pr: null };
@@ -196,10 +209,11 @@ export async function fetchPrForBranch(
   } catch (err: unknown) {
     const error = err as NodeJS.ErrnoException;
 
-    // gh binary not found — disable permanently.
+    // gh binary not found — disable until cooldown expires.
     if (error.code === "ENOENT") {
       ghAvailable = false;
       ghUnavailableReason = "gh CLI not installed";
+      ghUnavailableAt = Date.now();
       return { pr: null, error: ghUnavailableReason };
     }
 
@@ -218,4 +232,5 @@ export async function fetchPrForBranch(
 export function _resetGhState(): void {
   ghAvailable = null;
   ghUnavailableReason = "";
+  ghUnavailableAt = 0;
 }

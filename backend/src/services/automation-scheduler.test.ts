@@ -85,6 +85,13 @@ vi.mock("../agents/system-prompt.js", () => ({
     (_ctx: unknown, opts?: { projectName?: string }) =>
       `# Git Context (snapshot at session start)\n\nProject: ${opts?.projectName ?? "unknown"}\nCurrent branch: main\nMain branch: main\n\nStatus: (clean)\n\nRecent commits:\nabc1234 initial commit`,
   ),
+  interpolatePromptVariables: vi.fn(
+    (prompt: string, values: { projectName: string; cwd: string; defaultBranch: string }) =>
+      prompt
+        .replace(/\{DIR}/g, values.cwd)
+        .replace(/\{DEFAULT_BRANCH}/g, values.defaultBranch)
+        .replace(/\{PROJECT}/g, values.projectName),
+  ),
 }));
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -507,6 +514,26 @@ describe("AutomationScheduler", () => {
       scheduler.stop();
     });
 
+    it("cleans untracked and ignored files when reusing an existing project workspace", async () => {
+      const { loadProject } = await import("../state/state.js");
+      const { git } = await import("../utils/git.js");
+      vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" } as never);
+
+      const auto = makeAutomation({ projectId: "proj-1" });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.status).toBe("success");
+      expect(git).toHaveBeenCalledWith(
+        ["clean", "-ffdx"],
+        join(dataDir, "automations", "auto-1", "workspace"),
+      );
+
+      scheduler.stop();
+    });
+
     it("creates a worktree when existing workspace path is not a git repo", async () => {
       const { loadProject } = await import("../state/state.js");
       const { git } = await import("../utils/git.js");
@@ -525,6 +552,43 @@ describe("AutomationScheduler", () => {
       expect(git).toHaveBeenCalledWith(
         ["worktree", "add", expect.stringContaining("/workspace"), "main"],
         "/tmp/bare",
+      );
+      expect(git).toHaveBeenCalledWith(
+        ["reset", "--hard", "origin/main"],
+        join(dataDir, "automations", "auto-1", "workspace"),
+      );
+      expect(git).toHaveBeenCalledWith(
+        ["clean", "-ffdx"],
+        join(dataDir, "automations", "auto-1", "workspace"),
+      );
+
+      scheduler.stop();
+    });
+
+    it("falls back to FETCH_HEAD reset when origin branch ref is unavailable", async () => {
+      const { loadProject } = await import("../state/state.js");
+      const { git } = await import("../utils/git.js");
+      vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" } as never);
+      vi.mocked(git).mockImplementation(async (args) => {
+        if (args[0] === "status") {
+          throw new Error("not a git repository");
+        }
+        if (args[0] === "reset" && args[2] === "origin/main") {
+          throw new Error("unknown revision");
+        }
+        return { stdout: "", stderr: "" };
+      });
+
+      const auto = makeAutomation({ projectId: "proj-1" });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.status).toBe("success");
+      expect(git).toHaveBeenCalledWith(
+        ["reset", "--hard", "FETCH_HEAD"],
+        join(dataDir, "automations", "auto-1", "workspace"),
       );
 
       scheduler.stop();
@@ -642,6 +706,36 @@ describe("AutomationScheduler", () => {
       const sysPrompt = lastCall.systemPrompt as string;
       expect(sysPrompt).toContain("You are helpful.");
       expect(sysPrompt).not.toContain("# Git Context");
+
+      scheduler.stop();
+    });
+
+    it("interpolates {PROJECT}, {DIR}, and {DEFAULT_BRANCH} in system prompts", async () => {
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "My App", repoUrl: "https://github.com/test/repo" } as never);
+
+      const auto = makeAutomation({
+        projectId: "proj-1",
+        action: {
+          type: "agent",
+          modelId: "claude:opus-4-6",
+          userPromptInline: "Review code",
+          systemPromptInline: "Project={PROJECT}\nDir={DIR}\nBranch={DEFAULT_BRANCH}",
+        },
+      });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.triggerNow("auto-1");
+
+      const lastCall = sessionConstructorCalls[sessionConstructorCalls.length - 1];
+      const sysPrompt = lastCall.systemPrompt as string;
+      expect(sysPrompt).toContain("Project=My App");
+      expect(sysPrompt).toContain(`Dir=${join(dataDir, "automations", "auto-1", "workspace")}`);
+      expect(sysPrompt).toContain("Branch=main");
+      expect(sysPrompt).not.toContain("{PROJECT}");
+      expect(sysPrompt).not.toContain("{DIR}");
+      expect(sysPrompt).not.toContain("{DEFAULT_BRANCH}");
 
       scheduler.stop();
     });

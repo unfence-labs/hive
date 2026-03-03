@@ -1401,6 +1401,27 @@ describe("ConversationSession", () => {
     vi.useRealTimers();
   });
 
+  it("drain waits for a streaming turn to exit before resolving", async () => {
+    const session = createSession({ sessionId: "drain-waits" });
+    session.sendMessage("Hello");
+
+    let resolved = false;
+    const drainPromise = session.drain().then(() => {
+      resolved = true;
+    });
+
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    mockProc._stdout.push(assistantLine("Done"));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+
+    await drainPromise;
+    expect(resolved).toBe(true);
+    expect(session.status).toBe("idle");
+  });
+
   // ── Provider locking tests ───────────────────────────────────────
 
   it("locks provider on first sendMessage based on model prefix", () => {

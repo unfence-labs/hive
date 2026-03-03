@@ -236,13 +236,15 @@ async function main() {
     shuttingDown = true;
     console.log(`[server] ${signal} received, shutting down...`);
 
-    stopAllSessions();
     stopAllScripts();
 
-    await app.close();
+    // Drain persist queues with timeout
+    await Promise.race([
+      stopAllSessions(),
+      new Promise((r) => setTimeout(r, 5000)),
+    ]);
 
-    // Give persist queues a moment to flush
-    await new Promise((r) => setTimeout(r, 1000));
+    await app.close();
     process.exit(0);
   };
 

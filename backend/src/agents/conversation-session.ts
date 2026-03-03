@@ -768,6 +768,32 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     return this.persistQueue;
   }
 
+  /** Await pending persist operations (for graceful shutdown). */
+  async drain(): Promise<void> {
+    if (this._status === "streaming") {
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          this.off("exit", onExit);
+          this.off("error", onError);
+          resolve();
+        };
+        const onExit = () => finish();
+        const onError = () => finish();
+
+        this.on("exit", onExit);
+        this.on("error", onError);
+
+        if (this._status !== "streaming") {
+          finish();
+        }
+      });
+    }
+    await this.persistQueue;
+  }
+
   async persistMetadata(): Promise<void> {
     await this.saveMetadata();
   }
