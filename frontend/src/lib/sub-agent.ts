@@ -8,9 +8,9 @@ export interface SubAgentInfo {
   model?: string;
 }
 
-/** Parse sub-agent metadata from a Task tool's input JSON. */
+/** Parse sub-agent metadata from a Task/Agent tool's input JSON. */
 export function parseSubAgentInfo(tool: ToolCall): SubAgentInfo | null {
-  if (tool.name !== "Task") return null;
+  if (tool.name !== "Task" && tool.name !== "Agent") return null;
   try {
     const input = JSON.parse(tool.input);
     return {

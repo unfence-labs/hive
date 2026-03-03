@@ -309,7 +309,7 @@ private func toolIcon(for name: String) -> String {
     case "Edit": return "pencil"
     case "Bash": return "terminal"
     case "Grep", "Glob": return "magnifyingglass"
-    case "Task": return "arrow.triangle.branch"
+    case "Task", "Agent": return "arrow.triangle.branch"
     case "TaskCreate", "TaskUpdate", "TaskList", "TaskGet": return "checklist"
     case "WebSearch", "WebFetch": return "globe"
     case "AskUserQuestion": return "bubble.left"
@@ -444,7 +444,7 @@ private func getToolDisplay(_ tool: ToolCall, isPending: Bool = false, isDismiss
         globDisplay.stats = computeToolStats(tool)
         return globDisplay
 
-    case "Task":
+    case "Task", "Agent":
         let subagentType = input["subagent_type"] as? String
         let description = input["description"] as? String
         let label = subagentType != nil ? "Task (\(subagentType!))" : "Task"
@@ -597,7 +597,7 @@ private struct CollapsedToolSummary: View {
     let onToggle: () -> Void
 
     private var summaryLabel: String {
-        let subagentCount = tools.filter { $0.name == "Task" }.count
+        let subagentCount = tools.filter { $0.name == "Task" || $0.name == "Agent" }.count
         let toolCount = tools.count - subagentCount
         var parts: [String] = []
         if toolCount > 0 { parts.append("\(toolCount) tool call\(toolCount != 1 ? "s" : "")") }

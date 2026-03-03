@@ -36,7 +36,7 @@ export function useBackgroundAgents(
     const agents: BackgroundAgent[] = [];
 
     for (const tool of allTools) {
-      if (tool.name !== "Task") continue;
+      if (tool.name !== "Task" && tool.name !== "Agent") continue;
       const info = parseSubAgentInfo(tool);
       if (!info || !info.runInBackground) continue;
 

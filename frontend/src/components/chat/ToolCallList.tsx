@@ -27,8 +27,8 @@ export function ToolCallTree({
       {tools.map((tool) => {
         const children = childrenMap.get(tool.id);
 
-        // Render Task tools as rich SubAgentNode
-        if (tool.name === "Task") {
+        // Render Task/Agent tools as rich SubAgentNode
+        if (tool.name === "Task" || tool.name === "Agent") {
           const info = parseSubAgentInfo(tool);
           if (info) {
             return (
@@ -152,7 +152,7 @@ export function ToolCallList({
   // Build summary label: "N tool calls, M subagents"
   const summaryLabel = (() => {
     if (!shouldCollapse) return "";
-    const subagentCount = rootTools.filter((t) => t.name === "Task").length;
+    const subagentCount = rootTools.filter((t) => t.name === "Task" || t.name === "Agent").length;
     const toolCount = rootTools.length - subagentCount;
     const parts: string[] = [];
     if (toolCount > 0) parts.push(`${toolCount} tool call${toolCount !== 1 ? "s" : ""}`);
