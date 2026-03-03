@@ -17,7 +17,7 @@ import { getNotifier } from "../agents/agent-manager.js";
 import { loadProject } from "../state/state.js";
 import { git } from "../utils/git.js";
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
-import { getGitContext, formatGitContextBlock } from "../agents/system-prompt.js";
+import { getGitContext, formatGitContextBlock, interpolatePromptVariables } from "../agents/system-prompt.js";
 import type { Automation, AutomationRun, WsOutgoing } from "../types.js";
 
 const SUMMARY_INSTRUCTION =
@@ -204,10 +204,11 @@ export class AutomationScheduler {
 
     // Interpolate template variables
     if (systemPrompt) {
-      systemPrompt = systemPrompt
-        .replace(/\{PROJECT}/g, projectName)
-        .replace(/\{DIR}/g, workspacePath)
-        .replace(/\{DEFAULT_BRANCH}/g, defaultBranch ?? "main");
+      systemPrompt = interpolatePromptVariables(systemPrompt, {
+        projectName,
+        cwd: workspacePath,
+        defaultBranch: defaultBranch ?? "main",
+      });
     }
 
     // Create session

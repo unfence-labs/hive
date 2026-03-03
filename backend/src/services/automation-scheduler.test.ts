@@ -85,6 +85,13 @@ vi.mock("../agents/system-prompt.js", () => ({
     (_ctx: unknown, opts?: { projectName?: string }) =>
       `# Git Context (snapshot at session start)\n\nProject: ${opts?.projectName ?? "unknown"}\nCurrent branch: main\nMain branch: main\n\nStatus: (clean)\n\nRecent commits:\nabc1234 initial commit`,
   ),
+  interpolatePromptVariables: vi.fn(
+    (prompt: string, values: { projectName: string; cwd: string; defaultBranch: string }) =>
+      prompt
+        .replace(/\{DIR}/g, values.cwd)
+        .replace(/\{DEFAULT_BRANCH}/g, values.defaultBranch)
+        .replace(/\{PROJECT}/g, values.projectName),
+  ),
 }));
 
 // ── Helpers ─────────────────────────────────────────────────────────
