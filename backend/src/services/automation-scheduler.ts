@@ -188,6 +188,7 @@ export class AutomationScheduler {
     }
 
     // Inject git context for project-linked automations
+    let projectName = "";
     if (auto.projectId) {
       const project = await loadProject(auto.projectId, this.dataDir);
       if (!project) {
@@ -195,9 +196,18 @@ export class AutomationScheduler {
         await this.completeRun(auto, run.id, "failure", undefined, error, now);
         return { ...run, status: "failure", error };
       }
+      projectName = project.name;
       const ctx = await getGitContext(workspacePath, defaultBranch);
-      const gitBlock = formatGitContextBlock(ctx, { projectName: project.name });
+      const gitBlock = formatGitContextBlock(ctx, { projectName });
       systemPrompt = systemPrompt ? systemPrompt + "\n\n" + gitBlock : gitBlock;
+    }
+
+    // Interpolate template variables
+    if (systemPrompt) {
+      systemPrompt = systemPrompt
+        .replace(/\{PROJECT}/g, projectName)
+        .replace(/\{DIR}/g, workspacePath)
+        .replace(/\{DEFAULT_BRANCH}/g, defaultBranch ?? "main");
     }
 
     // Create session

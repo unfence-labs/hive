@@ -2,6 +2,8 @@ import type { FastifyInstance } from "fastify";
 import { nanoid } from "nanoid";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { git } from "../utils/git.js";
+import { bareRepoPath } from "../utils/paths.js";
 import { Cron } from "croner";
 import {
   loadAutomations,
@@ -167,23 +169,34 @@ export async function automationRoutes(
   app.delete<{ Params: { id: string } }>("/api/automations/:id", async (req, reply) => {
     const { id } = req.params;
 
-    const found = await withAutomationsLock(async () => {
+    const auto = await withAutomationsLock(async () => {
       const automations = await loadAutomations(dataDir);
       const idx = automations.findIndex((a) => a.id === id);
-      if (idx === -1) return false;
+      if (idx === -1) return null;
+      const deleted = automations[idx];
       automations.splice(idx, 1);
       await saveAutomations(automations, dataDir);
-      return true;
+      return deleted;
     });
 
-    if (!found) return reply.status(404).send({ error: "Automation not found" });
+    if (!auto) return reply.status(404).send({ error: "Automation not found" });
 
     if (opts.scheduler) {
       await opts.scheduler.onAutomationDeleted(id);
     }
 
-    // Clean up workspace directory
+    // Clean up git worktree if project-linked
     const autoDir = join(dataDir, "automations", id);
+    if (auto.projectId) {
+      const bare = bareRepoPath(dataDir, auto.projectId);
+      const wsPath = join(autoDir, "workspace");
+      try {
+        await git(["worktree", "remove", "--force", wsPath], bare);
+      } catch {
+        await git(["worktree", "prune"], bare).catch(() => {});
+      }
+    }
+
     await rm(autoDir, { recursive: true, force: true }).catch(() => {});
 
     return reply.status(204).send();

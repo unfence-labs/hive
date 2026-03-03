@@ -768,6 +768,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     return this.persistQueue;
   }
 
+  /** Await pending persist operations (for graceful shutdown). */
+  async drain(): Promise<void> {
+    await this.persistQueue;
+  }
+
   async persistMetadata(): Promise<void> {
     await this.saveMetadata();
   }

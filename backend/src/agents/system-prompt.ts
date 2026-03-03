@@ -35,7 +35,10 @@ All code, comments, and variable names must be in English.`;
 export async function loadBasePrompt(promptsDir: string): Promise<string> {
   try {
     return await readFile(join(promptsDir, "base.md"), "utf-8");
-  } catch {
+  } catch (err: unknown) {
+    if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn("[system-prompt] Failed to load base.md, using default:", err);
+    }
     return DEFAULT_BASE_PROMPT;
   }
 }

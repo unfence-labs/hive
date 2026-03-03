@@ -5,6 +5,7 @@ import { queryClient } from "@/lib/query-client";
 import "./index.css";
 import { copyToClipboard } from "@/lib/clipboard";
 import App from "./App";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // Fallback for streamdown's code block copy button in non-secure contexts
 // where navigator.clipboard is unavailable (HTTP, remote IP).
@@ -49,8 +50,10 @@ if ("__TAURI_INTERNALS__" in window) {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );
