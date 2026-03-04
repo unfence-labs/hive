@@ -295,8 +295,6 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
               <SidebarSectionHeader
                 label="Workspaces"
                 className="mb-2"
-                onAdd={onAddProject}
-                addLabel="Add repository"
               />
 
               {projects.map((project, index) => {
