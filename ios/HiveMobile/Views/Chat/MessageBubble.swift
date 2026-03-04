@@ -380,7 +380,7 @@ private func computeToolStats(_ tool: ToolCall) -> ToolStats? {
     case "Write":
         guard let content = input["content"] as? String, !content.isEmpty else { return nil }
         let lineCount = content.components(separatedBy: "\n").count
-        return ToolStats(kind: .plain, label: "\(lineCount) lines")
+        return ToolStats(kind: .diff, added: lineCount, removed: 0)
 
     case "Grep":
         guard let output = tool.output, !output.isEmpty else { return nil }
@@ -663,7 +663,7 @@ private struct WhisperToolCallRow: View {
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 0) {
-                    if tool.name == "Edit" {
+                    if tool.name == "Edit" || tool.name == "Write" {
                         DiffContentView(tool: tool)
                     } else if tool.name == "AskUserQuestion" {
                         AskUserQuestionContent(tool: tool)
@@ -792,6 +792,13 @@ private struct DiffContentView: View {
             return (nil, [])
         }
         let filePath = resolveFilePath(input)
+
+        // Write tool: all-new content
+        if let content = input["content"] as? String, !content.isEmpty {
+            let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
+            let diffLines = lines.enumerated().map { DiffLine(id: $0.offset, kind: .added, text: String($0.element)) }
+            return (filePath, diffLines)
+        }
 
         // Codex format: unified diff string
         if let diff = input["diff"] as? String, !diff.isEmpty {

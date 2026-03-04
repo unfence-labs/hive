@@ -173,9 +173,15 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
         icon: icons.file,
         label: "Write",
         detail: filename,
-        expandedContent: filePath
-          ? `Path: ${filePath}\n\nContent:\n${content ?? "(empty)"}`
-          : "No file path specified",
+        expandedContent: filePath ? (
+          <DiffView
+            filePath={filePath}
+            oldText=""
+            newText={content ?? ""}
+          />
+        ) : (
+          "No file path specified"
+        ),
       };
     }
 
@@ -348,7 +354,7 @@ function getToolStats(tool: ToolCall): ToolStats | null {
       const content = (input.content as string | undefined) ?? "";
       if (!content) return null;
       const lineCount = content.split("\n").length;
-      return { type: "plain", label: `${lineCount} lines` };
+      return { type: "diff", added: lineCount, removed: 0 };
     }
     case "Grep": {
       if (!tool.output) return null;
