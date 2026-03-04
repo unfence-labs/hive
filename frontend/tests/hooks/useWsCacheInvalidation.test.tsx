@@ -5,6 +5,8 @@ import { createWrapper } from "../test-utils";
 
 interface Message {
   type: string;
+  sessionId?: string;
+  streaming?: boolean;
 }
 
 interface Listener {
@@ -83,6 +85,17 @@ describe("useWsCacheInvalidation", () => {
 
     expect(invalidateSpy).toHaveBeenCalledTimes(1);
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["workspace", "ws-1"] });
+  });
+
+  it("invalidates sessions on streaming status messages tied to a session", () => {
+    const { wrapper, queryClient } = createWrapper();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue(undefined);
+    renderHook(() => useWsCacheInvalidation(["ws-1"]), { wrapper });
+
+    emit("ws-1", { type: "status", sessionId: "sess-1", streaming: true });
+
+    expect(invalidateSpy).toHaveBeenNthCalledWith(1, { queryKey: ["workspace", "ws-1"] });
+    expect(invalidateSpy).toHaveBeenNthCalledWith(2, { queryKey: ["sessions", "ws-1"] });
   });
 
   it("ignores unsupported message types", () => {

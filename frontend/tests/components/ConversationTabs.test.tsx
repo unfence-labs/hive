@@ -153,6 +153,13 @@ describe("ConversationTabs", () => {
     expect(screen.getByTitle("New conversation")).toBeInTheDocument();
   });
 
+  it("shows streaming indicator on empty Untitled tab when streaming", () => {
+    renderTabs({ sessions: [], activeSessionId: undefined, isStreaming: true });
+
+    const untitledTab = screen.getByRole("button", { name: /Untitled/ });
+    expect(untitledTab.querySelector("[aria-label='Agent thinking']")).toBeInTheDocument();
+  });
+
   it("dims the empty Untitled tab when file tab is active", () => {
     renderTabs({
       sessions: [],

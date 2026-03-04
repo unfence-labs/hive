@@ -34,6 +34,11 @@ export function useWsCacheInvalidation(workspaceIds: string[]): void {
           case "status":
             // Workspace busy/idle transition.
             void queryClient.invalidateQueries({ queryKey: ["workspace", wsId] });
+            // Auto-created sessions (first user message) should appear in tabs
+            // immediately, not only after done/cancelled events.
+            if (msg.sessionId && msg.streaming) {
+              void queryClient.invalidateQueries({ queryKey: ["sessions", wsId] });
+            }
             break;
         }
       }),
