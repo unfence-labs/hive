@@ -87,6 +87,7 @@ function renderSidebar(
   projects: Project[],
   apiOverrides?: {
     diffStat?: Record<string, unknown> | Error;
+    automations?: Record<string, unknown>[] | Error;
   },
 ) {
   const queryClient = new QueryClient({
@@ -95,6 +96,11 @@ function renderSidebar(
 
   vi.mocked(api.get).mockImplementation(async (url: string) => {
     if (url === "/api/projects") return projects;
+    if (url === "/api/automations") {
+      const override = apiOverrides?.automations;
+      if (override instanceof Error) throw override;
+      return override ?? [];
+    }
     const diffMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
     if (diffMatch) {
       const override = apiOverrides?.diffStat;
@@ -130,7 +136,7 @@ function renderSidebar(
 
 function findSidebarUnreadDot(container: HTMLElement) {
   return container.querySelector(
-    "span[class*='h-1.5'][class*='w-1.5'][class*='rounded-full'][class*='bg-primary']",
+    "span[class*='rounded-full'][class*='bg-primary']",
   );
 }
 
