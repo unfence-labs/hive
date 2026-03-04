@@ -445,17 +445,8 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                     <Skeleton className="h-12 w-full rounded-md" />
                   </div>
                 ) : sortedAutomations.length === 0 ? (
-                  <div className="px-2 py-3 text-center">
-                    <p className="text-xs text-muted-foreground/60">No automations</p>
-                    {onAddAutomation && (
-                      <button
-                        type="button"
-                        className="mt-1 text-xs text-primary hover:underline"
-                        onClick={onAddAutomation}
-                      >
-                        Create one
-                      </button>
-                    )}
+                  <div className="mt-2 py-1">
+                    <p className="text-xs text-muted-foreground/60">no automations</p>
                   </div>
                 ) : (
                   <div className="mt-2 space-y-1.5">
