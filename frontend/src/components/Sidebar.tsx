@@ -43,7 +43,7 @@ import type { Automation, DiffStatResponse } from "@/types";
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /** Extract { owner, repo } from any git URL, or null if unparseable. */
-function parseProjectOwnerRepo(url: string): { owner: string; repo: string } | null {
+export function parseProjectOwnerRepo(url: string): { owner: string; repo: string } | null {
   // SCP-style: git@host:owner/repo.git
   const scpMatch = url.match(/^[^@]+@[^:]+:([^/]+)\/([^/]+?)(?:\.git)?$/);
   if (scpMatch) return { owner: scpMatch[1], repo: scpMatch[2] };
@@ -504,13 +504,13 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
 
 // ── Automation sidebar list ──────────────────────────────────────────
 
-function automationSortKey(a: Automation): number {
+export function automationSortKey(a: Automation): number {
   if (a.lastRunStatus === "running") return 0;
   if (a.enabled) return 1;
   return 2;
 }
 
-function describeSchedule(expression: string): string {
+export function describeSchedule(expression: string): string {
   const presets: Record<string, string> = {
     "0 * * * *": "Hourly",
     "0 */6 * * *": "Every 6h",
@@ -561,11 +561,9 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-sm",
-            isActive
+            isActive || auto.enabled
               ? "text-sidebar-foreground"
-              : auto.enabled
-                ? "text-sidebar-foreground"
-                : "text-muted-foreground",
+              : "text-muted-foreground",
           )}
         >
           {auto.name}

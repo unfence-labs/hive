@@ -330,6 +330,7 @@ function renderWorkspace(initialEntry = "/workspaces/ws-1") {
           <TestControls />
           <Routes>
             <Route path="/workspaces/:wsId" element={<WorkspaceView />} />
+            <Route path="/home" element={<div data-testid="home-page">Home page</div>} />
           </Routes>
         </MemoryRouter>
       </WorkspaceLiveDataProvider>
@@ -2003,5 +2004,33 @@ describe("WorkspaceView dropdown terminal interactions", () => {
     // Queued message flows to ChatConversation and ChatInput
     expect(screen.getByTestId("chat-queued-message")).toHaveTextContent("queued msg");
     expect(screen.getByTestId("chat-input")).toHaveAttribute("data-has-queue", "true");
+  });
+
+  it("redirects to /home when workspace is not found", async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
+      if (workspaceMatch) return null;
+      return [];
+    });
+
+    renderWorkspace("/workspaces/nonexistent");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("home-page")).toBeInTheDocument();
+    });
+  });
+
+  it("redirects to /home when workspace API call fails", async () => {
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
+      if (workspaceMatch) throw new Error("Network error");
+      return [];
+    });
+
+    renderWorkspace("/workspaces/ws-1");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("home-page")).toBeInTheDocument();
+    });
   });
 });

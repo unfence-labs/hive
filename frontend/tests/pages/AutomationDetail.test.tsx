@@ -1,9 +1,10 @@
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import AutomationDetail from "@/pages/AutomationDetail";
+import { ApiError } from "@/hooks/useApi";
 import type { Automation, AutomationRun } from "@/types";
 
 const mocks = vi.hoisted(() => ({
@@ -94,6 +95,7 @@ function renderPage() {
       <Routes>
         <Route path="/automations/:automationId" element={<AutomationDetail />} />
         <Route path="/automations" element={<div>Automation list</div>} />
+        <Route path="/home" element={<div>Home page</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -147,5 +149,67 @@ describe("AutomationDetail", () => {
     expect(screen.getByTestId("edit-dialog")).toHaveTextContent("closed");
     await user.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByTestId("edit-dialog")).toHaveTextContent("open:auto-1");
+  });
+
+  it("redirects to /home on 404 error", () => {
+    mocks.useAutomation.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: new ApiError(404, "Not found"),
+    });
+
+    renderPage();
+
+    expect(screen.getByText("Home page")).toBeInTheDocument();
+  });
+
+  it("redirects to /home when automation data is null (non-404)", () => {
+    mocks.useAutomation.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: null,
+    });
+
+    renderPage();
+
+    expect(screen.getByText("Home page")).toBeInTheDocument();
+  });
+
+  it("shows loading spinner while fetching", () => {
+    mocks.useAutomation.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      error: null,
+    });
+
+    renderPage();
+
+    expect(screen.queryByText("Home page")).not.toBeInTheDocument();
+    // Should show the Loader2 spinner — check for the animate-spin class
+    expect(document.querySelector(".animate-spin")).toBeInTheDocument();
+  });
+
+  it("navigates to /home after deletion", async () => {
+    const user = userEvent.setup();
+    const deleteAsync = vi.fn().mockResolvedValue(undefined);
+    mocks.useDeleteAutomation.mockReturnValue({
+      mutateAsync: deleteAsync,
+      isPending: false,
+    });
+
+    renderPage();
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    // Confirm in dialog
+    await waitFor(() => {
+      expect(screen.getByText("Delete automation")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Home page")).toBeInTheDocument();
+    });
   });
 });

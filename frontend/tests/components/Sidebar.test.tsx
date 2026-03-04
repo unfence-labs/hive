@@ -123,7 +123,15 @@ function renderSidebar(
               element={<SidebarRoute />}
             />
             <Route
+              path="/home"
+              element={<SidebarRoute />}
+            />
+            <Route
               path="/workspaces/:wsId"
+              element={<SidebarRoute />}
+            />
+            <Route
+              path="/automations/:automationId"
               element={<SidebarRoute />}
             />
             <Route path="/settings" element={<SettingsStateProbe />} />
@@ -749,5 +757,336 @@ describe("Sidebar", () => {
     renderSidebar("/workspaces/w1", projects);
 
     expect(await screen.findByText("Error fetching PR")).toBeInTheDocument();
+  });
+
+  // ── Sidebar card CSS classes ──────────────────────────────────────
+
+  it("applies sidebar-card class to workspace links", async () => {
+    renderSidebar("/workspaces/w1", projects);
+    await screen.findByText("workspace/tokyo");
+
+    const wsLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
+    expect(wsLink.className).toContain("sidebar-card");
+  });
+
+  it("applies sidebar-card-active class to the active workspace", async () => {
+    renderSidebar("/workspaces/w1", projects);
+    await screen.findByText("workspace/tokyo");
+
+    const wsLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
+    expect(wsLink.className).toContain("sidebar-card-active");
+  });
+
+  it("does not apply sidebar-card-active to inactive workspaces", async () => {
+    const multiWsProjects: Project[] = [
+      {
+        id: "p1",
+        name: "Alpha",
+        url: "https://github.com/acme/alpha.git",
+        createdAt: "2026-02-11T00:00:00.000Z",
+        workspaces: [
+          { id: "w1", name: "tokyo", branch: "workspace/tokyo", status: "idle", createdAt: "2026-02-11T00:00:00.000Z" },
+          { id: "w2", name: "paris", branch: "workspace/paris", status: "idle", createdAt: "2026-02-11T00:00:00.000Z" },
+        ],
+      },
+    ];
+
+    renderSidebar("/workspaces/w1", multiWsProjects);
+    await screen.findByText("workspace/paris");
+
+    const inactiveLink = screen.getByRole("link", { name: /workspace\/paris/i });
+    expect(inactiveLink.className).toContain("sidebar-card");
+    expect(inactiveLink.className).not.toContain("sidebar-card-active");
+  });
+
+  // ── Automations section ──────────────────────────────────────────
+
+  it("shows 'Automations' section header", async () => {
+    renderSidebar("/home", projects);
+    expect(await screen.findByText("Automations")).toBeInTheDocument();
+  });
+
+  it("shows automation empty state when no automations exist", async () => {
+    renderSidebar("/home", projects, { automations: [] });
+    expect(await screen.findByText("no automations")).toBeInTheDocument();
+  });
+
+  it("shows loading skeleton while automations are loading", async () => {
+    // Use a pending promise so the query never resolves
+    let resolveAutomations!: (value: unknown) => void;
+    const pendingAutomations = new Promise((res) => { resolveAutomations = res; });
+
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/projects") return projects;
+      if (url === "/api/automations") return pendingAutomations;
+      return { committed: [], uncommitted: [] };
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceLiveDataProvider workspaceIds={["w1"]}>
+          <MemoryRouter initialEntries={["/home"]}>
+            <Routes>
+              <Route path="/home" element={<SidebarRoute />} />
+            </Routes>
+          </MemoryRouter>
+        </WorkspaceLiveDataProvider>
+      </QueryClientProvider>,
+    );
+
+    // While loading, skeletons should be rendered, not the empty state
+    expect(screen.queryByText("no automations")).not.toBeInTheDocument();
+
+    // Resolve to empty array
+    resolveAutomations([]);
+    await waitFor(() => {
+      expect(screen.getByText("no automations")).toBeInTheDocument();
+    });
+  });
+
+  it("renders automation rows sorted by running > enabled > disabled", async () => {
+    const automations = [
+      {
+        id: "a3",
+        name: "Disabled job",
+        enabled: false,
+        trigger: { type: "cron", expression: "0 * * * *" },
+        action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "x" },
+        notification: { onComplete: false, onFailure: false },
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+      {
+        id: "a1",
+        name: "Running job",
+        enabled: true,
+        lastRunStatus: "running",
+        trigger: { type: "cron", expression: "0 2 * * *" },
+        action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "x" },
+        notification: { onComplete: false, onFailure: false },
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+      {
+        id: "a2",
+        name: "Enabled job",
+        enabled: true,
+        trigger: { type: "cron", expression: "0 8 * * *" },
+        action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "x" },
+        notification: { onComplete: false, onFailure: false },
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+    ];
+
+    renderSidebar("/home", projects, { automations });
+
+    const links = await waitFor(() => {
+      const items = screen.getAllByRole("link").filter((el) =>
+        el.getAttribute("href")?.startsWith("/automations/"),
+      );
+      expect(items).toHaveLength(3);
+      return items;
+    });
+
+    // Verify order: Running (a1) → Enabled (a2) → Disabled (a3)
+    expect(links[0]).toHaveTextContent("Running job");
+    expect(links[1]).toHaveTextContent("Enabled job");
+    expect(links[2]).toHaveTextContent("Disabled job");
+  });
+
+  it("shows 'running' label for running automations", async () => {
+    const automations = [
+      {
+        id: "a1",
+        name: "My automation",
+        enabled: true,
+        lastRunStatus: "running",
+        trigger: { type: "cron", expression: "0 2 * * *" },
+        action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "x" },
+        notification: { onComplete: false, onFailure: false },
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+    ];
+
+    renderSidebar("/home", projects, { automations });
+    expect(await screen.findByText("running")).toBeInTheDocument();
+  });
+
+  it("shows 'disabled' label for disabled automations", async () => {
+    const automations = [
+      {
+        id: "a1",
+        name: "Disabled auto",
+        enabled: false,
+        trigger: { type: "cron", expression: "0 2 * * *" },
+        action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "x" },
+        notification: { onComplete: false, onFailure: false },
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+    ];
+
+    renderSidebar("/home", projects, { automations });
+    expect(await screen.findByText("disabled")).toBeInTheDocument();
+  });
+
+  it("applies sidebar-card-active class to the active automation", async () => {
+    const automations = [
+      {
+        id: "a1",
+        name: "Active auto",
+        enabled: true,
+        trigger: { type: "cron", expression: "0 2 * * *" },
+        action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "x" },
+        notification: { onComplete: false, onFailure: false },
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+    ];
+
+    renderSidebar("/automations/a1", projects, { automations });
+
+    const autoLink = await screen.findByRole("link", { name: /Active auto/i });
+    expect(autoLink.className).toContain("sidebar-card");
+    expect(autoLink.className).toContain("sidebar-card-active");
+  });
+
+  it("shows green pulsing dot for running automation", async () => {
+    const automations = [
+      {
+        id: "a1",
+        name: "Running auto",
+        enabled: true,
+        lastRunStatus: "running",
+        trigger: { type: "cron", expression: "0 2 * * *" },
+        action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "x" },
+        notification: { onComplete: false, onFailure: false },
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+    ];
+
+    renderSidebar("/home", projects, { automations });
+
+    const autoLink = await screen.findByRole("link", { name: /Running auto/i });
+    const dot = autoLink.querySelector("span[class*='rounded-full']");
+    expect(dot).toBeTruthy();
+    expect(dot!.className).toContain("bg-green-500");
+    expect(dot!.className).toContain("animate-pulse");
+  });
+
+  it("shows muted dot for disabled automations", async () => {
+    const automations = [
+      {
+        id: "a1",
+        name: "Off auto",
+        enabled: false,
+        trigger: { type: "cron", expression: "0 2 * * *" },
+        action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "x" },
+        notification: { onComplete: false, onFailure: false },
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+      },
+    ];
+
+    renderSidebar("/home", projects, { automations });
+
+    const autoLink = await screen.findByRole("link", { name: /Off auto/i });
+    const dot = autoLink.querySelector("span[class*='rounded-full']");
+    expect(dot).toBeTruthy();
+    expect(dot!.className).toContain("bg-muted-foreground/40");
+    expect(dot!.className).not.toContain("animate-pulse");
+  });
+
+  // ── SidebarSectionHeader ─────────────────────────────────────────
+
+  it("renders 'Workspaces' section header", async () => {
+    renderSidebar("/home", projects);
+    expect(await screen.findByText("Workspaces")).toBeInTheDocument();
+  });
+
+  it("renders add automation button in automations header", async () => {
+    const onAddAutomation = vi.fn();
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/projects") return projects;
+      if (url === "/api/automations") return [];
+      return { committed: [], uncommitted: [] };
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceLiveDataProvider workspaceIds={["w1"]}>
+          <MemoryRouter initialEntries={["/home"]}>
+            <Routes>
+              <Route
+                path="/home"
+                element={
+                  <>
+                    <Sidebar onAddProject={vi.fn()} onAddAutomation={onAddAutomation} />
+                    <div data-testid="location-path">/home</div>
+                  </>
+                }
+              />
+            </Routes>
+          </MemoryRouter>
+        </WorkspaceLiveDataProvider>
+      </QueryClientProvider>,
+    );
+
+    const addBtn = await screen.findByRole("button", { name: "Add automation" });
+    expect(addBtn).toBeInTheDocument();
+  });
+
+  // ── Project header owner/repo display ────────────────────────────
+
+  it("displays owner/repo format from HTTPS GitHub URL", async () => {
+    renderSidebar("/home", projects);
+    expect(await screen.findByText(withTextContent("acme/alpha"))).toBeInTheDocument();
+  });
+
+  it("displays project name when URL is unparseable", async () => {
+    const badUrlProjects: Project[] = [
+      {
+        id: "p1",
+        name: "LocalProject",
+        url: "just-a-name",
+        createdAt: "2026-02-11T00:00:00.000Z",
+        workspaces: [],
+      },
+    ];
+
+    renderSidebar("/home", badUrlProjects);
+    expect(await screen.findByText("LocalProject")).toBeInTheDocument();
+  });
+
+  // ── Archive redirect ─────────────────────────────────────────────
+
+  it("navigates to /home after archiving the active workspace", async () => {
+    const user = userEvent.setup();
+    mockPostWithBulkFallback({
+      "/api/workspaces/w1/archive": undefined,
+    });
+
+    renderSidebar("/workspaces/w1", projects, {
+      diffStat: { committed: [], uncommitted: [] },
+    });
+
+    await screen.findByText("workspace/tokyo");
+    await user.click(screen.getByRole("button", { name: /archive workspace/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location-path")).toHaveTextContent("/home");
+    });
   });
 });

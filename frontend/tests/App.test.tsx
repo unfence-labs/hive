@@ -278,4 +278,22 @@ describe("App", () => {
     expect(screen.getByText("appearance settings")).toBeInTheDocument();
     expect(window.location.pathname).toBe("/settings/appearance");
   });
+
+  it("redirects /automations to /home", () => {
+    window.history.pushState({}, "", "/automations");
+
+    renderApp();
+
+    expect(screen.getByRole("button", { name: "open add project" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/home");
+  });
+
+  it("redirects /projects to /home", () => {
+    window.history.pushState({}, "", "/projects");
+
+    renderApp();
+
+    expect(screen.getByRole("button", { name: "open add project" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/home");
+  });
 });
