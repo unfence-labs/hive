@@ -70,7 +70,7 @@ describe("SettingsSidebar", () => {
     });
   });
 
-  it("falls back to /projects when opened directly", async () => {
+  it("falls back to /home when opened directly", async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <MemoryRouter initialEntries={["/settings/appearance"]}>
@@ -80,14 +80,14 @@ describe("SettingsSidebar", () => {
             <Route path="notifications" element={<div>Notification settings</div>} />
             <Route path="agents" element={<div>Agents settings</div>} />
           </Route>
-          <Route path="/projects" element={<div>Projects list</div>} />
+          <Route path="/home" element={<div>Home page</div>} />
         </Routes>
       </MemoryRouter>,
     );
 
     await user.click(screen.getByRole("button", { name: "Back" }));
     await waitFor(() => {
-      expect(screen.getByText("Projects list")).toBeInTheDocument();
+      expect(screen.getByText("Home page")).toBeInTheDocument();
     });
   });
 

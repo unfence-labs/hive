@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { Navigate, useParams, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -33,6 +33,7 @@ import {
 } from "@/hooks/useAutomations";
 import { usePromptTemplates } from "@/hooks/usePromptTemplates";
 import { useProjects } from "@/hooks/useProjects";
+import { ApiError } from "@/hooks/useApi";
 import { getNextRun, formatTimeUntil } from "@/lib/cron";
 import { cn } from "@/lib/utils";
 import type { AutomationRun } from "@/types";
@@ -40,7 +41,7 @@ import type { AutomationRun } from "@/types";
 export default function AutomationDetail() {
   const { automationId } = useParams();
   const navigate = useNavigate();
-  const { data: auto, isLoading } = useAutomation(automationId);
+  const { data: auto, isLoading, error } = useAutomation(automationId);
   const { data: runs } = useAutomationRuns(automationId);
   const updateMutation = useUpdateAutomation();
   const deleteMutation = useDeleteAutomation();
@@ -63,12 +64,20 @@ export default function AutomationDetail() {
     return map;
   }, [projects]);
 
-  if (isLoading || !auto) {
+  if (error instanceof ApiError && error.status === 404) {
+    return <Navigate to="/home" replace />;
+  }
+
+  if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
+  }
+
+  if (!auto) {
+    return <Navigate to="/home" replace />;
   }
 
   const isRunning = auto.lastRunStatus === "running";
@@ -83,7 +92,7 @@ export default function AutomationDetail() {
 
   const handleDelete = async () => {
     await deleteMutation.mutateAsync(auto.id);
-    navigate("/automations");
+    navigate("/home");
   };
 
   return (

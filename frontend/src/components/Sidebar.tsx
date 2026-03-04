@@ -260,7 +260,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     try {
       const wasActive = activeWsId === wsId;
       await archiveWorkspace(wsId);
-      if (wasActive) navigate("/projects");
+      if (wasActive) navigate("/home");
     } finally {
       setArchivingWsId(null);
     }

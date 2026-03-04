@@ -12,7 +12,7 @@ export default function SettingsSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { pathname } = location;
-  const returnTo = useRef((location.state as { from?: string } | null)?.from ?? "/projects");
+  const returnTo = useRef((location.state as { from?: string } | null)?.from ?? "/home");
 
   const footerActions = (
     <div className="flex items-center justify-end px-2 py-1.5">

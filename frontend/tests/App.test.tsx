@@ -173,13 +173,13 @@ describe("App", () => {
     expect(mocks.disconnectAll).toHaveBeenCalledTimes(1);
   });
 
-  it("redirects root index to /projects", () => {
+  it("redirects root index to /home", () => {
     window.history.pushState({}, "", "/");
 
     renderApp();
 
     expect(screen.getByRole("button", { name: "open add project" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/projects");
+    expect(window.location.pathname).toBe("/home");
   });
 
   it("renders workspace route", () => {
@@ -261,13 +261,13 @@ describe("App", () => {
     expect(screen.getByText("agent settings")).toBeInTheDocument();
   });
 
-  it("redirects /projects/:id to /projects", () => {
+  it("redirects /projects/:id to /home", () => {
     window.history.pushState({}, "", "/projects/p1");
 
     renderApp();
 
     expect(screen.getByRole("button", { name: "open add project" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/projects");
+    expect(window.location.pathname).toBe("/home");
   });
 
   it("redirects /settings to /settings/appearance", () => {
