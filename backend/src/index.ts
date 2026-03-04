@@ -1,5 +1,5 @@
 import os from "node:os";
-import { statfsSync } from "node:fs";
+import { readFileSync, statfsSync } from "node:fs";
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
@@ -57,7 +57,130 @@ interface BuildAppOptions {
 }
 
 // ── CPU usage sampling ──────────────────────────────────────────────
-// Sample os.cpus() periodically and compute real CPU % from idle delta.
+// Prefer cgroup quota-aware CPU usage (Linux containers) and fall back to host CPU usage.
+
+type CgroupVersion = "v1" | "v2";
+
+interface CgroupReader {
+  version: CgroupVersion;
+  dir: string;
+}
+
+interface CgroupSample {
+  usageMicros: number;
+  quotaCores: number | null;
+}
+
+function readTextFile(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8").trim();
+  } catch {
+    return null;
+  }
+}
+
+function parsePositiveFiniteNumber(value: string | null): number | null {
+  if (!value) return null;
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return num;
+}
+
+function normalizeCgroupRelativePath(path: string): string {
+  return path === "/" ? "" : path;
+}
+
+function parseSelfCgroupPathV2(): string | null {
+  const raw = readTextFile("/proc/self/cgroup");
+  if (!raw) return null;
+  for (const line of raw.split("\n")) {
+    const [hierarchyId, controllers, path] = line.split(":");
+    if (!hierarchyId || controllers !== "" || !path) continue;
+    return normalizeCgroupRelativePath(path);
+  }
+  return null;
+}
+
+function parseSelfCgroupPathV1(): string | null {
+  const raw = readTextFile("/proc/self/cgroup");
+  if (!raw) return null;
+  for (const line of raw.split("\n")) {
+    const [, controllers, path] = line.split(":");
+    if (!controllers || !path) continue;
+    const set = new Set(controllers.split(","));
+    if (set.has("cpu") || set.has("cpuacct")) {
+      return normalizeCgroupRelativePath(path);
+    }
+  }
+  return null;
+}
+
+function uniqueNonEmpty(paths: Array<string | null | undefined>): string[] {
+  return [...new Set(paths.filter((value): value is string => Boolean(value)))];
+}
+
+function detectCgroupReader(): CgroupReader | null {
+  if (process.platform !== "linux") return null;
+
+  const v2Path = parseSelfCgroupPathV2();
+  const v2Candidates = uniqueNonEmpty([v2Path ? `/sys/fs/cgroup${v2Path}` : null, "/sys/fs/cgroup"]);
+  for (const dir of v2Candidates) {
+    if (readTextFile(`${dir}/cpu.max`) && readTextFile(`${dir}/cpu.stat`)) {
+      return { version: "v2", dir };
+    }
+  }
+
+  const v1Path = parseSelfCgroupPathV1();
+  const v1Candidates = uniqueNonEmpty([
+    v1Path ? `/sys/fs/cgroup/cpu,cpuacct${v1Path}` : null,
+    v1Path ? `/sys/fs/cgroup/cpu${v1Path}` : null,
+    "/sys/fs/cgroup/cpu,cpuacct",
+    "/sys/fs/cgroup/cpu",
+  ]);
+  for (const dir of v1Candidates) {
+    if (
+      readTextFile(`${dir}/cpu.cfs_quota_us`) &&
+      readTextFile(`${dir}/cpu.cfs_period_us`) &&
+      readTextFile(`${dir}/cpuacct.usage`)
+    ) {
+      return { version: "v1", dir };
+    }
+  }
+
+  return null;
+}
+
+function readCgroupSample(reader: CgroupReader): CgroupSample | null {
+  if (reader.version === "v2") {
+    const cpuStat = readTextFile(`${reader.dir}/cpu.stat`);
+    const cpuMax = readTextFile(`${reader.dir}/cpu.max`);
+    if (!cpuStat || !cpuMax) return null;
+
+    const usageMatch = cpuStat.match(/(?:^|\n)usage_usec\s+(\d+)\b/);
+    if (!usageMatch) return null;
+    const usageMicros = Number(usageMatch[1]);
+    if (!Number.isFinite(usageMicros) || usageMicros < 0) return null;
+
+    const [quotaRaw, periodRaw] = cpuMax.split(/\s+/, 2);
+    let quotaCores: number | null = null;
+    if (quotaRaw && periodRaw && quotaRaw !== "max") {
+      const quota = Number(quotaRaw);
+      const period = Number(periodRaw);
+      if (Number.isFinite(quota) && Number.isFinite(period) && quota > 0 && period > 0) {
+        quotaCores = quota / period;
+      }
+    }
+    return { usageMicros, quotaCores };
+  }
+
+  const quota = parsePositiveFiniteNumber(readTextFile(`${reader.dir}/cpu.cfs_quota_us`));
+  const period = parsePositiveFiniteNumber(readTextFile(`${reader.dir}/cpu.cfs_period_us`));
+  const usageNanos = parsePositiveFiniteNumber(readTextFile(`${reader.dir}/cpuacct.usage`));
+  if (usageNanos === null) return null;
+
+  const quotaCores = quota !== null && period !== null ? quota / period : null;
+  return { usageMicros: usageNanos / 1_000, quotaCores };
+}
 
 function snapshotCpuTimes() {
   let idle = 0;
@@ -71,18 +194,53 @@ function snapshotCpuTimes() {
 }
 
 let prevCpu = snapshotCpuTimes();
-let cpuPercentCache = -1; // -1 = no sample yet
+let hostCpuPercentCache = -1; // -1 = no sample yet
+const cgroupReader = detectCgroupReader();
+let prevCgroupUsageMicros: number | null = null;
+let prevCgroupSampleTime = process.hrtime.bigint();
+let cgroupCpuPercentCache: number | null = null;
 
 setInterval(() => {
   const curr = snapshotCpuTimes();
   const idleDelta = curr.idle - prevCpu.idle;
   const totalDelta = curr.total - prevCpu.total;
-  cpuPercentCache = totalDelta > 0 ? Math.round((1 - idleDelta / totalDelta) * 100) : 0;
+  hostCpuPercentCache = totalDelta > 0 ? Math.round((1 - idleDelta / totalDelta) * 100) : 0;
   prevCpu = curr;
+
+  if (!cgroupReader) return;
+
+  const cgroupSample = readCgroupSample(cgroupReader);
+  const now = process.hrtime.bigint();
+  if (!cgroupSample) {
+    cgroupCpuPercentCache = null;
+    prevCgroupUsageMicros = null;
+    prevCgroupSampleTime = now;
+    return;
+  }
+
+  const elapsedMicros = Number(now - prevCgroupSampleTime) / 1_000;
+  if (
+    prevCgroupUsageMicros !== null &&
+    elapsedMicros > 0 &&
+    cgroupSample.quotaCores !== null &&
+    cgroupSample.quotaCores > 0
+  ) {
+    const usageDelta = cgroupSample.usageMicros - prevCgroupUsageMicros;
+    if (usageDelta >= 0) {
+      const rawPercent = (usageDelta / (elapsedMicros * cgroupSample.quotaCores)) * 100;
+      cgroupCpuPercentCache = Math.max(0, Math.min(100, Math.round(rawPercent)));
+    }
+  } else {
+    cgroupCpuPercentCache = null;
+  }
+
+  prevCgroupUsageMicros = cgroupSample.usageMicros;
+  prevCgroupSampleTime = now;
 }, 5_000).unref();
 
 function getCpuPercent(): number {
-  if (cpuPercentCache >= 0) return cpuPercentCache;
+  if (cgroupCpuPercentCache !== null) return cgroupCpuPercentCache;
+  if (hostCpuPercentCache >= 0) return hostCpuPercentCache;
   // No delta yet — fall back to load average as rough estimate
   return Math.min(100, Math.round((os.loadavg()[0] / (os.cpus().length || 1)) * 100));
 }

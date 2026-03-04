@@ -234,7 +234,7 @@ export default function ScriptPanel({
               {tab.isTerminal ? (
                 <>
                   {tabStatus.state === "running" && <ActivityWave size="small" decorative />}
-                  <TerminalSquareIcon className="size-3" />
+                  <span className="font-semibold">T1</span>
                 </>
               ) : (
                 <>
