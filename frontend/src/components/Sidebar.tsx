@@ -304,7 +304,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                       />
 
                       <CollapsibleContent>
-                        <div className="mt-1 space-y-0.5">
+                        <div className="mt-1 space-y-1.5">
                           {(project.workspaces ?? []).map((ws) => {
                             const wsLive = liveData[ws.id];
                             const wsStreaming = wsLive?.streaming ?? false;
@@ -321,10 +321,8 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                                     <Link
                                       to={`/workspaces/${ws.id}`}
                                       className={cn(
-                                        "block rounded-md py-1.5 pl-2 pr-2 transition-colors",
-                                        activeWsId === ws.id
-                                          ? "bg-primary/10"
-                                          : "hover:bg-sidebar-accent/60",
+                                        "sidebar-card block rounded-md border py-1.5 pl-2 pr-2",
+                                        activeWsId === ws.id && "sidebar-card-active",
                                       )}
                                     >
                                       <div className="flex items-center gap-1.5">
@@ -335,7 +333,16 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                                             <span className="h-1.5 w-1.5 rounded-full bg-primary" />
                                           ) : null}
                                         </div>
-                                        <BranchLabel branch={displayBranch} showIcon={false} className="min-w-0 flex-1 text-sm text-muted-foreground" />
+                                        <BranchLabel
+                                          branch={displayBranch}
+                                          showIcon={false}
+                                          className={cn(
+                                            "min-w-0 flex-1 text-sm",
+                                            activeWsId === ws.id || wsUnread
+                                              ? "text-sidebar-foreground"
+                                              : "text-muted-foreground",
+                                          )}
+                                        />
                                         {wsScriptRunning && (
                                           <WaveIndicator className="shrink-0" />
                                         )}
@@ -525,7 +532,7 @@ function AutomationList({ onAddAutomation }: { onAddAutomation?: () => void }) {
           />
 
           <CollapsibleContent>
-            <div className="mt-1 space-y-0.5">
+            <div className="mt-1 space-y-1.5">
               {cronAutomations.length === 0 ? (
                 <div className="px-2.5 py-3 text-center">
                   <p className="text-xs text-muted-foreground/60">No cron automations</p>
@@ -584,8 +591,8 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
     <Link
       to={`/automations/${auto.id}`}
       className={cn(
-        "block rounded-md px-2.5 py-1.5 transition-colors",
-        isActive ? "bg-primary/10" : "hover:bg-sidebar-accent/60",
+        "sidebar-card block rounded-md border px-2.5 py-1.5",
+        isActive && "sidebar-card-active",
       )}
     >
       <div className="flex items-center gap-2">
@@ -599,12 +606,22 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
                 : "bg-muted-foreground/40",
           )}
         />
-        <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground">
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-sm",
+            isActive ? "text-sidebar-foreground" : "text-muted-foreground",
+          )}
+        >
           {auto.name}
         </span>
         {isRunning && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-blue-400" />}
       </div>
-      <div className="mt-0.5 pl-4 text-[11px] text-muted-foreground">
+      <div
+        className={cn(
+          "mt-0.5 pl-4 text-[11px]",
+          isActive ? "text-sidebar-foreground/70" : "text-muted-foreground",
+        )}
+      >
         {auto.enabled ? describeScheduleWithNext(auto.trigger.expression) : "Disabled"}
       </div>
     </Link>
