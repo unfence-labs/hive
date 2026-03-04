@@ -142,6 +142,46 @@ function SidebarGroupHeader({
   );
 }
 
+interface SidebarSectionHeaderProps {
+  label: string;
+  isLoading?: boolean;
+  onAdd?: () => void;
+  addLabel?: string;
+  className?: string;
+}
+
+function SidebarSectionHeader({
+  label,
+  isLoading = false,
+  onAdd,
+  addLabel,
+  className,
+}: SidebarSectionHeaderProps) {
+  return (
+    <div className={cn("group relative flex w-full items-center", className)}>
+      <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        {label}
+      </span>
+      <div className="relative flex h-5 w-5 items-center justify-center">
+        {isLoading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+        ) : onAdd ? (
+          <button
+            type="button"
+            className="flex items-center justify-center text-primary transition-colors hover:text-primary/80"
+            onClick={onAdd}
+            aria-label={addLabel}
+            title={addLabel}
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        ) : null
+        }
+      </div>
+    </div>
+  );
+}
+
 // ── Sidebar ──────────────────────────────────────────────────────────
 
 interface SidebarProps {
@@ -252,6 +292,13 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
             </div>
           ) : (
             <TooltipProvider delayDuration={400}>
+              <SidebarSectionHeader
+                label="Workspaces"
+                className="mb-2"
+                onAdd={onAddProject}
+                addLabel="Add repository"
+              />
+
               {projects.map((project, index) => {
                 const parsed = parseProjectOwnerRepo(project.url);
                 const displayLabel = parsed ? (
@@ -385,37 +432,17 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                 );
               })}
 
-              <div className="mt-3 border-t border-border/60 pt-3">
-                <div className="group relative flex w-full items-center">
-                  <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    Automations
-                  </span>
-                  <div className="relative flex h-5 w-5 items-center justify-center">
-                    {automationsLoading ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                    ) : (
-                      <>
-                        <span className="text-xs tabular-nums text-muted-foreground/60 transition-opacity group-hover:opacity-0">
-                          {sortedAutomations.length}
-                        </span>
-                        {onAddAutomation && (
-                          <button
-                            type="button"
-                            className="absolute inset-0 flex items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover:opacity-100"
-                            onClick={() => onAddAutomation()}
-                            aria-label="Add automation"
-                            title="Add automation"
-                          >
-                            <Plus className="h-4 w-4" />
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
+              <div className="mt-6">
+                <div className="mb-6 border-t border-white/15" />
+                <SidebarSectionHeader
+                  label="Automations"
+                  isLoading={automationsLoading}
+                  onAdd={onAddAutomation}
+                  addLabel="Add automation"
+                />
 
                 {automationsLoading ? (
-                  <div className="mt-1 space-y-1.5">
+                  <div className="mt-2 space-y-1.5">
                     <Skeleton className="h-12 w-full rounded-md" />
                     <Skeleton className="h-12 w-full rounded-md" />
                   </div>
@@ -433,7 +460,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                     )}
                   </div>
                 ) : (
-                  <div className="mt-1 space-y-1.5">
+                  <div className="mt-2 space-y-1.5">
                     {sortedAutomations.map((auto) => (
                       <AutomationRow key={auto.id} auto={auto} pathname={pathname} />
                     ))}
