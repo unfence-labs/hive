@@ -67,6 +67,31 @@ function getSessionVisualState({
   return { isActive, isSessionStreaming, isSessionUnread };
 }
 
+function getFallbackVisualState({
+  activeSessionId,
+  isStreaming,
+  isFileTabActive,
+  streamingSessions,
+  unreadSessions,
+}: {
+  activeSessionId?: string;
+  isStreaming: boolean;
+  isFileTabActive?: boolean;
+  streamingSessions?: Record<string, boolean>;
+  unreadSessions?: Record<string, boolean>;
+}) {
+  const sessionIdsFromStream = Object.keys(streamingSessions ?? {});
+  const fallbackSessionId = activeSessionId ?? sessionIdsFromStream[0];
+  const isSessionStreaming = fallbackSessionId
+    ? Boolean(streamingSessions?.[fallbackSessionId] ?? isStreaming)
+    : isStreaming || sessionIdsFromStream.length > 0;
+  const isSessionVisible = !isFileTabActive;
+  const hasUnread = Object.keys(unreadSessions ?? {}).length > 0;
+  const isSessionUnread = !isSessionVisible && !isSessionStreaming && hasUnread;
+
+  return { isSessionStreaming, isSessionUnread };
+}
+
 function SessionStatusIndicator({
   isStreaming,
   isUnread,
@@ -132,6 +157,13 @@ export function ConversationTabs({
   const [visibleCount, setVisibleCount] = useState(sessions.length);
   const tabsRef = useRef<HTMLDivElement>(null);
   const visibleSessionCount = Math.max(0, visibleCount - (openFile ? 1 : 0));
+  const { isSessionStreaming: isFallbackStreaming, isSessionUnread: isFallbackUnread } = getFallbackVisualState({
+    activeSessionId,
+    isStreaming,
+    isFileTabActive,
+    streamingSessions,
+    unreadSessions,
+  });
 
   const measureTabs = useCallback(() => {
     const tabsEl = tabsRef.current;
@@ -207,7 +239,7 @@ export function ConversationTabs({
               )}
               onClick={onConversationActivate}
             >
-              <MessageSquareIcon className="size-3 shrink-0" />
+              <SessionStatusIndicator isStreaming={isFallbackStreaming} isUnread={isFallbackUnread} />
               <span className="truncate">Untitled</span>
             </button>
           )}
