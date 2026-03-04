@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { getNextRun, formatTimeUntil } from "@/lib/cron";
-import { ArchiveIcon, Clock, FolderPlus, Github, Loader2, Plus, Settings } from "lucide-react";
+import { ArchiveIcon, FolderPlus, Loader2, Plus, Settings } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -32,7 +32,7 @@ import { useBulkPrStatus, usePrStatusMap } from "@/hooks/usePrStatus";
 import { computePrDisplayCompact } from "@/lib/pr-display";
 import { BranchLabel } from "@/components/BranchLabel";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
-import { WaveIndicator } from "@/components/WaveIndicator";
+import { ActivityWave } from "@/components/ui/activity-wave";
 import { api } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
@@ -43,7 +43,7 @@ import type { Automation, DiffStatResponse } from "@/types";
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /** Extract { owner, repo } from any git URL, or null if unparseable. */
-function parseProjectOwnerRepo(url: string): { owner: string; repo: string } | null {
+export function parseProjectOwnerRepo(url: string): { owner: string; repo: string } | null {
   // SCP-style: git@host:owner/repo.git
   const scpMatch = url.match(/^[^@]+@[^:]+:([^/]+)\/([^/]+?)(?:\.git)?$/);
   if (scpMatch) return { owner: scpMatch[1], repo: scpMatch[2] };
@@ -71,6 +71,8 @@ interface SidebarGroupHeaderProps {
   isLoading?: boolean;
   onAdd?: (e: React.MouseEvent) => void;
   addLabel?: string;
+  variant?: "default" | "plain";
+  buttonClassName?: string;
 }
 
 function SidebarGroupHeader({
@@ -81,15 +83,23 @@ function SidebarGroupHeader({
   isLoading,
   onAdd,
   addLabel,
+  variant = "default",
+  buttonClassName,
 }: SidebarGroupHeaderProps) {
+  const isPlain = variant === "plain";
+
   return (
     <div className="group relative flex w-full items-center">
       <CollapsibleTrigger asChild>
         <button
           type="button"
           className={cn(
-            "flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-md px-2.5 py-2.5 text-left transition-colors hover:bg-sidebar-accent/40",
+            "flex w-full min-w-0 items-center overflow-hidden text-left transition-colors",
+            isPlain
+              ? "gap-2 px-0 py-1"
+              : "gap-2.5 rounded-md px-2.5 py-2.5 hover:bg-sidebar-accent/40",
             count !== undefined && "pr-8",
+            buttonClassName,
           )}
         >
           {icon}
@@ -100,7 +110,7 @@ function SidebarGroupHeader({
         </button>
       </CollapsibleTrigger>
       {count !== undefined && (
-        <div className="absolute inset-y-0 right-2.5 flex items-center">
+        <div className={cn("absolute inset-y-0 flex items-center", isPlain ? "right-0" : "right-2.5")}>
           <div className="relative flex h-5 w-5 items-center justify-center">
             {isLoading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
@@ -132,6 +142,46 @@ function SidebarGroupHeader({
   );
 }
 
+interface SidebarSectionHeaderProps {
+  label: string;
+  isLoading?: boolean;
+  onAdd?: () => void;
+  addLabel?: string;
+  className?: string;
+}
+
+function SidebarSectionHeader({
+  label,
+  isLoading = false,
+  onAdd,
+  addLabel,
+  className,
+}: SidebarSectionHeaderProps) {
+  return (
+    <div className={cn("group relative flex w-full items-center", className)}>
+      <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        {label}
+      </span>
+      <div className="relative flex h-5 w-5 items-center justify-center">
+        {isLoading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+        ) : onAdd ? (
+          <button
+            type="button"
+            className="flex items-center justify-center text-primary transition-colors hover:text-primary/80"
+            onClick={onAdd}
+            aria-label={addLabel}
+            title={addLabel}
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        ) : null
+        }
+      </div>
+    </div>
+  );
+}
+
 // ── Sidebar ──────────────────────────────────────────────────────────
 
 interface SidebarProps {
@@ -139,10 +189,9 @@ interface SidebarProps {
   onAddAutomation?: () => void;
 }
 
-type SidebarTab = "build" | "automation";
-
 export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps) {
   const { projects, loading, createWorkspace, archiveWorkspace } = useProjects();
+  const { data: automations, isLoading: automationsLoading } = useAutomations();
   const queryClient = useQueryClient();
   const { wsId: activeWsId } = useParams();
   const { pathname } = useLocation();
@@ -152,18 +201,6 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
   const [archivingWsId, setArchivingWsId] = useState<string | null>(null);
   const liveData = useWorkspaceLiveDataContext();
-
-  // Derive active tab from route
-  const activeTab: SidebarTab = pathname.startsWith("/automations") ? "automation" : "build";
-
-  const handleTabClick = (tab: SidebarTab) => {
-    if (tab === activeTab) return;
-    if (tab === "automation") {
-      navigate("/automations");
-    } else {
-      navigate("/projects");
-    }
-  };
 
   const activeProjectId = projects.find((project) =>
     (project.workspaces ?? []).some((workspace) => workspace.id === activeWsId),
@@ -175,6 +212,10 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   );
   const { loading: prLoading } = useBulkPrStatus(allWsIds);
   const prStatuses = usePrStatusMap(allWsIds);
+  const sortedAutomations = useMemo(() => {
+    if (!automations) return [];
+    return [...automations].sort((a, b) => automationSortKey(a) - automationSortKey(b));
+  }, [automations]);
 
   const isProjectExpanded = (projectId: string) => {
     const expanded = expandedProjects[projectId];
@@ -219,31 +260,14 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     try {
       const wasActive = activeWsId === wsId;
       await archiveWorkspace(wsId);
-      if (wasActive) navigate("/projects");
+      if (wasActive) navigate("/home");
     } finally {
       setArchivingWsId(null);
     }
   };
 
   const footerActions = (
-    <div className="flex items-center px-2 py-1.5">
-      <div className="flex flex-1 gap-0.5">
-        {(["build", "automation"] as const).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => handleTabClick(tab)}
-            className={cn(
-              "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-              activeTab === tab
-                ? "bg-sidebar-accent text-sidebar-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/40 hover:text-sidebar-foreground",
-            )}
-          >
-            {tab === "build" ? "Build" : "Automation"}
-          </button>
-        ))}
-      </div>
+    <div className="flex items-center justify-end px-2 py-1.5">
       <Link
         to="/settings"
         state={{ from: pathname }}
@@ -258,172 +282,195 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
 
   return (
     <SidebarShell footerActions={footerActions}>
-      {/* ── Tab content ─────────────────────────────────────────────── */}
-      {activeTab === "build" ? (
-        <ScrollArea className="flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full">
-          <div className="p-2">
-            {loading ? (
-              <div className="space-y-2 px-2">
-                <Skeleton className="h-6 w-full" />
-                <Skeleton className="h-6 w-3/4" />
-                <Skeleton className="h-6 w-full" />
-              </div>
-            ) : (
-              <TooltipProvider delayDuration={400}>
-                {projects.map((project, index) => {
-                  const parsed = parseProjectOwnerRepo(project.url);
-                  const displayLabel = parsed ? (
-                    <><span className="text-muted-foreground">{parsed.owner}/</span>{parsed.repo}</>
-                  ) : project.name;
-                  const displayLabelPlain = parsed ? `${parsed.owner}/${parsed.repo}` : project.name;
-                  return (
-                  <div
-                    key={project.id}
-                    className={cn(index > 0 && "mt-2.5 border-t border-border pt-2.5")}
+      <ScrollArea className="flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full">
+        <div className="p-2">
+          {loading ? (
+            <div className="space-y-2 px-2">
+              <Skeleton className="h-6 w-full" />
+              <Skeleton className="h-6 w-3/4" />
+              <Skeleton className="h-6 w-full" />
+            </div>
+          ) : (
+            <TooltipProvider delayDuration={400}>
+              <SidebarSectionHeader
+                label="Workspaces"
+                className="mb-2"
+              />
+
+              {projects.map((project, index) => {
+                const parsed = parseProjectOwnerRepo(project.url);
+                const displayLabel = parsed ? (
+                  <><span className="text-muted-foreground">{parsed.owner}/</span>{parsed.repo}</>
+                ) : project.name;
+                const displayLabelPlain = parsed ? `${parsed.owner}/${parsed.repo}` : project.name;
+                return (
+                <div
+                  key={project.id}
+                  className={cn(index > 0 && "mt-3")}
+                >
+                  <Collapsible
+                    open={isProjectExpanded(project.id)}
+                    onOpenChange={(open) =>
+                      setExpandedProjects((prev) => ({ ...prev, [project.id]: open }))
+                    }
                   >
-                    <Collapsible
-                      open={isProjectExpanded(project.id)}
-                      onOpenChange={(open) =>
-                        setExpandedProjects((prev) => ({ ...prev, [project.id]: open }))
+                    <SidebarGroupHeader
+                      icon={
+                        <ProjectAvatar
+                          name={project.name}
+                          projectId={project.id}
+                          hasFavicon={project.hasFavicon}
+                          className="h-[18px] w-[18px]"
+                        />
                       }
-                    >
-                      <SidebarGroupHeader
-                        icon={
-                          <ProjectAvatar
-                            name={project.name}
-                            projectId={project.id}
-                            hasFavicon={project.hasFavicon}
-                            className="h-5 w-5"
-                          />
-                        }
-                        label={displayLabel}
-                        count={(project.workspaces ?? []).length}
-                        isLoading={creatingProjectId === project.id}
-                        onAdd={() => { void handleAddWorkspace(project.id); }}
-                        addLabel={`Add workspace to ${displayLabelPlain}`}
-                      />
+                      label={displayLabel}
+                      count={(project.workspaces ?? []).length}
+                      isLoading={creatingProjectId === project.id}
+                      onAdd={() => { void handleAddWorkspace(project.id); }}
+                      addLabel={`Add workspace to ${displayLabelPlain}`}
+                      variant="plain"
+                    />
 
-                      <CollapsibleContent>
-                        <div className="mt-1 space-y-0.5">
-                          {(project.workspaces ?? []).map((ws) => {
-                            const wsLive = liveData[ws.id];
-                            const wsStreaming = wsLive?.streaming ?? false;
-                            const wsScriptRunning = wsLive?.scriptRunning ?? false;
-                            const displayBranch = wsLive?.branch ?? ws.branch;
-                            const wsUnread = !wsStreaming && Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
-                            const prStatus = prStatuses[ws.id];
-                            const wsArchiving = archivingWsId === ws.id;
+                    <CollapsibleContent>
+                      <div className="mt-1 space-y-1.5">
+                        {(project.workspaces ?? []).map((ws) => {
+                          const wsLive = liveData[ws.id];
+                          const wsStreaming = wsLive?.streaming ?? false;
+                          const wsScriptRunning = wsLive?.scriptRunning ?? false;
+                          const displayBranch = wsLive?.branch ?? ws.branch;
+                          const wsUnread = !wsStreaming && Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
+                          const prStatus = prStatuses[ws.id];
+                          const wsArchiving = archivingWsId === ws.id;
 
-                            return (
-                              <div key={ws.id} className={cn("group/ws relative transition-opacity", wsArchiving && "pointer-events-none opacity-40")}>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Link
-                                      to={`/workspaces/${ws.id}`}
-                                      className={cn(
-                                        "block rounded-md py-1.5 pl-2 pr-2 transition-colors",
-                                        activeWsId === ws.id
-                                          ? "bg-primary/10"
-                                          : "hover:bg-sidebar-accent/60",
-                                      )}
-                                    >
-                                      <div className="flex items-center gap-1.5">
-                                        <div className="flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-visible">
-                                          {wsStreaming ? (
-                                            <AgentActivityPreview size="small" />
-                                          ) : wsUnread ? (
-                                            <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                                          ) : null}
-                                        </div>
-                                        <BranchLabel branch={displayBranch} showIcon={false} className="min-w-0 flex-1 text-sm text-muted-foreground" />
-                                        {wsScriptRunning && (
-                                          <WaveIndicator className="shrink-0" />
-                                        )}
-                                      </div>
-
-                                      <div className="mt-0.5 flex items-center gap-1 pl-5 text-[11px]">
-                                        {prStatus?.pr ? (
-                                          (() => {
-                                            const display = computePrDisplayCompact(prStatus.pr);
-                                            return (
-                                              <span className={cn("truncate", display.textClass)}>
-                                                #{prStatus.pr.number} {display.label}
-                                              </span>
-                                            );
-                                          })()
-                                        ) : prLoading ? (
-                                          <span className="text-muted-foreground">Loading…</span>
-                                        ) : prStatus?.error ? (
-                                          <span className="text-muted-foreground">Error fetching PR</span>
-                                        ) : (
-                                          <span className="text-muted-foreground">No PR</span>
-                                        )}
-                                      </div>
-                                    </Link>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right" className="text-xs">
-                                    {ws.name}
-                                  </TooltipContent>
-                                </Tooltip>
-
-                                {wsArchiving ? (
-                                  <div className="absolute right-1.5 top-1.5 p-0.5">
-                                    <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                                  </div>
-                                ) : !wsScriptRunning && (
-                                  <button
-                                    type="button"
-                                    className="absolute right-1.5 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      void handleArchiveClick(ws.id);
-                                    }}
-                                    aria-label={`Archive workspace ${ws.name}`}
-                                    title="Archive workspace"
+                          return (
+                            <div key={ws.id} className={cn("group/ws relative transition-opacity", wsArchiving && "pointer-events-none opacity-40")}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Link
+                                    to={`/workspaces/${ws.id}`}
+                                    className={cn(
+                                      "sidebar-card block rounded-md border py-1.5 pl-2 pr-2",
+                                      activeWsId === ws.id && "sidebar-card-active",
+                                    )}
                                   >
-                                    <ArchiveIcon className="h-3 w-3" />
-                                  </button>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-                  </div>
-                  );
-                })}
-              </TooltipProvider>
-            )}
+                                    <div className="flex items-center gap-1.5">
+                                      <div className="flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-visible">
+                                        {wsStreaming ? (
+                                          <AgentActivityPreview size="small" />
+                                        ) : wsUnread ? (
+                                          <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                                        ) : null}
+                                      </div>
+                                      <BranchLabel
+                                        branch={displayBranch}
+                                        showIcon={false}
+                                        className={cn(
+                                          "min-w-0 flex-1 text-sm",
+                                          activeWsId === ws.id || wsUnread
+                                            ? "text-sidebar-foreground"
+                                            : "text-muted-foreground",
+                                        )}
+                                      />
+                                      {wsScriptRunning && (
+                                        <ActivityWave size="small" decorative className="shrink-0" />
+                                      )}
+                                    </div>
 
-          </div>
-        </ScrollArea>
-      ) : (
-        <AutomationList onAddAutomation={onAddAutomation} />
-      )}
+                                    <div className="mt-0.5 flex items-center gap-1 pl-5 text-[11px]">
+                                      {prStatus?.pr ? (
+                                        (() => {
+                                          const display = computePrDisplayCompact(prStatus.pr);
+                                          return (
+                                            <span className={cn("truncate", display.textClass)}>
+                                              #{prStatus.pr.number} {display.label}
+                                            </span>
+                                          );
+                                        })()
+                                      ) : prLoading ? (
+                                        <span className="text-muted-foreground">Loading…</span>
+                                      ) : prStatus?.error ? (
+                                        <span className="text-muted-foreground">Error fetching PR</span>
+                                      ) : (
+                                        <span className="text-muted-foreground">No PR</span>
+                                      )}
+                                    </div>
+                                  </Link>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="text-xs">
+                                  {ws.name}
+                                </TooltipContent>
+                              </Tooltip>
+
+                              {wsArchiving ? (
+                                <div className="absolute right-1.5 top-1.5 p-0.5">
+                                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                                </div>
+                              ) : !wsScriptRunning && (
+                                <button
+                                  type="button"
+                                  className="absolute right-1.5 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    void handleArchiveClick(ws.id);
+                                  }}
+                                  aria-label={`Archive workspace ${ws.name}`}
+                                  title="Archive workspace"
+                                >
+                                  <ArchiveIcon className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
+                );
+              })}
+
+              <div className="mt-6">
+                <div className="mb-6 border-t border-white/15" />
+                <SidebarSectionHeader
+                  label="Automations"
+                  isLoading={automationsLoading}
+                  onAdd={onAddAutomation}
+                  addLabel="Add automation"
+                />
+
+                {automationsLoading ? (
+                  <div className="mt-2 space-y-1.5">
+                    <Skeleton className="h-12 w-full rounded-md" />
+                    <Skeleton className="h-12 w-full rounded-md" />
+                  </div>
+                ) : sortedAutomations.length === 0 ? (
+                  <div className="mt-2 py-1">
+                    <p className="text-xs text-muted-foreground/60">no automations</p>
+                  </div>
+                ) : (
+                  <div className="mt-2 space-y-1.5">
+                    {sortedAutomations.map((auto) => (
+                      <AutomationRow key={auto.id} auto={auto} pathname={pathname} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </TooltipProvider>
+          )}
+        </div>
+      </ScrollArea>
 
       {/* ── Bottom action ─────────────────────────────────────────── */}
       <div className="shrink-0 px-2 pb-1.5">
-        {activeTab === "build" ? (
-          <button
-            type="button"
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-primary/40 px-2 py-2 text-sm text-primary transition-colors hover:border-primary hover:bg-primary/10"
-            onClick={onAddProject}
-          >
-            <FolderPlus className="h-4 w-4 shrink-0" />
-            Add repository
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-primary/40 px-2 py-2 text-sm text-primary transition-colors hover:border-primary hover:bg-primary/10"
-            onClick={onAddAutomation}
-          >
-            <Plus className="h-4 w-4 shrink-0" />
-            New automation
-          </button>
-        )}
+        <button
+          type="button"
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-primary/40 px-2 py-2 text-sm text-primary transition-colors hover:border-primary hover:bg-primary/10"
+          onClick={onAddProject}
+        >
+          <FolderPlus className="h-4 w-4 shrink-0" />
+          Add repository
+        </button>
       </div>
 
       <AlertDialog
@@ -457,13 +504,13 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
 
 // ── Automation sidebar list ──────────────────────────────────────────
 
-function automationSortKey(a: Automation): number {
+export function automationSortKey(a: Automation): number {
   if (a.lastRunStatus === "running") return 0;
   if (a.enabled) return 1;
   return 2;
 }
 
-function describeSchedule(expression: string): string {
+export function describeSchedule(expression: string): string {
   const presets: Record<string, string> = {
     "0 * * * *": "Hourly",
     "0 */6 * * *": "Every 6h",
@@ -476,136 +523,59 @@ function describeSchedule(expression: string): string {
   return presets[expression] ?? expression;
 }
 
-function describeScheduleWithNext(expression: string): string {
-  const label = describeSchedule(expression);
-  const next = getNextRun(expression);
-  if (!next) return label;
-  const diffMs = next.getTime() - Date.now();
-  if (diffMs < 0) return `${label} · due now`;
-  return `${label} · ${formatTimeUntil(diffMs)}`;
-}
-
-function AutomationList({ onAddAutomation }: { onAddAutomation?: () => void }) {
-  const { data: automations, isLoading } = useAutomations();
-  const { pathname } = useLocation();
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({ cron: true, github: true });
-
-  const cronAutomations = useMemo(() => {
-    if (!automations) return [];
-    return [...automations]
-      .filter((a) => a.trigger.type === "cron")
-      .sort((a, b) => automationSortKey(a) - automationSortKey(b));
-  }, [automations]);
-
-  if (isLoading) {
-    return (
-      <ScrollArea className="flex-1">
-        <div className="space-y-2 p-2 px-4">
-          <Skeleton className="h-6 w-full" />
-          <Skeleton className="h-6 w-3/4" />
-        </div>
-      </ScrollArea>
-    );
-  }
-
-  return (
-    <ScrollArea className="flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full">
-      <div className="space-y-2.5 p-2">
-        {/* ── Cron group ──────────────────────────────────────────── */}
-        <Collapsible
-          open={expandedGroups.cron}
-          onOpenChange={(open) => setExpandedGroups((prev) => ({ ...prev, cron: open }))}
-        >
-          <SidebarGroupHeader
-            icon={<Clock className="h-5 w-5 shrink-0 text-muted-foreground" />}
-            label="Cron"
-            count={cronAutomations.length}
-            onAdd={() => onAddAutomation?.()}
-            addLabel="Add cron automation"
-          />
-
-          <CollapsibleContent>
-            <div className="mt-1 space-y-0.5">
-              {cronAutomations.length === 0 ? (
-                <div className="px-2.5 py-3 text-center">
-                  <p className="text-xs text-muted-foreground/60">No cron automations</p>
-                  {onAddAutomation && (
-                    <button
-                      type="button"
-                      className="mt-1 text-xs text-primary hover:underline"
-                      onClick={onAddAutomation}
-                    >
-                      Create one
-                    </button>
-                  )}
-                </div>
-              ) : (
-                cronAutomations.map((auto) => (
-                  <AutomationRow key={auto.id} auto={auto} pathname={pathname} />
-                ))
-              )}
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-
-        {/* ── GitHub group ────────────────────────────────────────── */}
-        <Collapsible
-          open={expandedGroups.github}
-          onOpenChange={(open) => setExpandedGroups((prev) => ({ ...prev, github: open }))}
-        >
-          <SidebarGroupHeader
-            icon={<Github className="h-5 w-5 shrink-0 text-muted-foreground" />}
-            label="GitHub"
-            badge={
-              <span className="rounded bg-muted/40 px-1.5 py-0.5 text-[10px] text-muted-foreground/60">
-                soon
-              </span>
-            }
-          />
-
-          <CollapsibleContent>
-            <div className="px-2.5 py-3 text-center">
-              <p className="text-xs text-muted-foreground/60">
-                GitHub event triggers coming soon
-              </p>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-      </div>
-    </ScrollArea>
-  );
-}
-
 function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string }) {
   const isActive = pathname === `/automations/${auto.id}`;
   const isRunning = auto.lastRunStatus === "running";
+  const rightLabel = (() => {
+    if (!auto.enabled) return "disabled";
+    if (isRunning) return "running";
+    if (auto.trigger.type === "cron") {
+      const next = getNextRun(auto.trigger.expression);
+      if (!next) return describeSchedule(auto.trigger.expression);
+      const diffMs = next.getTime() - Date.now();
+      if (diffMs < 0) return "due now";
+      return formatTimeUntil(diffMs);
+    }
+    return "";
+  })();
 
   return (
     <Link
       to={`/automations/${auto.id}`}
       className={cn(
-        "block rounded-md px-2.5 py-1.5 transition-colors",
-        isActive ? "bg-primary/10" : "hover:bg-sidebar-accent/60",
+        "sidebar-card block rounded-md border px-2.5 py-1.5",
+        isActive && "sidebar-card-active",
       )}
     >
       <div className="flex items-center gap-2">
         <span
           className={cn(
-            "h-2 w-2 shrink-0 rounded-full",
+            "h-1.5 w-1.5 shrink-0 rounded-full",
             isRunning
-              ? "bg-blue-500 animate-pulse"
+              ? "bg-green-500 animate-pulse"
               : auto.enabled
-                ? "bg-emerald-500"
+                ? "bg-green-500"
                 : "bg-muted-foreground/40",
           )}
         />
-        <span className="min-w-0 flex-1 truncate text-sm text-sidebar-foreground">
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-sm",
+            isActive || auto.enabled
+              ? "text-sidebar-foreground"
+              : "text-muted-foreground",
+          )}
+        >
           {auto.name}
         </span>
-        {isRunning && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-blue-400" />}
-      </div>
-      <div className="mt-0.5 pl-4 text-[11px] text-muted-foreground">
-        {auto.enabled ? describeScheduleWithNext(auto.trigger.expression) : "Disabled"}
+        <span
+          className={cn(
+            "shrink-0 text-[11px]",
+            isActive ? "text-sidebar-foreground/70" : "text-muted-foreground",
+          )}
+        >
+          {rightLabel}
+        </span>
       </div>
     </Link>
   );

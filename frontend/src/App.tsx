@@ -12,7 +12,6 @@ import AgentSettings from "@/pages/settings/AgentSettings";
 import ProjectDetail from "@/pages/settings/ProjectDetail";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import EmptyStateLogo from "@/components/EmptyStateLogo";
-import AutomationsHome from "@/pages/AutomationsHome";
 import { useProjects } from "@/hooks/useProjects";
 import type { Project } from "@/types";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
@@ -93,14 +92,15 @@ export default function App() {
               />
             }
           >
-            <Route index element={<Navigate to="/projects" replace />} />
+            <Route index element={<Navigate to="/home" replace />} />
             <Route
-              path="projects"
+              path="home"
               element={<EmptyStateLogo onAddProject={() => setShowAddProject(true)} />}
             />
-            <Route path="projects/:id" element={<Navigate to="/projects" replace />} />
+            <Route path="projects" element={<Navigate to="/home" replace />} />
+            <Route path="projects/:id" element={<Navigate to="/home" replace />} />
             <Route path="workspaces/:wsId" element={<WorkspaceView />} />
-            <Route path="automations" element={<AutomationsHome onAddAutomation={() => setShowAddAutomation(true)} />} />
+            <Route path="automations" element={<Navigate to="/home" replace />} />
             <Route path="automations/:automationId" element={<Suspense fallback={null}><AutomationDetail /></Suspense>} />
             <Route path="settings" element={<Navigate to="/settings/appearance" replace />} />
             <Route path="settings/account" element={<AccountSettings />} />

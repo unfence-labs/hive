@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { Navigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import { ChevronDownIcon, TerminalIcon } from "lucide-react";
@@ -453,11 +453,11 @@ export default function WorkspaceView() {
   }
 
   if (workspaceQuery.isSuccess && !workspace) {
-    return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        Workspace not found.
-      </div>
-    );
+    return <Navigate to="/home" replace />;
+  }
+
+  if (workspaceQuery.isError) {
+    return <Navigate to="/home" replace />;
   }
 
 

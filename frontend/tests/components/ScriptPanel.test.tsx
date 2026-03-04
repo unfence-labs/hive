@@ -132,10 +132,10 @@ describe("ScriptPanel", () => {
       },
     });
 
-    // Wave indicator renders as an SVG with viewBox="0 0 12 12" and 5 rect bars
+    // Wave indicator renders as an SVG with viewBox="0 0 12 12" and 3 rect bars
     const waveSvg = container.querySelector('svg[viewBox="0 0 12 12"]');
     expect(waveSvg).toBeInTheDocument();
-    expect(waveSvg?.querySelectorAll("rect")).toHaveLength(5);
+    expect(waveSvg?.querySelectorAll("rect")).toHaveLength(3);
   });
 
   it("does not show wave indicator when script is done or errored", () => {
