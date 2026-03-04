@@ -71,6 +71,8 @@ interface SidebarGroupHeaderProps {
   isLoading?: boolean;
   onAdd?: (e: React.MouseEvent) => void;
   addLabel?: string;
+  variant?: "default" | "plain";
+  buttonClassName?: string;
 }
 
 function SidebarGroupHeader({
@@ -81,15 +83,23 @@ function SidebarGroupHeader({
   isLoading,
   onAdd,
   addLabel,
+  variant = "default",
+  buttonClassName,
 }: SidebarGroupHeaderProps) {
+  const isPlain = variant === "plain";
+
   return (
     <div className="group relative flex w-full items-center">
       <CollapsibleTrigger asChild>
         <button
           type="button"
           className={cn(
-            "flex w-full min-w-0 items-center gap-2.5 overflow-hidden rounded-md px-2.5 py-2.5 text-left transition-colors hover:bg-sidebar-accent/40",
+            "flex w-full min-w-0 items-center overflow-hidden text-left transition-colors",
+            isPlain
+              ? "gap-2 px-0 py-1"
+              : "gap-2.5 rounded-md px-2.5 py-2.5 hover:bg-sidebar-accent/40",
             count !== undefined && "pr-8",
+            buttonClassName,
           )}
         >
           {icon}
@@ -100,7 +110,7 @@ function SidebarGroupHeader({
         </button>
       </CollapsibleTrigger>
       {count !== undefined && (
-        <div className="absolute inset-y-0 right-2.5 flex items-center">
+        <div className={cn("absolute inset-y-0 flex items-center", isPlain ? "right-0" : "right-2.5")}>
           <div className="relative flex h-5 w-5 items-center justify-center">
             {isLoading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
@@ -279,7 +289,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                   return (
                   <div
                     key={project.id}
-                    className={cn(index > 0 && "mt-2.5 border-t border-border pt-2.5")}
+                    className={cn(index > 0 && "mt-3")}
                   >
                     <Collapsible
                       open={isProjectExpanded(project.id)}
@@ -293,7 +303,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                             name={project.name}
                             projectId={project.id}
                             hasFavicon={project.hasFavicon}
-                            className="h-5 w-5"
+                            className="h-[18px] w-[18px]"
                           />
                         }
                         label={displayLabel}
@@ -301,6 +311,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                         isLoading={creatingProjectId === project.id}
                         onAdd={() => { void handleAddWorkspace(project.id); }}
                         addLabel={`Add workspace to ${displayLabelPlain}`}
+                        variant="plain"
                       />
 
                       <CollapsibleContent>
