@@ -305,7 +305,7 @@
   animation: pixel-thinking-h 1.25s ease-in-out infinite;
 }
 
-@keyframes waveBar {
-  0%, 100% { transform: scaleY(0.4); }
-  50% { transform: scaleY(1); }
+@keyframes hiveWave {
+  0%, 100% { transform: scaleY(0.5); }
+  50% { transform: scaleY(1.2); }
 }

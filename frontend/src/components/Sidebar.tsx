@@ -32,7 +32,7 @@ import { useBulkPrStatus, usePrStatusMap } from "@/hooks/usePrStatus";
 import { computePrDisplayCompact } from "@/lib/pr-display";
 import { BranchLabel } from "@/components/BranchLabel";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
-import { WaveIndicator } from "@/components/WaveIndicator";
+import { ActivityWave } from "@/components/ui/activity-wave";
 import { api } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
@@ -344,7 +344,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                                           )}
                                         />
                                         {wsScriptRunning && (
-                                          <WaveIndicator className="shrink-0" />
+                                          <ActivityWave size="small" decorative className="shrink-0" />
                                         )}
                                       </div>
 

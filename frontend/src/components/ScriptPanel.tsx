@@ -4,7 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { PlayIcon, SquareIcon, RotateCcwIcon, CheckCircle2Icon, TerminalSquareIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { WaveIndicator } from "@/components/WaveIndicator";
+import { ActivityWave } from "@/components/ui/activity-wave";
 import { cn } from "@/lib/utils";
 import type { ScriptStatusInfo, HiveConfig } from "@/types";
 import "@xterm/xterm/css/xterm.css";
@@ -29,7 +29,7 @@ interface TabInfo {
 
 function StatusIndicator({ status, isSetup }: { status: ScriptStatusInfo; isSetup: boolean }) {
   if (status.state === "running") {
-    return <WaveIndicator />;
+    return <ActivityWave size="small" decorative />;
   }
   if (isSetup && status.state === "done") {
     return <CheckCircle2Icon className="size-3 text-green-400" />;
@@ -233,7 +233,7 @@ export default function ScriptPanel({
             >
               {tab.isTerminal ? (
                 <>
-                  {tabStatus.state === "running" && <WaveIndicator />}
+                  {tabStatus.state === "running" && <ActivityWave size="small" decorative />}
                   <TerminalSquareIcon className="size-3" />
                 </>
               ) : (
