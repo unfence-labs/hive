@@ -14,7 +14,28 @@ import { BadRequestError, ConflictError, NotFoundError } from "../utils/errors.j
 import { stopAllForWorkspace } from "../services/script-runner.js";
 import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffStatResponse } from "../types.js";
 
-const IGNORED_DIRS = new Set([".git", "node_modules"]);
+const IGNORED_DIRS = new Set([
+  ".git",
+  "node_modules",
+  // Build output
+  "target",        // Rust/Cargo
+  "build",         // Java/Gradle, C/CMake
+  "dist",          // JS bundlers
+  ".next",         // Next.js
+  ".nuxt",         // Nuxt
+  ".svelte-kit",   // SvelteKit
+  ".output",       // Nitro/Nuxt
+  "__pycache__",   // Python
+  ".cache",        // Various tools
+  ".parcel-cache", // Parcel
+  ".turbo",        // Turborepo
+  // Dependency/env
+  ".venv",         // Python virtualenv
+  "venv",
+  ".tox",          // Python tox
+  // IDE
+  ".idea",         // JetBrains
+]);
 const MAX_TREE_DEPTH = 8;
 const MAX_TREE_NODES = 3000;
 
