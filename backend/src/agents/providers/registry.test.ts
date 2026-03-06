@@ -220,12 +220,12 @@ describe("getModelCatalog", () => {
   });
 
   it("includes isNew flag from model definition", () => {
-    markProviderAvailable("claude");
+    markProviderAvailable("codex");
     const catalog = getModelCatalog();
 
-    // No models currently marked as new
     const newModels = catalog.models.filter((m) => m.isNew);
-    expect(newModels).toHaveLength(0);
+    expect(newModels.length).toBeGreaterThan(0);
+    expect(newModels[0].id).toBe("codex:gpt-5.4");
   });
 });
 
@@ -309,14 +309,16 @@ describe("contextWindow in catalog", () => {
     }
   });
 
-  it("omits contextWindow for providers that don't define it", () => {
+  it("includes contextWindow for Codex models that define it", () => {
     markProviderAvailable("codex");
     const catalog = getModelCatalog();
     const codexModels = catalog.models.filter((m) => m.provider === "codex");
 
-    for (const model of codexModels) {
-      expect(model.contextWindow).toBeUndefined();
-    }
+    const gpt54 = codexModels.find((m) => m.id === "codex:gpt-5.4");
+    expect(gpt54?.contextWindow).toBe(1_050_000);
+
+    const gpt53 = codexModels.find((m) => m.id === "codex:gpt-5.3-codex");
+    expect(gpt53?.contextWindow).toBeUndefined();
   });
 });
 
