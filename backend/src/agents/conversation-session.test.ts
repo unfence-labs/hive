@@ -782,6 +782,77 @@ describe("ConversationSession", () => {
     expect(messages).toEqual([]);
   });
 
+  it("getMessages() skips corrupted JSONL lines", async () => {
+    const fs = await import("node:fs/promises");
+    const sessionId = "corrupt-line-test";
+    const session = createSession({ sessionId });
+
+    // Write a valid message
+    session.sendMessage("Hello");
+    mockProc._stdout.push(assistantLine("World"));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Manually inject a corrupted line into the JSONL file
+    const messagesPath = join(tempDir, "sessions", sessionId, "messages.jsonl");
+    await fs.appendFile(messagesPath, "THIS IS NOT JSON\n", "utf-8");
+
+    // Write another valid message via a fresh session
+    const session2 = await ConversationSession.load({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId,
+    });
+    const messages = await session2.getMessages();
+    // Should have the 2 valid messages, skipping the corrupted line
+    expect(messages).toHaveLength(2);
+    expect(messages[0].role).toBe("user");
+    expect(messages[1].role).toBe("assistant");
+  });
+
+  it("appendMessage recovers from interrupted write (missing trailing newline)", async () => {
+    const fs = await import("node:fs/promises");
+    const sessionId = "interrupted-write-test";
+    const session = createSession({ sessionId });
+
+    // Write a first message normally
+    session.sendMessage("First");
+    mockProc._stdout.push(assistantLine("Reply"));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Simulate an interrupted write: append truncated JSON without trailing newline
+    const messagesPath = join(tempDir, "sessions", sessionId, "messages.jsonl");
+    await fs.appendFile(messagesPath, '{"id":"broken","role":"assistant","content":"trunc', "utf-8");
+
+    // Load a fresh session and send a new message — it should not be concatenated
+    mockProc = createMockProcess();
+    mockSpawn.mockReturnValue(mockProc);
+    const session2 = await ConversationSession.load({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId,
+    });
+    session2.sendMessage("Second");
+    mockProc._stdout.push(assistantLine("Reply2"));
+    mockProc._stdout.push(resultLine());
+    mockProc._emitClose(0);
+    await new Promise((r) => setTimeout(r, 100));
+
+    const messages = await session2.getMessages();
+    // 2 from first turn + corrupted line skipped + 2 from second turn = 4
+    expect(messages).toHaveLength(4);
+    expect(messages[0].role).toBe("user");
+    expect(messages[0].content).toBe("First");
+    expect(messages[2].role).toBe("user");
+    expect(messages[2].content).toBe("Second");
+    expect(messages[3].role).toBe("assistant");
+  });
+
   it("static load() restores metadata from disk", async () => {
     // First session creates metadata
     const session1 = createSession({ sessionId: "load-test" });

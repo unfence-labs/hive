@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdir, readFile, appendFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, open } from "node:fs/promises";
 import { join } from "node:path";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
@@ -190,10 +190,16 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     try {
       const messagesPath = join(this.sessionDir, "messages.jsonl");
       const raw = await readFile(messagesPath, "utf-8");
-      return raw
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => JSON.parse(line) as ChatMessage);
+      const messages: ChatMessage[] = [];
+      for (const line of raw.split("\n")) {
+        if (!line) continue;
+        try {
+          messages.push(JSON.parse(line) as ChatMessage);
+        } catch {
+          console.warn("[session] Skipping corrupted JSONL line in", this.sessionId);
+        }
+      }
+      return messages;
     } catch {
       return [];
     }
@@ -755,7 +761,19 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     try {
       await mkdir(this.sessionDir, { recursive: true });
       const messagesPath = join(this.sessionDir, "messages.jsonl");
-      await appendFile(messagesPath, JSON.stringify(msg) + "\n", "utf-8");
+      // Prepend \n so that even if a previous write was interrupted mid-line
+      // (e.g. server crash during a large appendFile), this message starts on
+      // its own line.  The reader filters blank lines produced by the double \n
+      // in the normal (non-crash) case.
+      // datasync() forces the kernel to flush data to disk, preventing loss on
+      // hard crashes (OOM kill, power loss, SIGKILL).
+      const fh = await open(messagesPath, "a");
+      try {
+        await fh.appendFile("\n" + JSON.stringify(msg) + "\n");
+        await fh.datasync();
+      } finally {
+        await fh.close();
+      }
     } catch (err) {
       console.error("[session] appendMessage failed:", err);
     }
