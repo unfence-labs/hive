@@ -36,9 +36,9 @@ describe("CodexProvider", () => {
     expect(defaults).toHaveLength(1);
   });
 
-  it("includes gpt-5.3-codex as default", () => {
+  it("includes gpt-5.4 as default", () => {
     const defaultModel = provider.models.find((m) => m.isDefault);
-    expect(defaultModel?.id).toBe("gpt-5.3-codex");
+    expect(defaultModel?.id).toBe("gpt-5.4");
   });
 
   // ── Capabilities ───────────────────────────────────────────────────
