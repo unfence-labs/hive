@@ -304,9 +304,12 @@ describe("contextWindow in catalog", () => {
     const catalog = getModelCatalog();
     const claudeModels = catalog.models.filter((m) => m.provider === "claude");
 
-    for (const model of claudeModels) {
-      expect(model.contextWindow).toBe(200_000);
-    }
+    const opus = claudeModels.find((m) => m.id === "claude:opus-4-6");
+    expect(opus?.contextWindow).toBe(1_000_000);
+    const sonnet = claudeModels.find((m) => m.id === "claude:sonnet-4-6");
+    expect(sonnet?.contextWindow).toBe(1_000_000);
+    const haiku = claudeModels.find((m) => m.id === "claude:haiku-4-5");
+    expect(haiku?.contextWindow).toBe(200_000);
   });
 
   it("includes contextWindow for Codex models that define it", () => {
