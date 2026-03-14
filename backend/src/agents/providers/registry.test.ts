@@ -312,16 +312,14 @@ describe("contextWindow in catalog", () => {
     expect(haiku?.contextWindow).toBe(200_000);
   });
 
-  it("includes contextWindow for Codex models that define it", () => {
+  it("omits contextWindow for Codex models (cumulative turn usage not reliable for context ring)", () => {
     markProviderAvailable("codex");
     const catalog = getModelCatalog();
     const codexModels = catalog.models.filter((m) => m.provider === "codex");
 
-    const gpt54 = codexModels.find((m) => m.id === "codex:gpt-5.4");
-    expect(gpt54?.contextWindow).toBe(1_050_000);
-
-    const gpt53 = codexModels.find((m) => m.id === "codex:gpt-5.3-codex");
-    expect(gpt53?.contextWindow).toBeUndefined();
+    for (const model of codexModels) {
+      expect(model.contextWindow).toBeUndefined();
+    }
   });
 });
 
