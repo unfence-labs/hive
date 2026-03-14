@@ -10,7 +10,7 @@ import type {
 } from "./types.js";
 
 const CODEX_MODELS: ModelDefinition[] = [
-  { id: "gpt-5.4", label: "GPT-5.4", cliValue: "gpt-5.4", isDefault: true, isNew: true, contextWindow: 1_050_000 },
+  { id: "gpt-5.4", label: "GPT-5.4", cliValue: "gpt-5.4", isDefault: true, isNew: true },
   { id: "gpt-5.3-codex", label: "GPT-5.3-Codex", cliValue: "gpt-5.3-codex" },
 ];
 
