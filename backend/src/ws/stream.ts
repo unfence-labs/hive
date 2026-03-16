@@ -165,6 +165,42 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     } catch {
       // History load failure is non-fatal.
     }
+
+    // Replay in-progress streaming content so late-connecting clients see
+    // text, thinking, and tool calls accumulated since the turn started.
+    if (session.status === "streaming") {
+      const snapshot = session.getStreamingSnapshot();
+      if (snapshot) {
+        const sid = session.sessionId;
+        if (snapshot.thinking) {
+          sendToHub(hub, workspaceId, { type: "thinking", sessionId: sid, text: snapshot.thinking });
+        }
+        if (snapshot.text) {
+          sendToHub(hub, workspaceId, { type: "text_delta", sessionId: sid, text: snapshot.text });
+        }
+        for (const tc of snapshot.toolCalls) {
+          sendToHub(hub, workspaceId, {
+            type: "tool_use",
+            sessionId: sid,
+            id: tc.id,
+            name: tc.name,
+            input: tc.input,
+            parentToolUseId: tc.parentToolUseId,
+          });
+          if (tc.output) {
+            sendToHub(hub, workspaceId, {
+              type: "tool_result",
+              sessionId: sid,
+              toolUseId: tc.id,
+              output: tc.output,
+            });
+          }
+        }
+        if (snapshot.agentPlanMode) {
+          sendToHub(hub, workspaceId, { type: "plan_mode_changed", sessionId: sid, active: true });
+        }
+      }
+    }
   };
 
   const detachSessionTracking = (channel: WorkspaceChannel, sessionId: string): void => {
@@ -330,12 +366,17 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       }
     }
 
-    // Subscribe to new workspaces and bootstrap
+    // Subscribe to new workspaces and bootstrap.
+    // The hub socket is added to the channel AFTER bootstrap completes so that
+    // live events broadcast during the async getMessages() call don't reach
+    // this client before the streaming snapshot is replayed (which would cause
+    // duplicate content). Node.js single-threading guarantees no events fire
+    // between sendWorkspaceBootstrap returning and hubSockets.add.
     for (const wsId of desired) {
       if (!hub.subscribedWorkspaces.has(wsId)) {
         const channel = getOrCreateChannel(wsId);
-        channel.hubSockets.add(hub);
         await sendWorkspaceBootstrap(hub, wsId, channel);
+        channel.hubSockets.add(hub);
       }
     }
 
