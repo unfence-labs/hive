@@ -241,10 +241,20 @@ class WsTransport {
 
     ws.onopen = () => {
       if (this.hub.ws !== ws) return;
+      const isReconnect = this.hub.reconnectAttempt > 0;
       this.hub.reconnectAttempt = 0;
       // Clear per-session status caches on reconnect (will be repopulated by bootstrap)
       for (const sub of this.subscriptions.values()) {
         sub.lastStatusBySession.clear();
+      }
+      // On reconnect, notify all handlers to clear stale streaming state before
+      // the bootstrap replays full snapshots. Without this, the snapshot events
+      // would be appended to pre-disconnect accumulated data, causing duplicates.
+      if (isReconnect) {
+        const reconnectEvent = { type: "_ws_reconnected" } as unknown as WsOutgoing;
+        for (const sub of this.subscriptions.values()) {
+          for (const handler of sub.messageHandlers) handler(reconnectEvent);
+        }
       }
       this.setHubStatus("connected");
       this.sendSyncWorkspaces();
