@@ -94,10 +94,22 @@ export function useWorkspaceLiveData(
           setLiveData((prev) => {
             const current = prev[wsId] ?? {};
             const prevUnread = current.unreadSessions ?? {};
-            if (prevUnread[msg.sessionId!]) return prev;
+            const wasStreaming = !!(current.streamingSessions ?? {})[msg.sessionId!];
+            const alreadyUnread = !!prevUnread[msg.sessionId!];
+            if (!wasStreaming && alreadyUnread) return prev;
+            const nextSessions = wasStreaming
+              ? { ...(current.streamingSessions ?? {}) }
+              : (current.streamingSessions ?? {});
+            if (wasStreaming) delete nextSessions[msg.sessionId!];
+            const anySessionStreaming = Object.keys(nextSessions).length > 0;
             return {
               ...prev,
-              [wsId]: { ...current, unreadSessions: { ...prevUnread, [msg.sessionId!]: true } },
+              [wsId]: {
+                ...current,
+                streaming: anySessionStreaming,
+                streamingSessions: nextSessions,
+                unreadSessions: { ...prevUnread, [msg.sessionId!]: true },
+              },
             };
           });
         } else if (msg.type === "script_status") {

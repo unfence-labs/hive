@@ -464,6 +464,84 @@ describe("useWorkspaceLiveData", () => {
     expect(result.current.liveData).toBe(firstRef);
   });
 
+  it("clears streamingSessions on done event", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-a",
+        streaming: true,
+      });
+    });
+
+    expect(result.current.liveData["ws-1"]?.streaming).toBe(true);
+    expect(result.current.liveData["ws-1"]?.streamingSessions).toEqual({ "sess-a": true });
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-a" });
+    });
+
+    expect(result.current.liveData["ws-1"]?.streaming).toBe(false);
+    expect(result.current.liveData["ws-1"]?.streamingSessions).toEqual({});
+    expect(result.current.liveData["ws-1"]?.unreadSessions).toEqual({ "sess-a": true });
+  });
+
+  it("clears streamingSessions on cancelled event", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-a",
+        streaming: true,
+      });
+    });
+
+    expect(result.current.liveData["ws-1"]?.streaming).toBe(true);
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "cancelled", sessionId: "sess-a" });
+    });
+
+    expect(result.current.liveData["ws-1"]?.streaming).toBe(false);
+    expect(result.current.liveData["ws-1"]?.streamingSessions).toEqual({});
+    expect(result.current.liveData["ws-1"]?.unreadSessions).toEqual({ "sess-a": true });
+  });
+
+  it("keeps other sessions streaming when one session receives done", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-a",
+        streaming: true,
+      });
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-b",
+        streaming: true,
+      });
+    });
+
+    expect(result.current.liveData["ws-1"]?.streaming).toBe(true);
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-a" });
+    });
+
+    expect(result.current.liveData["ws-1"]?.streaming).toBe(true);
+    expect(result.current.liveData["ws-1"]?.streamingSessions).toEqual({ "sess-b": true });
+  });
+
   it("clearUnread is a no-op when the target session is not unread", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));

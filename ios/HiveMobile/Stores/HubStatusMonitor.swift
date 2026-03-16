@@ -372,7 +372,13 @@ private final class HubConnection {
             monitor?.didReceiveBranchInfo(info, for: workspaceId)
 
         case .done:
+            monitor?.didReceiveStreaming(false, for: workspaceId)
             monitor?.didReceiveDone(for: workspaceId)
+
+        case .cancelled:
+            // Clear streaming but don't mark as completed — cancelled turns may require
+            // tool input or were user-interrupted, so no green "completed" badge.
+            monitor?.didReceiveStreaming(false, for: workspaceId)
 
         default:
             break
