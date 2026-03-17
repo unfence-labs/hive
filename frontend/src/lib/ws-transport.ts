@@ -319,6 +319,12 @@ class WsTransport {
       sub.lastBranchInfo = msg;
     }
 
+    // Clear stale per-session status cache on done/cancelled to prevent
+    // replay of streaming: true after re-subscribe.
+    if ((msg.type === "done" || msg.type === "cancelled") && msg.sessionId) {
+      sub.lastStatusBySession.delete(msg.sessionId);
+    }
+
     // Dispatch to handlers or buffer
     if (sub.messageHandlers.size > 0) {
       for (const handler of sub.messageHandlers) handler(msg);

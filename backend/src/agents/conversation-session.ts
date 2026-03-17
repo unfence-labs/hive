@@ -663,46 +663,48 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         : undefined;
 
       void (async () => {
-        await this.persistQueue;
-        if (shouldSurfaceCancelled) {
-          const cancelDurationMs = resultDurationMs
-            ?? (capturedStreamingStart ? Date.now() - capturedStreamingStart : undefined);
-          this.emit("message", {
-            type: "cancelled",
-            sessionId: this.sessionId,
-            errorDetail: cancellationErrorDetail,
-            userInitiated: capturedStopReason === "user",
-            durationMs: cancelDurationMs,
-          });
-        } else if (!cancelledByPark) {
-          this.emit("message", {
-            type: "done",
-            sessionId: this.sessionId,
-            durationMs: resultDurationMs,
-            inputTokens: resultInputTokens,
-            outputTokens: resultOutputTokens,
-            pendingToolName,
-          });
-        }
-
-        for (const tool of unansweredBlockingTools) {
-          let input: unknown;
-          try {
-            input = JSON.parse(tool.input);
-          } catch {
-            input = {};
+        try {
+          await this.persistQueue;
+          if (shouldSurfaceCancelled) {
+            const cancelDurationMs = resultDurationMs
+              ?? (capturedStreamingStart ? Date.now() - capturedStreamingStart : undefined);
+            this.emit("message", {
+              type: "cancelled",
+              sessionId: this.sessionId,
+              errorDetail: cancellationErrorDetail,
+              userInitiated: capturedStopReason === "user",
+              durationMs: cancelDurationMs,
+            });
+          } else if (!cancelledByPark) {
+            this.emit("message", {
+              type: "done",
+              sessionId: this.sessionId,
+              durationMs: resultDurationMs,
+              inputTokens: resultInputTokens,
+              outputTokens: resultOutputTokens,
+              pendingToolName,
+            });
           }
-          this.emit("message", {
-            type: "tool_input_required",
-            sessionId: this.sessionId,
-            requestId: nanoid(12),
-            toolName: tool.name,
-            toolUseId: tool.id,
-            input,
-          });
-        }
 
-        this.emit("exit", exitCode);
+          for (const tool of unansweredBlockingTools) {
+            let input: unknown;
+            try {
+              input = JSON.parse(tool.input);
+            } catch {
+              input = {};
+            }
+            this.emit("message", {
+              type: "tool_input_required",
+              sessionId: this.sessionId,
+              requestId: nanoid(12),
+              toolName: tool.name,
+              toolUseId: tool.id,
+              input,
+            });
+          }
+        } finally {
+          this.emit("exit", exitCode);
+        }
       })();
     });
   }
