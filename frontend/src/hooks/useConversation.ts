@@ -500,6 +500,10 @@ export function useConversation(workspaceId: string | undefined) {
     });
     replayingBuffer = false;
 
+    const unsubReconnect = wsTransport.onReconnect(workspaceId, () => {
+      dispatch({ type: "_ws_reconnected" });
+    });
+
     // Tell the backend to activate the saved session and send its bootstrap.
     if (savedSession) {
       const sent = wsTransport.send(workspaceId, { type: "switch_session", sessionId: savedSession });
@@ -540,6 +544,7 @@ export function useConversation(workspaceId: string | undefined) {
         historyRequestTokenRef.current = historyRequestToken + 1;
       }
       unsubscribe();
+      unsubReconnect();
     };
   }, [workspaceId, syncSessionHistory]);
 

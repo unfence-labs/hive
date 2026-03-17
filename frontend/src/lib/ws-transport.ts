@@ -27,6 +27,7 @@ interface HubState {
 
 interface WorkspaceSubscription {
   messageHandlers: Set<MessageHandler>;
+  reconnectListeners: Set<() => void>;
   statusListeners: Set<StatusListener>;
   lastStatus?: StatusMessage;
   lastStatusBySession: Map<string, StatusMessage>;
@@ -161,6 +162,13 @@ class WsTransport {
     };
   }
 
+  /** Register a callback invoked when the hub WS reconnects. */
+  onReconnect(workspaceId: string, callback: () => void): () => void {
+    const sub = this.getOrCreateSubscription(workspaceId);
+    sub.reconnectListeners.add(callback);
+    return () => { sub.reconnectListeners.delete(callback); };
+  }
+
   /** useSyncExternalStore subscribe contract (per workspace). */
   subscribe = (workspaceId: string, listener: StatusListener): (() => void) => {
     const sub = this.getOrCreateSubscription(workspaceId);
@@ -191,6 +199,7 @@ class WsTransport {
 
     const created: WorkspaceSubscription = {
       messageHandlers: new Set<MessageHandler>(),
+      reconnectListeners: new Set<() => void>(),
       statusListeners: new Set<StatusListener>(),
       lastStatusBySession: new Map(),
       messageBuffer: [],
@@ -247,13 +256,12 @@ class WsTransport {
       for (const sub of this.subscriptions.values()) {
         sub.lastStatusBySession.clear();
       }
-      // On reconnect, notify all handlers to clear stale streaming state before
+      // On reconnect, notify all listeners to clear stale streaming state before
       // the bootstrap replays full snapshots. Without this, the snapshot events
       // would be appended to pre-disconnect accumulated data, causing duplicates.
       if (isReconnect) {
-        const reconnectEvent = { type: "_ws_reconnected" } as unknown as WsOutgoing;
         for (const sub of this.subscriptions.values()) {
-          for (const handler of sub.messageHandlers) handler(reconnectEvent);
+          for (const listener of sub.reconnectListeners) listener();
         }
       }
       this.setHubStatus("connected");

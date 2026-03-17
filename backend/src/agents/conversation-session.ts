@@ -177,7 +177,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     return {
       text: this._streamText,
       thinking: this._streamThinking,
-      toolCalls: this._streamToolCalls,
+      toolCalls: this._streamToolCalls.map(tc => ({ ...tc })),
       agentPlanMode: this._agentPlanMode,
     };
   }
@@ -652,7 +652,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         ? this._streamToolCalls.filter((tc) => blockingToolNames.has(tc.name))
         : [];
 
-      // Free accumulated streaming data now that the assistant message has been persisted.
+      // Free accumulated streaming data now that the assistant message has been enqueued for persistence.
       this._streamText = "";
       this._streamThinking = "";
       this._streamToolCalls = [];

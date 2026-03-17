@@ -22,6 +22,7 @@ vi.mock("@/lib/ws-transport", () => {
         hadBufferedMessages: false,
       };
     }),
+    onReconnect: vi.fn(() => () => {}),
   };
 
   const __wsMock = {

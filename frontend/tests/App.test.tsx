@@ -74,6 +74,7 @@ vi.mock("@/lib/ws-transport", () => ({
     syncWorkspaces: mocks.syncWorkspaces,
     disconnectAll: mocks.disconnectAll,
     onMessage: mocks.onMessage,
+    onReconnect: vi.fn(() => () => {}),
     onGlobalMessage: mocks.onGlobalMessage,
   },
 }));

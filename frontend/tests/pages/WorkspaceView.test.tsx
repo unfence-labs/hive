@@ -69,7 +69,7 @@ vi.mock("@/hooks/useWorkspaceLiveData", () => ({
 }));
 
 vi.mock("@/lib/ws-transport", () => ({
-  wsTransport: { clearCachedData: mocks.clearCachedData },
+  wsTransport: { clearCachedData: mocks.clearCachedData, onReconnect: vi.fn(() => () => {}) },
 }));
 
 vi.mock("@/hooks/useScripts", () => ({

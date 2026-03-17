@@ -77,6 +77,9 @@ vi.mock("@/lib/ws-transport", () => {
         hadBufferedMessages: bufferedFlags.get(workspaceId) ?? false,
       };
     }),
+    onReconnect: vi.fn((_workspaceId: string, _callback: () => void) => {
+      return () => {};
+    }),
     subscribe: (workspaceId: string, listener: () => void) => {
       getSet(statusListeners, workspaceId).add(listener);
       return () => {

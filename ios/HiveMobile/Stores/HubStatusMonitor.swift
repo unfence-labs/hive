@@ -217,7 +217,6 @@ final class HubStatusMonitor {
     /// Used by pull-to-refresh so the backend re-sends status, history, branch_info,
     /// diff_stats, and script_status for every subscribed workspace.
     func forceRefresh() {
-        storeCache.clearAllStreamingState()
         hubConnection?.forceReconnect()
     }
 
@@ -311,7 +310,10 @@ private final class HubConnection {
         task.resume()
         backoff = 1
 
-        // Re-wire send closures on all existing stores (handles reconnects)
+        // Clear stale streaming state and re-wire send closures on all existing stores.
+        // Without clearing, the bootstrap snapshot would be appended to pre-disconnect
+        // accumulated data, causing duplicate tool calls and garbled text.
+        monitor?.storeCache.clearAllStreamingState()
         monitor?.rewireAllSendClosures()
 
         startReceiving()
