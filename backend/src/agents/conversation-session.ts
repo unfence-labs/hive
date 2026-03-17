@@ -131,6 +131,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private stopReason: StopReason | null = null;
   private _lastBlockingToolUseId: string | undefined;
 
+  // In-progress streaming accumulators (instance-level for snapshot access)
+  private _streamText = "";
+  private _streamThinking = "";
+  private _streamToolCalls: ToolCall[] = [];
+  private _agentPlanMode = false;
+
   constructor(config: ConversationSessionConfig) {
     super();
     this.sessionId = config.sessionId ?? nanoid(12);
@@ -161,6 +167,19 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
   get metadata(): SessionMetadata {
     return { ...this._metadata };
+  }
+
+  /** Return a snapshot of in-progress streaming content (text, thinking, tool calls).
+   *  Returns null when the session is not streaming. Used by WS bootstrap to replay
+   *  accumulated state to late-connecting clients. */
+  getStreamingSnapshot(): { text: string; thinking: string; toolCalls: ToolCall[]; agentPlanMode: boolean } | null {
+    if (this._status !== "streaming") return null;
+    return {
+      text: this._streamText,
+      thinking: this._streamThinking,
+      toolCalls: this._streamToolCalls.map(tc => ({ ...tc })),
+      agentPlanMode: this._agentPlanMode,
+    };
   }
 
   /** Load a session from disk. Returns the session in idle state with history available. */
@@ -377,10 +396,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       ? new StreamParser()
       : provider!.createStreamAdapter();
 
-    // Accumulators for building the assistant ChatMessage
-    let assistantText = "";
-    let thinkingText = "";
-    const toolCalls: ToolCall[] = [];
+    // Reset in-progress streaming accumulators
+    this._streamText = "";
+    this._streamThinking = "";
+    this._streamToolCalls = [];
+    this._agentPlanMode = false;
     let resultDurationMs: number | undefined;
     let resultInputTokens: number | undefined;
     let resultOutputTokens: number | undefined;
@@ -398,11 +418,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       for (const block of data.message.content) {
         switch (block.type) {
           case "text":
-            assistantText += block.text;
+            this._streamText += block.text;
             this.emit("message", { type: "text_delta", sessionId: this.sessionId, text: block.text });
             break;
           case "thinking":
-            thinkingText += block.thinking;
+            this._streamThinking += block.thinking;
             this.emit("message", { type: "thinking", sessionId: this.sessionId, text: block.thinking });
             break;
           case "tool_use":
@@ -420,11 +440,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             const parentToolUseId = pendingTaskStack.length > 0
               ? pendingTaskStack[pendingTaskStack.length - 1]
               : undefined;
-            const existingTool = toolCalls.find((t) => t.id === block.id);
+            const existingTool = this._streamToolCalls.find((t) => t.id === block.id);
             if (existingTool) {
               existingTool.input = inputStr;
             } else {
-              toolCalls.push({ id: block.id, name: displayName, input: inputStr, parentToolUseId });
+              this._streamToolCalls.push({ id: block.id, name: displayName, input: inputStr, parentToolUseId });
               this.emit("message", {
                 type: "tool_use",
                 sessionId: this.sessionId,
@@ -441,10 +461,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
             // Emit plan mode state changes for UI auto-toggle
             if (block.name === "EnterPlanMode" || block.name === "ExitPlanMode") {
+              this._agentPlanMode = block.name === "EnterPlanMode";
               this.emit("message", {
                 type: "plan_mode_changed",
                 sessionId: this.sessionId,
-                active: block.name === "EnterPlanMode",
+                active: this._agentPlanMode,
               } as WsOutgoing);
             }
 
@@ -458,7 +479,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           }
           case "redacted_thinking":
             // Safety-redacted thinking — opaque encrypted data, just note it happened.
-            thinkingText += "[redacted]\n";
+            this._streamThinking += "[redacted]\n";
             break;
           case "web_search_tool_result":
           case "web_fetch_tool_result":
@@ -468,7 +489,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             // Server-side and MCP tool results arrive as assistant content blocks,
             // not as user tool_result messages. Forward them as tool_result events.
             const output = formatServerToolResult(block);
-            const tc = toolCalls.find((t) => t.id === block.tool_use_id);
+            const tc = this._streamToolCalls.find((t) => t.id === block.tool_use_id);
             if (tc) tc.output = output;
             this.emit("message", {
               type: "tool_result",
@@ -500,7 +521,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             pendingTaskStack.pop();
           }
 
-          const tc = toolCalls.find((t) => t.id === block.tool_use_id);
+          const tc = this._streamToolCalls.find((t) => t.id === block.tool_use_id);
           if (tc) tc.output = block.content;
           this.emit("message", {
             type: "tool_result",
@@ -603,14 +624,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       this.process = null;
       this.parser = null;
 
-      if (assistantText || toolCalls.length > 0 || thinkingText || shouldSurfaceCancelled) {
+      if (this._streamText || this._streamToolCalls.length > 0 || this._streamThinking || shouldSurfaceCancelled) {
         const assistantMsg: ChatMessage = {
           id: nanoid(12),
           sessionId: this.sessionId,
           role: "assistant",
-          content: assistantText || (shouldSurfaceCancelled ? CANCELLED_NO_OUTPUT_MESSAGE : ""),
-          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-          thinkingContent: thinkingText || undefined,
+          content: this._streamText || (shouldSurfaceCancelled ? CANCELLED_NO_OUTPUT_MESSAGE : ""),
+          toolCalls: this._streamToolCalls.length > 0 ? this._streamToolCalls : undefined,
+          thinkingContent: this._streamThinking || undefined,
           timestamp: new Date().toISOString(),
           cancelled: shouldSurfaceCancelled || undefined,
           errorDetail: cancellationErrorDetail,
@@ -628,8 +649,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         .catch((err) => console.error("[session] Persist metadata failed:", err));
 
       const unansweredBlockingTools = killedForBlockingTool
-        ? toolCalls.filter((tc) => blockingToolNames.has(tc.name))
+        ? this._streamToolCalls.filter((tc) => blockingToolNames.has(tc.name))
         : [];
+
+      // Free accumulated streaming data now that the assistant message has been enqueued for persistence.
+      this._streamText = "";
+      this._streamThinking = "";
+      this._streamToolCalls = [];
+      this._agentPlanMode = false;
 
       const pendingToolName = unansweredBlockingTools.length > 0
         ? unansweredBlockingTools[0]!.name

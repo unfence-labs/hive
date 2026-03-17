@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/ws-transport", () => ({
   wsTransport: {
     onMessage: mocks.onMessage,
+    onReconnect: vi.fn(() => () => {}),
   },
 }));
 
