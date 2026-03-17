@@ -9,7 +9,9 @@ import Observation
 @MainActor
 @Observable
 final class HubStatusMonitor {
-    private(set) var streamingWorkspaces: Set<String> = []
+    /// Per-workspace, per-session streaming tracking.
+    /// Key = workspaceId, Value = set of sessionIds currently streaming.
+    private(set) var streamingSessions: [String: Set<String>] = [:]
     private(set) var workspaceDiffStats: [String: DiffStatResponse] = [:]
     private(set) var workspaceBranchInfo: [String: BranchInfo] = [:]
     private(set) var workspacePrStatus: [String: PrStatusResponse] = [:]
@@ -57,7 +59,7 @@ final class HubStatusMonitor {
     // MARK: - Public accessors
 
     func isStreaming(_ workspaceId: String) -> Bool {
-        streamingWorkspaces.contains(workspaceId)
+        !(streamingSessions[workspaceId]?.isEmpty ?? true)
     }
 
     func diffStats(for workspaceId: String) -> DiffStatResponse? {
@@ -97,7 +99,7 @@ final class HubStatusMonitor {
 
         // Clean up removed workspaces
         for id in subscribedWorkspaceIds.subtracting(desired) {
-            streamingWorkspaces.remove(id)
+            streamingSessions.removeValue(forKey: id)
             workspaceDiffStats.removeValue(forKey: id)
             workspaceBranchInfo.removeValue(forKey: id)
             workspacePrStatus.removeValue(forKey: id)
@@ -124,7 +126,7 @@ final class HubStatusMonitor {
         hubConnection?.cancel()
         hubConnection = nil
         subscribedWorkspaceIds.removeAll()
-        streamingWorkspaces.removeAll()
+        streamingSessions.removeAll()
         workspaceDiffStats.removeAll()
         workspaceBranchInfo.removeAll()
         bulkPrPollTask?.cancel()
@@ -180,16 +182,30 @@ final class HubStatusMonitor {
     /// Used to detect streaming→idle transitions after reconnect and mark them as completed.
     private var streamingBeforeBackground: Set<String> = []
 
-    fileprivate func didReceiveStreaming(_ streaming: Bool, for workspaceId: String) {
+    fileprivate func didReceiveStreaming(_ streaming: Bool, for workspaceId: String, sessionId: String?) {
         if streaming {
-            streamingWorkspaces.insert(workspaceId)
+            var sessions = streamingSessions[workspaceId] ?? []
+            if let sid = sessionId { sessions.insert(sid) }
+            streamingSessions[workspaceId] = sessions
         } else {
-            streamingWorkspaces.remove(workspaceId)
-            // If this workspace was streaming before the app went to background
-            // and is now idle, treat it as a completed turn (the .done event was lost).
-            if streamingBeforeBackground.remove(workspaceId) != nil {
-                didReceiveDone(for: workspaceId)
+            if let sid = sessionId {
+                streamingSessions[workspaceId]?.remove(sid)
+            } else {
+                // No sessionId (e.g. status with streaming=false) — clear all sessions for this workspace
+                streamingSessions[workspaceId]?.removeAll()
             }
+            // Clean up empty entries
+            if streamingSessions[workspaceId]?.isEmpty == true {
+                streamingSessions.removeValue(forKey: workspaceId)
+            }
+        }
+    }
+
+    /// Handle background→foreground streaming transition for a workspace.
+    /// Only called from status events (bootstrap), not from done/cancelled.
+    fileprivate func checkBackgroundCompletion(for workspaceId: String) {
+        if !isStreaming(workspaceId), streamingBeforeBackground.remove(workspaceId) != nil {
+            didReceiveDone(for: workspaceId)
         }
     }
 
@@ -225,7 +241,8 @@ final class HubStatusMonitor {
     /// Clears stale streaming state and forces an immediate hub reconnect so the
     /// backend bootstrap (status + history) writes into a clean slate.
     func appDidBecomeActive() {
-        streamingBeforeBackground = streamingWorkspaces
+        // Snapshot workspace IDs that had any streaming session
+        streamingBeforeBackground = Set(streamingSessions.keys)
         forceRefresh()
     }
 }
@@ -358,11 +375,16 @@ private final class HubConnection {
 
         // Hub-level processing
         switch event {
-        case .status(_, _, let streaming, _, _):
+        case .status(_, let sessionId, let streaming, _, _):
             let isStreaming = streaming ?? false
-            monitor?.didReceiveStreaming(isStreaming, for: workspaceId)
+            monitor?.didReceiveStreaming(isStreaming, for: workspaceId, sessionId: sessionId)
             if isStreaming {
                 monitor?.ensureStoreExists(for: workspaceId)
+            }
+            // Only status events (bootstrap) check background completion,
+            // not done/cancelled — those handle completion directly.
+            if !isStreaming {
+                monitor?.checkBackgroundCompletion(for: workspaceId)
             }
 
         case .diffStats(let stats):
@@ -371,14 +393,14 @@ private final class HubConnection {
         case .branchInfo(let info):
             monitor?.didReceiveBranchInfo(info, for: workspaceId)
 
-        case .done:
-            monitor?.didReceiveStreaming(false, for: workspaceId)
+        case .done(let sessionId, _, _, _, _):
+            monitor?.didReceiveStreaming(false, for: workspaceId, sessionId: sessionId)
             monitor?.didReceiveDone(for: workspaceId)
 
-        case .cancelled:
-            // Clear streaming but don't mark as completed — cancelled turns may require
-            // tool input or were user-interrupted, so no green "completed" badge.
-            monitor?.didReceiveStreaming(false, for: workspaceId)
+        case .cancelled(let sessionId, _, _, _):
+            // Clear streaming for this session but don't mark as completed —
+            // cancelled turns may require tool input or were user-interrupted.
+            monitor?.didReceiveStreaming(false, for: workspaceId, sessionId: sessionId)
 
         default:
             break
