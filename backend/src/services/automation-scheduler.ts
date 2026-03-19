@@ -252,6 +252,23 @@ export class AutomationScheduler {
     event: GitHubTriggerEvent,
     eventContext: GitHubEventContext,
   ): Promise<AutomationRun> {
+    // Guard: disk pressure
+    if (this.cleanupService?.isBlocked()) {
+      console.warn(`[scheduler] Skipping event run for ${autoId}: disk pressure`);
+      const run: AutomationRun = {
+        id: `run-${nanoid(8)}`,
+        automationId: autoId,
+        status: "failure",
+        sessionId: "",
+        startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        error: "Disk pressure too high — cleanup required",
+        triggerEvent: event,
+      };
+      await addRun(autoId, run, this.dataDir);
+      return run;
+    }
+
     // Re-load automation to get latest config
     const automations = await loadAutomations(this.dataDir);
     const auto = automations.find((a) => a.id === autoId);

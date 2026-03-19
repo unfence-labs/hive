@@ -106,7 +106,8 @@ export function pruneStaleSnapshots(state: GitHubPollState): void {
 
   for (const repo of Object.values(state.repos)) {
     for (const [key, pr] of Object.entries(repo.prSnapshots)) {
-      if (pr.state === "closed" || pr.state === "merged") {
+      const prState = pr.state.toUpperCase();
+      if (prState === "CLOSED" || prState === "MERGED") {
         if (new Date(pr.updatedAt).getTime() < cutoff) {
           delete repo.prSnapshots[Number(key)];
         }
@@ -114,7 +115,7 @@ export function pruneStaleSnapshots(state: GitHubPollState): void {
     }
 
     for (const [key, issue] of Object.entries(repo.issueSnapshots)) {
-      if (issue.state === "closed") {
+      if (issue.state.toUpperCase() === "CLOSED") {
         if (new Date(issue.updatedAt).getTime() < cutoff) {
           delete repo.issueSnapshots[Number(key)];
         }

@@ -1,5 +1,9 @@
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
+import { writeFile, unlink } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 import type { PullRequestInfo } from "../types.js";
 
 const execFile = promisify(execFileCb);
@@ -236,9 +240,21 @@ export function _resetGhState(): void {
 }
 
 export async function postPrComment(owner: string, repo: string, prNumber: number, body: string): Promise<void> {
-  await gh(["pr", "comment", String(prNumber), "--repo", `${owner}/${repo}`, "--body", body]);
+  const tmp = join(tmpdir(), `hive-comment-${randomUUID()}.md`);
+  await writeFile(tmp, body, "utf-8");
+  try {
+    await gh(["pr", "comment", String(prNumber), "--repo", `${owner}/${repo}`, "--body-file", tmp]);
+  } finally {
+    await unlink(tmp).catch(() => {});
+  }
 }
 
 export async function postIssueComment(owner: string, repo: string, issueNumber: number, body: string): Promise<void> {
-  await gh(["issue", "comment", String(issueNumber), "--repo", `${owner}/${repo}`, "--body", body]);
+  const tmp = join(tmpdir(), `hive-comment-${randomUUID()}.md`);
+  await writeFile(tmp, body, "utf-8");
+  try {
+    await gh(["issue", "comment", String(issueNumber), "--repo", `${owner}/${repo}`, "--body-file", tmp]);
+  } finally {
+    await unlink(tmp).catch(() => {});
+  }
 }
