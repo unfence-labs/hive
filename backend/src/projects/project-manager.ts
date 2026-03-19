@@ -85,27 +85,39 @@ async function createGitHubRepo(
   ]);
   const url = stdout.trim();
 
-  // Point the bare repo at the new remote and push the initial commit
-  await git(["remote", "add", "origin", url], bare);
-  await git(["push", "--all", "origin"], bare);
+  // Point the bare repo at the new remote and push the initial commit.
+  // If push fails, delete the GitHub repo so we don't leave orphans.
+  try {
+    await git(["remote", "add", "origin", url], bare);
+    await git(["push", "--all", "origin"], bare);
+  } catch (err) {
+    await gh(["repo", "delete", name, "--yes"]).catch(() => {});
+    throw err;
+  }
 
   return url;
 }
 
 // ── Init a brand-new project (optionally on GitHub) ─────────────────
 
+export interface InitProjectResult {
+  state: ProjectState;
+  /** Set when the user requested GitHub creation but it failed (graceful degradation). */
+  warning?: string;
+}
+
 export async function initProject(
   name: string,
   options: { visibility?: "public" | "private" } = {},
   dataDir = getDataDir(),
-): Promise<ProjectState> {
+): Promise<InitProjectResult> {
   const repoName = validateRepoName(name);
   const id = `proj-${nanoid(8)}`;
   const projectDir = join(dataDir, id);
   const bare = bareRepoPath(dataDir, id);
   const wsDir = join(projectDir, "workspaces");
   const logsDir = join(projectDir, "logs");
-  const tempWork = join(projectDir, "_init-temp");
+  const tempWork = join(projectDir, `_init-temp-${nanoid(4)}`);
 
   await mkdir(projectDir, { recursive: true });
 
@@ -125,16 +137,15 @@ export async function initProject(
     await git(["commit", "-m", "Initial commit"], tempWork);
     await git(["push", "origin", "main"], tempWork);
 
-    // 3. Clean up the temp working tree
+    // 3. Clean up the temp working tree and create workspace/log dirs
     await rm(tempWork, { recursive: true, force: true });
+    await mkdir(wsDir, { recursive: true });
+    await mkdir(logsDir, { recursive: true });
   } catch (err) {
     // Clean up partially-created project directory on failure
     await rm(projectDir, { recursive: true, force: true }).catch(() => {});
     throw err;
   }
-
-  await mkdir(wsDir, { recursive: true });
-  await mkdir(logsDir, { recursive: true });
 
   // 4. Save as local-only first so the project is usable even if GitHub fails
   const state: ProjectState = {
@@ -149,17 +160,18 @@ export async function initProject(
   // 5. Optionally create on GitHub, then update the saved state with the URL.
   //    If GitHub creation fails, gracefully degrade to local-only rather than
   //    propagating the error (the local project is already usable).
+  let warning: string | undefined;
   if (options.visibility) {
     try {
       const url = await createGitHubRepo(repoName, options.visibility, bare);
       state.url = url;
       await saveProject(state, dataDir);
-    } catch {
-      // GitHub creation failed — project remains usable as local-only
+    } catch (err) {
+      warning = `GitHub repo creation failed: ${err instanceof Error ? err.message : "unknown error"}`;
     }
   }
 
-  return state;
+  return { state, warning };
 }
 
 export async function listProjects(

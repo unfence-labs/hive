@@ -90,7 +90,7 @@ describe("deleteProject", () => {
 
 describe("initProject", () => {
   it("creates a bare repo with initial commit and state", async () => {
-    const state = await initProject("my-test-repo", {}, dataDir);
+    const { state } = await initProject("my-test-repo", {}, dataDir);
     expect(state.id).toMatch(/^proj-/);
     expect(state.name).toBe("my-test-repo");
     expect(state.url).toBeUndefined();
@@ -102,8 +102,9 @@ describe("initProject", () => {
   });
 
   it("creates local-only project when no visibility is set", async () => {
-    const state = await initProject("local-only", {}, dataDir);
+    const { state, warning } = await initProject("local-only", {}, dataDir);
     expect(state.url).toBeUndefined();
+    expect(warning).toBeUndefined();
     const loaded = await getProject(state.id, dataDir);
     expect(loaded?.url).toBeUndefined();
   });
@@ -132,7 +133,6 @@ describe("initProject", () => {
   });
 
   it("cleans up directory on git failure", async () => {
-    // Use an invalid bare path to force git init to fail
     const { readdir } = await import("node:fs/promises");
     const before = await readdir(dataDir);
 

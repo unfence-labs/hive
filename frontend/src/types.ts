@@ -7,6 +7,8 @@ export interface Project {
   repoPath?: string;
   workspacesPath?: string;
   hasFavicon?: boolean;
+  /** Present when GitHub repo creation failed (project degraded to local-only). */
+  warning?: string;
 }
 
 export interface Workspace {

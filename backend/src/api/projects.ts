@@ -91,6 +91,7 @@ export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
 
     try {
       let project: ProjectState;
+      let warning: string | undefined;
       if (mode === "create") {
         const name = body.name as string | undefined;
         if (!name?.trim()) return reply.status(400).send({ error: "name is required" });
@@ -98,13 +99,16 @@ export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
         if (visibility !== undefined && visibility !== "public" && visibility !== "private") {
           return reply.status(400).send({ error: "visibility must be 'public' or 'private'" });
         }
-        project = await initProject(name, { visibility }, dir);
+        const result = await initProject(name, { visibility }, dir);
+        project = result.state;
+        warning = result.warning;
       } else {
         const url = body.url as string | undefined;
         if (!url) return reply.status(400).send({ error: "url is required" });
         project = await createProject(url, dir);
       }
-      return reply.status(201).send(await enrichProject(project, dir));
+      const enriched = await enrichProject(project, dir);
+      return reply.status(201).send(warning ? { ...enriched, warning } : enriched);
     } catch (err: unknown) {
       return reply
         .status(errorStatus(err, 400))

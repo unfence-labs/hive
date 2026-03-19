@@ -27,13 +27,14 @@ interface AccountStatus {
 interface AddProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onClone: (url: string) => Promise<{ id: string } | void>;
+  onClone: (url: string) => Promise<{ id: string; warning?: string } | void>;
   onCreate: (params: {
     name: string;
     visibility?: "public" | "private";
-  }) => Promise<{ id: string } | void>;
+  }) => Promise<{ id: string; warning?: string } | void>;
 }
 
+// Must match backend REPO_NAME_RE in backend/src/projects/project-manager.ts
 const REPO_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
 
 export default function AddProjectDialog({
@@ -48,6 +49,7 @@ export default function AddProjectDialog({
   const [mode, setMode] = useState<DialogMode>("clone");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   // ── Clone state ──────────────────────────────────────────────────
   const [url, setUrl] = useState("");
@@ -64,6 +66,7 @@ export default function AddProjectDialog({
       setVisibility("private");
       setMode("clone");
       setError(null);
+      setWarning(null);
     }
   }, [open]);
 
@@ -93,7 +96,7 @@ export default function AddProjectDialog({
     setError(null);
 
     try {
-      let result: { id: string } | void;
+      let result: { id: string; warning?: string } | void;
       if (mode === "clone") {
         result = await onClone(url.trim());
       } else {
@@ -107,7 +110,11 @@ export default function AddProjectDialog({
       setName("");
       setVisibility("private");
       setMode("clone");
-      onOpenChange(false);
+      if (result?.warning) {
+        setWarning(result.warning);
+      } else {
+        onOpenChange(false);
+      }
       if (result) navigate(`/workspaces/${result.id}`);
     } catch (err) {
       setError(
@@ -231,31 +238,44 @@ export default function AddProjectDialog({
           )}
 
           {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+          {warning && (
+            <div className="mt-2 rounded-md bg-amber-500/10 px-3 py-2 text-sm text-amber-500">
+              {warning}
+            </div>
+          )}
 
           <DialogFooter className="mt-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={loading}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={
-                loading ||
-                (mode === "clone" ? !canSubmitClone : !canSubmitCreate)
-              }
-            >
-              {loading
-                ? mode === "clone"
-                  ? "Adding…"
-                  : "Creating…"
-                : mode === "clone"
-                  ? "Add"
-                  : "Create"}
-            </Button>
+            {warning ? (
+              <Button type="button" onClick={() => onOpenChange(false)}>
+                Close
+              </Button>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => onOpenChange(false)}
+                  disabled={loading}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={
+                    loading ||
+                    (mode === "clone" ? !canSubmitClone : !canSubmitCreate)
+                  }
+                >
+                  {loading
+                    ? mode === "clone"
+                      ? "Adding…"
+                      : "Creating…"
+                    : mode === "clone"
+                      ? "Add"
+                      : "Create"}
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>

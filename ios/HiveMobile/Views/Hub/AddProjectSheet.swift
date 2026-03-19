@@ -7,6 +7,7 @@ enum AddProjectMode: String, CaseIterable {
 
 struct AddProjectSheet: View {
     @Environment(\.dismiss) private var dismiss
+    let api: APIClient
     let onClone: (String) -> Void
     let onCreate: (_ name: String, _ visibility: String?) -> Void
 
@@ -174,7 +175,7 @@ struct AddProjectSheet: View {
         loadingAccount = true
         Task {
             do {
-                let status = try await APIClient().fetchAccountStatus()
+                let status = try await api.fetchAccountStatus()
                 await MainActor.run {
                     accountStatus = status
                     loadingAccount = false
@@ -194,7 +195,7 @@ struct AddProjectSheet: View {
 #Preview {
     Text("Hub")
         .sheet(isPresented: .constant(true)) {
-            AddProjectSheet(onClone: { _ in }, onCreate: { _, _ in })
+            AddProjectSheet(api: APIClient(), onClone: { _ in }, onCreate: { _, _ in })
         }
         .preferredColorScheme(.dark)
 }

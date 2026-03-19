@@ -13,7 +13,7 @@ export function useProjects() {
   /** Shared logic: create project → optimistic cache → create workspace → rollback on error. */
   async function createProjectThenWorkspace(
     body: Record<string, unknown>,
-  ): Promise<Workspace> {
+  ): Promise<Workspace & { warning?: string }> {
     const project = await api.post<Project>("/api/projects", body);
     // Optimistically add project so Sidebar renders immediately
     queryClient.setQueryData<Project[]>(["projects"], (prev) =>
@@ -30,7 +30,7 @@ export function useProjects() {
             : { ...p, workspaces: [...p.workspaces, workspace] },
         ) ?? [],
       );
-      return workspace;
+      return { ...workspace, warning: project.warning };
     } catch (err) {
       // Roll back: remove the project from cache and clean up backend
       queryClient.setQueryData<Project[]>(["projects"], (prev) =>

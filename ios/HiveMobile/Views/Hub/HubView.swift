@@ -66,6 +66,7 @@ struct HubView: View {
         .animation(.default, value: store.cloningRepoName != nil)
         .sheet(isPresented: $showAddProject) {
             AddProjectSheet(
+                api: APIClient(),
                 onClone: { url in
                     Task { await store.createProject(url: url) }
                 },
