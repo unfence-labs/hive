@@ -214,7 +214,7 @@ export class GitHubEventPoller {
             });
           }
           // Check for reopened
-          if (old.state === "CLOSED" && pr.state === "OPEN") {
+          if (old.state.toUpperCase() === "CLOSED" && pr.state.toUpperCase() === "OPEN") {
             detectedEvents.push({
               repo: repoKey,
               event: {

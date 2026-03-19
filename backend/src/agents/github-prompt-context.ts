@@ -46,5 +46,8 @@ function truncateDiff(diff: string | undefined): string {
   if (Buffer.byteLength(diff, "utf-8") <= MAX_DIFF_BYTES) return diff;
   // Truncate to fit within the byte limit
   const buf = Buffer.from(diff, "utf-8");
-  return buf.subarray(0, MAX_DIFF_BYTES).toString("utf-8") + "\n…[truncated]";
+  let end = MAX_DIFF_BYTES;
+  // Walk backwards past any incomplete UTF-8 sequence (continuation bytes start with 10xxxxxx)
+  while (end > 0 && (buf[end] & 0xc0) === 0x80) end--;
+  return buf.subarray(0, end).toString("utf-8") + "\n…[truncated]";
 }
