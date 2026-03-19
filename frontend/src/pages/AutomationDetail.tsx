@@ -219,23 +219,7 @@ export default function AutomationDetail() {
         </section>
 
         {/* ── Run History ──────────────────────────────────────────── */}
-        <section>
-          <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Run History
-          </h2>
-          {!runs || runs.length === 0 ? (
-            <div className="rounded-lg border border-border/50 px-4 py-6 text-center">
-              <Clock className="mx-auto h-5 w-5 text-muted-foreground/40" />
-              <p className="mt-2 text-xs text-muted-foreground">No runs yet</p>
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              {runs.map((run) => (
-                <RunRow key={run.id} run={run} onViewLog={setLogRun} />
-              ))}
-            </div>
-          )}
-        </section>
+        <RunHistory runs={runs} onViewLog={setLogRun} />
       </div>
 
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
@@ -346,8 +330,37 @@ function NextRunRow({ expression, isRunning }: { expression: string; isRunning: 
   return <ConfigRow label="Next Run" value={value} />;
 }
 
-function formatRelativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
+function RunHistory({ runs, onViewLog }: { runs: AutomationRun[] | undefined; onViewLog: (run: AutomationRun) => void }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <section>
+      <h2 className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        Run History
+      </h2>
+      {!runs || runs.length === 0 ? (
+        <div className="rounded-lg border border-border/50 px-4 py-6 text-center">
+          <Clock className="mx-auto h-5 w-5 text-muted-foreground/40" />
+          <p className="mt-2 text-xs text-muted-foreground">No runs yet</p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {runs.map((run) => (
+            <RunRow key={run.id} run={run} now={now} onViewLog={onViewLog} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function formatRelativeTime(iso: string, now: number = Date.now()): string {
+  const diff = now - new Date(iso).getTime();
   const seconds = Math.floor(diff / 1000);
   if (seconds < 60) return "just now";
   const minutes = Math.floor(seconds / 60);
@@ -358,7 +371,7 @@ function formatRelativeTime(iso: string): string {
   return `${days}d ago`;
 }
 
-function RunRow({ run, onViewLog }: { run: AutomationRun; onViewLog: (run: AutomationRun) => void }) {
+function RunRow({ run, now, onViewLog }: { run: AutomationRun; now: number; onViewLog: (run: AutomationRun) => void }) {
   const [expanded, setExpanded] = useState(false);
   const duration = run.durationMs ? `${Math.round(run.durationMs / 1000)}s` : "--";
   const hasDetails = !!(run.summary || run.error);
@@ -385,7 +398,7 @@ function RunRow({ run, onViewLog }: { run: AutomationRun; onViewLog: (run: Autom
         )}
 
         <span className="text-muted-foreground">
-          {formatRelativeTime(run.startedAt)}
+          {formatRelativeTime(run.startedAt, now)}
         </span>
         <span className="tabular-nums text-muted-foreground/60">{duration}</span>
 
