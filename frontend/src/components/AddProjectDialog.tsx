@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -55,6 +55,17 @@ export default function AddProjectDialog({
   // ── Create state ─────────────────────────────────────────────────
   const [name, setName] = useState("");
   const [visibility, setVisibility] = useState<"public" | "private">("private");
+
+  // ── Reset form state when dialog closes ────────────────────────────
+  useEffect(() => {
+    if (!open) {
+      setUrl("");
+      setName("");
+      setVisibility("private");
+      setMode("clone");
+      setError(null);
+    }
+  }, [open]);
 
   // ── GitHub status (only fetched when Create mode is active) ──────
   const { data: account } = useQuery({

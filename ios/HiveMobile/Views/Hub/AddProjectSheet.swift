@@ -174,7 +174,7 @@ struct AddProjectSheet: View {
         loadingAccount = true
         Task {
             do {
-                let status = try await APIClient.shared.fetchAccountStatus()
+                let status = try await APIClient().fetchAccountStatus()
                 await MainActor.run {
                     accountStatus = status
                     loadingAccount = false

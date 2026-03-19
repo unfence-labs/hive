@@ -121,23 +121,26 @@ export async function initProject(
   // 3. Clean up the temp working tree
   await rm(tempWork, { recursive: true, force: true });
 
-  // 4. Optionally create on GitHub
-  let url: string | undefined;
-  if (options.visibility) {
-    url = await createGitHubRepo(repoName, options.visibility, bare);
-  }
-
   await mkdir(wsDir, { recursive: true });
   await mkdir(logsDir, { recursive: true });
 
+  // 4. Save as local-only first so the project is usable even if GitHub fails
   const state: ProjectState = {
     id,
     name: repoName,
-    url,
+    url: undefined,
     createdAt: new Date().toISOString(),
     workspaces: [],
   };
   await saveProject(state, dataDir);
+
+  // 5. Optionally create on GitHub, then update the saved state with the URL
+  if (options.visibility) {
+    const url = await createGitHubRepo(repoName, options.visibility, bare);
+    state.url = url;
+    await saveProject(state, dataDir);
+  }
+
   return state;
 }
 
