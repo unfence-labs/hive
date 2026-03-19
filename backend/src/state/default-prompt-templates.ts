@@ -9,21 +9,16 @@ const PR_REVIEW_TEMPLATE: PromptTemplate = {
   id: PR_REVIEW_ID,
   name: "PR Review",
   type: "user",
-  content: `You are an expert code reviewer. Review this pull request thoroughly.
+  content: `You are reviewing PR #{PR_NUMBER} ({PR_TITLE}) by {PR_AUTHOR}.
+URL: {PR_URL}
 
-## PR Context
-
-**PR #{PR_NUMBER}**: {PR_TITLE}
-**Author**: {PR_AUTHOR}
-**URL**: {PR_URL}
-
-### Description
+## PR Description
 {PR_DESCRIPTION}
 
-### Files changed
+## Files changed
 {PR_FILES}
 
-### Diff
+## Diff
 \`\`\`diff
 {PR_DIFF}
 \`\`\`
@@ -31,23 +26,28 @@ const PR_REVIEW_TEMPLATE: PromptTemplate = {
 ## Previous review context
 {PREVIOUS_REVIEW}
 
-## Instructions
+---
 
-Analyze the changes and provide a thorough code review that includes:
+# Your Task
 
-1. **Overview**: What does this PR do? Is the approach sound?
-2. **Correctness**: Are there logic errors, off-by-one mistakes, missing null checks, or broken edge cases?
-3. **Security**: Does this introduce injection risks, auth bypasses, or data leaks?
-4. **Performance**: Are there N+1 queries, unnecessary allocations, or missing indexes?
-5. **Conventions**: Does the code follow the project's existing patterns and style?
-6. **Test coverage**: Are the changes adequately tested? What cases are missing?
+Read every line of the diff. Find bugs, logic errors, and concrete improvements. Do NOT summarize what the PR does — the author knows. Do NOT flag style or formatting.
 
-For each issue found, specify:
-- The file and approximate location
-- Severity: **Bug** (must fix), **Nit** (should fix), or **Note** (consider)
-- A concrete suggestion for how to fix it
+Every finding MUST include the exact file path, line reference, and a code snippet from the diff.
 
-Focus on correctness over style. Do not flag formatting issues covered by linters. If the PR looks good, say so briefly rather than inventing issues.`,
+For each finding:
+
+### {N}. [{BUG|NIT|NOTE}] {title} — \`{file}:{line}\`
+
+\`\`\`{lang}
+// the problematic code from the diff
+\`\`\`
+
+**Problem:** {what exactly goes wrong and when}
+**Fix:** {concrete fix with code}
+
+Severity: **Bug** = must fix before merge, **Nit** = should fix, **Note** = worth considering.
+
+If the code is correct, say so briefly. Do not invent issues.`,
   createdAt: "2026-03-19T00:00:00.000Z",
   updatedAt: "2026-03-19T00:00:00.000Z",
 };
@@ -56,18 +56,13 @@ const SECURITY_REVIEW_TEMPLATE: PromptTemplate = {
   id: SECURITY_REVIEW_ID,
   name: "Security Review",
   type: "user",
-  content: `You are a senior security engineer conducting a focused security review of this pull request.
+  content: `Security audit of PR #{PR_NUMBER} ({PR_TITLE}) by {PR_AUTHOR}.
+URL: {PR_URL}
 
-## PR Context
-
-**PR #{PR_NUMBER}**: {PR_TITLE}
-**Author**: {PR_AUTHOR}
-**URL**: {PR_URL}
-
-### Files changed
+## Files changed
 {PR_FILES}
 
-### Diff
+## Diff
 \`\`\`diff
 {PR_DIFF}
 \`\`\`
@@ -75,67 +70,32 @@ const SECURITY_REVIEW_TEMPLATE: PromptTemplate = {
 ## Previous review context
 {PREVIOUS_REVIEW}
 
-## Objective
+---
 
-Identify HIGH-CONFIDENCE security vulnerabilities with real exploitation potential. This is NOT a general code review — focus ONLY on security implications newly introduced by this PR.
+# Your Task
 
-## Critical Instructions
+Read every line of the diff. Find security vulnerabilities newly introduced by this PR. Only flag issues with >80% confidence of real exploitability. This is NOT a code review — focus ONLY on security.
 
-1. **Minimize false positives**: Only flag issues where you are >80% confident of actual exploitability
-2. **Avoid noise**: Skip theoretical issues, style concerns, or low-impact findings
-3. **Focus on impact**: Prioritize vulnerabilities leading to unauthorized access, data breaches, or system compromise
+**Look for:** injection (SQL, command, path, template), auth bypass, privilege escalation, hardcoded secrets, unsafe deserialization, XSS via dangerouslySetInnerHTML or similar, data exposure (PII logged, secrets leaked).
 
-## Security Categories to Examine
+**Do NOT flag:** DoS, theoretical race conditions, outdated deps, test files, regex DoS, SSRF path-only, XSS in React without unsafe methods, missing client-side checks, log spoofing unless PII, documentation files. Env vars and CLI flags are trusted. UUIDs are unguessable.
 
-**Input Validation**: SQL injection, command injection, path traversal, template injection, XXE, NoSQL injection
-**Authentication & Authorization**: Auth bypass, privilege escalation, session management flaws, JWT vulnerabilities
-**Crypto & Secrets**: Hardcoded credentials, weak algorithms, improper key storage
-**Injection & Code Execution**: RCE via deserialization, eval injection, XSS (reflected, stored, DOM-based)
-**Data Exposure**: Sensitive data logging, PII handling violations, API data leakage
+Every finding MUST include the exact file path, line reference, and a code snippet from the diff.
 
-## Hard Exclusions — Do NOT report
+For each finding:
 
-- Denial of Service or resource exhaustion
-- Secrets stored on disk if otherwise secured
-- Rate limiting concerns
-- Race conditions that are theoretical rather than practical
-- Outdated third-party library vulnerabilities
-- Memory safety issues in memory-safe languages
-- Files that are only tests
-- Log spoofing or logging unsanitized input (unless PII)
-- SSRF that only controls the path (not host/protocol)
-- XSS in React/Angular unless using dangerouslySetInnerHTML or similar
-- Lack of client-side permission checks (server handles this)
-- Regex injection or regex DoS
-- Findings in documentation files
+### {N}. [{HIGH|MEDIUM}] {title} — \`{file}:{line}\`
 
-## Precedents
+\`\`\`{lang}
+// the vulnerable code from the diff
+\`\`\`
 
-- Environment variables and CLI flags are trusted values
-- UUIDs are assumed unguessable
-- Logging URLs is safe; logging secrets/PII is not
-- Subtle web vulns (tabnabbing, XS-Leaks, open redirects) should not be reported unless extremely high confidence
+**Attack:** {step-by-step exploit scenario}
+**Fix:** {concrete fix with code}
 
-## Output Format
+HIGH = directly exploitable (RCE, data breach, auth bypass). MEDIUM = requires specific conditions but significant impact.
 
-For each finding, report:
-
-### Vuln N: [Category]: \`file:line\`
-
-* **Severity**: High | Medium
-* **Confidence**: 8-10 / 10
-* **Description**: What the vulnerability is
-* **Exploit Scenario**: How an attacker would exploit it
-* **Recommendation**: How to fix it
-
-## Severity Guidelines
-
-- **HIGH**: Directly exploitable — RCE, data breach, auth bypass
-- **MEDIUM**: Requires specific conditions but significant impact
-
-Only include MEDIUM findings if they are obvious and concrete. Better to miss theoretical issues than flood the report with false positives.
-
-If no security issues are found, state that clearly.`,
+If no security issues are found, state that clearly. Do not invent issues.`,
   createdAt: "2026-03-19T00:00:00.000Z",
   updatedAt: "2026-03-19T00:00:00.000Z",
 };
@@ -144,21 +104,16 @@ const FULL_REVIEW_TEMPLATE: PromptTemplate = {
   id: FULL_REVIEW_ID,
   name: "Full Review (Code + Security)",
   type: "user",
-  content: `You are a senior engineer performing a comprehensive code review and security audit of this pull request. You must cover BOTH aspects in a single structured report.
+  content: `You are a senior engineer reviewing PR #{PR_NUMBER} ({PR_TITLE}) by {PR_AUTHOR}.
+URL: {PR_URL}
 
-## PR Context
-
-**PR #{PR_NUMBER}**: {PR_TITLE}
-**Author**: {PR_AUTHOR}
-**URL**: {PR_URL}
-
-### Description
+## PR Description
 {PR_DESCRIPTION}
 
-### Files changed
+## Files changed
 {PR_FILES}
 
-### Diff
+## Diff
 \`\`\`diff
 {PR_DIFF}
 \`\`\`
@@ -168,94 +123,90 @@ const FULL_REVIEW_TEMPLATE: PromptTemplate = {
 
 ---
 
-# Part 1 — Code Review
+# Your Task
 
-Analyze the changes for:
+Read every line of the diff above. Your job is to find concrete bugs, security vulnerabilities, and real improvements — NOT to summarize what the PR does.
 
-1. **Correctness**: Logic errors, off-by-one mistakes, missing null checks, broken edge cases, race conditions
-2. **Performance**: N+1 queries, unnecessary allocations, missing indexes, hot-path inefficiencies
-3. **Conventions**: Does the code follow the project's existing patterns and style?
-4. **Test coverage**: Are the changes adequately tested? What cases are missing?
-5. **Design**: Is the approach sound? Are there simpler alternatives?
-
-For each issue, report:
-- File and location
-- Severity: **Bug** (must fix before merge), **Nit** (should fix but not blocking), or **Note** (worth considering)
-- A concrete fix suggestion
-
-Do not flag formatting issues covered by linters. If everything looks good, say so.
+**Rules:**
+- DO NOT start with a summary of what the PR does. The author already knows.
+- DO NOT invent issues. If the code is correct, say so.
+- DO NOT flag style, formatting, naming, or anything a linter handles.
+- Every finding MUST include the exact file path, line reference, and a code snippet from the diff.
+- Be specific. "This could be a problem" is useless. Show the problematic code and explain exactly what breaks.
 
 ---
 
-# Part 2 — Security Audit
+# 1. Security Issues
 
-Focus ONLY on security vulnerabilities newly introduced by this PR. Minimize false positives — only flag issues with >80% confidence of real exploitability.
+Search for vulnerabilities newly introduced by this diff. Only flag issues with >80% confidence of real exploitability.
 
-## Categories to Examine
+**Look for:** injection (SQL, command, path, template), auth bypass, privilege escalation, hardcoded secrets, unsafe deserialization, XSS via dangerouslySetInnerHTML or similar, data exposure (PII logged, secrets leaked).
 
-- **Input Validation**: SQL/command/path/template injection, XXE, NoSQL injection
-- **Auth & Authorization**: Auth bypass, privilege escalation, session flaws, JWT issues
-- **Crypto & Secrets**: Hardcoded credentials, weak algorithms, improper key storage
-- **Injection & RCE**: Deserialization, eval injection, XSS (only if using unsafe methods like dangerouslySetInnerHTML)
-- **Data Exposure**: Sensitive data logging, PII violations, API data leakage
+**Do NOT flag:** DoS, theoretical race conditions, outdated deps, test files, regex DoS, SSRF path-only, XSS in React without unsafe methods, missing client-side checks, log spoofing unless PII. Env vars and CLI flags are trusted. UUIDs are unguessable.
 
-## Do NOT report
+For each finding:
 
-- DoS / resource exhaustion
-- Race conditions that are theoretical
-- Outdated third-party library vulns
-- Memory safety in memory-safe languages
-- Test-only files
-- SSRF controlling only the path
-- XSS in React/Angular without unsafe methods
-- Client-side permission checks (server handles it)
-- Regex injection/DoS
-- Findings in documentation files
-- Log spoofing (unless PII)
+### S{N}. [{HIGH|MEDIUM}] {title} — \`{file}:{line}\`
 
-## Precedents
+\`\`\`{lang}
+// the problematic code from the diff
+\`\`\`
 
-- Env vars and CLI flags are trusted
-- UUIDs are unguessable
-- Logging URLs is safe; logging secrets/PII is not
-
-For each vulnerability, report:
-
-### Vuln N: [Category]: \`file:line\`
-* **Severity**: High | Medium
-* **Confidence**: 8-10 / 10
-* **Description**: What the vulnerability is
-* **Exploit Scenario**: How an attacker would exploit it
-* **Recommendation**: How to fix it
-
-If no security issues are found, state that clearly.
+**Attack:** {how an attacker exploits this, step by step}
+**Fix:** {concrete fix with code}
 
 ---
 
-# Output Structure
+# 2. Bugs
 
-Use this exact structure for your response:
+Look for logic errors, off-by-one mistakes, null/undefined crashes, broken edge cases, race conditions, incorrect return values, missing error handling that causes silent failures.
 
-## Summary
-One paragraph: what this PR does, overall quality assessment, and whether it's safe to merge.
+For each finding:
 
-## Code Review Findings
-List all code quality findings (or "No issues found").
+### B{N}. [{BUG|NIT}] {title} — \`{file}:{line}\`
 
-## Security Findings
-List all security findings (or "No security issues found").
+\`\`\`{lang}
+// the problematic code from the diff
+\`\`\`
 
-## Verdict
+**Problem:** {what exactly goes wrong and when}
+**Fix:** {concrete fix with code}
 
-End your review with one of these three verdicts inside a blockquote:
+---
 
-> **✅ APPROVE** — This PR is safe to merge. [one-line justification]
+# 3. Improvements
 
-> **❌ REQUEST CHANGES** — This PR should NOT be merged as-is. [one-line justification listing blocking issues]
+Simplifications, duplication that should be extracted, dead code, missing edge cases in tests, performance issues on hot paths (N+1, unbounded allocations).
 
-> **🟡 NEEDS DISCUSSION** — This PR requires human judgement before merging. [one-line justification]
+For each finding:
 
-Use APPROVE only if there are no Bug-severity code findings and no High-severity security findings. Use REQUEST CHANGES if there is at least one Bug or High finding. Use NEEDS DISCUSSION for borderline cases.`,
+### I{N}. {title} — \`{file}:{line}\`
+
+\`\`\`{lang}
+// the relevant code
+\`\`\`
+
+**Why:** {why this matters}
+**Suggestion:** {what to change}
+
+---
+
+# 4. Verdict
+
+Summarize in a table:
+
+| # | Type | Severity | File | Title |
+|---|------|----------|------|-------|
+
+Then give exactly one verdict:
+
+> **✅ APPROVE** — No blocking issues. [one-line justification]
+
+> **❌ REQUEST CHANGES** — [list blocking issues by number]
+
+> **🟡 NEEDS DISCUSSION** — [what needs human judgement]
+
+APPROVE = zero Bug/High findings. REQUEST CHANGES = at least one Bug or High. NEEDS DISCUSSION = borderline.`,
   createdAt: "2026-03-19T00:00:00.000Z",
   updatedAt: "2026-03-19T00:00:00.000Z",
 };
