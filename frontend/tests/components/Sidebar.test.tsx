@@ -976,10 +976,8 @@ describe("Sidebar", () => {
     renderSidebar("/home", projects, { automations });
 
     const autoLink = await screen.findByRole("link", { name: /Running auto/i });
-    const dot = autoLink.querySelector("span[class*='rounded-full']");
-    expect(dot).toBeTruthy();
-    expect(dot!.className).toContain("bg-green-500");
-    expect(dot!.className).toContain("animate-pulse");
+    const spinner = autoLink.querySelector("svg.animate-spin");
+    expect(spinner).toBeTruthy();
   });
 
   it("shows muted dot for disabled automations", async () => {

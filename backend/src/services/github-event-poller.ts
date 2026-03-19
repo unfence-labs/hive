@@ -288,7 +288,8 @@ export class GitHubEventPoller {
     // Deduplicate and dispatch events
     for (const detected of detectedEvents) {
       if (repoState.processedEvents.includes(detected.fingerprint)) continue;
-      repoState.processedEvents.push(detected.fingerprint);
+
+      let dispatched = false;
 
       // Match against automations
       for (const auto of automations) {
@@ -306,13 +307,7 @@ export class GitHubEventPoller {
           if (!hasMatchingLabel) continue;
         }
 
-        // Skip if already running
-        if (this.scheduler.isRunning(auto.id)) {
-          console.log(
-            `[github-poller] Skipping ${auto.id}: already running`,
-          );
-          continue;
-        }
+        dispatched = true;
 
         // Enrich context and dispatch
         try {
@@ -335,6 +330,11 @@ export class GitHubEventPoller {
             err,
           );
         }
+      }
+
+      // Only mark as processed once at least one automation handled it
+      if (dispatched) {
+        repoState.processedEvents.push(detected.fingerprint);
       }
     }
   }

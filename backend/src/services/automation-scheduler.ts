@@ -116,7 +116,10 @@ export class AutomationScheduler {
   }
 
   isRunning(autoId: string): boolean {
-    return this.activeRuns.has(autoId);
+    for (const active of this.activeRuns.values()) {
+      if (active.run.automationId === autoId) return true;
+    }
+    return false;
   }
 
   async triggerNow(autoId: string): Promise<AutomationRun> {
@@ -134,18 +137,19 @@ export class AutomationScheduler {
   async onAutomationDeleted(autoId: string): Promise<void> {
     this.unscheduleAutomation(autoId);
 
-    const active = this.activeRuns.get(autoId);
-    if (active) {
-      active.session.stop();
-      this.activeRuns.delete(autoId);
+    for (const [runId, active] of this.activeRuns) {
+      if (active.run.automationId === autoId) {
+        active.session.stop();
+        this.activeRuns.delete(runId);
+      }
     }
   }
 
   private async executeRun(autoId: string): Promise<AutomationRun> {
-    // Guard: no concurrent runs
-    if (this.activeRuns.has(autoId)) {
-      console.warn(`[scheduler] Skipping run for ${autoId}: already running`);
-      const existing = this.activeRuns.get(autoId)!;
+    // Guard: no concurrent cron runs
+    if (this.isRunning(autoId)) {
+      console.warn(`[scheduler] Skipping cron run for ${autoId}: already running`);
+      const existing = [...this.activeRuns.values()].find((a) => a.run.automationId === autoId)!;
       return existing.run;
     }
 
@@ -248,11 +252,6 @@ export class AutomationScheduler {
     event: GitHubTriggerEvent,
     eventContext: GitHubEventContext,
   ): Promise<AutomationRun> {
-    // Guard: no concurrent runs
-    if (this.activeRuns.has(autoId)) {
-      throw new Error(`Automation ${autoId} is already running`);
-    }
-
     // Re-load automation to get latest config
     const automations = await loadAutomations(this.dataDir);
     const auto = automations.find((a) => a.id === autoId);
@@ -366,7 +365,7 @@ export class AutomationScheduler {
       skipPermissions: true,
     });
 
-    this.activeRuns.set(auto.id, { run, session });
+    this.activeRuns.set(run.id, { run, session });
 
     // Persist resolved system prompt for run log viewer
     const persistPrompt = systemPrompt
@@ -383,12 +382,14 @@ export class AutomationScheduler {
       const finish = async (status: "success" | "failure", error?: string) => {
         if (resolved) return;
         resolved = true;
-        this.activeRuns.delete(auto.id);
+        this.activeRuns.delete(run.id);
 
         try {
           const messages = await session.getMessages();
           const summary = extractSummary(messages);
-          await this.completeRun(auto, run.id, status, summary, error, startTime, triggerEvent);
+          const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+          const fullContent = lastAssistant?.content?.trim();
+          await this.completeRun(auto, run.id, status, summary, error, startTime, triggerEvent, fullContent);
           resolve({ ...run, status, summary, error, completedAt: new Date().toISOString(), triggerEvent });
         } catch (err) {
           console.error(`[scheduler] Error completing run ${run.id}:`, err);
@@ -437,16 +438,18 @@ export class AutomationScheduler {
     // For PR events, ensure workspace and checkout the PR branch
     const { workspacePath, defaultBranch } = await this.ensureWorkspace(auto);
 
-    // Clean up any stale pr-review branch from a previous run
+    const branchName = `pr-review-${event.number}`;
+
+    // Clean up any stale branch from a previous run for this PR
     await git(["checkout", defaultBranch ?? "main"], workspacePath).catch(() => {});
-    await git(["branch", "-D", "pr-review"], workspacePath).catch(() => {});
+    await git(["branch", "-D", branchName], workspacePath).catch(() => {});
 
     // Fetch and checkout the PR branch
     await git(
-      ["fetch", "origin", `pull/${event.number}/head:pr-review`, "--force"],
+      ["fetch", "origin", `pull/${event.number}/head:${branchName}`, "--force"],
       workspacePath,
     );
-    await git(["checkout", "pr-review"], workspacePath);
+    await git(["checkout", branchName], workspacePath);
     if (event.headSha) {
       await git(["reset", "--hard", event.headSha], workspacePath);
     }
@@ -511,6 +514,7 @@ export class AutomationScheduler {
     error: string | undefined,
     startTime: Date,
     triggerEvent?: GitHubTriggerEvent,
+    fullContent?: string,
   ): Promise<void> {
     const completedAt = new Date().toISOString();
     const durationMs = Date.now() - startTime.getTime();
@@ -567,7 +571,8 @@ export class AutomationScheduler {
       const project = auto.projectId ? await loadProject(auto.projectId, this.dataDir) : null;
       const ghRepo = project ? parseGitHubRepo(project.url) : null;
       if (ghRepo) {
-        const comment = `### Hive: ${auto.name}\n\n${summary ?? "_No summary_"}`;
+        const body = fullContent ?? summary ?? "_No output_";
+        const comment = `### Hive: ${auto.name}\n\n${body}`;
         try {
           if (triggerEvent.type.startsWith("pull_request.")) {
             await postPrComment(ghRepo.owner, ghRepo.repo, triggerEvent.number, comment);
