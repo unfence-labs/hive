@@ -34,6 +34,7 @@ import { detectAvailableProviders } from "./agents/providers/registry.js";
 import { stopAllScripts } from "./services/script-runner.js";
 import { initWorkspaceIndex } from "./state/workspace-index.js";
 import { cleanupRoutes } from "./api/cleanup.js";
+import { seedDefaultTemplates } from "./state/default-prompt-templates.js";
 
 const HOST = process.env.HOST ?? "127.0.0.1";
 const PORT = Number(process.env.PORT ?? 3000);
@@ -364,6 +365,7 @@ async function main() {
   await ensureDataDir(dataDir);
   await reconcileStaleWorkspaces(dataDir);
   await initWorkspaceIndex(dataDir);
+  await seedDefaultTemplates(dataDir);
 
   const config = await loadConfig(dataDir);
   rebuildNotifier(config);
