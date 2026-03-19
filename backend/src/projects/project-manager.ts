@@ -146,11 +146,17 @@ export async function initProject(
   };
   await saveProject(state, dataDir);
 
-  // 5. Optionally create on GitHub, then update the saved state with the URL
+  // 5. Optionally create on GitHub, then update the saved state with the URL.
+  //    If GitHub creation fails, gracefully degrade to local-only rather than
+  //    propagating the error (the local project is already usable).
   if (options.visibility) {
-    const url = await createGitHubRepo(repoName, options.visibility, bare);
-    state.url = url;
-    await saveProject(state, dataDir);
+    try {
+      const url = await createGitHubRepo(repoName, options.visibility, bare);
+      state.url = url;
+      await saveProject(state, dataDir);
+    } catch {
+      // GitHub creation failed — project remains usable as local-only
+    }
   }
 
   return state;
