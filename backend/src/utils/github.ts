@@ -234,3 +234,11 @@ export function _resetGhState(): void {
   ghUnavailableReason = "";
   ghUnavailableAt = 0;
 }
+
+export async function postPrComment(owner: string, repo: string, prNumber: number, body: string): Promise<void> {
+  await gh(["pr", "comment", String(prNumber), "--repo", `${owner}/${repo}`, "--body", body]);
+}
+
+export async function postIssueComment(owner: string, repo: string, issueNumber: number, body: string): Promise<void> {
+  await gh(["issue", "comment", String(issueNumber), "--repo", `${owner}/${repo}`, "--body", body]);
+}

@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock,
+  ExternalLink,
   FileText,
   Loader2,
   Pencil,
@@ -169,8 +170,23 @@ export default function AutomationDetail() {
             Configuration
           </h2>
           <div className="space-y-px overflow-hidden rounded-lg border border-border/50">
-            <ConfigRow label="Schedule" value={auto.trigger.expression} />
-            {auto.enabled && <NextRunRow expression={auto.trigger.expression} isRunning={isRunning} />}
+            {auto.trigger.type === "cron" ? (
+              <>
+                <ConfigRow label="Schedule" value={auto.trigger.expression} />
+                {auto.enabled && <NextRunRow expression={auto.trigger.expression} isRunning={isRunning} />}
+              </>
+            ) : (
+              <>
+                <ConfigRow label="Trigger" value="GitHub Event" />
+                <ConfigRow label="Events" value={describeGitHubEvents(auto.trigger.events)} />
+                {auto.trigger.labelFilter?.length ? (
+                  <ConfigRow label="Labels" value={auto.trigger.labelFilter.join(", ")} />
+                ) : null}
+                {auto.action.postResultAsComment && (
+                  <ConfigRow label="Output" value="Post as GitHub comment" />
+                )}
+              </>
+            )}
             <ConfigRow label="Model" value={auto.action.modelId} />
             {auto.projectId && <ConfigRow label="Project" value={projectNames[auto.projectId] ?? auto.projectId} />}
             {auto.action.systemPromptId && (
@@ -368,6 +384,25 @@ function RunRow({ run, onViewLog }: { run: AutomationRun; onViewLog: (run: Autom
         </span>
         <span className="tabular-nums text-muted-foreground/60">{duration}</span>
 
+        {run.triggerEvent && (
+          <span className="min-w-0 shrink truncate text-foreground/70">
+            {run.triggerEvent.type.startsWith("pull_request.") ? "PR" : "Issue"} #{run.triggerEvent.number}{" "}
+            <span className="text-foreground/50">{run.triggerEvent.title}</span>
+          </span>
+        )}
+
+        {run.triggerEvent?.url && (
+          <a
+            href={run.triggerEvent.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="shrink-0 text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+          >
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
+
         {run.summary && (
           <span className="min-w-0 flex-1 truncate text-right text-foreground/60">
             {run.summary.slice(0, 80)}
@@ -414,4 +449,19 @@ function RunRow({ run, onViewLog }: { run: AutomationRun; onViewLog: (run: Autom
       )}
     </div>
   );
+}
+
+function describeGitHubEvents(events: string[]): string {
+  const SHORT: Record<string, string> = {
+    "pull_request.opened": "PR open",
+    "pull_request.synchronize": "PR update",
+    "pull_request.reopened": "PR reopen",
+    "pull_request.comment": "PR comment",
+    "pull_request.review_submitted": "PR review",
+    "issues.opened": "Issue open",
+    "issues.comment": "Issue comment",
+  };
+  const labels = events.map(e => SHORT[e] ?? e);
+  if (labels.length <= 2) return labels.join(", ");
+  return `${labels.slice(0, 2).join(", ")} +${labels.length - 2}`;
 }

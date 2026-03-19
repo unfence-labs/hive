@@ -312,14 +312,22 @@ export type WsOutgoing =
 
 // ── Automation types ─────────────────────────────────────────────────
 
-export type AutomationTriggerType = "cron";
+export type AutomationTriggerType = "cron" | "github_event";
 export type AutomationActionType = "agent";
 export type AutomationRunStatus = "running" | "success" | "failure";
 
-export interface AutomationTrigger {
-  type: AutomationTriggerType;
-  expression: string;
-}
+export type GitHubEventType =
+  | "pull_request.opened"
+  | "pull_request.synchronize"
+  | "pull_request.reopened"
+  | "pull_request.comment"
+  | "pull_request.review_submitted"
+  | "issues.opened"
+  | "issues.comment";
+
+export type AutomationTrigger =
+  | { type: "cron"; expression: string }
+  | { type: "github_event"; events: GitHubEventType[]; labelFilter?: string[] };
 
 export interface AutomationAction {
   type: AutomationActionType;
@@ -328,6 +336,7 @@ export interface AutomationAction {
   systemPromptInline?: string;
   userPromptId?: string;
   userPromptInline?: string;
+  postResultAsComment?: boolean;
 }
 
 export interface AutomationNotification {
@@ -351,6 +360,15 @@ export interface Automation {
   updatedAt: string;
 }
 
+export interface GitHubTriggerEvent {
+  type: GitHubEventType;
+  number: number;
+  title: string;
+  url: string;
+  headSha?: string;
+  actor?: string;
+}
+
 export interface AutomationRun {
   id: string;
   automationId: string;
@@ -361,6 +379,7 @@ export interface AutomationRun {
   durationMs?: number;
   summary?: string;
   error?: string;
+  triggerEvent?: GitHubTriggerEvent;
 }
 
 export interface PromptTemplate {

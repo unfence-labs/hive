@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { getNextRun, formatTimeUntil } from "@/lib/cron";
-import { ArchiveIcon, FolderPlus, Loader2, Plus, Settings } from "lucide-react";
+import { ArchiveIcon, FolderPlus, Github, Loader2, Plus, Settings } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -536,6 +536,9 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
       if (diffMs < 0) return "due now";
       return formatTimeUntil(diffMs);
     }
+    if (auto.trigger.type === "github_event") {
+      return describeGitHubEventsShort(auto.trigger.events);
+    }
     return "";
   })();
 
@@ -558,6 +561,9 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
                 : "bg-muted-foreground/40",
           )}
         />
+        {auto.trigger.type === "github_event" && (
+          <Github className="h-3 w-3 shrink-0 text-muted-foreground" />
+        )}
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-sm",
@@ -579,4 +585,19 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
       </div>
     </Link>
   );
+}
+
+function describeGitHubEventsShort(events: string[]): string {
+  const SHORT: Record<string, string> = {
+    "pull_request.opened": "PR open",
+    "pull_request.synchronize": "PR update",
+    "pull_request.reopened": "PR reopen",
+    "pull_request.comment": "PR comment",
+    "pull_request.review_submitted": "PR review",
+    "issues.opened": "Issue open",
+    "issues.comment": "Issue comment",
+  };
+  const labels = events.map(e => SHORT[e] ?? e);
+  if (labels.length <= 2) return labels.join(", ");
+  return `${labels.slice(0, 2).join(", ")} +${labels.length - 2}`;
 }

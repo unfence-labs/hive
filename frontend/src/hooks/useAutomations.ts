@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { api } from "./useApi";
-import type { Automation, AutomationRun, ChatMessage } from "@/types";
+import type { Automation, AutomationRun, AutomationTrigger, ChatMessage } from "@/types";
 
 const sharedOptions = {
   refetchInterval: 15_000,
@@ -41,7 +41,7 @@ export function useCreateAutomation() {
     mutationFn: (body: {
       name: string;
       projectId?: string;
-      trigger: { type: "cron"; expression: string };
+      trigger: AutomationTrigger;
       action: {
         type: "agent";
         modelId: string;
@@ -49,6 +49,7 @@ export function useCreateAutomation() {
         systemPromptInline?: string;
         userPromptId?: string;
         userPromptInline?: string;
+        postResultAsComment?: boolean;
       };
       notification?: { onComplete: boolean; onFailure: boolean };
     }) => api.post<Automation>("/api/automations", body),

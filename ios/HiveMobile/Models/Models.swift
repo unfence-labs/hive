@@ -369,7 +369,9 @@ enum AutomationRunStatus: String, Codable {
 
 struct AutomationTrigger: Codable {
     let type: String
-    let expression: String
+    let expression: String?
+    let events: [String]?
+    let labelFilter: [String]?
 }
 
 struct AutomationAction: Codable {
@@ -379,6 +381,7 @@ struct AutomationAction: Codable {
     let systemPromptInline: String?
     let userPromptId: String?
     let userPromptInline: String?
+    let postResultAsComment: Bool?
 }
 
 struct AutomationNotification: Codable {
@@ -402,6 +405,15 @@ struct Automation: Codable, Identifiable {
     let updatedAt: String
 }
 
+struct GitHubTriggerEvent: Codable {
+    let type: String
+    let number: Int
+    let title: String
+    let url: String
+    let headSha: String?
+    let actor: String?
+}
+
 struct AutomationRun: Codable, Identifiable {
     let id: String
     let automationId: String
@@ -412,6 +424,7 @@ struct AutomationRun: Codable, Identifiable {
     let durationMs: Int?
     let summary: String?
     let error: String?
+    let triggerEvent: GitHubTriggerEvent?
 }
 
 struct PromptTemplate: Codable, Identifiable {

@@ -6,11 +6,28 @@ import { loadConfig, saveConfig, type AppConfig } from "./config.js";
 
 const DEFAULT_APNS = { enabled: false, teamId: "", keyId: "", keyContent: "", bundleId: "", sandbox: false, deviceTokens: [] as string[] };
 
+const DEFAULT_CLEANUP = {
+  postRunArtifactStrip: true,
+  artifactDirs: ["node_modules", "target", ".next", "dist", "build", "__pycache__", ".gradle", ".cache", ".parcel-cache"],
+  ttl: {
+    archivedWorkspaceDays: 30,
+    runSessionDeleteDays: 30,
+    keepMinRuns: 5,
+    sweepIntervalHours: 6,
+  },
+  disk: {
+    softThresholdPercent: 80,
+    hardThresholdPercent: 90,
+    checkIntervalSeconds: 60,
+  },
+};
+
 const DEFAULT_CONFIG: AppConfig = {
   notifications: {
     telegram: { enabled: false, botToken: "", chatId: "" },
     apns: { ...DEFAULT_APNS },
   },
+  cleanup: { ...DEFAULT_CLEANUP },
 };
 
 let dataDir: string;
@@ -51,6 +68,7 @@ describe("loadConfig", () => {
         telegram: { enabled: true, botToken: "", chatId: "" },
         apns: { ...DEFAULT_APNS },
       },
+      cleanup: { ...DEFAULT_CLEANUP },
     });
   });
 
@@ -69,6 +87,7 @@ describe("loadConfig", () => {
         telegram: { enabled: true, botToken: "tok", chatId: "cid" },
         apns: { enabled: true, teamId: "T", keyId: "K", keyContent: "PEM", bundleId: "com.x", sandbox: true, deviceTokens: ["abc"] },
       },
+      cleanup: { ...DEFAULT_CLEANUP },
     };
     await writeFile(join(dataDir, "config.json"), JSON.stringify(full), "utf-8");
 
@@ -92,6 +111,7 @@ describe("loadConfig", () => {
         telegram: { enabled: true, botToken: "t", chatId: "c" },
         apns: { ...DEFAULT_APNS },
       },
+      cleanup: { ...DEFAULT_CLEANUP },
     });
     expect((config as unknown as Record<string, unknown>)["unknownKey"]).toBeUndefined();
   });
@@ -143,6 +163,7 @@ describe("saveConfig", () => {
         telegram: { enabled: true, botToken: "bot-token", chatId: "chat-id" },
         apns: { enabled: true, teamId: "T", keyId: "K", keyContent: "PEM", bundleId: "com.x", sandbox: false, deviceTokens: ["deadbeef"] },
       },
+      cleanup: { ...DEFAULT_CLEANUP },
     };
 
     await saveConfig(config, dataDir);

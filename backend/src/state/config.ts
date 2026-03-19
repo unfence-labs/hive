@@ -24,9 +24,42 @@ export interface NotificationsConfig {
   apns: ApnsConfig;
 }
 
+export interface CleanupConfig {
+  postRunArtifactStrip: boolean;
+  artifactDirs: string[];
+  ttl: {
+    archivedWorkspaceDays: number;
+    runSessionDeleteDays: number;
+    keepMinRuns: number;
+    sweepIntervalHours: number;
+  };
+  disk: {
+    softThresholdPercent: number;
+    hardThresholdPercent: number;
+    checkIntervalSeconds: number;
+  };
+}
+
 export interface AppConfig {
   notifications: NotificationsConfig;
+  cleanup: CleanupConfig;
 }
+
+const DEFAULT_CLEANUP: CleanupConfig = {
+  postRunArtifactStrip: true,
+  artifactDirs: ["node_modules", "target", ".next", "dist", "build", "__pycache__", ".gradle", ".cache", ".parcel-cache"],
+  ttl: {
+    archivedWorkspaceDays: 30,
+    runSessionDeleteDays: 30,
+    keepMinRuns: 5,
+    sweepIntervalHours: 6,
+  },
+  disk: {
+    softThresholdPercent: 80,
+    hardThresholdPercent: 90,
+    checkIntervalSeconds: 60,
+  },
+};
 
 const DEFAULT_APNS: ApnsConfig = {
   enabled: false,
@@ -43,6 +76,7 @@ const DEFAULT_CONFIG: AppConfig = {
     telegram: { enabled: false, botToken: "", chatId: "" },
     apns: { ...DEFAULT_APNS },
   },
+  cleanup: { ...DEFAULT_CLEANUP },
 };
 
 function configFilePath(dataDir: string): string {
@@ -54,6 +88,7 @@ export async function loadConfig(dataDir = getDataDir()): Promise<AppConfig> {
     const raw = await readFile(configFilePath(dataDir), "utf-8");
     const parsed = JSON.parse(raw) as Partial<AppConfig>;
     const apns = parsed.notifications?.apns;
+    const cleanup = parsed.cleanup;
     return {
       notifications: {
         telegram: {
@@ -69,6 +104,21 @@ export async function loadConfig(dataDir = getDataDir()): Promise<AppConfig> {
           bundleId: apns?.bundleId ?? DEFAULT_APNS.bundleId,
           sandbox: apns?.sandbox ?? DEFAULT_APNS.sandbox,
           deviceTokens: apns?.deviceTokens ?? DEFAULT_APNS.deviceTokens,
+        },
+      },
+      cleanup: {
+        postRunArtifactStrip: cleanup?.postRunArtifactStrip ?? DEFAULT_CLEANUP.postRunArtifactStrip,
+        artifactDirs: cleanup?.artifactDirs ?? DEFAULT_CLEANUP.artifactDirs,
+        ttl: {
+          archivedWorkspaceDays: cleanup?.ttl?.archivedWorkspaceDays ?? DEFAULT_CLEANUP.ttl.archivedWorkspaceDays,
+          runSessionDeleteDays: cleanup?.ttl?.runSessionDeleteDays ?? DEFAULT_CLEANUP.ttl.runSessionDeleteDays,
+          keepMinRuns: cleanup?.ttl?.keepMinRuns ?? DEFAULT_CLEANUP.ttl.keepMinRuns,
+          sweepIntervalHours: cleanup?.ttl?.sweepIntervalHours ?? DEFAULT_CLEANUP.ttl.sweepIntervalHours,
+        },
+        disk: {
+          softThresholdPercent: cleanup?.disk?.softThresholdPercent ?? DEFAULT_CLEANUP.disk.softThresholdPercent,
+          hardThresholdPercent: cleanup?.disk?.hardThresholdPercent ?? DEFAULT_CLEANUP.disk.hardThresholdPercent,
+          checkIntervalSeconds: cleanup?.disk?.checkIntervalSeconds ?? DEFAULT_CLEANUP.disk.checkIntervalSeconds,
         },
       },
     };

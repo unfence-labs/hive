@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { ArrowLeft, Bell, Bot, CircleUser, FileText, Paintbrush, Wifi, GitFork } from "lucide-react";
+import { ArrowLeft, Bell, Bot, CircleUser, FileText, HardDrive, Paintbrush, Wifi, GitFork } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -67,6 +67,12 @@ export default function SettingsSidebar() {
               label="Prompts"
               icon={<FileText className="h-4 w-4" />}
               active={pathname === "/settings/prompt-templates"}
+            />
+            <NavItem
+              to="/settings/storage"
+              label="Storage"
+              icon={<HardDrive className="h-4 w-4" />}
+              active={pathname === "/settings/storage"}
             />
           </SidebarSection>
 

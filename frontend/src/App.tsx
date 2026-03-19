@@ -21,6 +21,7 @@ import { wsTransport } from "@/lib/ws-transport";
 
 const AutomationDetail = lazy(() => import("@/pages/AutomationDetail"));
 const PromptTemplatesSettings = lazy(() => import("@/pages/settings/PromptTemplatesSettings"));
+const StorageSettings = lazy(() => import("@/pages/settings/StorageSettings"));
 const CreateAutomationDialog = lazy(() => import("@/components/CreateAutomationDialog"));
 
 function NotificationToastsBridge({ projects }: { projects: Project[] }) {
@@ -109,6 +110,7 @@ export default function App() {
             <Route path="settings/notifications" element={<NotificationSettings />} />
             <Route path="settings/agents" element={<AgentSettings />} />
             <Route path="settings/prompt-templates" element={<Suspense fallback={null}><PromptTemplatesSettings /></Suspense>} />
+            <Route path="settings/storage" element={<Suspense fallback={null}><StorageSettings /></Suspense>} />
             <Route path="settings/repositories/:projectId" element={<ProjectDetail />} />
           </Route>
         </Routes>

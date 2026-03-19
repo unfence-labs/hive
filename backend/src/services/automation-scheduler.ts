@@ -23,7 +23,11 @@ import {
 } from "../utils/git-worktree.js";
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
 import { getGitContext, formatGitContextBlock, interpolatePromptVariables } from "../agents/system-prompt.js";
-import type { Automation, AutomationRun, WsOutgoing } from "../types.js";
+import { interpolateGitHubVariables, type GitHubEventContext } from "../agents/github-prompt-context.js";
+import { parseGitHubRepo, postPrComment, postIssueComment } from "../utils/github.js";
+import { loadConfig } from "../state/config.js";
+import type { CleanupService } from "./cleanup-service.js";
+import type { Automation, AutomationRun, GitHubTriggerEvent, WsOutgoing } from "../types.js";
 
 const SUMMARY_INSTRUCTION =
   "\n\nIMPORTANT: End your final message with a \"## Summary\" section that concisely summarizes your findings and actions. This summary will be sent as a notification.";
@@ -37,9 +41,11 @@ export class AutomationScheduler {
   private readonly dataDir: string;
   private readonly cronJobs = new Map<string, Cron>();
   private readonly activeRuns = new Map<string, ActiveRun>();
+  private readonly cleanupService?: CleanupService;
 
-  constructor(dataDir: string) {
+  constructor(dataDir: string, cleanupService?: CleanupService) {
     this.dataDir = dataDir;
+    this.cleanupService = cleanupService;
   }
 
   async start(): Promise<void> {
@@ -84,6 +90,8 @@ export class AutomationScheduler {
     this.unscheduleAutomation(auto.id);
 
     if (!auto.enabled) return;
+
+    if (auto.trigger.type !== "cron") return;
 
     const job = new Cron(auto.trigger.expression, { legacyMode: false }, () => {
       void this.executeRun(auto.id).catch((err) => {
@@ -139,6 +147,22 @@ export class AutomationScheduler {
       console.warn(`[scheduler] Skipping run for ${autoId}: already running`);
       const existing = this.activeRuns.get(autoId)!;
       return existing.run;
+    }
+
+    // Guard: disk pressure
+    if (this.cleanupService?.isBlocked()) {
+      console.warn(`[scheduler] Skipping run for ${autoId}: disk pressure`);
+      const run: AutomationRun = {
+        id: `run-${nanoid(8)}`,
+        automationId: autoId,
+        status: "failure",
+        sessionId: "",
+        startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        error: "Disk pressure too high — cleanup required",
+      };
+      await addRun(autoId, run, this.dataDir);
+      return run;
     }
 
     // Re-load automation to get latest config
@@ -284,6 +308,200 @@ export class AutomationScheduler {
     });
   }
 
+  async executeEventRun(
+    autoId: string,
+    event: GitHubTriggerEvent,
+    eventContext: GitHubEventContext,
+  ): Promise<AutomationRun> {
+    // Guard: no concurrent runs
+    if (this.activeRuns.has(autoId)) {
+      throw new Error(`Automation ${autoId} is already running`);
+    }
+
+    // Re-load automation to get latest config
+    const automations = await loadAutomations(this.dataDir);
+    const auto = automations.find((a) => a.id === autoId);
+    if (!auto) {
+      throw new Error(`Automation ${autoId} not found`);
+    }
+
+    const now = new Date();
+    const run: AutomationRun = {
+      id: `run-${nanoid(8)}`,
+      automationId: autoId,
+      status: "running",
+      sessionId: `auto-sess-${nanoid(8)}`,
+      startedAt: now.toISOString(),
+      triggerEvent: event,
+    };
+
+    await addRun(autoId, run, this.dataDir);
+
+    // Ensure workspace (checkout PR branch for PR events)
+    let workspacePath: string;
+    let defaultBranch: string | undefined;
+    try {
+      ({ workspacePath, defaultBranch } = await this.ensureWorkspaceForEvent(auto, event));
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      await this.completeRun(auto, run.id, "failure", undefined, error, now, event);
+      return { ...run, status: "failure", error };
+    }
+
+    // Update automation with workspace path if needed
+    if (!auto.workspacePath) {
+      await withAutomationsLock(async () => {
+        const autos = await loadAutomations(this.dataDir);
+        const idx = autos.findIndex((a) => a.id === autoId);
+        if (idx !== -1) {
+          autos[idx].workspacePath = workspacePath;
+          await saveAutomations(autos, this.dataDir);
+        }
+      });
+    }
+
+    // Resolve prompts
+    let systemPrompt = await this.resolvePrompt(auto.action.systemPromptId, auto.action.systemPromptInline, "system");
+    let userPrompt = await this.resolvePrompt(auto.action.userPromptId, auto.action.userPromptInline, "user");
+
+    if (!userPrompt) {
+      const error = "No user prompt resolved";
+      await this.completeRun(auto, run.id, "failure", undefined, error, now, event);
+      return { ...run, status: "failure", error };
+    }
+
+    // Inject git context for project-linked automations
+    let projectName = "unknown";
+    if (auto.projectId) {
+      const project = await loadProject(auto.projectId, this.dataDir);
+      if (!project) {
+        const error = `Project ${auto.projectId} not found (deleted?)`;
+        await this.completeRun(auto, run.id, "failure", undefined, error, now, event);
+        return { ...run, status: "failure", error };
+      }
+      projectName = project.name;
+      const ctx = await getGitContext(workspacePath, defaultBranch);
+      const gitBlock = formatGitContextBlock(ctx, { projectName });
+      systemPrompt = systemPrompt ? systemPrompt + "\n\n" + gitBlock : gitBlock;
+    }
+
+    // Interpolate template variables
+    if (systemPrompt) {
+      systemPrompt = interpolatePromptVariables(systemPrompt, {
+        projectName,
+        cwd: workspacePath,
+        defaultBranch: defaultBranch ?? "main",
+      });
+    }
+
+    // Inject previous review summary for same PR/issue
+    const runs = await loadRuns(autoId, this.dataDir);
+    const previousRun = runs
+      .filter((r) => r.status === "success" && r.triggerEvent?.number === event.number && r.id !== run.id)
+      .sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""))[0];
+    if (previousRun?.summary) {
+      eventContext.previousReviewSummary = previousRun.summary;
+    }
+
+    // Interpolate GitHub variables into both prompts
+    if (systemPrompt) {
+      systemPrompt = interpolateGitHubVariables(systemPrompt, eventContext);
+    }
+    userPrompt = interpolateGitHubVariables(userPrompt, eventContext);
+
+    // Create session
+    const autoDir = join(this.dataDir, "automations", autoId);
+    const session = new ConversationSession({
+      cwd: workspacePath,
+      dataDir: autoDir,
+      workspaceId: autoId,
+      sessionId: run.sessionId,
+      systemPrompt: systemPrompt ? systemPrompt + SUMMARY_INSTRUCTION : undefined,
+      skipPermissions: true,
+    });
+
+    this.activeRuns.set(autoId, { run, session });
+
+    // Persist resolved system prompt for run log viewer
+    if (systemPrompt) {
+      const sessDir = join(autoDir, "sessions", run.sessionId);
+      await mkdir(sessDir, { recursive: true });
+      await writeFile(join(sessDir, "system-prompt.txt"), systemPrompt, "utf-8")
+        .catch((err) => console.error("[scheduler] Persist system prompt failed:", err));
+    }
+
+    // Listen for completion
+    return new Promise<AutomationRun>((resolve) => {
+      let resolved = false;
+
+      const finish = async (status: "success" | "failure", error?: string) => {
+        if (resolved) return;
+        resolved = true;
+        this.activeRuns.delete(autoId);
+
+        try {
+          const messages = await session.getMessages();
+          const summary = extractSummary(messages);
+          await this.completeRun(auto, run.id, status, summary, error, now, event);
+          resolve({ ...run, status, summary, error, completedAt: new Date().toISOString(), triggerEvent: event });
+        } catch (err) {
+          console.error(`[scheduler] Error completing event run ${run.id}:`, err);
+          resolve({ ...run, status: "failure", error: String(err) });
+        }
+      };
+
+      session.on("message", (msg: WsOutgoing) => {
+        if (msg.type === "done") {
+          void finish("success");
+        } else if (msg.type === "error") {
+          void finish("failure", msg.message);
+        }
+      });
+
+      session.on("error", (err: Error) => {
+        void finish("failure", err.message);
+      });
+
+      session.on("exit", (code: number) => {
+        if (!resolved) {
+          void finish(code === 0 ? "success" : "failure", code !== 0 ? `Process exited with code ${code}` : undefined);
+        }
+      });
+
+      // Send the message to start the agent
+      try {
+        session.sendMessage(userPrompt, { model: auto.action.modelId });
+      } catch (err) {
+        void finish("failure", err instanceof Error ? err.message : String(err));
+      }
+    });
+  }
+
+  private async ensureWorkspaceForEvent(
+    auto: Automation,
+    event: GitHubTriggerEvent,
+  ): Promise<{ workspacePath: string; defaultBranch?: string }> {
+    // For issue events, fall back to standard workspace setup
+    if (!event.type.startsWith("pull_request.")) {
+      return this.ensureWorkspace(auto);
+    }
+
+    // For PR events, ensure workspace and checkout the PR branch
+    const { workspacePath, defaultBranch } = await this.ensureWorkspace(auto);
+
+    // Fetch and checkout the PR branch
+    await git(
+      ["fetch", "origin", `pull/${event.number}/head:pr-review`, "--force"],
+      workspacePath,
+    );
+    await git(["checkout", "pr-review"], workspacePath);
+    if (event.headSha) {
+      await git(["reset", "--hard", event.headSha], workspacePath);
+    }
+
+    return { workspacePath, defaultBranch };
+  }
+
   private async ensureWorkspace(auto: Automation): Promise<{ workspacePath: string; defaultBranch?: string }> {
     const wsPath = join(this.dataDir, "automations", auto.id, "workspace");
 
@@ -340,6 +558,7 @@ export class AutomationScheduler {
     summary: string | undefined,
     error: string | undefined,
     startTime: Date,
+    triggerEvent?: GitHubTriggerEvent,
   ): Promise<void> {
     const completedAt = new Date().toISOString();
     const durationMs = Date.now() - startTime.getTime();
@@ -388,6 +607,36 @@ export class AutomationScheduler {
           summary,
           error,
         });
+      }
+    }
+
+    // Post result as GitHub comment if configured
+    if (auto.action.postResultAsComment && triggerEvent && status === "success") {
+      const project = auto.projectId ? await loadProject(auto.projectId, this.dataDir) : null;
+      const ghRepo = project ? parseGitHubRepo(project.url) : null;
+      if (ghRepo) {
+        const comment = `### Hive: ${auto.name}\n\n${summary ?? "_No summary_"}`;
+        try {
+          if (triggerEvent.type.startsWith("pull_request.")) {
+            await postPrComment(ghRepo.owner, ghRepo.repo, triggerEvent.number, comment);
+          } else if (triggerEvent.type.startsWith("issues.")) {
+            await postIssueComment(ghRepo.owner, ghRepo.repo, triggerEvent.number, comment);
+          }
+        } catch (err) {
+          console.error(`[scheduler] Failed to post comment:`, err);
+        }
+      }
+    }
+
+    // Post-run artifact strip
+    if (this.cleanupService && auto.workspacePath) {
+      try {
+        const config = await loadConfig(this.dataDir);
+        if (config.cleanup.postRunArtifactStrip) {
+          await this.cleanupService.stripArtifacts(auto.workspacePath);
+        }
+      } catch (err) {
+        console.error("[scheduler] Post-run artifact strip failed:", err);
       }
     }
   }

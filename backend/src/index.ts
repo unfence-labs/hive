@@ -24,6 +24,8 @@ import { automationRoutes } from "./api/automations.js";
 import { promptTemplateRoutes } from "./api/prompt-templates.js";
 import { basePromptRoutes } from "./api/base-prompt.js";
 import { AutomationScheduler } from "./services/automation-scheduler.js";
+import { CleanupService } from "./services/cleanup-service.js";
+import { GitHubEventPoller } from "./services/github-event-poller.js";
 import { loadConfig } from "./state/config.js";
 import { broadcastToWorkspace } from "./ws/stream.js";
 import type { StreamRoutesOptions } from "./ws/stream.js";
@@ -31,6 +33,7 @@ import { preflight } from "./utils/preflight.js";
 import { detectAvailableProviders } from "./agents/providers/registry.js";
 import { stopAllScripts } from "./services/script-runner.js";
 import { initWorkspaceIndex } from "./state/workspace-index.js";
+import { cleanupRoutes } from "./api/cleanup.js";
 
 const HOST = process.env.HOST ?? "127.0.0.1";
 const PORT = Number(process.env.PORT ?? 3000);
@@ -54,6 +57,8 @@ function parsePositiveNumber(value: string | undefined, fallback: number): numbe
 interface BuildAppOptions {
   gitSyncSnapshotProvider?: StreamRoutesOptions["gitSyncSnapshotProvider"];
   scheduler?: AutomationScheduler;
+  poller?: GitHubEventPoller;
+  cleanupService?: CleanupService;
 }
 
 // ── CPU usage sampling ──────────────────────────────────────────────
@@ -316,10 +321,13 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     scriptWsRoutes(instance, { authToken }),
   );
   await app.register((instance: FastifyInstance) =>
-    automationRoutes(instance, { scheduler: opts.scheduler }),
+    automationRoutes(instance, { scheduler: opts.scheduler, poller: opts.poller }),
   );
   await app.register((instance: FastifyInstance) => promptTemplateRoutes(instance));
   await app.register((instance: FastifyInstance) => basePromptRoutes(instance));
+  await app.register((instance: FastifyInstance) =>
+    cleanupRoutes(instance, { cleanupService: opts.cleanupService }),
+  );
 
   return app;
 }
@@ -360,7 +368,9 @@ async function main() {
   const config = await loadConfig(dataDir);
   rebuildNotifier(config);
 
-  const scheduler = new AutomationScheduler(dataDir);
+  const cleanupService = new CleanupService(dataDir);
+  const scheduler = new AutomationScheduler(dataDir, cleanupService);
+  const githubPoller = new GitHubEventPoller(dataDir, scheduler);
 
   const gitSync = new GitSyncService(dataDir);
   gitSync.onBranchChange((wsId, info) => {
@@ -370,7 +380,7 @@ async function main() {
     broadcastToWorkspace(wsId, { type: "diff_stats", stats });
   });
 
-  const app = await buildApp({ gitSyncSnapshotProvider: gitSync, scheduler });
+  const app = await buildApp({ gitSyncSnapshotProvider: gitSync, scheduler, poller: githubPoller, cleanupService });
 
   try {
     await gitSync.poll();
@@ -381,9 +391,13 @@ async function main() {
   app.addHook("onClose", () => {
     gitSync.stop();
     scheduler.stop();
+    githubPoller.stop();
+    cleanupService.stop();
   });
   gitSync.start(BRANCH_SYNC_INTERVAL_MS);
   await scheduler.start();
+  await cleanupService.start();
+  await githubPoller.start(60_000);
 
   await app.listen({ host: HOST, port: PORT });
 

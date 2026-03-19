@@ -20,6 +20,13 @@ import { TelegramChannel } from "../notifications/telegram.js";
 
 const DEFAULT_APNS = { enabled: false, teamId: "", keyId: "", keyContent: "", bundleId: "", sandbox: false, deviceTokens: [] as string[] };
 
+const DEFAULT_CLEANUP = {
+  postRunArtifactStrip: true,
+  artifactDirs: ["node_modules", "target", ".next", "dist", "build", "__pycache__", ".gradle", ".cache", ".parcel-cache"],
+  ttl: { archivedWorkspaceDays: 30, runSessionDeleteDays: 30, keepMinRuns: 5, sweepIntervalHours: 6 },
+  disk: { softThresholdPercent: 80, hardThresholdPercent: 90, checkIntervalSeconds: 60 },
+};
+
 let tempDir: string;
 let app: ReturnType<typeof Fastify>;
 let previousDataDir: string | undefined;
@@ -94,6 +101,7 @@ describe("settings routes", () => {
         telegram: { enabled: true, botToken: "bot-token", chatId: "chat-id" },
         apns: { ...DEFAULT_APNS },
       },
+      cleanup: { ...DEFAULT_CLEANUP },
     });
 
     expect(mocks.rebuildNotifier).toHaveBeenCalledTimes(1);
@@ -154,6 +162,7 @@ describe("settings routes", () => {
         telegram: { enabled: false, botToken: "", chatId: "" },
         apns: { ...DEFAULT_APNS, deviceTokens: ["deadbeef"] },
       },
+      cleanup: { ...DEFAULT_CLEANUP },
     }, tempDir);
 
     const res = await app.inject({
@@ -192,6 +201,7 @@ describe("settings routes", () => {
         telegram: { enabled: false, botToken: "", chatId: "" },
         apns: { ...DEFAULT_APNS, deviceTokens: ["aabbccdd11223344aabbccdd11223344"] },
       },
+      cleanup: { ...DEFAULT_CLEANUP },
     }, tempDir);
 
     const res = await app.inject({

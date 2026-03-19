@@ -12,16 +12,26 @@ import {
   withAutomationsLock,
 } from "../state/automations.js";
 import { loadPromptTemplates } from "../state/prompt-templates.js";
-import { getDataDir } from "../state/state.js";
+import { getDataDir, loadProject } from "../state/state.js";
+import { parseGitHubRepo } from "../utils/github.js";
 import type { AutomationScheduler } from "../services/automation-scheduler.js";
+import type { GitHubEventPoller } from "../services/github-event-poller.js";
 import type {
   Automation,
   CreateAutomationRequest,
+  GitHubEventType,
   UpdateAutomationRequest,
 } from "../types.js";
 
+const KNOWN_GITHUB_EVENTS: string[] = [
+  "pull_request.opened", "pull_request.synchronize", "pull_request.reopened",
+  "pull_request.comment", "pull_request.review_submitted",
+  "issues.opened", "issues.comment",
+];
+
 interface AutomationRoutesOptions {
   scheduler?: AutomationScheduler;
+  poller?: GitHubEventPoller;
   dataDir?: string;
 }
 
@@ -51,14 +61,40 @@ export async function automationRoutes(
     if (!name?.trim()) {
       return reply.status(400).send({ error: "Name is required" });
     }
-    if (!trigger?.expression) {
-      return reply.status(400).send({ error: "Trigger expression is required" });
+    if (!trigger?.type) {
+      return reply.status(400).send({ error: "Trigger type is required" });
     }
-    // Validate cron expression
-    try {
-      new Cron(trigger.expression, { legacyMode: false });
-    } catch {
-      return reply.status(400).send({ error: "Invalid cron expression" });
+    if (trigger.type === "github_event") {
+      if (!trigger.events?.length) {
+        return reply.status(400).send({ error: "At least one GitHub event type is required" });
+      }
+      for (const ev of trigger.events) {
+        if (!KNOWN_GITHUB_EVENTS.includes(ev)) {
+          return reply.status(400).send({ error: `Unknown GitHub event type: ${ev}` });
+        }
+      }
+      if (!projectId) {
+        return reply.status(400).send({ error: "projectId is required for GitHub event automations" });
+      }
+      const project = await loadProject(projectId, dataDir);
+      if (project?.url) {
+        const ghRepo = parseGitHubRepo(project.url);
+        if (!ghRepo) {
+          return reply.status(400).send({ error: "Project URL is not a GitHub repository" });
+        }
+      }
+    } else if (trigger.type === "cron") {
+      if (!("expression" in trigger) || !trigger.expression) {
+        return reply.status(400).send({ error: "Trigger expression is required" });
+      }
+      // Validate cron expression
+      try {
+        new Cron(trigger.expression, { legacyMode: false });
+      } catch {
+        return reply.status(400).send({ error: "Invalid cron expression" });
+      }
+    } else {
+      return reply.status(400).send({ error: `Unknown trigger type: ${(trigger as { type: string }).type}` });
     }
     if (!action?.modelId) {
       return reply.status(400).send({ error: "Model ID is required" });
@@ -91,7 +127,9 @@ export async function automationRoutes(
       name: name.trim(),
       enabled: true,
       projectId: projectId || undefined,
-      trigger: { type: trigger.type ?? "cron", expression: trigger.expression },
+      trigger: trigger.type === "github_event"
+        ? { type: "github_event" as const, events: trigger.events as GitHubEventType[], ...(trigger.labelFilter?.length && { labelFilter: trigger.labelFilter }) }
+        : { type: "cron" as const, expression: (trigger as { expression: string }).expression },
       action: {
         type: action.type ?? "agent",
         modelId: action.modelId,
@@ -99,6 +137,7 @@ export async function automationRoutes(
         systemPromptInline: action.systemPromptInline,
         userPromptId: action.userPromptId,
         userPromptInline: action.userPromptInline,
+        ...(action.postResultAsComment && { postResultAsComment: true }),
       },
       notification: {
         onComplete: notification?.onComplete ?? true,
@@ -117,6 +156,7 @@ export async function automationRoutes(
     if (opts.scheduler) {
       await opts.scheduler.onAutomationCreated(auto);
     }
+    opts.poller?.onAutomationCreated(auto);
 
     return reply.status(201).send(auto);
   });
@@ -128,11 +168,24 @@ export async function automationRoutes(
       const { id } = req.params;
       const updates = req.body;
 
-      if (updates.trigger?.expression) {
-        try {
-          new Cron(updates.trigger.expression, { legacyMode: false });
-        } catch {
-          return reply.status(400).send({ error: "Invalid cron expression" });
+      if (updates.trigger) {
+        if (updates.trigger.type === "cron") {
+          if (updates.trigger.expression) {
+            try {
+              new Cron(updates.trigger.expression, { legacyMode: false });
+            } catch {
+              return reply.status(400).send({ error: "Invalid cron expression" });
+            }
+          }
+        } else if (updates.trigger.type === "github_event") {
+          if (!updates.trigger.events?.length) {
+            return reply.status(400).send({ error: "At least one GitHub event type is required" });
+          }
+          for (const ev of updates.trigger.events) {
+            if (!KNOWN_GITHUB_EVENTS.includes(ev)) {
+              return reply.status(400).send({ error: `Unknown GitHub event type: ${ev}` });
+            }
+          }
         }
       }
 
@@ -160,6 +213,7 @@ export async function automationRoutes(
       if (opts.scheduler) {
         await opts.scheduler.onAutomationUpdated(updated);
       }
+      opts.poller?.onAutomationUpdated(updated);
 
       return updated;
     },
@@ -184,6 +238,7 @@ export async function automationRoutes(
     if (opts.scheduler) {
       await opts.scheduler.onAutomationDeleted(id);
     }
+    opts.poller?.onAutomationDeleted(id);
 
     // Clean up git worktree if project-linked
     const autoDir = join(dataDir, "automations", id);
