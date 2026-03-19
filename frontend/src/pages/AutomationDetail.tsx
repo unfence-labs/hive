@@ -101,16 +101,18 @@ export default function AutomationDetail() {
     <div className="flex h-full flex-col overflow-auto">
       <SettingsHeader>
         <div className="flex flex-1 items-center gap-3">
-          <span
-            className={cn(
-              "h-2 w-2 shrink-0 rounded-full",
-              isRunning
-                ? "bg-blue-500 animate-pulse"
-                : auto.enabled
+          {isRunning ? (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-400" />
+          ) : (
+            <span
+              className={cn(
+                "h-2 w-2 shrink-0 rounded-full",
+                auto.enabled
                   ? "bg-emerald-500"
                   : "bg-muted-foreground/40",
-            )}
-          />
+              )}
+            />
+          )}
           <h1 className="text-sm font-medium">{auto.name}</h1>
         </div>
       </SettingsHeader>

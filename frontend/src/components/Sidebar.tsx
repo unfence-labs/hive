@@ -551,16 +551,18 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
       )}
     >
       <div className="flex items-center gap-2">
-        <span
-          className={cn(
-            "h-1.5 w-1.5 shrink-0 rounded-full",
-            isRunning
-              ? "bg-green-500 animate-pulse"
-              : auto.enabled
+        {isRunning ? (
+          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-blue-400" />
+        ) : (
+          <span
+            className={cn(
+              "h-1.5 w-1.5 shrink-0 rounded-full",
+              auto.enabled
                 ? "bg-green-500"
                 : "bg-muted-foreground/40",
-          )}
-        />
+            )}
+          />
+        )}
         {auto.trigger.type === "github_event" && (
           <Github className="h-3 w-3 shrink-0 text-muted-foreground" />
         )}
