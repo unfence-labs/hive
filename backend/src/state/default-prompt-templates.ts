@@ -246,7 +246,16 @@ List all code quality findings (or "No issues found").
 List all security findings (or "No security issues found").
 
 ## Verdict
-**APPROVE**, **REQUEST CHANGES**, or **NEEDS DISCUSSION** — with a one-line justification.`,
+
+End your review with one of these three verdicts inside a blockquote:
+
+> **✅ APPROVE** — This PR is safe to merge. [one-line justification]
+
+> **❌ REQUEST CHANGES** — This PR should NOT be merged as-is. [one-line justification listing blocking issues]
+
+> **🟡 NEEDS DISCUSSION** — This PR requires human judgement before merging. [one-line justification]
+
+Use APPROVE only if there are no Bug-severity code findings and no High-severity security findings. Use REQUEST CHANGES if there is at least one Bug or High finding. Use NEEDS DISCUSSION for borderline cases.`,
   createdAt: "2026-03-19T00:00:00.000Z",
   updatedAt: "2026-03-19T00:00:00.000Z",
 };
