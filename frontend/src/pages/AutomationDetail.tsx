@@ -37,6 +37,7 @@ import { useProjects } from "@/hooks/useProjects";
 import { ApiError } from "@/hooks/useApi";
 import { getNextRun, formatTimeUntil } from "@/lib/cron";
 import { cn } from "@/lib/utils";
+import { describeGitHubEvents } from "@/lib/automation-utils";
 import type { AutomationRun } from "@/types";
 
 export default function AutomationDetail() {
@@ -453,17 +454,3 @@ function RunRow({ run, onViewLog }: { run: AutomationRun; onViewLog: (run: Autom
   );
 }
 
-function describeGitHubEvents(events: string[]): string {
-  const SHORT: Record<string, string> = {
-    "pull_request.opened": "PR open",
-    "pull_request.synchronize": "PR update",
-    "pull_request.reopened": "PR reopen",
-    "pull_request.comment": "PR comment",
-    "pull_request.review_submitted": "PR review",
-    "issues.opened": "Issue open",
-    "issues.comment": "Issue comment",
-  };
-  const labels = events.map(e => SHORT[e] ?? e);
-  if (labels.length <= 2) return labels.join(", ");
-  return `${labels.slice(0, 2).join(", ")} +${labels.length - 2}`;
-}

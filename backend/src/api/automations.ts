@@ -25,7 +25,7 @@ import type {
 
 const KNOWN_GITHUB_EVENTS: string[] = [
   "pull_request.opened", "pull_request.synchronize", "pull_request.reopened",
-  "pull_request.comment", "pull_request.review_submitted",
+  "pull_request.comment",
   "issues.opened", "issues.comment",
 ];
 
@@ -156,8 +156,6 @@ export async function automationRoutes(
     if (opts.scheduler) {
       await opts.scheduler.onAutomationCreated(auto);
     }
-    opts.poller?.onAutomationCreated(auto);
-
     return reply.status(201).send(auto);
   });
 
@@ -213,8 +211,6 @@ export async function automationRoutes(
       if (opts.scheduler) {
         await opts.scheduler.onAutomationUpdated(updated);
       }
-      opts.poller?.onAutomationUpdated(updated);
-
       return updated;
     },
   );
@@ -238,8 +234,6 @@ export async function automationRoutes(
     if (opts.scheduler) {
       await opts.scheduler.onAutomationDeleted(id);
     }
-    opts.poller?.onAutomationDeleted(id);
-
     // Clean up git worktree if project-linked
     const autoDir = join(dataDir, "automations", id);
     if (auto.projectId) {

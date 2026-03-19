@@ -40,7 +40,6 @@ const GITHUB_EVENT_OPTIONS: { value: GitHubEventType; label: string; group: stri
   { value: "pull_request.synchronize", label: "PR updated (new commits)", group: "Pull Requests" },
   { value: "pull_request.reopened", label: "PR reopened", group: "Pull Requests" },
   { value: "pull_request.comment", label: "PR comment", group: "Pull Requests" },
-  { value: "pull_request.review_submitted", label: "PR review submitted", group: "Pull Requests" },
   { value: "issues.opened", label: "Issue opened", group: "Issues" },
   { value: "issues.comment", label: "Issue comment", group: "Issues" },
 ];

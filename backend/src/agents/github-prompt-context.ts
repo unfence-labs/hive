@@ -19,22 +19,26 @@ export interface GitHubEventContext {
 const MAX_DIFF_BYTES = 100 * 1024; // 100KB
 
 export function interpolateGitHubVariables(prompt: string, ctx: GitHubEventContext): string {
-  return prompt
-    .replace(/\{PR_NUMBER}/g, ctx.prNumber != null ? String(ctx.prNumber) : "")
-    .replace(/\{PR_TITLE}/g, ctx.prTitle ?? "")
-    .replace(/\{PR_URL}/g, ctx.prUrl ?? "")
-    .replace(/\{PR_DIFF}/g, truncateDiff(ctx.prDiff))
-    .replace(/\{PR_DESCRIPTION}/g, ctx.prBody ?? "")
-    .replace(/\{PR_AUTHOR}/g, ctx.prAuthor ?? "")
-    .replace(/\{PR_FILES}/g, ctx.prFiles ? ctx.prFiles.join("\n") : "")
-    .replace(/\{ISSUE_NUMBER}/g, ctx.issueNumber != null ? String(ctx.issueNumber) : "")
-    .replace(/\{ISSUE_TITLE}/g, ctx.issueTitle ?? "")
-    .replace(/\{ISSUE_URL}/g, ctx.issueUrl ?? "")
-    .replace(/\{ISSUE_BODY}/g, ctx.issueBody ?? "")
-    .replace(/\{COMMENT_BODY}/g, ctx.commentBody ?? "")
-    .replace(/\{COMMENT_AUTHOR}/g, ctx.commentAuthor ?? "")
-    .replace(/\{HEAD_SHA}/g, ctx.headSha ?? "")
-    .replace(/\{PREVIOUS_REVIEW}/g, ctx.previousReviewSummary ?? "");
+  const vars: Record<string, string> = {
+    PR_NUMBER: ctx.prNumber != null ? String(ctx.prNumber) : "",
+    PR_TITLE: ctx.prTitle ?? "",
+    PR_URL: ctx.prUrl ?? "",
+    PR_DIFF: truncateDiff(ctx.prDiff),
+    PR_DESCRIPTION: ctx.prBody ?? "",
+    PR_AUTHOR: ctx.prAuthor ?? "",
+    PR_FILES: ctx.prFiles ? ctx.prFiles.join("\n") : "",
+    ISSUE_NUMBER: ctx.issueNumber != null ? String(ctx.issueNumber) : "",
+    ISSUE_TITLE: ctx.issueTitle ?? "",
+    ISSUE_URL: ctx.issueUrl ?? "",
+    ISSUE_BODY: ctx.issueBody ?? "",
+    COMMENT_BODY: ctx.commentBody ?? "",
+    COMMENT_AUTHOR: ctx.commentAuthor ?? "",
+    HEAD_SHA: ctx.headSha ?? "",
+    PREVIOUS_REVIEW: ctx.previousReviewSummary ?? "",
+  };
+
+  const pattern = new RegExp(`\\{(${Object.keys(vars).join("|")})\\}`, "g");
+  return prompt.replace(pattern, (_, key: string) => vars[key] ?? "");
 }
 
 function truncateDiff(diff: string | undefined): string {

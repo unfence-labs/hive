@@ -5,6 +5,8 @@ import {
   saveGitHubPollState,
   pruneProcessedEvents,
   pruneStaleSnapshots,
+  pruneStaleRepos,
+  withPollStateLock,
   type GitHubPollState,
   type RepoPollingState,
 } from "../state/github-poll-state.js";
@@ -14,7 +16,6 @@ import type { AutomationScheduler } from "./automation-scheduler.js";
 import type { Automation, GitHubEventType, GitHubTriggerEvent } from "../types.js";
 
 const DEFAULT_POLL_INTERVAL_MS = 60_000;
-const MAX_DIFF_SIZE = 100 * 1024; // 100KB
 const GH_AUTH_BACKOFF_MS = 5 * 60_000; // 5 min backoff on auth errors
 
 interface DetectedEvent {
@@ -55,19 +56,6 @@ export class GitHubEventPoller {
     }
   }
 
-  // CRUD callbacks (called by API routes)
-  onAutomationCreated(_auto: Automation): void {
-    // Next poll cycle will pick it up naturally
-  }
-
-  onAutomationUpdated(_auto: Automation): void {
-    // Next poll cycle will use updated config
-  }
-
-  onAutomationDeleted(_autoId: string): void {
-    // Next poll cycle won't find it
-  }
-
   async poll(): Promise<void> {
     if (this.polling) return;
     this.polling = true;
@@ -99,34 +87,37 @@ export class GitHubEventPoller {
         repoToAutos.set(key, list);
       }
 
-      // Load state
-      const state = await loadGitHubPollState(this.dataDir);
+      // Load, poll, and save state under lock
+      await withPollStateLock(async () => {
+        const state = await loadGitHubPollState(this.dataDir);
 
-      // Poll each repo
-      for (const [repoKey, autos] of repoToAutos) {
-        try {
-          await this.pollRepo(repoKey, autos, state);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (
-            msg.includes("auth login") ||
-            msg.includes("401") ||
-            msg.includes("403")
-          ) {
-            console.warn(
-              `[github-poller] Auth error for ${repoKey}, backing off`,
-            );
-            this.ghBackoffUntil = Date.now() + GH_AUTH_BACKOFF_MS;
-            break;
+        // Poll each repo
+        for (const [repoKey, autos] of repoToAutos) {
+          try {
+            await this.pollRepo(repoKey, autos, state);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (
+              msg.includes("auth login") ||
+              msg.includes("401") ||
+              msg.includes("403")
+            ) {
+              console.warn(
+                `[github-poller] Auth error for ${repoKey}, backing off`,
+              );
+              this.ghBackoffUntil = Date.now() + GH_AUTH_BACKOFF_MS;
+              break;
+            }
+            console.error(`[github-poller] Error polling ${repoKey}:`, err);
           }
-          console.error(`[github-poller] Error polling ${repoKey}:`, err);
         }
-      }
 
-      // Prune and save state
-      pruneProcessedEvents(state);
-      pruneStaleSnapshots(state);
-      await saveGitHubPollState(state, this.dataDir);
+        // Prune and save state
+        pruneStaleRepos(state, new Set(repoToAutos.keys()));
+        pruneProcessedEvents(state);
+        pruneStaleSnapshots(state);
+        await saveGitHubPollState(state, this.dataDir);
+      });
     } finally {
       this.polling = false;
     }
@@ -330,15 +321,7 @@ export class GitHubEventPoller {
             repo,
             detected.event,
           );
-          void (
-            this.scheduler as AutomationScheduler & {
-              executeEventRun(
-                autoId: string,
-                event: GitHubTriggerEvent,
-                eventContext: GitHubEventContext,
-              ): Promise<unknown>;
-            }
-          )
+          void this.scheduler
             .executeEventRun(auto.id, detected.event, context)
             .catch((err: unknown) => {
               console.error(
@@ -436,7 +419,11 @@ export class GitHubEventPoller {
         labels: item.labels?.map((l) => l.name) ?? [],
         author: item.author?.login ?? "",
       }));
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("auth login") || msg.includes("401") || msg.includes("403")) {
+        throw err;
+      }
       return [];
     }
   }
@@ -486,7 +473,11 @@ export class GitHubEventPoller {
         updatedAt: item.updatedAt,
         labels: item.labels?.map((l) => l.name) ?? [],
       }));
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("auth login") || msg.includes("401") || msg.includes("403")) {
+        throw err;
+      }
       return [];
     }
   }
@@ -536,10 +527,7 @@ export class GitHubEventPoller {
           "--repo",
           `${owner}/${repo}`,
         ]);
-        ctx.prDiff =
-          diff.length > MAX_DIFF_SIZE
-            ? diff.slice(0, MAX_DIFF_SIZE) + "\n... [truncated]"
-            : diff;
+        ctx.prDiff = diff;
       } catch {
         // Non-critical
       }

@@ -122,3 +122,14 @@ export function pruneStaleSnapshots(state: GitHubPollState): void {
     }
   }
 }
+
+/**
+ * Remove repo entries that no longer have any active github_event automations.
+ */
+export function pruneStaleRepos(state: GitHubPollState, activeRepoKeys: Set<string>): void {
+  for (const repoKey of Object.keys(state.repos)) {
+    if (!activeRepoKeys.has(repoKey)) {
+      delete state.repos[repoKey];
+    }
+  }
+}

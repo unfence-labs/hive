@@ -321,7 +321,6 @@ export type GitHubEventType =
   | "pull_request.synchronize"
   | "pull_request.reopened"
   | "pull_request.comment"
-  | "pull_request.review_submitted"
   | "issues.opened"
   | "issues.comment";
 

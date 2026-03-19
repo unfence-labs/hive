@@ -240,72 +240,7 @@ export class AutomationScheduler {
       });
     }
 
-    // Create session
-    const autoDir = join(this.dataDir, "automations", autoId);
-    const session = new ConversationSession({
-      cwd: workspacePath,
-      dataDir: autoDir,
-      workspaceId: autoId,
-      sessionId: run.sessionId,
-      systemPrompt: systemPrompt ? systemPrompt + SUMMARY_INSTRUCTION : undefined,
-      skipPermissions: true,
-    });
-
-    this.activeRuns.set(autoId, { run, session });
-
-    // Persist resolved system prompt for run log viewer
-    if (systemPrompt) {
-      const sessDir = join(autoDir, "sessions", run.sessionId);
-      await mkdir(sessDir, { recursive: true });
-      await writeFile(join(sessDir, "system-prompt.txt"), systemPrompt, "utf-8")
-        .catch((err) => console.error("[scheduler] Persist system prompt failed:", err));
-    }
-
-    // Listen for completion
-    return new Promise<AutomationRun>((resolve) => {
-      let resolved = false;
-
-      const finish = async (status: "success" | "failure", error?: string) => {
-        if (resolved) return;
-        resolved = true;
-        this.activeRuns.delete(autoId);
-
-        try {
-          const messages = await session.getMessages();
-          const summary = extractSummary(messages);
-          await this.completeRun(auto, run.id, status, summary, error, now);
-          resolve({ ...run, status, summary, error, completedAt: new Date().toISOString() });
-        } catch (err) {
-          console.error(`[scheduler] Error completing run ${run.id}:`, err);
-          resolve({ ...run, status: "failure", error: String(err) });
-        }
-      };
-
-      session.on("message", (msg: WsOutgoing) => {
-        if (msg.type === "done") {
-          void finish("success");
-        } else if (msg.type === "error") {
-          void finish("failure", msg.message);
-        }
-      });
-
-      session.on("error", (err: Error) => {
-        void finish("failure", err.message);
-      });
-
-      session.on("exit", (code: number) => {
-        if (!resolved) {
-          void finish(code === 0 ? "success" : "failure", code !== 0 ? `Process exited with code ${code}` : undefined);
-        }
-      });
-
-      // Send the message to start the agent
-      try {
-        session.sendMessage(userPrompt, { model: auto.action.modelId });
-      } catch (err) {
-        void finish("failure", err instanceof Error ? err.message : String(err));
-      }
-    });
+    return this.startRunSession(auto, run, workspacePath, systemPrompt, userPrompt, now);
   }
 
   async executeEventRun(
@@ -409,43 +344,54 @@ export class AutomationScheduler {
     }
     userPrompt = interpolateGitHubVariables(userPrompt, eventContext);
 
-    // Create session
-    const autoDir = join(this.dataDir, "automations", autoId);
+    return this.startRunSession(auto, run, workspacePath, systemPrompt, userPrompt, now, event);
+  }
+
+  private startRunSession(
+    auto: Automation,
+    run: AutomationRun,
+    workspacePath: string,
+    systemPrompt: string | undefined,
+    userPrompt: string,
+    startTime: Date,
+    triggerEvent?: GitHubTriggerEvent,
+  ): Promise<AutomationRun> {
+    const autoDir = join(this.dataDir, "automations", auto.id);
     const session = new ConversationSession({
       cwd: workspacePath,
       dataDir: autoDir,
-      workspaceId: autoId,
+      workspaceId: auto.id,
       sessionId: run.sessionId,
       systemPrompt: systemPrompt ? systemPrompt + SUMMARY_INSTRUCTION : undefined,
       skipPermissions: true,
     });
 
-    this.activeRuns.set(autoId, { run, session });
+    this.activeRuns.set(auto.id, { run, session });
 
     // Persist resolved system prompt for run log viewer
-    if (systemPrompt) {
-      const sessDir = join(autoDir, "sessions", run.sessionId);
-      await mkdir(sessDir, { recursive: true });
-      await writeFile(join(sessDir, "system-prompt.txt"), systemPrompt, "utf-8")
-        .catch((err) => console.error("[scheduler] Persist system prompt failed:", err));
-    }
+    const persistPrompt = systemPrompt
+      ? (async () => {
+          const sessDir = join(autoDir, "sessions", run.sessionId);
+          await mkdir(sessDir, { recursive: true });
+          await writeFile(join(sessDir, "system-prompt.txt"), systemPrompt, "utf-8");
+        })().catch((err) => console.error("[scheduler] Persist system prompt failed:", err))
+      : Promise.resolve();
 
-    // Listen for completion
     return new Promise<AutomationRun>((resolve) => {
       let resolved = false;
 
       const finish = async (status: "success" | "failure", error?: string) => {
         if (resolved) return;
         resolved = true;
-        this.activeRuns.delete(autoId);
+        this.activeRuns.delete(auto.id);
 
         try {
           const messages = await session.getMessages();
           const summary = extractSummary(messages);
-          await this.completeRun(auto, run.id, status, summary, error, now, event);
-          resolve({ ...run, status, summary, error, completedAt: new Date().toISOString(), triggerEvent: event });
+          await this.completeRun(auto, run.id, status, summary, error, startTime, triggerEvent);
+          resolve({ ...run, status, summary, error, completedAt: new Date().toISOString(), triggerEvent });
         } catch (err) {
-          console.error(`[scheduler] Error completing event run ${run.id}:`, err);
+          console.error(`[scheduler] Error completing run ${run.id}:`, err);
           resolve({ ...run, status: "failure", error: String(err) });
         }
       };
@@ -469,11 +415,13 @@ export class AutomationScheduler {
       });
 
       // Send the message to start the agent
-      try {
-        session.sendMessage(userPrompt, { model: auto.action.modelId });
-      } catch (err) {
-        void finish("failure", err instanceof Error ? err.message : String(err));
-      }
+      void persistPrompt.then(() => {
+        try {
+          session.sendMessage(userPrompt, { model: auto.action.modelId });
+        } catch (err) {
+          void finish("failure", err instanceof Error ? err.message : String(err));
+        }
+      });
     });
   }
 
@@ -488,6 +436,10 @@ export class AutomationScheduler {
 
     // For PR events, ensure workspace and checkout the PR branch
     const { workspacePath, defaultBranch } = await this.ensureWorkspace(auto);
+
+    // Clean up any stale pr-review branch from a previous run
+    await git(["checkout", defaultBranch ?? "main"], workspacePath).catch(() => {});
+    await git(["branch", "-D", "pr-review"], workspacePath).catch(() => {});
 
     // Fetch and checkout the PR branch
     await git(

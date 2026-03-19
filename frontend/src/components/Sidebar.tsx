@@ -587,17 +587,3 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
   );
 }
 
-function describeGitHubEventsShort(events: string[]): string {
-  const SHORT: Record<string, string> = {
-    "pull_request.opened": "PR open",
-    "pull_request.synchronize": "PR update",
-    "pull_request.reopened": "PR reopen",
-    "pull_request.comment": "PR comment",
-    "pull_request.review_submitted": "PR review",
-    "issues.opened": "Issue open",
-    "issues.comment": "Issue comment",
-  };
-  const labels = events.map(e => SHORT[e] ?? e);
-  if (labels.length <= 2) return labels.join(", ");
-  return `${labels.slice(0, 2).join(", ")} +${labels.length - 2}`;
-}

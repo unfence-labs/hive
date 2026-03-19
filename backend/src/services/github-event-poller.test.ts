@@ -152,26 +152,6 @@ describe("GitHubEventPoller", () => {
     });
   });
 
-  describe("CRUD callbacks", () => {
-    it("onAutomationCreated does not throw", () => {
-      const scheduler = makeSchedulerStub();
-      const poller = new GitHubEventPoller(dataDir, scheduler);
-      expect(() => poller.onAutomationCreated(makeAutomation())).not.toThrow();
-    });
-
-    it("onAutomationUpdated does not throw", () => {
-      const scheduler = makeSchedulerStub();
-      const poller = new GitHubEventPoller(dataDir, scheduler);
-      expect(() => poller.onAutomationUpdated(makeAutomation())).not.toThrow();
-    });
-
-    it("onAutomationDeleted does not throw", () => {
-      const scheduler = makeSchedulerStub();
-      const poller = new GitHubEventPoller(dataDir, scheduler);
-      expect(() => poller.onAutomationDeleted("auto-1")).not.toThrow();
-    });
-  });
-
   describe("poll reentrancy guard", () => {
     it("skips concurrent polls", async () => {
       const { isGhInstalled } = await import("../utils/github.js");

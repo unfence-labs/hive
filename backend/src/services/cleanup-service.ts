@@ -1,6 +1,6 @@
 import { statfsSync } from "node:fs";
 import { readdir, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { loadConfig, type CleanupConfig } from "../state/config.js";
 import { loadRuns } from "../state/automations.js";
 import { getDataDir } from "../state/state.js";
@@ -129,6 +129,7 @@ export class CleanupService {
 
     for (const dirName of config.artifactDirs) {
       const targetPath = join(workspacePath, dirName);
+      if (!resolve(targetPath).startsWith(resolve(workspacePath))) continue;
       try {
         const s = await stat(targetPath);
         if (s.isDirectory()) {
@@ -213,7 +214,7 @@ export class CleanupService {
     let reclaimableBytes = 0;
     let artifactDirs = 0;
     let staleArchives = 0;
-    const staleRunSessions = 0;
+    let staleRunSessions = 0;
 
     // Count artifact dirs in automation workspaces
     const autoDir = join(this.dataDir, "automations");
@@ -264,6 +265,33 @@ export class CleanupService {
       /* no archive dir */
     }
 
+    // Count stale automation run sessions
+    try {
+      const autoIds = await readdir(autoDir).catch(() => [] as string[]);
+      for (const autoId of autoIds) {
+        const runsDir = join(autoDir, autoId, "sessions");
+        try {
+          const sessions = await readdir(runsDir);
+          const runs = await loadRuns(autoId, this.dataDir);
+          const recentRunSessionIds = new Set(
+            runs.slice(0, config.ttl.keepMinRuns).map((r) => r.sessionId),
+          );
+
+          for (const sessionDir of sessions) {
+            if (recentRunSessionIds.has(sessionDir)) continue;
+            const sessionPath = join(runsDir, sessionDir);
+            try {
+              const s = await stat(sessionPath);
+              const ageDays = (now - s.mtimeMs) / (24 * 60 * 60 * 1000);
+              if (ageDays > config.ttl.runSessionDeleteDays) {
+                staleRunSessions++;
+              }
+            } catch { /* skip */ }
+          }
+        } catch { /* no sessions dir */ }
+      }
+    } catch { /* no automations dir */ }
+
     return {
       reclaimableBytes,
       artifactDirs,
@@ -275,7 +303,11 @@ export class CleanupService {
   async executeCleanup(): Promise<CleanupResult> {
     let bytesReclaimed = 0;
     let artifactDirsRemoved = 0;
-    const runSessionsRemoved = 0;
+
+    // Capture counts BEFORE cleanup
+    const preview = await this.previewCleanup();
+    const archivesRemoved = preview.staleArchives;
+    const runSessionsRemoved = preview.staleRunSessions;
 
     // Strip all automation artifacts
     const artifactResult = await this.stripAllAutomationArtifacts();
@@ -284,10 +316,6 @@ export class CleanupService {
 
     // Run TTL sweep
     await this.runTtlSweep();
-
-    // Count archives removed (approximation via preview before/after)
-    const preview = await this.previewCleanup();
-    const archivesRemoved = preview.staleArchives; // Already cleaned by TTL sweep
 
     return {
       bytesReclaimed,
