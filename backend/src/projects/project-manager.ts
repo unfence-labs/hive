@@ -1,7 +1,8 @@
 import { join } from "node:path";
-import { rm, mkdir } from "node:fs/promises";
+import { rm, mkdir, writeFile } from "node:fs/promises";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
+import { gh } from "../utils/github.js";
 import { bareRepoPath } from "../utils/paths.js";
 import { saveProject, loadProject, loadAllProjects, getDataDir } from "../state/state.js";
 import { notifyProjectDeleted } from "../state/workspace-index.js";
@@ -44,6 +45,102 @@ export async function createProject(
   return state;
 }
 
+// ── Validate repo name ──────────────────────────────────────────────
+
+const REPO_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
+
+function validateRepoName(name: string): string {
+  const trimmed = name.trim().toLowerCase();
+  if (!trimmed) throw new Error("Repository name is required");
+  if (trimmed.length > 100) throw new Error("Repository name must be 100 characters or fewer");
+  if (!REPO_NAME_RE.test(trimmed)) {
+    throw new Error(
+      "Repository name can only contain lowercase letters, numbers, hyphens, underscores, and dots",
+    );
+  }
+  return trimmed;
+}
+
+// ── Create GitHub repo + link to bare ───────────────────────────────
+
+async function createGitHubRepo(
+  name: string,
+  visibility: "public" | "private",
+  bare: string,
+): Promise<string> {
+  const { stdout } = await gh([
+    "repo",
+    "create",
+    name,
+    `--${visibility}`,
+    "--json",
+    "sshUrl",
+    "--jq",
+    ".sshUrl",
+  ]);
+  const url = stdout.trim();
+
+  // Point the bare repo at the new remote and push the initial commit
+  await git(["remote", "add", "origin", url], bare);
+  await git(["push", "--all", "origin"], bare);
+
+  return url;
+}
+
+// ── Init a brand-new project (optionally on GitHub) ─────────────────
+
+export async function initProject(
+  name: string,
+  options: { visibility?: "public" | "private" } = {},
+  dataDir = getDataDir(),
+): Promise<ProjectState> {
+  const repoName = validateRepoName(name);
+  const id = `proj-${nanoid(8)}`;
+  const bare = bareRepoPath(dataDir, id);
+  const wsDir = join(dataDir, id, "workspaces");
+  const logsDir = join(dataDir, id, "logs");
+  const tempWork = join(dataDir, id, "_init-temp");
+
+  await mkdir(join(dataDir, id), { recursive: true });
+
+  // 1. Create a bare repo
+  await git(["init", "--bare", bare]);
+
+  // 2. Clone locally to seed the initial commit
+  await git(["clone", bare, tempWork]);
+  await git(["checkout", "-b", "main"], tempWork);
+  await git(["config", "user.email", "hive@local"], tempWork);
+  await git(["config", "user.name", "Hive"], tempWork);
+
+  await writeFile(join(tempWork, "README.md"), `# ${repoName}\n`);
+  await writeFile(join(tempWork, ".gitignore"), "node_modules/\n.env\n.DS_Store\n");
+  await git(["add", "."], tempWork);
+  await git(["commit", "-m", "Initial commit"], tempWork);
+  await git(["push", "origin", "main"], tempWork);
+
+  // 3. Clean up the temp working tree
+  await rm(tempWork, { recursive: true, force: true });
+
+  // 4. Optionally create on GitHub
+  let url: string | undefined;
+  if (options.visibility) {
+    url = await createGitHubRepo(repoName, options.visibility, bare);
+  }
+
+  await mkdir(wsDir, { recursive: true });
+  await mkdir(logsDir, { recursive: true });
+
+  const state: ProjectState = {
+    id,
+    name: repoName,
+    url,
+    createdAt: new Date().toISOString(),
+    workspaces: [],
+  };
+  await saveProject(state, dataDir);
+  return state;
+}
+
 export async function listProjects(
   dataDir = getDataDir()
 ): Promise<ProjectState[]> {
@@ -72,6 +169,7 @@ export async function fetchProject(
 ): Promise<void> {
   const state = await loadProject(projectId, dataDir);
   if (!state) throw new NotFoundError(`Project ${projectId} not found`);
+  if (!state.url) throw new Error("Project has no remote — nothing to fetch");
   const bare = bareRepoPath(dataDir, projectId);
   await git(["fetch", "--all"], bare);
 }

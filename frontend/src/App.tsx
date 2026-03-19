@@ -29,7 +29,7 @@ function NotificationToastsBridge({ projects }: { projects: Project[] }) {
 }
 
 export default function App() {
-  const { projects, loading, fetchProjects, createProjectWithWorkspace } = useProjects();
+  const { projects, loading, fetchProjects, createProjectWithWorkspace, createNewProjectWithWorkspace } = useProjects();
   const [showAddProject, setShowAddProject] = useState(false);
   const [showAddAutomation, setShowAddAutomation] = useState(false);
   const workspaceIds = useMemo(
@@ -73,7 +73,8 @@ export default function App() {
         <AddProjectDialog
           open={showAddProject}
           onOpenChange={setShowAddProject}
-          onSubmit={createProjectWithWorkspace}
+          onClone={createProjectWithWorkspace}
+          onCreate={createNewProjectWithWorkspace}
         />
         <Suspense fallback={null}>
           {showAddAutomation && (

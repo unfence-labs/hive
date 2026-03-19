@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import {
   createProject,
+  initProject,
   listProjects,
   getProject,
   deleteProject,
@@ -84,16 +85,27 @@ async function enrichProject(project: ProjectState, dir: string) {
 
 export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
   app.post<{ Body: CreateProjectRequest }>("/api/projects", async (req, reply) => {
-    const { url } = req.body ?? {};
-    if (!url) return reply.status(400).send({ error: "url is required" });
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const mode = (body.mode as string) ?? "clone";
+    const dir = dataDir ?? getDataDir();
 
     try {
-      const project = await createProject(url, dataDir);
-      return reply.status(201).send(project);
+      let project: ProjectState;
+      if (mode === "create") {
+        const name = body.name as string | undefined;
+        if (!name?.trim()) return reply.status(400).send({ error: "name is required" });
+        const visibility = body.visibility as "public" | "private" | undefined;
+        project = await initProject(name, { visibility }, dir);
+      } else {
+        const url = body.url as string | undefined;
+        if (!url) return reply.status(400).send({ error: "url is required" });
+        project = await createProject(url, dir);
+      }
+      return reply.status(201).send(await enrichProject(project, dir));
     } catch (err: unknown) {
       return reply
         .status(errorStatus(err, 400))
-        .send({ error: errorMessage(err, "Clone failed") });
+        .send({ error: errorMessage(err, mode === "create" ? "Create failed" : "Clone failed") });
     }
   });
 

@@ -54,18 +54,22 @@ export default function ProjectDetail() {
 
           <div className="space-y-4">
             <InfoRow label="Repository URL" mono>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="truncate">{project.url}</span>
-                <a
-                  href={project.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
-                  aria-label="Open repository URL"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              </span>
+              {project.url ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="truncate">{project.url}</span>
+                  <a
+                    href={project.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+                    aria-label="Open repository URL"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </span>
+              ) : (
+                <span className="text-muted-foreground">Local only</span>
+              )}
             </InfoRow>
             <InfoRow label="Bare repo path" mono>
               {project.repoPath ?? "\u2014"}

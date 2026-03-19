@@ -74,14 +74,29 @@ final class ProjectStore {
     }
 
     func createProject(url: String) async {
+        await createProjectWithWorkspace(displayName: Self.extractRepoName(from: url)) {
+            try await api.createProject(url: url)
+        }
+    }
+
+    func createNewProject(name: String, visibility: String?) async {
+        await createProjectWithWorkspace(displayName: name) {
+            try await api.createNewProject(name: name, visibility: visibility)
+        }
+    }
+
+    private func createProjectWithWorkspace(
+        displayName: String,
+        apiCall: () async throws -> Project
+    ) async {
         guard !isCreatingProject else { return }
 
         isCreatingProject = true
-        cloningRepoName = Self.extractRepoName(from: url)
+        cloningRepoName = displayName
         errorMessage = nil
 
         do {
-            let project = try await api.createProject(url: url)
+            let project = try await apiCall()
             let created = try await api.createWorkspace(projectId: project.id)
 
             let workspace = Workspace(

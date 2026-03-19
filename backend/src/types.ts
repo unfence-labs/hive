@@ -79,14 +79,14 @@ export interface WorkspaceFileTreeNode {
 export interface ProjectState {
   id: string;
   name: string;
-  url: string;
+  url?: string;
   createdAt: string;
   workspaces: Workspace[];
 }
 
-export interface CreateProjectRequest {
-  url: string;
-}
+export type CreateProjectRequest =
+  | { mode?: "clone"; url: string }
+  | { mode: "create"; name: string; visibility?: "public" | "private" };
 
 // ── Image attachment type ────────────────────────────────────────────
 

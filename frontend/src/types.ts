@@ -1,7 +1,7 @@
 export interface Project {
   id: string;
   name: string;
-  url: string;
+  url?: string;
   createdAt: string;
   workspaces: Workspace[];
   repoPath?: string;

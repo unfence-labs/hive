@@ -135,7 +135,7 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
       const result = await getWorkspace(wsId, dataDir);
       if (!result) return reply.status(404).send({ error: "Workspace not found" });
 
-      const ghRepo = parseGitHubRepo(result.projectState.url);
+      const ghRepo = result.projectState.url ? parseGitHubRepo(result.projectState.url) : null;
       if (!ghRepo) {
         const data: PrStatusResponse = { pr: null };
         prCache.set(wsId, { data, at: Date.now() });
@@ -191,7 +191,7 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
               return;
             }
 
-            const ghRepo = parseGitHubRepo(result.projectState.url);
+            const ghRepo = result.projectState.url ? parseGitHubRepo(result.projectState.url) : null;
             if (!ghRepo) {
               const data: PrStatusResponse = { pr: null };
               prCache.set(wsId, { data, at: Date.now() });

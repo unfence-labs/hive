@@ -96,12 +96,27 @@ enum DiffFileStatus: String, Codable {
     case renamed
 }
 
+// MARK: - Account Status
+
+struct AccountStatusResponse: Codable {
+    let ghInstalled: Bool
+    let authenticated: Bool
+    let user: AccountUser?
+}
+
+struct AccountUser: Codable {
+    let login: String
+    let name: String?
+    let email: String?
+    let avatarUrl: String?
+}
+
 // MARK: - Project & Workspace
 
 struct Project: Codable, Identifiable {
     let id: String
     let name: String
-    let url: String
+    let url: String?
     let createdAt: String
     var workspaces: [Workspace]
     var hasFavicon: Bool? = nil

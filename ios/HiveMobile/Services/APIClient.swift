@@ -145,6 +145,17 @@ final class APIClient {
         return try await post(path: "/api/projects", body: body)
     }
 
+    func createNewProject(name: String, visibility: String?) async throws -> Project {
+        var dict: [String: String] = ["mode": "create", "name": name]
+        if let visibility { dict["visibility"] = visibility }
+        let body = try JSONEncoder().encode(dict)
+        return try await post(path: "/api/projects", body: body)
+    }
+
+    func fetchAccountStatus() async throws -> AccountStatusResponse {
+        try await get(path: "/api/account/status")
+    }
+
     func fetchSessions(workspaceId: String) async throws -> [SessionMetadata] {
         try await get(path: "/api/workspaces/\(workspaceId)/sessions")
     }
