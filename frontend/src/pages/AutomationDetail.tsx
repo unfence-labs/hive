@@ -136,22 +136,24 @@ export default function AutomationDetail() {
               Edit
             </button>
 
-            <button
-              type="button"
-              onClick={handleTrigger}
-              disabled={isRunning || triggerMutation.isPending}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
-                (isRunning || triggerMutation.isPending) && "pointer-events-none opacity-60",
-              )}
-            >
-              {triggerMutation.isPending ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Play className="h-3 w-3" />
-              )}
-              Run Now
-            </button>
+            {auto.trigger.type === "cron" && (
+              <button
+                type="button"
+                onClick={handleTrigger}
+                disabled={isRunning || triggerMutation.isPending}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
+                  (isRunning || triggerMutation.isPending) && "pointer-events-none opacity-60",
+                )}
+              >
+                {triggerMutation.isPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Play className="h-3 w-3" />
+                )}
+                Run Now
+              </button>
+            )}
 
             <button
               type="button"
