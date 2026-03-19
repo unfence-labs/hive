@@ -63,7 +63,7 @@ describe("GeminiProvider", () => {
   // ── buildArgs ──────────────────────────────────────────────────────
 
   it("builds first-message args with prompt, output format, yolo, and model", () => {
-    const args = provider.buildArgs(
+    const { args } = provider.buildArgs(
       "Hello Gemini",
       { model: "gemini-3-flash-preview" },
       baseSession({ isFirstMessage: true }),
@@ -80,12 +80,12 @@ describe("GeminiProvider", () => {
   });
 
   it("omits model flag when model is unknown", () => {
-    const args = provider.buildArgs("Hello Gemini", { model: "unknown-model" }, baseSession());
+    const { args } = provider.buildArgs("Hello Gemini", { model: "unknown-model" }, baseSession());
     expect(args).not.toContain("-m");
   });
 
   it("adds resume flag on subsequent messages", () => {
-    const args = provider.buildArgs(
+    const { args } = provider.buildArgs(
       "Continue",
       { model: "gemini-3.1-pro-preview" },
       baseSession({ isFirstMessage: false, sessionId: "gem-sess-123" }),
@@ -97,7 +97,7 @@ describe("GeminiProvider", () => {
   });
 
   it("passes prompt content as value of -p", () => {
-    const args = provider.buildArgs("Prompt content", {}, baseSession());
+    const { args } = provider.buildArgs("Prompt content", {}, baseSession());
     const promptIdx = args.indexOf("-p");
     expect(promptIdx).toBeGreaterThanOrEqual(0);
     expect(args[promptIdx + 1]).toBe("Prompt content");

@@ -1,6 +1,7 @@
 import { CodexStreamAdapter } from "./codex-stream-adapter.js";
 import type {
   AgentProvider,
+  BuildArgsResult,
   ModelDefinition,
   ProviderCapabilities,
   ProviderMessageOptions,
@@ -33,7 +34,7 @@ export class CodexProvider implements AgentProvider {
     content: string,
     options: ProviderMessageOptions,
     session: ProviderSessionState,
-  ): string[] {
+  ): BuildArgsResult {
     const model = this.models.find((m) => m.id === options.model);
     const thinkingLevel = options.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
 
@@ -48,9 +49,9 @@ export class CodexProvider implements AgentProvider {
     ];
 
     if (session.isFirstMessage) {
-      return ["exec", ...flags, content];
+      return { args: ["exec", ...flags, content] };
     }
-    return ["exec", "resume", ...flags, session.sessionId, content];
+    return { args: ["exec", "resume", ...flags, session.sessionId, content] };
   }
 
   buildEnv(_options: ProviderMessageOptions): Record<string, string> | undefined {

@@ -1,6 +1,7 @@
 import { GeminiStreamAdapter } from "./gemini-stream-adapter.js";
 import type {
   AgentProvider,
+  BuildArgsResult,
   ModelDefinition,
   ProviderCapabilities,
   ProviderMessageOptions,
@@ -31,15 +32,17 @@ export class GeminiProvider implements AgentProvider {
     content: string,
     options: ProviderMessageOptions,
     session: ProviderSessionState,
-  ): string[] {
+  ): BuildArgsResult {
     const model = this.models.find((m) => m.id === options.model);
-    return [
-      "-p", content,
-      "-o", "stream-json",
-      ...(model ? ["-m", model.cliValue] : []),
-      "-y",
-      ...(session.isFirstMessage ? [] : ["-r", session.sessionId]),
-    ];
+    return {
+      args: [
+        "-p", content,
+        "-o", "stream-json",
+        ...(model ? ["-m", model.cliValue] : []),
+        "-y",
+        ...(session.isFirstMessage ? [] : ["-r", session.sessionId]),
+      ],
+    };
   }
 
   buildEnv(_options: ProviderMessageOptions): Record<string, string> | undefined {

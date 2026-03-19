@@ -45,6 +45,14 @@ export interface ProviderMessageOptions {
   thinkingLevel?: ThinkingLevel;
 }
 
+// ── Build args result ───────────────────────────────────────────────
+
+export interface BuildArgsResult {
+  args: string[];
+  /** Content to write to process stdin (avoids E2BIG for large prompts). */
+  stdin?: string;
+}
+
 // ── Stream adapter ──────────────────────────────────────────────────
 
 /**
@@ -65,7 +73,7 @@ export interface AgentProvider {
   readonly capabilities: ProviderCapabilities;
 
   /** Build CLI args for a conversation turn. */
-  buildArgs(content: string, options: ProviderMessageOptions, session: ProviderSessionState): string[];
+  buildArgs(content: string, options: ProviderMessageOptions, session: ProviderSessionState): BuildArgsResult;
 
   /** Optional env overrides for the spawned process. */
   buildEnv(options: ProviderMessageOptions): Record<string, string> | undefined;

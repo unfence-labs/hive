@@ -1,6 +1,7 @@
 import { StreamParser } from "../stream-parser.js";
 import type {
   AgentProvider,
+  BuildArgsResult,
   ModelDefinition,
   ProviderCapabilities,
   ProviderMessageOptions,
@@ -31,24 +32,35 @@ export class ClaudeProvider implements AgentProvider {
     content: string,
     options: ProviderMessageOptions,
     session: ProviderSessionState,
-  ): string[] {
+  ): BuildArgsResult {
     const model = this.models.find((m) => m.id === options.model);
-    return [
-      "--print",
-      "--output-format", "stream-json",
-      "--verbose",
-      ...(model ? ["--model", model.cliValue] : []),
-      ...(options.planMode
-        ? ["--permission-mode", "plan"]
-        : session.skipPermissions ? ["--dangerously-skip-permissions"] : []),
-      ...(session.isFirstMessage && session.systemPrompt
-        ? ["--append-system-prompt", session.systemPrompt]
-        : []),
-      ...(session.isFirstMessage
-        ? ["--session-id", session.sessionId]
-        : ["--resume", session.sessionId]),
-      "-p", content,
-    ];
+
+    // System prompt: use --append-system-prompt for small prompts,
+    // prepend to stdin for large ones to avoid E2BIG.
+    const systemPrompt = session.isFirstMessage ? session.systemPrompt : undefined;
+    const systemPromptViaArgs = systemPrompt && Buffer.byteLength(systemPrompt, "utf-8") < 100_000;
+
+    let stdinContent = content;
+    if (systemPrompt && !systemPromptViaArgs) {
+      stdinContent = `<system-instructions>\n${systemPrompt}\n</system-instructions>\n\n${content}`;
+    }
+
+    return {
+      args: [
+        "--print",
+        "--output-format", "stream-json",
+        "--verbose",
+        ...(model ? ["--model", model.cliValue] : []),
+        ...(options.planMode
+          ? ["--permission-mode", "plan"]
+          : session.skipPermissions ? ["--dangerously-skip-permissions"] : []),
+        ...(systemPromptViaArgs ? ["--append-system-prompt", systemPrompt] : []),
+        ...(session.isFirstMessage
+          ? ["--session-id", session.sessionId]
+          : ["--resume", session.sessionId]),
+      ],
+      stdin: stdinContent,
+    };
   }
 
   buildEnv(options: ProviderMessageOptions): Record<string, string> {

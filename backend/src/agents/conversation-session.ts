@@ -356,6 +356,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let command: string;
     let args: string[];
     let env: Record<string, string> | undefined;
+    let stdinContent: string | undefined;
 
     if (this.testCommand) {
       // Test mode: use raw command (e.g. "bash") — no provider
@@ -372,12 +373,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         cliContent = `<context>\n${this.systemPrompt}\n</context>\n\n${content}`;
       }
 
-      args = provider!.buildArgs(cliContent, { ...msgOptions, model: modelId }, {
+      const buildResult = provider!.buildArgs(cliContent, { ...msgOptions, model: modelId }, {
         isFirstMessage,
         sessionId: this.cliSessionId,
         systemPrompt: this.systemPrompt,
         skipPermissions: this.skipPermissions,
       });
+      args = buildResult.args;
+      stdinContent = buildResult.stdin;
       env = provider!.buildEnv({ ...msgOptions, model: modelId });
     }
 
@@ -569,6 +572,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       ...(this.testCommand ? {} : { env: buildWorkspaceEnv(env) }),
     });
 
+    if (stdinContent) {
+      this.process.stdin?.write(stdinContent);
+    }
     this.process.stdin?.end();
 
     this.process.stdout?.on("data", (chunk: Buffer) => {

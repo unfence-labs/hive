@@ -70,66 +70,66 @@ describe("ClaudeProvider", () => {
   // ── buildArgs ──────────────────────────────────────────────────────
 
   it("includes --print and --output-format stream-json", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession());
+    const { args } = provider.buildArgs("Hello", {}, baseSession());
     expect(args).toContain("--print");
     expect(args).toContain("--output-format");
     expect(args).toContain("stream-json");
   });
 
   it("includes --verbose", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession());
+    const { args } = provider.buildArgs("Hello", {}, baseSession());
     expect(args).toContain("--verbose");
   });
 
   it("uses --session-id on first message", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession({ isFirstMessage: true }));
+    const { args } = provider.buildArgs("Hello", {}, baseSession({ isFirstMessage: true }));
     expect(args).toContain("--session-id");
     expect(args).toContain("test-session-id");
     expect(args).not.toContain("--resume");
   });
 
   it("uses --resume on subsequent messages", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession({ isFirstMessage: false }));
+    const { args } = provider.buildArgs("Hello", {}, baseSession({ isFirstMessage: false }));
     expect(args).toContain("--resume");
     expect(args).toContain("test-session-id");
     expect(args).not.toContain("--session-id");
   });
 
   it("adds --model with cli value when model is specified", () => {
-    const args = provider.buildArgs("Hello", { model: "sonnet-4-6" }, baseSession());
+    const { args } = provider.buildArgs("Hello", { model: "sonnet-4-6" }, baseSession());
     expect(args).toContain("--model");
     expect(args).toContain("sonnet");
   });
 
   it("omits --model when model is not in the list", () => {
-    const args = provider.buildArgs("Hello", { model: "unknown-model" }, baseSession());
+    const { args } = provider.buildArgs("Hello", { model: "unknown-model" }, baseSession());
     expect(args).not.toContain("--model");
   });
 
   it("omits --model when no model specified", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession());
+    const { args } = provider.buildArgs("Hello", {}, baseSession());
     expect(args).not.toContain("--model");
   });
 
   it("adds --dangerously-skip-permissions when skipPermissions is true and no planMode", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession({ skipPermissions: true }));
+    const { args } = provider.buildArgs("Hello", {}, baseSession({ skipPermissions: true }));
     expect(args).toContain("--dangerously-skip-permissions");
   });
 
   it("omits --dangerously-skip-permissions when skipPermissions is false", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession({ skipPermissions: false }));
+    const { args } = provider.buildArgs("Hello", {}, baseSession({ skipPermissions: false }));
     expect(args).not.toContain("--dangerously-skip-permissions");
   });
 
   it("uses --permission-mode plan instead of skip when planMode is true", () => {
-    const args = provider.buildArgs("Hello", { planMode: true }, baseSession({ skipPermissions: true }));
+    const { args } = provider.buildArgs("Hello", { planMode: true }, baseSession({ skipPermissions: true }));
     expect(args).toContain("--permission-mode");
     expect(args).toContain("plan");
     expect(args).not.toContain("--dangerously-skip-permissions");
   });
 
-  it("adds --append-system-prompt on first message with systemPrompt", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession({
+  it("adds --append-system-prompt on first message with small systemPrompt", () => {
+    const { args } = provider.buildArgs("Hello", {}, baseSession({
       isFirstMessage: true,
       systemPrompt: "Be helpful",
     }));
@@ -138,7 +138,7 @@ describe("ClaudeProvider", () => {
   });
 
   it("omits --append-system-prompt on subsequent messages", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession({
+    const { args } = provider.buildArgs("Hello", {}, baseSession({
       isFirstMessage: false,
       systemPrompt: "Be helpful",
     }));
@@ -146,13 +146,26 @@ describe("ClaudeProvider", () => {
   });
 
   it("omits --append-system-prompt when no systemPrompt", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession({ isFirstMessage: true }));
+    const { args } = provider.buildArgs("Hello", {}, baseSession({ isFirstMessage: true }));
     expect(args).not.toContain("--append-system-prompt");
   });
 
-  it("ends with -p and the content", () => {
-    const args = provider.buildArgs("My message", {}, baseSession());
-    expect(args.slice(-2)).toEqual(["-p", "My message"]);
+  it("does not include -p flag in args (content delivered via stdin)", () => {
+    const { args, stdin } = provider.buildArgs("My message", {}, baseSession());
+    expect(args).not.toContain("-p");
+    expect(stdin).toBe("My message");
+  });
+
+  it("prepends large system prompt to stdin instead of using --append-system-prompt", () => {
+    const largePrompt = "x".repeat(100_001);
+    const { args, stdin } = provider.buildArgs("Hello", {}, baseSession({
+      isFirstMessage: true,
+      systemPrompt: largePrompt,
+    }));
+    expect(args).not.toContain("--append-system-prompt");
+    expect(stdin).toContain("<system-instructions>");
+    expect(stdin).toContain(largePrompt);
+    expect(stdin).toContain("Hello");
   });
 
   // ── buildEnv ───────────────────────────────────────────────────────
