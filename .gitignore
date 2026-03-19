@@ -2,9 +2,9 @@ node_modules/
 dist/
 .env
 *.log
+.idea
 .DS_Store
 .vite/
 backend/.data/
 *.tsbuildinfo
 .claude/
-.idea
