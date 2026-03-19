@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
-import { createProject, listProjects, getProject, deleteProject, fetchProject } from "./project-manager.js";
+import { createProject, initProject, listProjects, getProject, deleteProject, fetchProject } from "./project-manager.js";
 
 let tempDir: string;
 let dataDir: string;
@@ -85,6 +85,79 @@ describe("deleteProject", () => {
     expect(existsSync(projDir)).toBe(true);
     await deleteProject(state.id, dataDir);
     expect(existsSync(projDir)).toBe(false);
+  });
+});
+
+describe("initProject", () => {
+  it("creates a bare repo with initial commit and state", async () => {
+    const state = await initProject("my-test-repo", {}, dataDir);
+    expect(state.id).toMatch(/^proj-/);
+    expect(state.name).toBe("my-test-repo");
+    expect(state.url).toBeUndefined();
+    expect(state.workspaces).toEqual([]);
+    expect(existsSync(join(dataDir, state.id, "repo.git", "HEAD"))).toBe(true);
+    expect(existsSync(join(dataDir, state.id, "workspaces"))).toBe(true);
+    expect(existsSync(join(dataDir, state.id, "logs"))).toBe(true);
+    expect(existsSync(join(dataDir, state.id, "state.json"))).toBe(true);
+  });
+
+  it("creates local-only project when no visibility is set", async () => {
+    const state = await initProject("local-only", {}, dataDir);
+    expect(state.url).toBeUndefined();
+    const loaded = await getProject(state.id, dataDir);
+    expect(loaded?.url).toBeUndefined();
+  });
+
+  it("rejects empty name", async () => {
+    await expect(initProject("", {}, dataDir)).rejects.toThrow("Repository name is required");
+  });
+
+  it("rejects name with invalid characters", async () => {
+    await expect(initProject("my repo!", {}, dataDir)).rejects.toThrow(
+      "Repository name can only contain lowercase letters, numbers, hyphens, underscores, and dots",
+    );
+  });
+
+  it("rejects name exceeding 100 characters", async () => {
+    const longName = "a".repeat(101);
+    await expect(initProject(longName, {}, dataDir)).rejects.toThrow(
+      "Repository name must be 100 characters or fewer",
+    );
+  });
+
+  it("rejects name starting with a hyphen", async () => {
+    await expect(initProject("-bad-name", {}, dataDir)).rejects.toThrow(
+      "Repository name can only contain lowercase letters, numbers, hyphens, underscores, and dots",
+    );
+  });
+
+  it("cleans up directory on git failure", async () => {
+    // Use an invalid bare path to force git init to fail
+    const { readdir } = await import("node:fs/promises");
+    const before = await readdir(dataDir);
+
+    // Stub git to fail after mkdir
+    const gitModule = await import("../utils/git.js");
+    const originalGit = gitModule.git;
+    let callCount = 0;
+    vi.spyOn(gitModule, "git").mockImplementation(async (args, cwd) => {
+      callCount++;
+      if (callCount === 1) {
+        // Let git init --bare succeed
+        return originalGit(args, cwd);
+      }
+      // Fail on git clone (second call)
+      throw new Error("Simulated git failure");
+    });
+
+    try {
+      await expect(initProject("will-fail", {}, dataDir)).rejects.toThrow("Simulated git failure");
+      const after = await readdir(dataDir);
+      // The orphaned project directory should have been cleaned up
+      expect(after).toEqual(before);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });
 

@@ -94,7 +94,10 @@ export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
       if (mode === "create") {
         const name = body.name as string | undefined;
         if (!name?.trim()) return reply.status(400).send({ error: "name is required" });
-        const visibility = body.visibility as "public" | "private" | undefined;
+        const visibility = body.visibility as string | undefined;
+        if (visibility !== undefined && visibility !== "public" && visibility !== "private") {
+          return reply.status(400).send({ error: "visibility must be 'public' or 'private'" });
+        }
         project = await initProject(name, { visibility }, dir);
       } else {
         const url = body.url as string | undefined;

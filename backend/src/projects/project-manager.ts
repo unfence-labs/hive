@@ -68,6 +68,11 @@ async function createGitHubRepo(
   visibility: "public" | "private",
   bare: string,
 ): Promise<string> {
+  // Defense-in-depth: visibility is interpolated as a CLI flag, so reject anything unexpected
+  if (visibility !== "public" && visibility !== "private") {
+    throw new Error("Invalid visibility");
+  }
+
   const { stdout } = await gh([
     "repo",
     "create",
@@ -96,30 +101,37 @@ export async function initProject(
 ): Promise<ProjectState> {
   const repoName = validateRepoName(name);
   const id = `proj-${nanoid(8)}`;
+  const projectDir = join(dataDir, id);
   const bare = bareRepoPath(dataDir, id);
-  const wsDir = join(dataDir, id, "workspaces");
-  const logsDir = join(dataDir, id, "logs");
-  const tempWork = join(dataDir, id, "_init-temp");
+  const wsDir = join(projectDir, "workspaces");
+  const logsDir = join(projectDir, "logs");
+  const tempWork = join(projectDir, "_init-temp");
 
-  await mkdir(join(dataDir, id), { recursive: true });
+  await mkdir(projectDir, { recursive: true });
 
-  // 1. Create a bare repo
-  await git(["init", "--bare", bare]);
+  try {
+    // 1. Create a bare repo
+    await git(["init", "--bare", bare]);
 
-  // 2. Clone locally to seed the initial commit
-  await git(["clone", bare, tempWork]);
-  await git(["checkout", "-b", "main"], tempWork);
-  await git(["config", "user.email", "hive@local"], tempWork);
-  await git(["config", "user.name", "Hive"], tempWork);
+    // 2. Clone locally to seed the initial commit
+    await git(["clone", bare, tempWork]);
+    await git(["checkout", "-b", "main"], tempWork);
+    await git(["config", "user.email", "hive@local"], tempWork);
+    await git(["config", "user.name", "Hive"], tempWork);
 
-  await writeFile(join(tempWork, "README.md"), `# ${repoName}\n`);
-  await writeFile(join(tempWork, ".gitignore"), "node_modules/\n.env\n.DS_Store\n");
-  await git(["add", "."], tempWork);
-  await git(["commit", "-m", "Initial commit"], tempWork);
-  await git(["push", "origin", "main"], tempWork);
+    await writeFile(join(tempWork, "README.md"), `# ${repoName}\n`);
+    await writeFile(join(tempWork, ".gitignore"), "node_modules/\n.env\n.DS_Store\n");
+    await git(["add", "."], tempWork);
+    await git(["commit", "-m", "Initial commit"], tempWork);
+    await git(["push", "origin", "main"], tempWork);
 
-  // 3. Clean up the temp working tree
-  await rm(tempWork, { recursive: true, force: true });
+    // 3. Clean up the temp working tree
+    await rm(tempWork, { recursive: true, force: true });
+  } catch (err) {
+    // Clean up partially-created project directory on failure
+    await rm(projectDir, { recursive: true, force: true }).catch(() => {});
+    throw err;
+  }
 
   await mkdir(wsDir, { recursive: true });
   await mkdir(logsDir, { recursive: true });
