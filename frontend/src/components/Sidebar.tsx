@@ -537,7 +537,7 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
       return formatTimeUntil(diffMs);
     }
     if (auto.trigger.type === "github_event") {
-      return describeGitHubEventsShort(auto.trigger.events);
+      return "";
     }
     return "";
   })();
