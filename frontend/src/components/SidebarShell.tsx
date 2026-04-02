@@ -3,16 +3,19 @@ import { ServerMetrics } from "@/components/ServerMetrics";
 interface SidebarShellProps {
   children: React.ReactNode;
   footerActions: React.ReactNode;
+  headerActions?: React.ReactNode;
 }
 
-export function SidebarShell({ children, footerActions }: SidebarShellProps) {
+export function SidebarShell({ children, footerActions, headerActions }: SidebarShellProps) {
   return (
     <div className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
       <div
-        className="shrink-0"
-        style={{ height: "max(var(--titlebar-inset, 0px), 3rem)" }}
+        className="flex shrink-0 items-end justify-end px-2 pb-1"
+        style={{ minHeight: "max(var(--titlebar-inset, 0px), 3rem)" }}
         data-tauri-drag-region
-      />
+      >
+        {headerActions}
+      </div>
 
       {children}
 

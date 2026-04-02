@@ -266,16 +266,25 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     }
   };
 
+  const headerActions = (
+    <TooltipProvider delayDuration={400}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link
+            to="/mosaic"
+            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
+            aria-label="Mosaic View"
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">Mosaic View</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+
   const footerActions = (
     <div className="flex items-center justify-end gap-1 px-2 py-1.5">
-      <Link
-        to="/mosaic"
-        className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
-        aria-label="Mosaic View"
-        title="Mosaic View"
-      >
-        <LayoutGrid className="h-4 w-4" />
-      </Link>
       <Link
         to="/settings"
         state={{ from: pathname }}
@@ -289,7 +298,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   );
 
   return (
-    <SidebarShell footerActions={footerActions}>
+    <SidebarShell footerActions={footerActions} headerActions={headerActions}>
       <ScrollArea className="flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full">
         <div className="p-2">
           {loading ? (
