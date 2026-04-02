@@ -155,6 +155,7 @@ export function ConversationTile({ wsId, workspace, onJumpOut, onNeedsInputChang
           queuedMessage={queuedMessage}
           onClearQueue={() => setQueuedMessage(null)}
           scrollToBottomTrigger={scrollToBottomTrigger}
+          compactMode
         />
       </div>
 

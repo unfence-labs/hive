@@ -106,6 +106,7 @@ interface ToolCallListProps {
   planStatus?: PlanStatus;
   dismissedToolCallIds?: Set<string>;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
+  compactMode?: boolean;
 }
 
 export function ToolCallList({
@@ -115,6 +116,7 @@ export function ToolCallList({
   planStatus,
   dismissedToolCallIds,
   onQuestionAnswer: _onQuestionAnswer,
+  compactMode,
 }: ToolCallListProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -143,7 +145,8 @@ export function ToolCallList({
   const rootTools = regularTools.filter((t) => !t.parentToolUseId);
 
   const shouldCollapse =
-    !showExecutingState && regularTools.length >= COLLAPSE_THRESHOLD;
+    !showExecutingState &&
+    regularTools.length >= (compactMode ? 1 : COLLAPSE_THRESHOLD);
 
   const uniqueToolNames = shouldCollapse
     ? [...new Set(rootTools.map((t) => t.name))]

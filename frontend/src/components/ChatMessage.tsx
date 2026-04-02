@@ -59,6 +59,7 @@ interface ChatMessageProps {
   dismissedToolCallIds?: Set<string>;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
+  compactMode?: boolean;
 }
 
 const ChatMessage = memo(function ChatMessage({
@@ -68,6 +69,7 @@ const ChatMessage = memo(function ChatMessage({
   dismissedToolCallIds,
   onQuestionAnswer,
   onFileMentionClick,
+  compactMode,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -148,6 +150,7 @@ const ChatMessage = memo(function ChatMessage({
                 planStatus={planStatus}
                 dismissedToolCallIds={dismissedToolCallIds}
                 onQuestionAnswer={onQuestionAnswer}
+                compactMode={compactMode}
               />
             )}
             {message.cancelled && (

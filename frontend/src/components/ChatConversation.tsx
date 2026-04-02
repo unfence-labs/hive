@@ -41,6 +41,7 @@ interface ChatConversationProps {
   queuedMessage?: QueuedMessage | null;
   onClearQueue?: () => void;
   scrollToBottomTrigger?: number;
+  compactMode?: boolean;
 }
 
 export default function ChatConversation({
@@ -64,6 +65,7 @@ export default function ChatConversation({
   queuedMessage,
   onClearQueue,
   scrollToBottomTrigger = 0,
+  compactMode,
 }: ChatConversationProps) {
   const [elapsed, setElapsed] = useState(0);
 
@@ -216,6 +218,7 @@ export default function ChatConversation({
               dismissedToolCallIds={dismissedToolCallIds}
               onQuestionAnswer={onQuestionAnswer}
               onFileMentionClick={onFileMentionClick}
+              compactMode={compactMode}
             />
           );
         })}
@@ -237,6 +240,7 @@ export default function ChatConversation({
                 isInteractive
                 showExecutingState
                 onQuestionAnswer={onQuestionAnswer}
+                compactMode={compactMode}
               />
             </div>
           </div>
