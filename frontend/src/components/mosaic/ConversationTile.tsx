@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { useConversation } from "@/hooks/useConversation";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
@@ -14,10 +14,11 @@ interface ConversationTileProps {
   wsId: string;
   workspace: Workspace;
   onJumpOut: (wsId: string) => void;
+  onNeedsInputChange?: (wsId: string, needsInput: boolean) => void;
   className?: string;
 }
 
-export function ConversationTile({ wsId, workspace, onJumpOut, className }: ConversationTileProps) {
+export function ConversationTile({ wsId, workspace, onJumpOut, onNeedsInputChange, className }: ConversationTileProps) {
   const {
     messages,
     isStreaming,
@@ -48,6 +49,32 @@ export function ConversationTile({ wsId, workspace, onJumpOut, className }: Conv
   const [scrollToBottomTrigger, setScrollToBottomTrigger] = useState(0);
   const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
 
+  // ── Border flash on turn completion ─────────────────────────────
+  const prevStreamingRef = useRef(wsStreaming);
+  const [flashBorder, setFlashBorder] = useState(false);
+
+  useEffect(() => {
+    if (prevStreamingRef.current && !wsStreaming && wsUnread) {
+      setFlashBorder(true);
+      const timer = setTimeout(() => setFlashBorder(false), 1500);
+      return () => clearTimeout(timer);
+    }
+    prevStreamingRef.current = wsStreaming;
+  }, [wsStreaming, wsUnread]);
+
+  // ── Needs-input callback for toolbar summary ────────────────────
+  const hasAskUser = pendingToolInputs.some((p) => p.toolName === "AskUserQuestion");
+
+  useEffect(() => {
+    onNeedsInputChange?.(wsId, hasAskUser);
+  }, [wsId, hasAskUser, onNeedsInputChange]);
+
+  // Clean up on unmount
+  useEffect(() => {
+    return () => onNeedsInputChange?.(wsId, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsId]);
+
   useEffect(() => { setQueuedMessage(null); }, [wsId, sessionId]);
 
   useEffect(() => {
@@ -70,10 +97,14 @@ export function ConversationTile({ wsId, workspace, onJumpOut, className }: Conv
     [sendMessage],
   );
 
-  const hasAskUser = pendingToolInputs.some((p) => p.toolName === "AskUserQuestion");
-
   return (
-    <div className={cn("flex flex-col overflow-hidden", className)}>
+    <div
+      className={cn(
+        "flex flex-col overflow-hidden transition-shadow duration-500",
+        flashBorder && "ring-2 ring-primary/60 shadow-[0_0_12px_var(--hive-accent)]",
+        className,
+      )}
+    >
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-card px-2.5">
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           {wsStreaming ? (

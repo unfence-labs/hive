@@ -1,5 +1,5 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Toaster } from "sileo";
 import "sileo/styles.css";
 import AppLayout from "@/components/AppLayout";
@@ -26,6 +26,37 @@ const CreateAutomationDialog = lazy(() => import("@/components/CreateAutomationD
 
 function NotificationToastsBridge({ projects }: { projects: Project[] }) {
   useNotificationToasts(projects);
+  return null;
+}
+
+/** Global Cmd+G / Ctrl+G toggle for Mosaic View. */
+function MosaicShortcut() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const prevPathRef = useRef("/home");
+
+  useEffect(() => {
+    if (location.pathname !== "/mosaic") {
+      prevPathRef.current = location.pathname;
+    }
+  }, [location.pathname]);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "g") return;
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+      e.preventDefault();
+      if (location.pathname === "/mosaic") {
+        navigate(prevPathRef.current);
+      } else {
+        navigate("/mosaic");
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [navigate, location.pathname]);
+
   return null;
 }
 
@@ -70,6 +101,7 @@ export default function App() {
             },
           }}
         />
+        <MosaicShortcut />
         <NotificationToastsBridge projects={projects} />
         <AddProjectDialog
           open={showAddProject}

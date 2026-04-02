@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
-import { ChevronDownIcon, TerminalIcon } from "lucide-react";
+import { ArrowLeft, ChevronDownIcon, TerminalIcon } from "lucide-react";
 import { VscodeIcon, Iterm2Icon } from "@/components/icons/software-icons";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
@@ -94,6 +94,8 @@ function renderFileTreeNodes(nodes: WorkspaceFileTreeNode[]) {
 
 export default function WorkspaceView() {
   const { wsId } = useParams();
+  const location = useLocation();
+  const fromMosaic = (location.state as { fromMosaic?: boolean } | null)?.fromMosaic === true;
   const { collapsed } = useLayoutContext();
   const { ip: tailscaleIp, sshUser } = useTailscaleConfig();
   const { serverUrl } = useServerUrl();
@@ -477,6 +479,16 @@ export default function WorkspaceView() {
             style={{ paddingLeft: collapsed ? "max(var(--traffic-light-clearance, 0px), 1rem)" : "1rem" }}
             data-tauri-drag-region
           >
+            {fromMosaic && (
+              <Link
+                to="/mosaic"
+                className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <ArrowLeft className="h-3 w-3" />
+                Mosaic
+              </Link>
+            )}
+            {fromMosaic && <span className="text-muted-foreground/30">/</span>}
             <span className="truncate text-sm font-semibold text-foreground">{workspace?.projectName ?? workspace?.name}</span>
             {displayBranch && (
               <BranchLabel branch={displayBranch} showIcon={false} className="text-xs text-muted-foreground" />
