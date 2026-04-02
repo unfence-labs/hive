@@ -31,7 +31,6 @@ vi.mock("@/contexts/WorkspaceLiveDataContext", () => ({
   useWorkspaceLiveDataContext: () => liveDataRef,
 }));
 
-// ChatConversation renders complex scroll primitives; mock it to test tile-level behavior
 vi.mock("@/components/ChatConversation", () => ({
   default: ({ messages, compactMode }: any) => (
     <div data-testid="chat-conversation" data-compact={compactMode ?? false}>
@@ -106,7 +105,9 @@ function renderTile(overrides?: {
   conversation?: Partial<typeof defaultConversation>;
   liveData?: Record<string, any>;
   onJumpOut?: () => void;
+  onHide?: (wsId: string) => void;
   onNeedsInputChange?: (wsId: string, needs: boolean) => void;
+  onHeaderPointerDown?: (e: React.PointerEvent) => void;
 }) {
   mocks.useConversation.mockReturnValue({
     ...defaultConversation,
@@ -119,7 +120,9 @@ function renderTile(overrides?: {
       wsId="ws-1"
       workspace={workspace}
       onJumpOut={overrides?.onJumpOut ?? vi.fn()}
+      onHide={overrides?.onHide}
       onNeedsInputChange={overrides?.onNeedsInputChange}
+      onHeaderPointerDown={overrides?.onHeaderPointerDown}
     />,
   );
 }
@@ -145,6 +148,11 @@ describe("ConversationTile", () => {
   it("passes compactMode to ChatConversation", () => {
     renderTile();
     expect(screen.getByTestId("chat-conversation")).toHaveAttribute("data-compact", "true");
+  });
+
+  it("always shows full ChatInput", () => {
+    renderTile();
+    expect(screen.getByTestId("chat-input")).toBeInTheDocument();
   });
 
   it("shows activity indicator when streaming", () => {
@@ -199,23 +207,17 @@ describe("ConversationTile", () => {
     expect(onNeedsInputChange).toHaveBeenCalledWith("ws-1", true);
   });
 
-  it("shows collapsed input bar by default", () => {
-    renderTile();
-    expect(screen.getByText(/Send message/)).toBeInTheDocument();
-    expect(screen.queryByTestId("chat-input")).not.toBeInTheDocument();
+  it("shows remove button when onHide is provided", () => {
+    renderTile({ onHide: vi.fn() });
+    expect(screen.getByTitle("Remove tile")).toBeInTheDocument();
   });
 
-  it("expands to full ChatInput on click", async () => {
+  it("remove button calls onHide with workspace ID", async () => {
     const user = userEvent.setup();
-    renderTile();
-    await user.click(screen.getByText(/Send message/));
-    expect(screen.getByTestId("chat-input")).toBeInTheDocument();
-  });
-
-  it("shows stop button in collapsed bar when streaming", () => {
-    renderTile({ conversation: { isStreaming: true } });
-    expect(screen.getByTitle("Stop")).toBeInTheDocument();
-    expect(screen.getByText("Agent is working...")).toBeInTheDocument();
+    const onHide = vi.fn();
+    renderTile({ onHide });
+    await user.click(screen.getByTitle("Remove tile"));
+    expect(onHide).toHaveBeenCalledWith("ws-1");
   });
 
   it("new session button creates and switches to a new session", async () => {

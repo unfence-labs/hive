@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ArrowUpRight, Plus, Square } from "lucide-react";
+import { ArrowUpRight, EyeOff, Plus } from "lucide-react";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
@@ -16,12 +16,15 @@ interface ConversationTileProps {
   workspace: Workspace;
   projectLabel?: string;
   onJumpOut: (wsId: string) => void;
+  onHide?: (wsId: string) => void;
   onNeedsInputChange?: (wsId: string, needsInput: boolean) => void;
+  onHeaderPointerDown?: (e: React.PointerEvent) => void;
+  isDragSource?: boolean;
   className?: string;
   style?: CSSProperties;
 }
 
-export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onNeedsInputChange, className, style }: ConversationTileProps) {
+export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onHide, onNeedsInputChange, onHeaderPointerDown, isDragSource, className, style }: ConversationTileProps) {
   const {
     messages,
     isStreaming,
@@ -56,8 +59,6 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onN
 
   const [scrollToBottomTrigger, setScrollToBottomTrigger] = useState(0);
   const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
-  const [inputExpanded, setInputExpanded] = useState(false);
-  const inputContainerRef = useRef<HTMLDivElement>(null);
 
   // ── Border flash on turn completion ─────────────────────────────
   const prevStreamingRef = useRef(wsStreaming);
@@ -79,7 +80,6 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onN
     onNeedsInputChange?.(wsId, hasAskUser);
   }, [wsId, hasAskUser, onNeedsInputChange]);
 
-  // Clean up on unmount
   useEffect(() => {
     return () => onNeedsInputChange?.(wsId, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -101,13 +101,7 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onN
   const handleSend = useCallback(
     (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]): boolean => {
       const sent = sendMessage(content, images, options, undefined, fileMentions);
-      if (sent) {
-        setScrollToBottomTrigger((c) => c + 1);
-        // Delay collapse by one frame so ChatInput's handleSubmit clears
-        // the value (setValue("")) before unmount — otherwise the draft
-        // persistence hook saves the stale text on unmount.
-        requestAnimationFrame(() => setInputExpanded(false));
-      }
+      if (sent) setScrollToBottomTrigger((c) => c + 1);
       return sent;
     },
     [sendMessage],
@@ -118,37 +112,6 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onN
     if (meta) switchSession(meta.sessionId);
   }, [createSession, switchSession]);
 
-  // Auto-focus textarea when expanding
-  useEffect(() => {
-    if (!inputExpanded) return;
-    requestAnimationFrame(() => {
-      const textarea = inputContainerRef.current?.querySelector("textarea");
-      textarea?.focus();
-    });
-  }, [inputExpanded]);
-
-  // Collapse input on Escape
-  useEffect(() => {
-    if (!inputExpanded) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setInputExpanded(false);
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [inputExpanded]);
-
-  // Collapse input on click outside
-  useEffect(() => {
-    if (!inputExpanded) return;
-    const handleClick = (e: MouseEvent) => {
-      if (inputContainerRef.current && !inputContainerRef.current.contains(e.target as Node)) {
-        setInputExpanded(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [inputExpanded]);
-
   return (
     <div
       className={cn(
@@ -158,8 +121,15 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onN
       )}
       style={style}
     >
-      {/* ── Header ───────────────────────────────────────────────── */}
-      <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-border bg-card px-1.5">
+      {/* ── Header (drag handle) ─────────────────────────────────── */}
+      <div
+        className={cn(
+          "flex h-8 shrink-0 items-center gap-1.5 border-b border-border bg-card px-1.5 select-none",
+          onHeaderPointerDown && "cursor-grab",
+          isDragSource && "cursor-grabbing",
+        )}
+        onPointerDown={onHeaderPointerDown}
+      >
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           {wsStreaming ? (
             <AgentActivityPreview size="small" />
@@ -197,6 +167,17 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onN
             <Plus className="h-3 w-3" />
           </button>
         )}
+        {onHide && (
+          <button
+            type="button"
+            onClick={() => onHide(wsId)}
+            className="shrink-0 rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-muted-foreground"
+            aria-label={`Remove ${workspace.name}`}
+            title="Remove tile"
+          >
+            <EyeOff className="h-3 w-3" />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => onJumpOut(wsId)}
@@ -231,70 +212,31 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onN
         />
       </div>
 
-      {/* ── Input area ───────────────────────────────────────────── */}
+      {/* ── Input ────────────────────────────────────────────────── */}
       {hasAskUser ? (
         <QuestionPanel
           pendingToolInputs={pendingToolInputs}
           onBatchSubmit={batchAnswerQuestions}
           onDismiss={() => rejectToolInput("[question_dismissed]")}
         />
-      ) : inputExpanded ? (
-        <div ref={inputContainerRef}>
-          <ChatInput
-            wsId={wsId}
-            sessionId={sessionId}
-            lockedProvider={lockedProvider}
-            onSend={handleSend}
-            onStop={stopStreaming}
-            disabled={false}
-            isStreaming={isStreaming}
-            connectionStatus={connectionStatus}
-            messages={messages}
-            queuedMessage={queuedMessage}
-            onQueue={(msg) => {
-              setQueuedMessage(msg);
-              setScrollToBottomTrigger((c) => c + 1);
-            }}
-            agentPlanMode={agentPlanMode}
-          />
-        </div>
       ) : (
-        /* Collapsed input — matches ChatInput visual style, compact */
-        <div
-          className="bg-background px-4 py-2"
-          onClick={() => setInputExpanded(true)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") setInputExpanded(true);
+        <ChatInput
+          wsId={wsId}
+          sessionId={sessionId}
+          lockedProvider={lockedProvider}
+          onSend={handleSend}
+          onStop={stopStreaming}
+          disabled={false}
+          isStreaming={isStreaming}
+          connectionStatus={connectionStatus}
+          messages={messages}
+          queuedMessage={queuedMessage}
+          onQueue={(msg) => {
+            setQueuedMessage(msg);
+            setScrollToBottomTrigger((c) => c + 1);
           }}
-        >
-          <div className="flex cursor-text items-center gap-2 rounded-lg border border-border/30 bg-[#1e1e28] px-3 py-2 transition-colors hover:border-border/50">
-            <span className="truncate text-sm text-muted-foreground/40">
-              {isStreaming ? "Agent is working..." : "Send message, #mention files, @call agents, run /commands"}
-            </span>
-            <div className="flex-1" />
-            {isStreaming && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  stopStreaming();
-                }}
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                aria-label="Stop"
-                title="Stop"
-              >
-                <Square className="h-3 w-3 fill-current text-red-500" />
-              </button>
-            )}
-            {queuedMessage && (
-              <span className="shrink-0 rounded border border-dashed border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/60">
-                Queued
-              </span>
-            )}
-          </div>
-        </div>
+          agentPlanMode={agentPlanMode}
+        />
       )}
     </div>
   );
