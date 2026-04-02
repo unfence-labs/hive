@@ -131,15 +131,21 @@ export default function MosaicView() {
           )}
         </div>
 
-        {/* Edit button */}
-        <button
-          type="button"
-          onClick={() => setPickerOpen(true)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        {/* Edit button (popover trigger) */}
+        <WorkspacePicker
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          selectedIds={selectedIds}
+          onToggle={toggleId}
         >
-          <Pencil className="h-3 w-3" />
-          <span>Edit</span>
-        </button>
+          <button
+            type="button"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <Pencil className="h-3 w-3" />
+            <span>Edit</span>
+          </button>
+        </WorkspacePicker>
       </div>
 
       {/* ── Grid ────────────────────────────────────────────────────── */}
@@ -206,13 +212,6 @@ export default function MosaicView() {
         </div>
       )}
 
-      {/* ── Workspace Picker ────────────────────────────────────────── */}
-      <WorkspacePicker
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        selectedIds={selectedIds}
-        onToggle={toggleId}
-      />
     </div>
   );
 }

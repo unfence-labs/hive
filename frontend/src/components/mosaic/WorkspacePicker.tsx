@@ -1,11 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
@@ -22,6 +20,7 @@ interface WorkspacePickerProps {
   onOpenChange: (open: boolean) => void;
   selectedIds: string[];
   onToggle: (wsId: string) => void;
+  children: ReactNode;
 }
 
 export function WorkspacePicker({
@@ -29,6 +28,7 @@ export function WorkspacePicker({
   onOpenChange,
   selectedIds,
   onToggle,
+  children,
 }: WorkspacePickerProps) {
   const { projects } = useProjects();
   const liveData = useWorkspaceLiveDataContext();
@@ -37,17 +37,21 @@ export function WorkspacePicker({
   const atMax = selectedIds.length >= MAX_MOSAIC;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Choose workspaces</DialogTitle>
-          <DialogDescription>
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        {children}
+      </PopoverTrigger>
+
+      <PopoverContent className="w-80 p-0">
+        <div className="border-b border-border px-3 py-2.5">
+          <p className="text-sm font-medium">Choose workspaces</p>
+          <p className="text-xs text-muted-foreground">
             Select up to {MAX_MOSAIC} workspaces to display in mosaic view.
-          </DialogDescription>
-        </DialogHeader>
+          </p>
+        </div>
 
         <ScrollArea className="max-h-[360px]">
-          <div className="space-y-4 pr-3">
+          <div className="space-y-4 p-3">
             {projects.map((project) => {
               const workspaces = project.workspaces ?? [];
               if (workspaces.length === 0) return null;
@@ -126,7 +130,7 @@ export function WorkspacePicker({
             })}
           </div>
         </ScrollArea>
-      </DialogContent>
-    </Dialog>
+      </PopoverContent>
+    </Popover>
   );
 }
