@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Group, Panel } from "react-resizable-panels";
-import { ArrowLeft, CircleAlert, Eye, Pencil, Plus } from "lucide-react";
+import { ArrowLeft, CircleAlert, Columns3, LayoutGrid, Pencil, Plus, Rows3 } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import { useMosaicWorkspaces, MAX_MOSAIC } from "@/hooks/useMosaicWorkspaces";
@@ -12,6 +12,16 @@ import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { parseProjectOwnerRepo } from "@/components/Sidebar";
 import { cn } from "@/lib/utils";
 import type { Workspace } from "@/types";
+
+type MosaicLayout = "grid" | "columns" | "rows";
+
+const LAYOUT_KEY = "hive-mosaic-layout";
+
+function readLayout(): MosaicLayout {
+  const raw = localStorage.getItem(LAYOUT_KEY);
+  if (raw === "grid" || raw === "columns" || raw === "rows") return raw;
+  return "grid";
+}
 
 interface WorkspaceWithProject extends Workspace {
   projectId: string;
@@ -26,13 +36,7 @@ export default function MosaicView() {
   const { selectedIds, setSelectedIds, toggleId, removeId } = useMosaicWorkspaces();
 
   const [pickerOpen, setPickerOpen] = useState(false);
-
-  // Hidden tiles (visible in mosaic selection but collapsed)
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
-
-  // Drag-to-reorder state
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [layout, setLayout] = useState<MosaicLayout>(readLayout);
 
   // "Needs input" state reported by each tile
   const [needsInputMap, setNeedsInputMap] = useState<Record<string, boolean>>({});
@@ -41,6 +45,12 @@ export default function MosaicView() {
       if (prev[wsId] === needsInput) return prev;
       return { ...prev, [wsId]: needsInput };
     });
+  }, []);
+
+  // Persist layout changes
+  const changeLayout = useCallback((l: MosaicLayout) => {
+    setLayout(l);
+    localStorage.setItem(LAYOUT_KEY, l);
   }, []);
 
   const allWorkspaces = useMemo<WorkspaceWithProject[]>(
@@ -113,17 +123,7 @@ export default function MosaicView() {
     }
   }, [selectedIds, wsById, allWorkspaces.length, setSelectedIds]);
 
-  // Visible (not hidden) workspaces
-  const visibleWorkspaces = useMemo(
-    () => selectedWorkspaces.filter((ws) => !hiddenIds.has(ws.id)),
-    [selectedWorkspaces, hiddenIds],
-  );
-  const hiddenWorkspaces = useMemo(
-    () => selectedWorkspaces.filter((ws) => hiddenIds.has(ws.id)),
-    [selectedWorkspaces, hiddenIds],
-  );
-
-  const tileCount = visibleWorkspaces.length;
+  const tileCount = selectedWorkspaces.length;
 
   // Toolbar summary
   const streamingCount = selectedWorkspaces.filter((ws) => liveData[ws.id]?.streaming).length;
@@ -135,93 +135,53 @@ export default function MosaicView() {
     return parsed ? `${parsed.owner}/${parsed.repo}` : ws.projectName;
   };
 
-  // ── Drag-to-reorder ───────────────────────────────────────────────
-  const handleDragStart = (index: number) => {
-    setDragIndex(index);
-  };
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    setDragOverIndex(index);
-  };
-  const handleDrop = (targetIndex: number) => {
-    if (dragIndex === null || dragIndex === targetIndex) {
-      setDragIndex(null);
-      setDragOverIndex(null);
-      return;
-    }
-    // Reorder the visible IDs
-    const visibleIds = visibleWorkspaces.map((ws) => ws.id);
-    const [moved] = visibleIds.splice(dragIndex, 1);
-    visibleIds.splice(targetIndex, 0, moved);
-    // Rebuild full selection: visible (reordered) + hidden
-    const hiddenIdsArr = hiddenWorkspaces.map((ws) => ws.id);
-    setSelectedIds([...visibleIds, ...hiddenIdsArr]);
-    setDragIndex(null);
-    setDragOverIndex(null);
-  };
-  const handleDragEnd = () => {
-    setDragIndex(null);
-    setDragOverIndex(null);
-  };
+  // ── Reorder (swap adjacent positions) ─────────────────────────────
+  const handleMove = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      const ids = [...selectedIds];
+      const [moved] = ids.splice(fromIndex, 1);
+      ids.splice(toIndex, 0, moved);
+      setSelectedIds(ids);
+    },
+    [selectedIds, setSelectedIds],
+  );
 
-  const handleHide = useCallback((wsId: string) => {
-    setHiddenIds((prev) => new Set([...prev, wsId]));
-  }, []);
-
-  const handleShow = useCallback((wsId: string) => {
-    setHiddenIds((prev) => {
-      const next = new Set(prev);
-      next.delete(wsId);
-      return next;
-    });
-  }, []);
-
-  // ── Layout: split into rows for resizable panels ──────────────────
-  // Row 1: first N tiles, Row 2: remaining tiles (N = colCount derived from tileCount)
-  const colCount = tileCount <= 1 ? 1 : tileCount <= 3 ? 2 : 2;
-  const rows: WorkspaceWithProject[][] = [];
-  for (let i = 0; i < visibleWorkspaces.length; i += colCount) {
-    rows.push(visibleWorkspaces.slice(i, i + colCount));
+  // ── Layout: split into rows for grid mode ─────────────────────────
+  const colCount = 2;
+  const gridRows: WorkspaceWithProject[][] = [];
+  for (let i = 0; i < selectedWorkspaces.length; i += colCount) {
+    gridRows.push(selectedWorkspaces.slice(i, i + colCount));
   }
 
-  // Helper to render a single tile with drag wrappers
-  function renderTile(ws: WorkspaceWithProject, globalIndex: number) {
+  // Helper to render a single tile
+  function renderTile(ws: WorkspaceWithProject, index: number) {
     return (
-      <div
+      <ConversationTile
         key={ws.id}
-        draggable
-        onDragStart={() => handleDragStart(globalIndex)}
-        onDragOver={(e) => handleDragOver(e, globalIndex)}
-        onDrop={() => handleDrop(globalIndex)}
-        onDragEnd={handleDragEnd}
-        className={cn(
-          "flex h-full min-h-0 flex-col",
-          dragOverIndex === globalIndex && dragIndex !== globalIndex && "ring-2 ring-primary/40 ring-inset",
-          dragIndex === globalIndex && "opacity-50",
-        )}
-      >
-        <ConversationTile
-          wsId={ws.id}
-          workspace={ws}
-          projectLabel={getProjectLabel(ws)}
-          onJumpOut={(id) => navigate(`/workspaces/${id}`, { state: { fromMosaic: true } })}
-          onHide={tileCount > 1 ? handleHide : undefined}
-          onNeedsInputChange={handleNeedsInputChange}
-          className="h-full"
-          dragHandleProps={{
-            draggable: true,
-            onDragStart: () => handleDragStart(globalIndex),
-          }}
-        />
-      </div>
+        wsId={ws.id}
+        workspace={ws}
+        projectLabel={getProjectLabel(ws)}
+        onJumpOut={(id) => navigate(`/workspaces/${id}`, { state: { fromMosaic: true } })}
+        onHide={tileCount > 1 ? () => removeId(ws.id) : undefined}
+        onMoveLeft={index > 0 ? () => handleMove(index, index - 1) : undefined}
+        onMoveRight={index < tileCount - 1 ? () => handleMove(index, index + 1) : undefined}
+        onNeedsInputChange={handleNeedsInputChange}
+        className="h-full"
+      />
     );
   }
+
+  const layoutButtons: { value: MosaicLayout; icon: typeof LayoutGrid; label: string }[] = [
+    { value: "grid", icon: LayoutGrid, label: "Grid" },
+    { value: "columns", icon: Columns3, label: "Columns" },
+    { value: "rows", icon: Rows3, label: "Rows" },
+  ];
 
   return (
     <div className="flex h-screen flex-col bg-background">
       {/* ── Toolbar ─────────────────────────────────────────────────── */}
       <div
-        className="flex h-10 shrink-0 items-center gap-3 border-b border-border bg-card px-3"
+        className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-card px-3"
         style={{ paddingLeft: "max(var(--traffic-light-clearance, 0px), 0.75rem)" }}
         data-tauri-drag-region
       >
@@ -234,6 +194,26 @@ export default function MosaicView() {
           <span>Back</span>
         </button>
         <span className="text-xs font-medium">Mosaic</span>
+
+        {/* Layout selector */}
+        {tileCount >= 2 && (
+          <div className="flex items-center gap-0.5 rounded-md border border-border/50 p-0.5">
+            {layoutButtons.map(({ value, icon: Icon, label }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => changeLayout(value)}
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-muted-foreground/60 transition-colors hover:text-foreground",
+                  layout === value && "bg-muted text-foreground",
+                )}
+                title={label}
+              >
+                <Icon className="h-3 w-3" />
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Summary */}
         <div className="flex flex-1 items-center justify-center gap-3 text-xs text-muted-foreground" data-tauri-drag-region>
@@ -250,24 +230,6 @@ export default function MosaicView() {
             </span>
           )}
         </div>
-
-        {/* Hidden tiles restore */}
-        {hiddenWorkspaces.length > 0 && (
-          <div className="flex items-center gap-1">
-            {hiddenWorkspaces.map((ws) => (
-              <button
-                key={ws.id}
-                type="button"
-                onClick={() => handleShow(ws.id)}
-                className="flex items-center gap-1 rounded border border-border/50 px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                title={`Show ${ws.name}`}
-              >
-                <Eye className="h-2.5 w-2.5" />
-                {ws.name}
-              </button>
-            ))}
-          </div>
-        )}
 
         {/* Edit button (popover trigger) */}
         <WorkspacePicker
@@ -289,11 +251,7 @@ export default function MosaicView() {
       {/* ── Grid ────────────────────────────────────────────────────── */}
       {tileCount === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3">
-          <p className="text-sm text-muted-foreground">
-            {hiddenWorkspaces.length > 0
-              ? `All tiles hidden — click a tile name above to restore`
-              : "No workspaces selected"}
-          </p>
+          <p className="text-sm text-muted-foreground">No workspaces selected</p>
           <button
             type="button"
             onClick={() => setPickerOpen(true)}
@@ -305,25 +263,41 @@ export default function MosaicView() {
         </div>
       ) : tileCount === 1 ? (
         /* Single tile — full screen */
-        <div className="flex min-h-0 flex-1">
-          {renderTile(visibleWorkspaces[0], 0)}
-        </div>
-      ) : rows.length === 1 ? (
-        /* Single row — horizontal resizable panels */
+        <div className="flex min-h-0 flex-1">{renderTile(selectedWorkspaces[0], 0)}</div>
+      ) : layout === "columns" ? (
+        /* All tiles in a single horizontal row */
+        <Group orientation="horizontal" id="mosaic-cols" className="min-h-0 flex-1">
+          {selectedWorkspaces.map((ws, i) => (
+            <MosaicPanel key={ws.id} ws={ws} isLast={i === tileCount - 1}>
+              {renderTile(ws, i)}
+            </MosaicPanel>
+          ))}
+        </Group>
+      ) : layout === "rows" ? (
+        /* All tiles stacked vertically */
+        <Group orientation="vertical" id="mosaic-rows-layout" className="min-h-0 flex-1">
+          {selectedWorkspaces.map((ws, i) => (
+            <MosaicRowPanel key={ws.id} rowIdx={i} isLast={i === tileCount - 1}>
+              {renderTile(ws, i)}
+            </MosaicRowPanel>
+          ))}
+        </Group>
+      ) : gridRows.length === 1 ? (
+        /* Grid with single row — horizontal panels */
         <Group orientation="horizontal" id="mosaic-row-0" className="min-h-0 flex-1">
-          {rows[0].map((ws, i) => (
-            <MosaicPanel key={ws.id} ws={ws} isLast={i === rows[0].length - 1}>
+          {gridRows[0].map((ws, i) => (
+            <MosaicPanel key={ws.id} ws={ws} isLast={i === gridRows[0].length - 1}>
               {renderTile(ws, i)}
             </MosaicPanel>
           ))}
         </Group>
       ) : (
-        /* Multiple rows — vertical Group wrapping horizontal Groups */
-        <Group orientation="vertical" id="mosaic-rows" className="min-h-0 flex-1">
-          {rows.map((row, rowIdx) => {
+        /* Grid with multiple rows */
+        <Group orientation="vertical" id="mosaic-grid" className="min-h-0 flex-1">
+          {gridRows.map((row, rowIdx) => {
             const globalOffset = rowIdx * colCount;
             return (
-              <MosaicRowPanel key={rowIdx} rowIdx={rowIdx} isLast={rowIdx === rows.length - 1}>
+              <MosaicRowPanel key={rowIdx} rowIdx={rowIdx} isLast={rowIdx === gridRows.length - 1}>
                 <Group orientation="horizontal" id={`mosaic-row-${rowIdx}`} className="h-full">
                   {row.map((ws, colIdx) => (
                     <MosaicPanel key={ws.id} ws={ws} isLast={colIdx === row.length - 1}>

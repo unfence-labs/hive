@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ArrowUpRight, EyeOff, GripVertical } from "lucide-react";
+import { ArrowUpRight, ChevronLeft, ChevronRight, EyeOff, MessageSquare, Plus, Square } from "lucide-react";
 import { useConversation } from "@/hooks/useConversation";
+import { useSessions } from "@/hooks/useSessions";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import ChatConversation from "@/components/ChatConversation";
 import ChatInput from "@/components/ChatInput";
@@ -16,14 +17,14 @@ interface ConversationTileProps {
   projectLabel?: string;
   onJumpOut: (wsId: string) => void;
   onHide?: (wsId: string) => void;
+  onMoveLeft?: () => void;
+  onMoveRight?: () => void;
   onNeedsInputChange?: (wsId: string, needsInput: boolean) => void;
   className?: string;
   style?: CSSProperties;
-  /** Props forwarded for drag handle */
-  dragHandleProps?: Record<string, unknown>;
 }
 
-export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onHide, onNeedsInputChange, className, style, dragHandleProps }: ConversationTileProps) {
+export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onHide, onMoveLeft, onMoveRight, onNeedsInputChange, className, style }: ConversationTileProps) {
   const {
     messages,
     isStreaming,
@@ -44,7 +45,11 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
     agentPlanMode,
     lockedProvider,
     switchCounter,
+    switchSession,
   } = useConversation(wsId);
+
+  const { sessions, createSession } = useSessions(wsId);
+  const maxSessionsReached = sessions.length >= 4;
 
   const liveData = useWorkspaceLiveDataContext();
   const wsLive = liveData[wsId];
@@ -54,6 +59,8 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
 
   const [scrollToBottomTrigger, setScrollToBottomTrigger] = useState(0);
   const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
+  const [inputExpanded, setInputExpanded] = useState(false);
+  const inputContainerRef = useRef<HTMLDivElement>(null);
 
   // ── Border flash on turn completion ─────────────────────────────
   const prevStreamingRef = useRef(wsStreaming);
@@ -97,11 +104,43 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
   const handleSend = useCallback(
     (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]): boolean => {
       const sent = sendMessage(content, images, options, undefined, fileMentions);
-      if (sent) setScrollToBottomTrigger((c) => c + 1);
+      if (sent) {
+        setScrollToBottomTrigger((c) => c + 1);
+        setInputExpanded(false);
+      }
       return sent;
     },
     [sendMessage],
   );
+
+  const handleNewSession = useCallback(async () => {
+    const meta = await createSession();
+    if (meta) switchSession(meta.sessionId);
+  }, [createSession, switchSession]);
+
+  // Collapse input on Escape
+  useEffect(() => {
+    if (!inputExpanded) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setInputExpanded(false);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [inputExpanded]);
+
+  // Collapse input on click outside
+  useEffect(() => {
+    if (!inputExpanded) return;
+    const handleClick = (e: MouseEvent) => {
+      if (inputContainerRef.current && !inputContainerRef.current.contains(e.target as Node)) {
+        setInputExpanded(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [inputExpanded]);
+
+  const showMoveButtons = onMoveLeft || onMoveRight;
 
   return (
     <div
@@ -112,14 +151,35 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
       )}
       style={style}
     >
+      {/* ── Header ───────────────────────────────────────────────── */}
       <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-border bg-card px-1.5">
-        {/* Drag handle */}
-        {dragHandleProps && (
-          <div
-            {...dragHandleProps}
-            className="shrink-0 cursor-grab rounded p-0.5 text-muted-foreground/40 transition-colors hover:text-muted-foreground active:cursor-grabbing"
-          >
-            <GripVertical className="h-3 w-3" />
+        {/* Reorder arrows */}
+        {showMoveButtons && (
+          <div className="flex shrink-0 items-center">
+            <button
+              type="button"
+              onClick={onMoveLeft}
+              disabled={!onMoveLeft}
+              className={cn(
+                "rounded p-0.5 text-muted-foreground/40 transition-colors",
+                onMoveLeft ? "hover:text-muted-foreground hover:bg-muted" : "opacity-0 pointer-events-none",
+              )}
+              title="Move left"
+            >
+              <ChevronLeft className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              onClick={onMoveRight}
+              disabled={!onMoveRight}
+              className={cn(
+                "rounded p-0.5 text-muted-foreground/40 transition-colors",
+                onMoveRight ? "hover:text-muted-foreground hover:bg-muted" : "opacity-0 pointer-events-none",
+              )}
+              title="Move right"
+            >
+              <ChevronRight className="h-3 w-3" />
+            </button>
           </div>
         )}
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
@@ -148,13 +208,24 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
             </>
           )}
         </div>
+        {!maxSessionsReached && (
+          <button
+            type="button"
+            onClick={handleNewSession}
+            className="shrink-0 rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-muted-foreground"
+            aria-label="New session"
+            title="New session"
+          >
+            <Plus className="h-3 w-3" />
+          </button>
+        )}
         {onHide && (
           <button
             type="button"
             onClick={() => onHide(wsId)}
             className="shrink-0 rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-muted-foreground"
             aria-label={`Hide ${workspace.name}`}
-            title="Hide tile"
+            title="Remove tile"
           >
             <EyeOff className="h-3 w-3" />
           </button>
@@ -170,6 +241,7 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
         </button>
       </div>
 
+      {/* ── Conversation ─────────────────────────────────────────── */}
       <div className="flex min-h-0 flex-1 flex-col">
         <ChatConversation
           messages={messages}
@@ -192,30 +264,67 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
         />
       </div>
 
+      {/* ── Input area ───────────────────────────────────────────── */}
       {hasAskUser ? (
         <QuestionPanel
           pendingToolInputs={pendingToolInputs}
           onBatchSubmit={batchAnswerQuestions}
           onDismiss={() => rejectToolInput("[question_dismissed]")}
         />
+      ) : inputExpanded ? (
+        <div ref={inputContainerRef}>
+          <ChatInput
+            wsId={wsId}
+            sessionId={sessionId}
+            lockedProvider={lockedProvider}
+            onSend={handleSend}
+            onStop={stopStreaming}
+            disabled={false}
+            isStreaming={isStreaming}
+            connectionStatus={connectionStatus}
+            messages={messages}
+            queuedMessage={queuedMessage}
+            onQueue={(msg) => {
+              setQueuedMessage(msg);
+              setScrollToBottomTrigger((c) => c + 1);
+            }}
+            agentPlanMode={agentPlanMode}
+          />
+        </div>
       ) : (
-        <ChatInput
-          wsId={wsId}
-          sessionId={sessionId}
-          lockedProvider={lockedProvider}
-          onSend={handleSend}
-          onStop={stopStreaming}
-          disabled={false}
-          isStreaming={isStreaming}
-          connectionStatus={connectionStatus}
-          messages={messages}
-          queuedMessage={queuedMessage}
-          onQueue={(msg) => {
-            setQueuedMessage(msg);
-            setScrollToBottomTrigger((c) => c + 1);
+        /* Collapsed input bar */
+        <div
+          className="flex h-9 shrink-0 cursor-text items-center gap-2 border-t border-border bg-background px-3 text-sm text-muted-foreground/50 transition-colors hover:bg-muted/30 hover:text-muted-foreground/70"
+          onClick={() => setInputExpanded(true)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") setInputExpanded(true);
           }}
-          agentPlanMode={agentPlanMode}
-        />
+        >
+          <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate text-xs">Send a message...</span>
+          <div className="flex-1" />
+          {isStreaming && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                stopStreaming();
+              }}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label="Stop"
+              title="Stop"
+            >
+              <Square className="h-3 w-3 fill-current" />
+            </button>
+          )}
+          {queuedMessage && (
+            <span className="shrink-0 rounded border border-dashed border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/60">
+              Queued
+            </span>
+          )}
+        </div>
       )}
     </div>
   );

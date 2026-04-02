@@ -9,10 +9,22 @@ const mocks = vi.hoisted(() => ({
   answerQuestion: vi.fn(),
   batchAnswerQuestions: vi.fn(),
   rejectToolInput: vi.fn(),
+  switchSession: vi.fn(),
+  createSession: vi.fn(async () => ({ sessionId: "new-sess", createdAt: "2025-01-01" })),
 }));
 
 vi.mock("@/hooks/useConversation", () => ({
   useConversation: mocks.useConversation,
+}));
+
+vi.mock("@/hooks/useSessions", () => ({
+  useSessions: () => ({
+    sessions: [{ sessionId: "sess-1", createdAt: "2025-01-01" }],
+    createSession: mocks.createSession,
+    deleteSession: vi.fn(),
+    loading: false,
+    refresh: vi.fn(),
+  }),
 }));
 
 vi.mock("@/contexts/WorkspaceLiveDataContext", () => ({
@@ -80,6 +92,7 @@ const defaultConversation = {
   agentPlanMode: false,
   lockedProvider: undefined,
   switchCounter: 0,
+  switchSession: mocks.switchSession,
 };
 
 const workspace: Workspace = {
@@ -94,6 +107,8 @@ function renderTile(overrides?: {
   liveData?: Record<string, any>;
   onJumpOut?: () => void;
   onNeedsInputChange?: (wsId: string, needs: boolean) => void;
+  onMoveLeft?: () => void;
+  onMoveRight?: () => void;
 }) {
   mocks.useConversation.mockReturnValue({
     ...defaultConversation,
@@ -107,6 +122,8 @@ function renderTile(overrides?: {
       workspace={workspace}
       onJumpOut={overrides?.onJumpOut ?? vi.fn()}
       onNeedsInputChange={overrides?.onNeedsInputChange}
+      onMoveLeft={overrides?.onMoveLeft}
+      onMoveRight={overrides?.onMoveRight}
     />,
   );
 }
@@ -143,14 +160,12 @@ describe("ConversationTile", () => {
     renderTile({
       liveData: { "ws-1": { unreadSessions: { "sess-1": true } } },
     });
-    // The green dot is a div with bg-emerald-400
     const dots = document.querySelectorAll(".bg-emerald-400");
     expect(dots.length).toBeGreaterThan(0);
   });
 
   it("shows gray dot when idle", () => {
     renderTile({ liveData: {} });
-    // No activity preview, no green dot — should have the gray dot
     expect(screen.queryByTestId("activity-preview")).not.toBeInTheDocument();
     const grayDots = document.querySelectorAll('[class*="bg-muted-foreground"]');
     expect(grayDots.length).toBeGreaterThan(0);
@@ -186,5 +201,45 @@ describe("ConversationTile", () => {
       onNeedsInputChange,
     });
     expect(onNeedsInputChange).toHaveBeenCalledWith("ws-1", true);
+  });
+
+  it("shows collapsed input bar by default", () => {
+    renderTile();
+    expect(screen.getByText("Send a message...")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-input")).not.toBeInTheDocument();
+  });
+
+  it("expands to full ChatInput on click", async () => {
+    const user = userEvent.setup();
+    renderTile();
+    await user.click(screen.getByText("Send a message..."));
+    expect(screen.getByTestId("chat-input")).toBeInTheDocument();
+  });
+
+  it("renders reorder arrows when move callbacks are provided", () => {
+    renderTile({ onMoveLeft: vi.fn(), onMoveRight: vi.fn() });
+    expect(screen.getByTitle("Move left")).toBeInTheDocument();
+    expect(screen.getByTitle("Move right")).toBeInTheDocument();
+  });
+
+  it("move-left button calls onMoveLeft", async () => {
+    const user = userEvent.setup();
+    const onMoveLeft = vi.fn();
+    renderTile({ onMoveLeft, onMoveRight: vi.fn() });
+    await user.click(screen.getByTitle("Move left"));
+    expect(onMoveLeft).toHaveBeenCalled();
+  });
+
+  it("shows stop button in collapsed bar when streaming", () => {
+    renderTile({ conversation: { isStreaming: true } });
+    expect(screen.getByTitle("Stop")).toBeInTheDocument();
+  });
+
+  it("new session button creates and switches to a new session", async () => {
+    const user = userEvent.setup();
+    renderTile();
+    await user.click(screen.getByTitle("New session"));
+    expect(mocks.createSession).toHaveBeenCalled();
+    expect(mocks.switchSession).toHaveBeenCalledWith("new-sess");
   });
 });
