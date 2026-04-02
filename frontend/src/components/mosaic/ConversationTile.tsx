@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ArrowUpRight, MessageSquare, Plus, Square } from "lucide-react";
+import { ArrowUpRight, Plus, Square } from "lucide-react";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
@@ -103,7 +103,10 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onN
       const sent = sendMessage(content, images, options, undefined, fileMentions);
       if (sent) {
         setScrollToBottomTrigger((c) => c + 1);
-        setInputExpanded(false);
+        // Delay collapse by one frame so ChatInput's handleSubmit clears
+        // the value (setValue("")) before unmount — otherwise the draft
+        // persistence hook saves the stale text on unmount.
+        requestAnimationFrame(() => setInputExpanded(false));
       }
       return sent;
     },
@@ -114,6 +117,15 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onN
     const meta = await createSession();
     if (meta) switchSession(meta.sessionId);
   }, [createSession, switchSession]);
+
+  // Auto-focus textarea when expanding
+  useEffect(() => {
+    if (!inputExpanded) return;
+    requestAnimationFrame(() => {
+      const textarea = inputContainerRef.current?.querySelector("textarea");
+      textarea?.focus();
+    });
+  }, [inputExpanded]);
 
   // Collapse input on Escape
   useEffect(() => {
@@ -247,9 +259,9 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onN
           />
         </div>
       ) : (
-        /* Collapsed input bar */
+        /* Collapsed input — matches ChatInput visual style, compact */
         <div
-          className="flex h-9 shrink-0 cursor-text items-center gap-2 border-t border-border bg-background px-3 text-sm text-muted-foreground/50 transition-colors hover:bg-muted/30 hover:text-muted-foreground/70"
+          className="bg-background px-4 py-2"
           onClick={() => setInputExpanded(true)}
           role="button"
           tabIndex={0}
@@ -257,28 +269,31 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onN
             if (e.key === "Enter" || e.key === " ") setInputExpanded(true);
           }}
         >
-          <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate text-xs">Send a message...</span>
-          <div className="flex-1" />
-          {isStreaming && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                stopStreaming();
-              }}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              aria-label="Stop"
-              title="Stop"
-            >
-              <Square className="h-3 w-3 fill-current" />
-            </button>
-          )}
-          {queuedMessage && (
-            <span className="shrink-0 rounded border border-dashed border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/60">
-              Queued
+          <div className="flex cursor-text items-center gap-2 rounded-lg border border-border/30 bg-[#1e1e28] px-3 py-2 transition-colors hover:border-border/50">
+            <span className="truncate text-sm text-muted-foreground/40">
+              {isStreaming ? "Agent is working..." : "Send message, #mention files, @call agents, run /commands"}
             </span>
-          )}
+            <div className="flex-1" />
+            {isStreaming && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  stopStreaming();
+                }}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label="Stop"
+                title="Stop"
+              >
+                <Square className="h-3 w-3 fill-current text-red-500" />
+              </button>
+            )}
+            {queuedMessage && (
+              <span className="shrink-0 rounded border border-dashed border-border px-1.5 py-0.5 text-[10px] text-muted-foreground/60">
+                Queued
+              </span>
+            )}
+          </div>
         </div>
       )}
     </div>

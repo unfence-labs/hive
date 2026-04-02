@@ -201,20 +201,21 @@ describe("ConversationTile", () => {
 
   it("shows collapsed input bar by default", () => {
     renderTile();
-    expect(screen.getByText("Send a message...")).toBeInTheDocument();
+    expect(screen.getByText(/Send message/)).toBeInTheDocument();
     expect(screen.queryByTestId("chat-input")).not.toBeInTheDocument();
   });
 
   it("expands to full ChatInput on click", async () => {
     const user = userEvent.setup();
     renderTile();
-    await user.click(screen.getByText("Send a message..."));
+    await user.click(screen.getByText(/Send message/));
     expect(screen.getByTestId("chat-input")).toBeInTheDocument();
   });
 
   it("shows stop button in collapsed bar when streaming", () => {
     renderTile({ conversation: { isStreaming: true } });
     expect(screen.getByTitle("Stop")).toBeInTheDocument();
+    expect(screen.getByText("Agent is working...")).toBeInTheDocument();
   });
 
   it("new session button creates and switches to a new session", async () => {
