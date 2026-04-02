@@ -70,7 +70,16 @@ export default function MosaicView() {
       const streamingIds = new Set(streaming.map((ws) => ws.id));
       const rest = allWorkspaces
         .filter((ws) => !streamingIds.has(ws.id))
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        .sort((a, b) => {
+          // Prefer workspaces with recent activity: unread > busy > createdAt
+          const aUnread = Object.keys(liveData[a.id]?.unreadSessions ?? {}).length > 0 ? 1 : 0;
+          const bUnread = Object.keys(liveData[b.id]?.unreadSessions ?? {}).length > 0 ? 1 : 0;
+          if (bUnread !== aUnread) return bUnread - aUnread;
+          const aBusy = liveData[a.id]?.status === "busy" ? 1 : 0;
+          const bBusy = liveData[b.id]?.status === "busy" ? 1 : 0;
+          if (bBusy !== aBusy) return bBusy - aBusy;
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
       setSelectedIds([...streaming, ...rest].slice(0, MAX_MOSAIC).map((ws) => ws.id));
     }
     didAutoPopulate.current = true;
