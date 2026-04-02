@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, CircleAlert, Pencil, Plus } from "lucide-react";
+import { ArrowLeft, CircleAlert, Columns2, Columns3, Pencil, Plus } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import { useMosaicWorkspaces, MAX_MOSAIC } from "@/hooks/useMosaicWorkspaces";
@@ -21,6 +21,14 @@ export default function MosaicView() {
   const { selectedIds, setSelectedIds, toggleId } = useMosaicWorkspaces();
 
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [colCount, setColCount] = useState<2 | 3>(() => {
+    try {
+      const v = localStorage.getItem("hive-mosaic-cols");
+      return v === "3" ? 3 : 2;
+    } catch {
+      return 2;
+    }
+  });
 
   // "Needs input" state reported by each tile
   const [needsInputMap, setNeedsInputMap] = useState<Record<string, boolean>>({});
@@ -89,8 +97,7 @@ export default function MosaicView() {
   }, [selectedIds, wsById, allWorkspaces.length, setSelectedIds]);
 
   const tileCount = selectedWorkspaces.length;
-  // Layout: 1→2col 1row (+1 empty), 2→2col 1row, 3→2col 2row (3rd spans), 4→2col 2row
-  const hasSecondRow = tileCount >= 3;
+  const hasSecondRow = tileCount > colCount;
   const emptySlotCount = tileCount === 1 ? 1 : 0;
 
   // Toolbar summary
@@ -131,6 +138,21 @@ export default function MosaicView() {
           )}
         </div>
 
+        {/* Layout toggle */}
+        <button
+          type="button"
+          onClick={() => {
+            const next = colCount === 2 ? 3 : 2;
+            setColCount(next);
+            localStorage.setItem("hive-mosaic-cols", String(next));
+          }}
+          className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          title={`Switch to ${colCount === 2 ? 3 : 2}-column layout`}
+        >
+          {colCount === 2 ? <Columns2 className="h-3.5 w-3.5" /> : <Columns3 className="h-3.5 w-3.5" />}
+          <span>{colCount}-col</span>
+        </button>
+
         {/* Edit button (popover trigger) */}
         <WorkspacePicker
           open={pickerOpen}
@@ -166,15 +188,19 @@ export default function MosaicView() {
           className={cn(
             "grid min-h-0 flex-1",
             "max-md:grid-cols-1 max-md:auto-rows-[minmax(300px,1fr)] max-md:overflow-y-auto",
-            "md:grid-cols-2",
+            colCount === 3 ? "md:grid-cols-3" : "md:grid-cols-2",
             hasSecondRow ? "md:grid-rows-2" : "md:grid-rows-1",
           )}
         >
           {selectedWorkspaces.map((ws, index) => {
-            const isLeftCol = index % 2 === 0;
-            const isTopRow = index < 2;
             const isLastTile = index === tileCount - 1;
-            const spans = tileCount === 3 && isLastTile;
+            const isTopRow = index < colCount;
+            const colInRow = index % colCount;
+            const isRightmostCol = colInRow === colCount - 1;
+            // Last tile spans remaining columns in its row when alone
+            const remainingInRow = tileCount % colCount;
+            const spans = isLastTile && hasSecondRow && remainingInRow !== 0;
+            const spanCount = spans ? colCount - remainingInRow + 1 : 1;
 
             return (
               <ConversationTile
@@ -184,10 +210,10 @@ export default function MosaicView() {
                 onJumpOut={(id) => navigate(`/workspaces/${id}`, { state: { fromMosaic: true } })}
                 onNeedsInputChange={handleNeedsInputChange}
                 className={cn(
-                  spans && "md:col-span-2",
-                  isLeftCol && !spans && "md:border-r md:border-border",
                   isTopRow && hasSecondRow && "md:border-b md:border-border",
+                  !isRightmostCol && !spans && "md:border-r md:border-border",
                 )}
+                style={spans && spanCount > 1 ? { gridColumn: `span ${spanCount}` } : undefined}
               />
             );
           })}

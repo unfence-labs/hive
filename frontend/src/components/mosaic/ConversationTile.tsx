@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { useConversation } from "@/hooks/useConversation";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
@@ -16,9 +16,10 @@ interface ConversationTileProps {
   onJumpOut: (wsId: string) => void;
   onNeedsInputChange?: (wsId: string, needsInput: boolean) => void;
   className?: string;
+  style?: CSSProperties;
 }
 
-export function ConversationTile({ wsId, workspace, onJumpOut, onNeedsInputChange, className }: ConversationTileProps) {
+export function ConversationTile({ wsId, workspace, onJumpOut, onNeedsInputChange, className, style }: ConversationTileProps) {
   const {
     messages,
     isStreaming,
@@ -104,6 +105,7 @@ export function ConversationTile({ wsId, workspace, onJumpOut, onNeedsInputChang
         flashBorder && "ring-2 ring-primary/60 shadow-[0_0_12px_var(--hive-accent)]",
         className,
       )}
+      style={style}
     >
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-card px-2.5">
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
