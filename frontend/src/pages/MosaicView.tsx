@@ -174,9 +174,22 @@ export default function MosaicView() {
       const dy = Math.abs(e.clientY - dragStartPos.current.y);
       if (dx > 4 || dy > 4) setIsDragging(true);
 
-      const el = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-tile-index]");
-      if (el) {
-        setDropIdx(Number(el.getAttribute("data-tile-index")));
+      // Find drop target by checking bounding rects of all tile wrappers
+      // (elementFromPoint is unreliable with resizable panels)
+      const tiles = document.querySelectorAll("[data-tile-index]");
+      let found: number | null = null;
+      for (const tile of tiles) {
+        const rect = tile.getBoundingClientRect();
+        if (
+          e.clientX >= rect.left && e.clientX <= rect.right &&
+          e.clientY >= rect.top && e.clientY <= rect.bottom
+        ) {
+          found = Number(tile.getAttribute("data-tile-index"));
+          break;
+        }
+      }
+      if (found !== null) {
+        setDropIdx(found);
       }
     };
 
@@ -217,7 +230,7 @@ export default function MosaicView() {
         data-tile-index={index}
         className={cn(
           "h-full",
-          isSource && "opacity-40",
+          isSource && "opacity-40 pointer-events-none",
           isTarget && "ring-2 ring-primary/40 ring-inset rounded",
         )}
       >
