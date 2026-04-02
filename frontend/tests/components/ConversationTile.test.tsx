@@ -107,8 +107,6 @@ function renderTile(overrides?: {
   liveData?: Record<string, any>;
   onJumpOut?: () => void;
   onNeedsInputChange?: (wsId: string, needs: boolean) => void;
-  onMoveLeft?: () => void;
-  onMoveRight?: () => void;
 }) {
   mocks.useConversation.mockReturnValue({
     ...defaultConversation,
@@ -122,8 +120,6 @@ function renderTile(overrides?: {
       workspace={workspace}
       onJumpOut={overrides?.onJumpOut ?? vi.fn()}
       onNeedsInputChange={overrides?.onNeedsInputChange}
-      onMoveLeft={overrides?.onMoveLeft}
-      onMoveRight={overrides?.onMoveRight}
     />,
   );
 }
@@ -214,20 +210,6 @@ describe("ConversationTile", () => {
     renderTile();
     await user.click(screen.getByText("Send a message..."));
     expect(screen.getByTestId("chat-input")).toBeInTheDocument();
-  });
-
-  it("renders reorder arrows when move callbacks are provided", () => {
-    renderTile({ onMoveLeft: vi.fn(), onMoveRight: vi.fn() });
-    expect(screen.getByTitle("Move left")).toBeInTheDocument();
-    expect(screen.getByTitle("Move right")).toBeInTheDocument();
-  });
-
-  it("move-left button calls onMoveLeft", async () => {
-    const user = userEvent.setup();
-    const onMoveLeft = vi.fn();
-    renderTile({ onMoveLeft, onMoveRight: vi.fn() });
-    await user.click(screen.getByTitle("Move left"));
-    expect(onMoveLeft).toHaveBeenCalled();
   });
 
   it("shows stop button in collapsed bar when streaming", () => {

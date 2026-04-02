@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ArrowUpRight, ChevronLeft, ChevronRight, EyeOff, MessageSquare, Plus, Square } from "lucide-react";
+import { ArrowUpRight, MessageSquare, Plus, Square } from "lucide-react";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
@@ -16,15 +16,12 @@ interface ConversationTileProps {
   workspace: Workspace;
   projectLabel?: string;
   onJumpOut: (wsId: string) => void;
-  onHide?: (wsId: string) => void;
-  onMoveLeft?: () => void;
-  onMoveRight?: () => void;
   onNeedsInputChange?: (wsId: string, needsInput: boolean) => void;
   className?: string;
   style?: CSSProperties;
 }
 
-export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onHide, onMoveLeft, onMoveRight, onNeedsInputChange, className, style }: ConversationTileProps) {
+export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onNeedsInputChange, className, style }: ConversationTileProps) {
   const {
     messages,
     isStreaming,
@@ -140,8 +137,6 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
     return () => document.removeEventListener("mousedown", handleClick);
   }, [inputExpanded]);
 
-  const showMoveButtons = onMoveLeft || onMoveRight;
-
   return (
     <div
       className={cn(
@@ -153,35 +148,6 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
     >
       {/* ── Header ───────────────────────────────────────────────── */}
       <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-border bg-card px-1.5">
-        {/* Reorder arrows */}
-        {showMoveButtons && (
-          <div className="flex shrink-0 items-center">
-            <button
-              type="button"
-              onClick={onMoveLeft}
-              disabled={!onMoveLeft}
-              className={cn(
-                "rounded p-0.5 text-muted-foreground/40 transition-colors",
-                onMoveLeft ? "hover:text-muted-foreground hover:bg-muted" : "opacity-0 pointer-events-none",
-              )}
-              title="Move left"
-            >
-              <ChevronLeft className="h-3 w-3" />
-            </button>
-            <button
-              type="button"
-              onClick={onMoveRight}
-              disabled={!onMoveRight}
-              className={cn(
-                "rounded p-0.5 text-muted-foreground/40 transition-colors",
-                onMoveRight ? "hover:text-muted-foreground hover:bg-muted" : "opacity-0 pointer-events-none",
-              )}
-              title="Move right"
-            >
-              <ChevronRight className="h-3 w-3" />
-            </button>
-          </div>
-        )}
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           {wsStreaming ? (
             <AgentActivityPreview size="small" />
@@ -217,17 +183,6 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
             title="New session"
           >
             <Plus className="h-3 w-3" />
-          </button>
-        )}
-        {onHide && (
-          <button
-            type="button"
-            onClick={() => onHide(wsId)}
-            className="shrink-0 rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-muted-foreground"
-            aria-label={`Hide ${workspace.name}`}
-            title="Remove tile"
-          >
-            <EyeOff className="h-3 w-3" />
           </button>
         )}
         <button
