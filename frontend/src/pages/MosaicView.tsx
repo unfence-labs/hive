@@ -89,10 +89,9 @@ export default function MosaicView() {
   }, [selectedIds, wsById, allWorkspaces.length, setSelectedIds]);
 
   const tileCount = selectedWorkspaces.length;
-  // Always show 2x2 when we have slots (even empty)
-  const totalSlots = Math.max(tileCount, tileCount < MAX_MOSAIC ? tileCount + 1 : tileCount);
-  const hasSecondRow = totalSlots > 2;
-  const emptySlotCount = MAX_MOSAIC - tileCount;
+  // Layout: 1→2col 1row (+1 empty), 2→2col 1row, 3→2col 2row (3rd spans), 4→2col 2row
+  const hasSecondRow = tileCount >= 3;
+  const emptySlotCount = tileCount === 1 ? 1 : 0;
 
   // Toolbar summary
   const streamingCount = selectedWorkspaces.filter((ws) => liveData[ws.id]?.streaming).length;
@@ -169,7 +168,7 @@ export default function MosaicView() {
             const isLeftCol = index % 2 === 0;
             const isTopRow = index < 2;
             const isLastTile = index === tileCount - 1;
-            const spans = tileCount === 3 && isLastTile && emptySlotCount === 0;
+            const spans = tileCount === 3 && isLastTile;
 
             return (
               <ConversationTile
@@ -187,31 +186,23 @@ export default function MosaicView() {
             );
           })}
 
-          {/* Empty tile slots */}
-          {Array.from({ length: Math.min(emptySlotCount, MAX_MOSAIC - tileCount) }).map((_, i) => {
-            const slotIndex = tileCount + i;
-            const isLeftCol = slotIndex % 2 === 0;
-            const isTopRow = slotIndex < 2;
-
-            return (
-              <button
-                key={`empty-${slotIndex}`}
-                type="button"
-                onClick={() => setPickerOpen(true)}
-                className={cn(
-                  "flex flex-col items-center justify-center gap-2 border border-dashed border-border/40 transition-colors hover:border-border hover:bg-muted/20",
-                  "max-md:min-h-[200px]",
-                  isLeftCol && "md:border-r md:border-r-border/40",
-                  isTopRow && hasSecondRow && "md:border-b md:border-b-border/40",
-                )}
-              >
-                <div className="flex h-8 w-8 items-center justify-center rounded-full border border-dashed border-muted-foreground/30">
-                  <Plus className="h-4 w-4 text-muted-foreground/60" />
-                </div>
-                <span className="text-xs text-muted-foreground/60">Add workspace</span>
-              </button>
-            );
-          })}
+          {/* Empty tile slot (only shown with 1 workspace) */}
+          {emptySlotCount > 0 && (
+            <button
+              key="empty-slot"
+              type="button"
+              onClick={() => setPickerOpen(true)}
+              className={cn(
+                "flex flex-col items-center justify-center gap-2 border border-dashed border-border/40 transition-colors hover:border-border hover:bg-muted/20",
+                "max-md:min-h-[200px]",
+              )}
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-dashed border-muted-foreground/30">
+                <Plus className="h-4 w-4 text-muted-foreground/60" />
+              </div>
+              <span className="text-xs text-muted-foreground/60">Add workspace</span>
+            </button>
+          )}
         </div>
       )}
 
