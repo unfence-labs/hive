@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { getNextRun, formatTimeUntil } from "@/lib/cron";
-import { ArchiveIcon, FolderPlus, Loader2, Plus, Settings } from "lucide-react";
+import { ArchiveIcon, FolderPlus, LayoutGrid, Loader2, Plus, Settings } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -267,7 +267,15 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   };
 
   const footerActions = (
-    <div className="flex items-center justify-end px-2 py-1.5">
+    <div className="flex items-center justify-end gap-1 px-2 py-1.5">
+      <Link
+        to="/mosaic"
+        className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
+        aria-label="Mosaic View"
+        title="Mosaic View"
+      >
+        <LayoutGrid className="h-4 w-4" />
+      </Link>
       <Link
         to="/settings"
         state={{ from: pathname }}

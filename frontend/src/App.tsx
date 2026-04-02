@@ -20,6 +20,7 @@ import { useNotificationToasts } from "@/hooks/useNotificationToasts";
 import { wsTransport } from "@/lib/ws-transport";
 
 const AutomationDetail = lazy(() => import("@/pages/AutomationDetail"));
+const MosaicView = lazy(() => import("@/pages/MosaicView"));
 const PromptTemplatesSettings = lazy(() => import("@/pages/settings/PromptTemplatesSettings"));
 const CreateAutomationDialog = lazy(() => import("@/components/CreateAutomationDialog"));
 
@@ -111,6 +112,7 @@ export default function App() {
             <Route path="settings/prompt-templates" element={<Suspense fallback={null}><PromptTemplatesSettings /></Suspense>} />
             <Route path="settings/repositories/:projectId" element={<ProjectDetail />} />
           </Route>
+          <Route path="mosaic" element={<Suspense fallback={null}><MosaicView /></Suspense>} />
         </Routes>
       </WorkspaceLiveDataProvider>
     </BrowserRouter>
