@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Group, Panel } from "react-resizable-panels";
-import { ArrowLeft, CircleAlert, Columns3, LayoutGrid, Pencil, Plus, Rows3 } from "lucide-react";
+import { ArrowLeft, CircleAlert, Pencil, Plus } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import { useMosaicWorkspaces, MAX_MOSAIC } from "@/hooks/useMosaicWorkspaces";
@@ -12,16 +12,6 @@ import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { parseProjectOwnerRepo } from "@/components/Sidebar";
 import { cn } from "@/lib/utils";
 import type { Workspace } from "@/types";
-
-type MosaicLayout = "grid" | "columns" | "rows";
-
-const LAYOUT_KEY = "hive-mosaic-layout";
-
-function readLayout(): MosaicLayout {
-  const raw = localStorage.getItem(LAYOUT_KEY);
-  if (raw === "grid" || raw === "columns" || raw === "rows") return raw;
-  return "grid";
-}
 
 interface WorkspaceWithProject extends Workspace {
   projectId: string;
@@ -36,7 +26,6 @@ export default function MosaicView() {
   const { selectedIds, setSelectedIds, toggleId, removeId } = useMosaicWorkspaces();
 
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [layout, setLayout] = useState<MosaicLayout>(readLayout);
 
   // "Needs input" state reported by each tile
   const [needsInputMap, setNeedsInputMap] = useState<Record<string, boolean>>({});
@@ -45,12 +34,6 @@ export default function MosaicView() {
       if (prev[wsId] === needsInput) return prev;
       return { ...prev, [wsId]: needsInput };
     });
-  }, []);
-
-  // Persist layout changes
-  const changeLayout = useCallback((l: MosaicLayout) => {
-    setLayout(l);
-    localStorage.setItem(LAYOUT_KEY, l);
   }, []);
 
   const allWorkspaces = useMemo<WorkspaceWithProject[]>(
@@ -150,6 +133,7 @@ export default function MosaicView() {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dropIdx, setDropIdx] = useState<number | null>(null);
+  const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
   const dragStartPos = useRef({ x: 0, y: 0 });
   const dragIdxRef = useRef(dragIdx);
   const dropIdxRef = useRef(dropIdx);
@@ -161,36 +145,51 @@ export default function MosaicView() {
   const startTileDrag = useCallback((e: React.PointerEvent, idx: number) => {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button")) return;
+    e.preventDefault(); // Prevent text selection
     setDragIdx(idx);
     setIsDragging(false);
+    setCursorPos({ x: e.clientX, y: e.clientY });
     dragStartPos.current = { x: e.clientX, y: e.clientY };
   }, []);
+
+  // Prevent text selection and set grabbing cursor during drag
+  useEffect(() => {
+    if (dragIdx === null) return;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "grabbing";
+    return () => {
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+  }, [dragIdx]);
 
   useEffect(() => {
     if (dragIdx === null) return;
 
     const onMove = (e: PointerEvent) => {
+      e.preventDefault();
+      setCursorPos({ x: e.clientX, y: e.clientY });
+
       const dx = Math.abs(e.clientX - dragStartPos.current.x);
       const dy = Math.abs(e.clientY - dragStartPos.current.y);
       if (dx > 4 || dy > 4) setIsDragging(true);
 
       // Find drop target by checking bounding rects of all tile wrappers
-      // (elementFromPoint is unreliable with resizable panels)
       const tiles = document.querySelectorAll("[data-tile-index]");
       let found: number | null = null;
       for (const tile of tiles) {
+        const idx = Number(tile.getAttribute("data-tile-index"));
+        if (idx === dragIdxRef.current) continue; // skip drag source
         const rect = tile.getBoundingClientRect();
         if (
           e.clientX >= rect.left && e.clientX <= rect.right &&
           e.clientY >= rect.top && e.clientY <= rect.bottom
         ) {
-          found = Number(tile.getAttribute("data-tile-index"));
+          found = idx;
           break;
         }
       }
-      if (found !== null) {
-        setDropIdx(found);
-      }
+      setDropIdx(found);
     };
 
     const onUp = () => {
@@ -212,8 +211,8 @@ export default function MosaicView() {
     };
   }, [dragIdx, handleMove]);
 
-  // ── Layout: split into rows for grid mode ─────────────────────────
-  const colCount = 2;
+  // ── Layout: 2-col grid ────────────────────────────────────────────
+  const colCount = tileCount <= 1 ? 1 : 2;
   const gridRows: WorkspaceWithProject[][] = [];
   for (let i = 0; i < selectedWorkspaces.length; i += colCount) {
     gridRows.push(selectedWorkspaces.slice(i, i + colCount));
@@ -222,7 +221,7 @@ export default function MosaicView() {
   // Helper to render a single tile with drag wrapper
   function renderTile(ws: WorkspaceWithProject, index: number) {
     const isSource = isDragging && dragIdx === index;
-    const isTarget = isDragging && dropIdx === index && dragIdx !== index;
+    const isTarget = isDragging && dropIdx === index;
 
     return (
       <div
@@ -230,8 +229,8 @@ export default function MosaicView() {
         data-tile-index={index}
         className={cn(
           "h-full",
-          isSource && "opacity-40 pointer-events-none",
-          isTarget && "ring-2 ring-primary/40 ring-inset rounded",
+          isSource && "opacity-30",
+          isTarget && "ring-2 ring-primary ring-inset rounded",
         )}
       >
         <ConversationTile
@@ -249,11 +248,8 @@ export default function MosaicView() {
     );
   }
 
-  const layoutButtons: { value: MosaicLayout; icon: typeof LayoutGrid; label: string }[] = [
-    { value: "grid", icon: LayoutGrid, label: "Grid" },
-    { value: "columns", icon: Columns3, label: "Columns" },
-    { value: "rows", icon: Rows3, label: "Rows" },
-  ];
+  // Floating ghost for dragged tile
+  const draggedWs = dragIdx !== null ? selectedWorkspaces[dragIdx] : null;
 
   return (
     <div className="flex h-screen flex-col bg-background">
@@ -272,26 +268,6 @@ export default function MosaicView() {
           <span>Back</span>
         </button>
         <span className="text-xs font-medium">Mosaic</span>
-
-        {/* Layout selector */}
-        {tileCount >= 2 && (
-          <div className="flex items-center gap-0.5 rounded-md border border-border/50 p-0.5">
-            {layoutButtons.map(({ value, icon: Icon, label }) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => changeLayout(value)}
-                className={cn(
-                  "rounded px-1.5 py-0.5 text-muted-foreground/60 transition-colors hover:text-foreground",
-                  layout === value && "bg-muted text-foreground",
-                )}
-                title={label}
-              >
-                <Icon className="h-3 w-3" />
-              </button>
-            ))}
-          </div>
-        )}
 
         {/* Summary */}
         <div className="flex flex-1 items-center justify-center gap-3 text-xs text-muted-foreground" data-tauri-drag-region>
@@ -341,22 +317,6 @@ export default function MosaicView() {
         </div>
       ) : tileCount === 1 ? (
         <div className="flex min-h-0 flex-1">{renderTile(selectedWorkspaces[0], 0)}</div>
-      ) : layout === "columns" ? (
-        <Group orientation="horizontal" id="mosaic-cols" className="min-h-0 flex-1">
-          {selectedWorkspaces.map((ws, i) => (
-            <MosaicPanel key={ws.id} ws={ws} isLast={i === tileCount - 1}>
-              {renderTile(ws, i)}
-            </MosaicPanel>
-          ))}
-        </Group>
-      ) : layout === "rows" ? (
-        <Group orientation="vertical" id="mosaic-rows-layout" className="min-h-0 flex-1">
-          {selectedWorkspaces.map((ws, i) => (
-            <MosaicRowPanel key={ws.id} rowIdx={i} isLast={i === tileCount - 1}>
-              {renderTile(ws, i)}
-            </MosaicRowPanel>
-          ))}
-        </Group>
       ) : gridRows.length === 1 ? (
         <Group orientation="horizontal" id="mosaic-row-0" className="min-h-0 flex-1">
           {gridRows[0].map((ws, i) => (
@@ -382,6 +342,19 @@ export default function MosaicView() {
             );
           })}
         </Group>
+      )}
+
+      {/* ── Floating drag ghost ─────────────────────────────────────── */}
+      {isDragging && draggedWs && (
+        <div
+          className="pointer-events-none fixed z-50"
+          style={{ left: cursorPos.x, top: cursorPos.y, transform: "translate(-50%, -110%)" }}
+        >
+          <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs shadow-xl">
+            <div className="h-2 w-2 shrink-0 rounded-full bg-primary" />
+            <span className="font-medium">{draggedWs.name}</span>
+          </div>
+        </div>
       )}
     </div>
   );
