@@ -1,5 +1,5 @@
-import { useState, useRef, useCallback, type KeyboardEvent } from "react";
-import { SendHorizonalIcon, SquareIcon } from "lucide-react";
+import { useState, useCallback, type KeyboardEvent } from "react";
+import { SendHorizontalIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { QueuedMessage } from "@/types";
 
@@ -21,7 +21,6 @@ export function CompactChatInput({
   onQueue,
 }: CompactChatInputProps) {
   const [value, setValue] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const isDisconnected = connectionStatus === "disconnected";
   const hasQueued = !!queuedMessage;
@@ -55,7 +54,6 @@ export function CompactChatInput({
   return (
     <div className="flex items-end gap-1.5 border-t border-border bg-background px-2 py-1.5">
       <textarea
-        ref={textareaRef}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
@@ -97,7 +95,7 @@ export function CompactChatInput({
           aria-label="Send"
           title="Send"
         >
-          <SendHorizonalIcon className="h-3.5 w-3.5" />
+          <SendHorizontalIcon className="h-3.5 w-3.5" />
         </button>
       )}
     </div>

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
@@ -26,24 +26,24 @@ export default function MosaicView() {
     [projects],
   );
 
-  const selectedWorkspaces = useMemo(() => {
-    if (allWorkspaces.length === 0) return [];
+  const [selectedWorkspaces, setSelectedWorkspaces] = useState<WorkspaceWithProject[]>([]);
 
-    const streaming = allWorkspaces.filter(
-      (ws) => liveData[ws.id]?.streaming,
-    );
+  // Compute initial selection once when workspaces first load.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- liveData read for initial snapshot only
+  useEffect(() => {
+    if (selectedWorkspaces.length > 0 || allWorkspaces.length === 0) return;
 
+    const streaming = allWorkspaces.filter((ws) => liveData[ws.id]?.streaming);
     if (streaming.length >= MAX_TILES) {
-      return streaming.slice(0, MAX_TILES);
+      setSelectedWorkspaces(streaming.slice(0, MAX_TILES));
+      return;
     }
-
     const streamingIds = new Set(streaming.map((ws) => ws.id));
     const rest = allWorkspaces
       .filter((ws) => !streamingIds.has(ws.id))
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-    return [...streaming, ...rest].slice(0, MAX_TILES);
-  }, [allWorkspaces, liveData]);
+    setSelectedWorkspaces([...streaming, ...rest].slice(0, MAX_TILES));
+  }, [allWorkspaces]);
 
   const tileCount = selectedWorkspaces.length;
   const hasSecondRow = tileCount > 2;
@@ -56,19 +56,23 @@ export default function MosaicView() {
         style={{ paddingLeft: "max(var(--traffic-light-clearance, 0px), 0.75rem)" }}
         data-tauri-drag-region
       >
-        <Link
-          to="/home"
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
           className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           <span>Back</span>
-        </Link>
+        </button>
         <span className="text-xs font-medium">Mosaic</span>
       </div>
 
       {tileCount === 0 ? (
-        <div className="flex flex-1 items-center justify-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-2">
           <p className="text-sm text-muted-foreground">No workspaces yet</p>
+          <Link to="/home" className="text-xs text-primary hover:underline">
+            Add a workspace to get started
+          </Link>
         </div>
       ) : (
         <div
@@ -91,7 +95,7 @@ export default function MosaicView() {
                 workspace={ws}
                 onJumpOut={(id) => navigate(`/workspaces/${id}`)}
                 className={cn(
-                  spans && "md:col-span-2",
+                  (spans || tileCount === 1) && "md:col-span-2",
                   isLeftCol && !spans && tileCount > 1 && "md:border-r md:border-border",
                   isTopRow && hasSecondRow && "md:border-b md:border-border",
                 )}

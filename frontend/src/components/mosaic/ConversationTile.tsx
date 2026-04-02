@@ -43,6 +43,7 @@ export function ConversationTile({ wsId, workspace, onJumpOut, className }: Conv
   const wsLive = liveData[wsId];
   const displayBranch = wsLive?.branch || workspace.branch;
   const wsStreaming = wsLive?.streaming ?? false;
+  const wsUnread = Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
 
   const [scrollToBottomTrigger, setScrollToBottomTrigger] = useState(0);
   const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
@@ -77,6 +78,8 @@ export function ConversationTile({ wsId, workspace, onJumpOut, className }: Conv
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           {wsStreaming ? (
             <AgentActivityPreview size="small" />
+          ) : wsUnread ? (
+            <div className="h-2 w-2 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_6px_theme(colors.emerald.400)]" />
           ) : (
             <div className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/40" />
           )}
@@ -114,9 +117,7 @@ export function ConversationTile({ wsId, workspace, onJumpOut, className }: Conv
           pendingToolInputs={pendingToolInputs}
           onQuestionAnswer={answerQuestion}
           workspaceName={workspace.name}
-          projectName={workspace.projectName}
           branch={displayBranch}
-          defaultBranch={workspace.defaultBranch}
           switchCounter={switchCounter}
           agentPlanMode={agentPlanMode}
           error={error}
