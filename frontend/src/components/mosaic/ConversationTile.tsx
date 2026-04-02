@@ -1,25 +1,29 @@
 import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, EyeOff, GripVertical } from "lucide-react";
 import { useConversation } from "@/hooks/useConversation";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import ChatConversation from "@/components/ChatConversation";
+import ChatInput from "@/components/ChatInput";
 import QuestionPanel from "@/components/chat/QuestionPanel";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { BranchLabel } from "@/components/BranchLabel";
-import { CompactChatInput } from "@/components/mosaic/CompactChatInput";
 import { cn } from "@/lib/utils";
-import type { Workspace, QueuedMessage } from "@/types";
+import type { Workspace, QueuedMessage, ImageAttachment, MessageOptions, FileMention } from "@/types";
 
 interface ConversationTileProps {
   wsId: string;
   workspace: Workspace;
+  projectLabel?: string;
   onJumpOut: (wsId: string) => void;
+  onHide?: (wsId: string) => void;
   onNeedsInputChange?: (wsId: string, needsInput: boolean) => void;
   className?: string;
   style?: CSSProperties;
+  /** Props forwarded for drag handle */
+  dragHandleProps?: Record<string, unknown>;
 }
 
-export function ConversationTile({ wsId, workspace, onJumpOut, onNeedsInputChange, className, style }: ConversationTileProps) {
+export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onHide, onNeedsInputChange, className, style, dragHandleProps }: ConversationTileProps) {
   const {
     messages,
     isStreaming,
@@ -38,6 +42,7 @@ export function ConversationTile({ wsId, workspace, onJumpOut, onNeedsInputChang
     batchAnswerQuestions,
     rejectToolInput,
     agentPlanMode,
+    lockedProvider,
     switchCounter,
   } = useConversation(wsId);
 
@@ -84,14 +89,14 @@ export function ConversationTile({ wsId, workspace, onJumpOut, onNeedsInputChang
     if (workspaceStatus !== "idle") return;
     if (pendingToolInputs.length > 0) return;
 
-    const { content } = queuedMessage;
-    const sent = sendMessage(content);
+    const { content, images, options, fileMentions } = queuedMessage;
+    const sent = sendMessage(content, images, options, undefined, fileMentions);
     if (sent) setQueuedMessage(null);
   }, [queuedMessage, isStreaming, workspaceStatus, pendingToolInputs, sendMessage]);
 
   const handleSend = useCallback(
-    (content: string): boolean => {
-      const sent = sendMessage(content);
+    (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]): boolean => {
+      const sent = sendMessage(content, images, options, undefined, fileMentions);
       if (sent) setScrollToBottomTrigger((c) => c + 1);
       return sent;
     },
@@ -107,7 +112,16 @@ export function ConversationTile({ wsId, workspace, onJumpOut, onNeedsInputChang
       )}
       style={style}
     >
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-card px-2.5">
+      <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-border bg-card px-1.5">
+        {/* Drag handle */}
+        {dragHandleProps && (
+          <div
+            {...dragHandleProps}
+            className="shrink-0 cursor-grab rounded p-0.5 text-muted-foreground/40 transition-colors hover:text-muted-foreground active:cursor-grabbing"
+          >
+            <GripVertical className="h-3 w-3" />
+          </div>
+        )}
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
           {wsStreaming ? (
             <AgentActivityPreview size="small" />
@@ -115,6 +129,12 @@ export function ConversationTile({ wsId, workspace, onJumpOut, onNeedsInputChang
             <div className="h-2 w-2 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_6px_theme(colors.emerald.400)]" />
           ) : (
             <div className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/40" />
+          )}
+          {projectLabel && (
+            <>
+              <span className="shrink-0 text-[10px] text-muted-foreground/60">{projectLabel}</span>
+              <span className="text-muted-foreground/30">/</span>
+            </>
           )}
           <span className="truncate text-xs font-medium">{workspace.name}</span>
           {displayBranch && (
@@ -128,6 +148,17 @@ export function ConversationTile({ wsId, workspace, onJumpOut, onNeedsInputChang
             </>
           )}
         </div>
+        {onHide && (
+          <button
+            type="button"
+            onClick={() => onHide(wsId)}
+            className="shrink-0 rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-muted-foreground"
+            aria-label={`Hide ${workspace.name}`}
+            title="Hide tile"
+          >
+            <EyeOff className="h-3 w-3" />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => onJumpOut(wsId)}
@@ -168,16 +199,22 @@ export function ConversationTile({ wsId, workspace, onJumpOut, onNeedsInputChang
           onDismiss={() => rejectToolInput("[question_dismissed]")}
         />
       ) : (
-        <CompactChatInput
+        <ChatInput
+          wsId={wsId}
+          sessionId={sessionId}
+          lockedProvider={lockedProvider}
           onSend={handleSend}
           onStop={stopStreaming}
+          disabled={false}
           isStreaming={isStreaming}
           connectionStatus={connectionStatus}
+          messages={messages}
           queuedMessage={queuedMessage}
           onQueue={(msg) => {
             setQueuedMessage(msg);
             setScrollToBottomTrigger((c) => c + 1);
           }}
+          agentPlanMode={agentPlanMode}
         />
       )}
     </div>

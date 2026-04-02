@@ -48,6 +48,10 @@ vi.mock("@/components/BranchLabel", () => ({
   ),
 }));
 
+vi.mock("@/components/ChatInput", () => ({
+  default: () => <div data-testid="chat-input">ChatInput</div>,
+}));
+
 import { ConversationTile } from "@/components/mosaic/ConversationTile";
 import type { Workspace } from "@/types";
 
@@ -74,6 +78,7 @@ const defaultConversation = {
   batchAnswerQuestions: mocks.batchAnswerQuestions,
   rejectToolInput: mocks.rejectToolInput,
   agentPlanMode: false,
+  lockedProvider: undefined,
   switchCounter: 0,
 };
 
