@@ -5,14 +5,14 @@ import { useSessions } from "@/hooks/useSessions";
 import { useSessionMessages } from "@/hooks/useSessionMessages";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import ChatConversation from "@/components/ChatConversation";
-import ChatInput from "@/components/ChatInput";
+import { CompactChatInput } from "@/components/mosaic/CompactChatInput";
 import QuestionPanel from "@/components/chat/QuestionPanel";
 import { PlanActionBar } from "@/components/chat/PlanActionBar";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { BranchLabel } from "@/components/BranchLabel";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
 import { cn } from "@/lib/utils";
-import type { Workspace, QueuedMessage, ImageAttachment, MessageOptions, FileMention } from "@/types";
+import type { Workspace, QueuedMessage } from "@/types";
 
 interface ConversationTileProps {
   wsId: string;
@@ -128,13 +128,13 @@ export function ConversationTile({
   }, [hasPendingPlan, messages, activeToolCalls]);
 
   const handleSend = useCallback(
-    (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]): boolean => {
+    (content: string): boolean => {
       if (hasPendingPlan && hasPendingExitPlanInput) {
         conversation.rejectToolInput(content);
         setScrollToBottomTrigger((c) => c + 1);
         return true;
       }
-      const sent = conversation.sendMessage(content, images, options, undefined, fileMentions);
+      const sent = conversation.sendMessage(content);
       if (sent) setScrollToBottomTrigger((c) => c + 1);
       return sent;
     },
@@ -275,23 +275,17 @@ export function ConversationTile({
               }}
             />
           )}
-          <ChatInput
-            wsId={wsId}
-            sessionId={conversation.sessionId}
-            lockedProvider={conversation.lockedProvider}
+          <CompactChatInput
             onSend={handleSend}
             onStop={conversation.stopStreaming}
-            disabled={false}
             isStreaming={conversation.isStreaming}
             connectionStatus={conversation.connectionStatus}
             placeholder={hasPendingPlan ? "Enter your plan adjustments here..." : undefined}
-            messages={conversation.messages}
             queuedMessage={queuedMessage}
             onQueue={(msg) => {
               setQueuedMessage(msg);
               setScrollToBottomTrigger((c) => c + 1);
             }}
-            agentPlanMode={conversation.agentPlanMode}
           />
         </div>
       )}

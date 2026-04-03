@@ -8,6 +8,7 @@ interface CompactChatInputProps {
   onStop: () => void;
   isStreaming: boolean;
   connectionStatus: "connecting" | "connected" | "disconnected";
+  placeholder?: string;
   queuedMessage?: QueuedMessage | null;
   onQueue: (msg: QueuedMessage) => void;
 }
@@ -17,6 +18,7 @@ export function CompactChatInput({
   onStop,
   isStreaming,
   connectionStatus,
+  placeholder,
   queuedMessage,
   onQueue,
 }: CompactChatInputProps) {
@@ -58,7 +60,7 @@ export function CompactChatInput({
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         disabled={!canType}
-        placeholder={isDisconnected ? "Disconnected" : "Send a message…"}
+        placeholder={isDisconnected ? "Disconnected" : placeholder ?? "Send a message…"}
         rows={1}
         className={cn(
           "min-h-[28px] max-h-[72px] flex-1 resize-none rounded-md border border-border bg-input/30 px-2.5 py-1.5 text-sm leading-snug",
