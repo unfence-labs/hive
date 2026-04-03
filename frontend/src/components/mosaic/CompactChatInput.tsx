@@ -1,10 +1,10 @@
 import { useState, useCallback, type KeyboardEvent } from "react";
-import { SendHorizontalIcon, SquareIcon } from "lucide-react";
+import { BookOpenIcon, SendHorizontalIcon, SquareIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { QueuedMessage } from "@/types";
+import type { QueuedMessage, MessageOptions } from "@/types";
 
 interface CompactChatInputProps {
-  onSend: (content: string) => boolean;
+  onSend: (content: string, options?: MessageOptions) => boolean;
   onStop: () => void;
   isStreaming: boolean;
   connectionStatus: "connecting" | "connected" | "disconnected";
@@ -23,25 +23,33 @@ export function CompactChatInput({
   onQueue,
 }: CompactChatInputProps) {
   const [value, setValue] = useState("");
+  const [planMode, setPlanMode] = useState(false);
 
   const isDisconnected = connectionStatus === "disconnected";
   const hasQueued = !!queuedMessage;
   const canType = !isDisconnected && !hasQueued;
   const canSubmit = canType && value.trim().length > 0;
 
+  const buildOptions = useCallback((): MessageOptions | undefined => {
+    if (planMode) return { planMode: true };
+    return undefined;
+  }, [planMode]);
+
   const submit = useCallback(() => {
     const trimmed = value.trim();
     if (!trimmed) return;
 
+    const options = buildOptions();
+
     if (isStreaming) {
-      onQueue({ content: trimmed });
+      onQueue({ content: trimmed, options });
       setValue("");
       return;
     }
 
-    const sent = onSend(trimmed);
+    const sent = onSend(trimmed, options);
     if (sent) setValue("");
-  }, [value, isStreaming, onSend, onQueue]);
+  }, [value, isStreaming, onSend, onQueue, buildOptions]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -55,6 +63,20 @@ export function CompactChatInput({
 
   return (
     <div className="flex items-end gap-1.5 border-t border-border bg-background px-2 py-1.5">
+      <button
+        type="button"
+        onClick={() => setPlanMode((v) => !v)}
+        className={cn(
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
+          planMode
+            ? "bg-primary/15 text-primary"
+            : "text-muted-foreground/40 hover:bg-muted hover:text-muted-foreground",
+        )}
+        aria-label="Toggle plan mode"
+        title={planMode ? "Plan mode on" : "Plan mode off"}
+      >
+        <BookOpenIcon className="h-3.5 w-3.5" />
+      </button>
       <textarea
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -66,6 +88,7 @@ export function CompactChatInput({
           "min-h-[28px] max-h-[72px] flex-1 resize-none rounded-md border border-border bg-input/30 px-2.5 py-1.5 text-sm leading-snug",
           "placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring/50",
           "disabled:cursor-not-allowed disabled:opacity-50",
+          planMode && "border-primary/40 border-dashed",
         )}
         onInput={(e) => {
           const el = e.currentTarget;

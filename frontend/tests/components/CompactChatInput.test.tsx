@@ -44,7 +44,7 @@ describe("CompactChatInput", () => {
     const user = userEvent.setup();
     const { onSend } = renderInput();
     await user.type(screen.getByRole("textbox"), "hello{Enter}");
-    expect(onSend).toHaveBeenCalledWith("hello");
+    expect(onSend).toHaveBeenCalledWith("hello", undefined);
   });
 
   it("Shift+Enter does not submit", async () => {
@@ -71,7 +71,7 @@ describe("CompactChatInput", () => {
     const user = userEvent.setup();
     const { onQueue, onSend } = renderInput({ isStreaming: true });
     await user.type(screen.getByRole("textbox"), "follow-up{Enter}");
-    expect(onQueue).toHaveBeenCalledWith({ content: "follow-up" });
+    expect(onQueue).toHaveBeenCalledWith({ content: "follow-up", options: undefined });
     expect(onSend).not.toHaveBeenCalled();
   });
 
