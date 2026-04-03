@@ -16,21 +16,21 @@ export function getLeafIds(node: MosaicNode): string[] {
   return node.children.flatMap(getLeafIds);
 }
 
-/** Build a default 2-col grid layout from an ordered list of IDs. */
-export function buildDefaultLayout(ids: string[]): MosaicNode | null {
+/** Build a default grid layout from an ordered list of IDs. */
+export function buildDefaultLayout(ids: string[], columns = 2): MosaicNode | null {
   if (ids.length === 0) return null;
   if (ids.length === 1) return { type: "leaf", wsId: ids[0] };
-  if (ids.length === 2) {
+  if (ids.length <= columns) {
     return {
       type: "split",
       direction: "horizontal",
       children: ids.map((id) => ({ type: "leaf" as const, wsId: id })),
     };
   }
-  // 3+: rows of 2
+  // Group into rows of `columns`
   const rows: MosaicNode[] = [];
-  for (let i = 0; i < ids.length; i += 2) {
-    const chunk = ids.slice(i, i + 2);
+  for (let i = 0; i < ids.length; i += columns) {
+    const chunk = ids.slice(i, i + columns);
     rows.push(
       chunk.length === 1
         ? { type: "leaf", wsId: chunk[0] }

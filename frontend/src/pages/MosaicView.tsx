@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Group, Panel } from "react-resizable-panels";
-import { ArrowLeft, CircleAlert, Pencil, Plus } from "lucide-react";
+import { ArrowLeft, CircleAlert, Columns2, Columns3, Pencil, Plus } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import { useMosaicWorkspaces, parseTileId, MAX_MOSAIC } from "@/hooks/useMosaicWorkspaces";
@@ -30,6 +30,7 @@ interface WorkspaceWithProject extends Workspace {
 }
 
 const LAYOUT_KEY = "hive-mosaic-layout";
+const COLUMNS_KEY = "hive-mosaic-columns";
 
 function loadLayout(): MosaicNode | null {
   try {
@@ -51,6 +52,10 @@ export default function MosaicView() {
   const { selectedIds, setSelectedIds, toggleId, removeId, addTileId } = useMosaicWorkspaces();
 
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [columns, setColumnsRaw] = useState<2 | 3>(() => {
+    const stored = localStorage.getItem(COLUMNS_KEY);
+    return stored === "3" ? 3 : 2;
+  });
 
   // "Needs input" state reported by each tile
   const [needsInputMap, setNeedsInputMap] = useState<Record<string, boolean>>({});
@@ -131,8 +136,11 @@ export default function MosaicView() {
         return stored;
       }
     }
-    return buildDefaultLayout(selectedIds);
+    return buildDefaultLayout(selectedIds, columns);
   });
+
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
 
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
@@ -170,7 +178,7 @@ export default function MosaicView() {
       for (const id of added) next = addToLayout(next, id);
       setLayout(next);
     } else {
-      setLayout(buildDefaultLayout(selectedIds));
+      setLayout(buildDefaultLayout(selectedIds, columnsRef.current));
     }
   }, [selectedIds, setLayout]);
 
@@ -185,6 +193,15 @@ export default function MosaicView() {
     const parsed = parseProjectOwnerRepo(ws.projectUrl);
     return parsed ? `${parsed.owner}/${parsed.repo}` : ws.projectName;
   };
+
+  const handleColumnsChange = useCallback(
+    (cols: 2 | 3) => {
+      setColumnsRaw(cols);
+      localStorage.setItem(COLUMNS_KEY, String(cols));
+      setLayout(buildDefaultLayout(selectedIds, cols));
+    },
+    [selectedIds, setLayout],
+  );
 
   // ── Hide tile (updates both selectedIds and layout immediately) ──
   const handleHide = useCallback(
@@ -385,6 +402,34 @@ export default function MosaicView() {
               {needsInputCount} needs input
             </span>
           )}
+        </div>
+
+        {/* Layout toggle */}
+        <div className="flex items-center rounded-md border border-border p-0.5">
+          <button
+            type="button"
+            onClick={() => handleColumnsChange(2)}
+            className={cn(
+              "flex items-center gap-1 rounded px-1.5 py-0.5 text-xs transition-colors",
+              columns === 2 ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
+            )}
+            aria-label="2 columns"
+          >
+            <Columns2 className="h-3 w-3" />
+            <span>2</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleColumnsChange(3)}
+            className={cn(
+              "flex items-center gap-1 rounded px-1.5 py-0.5 text-xs transition-colors",
+              columns === 3 ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
+            )}
+            aria-label="3 columns"
+          >
+            <Columns3 className="h-3 w-3" />
+            <span>3</span>
+          </button>
         </div>
 
         {/* Edit button (popover trigger) */}
