@@ -351,8 +351,7 @@ export default function MosaicView() {
     const isSource = isDragging && dragTileId === tileId;
     const dt = isDragging && !isSource && dropTarget?.tileId === tileId ? dropTarget.zone : null;
 
-    // Active session → live (no pinnedSessionId); otherwise → read-only
-    const pinnedSessionId = tile.isActive ? undefined : sessionId;
+    // Always pin the tile to its specific session
     const sessionTitle = tile.session.title || undefined;
 
     return (
@@ -363,13 +362,13 @@ export default function MosaicView() {
         <ConversationTile
           wsId={wsId}
           workspace={ws}
-          pinnedSessionId={pinnedSessionId}
+          pinnedSessionId={sessionId}
           sessionTitle={sessionTitle}
           projectLabel={getProjectLabel(ws)}
           onJumpOut={(id) => navigate(`/workspaces/${id}`, { state: { fromMosaic: true } })}
           onHide={tileCount > 1 ? () => handleHide(tileId) : undefined}
           onClose={sessionId ? () => handleCloseSession(wsId, sessionId) : undefined}
-          onNewSession={tile.isActive ? (id: string) => handleNewSession(id, tileId) : undefined}
+          onNewSession={(id: string) => handleNewSession(id, tileId)}
           onNeedsInputChange={handleNeedsInputChange}
           onHeaderPointerDown={isNarrow ? undefined : (e) => startTileDrag(e, tileId)}
           isDragSource={isSource}

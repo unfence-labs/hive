@@ -52,21 +52,22 @@ export function ConversationTile({
 }: ConversationTileProps) {
   const conversation = useConversation(wsId);
 
-  // Read-only mode: tile is pinned to a specific (non-active) session
-  const isReadOnly = !!pinnedSessionId;
-  const pinnedHistory = useSessionMessages(wsId, pinnedSessionId ?? null);
+  // A tile is "live" when its pinned session matches the WS-connected session.
+  // Non-live tiles display REST-fetched history but still accept input.
+  const isLive = !pinnedSessionId || pinnedSessionId === conversation.sessionId;
+  const pinnedHistory = useSessionMessages(wsId, isLive ? null : (pinnedSessionId ?? null));
 
   // Choose data source based on mode
-  const messages = isReadOnly ? pinnedHistory.messages : conversation.messages;
-  const isStreaming = isReadOnly ? false : conversation.isStreaming;
-  const activeToolCalls = isReadOnly ? EMPTY_TOOL_CALLS : conversation.activeToolCalls;
-  const pendingToolInputs = isReadOnly ? EMPTY_PENDING_INPUTS : conversation.pendingToolInputs;
+  const messages = isLive ? conversation.messages : pinnedHistory.messages;
+  const isStreaming = isLive ? conversation.isStreaming : false;
+  const activeToolCalls = isLive ? conversation.activeToolCalls : EMPTY_TOOL_CALLS;
+  const pendingToolInputs = isLive ? conversation.pendingToolInputs : EMPTY_PENDING_INPUTS;
 
   const liveData = useWorkspaceLiveDataContext();
   const wsLive = liveData[wsId];
   const displayBranch = wsLive?.branch || workspace.branch;
-  const wsStreaming = isReadOnly ? false : (wsLive?.streaming ?? false);
-  const wsUnread = isReadOnly ? false : Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
+  const wsStreaming = isLive ? (wsLive?.streaming ?? false) : false;
+  const wsUnread = isLive ? Object.keys(wsLive?.unreadSessions ?? {}).length > 0 : false;
 
   // Derive a stable tile ID for callbacks
   const tileId = pinnedSessionId ? `${wsId}:${pinnedSessionId}` : `${wsId}:${conversation.sessionId ?? ""}`;
@@ -102,24 +103,29 @@ export function ConversationTile({
   useEffect(() => { setQueuedMessage(null); }, [wsId, conversation.sessionId]);
 
   useEffect(() => {
-    if (isReadOnly) return;
     if (!queuedMessage) return;
     if (conversation.isStreaming) return;
     if (conversation.workspaceStatus !== "idle") return;
     if (conversation.pendingToolInputs.length > 0) return;
 
+    // Switch to this tile's session if needed before draining the queue
+    if (pinnedSessionId && pinnedSessionId !== conversation.sessionId) {
+      conversation.switchSession(pinnedSessionId);
+      return; // Wait for switch to complete before sending
+    }
+
     const { content, images, options, fileMentions } = queuedMessage;
-    const sent = conversation.sendMessage(content, images, options, undefined, fileMentions);
+    const sent = conversation.sendMessage(content, images, options, pinnedSessionId ?? undefined, fileMentions);
     if (sent) setQueuedMessage(null);
-  }, [isReadOnly, queuedMessage, conversation]);
+  }, [queuedMessage, conversation, pinnedSessionId]);
 
   // ── Plan detection (live tiles only) ───────────────────────────
-  const hasPendingExitPlanInput = isReadOnly ? false : hasPendingExitPlanModeInput(pendingToolInputs);
-  const hasPendingPlan = isReadOnly ? false : isPlanAwaitingUserInput({
+  const hasPendingExitPlanInput = isLive ? hasPendingExitPlanModeInput(pendingToolInputs) : false;
+  const hasPendingPlan = isLive ? isPlanAwaitingUserInput({
     messages: conversation.messages,
     isStreaming: conversation.isStreaming,
     pendingToolInputs: conversation.pendingToolInputs,
-  });
+  }) : false;
 
   const pendingPlanData = useMemo(() => {
     if (!hasPendingPlan) return undefined;
@@ -137,16 +143,20 @@ export function ConversationTile({
 
   const handleSend = useCallback(
     (content: string, options?: MessageOptions): boolean => {
+      // Switch to this tile's session if it's not the WS-active one
+      if (pinnedSessionId && pinnedSessionId !== conversation.sessionId) {
+        conversation.switchSession(pinnedSessionId);
+      }
       if (hasPendingPlan && hasPendingExitPlanInput) {
         conversation.rejectToolInput(content);
         setScrollToBottomTrigger((c) => c + 1);
         return true;
       }
-      const sent = conversation.sendMessage(content, undefined, options);
+      const sent = conversation.sendMessage(content, undefined, options, pinnedSessionId ?? undefined);
       if (sent) setScrollToBottomTrigger((c) => c + 1);
       return sent;
     },
-    [hasPendingPlan, hasPendingExitPlanInput, conversation],
+    [pinnedSessionId, hasPendingPlan, hasPendingExitPlanInput, conversation],
   );
 
   return (
@@ -194,13 +204,8 @@ export function ConversationTile({
               <span className="truncate text-xs text-muted-foreground">{sessionTitle}</span>
             </>
           )}
-          {isReadOnly && (
-            <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
-              Read-only
-            </span>
-          )}
         </div>
-        {!isReadOnly && onNewSession && (
+        {onNewSession && (
           <button
             type="button"
             onClick={() => onNewSession(wsId)}
@@ -249,30 +254,26 @@ export function ConversationTile({
         <ChatConversation
           messages={messages}
           isStreaming={isStreaming}
-          streamingStartedAt={isReadOnly ? null : conversation.streamingStartedAt}
-          currentStreamingText={isReadOnly ? "" : conversation.currentStreamingText}
-          currentThinking={isReadOnly ? "" : conversation.currentThinking}
+          streamingStartedAt={isLive ? conversation.streamingStartedAt : null}
+          currentStreamingText={isLive ? conversation.currentStreamingText : ""}
+          currentThinking={isLive ? conversation.currentThinking : ""}
           activeToolCalls={activeToolCalls}
           pendingToolInputs={pendingToolInputs}
           onQuestionAnswer={conversation.answerQuestion}
           workspaceName={workspace.name}
           branch={displayBranch}
-          switchCounter={isReadOnly ? 0 : conversation.switchCounter}
-          agentPlanMode={isReadOnly ? false : conversation.agentPlanMode}
-          error={isReadOnly ? undefined : conversation.error}
-          queuedMessage={isReadOnly ? null : queuedMessage}
+          switchCounter={isLive ? conversation.switchCounter : 0}
+          agentPlanMode={isLive ? conversation.agentPlanMode : false}
+          error={isLive ? conversation.error : undefined}
+          queuedMessage={queuedMessage}
           onClearQueue={() => setQueuedMessage(null)}
           scrollToBottomTrigger={scrollToBottomTrigger}
           compactMode
         />
       </div>
 
-      {/* ── Input (live tiles only) ─────────────────────────────── */}
-      {isReadOnly ? (
-        <div className="shrink-0 border-t border-border bg-card/50 px-3 py-1.5 text-center text-[10px] text-muted-foreground/60">
-          Read-only session
-        </div>
-      ) : hasAskUser ? (
+      {/* ── Input ──────────────────────────────────────────────── */}
+      {hasAskUser ? (
         <QuestionPanel
           pendingToolInputs={pendingToolInputs}
           onBatchSubmit={conversation.batchAnswerQuestions}
@@ -294,7 +295,7 @@ export function ConversationTile({
           <CompactChatInput
             onSend={handleSend}
             onStop={conversation.stopStreaming}
-            isStreaming={conversation.isStreaming}
+            isStreaming={isStreaming}
             connectionStatus={conversation.connectionStatus}
             placeholder={hasPendingPlan ? "Enter your plan adjustments here..." : undefined}
             queuedMessage={queuedMessage}
