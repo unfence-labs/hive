@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type CSSProperties } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from "react";
 import { ArrowUpRight, EyeOff, Plus } from "lucide-react";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
@@ -6,8 +6,10 @@ import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext
 import ChatConversation from "@/components/ChatConversation";
 import ChatInput from "@/components/ChatInput";
 import QuestionPanel from "@/components/chat/QuestionPanel";
+import { PlanActionBar } from "@/components/chat/PlanActionBar";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { BranchLabel } from "@/components/BranchLabel";
+import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
 import { cn } from "@/lib/utils";
 import type { Workspace, QueuedMessage, ImageAttachment, MessageOptions, FileMention } from "@/types";
 
@@ -42,6 +44,8 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
     answerQuestion,
     batchAnswerQuestions,
     rejectToolInput,
+    approvePlan,
+    dismissPlan,
     agentPlanMode,
     lockedProvider,
     switchCounter,
@@ -98,19 +102,42 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
     if (sent) setQueuedMessage(null);
   }, [queuedMessage, isStreaming, workspaceStatus, pendingToolInputs, sendMessage]);
 
+  // ── Plan detection ──────────────────────────────────────────────
+  const hasPendingExitPlanInput = hasPendingExitPlanModeInput(pendingToolInputs);
+  const hasPendingPlan = isPlanAwaitingUserInput({ messages, isStreaming, pendingToolInputs });
+
+  const pendingPlanData = useMemo(() => {
+    if (!hasPendingPlan) return undefined;
+    if (activeToolCalls.some((t) => t.name === "ExitPlanMode")) {
+      return findPlanContent(activeToolCalls);
+    }
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role === "assistant" && msg.toolCalls?.some((t) => t.name === "ExitPlanMode")) {
+        return findPlanContent(msg.toolCalls);
+      }
+    }
+    return undefined;
+  }, [hasPendingPlan, messages, activeToolCalls]);
+
   const handleSend = useCallback(
     (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]): boolean => {
+      if (hasPendingPlan && hasPendingExitPlanInput) {
+        rejectToolInput(content);
+        setScrollToBottomTrigger((c) => c + 1);
+        return true;
+      }
       const sent = sendMessage(content, images, options, undefined, fileMentions);
       if (sent) setScrollToBottomTrigger((c) => c + 1);
       return sent;
     },
-    [sendMessage],
+    [hasPendingPlan, hasPendingExitPlanInput, rejectToolInput, sendMessage],
   );
 
+  // In mosaic, create session without switching — keeps current conversation visible
   const handleNewSession = useCallback(async () => {
-    const meta = await createSession();
-    if (meta) switchSession(meta.sessionId);
-  }, [createSession, switchSession]);
+    await createSession();
+  }, [createSession]);
 
   return (
     <div
@@ -220,23 +247,37 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
           onDismiss={() => rejectToolInput("[question_dismissed]")}
         />
       ) : (
-        <ChatInput
-          wsId={wsId}
-          sessionId={sessionId}
-          lockedProvider={lockedProvider}
-          onSend={handleSend}
-          onStop={stopStreaming}
-          disabled={false}
-          isStreaming={isStreaming}
-          connectionStatus={connectionStatus}
-          messages={messages}
-          queuedMessage={queuedMessage}
-          onQueue={(msg) => {
-            setQueuedMessage(msg);
-            setScrollToBottomTrigger((c) => c + 1);
-          }}
-          agentPlanMode={agentPlanMode}
-        />
+        <div className="relative">
+          {hasPendingPlan && pendingPlanData && (
+            <PlanActionBar
+              planContent={pendingPlanData.content}
+              planPath={pendingPlanData.planPath}
+              onApprove={approvePlan}
+              onHandOff={(content, planPath) => {
+                dismissPlan("Plan handed off.");
+                onJumpOut(wsId);
+              }}
+            />
+          )}
+          <ChatInput
+            wsId={wsId}
+            sessionId={sessionId}
+            lockedProvider={lockedProvider}
+            onSend={handleSend}
+            onStop={stopStreaming}
+            disabled={false}
+            isStreaming={isStreaming}
+            connectionStatus={connectionStatus}
+            placeholder={hasPendingPlan ? "Enter your plan adjustments here..." : undefined}
+            messages={messages}
+            queuedMessage={queuedMessage}
+            onQueue={(msg) => {
+              setQueuedMessage(msg);
+              setScrollToBottomTrigger((c) => c + 1);
+            }}
+            agentPlanMode={agentPlanMode}
+          />
+        </div>
       )}
     </div>
   );

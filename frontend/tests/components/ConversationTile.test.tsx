@@ -63,6 +63,10 @@ vi.mock("@/components/ChatInput", () => ({
   default: () => <div data-testid="chat-input">ChatInput</div>,
 }));
 
+vi.mock("@/components/chat/PlanActionBar", () => ({
+  PlanActionBar: () => <div data-testid="plan-action-bar">PlanActionBar</div>,
+}));
+
 import { ConversationTile } from "@/components/mosaic/ConversationTile";
 import type { Workspace } from "@/types";
 
@@ -88,6 +92,8 @@ const defaultConversation = {
   answerQuestion: mocks.answerQuestion,
   batchAnswerQuestions: mocks.batchAnswerQuestions,
   rejectToolInput: mocks.rejectToolInput,
+  approvePlan: vi.fn(),
+  dismissPlan: vi.fn(),
   agentPlanMode: false,
   lockedProvider: undefined,
   switchCounter: 0,
@@ -220,11 +226,11 @@ describe("ConversationTile", () => {
     expect(onHide).toHaveBeenCalledWith("ws-1");
   });
 
-  it("new session button creates and switches to a new session", async () => {
+  it("new session button creates session without switching (mosaic keeps current view)", async () => {
     const user = userEvent.setup();
     renderTile();
     await user.click(screen.getByTitle("New session"));
     expect(mocks.createSession).toHaveBeenCalled();
-    expect(mocks.switchSession).toHaveBeenCalledWith("new-sess");
+    expect(mocks.switchSession).not.toHaveBeenCalled();
   });
 });
