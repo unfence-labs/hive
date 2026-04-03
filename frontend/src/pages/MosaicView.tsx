@@ -4,9 +4,10 @@ import { Group, Panel } from "react-resizable-panels";
 import { ArrowLeft, CircleAlert, Columns2, Columns3, Pencil, Plus } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
-import { useMosaicWorkspaces, parseTileId, MAX_MOSAIC } from "@/hooks/useMosaicWorkspaces";
+import { useAllSessions, type SessionTile } from "@/hooks/useAllSessions";
+import { useMosaicSessions, parseTileId } from "@/hooks/useMosaicSessions";
 import { ConversationTile } from "@/components/mosaic/ConversationTile";
-import { WorkspacePicker } from "@/components/mosaic/WorkspacePicker";
+import { SessionPicker } from "@/components/mosaic/SessionPicker";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { parseProjectOwnerRepo } from "@/components/Sidebar";
@@ -48,7 +49,7 @@ export default function MosaicView() {
   const navigate = useNavigate();
   const { projects } = useProjects();
   const liveData = useWorkspaceLiveDataContext();
-  const { selectedIds, setSelectedIds, toggleId, removeId, addTileId } = useMosaicWorkspaces();
+  const { hiddenIds, isHidden, toggleSession, setHiddenIds } = useMosaicSessions();
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [columns, setColumnsRaw] = useState<2 | 3>(() => {
@@ -69,10 +70,10 @@ export default function MosaicView() {
 
   // "Needs input" state reported by each tile
   const [needsInputMap, setNeedsInputMap] = useState<Record<string, boolean>>({});
-  const handleNeedsInputChange = useCallback((wsId: string, needsInput: boolean) => {
+  const handleNeedsInputChange = useCallback((tileId: string, needsInput: boolean) => {
     setNeedsInputMap((prev) => {
-      if (prev[wsId] === needsInput) return prev;
-      return { ...prev, [wsId]: needsInput };
+      if (prev[tileId] === needsInput) return prev;
+      return { ...prev, [tileId]: needsInput };
     });
   }, []);
 
@@ -95,69 +96,43 @@ export default function MosaicView() {
     return map;
   }, [allWorkspaces]);
 
-  // Auto-populate on first visit (selectedIds empty) once workspaces load
-  const didAutoPopulate = useRef(false);
+  // Fetch all sessions across all workspaces
+  const { sessions: allSessions } = useAllSessions(allWorkspaces);
+
+  // Build tile lookup by tileId
+  const tileByTileId = useMemo(() => {
+    const map = new Map<string, SessionTile>();
+    for (const t of allSessions) map.set(t.tileId, t);
+    return map;
+  }, [allSessions]);
+
+  // Derive visible tile IDs (all sessions minus hidden)
+  const visibleTileIds = useMemo(
+    () => allSessions.filter((s) => !isHidden(s.tileId)).map((s) => s.tileId),
+    [allSessions, isHidden],
+  );
+
+  // Garbage-collect stale hidden IDs (sessions that no longer exist)
   useEffect(() => {
-    if (didAutoPopulate.current) return;
-    if (allWorkspaces.length === 0) return;
-    if (selectedIds.length > 0) {
-      didAutoPopulate.current = true;
-      return;
+    if (allSessions.length === 0) return;
+    const validTileIds = new Set(allSessions.map((s) => s.tileId));
+    const stale = hiddenIds.filter((id) => !validTileIds.has(id));
+    if (stale.length > 0) {
+      setHiddenIds(hiddenIds.filter((id) => validTileIds.has(id)));
     }
-
-    const streaming = allWorkspaces.filter((ws) => liveData[ws.id]?.streaming);
-    if (streaming.length >= MAX_MOSAIC) {
-      setSelectedIds(streaming.slice(0, MAX_MOSAIC).map((ws) => ws.id));
-    } else {
-      const streamingIds = new Set(streaming.map((ws) => ws.id));
-      const rest = allWorkspaces
-        .filter((ws) => !streamingIds.has(ws.id))
-        .sort((a, b) => {
-          const aUnread = Object.keys(liveData[a.id]?.unreadSessions ?? {}).length > 0 ? 1 : 0;
-          const bUnread = Object.keys(liveData[b.id]?.unreadSessions ?? {}).length > 0 ? 1 : 0;
-          if (bUnread !== aUnread) return bUnread - aUnread;
-          const aBusy = liveData[a.id]?.status === "busy" ? 1 : 0;
-          const bBusy = liveData[b.id]?.status === "busy" ? 1 : 0;
-          if (bBusy !== aBusy) return bBusy - aBusy;
-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-        });
-      setSelectedIds([...streaming, ...rest].slice(0, MAX_MOSAIC).map((ws) => ws.id));
-    }
-    didAutoPopulate.current = true;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time auto-populate
-  }, [allWorkspaces]);
-
-  // Clean up stale IDs from persistence
-  useEffect(() => {
-    if (allWorkspaces.length === 0) return;
-    const validIds = selectedIds.filter((id) => wsById.has(parseTileId(id).wsId));
-    if (validIds.length !== selectedIds.length) {
-      setSelectedIds(validIds);
-    }
-  }, [selectedIds, wsById, allWorkspaces.length, setSelectedIds]);
-
-  // ── Pad with empty slot sentinels ──────────────────────────────────
-  const paddedIds = useMemo(() => {
-    if (selectedIds.length === 0) return [];
-    const ids = [...selectedIds];
-    const targetSize = Math.min(MAX_MOSAIC, columns * Math.ceil(ids.length / columns));
-    for (let i = ids.length; i < targetSize; i++) ids.push(`__empty_${i}`);
-    return ids;
-  }, [selectedIds, columns]);
-
-  const isEmptySlot = (id: string) => id.startsWith("__empty");
+  }, [allSessions, hiddenIds, setHiddenIds]);
 
   // ── Layout tree ──────────────────────────────────────────────────
   const [layout, setLayoutRaw] = useState<MosaicNode | null>(() => {
     const stored = loadLayout();
-    if (stored && paddedIds.length > 0) {
-      const storedReal = new Set(getLeafIds(stored).filter((id) => !isEmptySlot(id)));
-      const selReal = new Set(selectedIds);
-      if (storedReal.size === selReal.size && [...storedReal].every((id) => selReal.has(id))) {
+    if (stored && visibleTileIds.length > 0) {
+      const storedIds = new Set(getLeafIds(stored));
+      const visibleSet = new Set(visibleTileIds);
+      if (storedIds.size === visibleSet.size && [...storedIds].every((id) => visibleSet.has(id))) {
         return stored;
       }
     }
-    return buildDefaultLayout(paddedIds, columns);
+    return buildDefaultLayout(visibleTileIds, columns);
   });
 
   const columnsRef = useRef(columns);
@@ -171,43 +146,29 @@ export default function MosaicView() {
     saveLayout(l);
   }, []);
 
-  // Sync layout when selectedIds change (picker / auto-populate / stale cleanup)
-  const prevPaddedJson = useRef(JSON.stringify(paddedIds));
+  // Sync layout when visibleTileIds change
+  const prevVisibleJson = useRef(JSON.stringify(visibleTileIds));
   useEffect(() => {
-    const json = JSON.stringify(paddedIds);
-    if (prevPaddedJson.current === json) return;
-    prevPaddedJson.current = json;
+    const json = JSON.stringify(visibleTileIds);
+    if (prevVisibleJson.current === json) return;
+    prevVisibleJson.current = json;
 
-    if (paddedIds.length === 0) {
+    if (visibleTileIds.length === 0) {
       setLayout(null);
       return;
     }
 
-    const currentReal = layoutRef.current
-      ? new Set(getLeafIds(layoutRef.current).filter((id) => !isEmptySlot(id)))
-      : new Set<string>();
-    const newReal = new Set(selectedIds);
-    if (currentReal.size === newReal.size && [...currentReal].every((id) => newReal.has(id))) {
-      // Real IDs unchanged but padding may have changed — rebuild with new padding
-    } else {
-      // Real tile additions/removals — try incremental update
-      const added = selectedIds.filter((id) => !currentReal.has(id));
-      const removed = [...currentReal].filter((id) => !newReal.has(id));
+    // Always rebuild to match current visible set
+    setLayout(buildDefaultLayout(visibleTileIds, columnsRef.current));
+  }, [visibleTileIds, setLayout]);
 
-      if (layoutRef.current && removed.length > 0 && added.length === 0) {
-        let next: MosaicNode | null = layoutRef.current;
-        for (const id of removed) next = next ? removeFromLayout(next, id) : null;
-        // Fall through to rebuild with padding below
-      }
-    }
-    // Always rebuild with correct padding
-    setLayout(buildDefaultLayout(paddedIds, columnsRef.current));
-  }, [paddedIds, selectedIds, setLayout]);
-
-  const tileCount = layout ? getLeafIds(layout).filter((id) => !isEmptySlot(id)).length : 0;
+  const tileCount = layout ? getLeafIds(layout).length : 0;
 
   // Toolbar summary
-  const streamingCount = selectedIds.filter((id) => liveData[parseTileId(id).wsId]?.streaming).length;
+  const streamingCount = visibleTileIds.filter((id) => {
+    const { wsId } = parseTileId(id);
+    return liveData[wsId]?.streaming;
+  }).length;
   const needsInputCount = Object.values(needsInputMap).filter(Boolean).length;
 
   // Project label for a workspace
@@ -220,50 +181,38 @@ export default function MosaicView() {
     (cols: 2 | 3) => {
       setColumnsRaw(cols);
       localStorage.setItem(COLUMNS_KEY, String(cols));
-      // Compute padded IDs for the new column count
-      const ids = [...selectedIds];
-      const target = Math.min(MAX_MOSAIC, cols * Math.ceil(Math.max(ids.length, 1) / cols));
-      for (let i = ids.length; i < target; i++) ids.push(`__empty_${i}`);
-      setLayout(buildDefaultLayout(ids, cols));
+      setLayout(buildDefaultLayout(visibleTileIds, cols));
     },
-    [selectedIds, setLayout],
+    [visibleTileIds, setLayout],
   );
 
-  // ── Hide tile (updates both selectedIds and layout immediately) ──
+  // ── Hide tile ──
   const handleHide = useCallback(
     (tileId: string) => {
-      removeId(tileId);
+      toggleSession(tileId);
       setLayout((layoutRef.current ? removeFromLayout(layoutRef.current, tileId) : null));
     },
-    [removeId, setLayout],
-  );
-
-  // ── Add tile: pin old session as read-only tile ──
-  const handleAddTile = useCallback(
-    (wsId: string, sessionIdToPin: string) => {
-      addTileId(`${wsId}:${sessionIdToPin}`);
-    },
-    [addTileId],
+    [toggleSession, setLayout],
   );
 
   // ── Tile drag state ───────────────────────────────────────────────
-  const [dragWsId, setDragWsId] = useState<string | null>(null);
+  const [dragTileId, setDragTileId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [dropTarget, setDropTarget] = useState<{ wsId: string; zone: DropZone } | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ tileId: string; zone: DropZone } | null>(null);
   const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 });
   const dragStartPos = useRef({ x: 0, y: 0 });
-  const dragWsIdRef = useRef(dragWsId);
+  const dragTileIdRef = useRef(dragTileId);
   const dropTargetRef = useRef(dropTarget);
   const isDraggingRef = useRef(isDragging);
-  dragWsIdRef.current = dragWsId;
+  dragTileIdRef.current = dragTileId;
   dropTargetRef.current = dropTarget;
   isDraggingRef.current = isDragging;
 
-  const startTileDrag = useCallback((e: React.PointerEvent, wsId: string) => {
+  const startTileDrag = useCallback((e: React.PointerEvent, tileId: string) => {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button")) return;
     e.preventDefault();
-    setDragWsId(wsId);
+    setDragTileId(tileId);
     setIsDragging(false);
     setCursorPos({ x: e.clientX, y: e.clientY });
     dragStartPos.current = { x: e.clientX, y: e.clientY };
@@ -271,17 +220,17 @@ export default function MosaicView() {
 
   // Prevent text selection and set grabbing cursor during drag
   useEffect(() => {
-    if (dragWsId === null) return;
+    if (dragTileId === null) return;
     document.body.style.userSelect = "none";
     document.body.style.cursor = "grabbing";
     return () => {
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
     };
-  }, [dragWsId]);
+  }, [dragTileId]);
 
   useEffect(() => {
-    if (dragWsId === null) return;
+    if (dragTileId === null) return;
 
     const onMove = (e: PointerEvent) => {
       e.preventDefault();
@@ -292,17 +241,17 @@ export default function MosaicView() {
       if (dx > 4 || dy > 4) setIsDragging(true);
 
       // Find drop target by bounding rect
-      const tiles = document.querySelectorAll("[data-tile-wsid]");
-      let found: { wsId: string; zone: DropZone } | null = null;
+      const tiles = document.querySelectorAll("[data-tile-id]");
+      let found: { tileId: string; zone: DropZone } | null = null;
       for (const tile of tiles) {
-        const wsId = tile.getAttribute("data-tile-wsid");
-        if (!wsId || wsId === dragWsIdRef.current || wsId.startsWith("__empty")) continue;
+        const id = tile.getAttribute("data-tile-id");
+        if (!id || id === dragTileIdRef.current) continue;
         const rect = tile.getBoundingClientRect();
         if (
           e.clientX >= rect.left && e.clientX <= rect.right &&
           e.clientY >= rect.top && e.clientY <= rect.bottom
         ) {
-          found = { wsId, zone: getDropZone(rect, e.clientX, e.clientY) };
+          found = { tileId: id, zone: getDropZone(rect, e.clientX, e.clientY) };
           break;
         }
       }
@@ -310,17 +259,17 @@ export default function MosaicView() {
     };
 
     const onUp = () => {
-      const drag = dragWsIdRef.current;
+      const drag = dragTileIdRef.current;
       const target = dropTargetRef.current;
-      if (isDraggingRef.current && drag && target && drag !== target.wsId) {
+      if (isDraggingRef.current && drag && target && drag !== target.tileId) {
         const current = layoutRef.current;
         if (current) {
-          const next = applyDrop(current, drag, target.wsId, target.zone);
+          const next = applyDrop(current, drag, target.tileId, target.zone);
           setLayoutRaw(next);
           saveLayout(next);
         }
       }
-      setDragWsId(null);
+      setDragTileId(null);
       setIsDragging(false);
       setDropTarget(null);
     };
@@ -331,43 +280,37 @@ export default function MosaicView() {
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
     };
-  }, [dragWsId]);
+  }, [dragTileId]);
 
   // ── Render helpers ────────────────────────────────────────────────
   function renderTile(tileId: string) {
-    if (isEmptySlot(tileId)) {
-      return (
-        <button
-          type="button"
-          onClick={() => setPickerOpen(true)}
-          className="flex h-full w-full flex-col items-center justify-center gap-2 border border-dashed border-border/60 bg-background"
-        >
-          <Plus className="h-5 w-5 text-muted-foreground/40" />
-          <span className="text-xs text-muted-foreground/50">Add workspace</span>
-        </button>
-      );
-    }
+    const tile = tileByTileId.get(tileId);
+    if (!tile) return null;
 
     const { wsId, sessionId } = parseTileId(tileId);
     const ws = wsById.get(wsId);
     if (!ws) return null;
 
-    const isSource = isDragging && dragWsId === tileId;
-    const dt = isDragging && !isSource && dropTarget?.wsId === tileId ? dropTarget.zone : null;
+    const isSource = isDragging && dragTileId === tileId;
+    const dt = isDragging && !isSource && dropTarget?.tileId === tileId ? dropTarget.zone : null;
+
+    // Active session → live (no pinnedSessionId); otherwise → read-only
+    const pinnedSessionId = tile.isActive ? undefined : sessionId;
+    const sessionTitle = tile.session.title || undefined;
 
     return (
       <div
-        data-tile-wsid={tileId}
+        data-tile-id={tileId}
         className={cn("h-full relative", isSource && "opacity-30")}
       >
         <ConversationTile
           wsId={wsId}
           workspace={ws}
-          pinnedSessionId={sessionId}
+          pinnedSessionId={pinnedSessionId}
+          sessionTitle={sessionTitle}
           projectLabel={getProjectLabel(ws)}
           onJumpOut={(id) => navigate(`/workspaces/${id}`, { state: { fromMosaic: true } })}
           onHide={tileCount > 1 ? () => handleHide(tileId) : undefined}
-          onAddTile={!sessionId && tileCount < MAX_MOSAIC ? (sessionIdToPin) => handleAddTile(wsId, sessionIdToPin) : undefined}
           onNeedsInputChange={handleNeedsInputChange}
           onHeaderPointerDown={isNarrow ? undefined : (e) => startTileDrag(e, tileId)}
           isDragSource={isSource}
@@ -380,7 +323,7 @@ export default function MosaicView() {
 
   function renderNode(node: MosaicNode, path: string): React.ReactNode {
     if (node.type === "leaf") {
-      return renderTile(node.wsId);
+      return renderTile(node.tileId);
     }
 
     const handleOrientation = node.direction === "horizontal" ? "vertical" : "horizontal";
@@ -388,12 +331,12 @@ export default function MosaicView() {
     return (
       <Group orientation={node.direction} id={`mosaic-${path}`} className="h-full">
         {node.children.map((child, i) => {
-          const childKey = child.type === "leaf" ? child.wsId : `${path}-${i}`;
+          const childKey = child.type === "leaf" ? child.tileId : `${path}-${i}`;
           return (
             <Fragment key={childKey}>
               <Panel id={`p-${path}-${i}`} minSize={15}>
                 {child.type === "leaf"
-                  ? renderTile(child.wsId)
+                  ? renderTile(child.tileId)
                   : renderNode(child, `${path}-${i}`)}
               </Panel>
               {i < node.children.length - 1 && (
@@ -407,7 +350,8 @@ export default function MosaicView() {
   }
 
   // Floating ghost for dragged tile
-  const draggedWs = dragWsId ? wsById.get(parseTileId(dragWsId).wsId) : null;
+  const draggedTile = dragTileId ? tileByTileId.get(dragTileId) : null;
+  const draggedWs = draggedTile ? wsById.get(draggedTile.wsId) : null;
 
   return (
     <div className="flex h-screen flex-col bg-background">
@@ -471,12 +415,13 @@ export default function MosaicView() {
           </button>
         </div>
 
-        {/* Edit button (popover trigger) */}
-        <WorkspacePicker
+        {/* Edit button (session picker) */}
+        <SessionPicker
           open={pickerOpen}
           onOpenChange={setPickerOpen}
-          selectedIds={selectedIds}
-          onToggle={toggleId}
+          sessions={allSessions}
+          hiddenIds={hiddenIds}
+          onToggle={toggleSession}
         >
           <button
             type="button"
@@ -485,25 +430,31 @@ export default function MosaicView() {
             <Pencil className="h-3 w-3" />
             <span>Edit</span>
           </button>
-        </WorkspacePicker>
+        </SessionPicker>
       </div>
 
       {/* ── Grid ────────────────────────────────────────────────────── */}
       {!layout ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3">
-          <p className="text-sm text-muted-foreground">No workspaces selected</p>
-          <button
-            type="button"
-            onClick={() => setPickerOpen(true)}
-            className="flex items-center gap-2 text-xs text-primary transition-colors hover:text-primary/80"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add workspaces
-          </button>
+          <p className="text-sm text-muted-foreground">
+            {allSessions.length === 0
+              ? "No sessions found"
+              : "All sessions are hidden"}
+          </p>
+          {allSessions.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setPickerOpen(true)}
+              className="flex items-center gap-2 text-xs text-primary transition-colors hover:text-primary/80"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Show sessions
+            </button>
+          )}
         </div>
       ) : isNarrow ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-          {selectedIds.map((tileId) => (
+          {visibleTileIds.map((tileId) => (
             <div key={tileId} className="min-h-[300px] shrink-0 border-b border-border">
               {renderTile(tileId)}
             </div>
@@ -511,7 +462,7 @@ export default function MosaicView() {
         </div>
       ) : layout.type === "leaf" ? (
         <div className="flex min-h-0 flex-1">
-          {renderTile(layout.wsId)}
+          {renderTile(layout.tileId)}
         </div>
       ) : (
         <div className="min-h-0 flex-1">
@@ -528,6 +479,12 @@ export default function MosaicView() {
           <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs shadow-xl">
             <div className="h-2 w-2 shrink-0 rounded-full bg-primary" />
             <span className="font-medium">{draggedWs.name}</span>
+            {draggedTile?.session.title && (
+              <>
+                <span className="text-muted-foreground/40">·</span>
+                <span className="text-muted-foreground">{draggedTile.session.title}</span>
+              </>
+            )}
           </div>
         </div>
       )}

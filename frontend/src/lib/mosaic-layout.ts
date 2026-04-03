@@ -1,6 +1,6 @@
 export interface MosaicLeaf {
   type: "leaf";
-  wsId: string;
+  tileId: string;
 }
 export interface MosaicSplit {
   type: "split";
@@ -10,21 +10,21 @@ export interface MosaicSplit {
 export type MosaicNode = MosaicLeaf | MosaicSplit;
 export type DropZone = "left" | "right" | "top" | "bottom" | "center";
 
-/** Extract all workspace IDs from a layout tree (in-order). */
+/** Extract all tile IDs from a layout tree (in-order). */
 export function getLeafIds(node: MosaicNode): string[] {
-  if (node.type === "leaf") return [node.wsId];
+  if (node.type === "leaf") return [node.tileId];
   return node.children.flatMap(getLeafIds);
 }
 
 /** Build a default grid layout from an ordered list of IDs. */
 export function buildDefaultLayout(ids: string[], columns = 2): MosaicNode | null {
   if (ids.length === 0) return null;
-  if (ids.length === 1) return { type: "leaf", wsId: ids[0] };
+  if (ids.length === 1) return { type: "leaf", tileId: ids[0] };
   if (ids.length <= columns) {
     return {
       type: "split",
       direction: "horizontal",
-      children: ids.map((id) => ({ type: "leaf" as const, wsId: id })),
+      children: ids.map((id) => ({ type: "leaf" as const, tileId: id })),
     };
   }
   // Group into rows of `columns`
@@ -33,21 +33,21 @@ export function buildDefaultLayout(ids: string[], columns = 2): MosaicNode | nul
     const chunk = ids.slice(i, i + columns);
     rows.push(
       chunk.length === 1
-        ? { type: "leaf", wsId: chunk[0] }
+        ? { type: "leaf", tileId: chunk[0] }
         : {
             type: "split",
             direction: "horizontal",
-            children: chunk.map((id) => ({ type: "leaf" as const, wsId: id })),
+            children: chunk.map((id) => ({ type: "leaf" as const, tileId: id })),
           },
     );
   }
   return rows.length === 1 ? rows[0] : { type: "split", direction: "vertical", children: rows };
 }
 
-function removeLeaf(node: MosaicNode, wsId: string): MosaicNode | null {
-  if (node.type === "leaf") return node.wsId === wsId ? null : node;
+function removeLeaf(node: MosaicNode, tileId: string): MosaicNode | null {
+  if (node.type === "leaf") return node.tileId === tileId ? null : node;
   const children = node.children
-    .map((c) => removeLeaf(c, wsId))
+    .map((c) => removeLeaf(c, tileId))
     .filter((c): c is MosaicNode => c !== null);
   if (children.length === 0) return null;
   if (children.length === 1) return children[0];
@@ -56,20 +56,20 @@ function removeLeaf(node: MosaicNode, wsId: string): MosaicNode | null {
 
 function replaceLeaf(
   node: MosaicNode,
-  wsId: string,
+  tileId: string,
   replacement: MosaicNode,
 ): MosaicNode {
-  if (node.type === "leaf") return node.wsId === wsId ? replacement : node;
+  if (node.type === "leaf") return node.tileId === tileId ? replacement : node;
   return {
     ...node,
-    children: node.children.map((c) => replaceLeaf(c, wsId, replacement)),
+    children: node.children.map((c) => replaceLeaf(c, tileId, replacement)),
   };
 }
 
 function swapLeaves(node: MosaicNode, a: string, b: string): MosaicNode {
   if (node.type === "leaf") {
-    if (node.wsId === a) return { type: "leaf", wsId: b };
-    if (node.wsId === b) return { type: "leaf", wsId: a };
+    if (node.tileId === a) return { type: "leaf", tileId: b };
+    if (node.tileId === b) return { type: "leaf", tileId: a };
     return node;
   }
   return {
@@ -117,31 +117,31 @@ export function applyDrop(
   const direction: "horizontal" | "vertical" =
     zone === "left" || zone === "right" ? "horizontal" : "vertical";
   const dragFirst = zone === "left" || zone === "top";
-  const dragLeaf: MosaicLeaf = { type: "leaf", wsId: dragId };
+  const dragLeaf: MosaicLeaf = { type: "leaf", tileId: dragId };
   const newSplit: MosaicSplit = {
     type: "split",
     direction,
     children: dragFirst
-      ? [dragLeaf, { type: "leaf", wsId: targetId }]
-      : [{ type: "leaf", wsId: targetId }, dragLeaf],
+      ? [dragLeaf, { type: "leaf", tileId: targetId }]
+      : [{ type: "leaf", tileId: targetId }, dragLeaf],
   };
 
   result = replaceLeaf(result, targetId, newSplit);
   return cleanTree(result);
 }
 
-/** Remove a workspace from the layout. */
+/** Remove a tile from the layout. */
 export function removeFromLayout(
   tree: MosaicNode,
-  wsId: string,
+  tileId: string,
 ): MosaicNode | null {
-  const result = removeLeaf(tree, wsId);
+  const result = removeLeaf(tree, tileId);
   return result ? cleanTree(result) : null;
 }
 
-/** Add a workspace to the layout (appends to root). */
-export function addToLayout(tree: MosaicNode, wsId: string): MosaicNode {
-  const leaf: MosaicLeaf = { type: "leaf", wsId };
+/** Add a tile to the layout (appends to root). */
+export function addToLayout(tree: MosaicNode, tileId: string): MosaicNode {
+  const leaf: MosaicLeaf = { type: "leaf", tileId };
   if (tree.type === "leaf") {
     return {
       type: "split",

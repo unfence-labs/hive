@@ -9,7 +9,6 @@ const mocks = vi.hoisted(() => ({
   answerQuestion: vi.fn(),
   batchAnswerQuestions: vi.fn(),
   rejectToolInput: vi.fn(),
-  createSession: vi.fn(),
   switchSession: vi.fn(),
 }));
 
@@ -20,7 +19,7 @@ vi.mock("@/hooks/useConversation", () => ({
 vi.mock("@/hooks/useSessions", () => ({
   useSessions: () => ({
     sessions: [],
-    createSession: mocks.createSession,
+    createSession: vi.fn(),
     switchSession: mocks.switchSession,
   }),
 }));
@@ -109,6 +108,7 @@ const workspace: Workspace = {
   id: "ws-1",
   name: "denver",
   branch: "feat/auth",
+  status: "idle",
   createdAt: "2025-01-01",
 };
 
@@ -116,10 +116,10 @@ function renderTile(overrides?: {
   conversation?: Partial<typeof defaultConversation>;
   liveData?: Record<string, any>;
   onJumpOut?: () => void;
-  onHide?: (wsId: string) => void;
-  onAddTile?: () => void;
-  onNeedsInputChange?: (wsId: string, needs: boolean) => void;
+  onHide?: () => void;
+  onNeedsInputChange?: (tileId: string, needs: boolean) => void;
   onHeaderPointerDown?: (e: React.PointerEvent) => void;
+  sessionTitle?: string;
 }) {
   mocks.useConversation.mockReturnValue({
     ...defaultConversation,
@@ -131,9 +131,9 @@ function renderTile(overrides?: {
     <ConversationTile
       wsId="ws-1"
       workspace={workspace}
+      sessionTitle={overrides?.sessionTitle}
       onJumpOut={overrides?.onJumpOut ?? vi.fn()}
       onHide={overrides?.onHide}
-      onAddTile={overrides?.onAddTile}
       onNeedsInputChange={overrides?.onNeedsInputChange}
       onHeaderPointerDown={overrides?.onHeaderPointerDown}
     />,
@@ -217,36 +217,24 @@ describe("ConversationTile", () => {
       },
       onNeedsInputChange,
     });
-    expect(onNeedsInputChange).toHaveBeenCalledWith("ws-1", true);
+    expect(onNeedsInputChange).toHaveBeenCalledWith("ws-1:sess-1", true);
   });
 
-  it("shows remove button when onHide is provided", () => {
+  it("shows hide button when onHide is provided", () => {
     renderTile({ onHide: vi.fn() });
-    expect(screen.getByTitle("Remove tile")).toBeInTheDocument();
+    expect(screen.getByTitle("Hide tile")).toBeInTheDocument();
   });
 
-  it("remove button calls onHide with workspace ID", async () => {
+  it("hide button calls onHide", async () => {
     const user = userEvent.setup();
     const onHide = vi.fn();
     renderTile({ onHide });
-    await user.click(screen.getByTitle("Remove tile"));
-    expect(onHide).toHaveBeenCalledWith("ws-1");
+    await user.click(screen.getByTitle("Hide tile"));
+    expect(onHide).toHaveBeenCalled();
   });
 
-  it("add tile button calls onAddTile with old session ID", async () => {
-    const user = userEvent.setup();
-    const onAddTile = vi.fn();
-    mocks.createSession.mockResolvedValue({ sessionId: "sess-new" });
-    renderTile({ onAddTile });
-    await user.click(screen.getByTitle("New conversation"));
-    // Wait for async createSession to resolve
-    await vi.waitFor(() => {
-      expect(onAddTile).toHaveBeenCalledWith("sess-1");
-    });
-  });
-
-  it("does not show add tile button when onAddTile is not provided", () => {
-    renderTile();
-    expect(screen.queryByTitle("New conversation")).not.toBeInTheDocument();
+  it("shows session title in header when provided", () => {
+    renderTile({ sessionTitle: "Auth refactor" });
+    expect(screen.getByText("Auth refactor")).toBeInTheDocument();
   });
 });

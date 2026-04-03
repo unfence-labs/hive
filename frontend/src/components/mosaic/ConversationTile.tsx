@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from "react";
-import { ArrowUpRight, EyeOff, Plus } from "lucide-react";
+import { ArrowUpRight, EyeOff } from "lucide-react";
 import { useConversation } from "@/hooks/useConversation";
-import { useSessions } from "@/hooks/useSessions";
 import { useSessionMessages } from "@/hooks/useSessionMessages";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import ChatConversation from "@/components/ChatConversation";
@@ -22,12 +21,11 @@ interface ConversationTileProps {
   wsId: string;
   workspace: Workspace;
   pinnedSessionId?: string;
+  sessionTitle?: string;
   projectLabel?: string;
   onJumpOut: (wsId: string) => void;
-  onHide?: (wsId: string) => void;
-  /** Called when "+" is clicked. Receives the current active sessionId to pin as read-only. */
-  onAddTile?: (sessionIdToPin: string) => void;
-  onNeedsInputChange?: (wsId: string, needsInput: boolean) => void;
+  onHide?: () => void;
+  onNeedsInputChange?: (tileId: string, needsInput: boolean) => void;
   onHeaderPointerDown?: (e: React.PointerEvent) => void;
   isDragSource?: boolean;
   className?: string;
@@ -38,10 +36,10 @@ export function ConversationTile({
   wsId,
   workspace,
   pinnedSessionId,
+  sessionTitle,
   projectLabel,
   onJumpOut,
   onHide,
-  onAddTile,
   onNeedsInputChange,
   onHeaderPointerDown,
   isDragSource,
@@ -49,7 +47,6 @@ export function ConversationTile({
   style,
 }: ConversationTileProps) {
   const conversation = useConversation(wsId);
-  const { createSession } = useSessions(wsId);
 
   // Read-only mode: tile is pinned to a specific (non-active) session
   const isReadOnly = !!pinnedSessionId;
@@ -66,6 +63,9 @@ export function ConversationTile({
   const displayBranch = wsLive?.branch || workspace.branch;
   const wsStreaming = isReadOnly ? false : (wsLive?.streaming ?? false);
   const wsUnread = isReadOnly ? false : Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
+
+  // Derive a stable tile ID for callbacks
+  const tileId = pinnedSessionId ? `${wsId}:${pinnedSessionId}` : `${wsId}:${conversation.sessionId ?? ""}`;
 
   const [scrollToBottomTrigger, setScrollToBottomTrigger] = useState(0);
   const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
@@ -87,13 +87,13 @@ export function ConversationTile({
   const hasAskUser = pendingToolInputs.some((p) => p.toolName === "AskUserQuestion");
 
   useEffect(() => {
-    onNeedsInputChange?.(wsId, hasAskUser);
-  }, [wsId, hasAskUser, onNeedsInputChange]);
+    onNeedsInputChange?.(tileId, hasAskUser);
+  }, [tileId, hasAskUser, onNeedsInputChange]);
 
   useEffect(() => {
-    return () => onNeedsInputChange?.(wsId, false);
+    return () => onNeedsInputChange?.(tileId, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsId]);
+  }, [tileId]);
 
   useEffect(() => { setQueuedMessage(null); }, [wsId, conversation.sessionId]);
 
@@ -145,16 +145,6 @@ export function ConversationTile({
     [hasPendingPlan, hasPendingExitPlanInput, conversation],
   );
 
-  // "+" creates a new session, switches to it, pins the old session as read-only
-  const handleNewConversation = useCallback(async () => {
-    if (!onAddTile) return;
-    const oldSessionId = conversation.sessionId;
-    const meta = await createSession();
-    if (!meta || !oldSessionId) return;
-    conversation.switchSession(meta.sessionId);
-    onAddTile(oldSessionId);
-  }, [onAddTile, conversation, createSession]);
-
   return (
     <div
       className={cn(
@@ -188,7 +178,13 @@ export function ConversationTile({
             </>
           )}
           <span className="truncate text-xs font-medium">{workspace.name}</span>
-          {displayBranch && (
+          {sessionTitle && (
+            <>
+              <span className="text-muted-foreground/40">·</span>
+              <span className="truncate text-[10px] text-muted-foreground">{sessionTitle}</span>
+            </>
+          )}
+          {!sessionTitle && displayBranch && (
             <>
               <span className="text-muted-foreground/40">·</span>
               <BranchLabel
@@ -198,25 +194,19 @@ export function ConversationTile({
               />
             </>
           )}
+          {isReadOnly && (
+            <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] font-medium text-muted-foreground">
+              Read-only
+            </span>
+          )}
         </div>
-        {!isReadOnly && onAddTile && (
-          <button
-            type="button"
-            onClick={handleNewConversation}
-            className="shrink-0 rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-muted-foreground"
-            aria-label="New conversation"
-            title="New conversation"
-          >
-            <Plus className="h-3 w-3" />
-          </button>
-        )}
         {onHide && (
           <button
             type="button"
-            onClick={() => onHide(wsId)}
+            onClick={onHide}
             className="shrink-0 rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-muted-foreground"
-            aria-label={`Remove ${workspace.name}`}
-            title="Remove tile"
+            aria-label={`Hide ${workspace.name}`}
+            title="Hide tile"
           >
             <EyeOff className="h-3 w-3" />
           </button>

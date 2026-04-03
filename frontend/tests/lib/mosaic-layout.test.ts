@@ -11,7 +11,7 @@ import {
 
 describe("getLeafIds", () => {
   it("returns single ID from a leaf", () => {
-    expect(getLeafIds({ type: "leaf", wsId: "a" })).toEqual(["a"]);
+    expect(getLeafIds({ type: "leaf", tileId: "a" })).toEqual(["a"]);
   });
 
   it("returns all IDs from a nested tree", () => {
@@ -23,11 +23,11 @@ describe("getLeafIds", () => {
           type: "split",
           direction: "horizontal",
           children: [
-            { type: "leaf", wsId: "a" },
-            { type: "leaf", wsId: "b" },
+            { type: "leaf", tileId: "a" },
+            { type: "leaf", tileId: "b" },
           ],
         },
-        { type: "leaf", wsId: "c" },
+        { type: "leaf", tileId: "c" },
       ],
     };
     expect(getLeafIds(tree)).toEqual(["a", "b", "c"]);
@@ -40,7 +40,7 @@ describe("buildDefaultLayout", () => {
   });
 
   it("returns a leaf for 1 ID", () => {
-    expect(buildDefaultLayout(["a"])).toEqual({ type: "leaf", wsId: "a" });
+    expect(buildDefaultLayout(["a"])).toEqual({ type: "leaf", tileId: "a" });
   });
 
   it("returns a horizontal split for 2 IDs", () => {
@@ -49,8 +49,8 @@ describe("buildDefaultLayout", () => {
       type: "split",
       direction: "horizontal",
       children: [
-        { type: "leaf", wsId: "a" },
-        { type: "leaf", wsId: "b" },
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
       ],
     });
   });
@@ -65,16 +65,16 @@ describe("buildDefaultLayout", () => {
           type: "split",
           direction: "horizontal",
           children: [
-            { type: "leaf", wsId: "a" },
-            { type: "leaf", wsId: "b" },
+            { type: "leaf", tileId: "a" },
+            { type: "leaf", tileId: "b" },
           ],
         },
         {
           type: "split",
           direction: "horizontal",
           children: [
-            { type: "leaf", wsId: "c" },
-            { type: "leaf", wsId: "d" },
+            { type: "leaf", tileId: "c" },
+            { type: "leaf", tileId: "d" },
           ],
         },
       ],
@@ -91,11 +91,11 @@ describe("buildDefaultLayout", () => {
           type: "split",
           direction: "horizontal",
           children: [
-            { type: "leaf", wsId: "a" },
-            { type: "leaf", wsId: "b" },
+            { type: "leaf", tileId: "a" },
+            { type: "leaf", tileId: "b" },
           ],
         },
-        { type: "leaf", wsId: "c" },
+        { type: "leaf", tileId: "c" },
       ],
     });
   });
@@ -108,9 +108,9 @@ describe("buildDefaultLayout with columns=3", () => {
       type: "split",
       direction: "horizontal",
       children: [
-        { type: "leaf", wsId: "a" },
-        { type: "leaf", wsId: "b" },
-        { type: "leaf", wsId: "c" },
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
+        { type: "leaf", tileId: "c" },
       ],
     });
   });
@@ -125,12 +125,12 @@ describe("buildDefaultLayout with columns=3", () => {
           type: "split",
           direction: "horizontal",
           children: [
-            { type: "leaf", wsId: "a" },
-            { type: "leaf", wsId: "b" },
-            { type: "leaf", wsId: "c" },
+            { type: "leaf", tileId: "a" },
+            { type: "leaf", tileId: "b" },
+            { type: "leaf", tileId: "c" },
           ],
         },
-        { type: "leaf", wsId: "d" },
+        { type: "leaf", tileId: "d" },
       ],
     });
   });
@@ -141,14 +141,14 @@ describe("buildDefaultLayout with columns=3", () => {
       type: "split",
       direction: "horizontal",
       children: [
-        { type: "leaf", wsId: "a" },
-        { type: "leaf", wsId: "b" },
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
       ],
     });
   });
 
   it("returns a leaf for 1 ID with columns=3", () => {
-    expect(buildDefaultLayout(["a"], 3)).toEqual({ type: "leaf", wsId: "a" });
+    expect(buildDefaultLayout(["a"], 3)).toEqual({ type: "leaf", tileId: "a" });
   });
 });
 
@@ -158,8 +158,8 @@ describe("applyDrop", () => {
       type: "split",
       direction: "horizontal",
       children: [
-        { type: "leaf", wsId: "a" },
-        { type: "leaf", wsId: "b" },
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
       ],
     };
     const result = applyDrop(tree, "a", "b", "center");
@@ -171,8 +171,8 @@ describe("applyDrop", () => {
       type: "split",
       direction: "vertical",
       children: [
-        { type: "leaf", wsId: "a" },
-        { type: "leaf", wsId: "b" },
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
       ],
     };
     // Drag a to right of b → b should be left, a should be right
@@ -181,8 +181,8 @@ describe("applyDrop", () => {
       type: "split",
       direction: "horizontal",
       children: [
-        { type: "leaf", wsId: "b" },
-        { type: "leaf", wsId: "a" },
+        { type: "leaf", tileId: "b" },
+        { type: "leaf", tileId: "a" },
       ],
     });
   });
@@ -192,8 +192,8 @@ describe("applyDrop", () => {
       type: "split",
       direction: "vertical",
       children: [
-        { type: "leaf", wsId: "a" },
-        { type: "leaf", wsId: "b" },
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
       ],
     };
     const result = applyDrop(tree, "a", "b", "left");
@@ -201,8 +201,8 @@ describe("applyDrop", () => {
       type: "split",
       direction: "horizontal",
       children: [
-        { type: "leaf", wsId: "a" },
-        { type: "leaf", wsId: "b" },
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
       ],
     });
   });
@@ -212,8 +212,8 @@ describe("applyDrop", () => {
       type: "split",
       direction: "horizontal",
       children: [
-        { type: "leaf", wsId: "a" },
-        { type: "leaf", wsId: "b" },
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
       ],
     };
     // Drag a to bottom of b → b on top, a on bottom
@@ -222,8 +222,8 @@ describe("applyDrop", () => {
       type: "split",
       direction: "vertical",
       children: [
-        { type: "leaf", wsId: "b" },
-        { type: "leaf", wsId: "a" },
+        { type: "leaf", tileId: "b" },
+        { type: "leaf", tileId: "a" },
       ],
     });
   });
@@ -242,9 +242,9 @@ describe("applyDrop", () => {
       type: "split",
       direction: "horizontal",
       children: [
-        { type: "leaf", wsId: "a" },
-        { type: "leaf", wsId: "c" },
-        { type: "leaf", wsId: "b" },
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "c" },
+        { type: "leaf", tileId: "b" },
       ],
     });
   });
@@ -255,8 +255,8 @@ describe("applyDrop", () => {
       type: "split",
       direction: "horizontal",
       children: [
-        { type: "leaf", wsId: "a" },
-        { type: "leaf", wsId: "b" },
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
       ],
     };
     const result = applyDrop(tree, "a", "b", "bottom");
@@ -264,8 +264,8 @@ describe("applyDrop", () => {
       type: "split",
       direction: "vertical",
       children: [
-        { type: "leaf", wsId: "b" },
-        { type: "leaf", wsId: "a" },
+        { type: "leaf", tileId: "b" },
+        { type: "leaf", tileId: "a" },
       ],
     });
   });
@@ -275,8 +275,8 @@ describe("applyDrop", () => {
       type: "split",
       direction: "horizontal",
       children: [
-        { type: "leaf", wsId: "a" },
-        { type: "leaf", wsId: "b" },
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
       ],
     };
     expect(applyDrop(tree, "a", "a", "left")).toBe(tree);
@@ -285,7 +285,7 @@ describe("applyDrop", () => {
 
 describe("removeFromLayout", () => {
   it("returns null when removing the only leaf", () => {
-    expect(removeFromLayout({ type: "leaf", wsId: "a" }, "a")).toBeNull();
+    expect(removeFromLayout({ type: "leaf", tileId: "a" }, "a")).toBeNull();
   });
 
   it("returns remaining leaf when removing from 2-tile split", () => {
@@ -293,11 +293,11 @@ describe("removeFromLayout", () => {
       type: "split",
       direction: "horizontal",
       children: [
-        { type: "leaf", wsId: "a" },
-        { type: "leaf", wsId: "b" },
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
       ],
     };
-    expect(removeFromLayout(tree, "a")).toEqual({ type: "leaf", wsId: "b" });
+    expect(removeFromLayout(tree, "a")).toEqual({ type: "leaf", tileId: "b" });
   });
 
   it("cleans up nested splits", () => {
@@ -309,11 +309,11 @@ describe("removeFromLayout", () => {
           type: "split",
           direction: "horizontal",
           children: [
-            { type: "leaf", wsId: "a" },
-            { type: "leaf", wsId: "b" },
+            { type: "leaf", tileId: "a" },
+            { type: "leaf", tileId: "b" },
           ],
         },
-        { type: "leaf", wsId: "c" },
+        { type: "leaf", tileId: "c" },
       ],
     };
     // Remove a → V(b, c)
@@ -322,8 +322,8 @@ describe("removeFromLayout", () => {
       type: "split",
       direction: "vertical",
       children: [
-        { type: "leaf", wsId: "b" },
-        { type: "leaf", wsId: "c" },
+        { type: "leaf", tileId: "b" },
+        { type: "leaf", tileId: "c" },
       ],
     });
   });
@@ -331,13 +331,13 @@ describe("removeFromLayout", () => {
 
 describe("addToLayout", () => {
   it("creates horizontal split from a leaf", () => {
-    const result = addToLayout({ type: "leaf", wsId: "a" }, "b");
+    const result = addToLayout({ type: "leaf", tileId: "a" }, "b");
     expect(result).toEqual({
       type: "split",
       direction: "horizontal",
       children: [
-        { type: "leaf", wsId: "a" },
-        { type: "leaf", wsId: "b" },
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
       ],
     });
   });
@@ -347,8 +347,8 @@ describe("addToLayout", () => {
       type: "split",
       direction: "horizontal",
       children: [
-        { type: "leaf", wsId: "a" },
-        { type: "leaf", wsId: "b" },
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
       ],
     };
     const result = addToLayout(tree, "c");
