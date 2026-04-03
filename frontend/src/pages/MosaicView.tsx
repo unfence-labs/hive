@@ -1,11 +1,11 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Group, Panel } from "react-resizable-panels";
-import { ArrowLeft, CircleAlert, Pencil, Plus } from "lucide-react";
+import { ArrowLeft, CircleAlert, Columns2Icon, Columns3Icon, Pencil, Plus } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import { useAllSessions, type SessionTile } from "@/hooks/useAllSessions";
-import { useMosaicSessions, parseTileId } from "@/hooks/useMosaicSessions";
+import { useMosaicSessions, isMosaicFirstEntry, parseTileId } from "@/hooks/useMosaicSessions";
 import { api } from "@/hooks/useApi";
 import { useQueryClient } from "@tanstack/react-query";
 import { ConversationTile } from "@/components/mosaic/ConversationTile";
@@ -21,8 +21,6 @@ import {
   buildDefaultLayout,
   applyDrop,
   removeFromLayout,
-  addToLayout,
-  insertNextTo,
   getDropZone,
 } from "@/lib/mosaic-layout";
 import type { Workspace, SessionMetadata } from "@/types";
@@ -34,7 +32,16 @@ interface WorkspaceWithProject extends Workspace {
 }
 
 const LAYOUT_KEY = "hive-mosaic-layout";
-const COLUMNS = 2;
+const COLUMNS_KEY = "hive-mosaic-columns";
+
+function loadColumns(): 2 | 3 {
+  const v = localStorage.getItem(COLUMNS_KEY);
+  return v === "3" ? 3 : 2;
+}
+
+function saveColumns(c: 2 | 3) {
+  localStorage.setItem(COLUMNS_KEY, String(c));
+}
 
 function loadLayout(): MosaicNode | null {
   try {
@@ -53,10 +60,18 @@ export default function MosaicView() {
   const navigate = useNavigate();
   const { projects } = useProjects();
   const liveData = useWorkspaceLiveDataContext();
-  const { hiddenIds, isHidden, toggleSession, setHiddenIds } = useMosaicSessions();
+  const { selectedIds, atMax, toggleSession, selectSession, deselectSession, setSelectedIds } = useMosaicSessions();
   const queryClient = useQueryClient();
 
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [columns, setColumnsRaw] = useState<2 | 3>(loadColumns);
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
+
+  const setColumns = useCallback((c: 2 | 3) => {
+    setColumnsRaw(c);
+    saveColumns(c);
+  }, []);
 
   // ── Responsive narrow viewport detection ──────────────────────────
   const [isNarrow, setIsNarrow] = useState(
@@ -107,33 +122,72 @@ export default function MosaicView() {
     return map;
   }, [allSessions]);
 
-  // Derive visible tile IDs (all sessions minus hidden)
-  const visibleTileIds = useMemo(
-    () => allSessions.filter((s) => !isHidden(s.tileId)).map((s) => s.tileId),
-    [allSessions, isHidden],
-  );
+  // Derive visible tile IDs (selected sessions, filtered to valid ones)
+  const visibleTileIds = useMemo(() => {
+    const validSet = new Set(allSessions.map((s) => s.tileId));
+    return selectedIds.filter((id) => validSet.has(id));
+  }, [allSessions, selectedIds]);
 
-  // Garbage-collect stale hidden IDs (sessions that no longer exist)
+  // Garbage-collect stale selected IDs (sessions that no longer exist)
   useEffect(() => {
     if (allSessions.length === 0) return;
     const validTileIds = new Set(allSessions.map((s) => s.tileId));
-    const stale = hiddenIds.filter((id) => !validTileIds.has(id));
+    const stale = selectedIds.filter((id) => !validTileIds.has(id));
     if (stale.length > 0) {
-      setHiddenIds(hiddenIds.filter((id) => validTileIds.has(id)));
+      setSelectedIds(selectedIds.filter((id) => validTileIds.has(id)));
     }
-  }, [allSessions, hiddenIds, setHiddenIds]);
+  }, [allSessions, selectedIds, setSelectedIds]);
+
+  // Auto-populate on first entry: select up to 4 streaming sessions, or most recently active
+  const autoPopulatedRef = useRef(false);
+  useEffect(() => {
+    if (autoPopulatedRef.current) return;
+    if (allSessions.length === 0) return;
+    if (!isMosaicFirstEntry()) return;
+
+    autoPopulatedRef.current = true;
+
+    // Prefer streaming sessions
+    const streaming = allSessions.filter((s) => {
+      const wsLive = liveData[s.wsId];
+      return wsLive?.streaming || wsLive?.streamingSessions?.[s.session.sessionId];
+    });
+
+    if (streaming.length > 0) {
+      setSelectedIds(streaming.slice(0, 4).map((s) => s.tileId));
+      return;
+    }
+
+    // Fallback: most recently active (by createdAt descending)
+    const sorted = [...allSessions].sort(
+      (a, b) => new Date(b.session.createdAt).getTime() - new Date(a.session.createdAt).getTime(),
+    );
+    setSelectedIds(sorted.slice(0, 4).map((s) => s.tileId));
+  }, [allSessions, liveData, setSelectedIds]);
+
+  // Pad visible tile IDs with empty sentinels to fill grid capacity (max 4)
+  const MAX_TILES = 4;
+  const paddedTileIds = useMemo(() => {
+    const ids = [...visibleTileIds];
+    for (let i = ids.length; i < MAX_TILES; i++) {
+      ids.push(`__empty_${i}`);
+    }
+    return ids;
+  }, [visibleTileIds]);
+
+  const isEmptySlot = (id: string) => id.startsWith("__empty_");
 
   // ── Layout tree ──────────────────────────────────────────────────
   const [layout, setLayoutRaw] = useState<MosaicNode | null>(() => {
     const stored = loadLayout();
-    if (stored && visibleTileIds.length > 0) {
-      const storedIds = new Set(getLeafIds(stored));
+    if (stored && paddedTileIds.length > 0) {
+      const storedLeafs = getLeafIds(stored).filter((id) => !isEmptySlot(id));
       const visibleSet = new Set(visibleTileIds);
-      if (storedIds.size === visibleSet.size && [...storedIds].every((id) => visibleSet.has(id))) {
+      if (storedLeafs.length === visibleSet.size && storedLeafs.every((id) => visibleSet.has(id))) {
         return stored;
       }
     }
-    return buildDefaultLayout(visibleTileIds, COLUMNS);
+    return buildDefaultLayout(paddedTileIds, columns);
   });
 
   const layoutRef = useRef(layout);
@@ -144,62 +198,28 @@ export default function MosaicView() {
     saveLayout(l);
   }, []);
 
-  // Pending insertion: when a new session is created, insert it next to the source tile
-  const insertNextToRef = useRef<{ newTileId: string; nextToTileId: string } | null>(null);
-
-  // Incremental layout sync when visibleTileIds change
-  const prevVisibleRef = useRef<string[]>(visibleTileIds);
+  // Rebuild layout when padded tile IDs change (selection add/remove)
+  const prevPaddedRef = useRef<string[]>(paddedTileIds);
   useEffect(() => {
-    const prev = prevVisibleRef.current;
-    const next = visibleTileIds;
+    const prev = prevPaddedRef.current;
+    const next = paddedTileIds;
 
     if (JSON.stringify(prev) === JSON.stringify(next)) return;
-    prevVisibleRef.current = next;
+    prevPaddedRef.current = next;
 
-    if (next.length === 0) {
-      setLayout(null);
-      return;
-    }
+    // Rebuild from scratch — empty slots make incremental updates fragile
+    setLayout(buildDefaultLayout(next, columnsRef.current));
+  }, [paddedTileIds, setLayout]);
 
-    // No existing layout → build from scratch
-    if (!layoutRef.current) {
-      setLayout(buildDefaultLayout(next, COLUMNS));
-      return;
-    }
+  // Rebuild layout when columns change
+  const prevColumnsRef = useRef(columns);
+  useEffect(() => {
+    if (prevColumnsRef.current === columns) return;
+    prevColumnsRef.current = columns;
+    setLayout(buildDefaultLayout(paddedTileIds, columns));
+  }, [columns, paddedTileIds, setLayout]);
 
-    const prevSet = new Set(prev);
-    const nextSet = new Set(next);
-    const removed = prev.filter((id) => !nextSet.has(id));
-    const added = next.filter((id) => !prevSet.has(id));
-
-    if (removed.length === 0 && added.length === 0) return;
-
-    let tree: MosaicNode | null = layoutRef.current;
-
-    // Remove tiles
-    for (const id of removed) {
-      tree = tree ? removeFromLayout(tree, id) : null;
-    }
-
-    // Add tiles (incremental)
-    if (tree && added.length > 0) {
-      for (const id of added) {
-        const ref = insertNextToRef.current;
-        if (ref && ref.newTileId === id) {
-          tree = insertNextTo(tree, ref.nextToTileId, id);
-          insertNextToRef.current = null;
-        } else {
-          tree = addToLayout(tree, id);
-        }
-      }
-    } else if (!tree) {
-      tree = buildDefaultLayout(next, COLUMNS);
-    }
-
-    setLayout(tree);
-  }, [visibleTileIds, setLayout]);
-
-  const tileCount = layout ? getLeafIds(layout).length : 0;
+  const tileCount = layout ? getLeafIds(layout).filter((id) => !isEmptySlot(id)).length : 0;
 
   // Toolbar summary
   const streamingCount = visibleTileIds.filter((id) => {
@@ -213,30 +233,28 @@ export default function MosaicView() {
     return parsed ? `${parsed.owner}/${parsed.repo}` : ws.projectName;
   };
 
-  // ── Hide tile ──
-  const handleHide = useCallback(
+  // ── Remove tile from mosaic ──
+  const handleRemove = useCallback(
     (tileId: string) => {
-      toggleSession(tileId);
+      deselectSession(tileId);
       setLayout((layoutRef.current ? removeFromLayout(layoutRef.current, tileId) : null));
     },
-    [toggleSession, setLayout],
+    [deselectSession, setLayout],
   );
 
-  // ── New session for a workspace (insert to the right of the source tile) ──
+  // ── New session for a workspace ──
   const handleNewSession = useCallback(
-    async (wsId: string, sourceTileId: string) => {
+    async (wsId: string, _sourceTileId: string) => {
       try {
         const meta = await api.post<SessionMetadata>(`/api/workspaces/${wsId}/sessions`);
-        insertNextToRef.current = {
-          newTileId: `${wsId}:${meta.sessionId}`,
-          nextToTileId: sourceTileId,
-        };
+        const newTileId = `${wsId}:${meta.sessionId}`;
+        selectSession(newTileId);
         queryClient.invalidateQueries({ queryKey: ["sessions", wsId] });
       } catch {
         // ignore — session creation can fail if workspace is busy
       }
     },
-    [queryClient],
+    [queryClient, selectSession],
   );
 
   // ── Close (delete) a session ──
@@ -267,6 +285,7 @@ export default function MosaicView() {
 
   const startTileDrag = useCallback((e: React.PointerEvent, tileId: string) => {
     if (e.button !== 0) return;
+    if (isEmptySlot(tileId)) return;
     if ((e.target as HTMLElement).closest("button")) return;
     e.preventDefault();
     setDragTileId(tileId);
@@ -340,7 +359,22 @@ export default function MosaicView() {
   }, [dragTileId]);
 
   // ── Render helpers ────────────────────────────────────────────────
+  function renderEmptySlot() {
+    return (
+      <button
+        type="button"
+        onClick={() => setPickerOpen(true)}
+        className="flex h-full w-full flex-col items-center justify-center gap-2 border-2 border-dashed border-border/60 bg-background transition-colors hover:border-primary/40 hover:bg-muted/30"
+      >
+        <Plus className="h-5 w-5 text-muted-foreground/50" />
+        <span className="text-xs text-muted-foreground/50">Add workspace</span>
+      </button>
+    );
+  }
+
   function renderTile(tileId: string) {
+    if (isEmptySlot(tileId)) return renderEmptySlot();
+
     const tile = tileByTileId.get(tileId);
     if (!tile) return null;
 
@@ -366,7 +400,7 @@ export default function MosaicView() {
           sessionTitle={sessionTitle}
           projectLabel={getProjectLabel(ws)}
           onJumpOut={(id) => navigate(`/workspaces/${id}`, { state: { fromMosaic: true } })}
-          onHide={tileCount > 1 ? () => handleHide(tileId) : undefined}
+          onHide={tileCount > 1 ? () => handleRemove(tileId) : undefined}
           onClose={sessionId ? () => handleCloseSession(wsId, sessionId) : undefined}
           onNewSession={(id: string) => handleNewSession(id, tileId)}
           onNeedsInputChange={handleNeedsInputChange}
@@ -445,12 +479,24 @@ export default function MosaicView() {
           )}
         </div>
 
+        {/* Layout toggle */}
+        <button
+          type="button"
+          onClick={() => setColumns(columns === 2 ? 3 : 2)}
+          className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          aria-label={`Switch to ${columns === 2 ? 3 : 2} columns`}
+          title={`${columns === 2 ? 3 : 2}-column layout`}
+        >
+          {columns === 2 ? <Columns3Icon className="h-3.5 w-3.5" /> : <Columns2Icon className="h-3.5 w-3.5" />}
+        </button>
+
         {/* Edit button (session picker) */}
         <SessionPicker
           open={pickerOpen}
           onOpenChange={setPickerOpen}
           sessions={allSessions}
-          hiddenIds={hiddenIds}
+          selectedIds={selectedIds}
+          atMax={atMax}
           onToggle={toggleSession}
         >
           <button
@@ -464,23 +510,21 @@ export default function MosaicView() {
       </div>
 
       {/* ── Grid ────────────────────────────────────────────────────── */}
-      {!layout ? (
+      {allSessions.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3">
-          <p className="text-sm text-muted-foreground">
-            {allSessions.length === 0
-              ? "No sessions found"
-              : "All sessions are hidden"}
-          </p>
-          {allSessions.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setPickerOpen(true)}
-              className="flex items-center gap-2 text-xs text-primary transition-colors hover:text-primary/80"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Show sessions
-            </button>
-          )}
+          <p className="text-sm text-muted-foreground">No sessions found</p>
+        </div>
+      ) : !layout ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3">
+          <p className="text-sm text-muted-foreground">No sessions selected</p>
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className="flex items-center gap-2 text-xs text-primary transition-colors hover:text-primary/80"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add workspace
+          </button>
         </div>
       ) : isNarrow ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">

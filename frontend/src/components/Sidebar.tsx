@@ -266,6 +266,8 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     }
   };
 
+  const hasStreamingWorkspaces = Object.values(liveData).some((ws) => ws?.streaming);
+
   const headerActions = (
     <TooltipProvider delayDuration={400}>
       <Tooltip>
@@ -274,7 +276,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
             to="/mosaic"
             className={cn(
               "shrink-0 rounded p-1 transition-colors hover:text-sidebar-foreground",
-              pathname === "/mosaic" ? "text-primary" : "text-muted-foreground",
+              pathname === "/mosaic" || hasStreamingWorkspaces ? "text-primary" : "text-muted-foreground",
             )}
             aria-label="Mosaic View"
           >

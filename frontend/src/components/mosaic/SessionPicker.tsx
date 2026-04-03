@@ -4,6 +4,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
@@ -19,7 +25,8 @@ interface SessionPickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   sessions: SessionTile[];
-  hiddenIds: string[];
+  selectedIds: string[];
+  atMax: boolean;
   onToggle: (tileId: string) => void;
   children: ReactNode;
 }
@@ -28,14 +35,15 @@ export function SessionPicker({
   open,
   onOpenChange,
   sessions,
-  hiddenIds,
+  selectedIds,
+  atMax,
   onToggle,
   children,
 }: SessionPickerProps) {
   const { projects } = useProjects();
   const liveData = useWorkspaceLiveDataContext();
 
-  const hiddenSet = useMemo(() => new Set(hiddenIds), [hiddenIds]);
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   // Group sessions by project → workspace
   const grouped = useMemo(() => {
@@ -100,99 +108,121 @@ export function SessionPicker({
         <div className="border-b border-border px-3 py-2.5">
           <p className="text-sm font-medium">Choose sessions</p>
           <p className="text-xs text-muted-foreground">
-            Toggle individual sessions to show or hide in mosaic view.
+            Select up to 4 sessions to display in mosaic view.
           </p>
         </div>
 
         <ScrollArea className="max-h-[420px]">
-          <div className="space-y-4 p-3">
-            {grouped.map((pg) => (
-              <div key={pg.projectId}>
-                <div className="mb-1.5 flex items-center gap-2">
-                  <ProjectAvatar
-                    name={pg.name}
-                    projectId={pg.projectId}
-                    hasFavicon={pg.hasFavicon}
-                    className="h-4 w-4"
-                  />
-                  <span className="text-xs font-semibold lowercase tracking-wider text-muted-foreground">
-                    {pg.label}
-                  </span>
-                </div>
+          <TooltipProvider delayDuration={200}>
+            <div className="space-y-4 p-3">
+              {grouped.map((pg) => (
+                <div key={pg.projectId}>
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <ProjectAvatar
+                      name={pg.name}
+                      projectId={pg.projectId}
+                      hasFavicon={pg.hasFavicon}
+                      className="h-4 w-4"
+                    />
+                    <span className="text-xs font-semibold lowercase tracking-wider text-muted-foreground">
+                      {pg.label}
+                    </span>
+                  </div>
 
-                <div className="space-y-2">
-                  {pg.workspaces.map((wsg) => {
-                    const wsLive = liveData[wsg.wsId];
-                    const displayBranch = wsLive?.branch ?? wsg.branch;
+                  <div className="space-y-2">
+                    {pg.workspaces.map((wsg) => {
+                      const wsLive = liveData[wsg.wsId];
+                      const displayBranch = wsLive?.branch ?? wsg.branch;
 
-                    return (
-                      <div key={wsg.wsId}>
-                        {/* Workspace sub-header */}
-                        <div className="flex items-center gap-1.5 px-2 py-1">
-                          <span className="text-xs font-medium text-foreground/80">
-                            {wsg.wsName}
-                          </span>
-                          {displayBranch && (
-                            <>
-                              <span className="text-muted-foreground/40">·</span>
-                              <BranchLabel
-                                branch={displayBranch}
-                                showIcon={false}
-                                className="truncate text-[10px] text-muted-foreground"
-                              />
-                            </>
-                          )}
-                        </div>
-
-                        {/* Sessions */}
-                        <div className="space-y-0.5">
-                          {wsg.sessions.map((tile, idx) => {
-                            const isVisible = !hiddenSet.has(tile.tileId);
-                            const streaming =
-                              wsLive?.streamingSessions?.[tile.session.sessionId] ?? false;
-
-                            return (
-                              <button
-                                key={tile.tileId}
-                                type="button"
-                                onClick={() => onToggle(tile.tileId)}
-                                className={cn(
-                                  "flex w-full items-center gap-2.5 rounded-md px-2 py-1 text-left transition-colors",
-                                  "hover:bg-muted/50",
-                                )}
-                              >
-                                <Checkbox
-                                  checked={isVisible}
-                                  onCheckedChange={() => onToggle(tile.tileId)}
-                                  tabIndex={-1}
-                                  className="pointer-events-none"
+                      return (
+                        <div key={wsg.wsId}>
+                          {/* Workspace sub-header */}
+                          <div className="flex items-center gap-1.5 px-2 py-1">
+                            <span className="text-xs font-medium text-foreground/80">
+                              {wsg.wsName}
+                            </span>
+                            {displayBranch && (
+                              <>
+                                <span className="text-muted-foreground/40">·</span>
+                                <BranchLabel
+                                  branch={displayBranch}
+                                  showIcon={false}
+                                  className="truncate text-[10px] text-muted-foreground"
                                 />
+                              </>
+                            )}
+                          </div>
 
-                                <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                                  <span className="truncate text-xs">
-                                    {tile.session.title || `Session ${idx + 1}`}
-                                  </span>
-                                  {tile.isActive && (
-                                    <span className="shrink-0 rounded bg-primary/15 px-1 py-0.5 text-[9px] font-medium text-primary">
-                                      Active
-                                    </span>
+                          {/* Sessions */}
+                          <div className="space-y-0.5">
+                            {wsg.sessions.map((tile, idx) => {
+                              const isChecked = selectedSet.has(tile.tileId);
+                              const isDisabled = !isChecked && atMax;
+                              const streaming =
+                                wsLive?.streamingSessions?.[tile.session.sessionId] ?? false;
+
+                              const button = (
+                                <button
+                                  key={tile.tileId}
+                                  type="button"
+                                  onClick={() => !isDisabled && onToggle(tile.tileId)}
+                                  disabled={isDisabled}
+                                  className={cn(
+                                    "flex w-full items-center gap-2.5 rounded-md px-2 py-1 text-left transition-colors",
+                                    isDisabled
+                                      ? "cursor-not-allowed opacity-50"
+                                      : "hover:bg-muted/50",
                                   )}
-                                </div>
+                                >
+                                  <Checkbox
+                                    checked={isChecked}
+                                    onCheckedChange={() => !isDisabled && onToggle(tile.tileId)}
+                                    tabIndex={-1}
+                                    disabled={isDisabled}
+                                    className="pointer-events-none"
+                                  />
 
-                                {streaming && (
-                                  <AgentActivityPreview size="small" />
-                                )}
-                              </button>
-                            );
-                          })}
+                                  <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                                    <span className="truncate text-xs">
+                                      {tile.session.title || `Session ${idx + 1}`}
+                                    </span>
+                                    {tile.isActive && (
+                                      <span className="shrink-0 rounded bg-primary/15 px-1 py-0.5 text-[9px] font-medium text-primary">
+                                        Active
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {streaming && (
+                                    <AgentActivityPreview size="small" />
+                                  )}
+                                </button>
+                              );
+
+                              if (isDisabled) {
+                                return (
+                                  <Tooltip key={tile.tileId}>
+                                    <TooltipTrigger asChild>
+                                      <span>{button}</span>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="left">
+                                      Maximum 4 sessions
+                                    </TooltipContent>
+                                  </Tooltip>
+                                );
+                              }
+
+                              return button;
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </TooltipProvider>
         </ScrollArea>
       </PopoverContent>
     </Popover>
