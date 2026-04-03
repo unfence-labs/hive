@@ -4,6 +4,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
@@ -54,6 +55,7 @@ export function WorkspacePicker({
         </div>
 
         <ScrollArea className="max-h-[360px]">
+          <TooltipProvider delayDuration={400}>
           <div className="space-y-4 p-3">
             {projects.map((project) => {
               const workspaces = project.workspaces ?? [];
@@ -86,7 +88,7 @@ export function WorkspacePicker({
                       const displayBranch = wsLive?.branch ?? ws.branch;
                       const disabled = !isSelected && atMax;
 
-                      return (
+                      const btn = (
                         <button
                           key={ws.id}
                           type="button"
@@ -95,9 +97,8 @@ export function WorkspacePicker({
                           className={cn(
                             "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors",
                             "hover:bg-muted/50",
-                            disabled && "cursor-not-allowed opacity-40",
+                            disabled && "pointer-events-none opacity-40",
                           )}
-                          title={disabled ? `Maximum ${MAX_MOSAIC} workspaces` : undefined}
                         >
                           <Checkbox
                             checked={isSelected}
@@ -126,12 +127,28 @@ export function WorkspacePicker({
                           )}
                         </button>
                       );
+
+                      if (disabled) {
+                        return (
+                          <Tooltip key={ws.id}>
+                            <TooltipTrigger asChild>
+                              <span className="block w-full cursor-not-allowed">{btn}</span>
+                            </TooltipTrigger>
+                            <TooltipContent side="right">
+                              Maximum {MAX_MOSAIC} workspaces
+                            </TooltipContent>
+                          </Tooltip>
+                        );
+                      }
+
+                      return btn;
                     })}
                   </div>
                 </div>
               );
             })}
           </div>
+          </TooltipProvider>
         </ScrollArea>
       </PopoverContent>
     </Popover>
