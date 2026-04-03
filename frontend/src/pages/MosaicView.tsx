@@ -1,16 +1,17 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Group, Panel } from "react-resizable-panels";
-import { ArrowLeft, CircleAlert, Columns2, Columns3, Pencil, Plus } from "lucide-react";
+import { ArrowLeft, CircleAlert, Pencil, Plus } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import { useAllSessions, type SessionTile } from "@/hooks/useAllSessions";
 import { useMosaicSessions, parseTileId } from "@/hooks/useMosaicSessions";
+import { api } from "@/hooks/useApi";
+import { useQueryClient } from "@tanstack/react-query";
 import { ConversationTile } from "@/components/mosaic/ConversationTile";
 import { SessionPicker } from "@/components/mosaic/SessionPicker";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
-import { parseProjectOwnerRepo } from "@/components/Sidebar";
 import { cn } from "@/lib/utils";
 import {
   type MosaicNode,
@@ -23,14 +24,13 @@ import {
 } from "@/lib/mosaic-layout";
 import type { Workspace } from "@/types";
 
+// Extend Workspace with project ID for lookup
 interface WorkspaceWithProject extends Workspace {
   projectId: string;
-  projectUrl: string;
-  projectName: string;
 }
 
 const LAYOUT_KEY = "hive-mosaic-layout";
-const COLUMNS_KEY = "hive-mosaic-columns";
+const COLUMNS = 2;
 
 function loadLayout(): MosaicNode | null {
   try {
@@ -50,12 +50,9 @@ export default function MosaicView() {
   const { projects } = useProjects();
   const liveData = useWorkspaceLiveDataContext();
   const { hiddenIds, isHidden, toggleSession, setHiddenIds } = useMosaicSessions();
+  const queryClient = useQueryClient();
 
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [columns, setColumnsRaw] = useState<2 | 3>(() => {
-    const stored = localStorage.getItem(COLUMNS_KEY);
-    return stored === "3" ? 3 : 2;
-  });
 
   // ── Responsive narrow viewport detection ──────────────────────────
   const [isNarrow, setIsNarrow] = useState(
@@ -83,8 +80,6 @@ export default function MosaicView() {
         (p.workspaces ?? []).map((ws) => ({
           ...ws,
           projectId: p.id,
-          projectUrl: p.url,
-          projectName: p.name,
         })),
       ),
     [projects],
@@ -132,11 +127,8 @@ export default function MosaicView() {
         return stored;
       }
     }
-    return buildDefaultLayout(visibleTileIds, columns);
+    return buildDefaultLayout(visibleTileIds, COLUMNS);
   });
-
-  const columnsRef = useRef(columns);
-  columnsRef.current = columns;
 
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
@@ -159,7 +151,7 @@ export default function MosaicView() {
     }
 
     // Always rebuild to match current visible set
-    setLayout(buildDefaultLayout(visibleTileIds, columnsRef.current));
+    setLayout(buildDefaultLayout(visibleTileIds, COLUMNS));
   }, [visibleTileIds, setLayout]);
 
   const tileCount = layout ? getLeafIds(layout).length : 0;
@@ -171,21 +163,6 @@ export default function MosaicView() {
   }).length;
   const needsInputCount = Object.values(needsInputMap).filter(Boolean).length;
 
-  // Project label for a workspace
-  const getProjectLabel = (ws: WorkspaceWithProject) => {
-    const parsed = parseProjectOwnerRepo(ws.projectUrl);
-    return parsed ? `${parsed.owner}/${parsed.repo}` : ws.projectName;
-  };
-
-  const handleColumnsChange = useCallback(
-    (cols: 2 | 3) => {
-      setColumnsRaw(cols);
-      localStorage.setItem(COLUMNS_KEY, String(cols));
-      setLayout(buildDefaultLayout(visibleTileIds, cols));
-    },
-    [visibleTileIds, setLayout],
-  );
-
   // ── Hide tile ──
   const handleHide = useCallback(
     (tileId: string) => {
@@ -193,6 +170,19 @@ export default function MosaicView() {
       setLayout((layoutRef.current ? removeFromLayout(layoutRef.current, tileId) : null));
     },
     [toggleSession, setLayout],
+  );
+
+  // ── New session for a workspace ──
+  const handleNewSession = useCallback(
+    async (wsId: string) => {
+      try {
+        await api.post(`/api/workspaces/${wsId}/sessions`);
+        queryClient.invalidateQueries({ queryKey: ["sessions", wsId] });
+      } catch {
+        // ignore — session creation can fail if workspace is busy
+      }
+    },
+    [queryClient],
   );
 
   // ── Tile drag state ───────────────────────────────────────────────
@@ -308,9 +298,9 @@ export default function MosaicView() {
           workspace={ws}
           pinnedSessionId={pinnedSessionId}
           sessionTitle={sessionTitle}
-          projectLabel={getProjectLabel(ws)}
           onJumpOut={(id) => navigate(`/workspaces/${id}`, { state: { fromMosaic: true } })}
           onHide={tileCount > 1 ? () => handleHide(tileId) : undefined}
+          onNewSession={tile.isActive ? handleNewSession : undefined}
           onNeedsInputChange={handleNeedsInputChange}
           onHeaderPointerDown={isNarrow ? undefined : (e) => startTileDrag(e, tileId)}
           isDragSource={isSource}
@@ -387,34 +377,6 @@ export default function MosaicView() {
           )}
         </div>
 
-        {/* Layout toggle */}
-        <div className="flex items-center rounded-md border border-border p-0.5">
-          <button
-            type="button"
-            onClick={() => handleColumnsChange(2)}
-            className={cn(
-              "flex items-center gap-1 rounded px-1.5 py-0.5 text-xs transition-colors",
-              columns === 2 ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
-            )}
-            aria-label="2 columns"
-          >
-            <Columns2 className="h-3 w-3" />
-            <span>2</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleColumnsChange(3)}
-            className={cn(
-              "flex items-center gap-1 rounded px-1.5 py-0.5 text-xs transition-colors",
-              columns === 3 ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
-            )}
-            aria-label="3 columns"
-          >
-            <Columns3 className="h-3 w-3" />
-            <span>3</span>
-          </button>
-        </div>
-
         {/* Edit button (session picker) */}
         <SessionPicker
           open={pickerOpen}
@@ -478,7 +440,7 @@ export default function MosaicView() {
         >
           <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs shadow-xl">
             <div className="h-2 w-2 shrink-0 rounded-full bg-primary" />
-            <span className="font-medium">{draggedWs.name}</span>
+            <span className="font-medium">{liveData[draggedWs.id]?.branch ?? draggedWs.branch}</span>
             {draggedTile?.session.title && (
               <>
                 <span className="text-muted-foreground/40">·</span>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from "react";
-import { ArrowUpRight, EyeOff } from "lucide-react";
+import { ArrowUpRight, EyeOff, Plus } from "lucide-react";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessionMessages } from "@/hooks/useSessionMessages";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
@@ -22,9 +22,9 @@ interface ConversationTileProps {
   workspace: Workspace;
   pinnedSessionId?: string;
   sessionTitle?: string;
-  projectLabel?: string;
   onJumpOut: (wsId: string) => void;
   onHide?: () => void;
+  onNewSession?: (wsId: string) => void;
   onNeedsInputChange?: (tileId: string, needsInput: boolean) => void;
   onHeaderPointerDown?: (e: React.PointerEvent) => void;
   isDragSource?: boolean;
@@ -37,9 +37,9 @@ export function ConversationTile({
   workspace,
   pinnedSessionId,
   sessionTitle,
-  projectLabel,
   onJumpOut,
   onHide,
+  onNewSession,
   onNeedsInputChange,
   onHeaderPointerDown,
   isDragSource,
@@ -171,27 +171,17 @@ export function ConversationTile({
           ) : (
             <div className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/40" />
           )}
-          {projectLabel && (
-            <>
-              <span className="shrink-0 text-[10px] text-muted-foreground/60">{projectLabel}</span>
-              <span className="text-muted-foreground/30">/</span>
-            </>
+          {displayBranch && (
+            <BranchLabel
+              branch={displayBranch}
+              showIcon={false}
+              className="shrink-0 text-xs font-medium truncate"
+            />
           )}
-          <span className="truncate text-xs font-medium">{workspace.name}</span>
           {sessionTitle && (
             <>
               <span className="text-muted-foreground/40">·</span>
-              <span className="truncate text-[10px] text-muted-foreground">{sessionTitle}</span>
-            </>
-          )}
-          {!sessionTitle && displayBranch && (
-            <>
-              <span className="text-muted-foreground/40">·</span>
-              <BranchLabel
-                branch={displayBranch}
-                showIcon={false}
-                className="text-xs text-muted-foreground truncate"
-              />
+              <span className="truncate text-xs text-muted-foreground">{sessionTitle}</span>
             </>
           )}
           {isReadOnly && (
@@ -200,6 +190,17 @@ export function ConversationTile({
             </span>
           )}
         </div>
+        {!isReadOnly && onNewSession && (
+          <button
+            type="button"
+            onClick={() => onNewSession(wsId)}
+            className="shrink-0 rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-muted-foreground"
+            aria-label="New conversation"
+            title="New conversation"
+          >
+            <Plus className="h-3 w-3" />
+          </button>
+        )}
         {onHide && (
           <button
             type="button"

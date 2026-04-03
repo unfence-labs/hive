@@ -146,9 +146,8 @@ describe("ConversationTile", () => {
     liveDataRef = {};
   });
 
-  it("renders workspace name and branch", () => {
+  it("renders branch in header", () => {
     renderTile({ liveData: { "ws-1": { branch: "feat/auth" } } });
-    expect(screen.getByText("denver")).toBeInTheDocument();
     expect(screen.getByTestId("branch-label")).toHaveTextContent("feat/auth");
   });
 
