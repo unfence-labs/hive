@@ -126,17 +126,28 @@ export default function MosaicView() {
     }
   }, [selectedIds, wsById, allWorkspaces.length, setSelectedIds]);
 
+  // ── Pad with empty slot sentinels ──────────────────────────────────
+  const paddedIds = useMemo(() => {
+    if (selectedIds.length === 0) return [];
+    const ids = [...selectedIds];
+    const targetSize = Math.min(MAX_MOSAIC, columns * Math.ceil(ids.length / columns));
+    for (let i = ids.length; i < targetSize; i++) ids.push(`__empty_${i}`);
+    return ids;
+  }, [selectedIds, columns]);
+
+  const isEmptySlot = (id: string) => id.startsWith("__empty");
+
   // ── Layout tree ──────────────────────────────────────────────────
   const [layout, setLayoutRaw] = useState<MosaicNode | null>(() => {
     const stored = loadLayout();
-    if (stored && selectedIds.length > 0) {
-      const storedSet = new Set(getLeafIds(stored));
-      const selSet = new Set(selectedIds);
-      if (storedSet.size === selSet.size && [...storedSet].every((id) => selSet.has(id))) {
+    if (stored && paddedIds.length > 0) {
+      const storedReal = new Set(getLeafIds(stored).filter((id) => !isEmptySlot(id)));
+      const selReal = new Set(selectedIds);
+      if (storedReal.size === selReal.size && [...storedReal].every((id) => selReal.has(id))) {
         return stored;
       }
     }
-    return buildDefaultLayout(selectedIds, columns);
+    return buildDefaultLayout(paddedIds, columns);
   });
 
   const columnsRef = useRef(columns);
@@ -151,38 +162,39 @@ export default function MosaicView() {
   }, []);
 
   // Sync layout when selectedIds change (picker / auto-populate / stale cleanup)
-  const prevSelectedJson = useRef(JSON.stringify(selectedIds));
+  const prevPaddedJson = useRef(JSON.stringify(paddedIds));
   useEffect(() => {
-    const json = JSON.stringify(selectedIds);
-    if (prevSelectedJson.current === json) return;
-    prevSelectedJson.current = json;
+    const json = JSON.stringify(paddedIds);
+    if (prevPaddedJson.current === json) return;
+    prevPaddedJson.current = json;
 
-    if (selectedIds.length === 0) {
+    if (paddedIds.length === 0) {
       setLayout(null);
       return;
     }
 
-    const currentIds = layoutRef.current ? new Set(getLeafIds(layoutRef.current)) : new Set<string>();
-    const newIds = new Set(selectedIds);
-    if (currentIds.size === newIds.size && [...currentIds].every((id) => newIds.has(id))) return;
-
-    const added = selectedIds.filter((id) => !currentIds.has(id));
-    const removed = [...currentIds].filter((id) => !newIds.has(id));
-
-    if (layoutRef.current && removed.length > 0 && added.length === 0) {
-      let next: MosaicNode | null = layoutRef.current;
-      for (const id of removed) next = next ? removeFromLayout(next, id) : null;
-      setLayout(next);
-    } else if (layoutRef.current && added.length > 0 && removed.length === 0) {
-      let next: MosaicNode = layoutRef.current;
-      for (const id of added) next = addToLayout(next, id);
-      setLayout(next);
+    const currentReal = layoutRef.current
+      ? new Set(getLeafIds(layoutRef.current).filter((id) => !isEmptySlot(id)))
+      : new Set<string>();
+    const newReal = new Set(selectedIds);
+    if (currentReal.size === newReal.size && [...currentReal].every((id) => newReal.has(id))) {
+      // Real IDs unchanged but padding may have changed — rebuild with new padding
     } else {
-      setLayout(buildDefaultLayout(selectedIds, columnsRef.current));
-    }
-  }, [selectedIds, setLayout]);
+      // Real tile additions/removals — try incremental update
+      const added = selectedIds.filter((id) => !currentReal.has(id));
+      const removed = [...currentReal].filter((id) => !newReal.has(id));
 
-  const tileCount = layout ? getLeafIds(layout).length : 0;
+      if (layoutRef.current && removed.length > 0 && added.length === 0) {
+        let next: MosaicNode | null = layoutRef.current;
+        for (const id of removed) next = next ? removeFromLayout(next, id) : null;
+        // Fall through to rebuild with padding below
+      }
+    }
+    // Always rebuild with correct padding
+    setLayout(buildDefaultLayout(paddedIds, columnsRef.current));
+  }, [paddedIds, selectedIds, setLayout]);
+
+  const tileCount = layout ? getLeafIds(layout).filter((id) => !isEmptySlot(id)).length : 0;
 
   // Toolbar summary
   const streamingCount = selectedIds.filter((id) => liveData[parseTileId(id).wsId]?.streaming).length;
@@ -198,7 +210,11 @@ export default function MosaicView() {
     (cols: 2 | 3) => {
       setColumnsRaw(cols);
       localStorage.setItem(COLUMNS_KEY, String(cols));
-      setLayout(buildDefaultLayout(selectedIds, cols));
+      // Compute padded IDs for the new column count
+      const ids = [...selectedIds];
+      const target = Math.min(MAX_MOSAIC, cols * Math.ceil(Math.max(ids.length, 1) / cols));
+      for (let i = ids.length; i < target; i++) ids.push(`__empty_${i}`);
+      setLayout(buildDefaultLayout(ids, cols));
     },
     [selectedIds, setLayout],
   );
@@ -270,7 +286,7 @@ export default function MosaicView() {
       let found: { wsId: string; zone: DropZone } | null = null;
       for (const tile of tiles) {
         const wsId = tile.getAttribute("data-tile-wsid");
-        if (!wsId || wsId === dragWsIdRef.current) continue;
+        if (!wsId || wsId === dragWsIdRef.current || wsId.startsWith("__empty")) continue;
         const rect = tile.getBoundingClientRect();
         if (
           e.clientX >= rect.left && e.clientX <= rect.right &&
@@ -309,6 +325,19 @@ export default function MosaicView() {
 
   // ── Render helpers ────────────────────────────────────────────────
   function renderTile(tileId: string) {
+    if (isEmptySlot(tileId)) {
+      return (
+        <button
+          type="button"
+          onClick={() => setPickerOpen(true)}
+          className="flex h-full w-full flex-col items-center justify-center gap-2 border border-dashed border-border/60 bg-background"
+        >
+          <Plus className="h-5 w-5 text-muted-foreground/40" />
+          <span className="text-xs text-muted-foreground/50">Add workspace</span>
+        </button>
+      );
+    }
+
     const { wsId, sessionId } = parseTileId(tileId);
     const ws = wsById.get(wsId);
     if (!ws) return null;
