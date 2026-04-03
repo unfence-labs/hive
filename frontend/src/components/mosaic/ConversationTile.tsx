@@ -12,7 +12,11 @@ import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { BranchLabel } from "@/components/BranchLabel";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
 import { cn } from "@/lib/utils";
-import type { Workspace, QueuedMessage } from "@/types";
+import type { Workspace, QueuedMessage, ToolCall } from "@/types";
+import type { PendingToolInput } from "@/hooks/useConversation";
+
+const EMPTY_TOOL_CALLS: ToolCall[] = [];
+const EMPTY_PENDING_INPUTS: PendingToolInput[] = [];
 
 interface ConversationTileProps {
   wsId: string;
@@ -54,8 +58,8 @@ export function ConversationTile({
   // Choose data source based on mode
   const messages = isReadOnly ? pinnedHistory.messages : conversation.messages;
   const isStreaming = isReadOnly ? false : conversation.isStreaming;
-  const activeToolCalls = isReadOnly ? [] : conversation.activeToolCalls;
-  const pendingToolInputs = isReadOnly ? [] : conversation.pendingToolInputs;
+  const activeToolCalls = isReadOnly ? EMPTY_TOOL_CALLS : conversation.activeToolCalls;
+  const pendingToolInputs = isReadOnly ? EMPTY_PENDING_INPUTS : conversation.pendingToolInputs;
 
   const liveData = useWorkspaceLiveDataContext();
   const wsLive = liveData[wsId];

@@ -18,7 +18,6 @@ import {
   buildDefaultLayout,
   applyDrop,
   removeFromLayout,
-  addToLayout,
   getDropZone,
 } from "@/lib/mosaic-layout";
 import type { Workspace } from "@/types";
