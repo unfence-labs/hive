@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from "react";
 import { ArrowUpRight, EyeOff, Plus } from "lucide-react";
 import { useConversation } from "@/hooks/useConversation";
-import { useSessions } from "@/hooks/useSessions";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import ChatConversation from "@/components/ChatConversation";
 import ChatInput from "@/components/ChatInput";
@@ -19,6 +18,7 @@ interface ConversationTileProps {
   projectLabel?: string;
   onJumpOut: (wsId: string) => void;
   onHide?: (wsId: string) => void;
+  onAddTile?: () => void;
   onNeedsInputChange?: (wsId: string, needsInput: boolean) => void;
   onHeaderPointerDown?: (e: React.PointerEvent) => void;
   isDragSource?: boolean;
@@ -26,7 +26,7 @@ interface ConversationTileProps {
   style?: CSSProperties;
 }
 
-export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onHide, onNeedsInputChange, onHeaderPointerDown, isDragSource, className, style }: ConversationTileProps) {
+export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onHide, onAddTile, onNeedsInputChange, onHeaderPointerDown, isDragSource, className, style }: ConversationTileProps) {
   const {
     messages,
     isStreaming,
@@ -49,11 +49,7 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
     agentPlanMode,
     lockedProvider,
     switchCounter,
-    switchSession,
   } = useConversation(wsId);
-
-  const { sessions, createSession } = useSessions(wsId);
-  const maxSessionsReached = sessions.length >= 4;
 
   const liveData = useWorkspaceLiveDataContext();
   const wsLive = liveData[wsId];
@@ -134,11 +130,6 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
     [hasPendingPlan, hasPendingExitPlanInput, rejectToolInput, sendMessage],
   );
 
-  const handleNewSession = useCallback(async () => {
-    const meta = await createSession();
-    if (meta) switchSession(meta.sessionId);
-  }, [createSession, switchSession]);
-
   return (
     <div
       className={cn(
@@ -183,32 +174,13 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
             </>
           )}
         </div>
-        {sessions.length > 1 && (
-          <div className="flex shrink-0 items-center gap-0.5">
-            {sessions.map((s) => (
-              <button
-                key={s.sessionId}
-                type="button"
-                onClick={() => switchSession(s.sessionId)}
-                className={cn(
-                  "h-1.5 w-1.5 rounded-full transition-colors",
-                  s.sessionId === sessionId
-                    ? "bg-primary"
-                    : "bg-muted-foreground/30 hover:bg-muted-foreground/60",
-                )}
-                aria-label={`Switch to session ${s.sessionId}`}
-                title={s.sessionId === sessionId ? "Current session" : "Switch session"}
-              />
-            ))}
-          </div>
-        )}
-        {!maxSessionsReached && (
+        {onAddTile && (
           <button
             type="button"
-            onClick={handleNewSession}
+            onClick={onAddTile}
             className="shrink-0 rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-muted-foreground"
-            aria-label="New session"
-            title="New session"
+            aria-label="New conversation"
+            title="New conversation"
           >
             <Plus className="h-3 w-3" />
           </button>

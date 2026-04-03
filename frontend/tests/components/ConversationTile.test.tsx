@@ -9,22 +9,10 @@ const mocks = vi.hoisted(() => ({
   answerQuestion: vi.fn(),
   batchAnswerQuestions: vi.fn(),
   rejectToolInput: vi.fn(),
-  switchSession: vi.fn(),
-  createSession: vi.fn(async () => ({ sessionId: "new-sess", createdAt: "2025-01-01" })),
 }));
 
 vi.mock("@/hooks/useConversation", () => ({
   useConversation: mocks.useConversation,
-}));
-
-vi.mock("@/hooks/useSessions", () => ({
-  useSessions: () => ({
-    sessions: [{ sessionId: "sess-1", createdAt: "2025-01-01" }],
-    createSession: mocks.createSession,
-    deleteSession: vi.fn(),
-    loading: false,
-    refresh: vi.fn(),
-  }),
 }));
 
 vi.mock("@/contexts/WorkspaceLiveDataContext", () => ({
@@ -97,7 +85,6 @@ const defaultConversation = {
   agentPlanMode: false,
   lockedProvider: undefined,
   switchCounter: 0,
-  switchSession: mocks.switchSession,
 };
 
 const workspace: Workspace = {
@@ -112,6 +99,7 @@ function renderTile(overrides?: {
   liveData?: Record<string, any>;
   onJumpOut?: () => void;
   onHide?: (wsId: string) => void;
+  onAddTile?: () => void;
   onNeedsInputChange?: (wsId: string, needs: boolean) => void;
   onHeaderPointerDown?: (e: React.PointerEvent) => void;
 }) {
@@ -127,6 +115,7 @@ function renderTile(overrides?: {
       workspace={workspace}
       onJumpOut={overrides?.onJumpOut ?? vi.fn()}
       onHide={overrides?.onHide}
+      onAddTile={overrides?.onAddTile}
       onNeedsInputChange={overrides?.onNeedsInputChange}
       onHeaderPointerDown={overrides?.onHeaderPointerDown}
     />,
@@ -226,11 +215,16 @@ describe("ConversationTile", () => {
     expect(onHide).toHaveBeenCalledWith("ws-1");
   });
 
-  it("new session button creates and switches to a new session", async () => {
+  it("add tile button calls onAddTile when provided", async () => {
     const user = userEvent.setup();
+    const onAddTile = vi.fn();
+    renderTile({ onAddTile });
+    await user.click(screen.getByTitle("New conversation"));
+    expect(onAddTile).toHaveBeenCalled();
+  });
+
+  it("does not show add tile button when onAddTile is not provided", () => {
     renderTile();
-    await user.click(screen.getByTitle("New session"));
-    expect(mocks.createSession).toHaveBeenCalled();
-    expect(mocks.switchSession).toHaveBeenCalledWith("new-sess");
+    expect(screen.queryByTitle("New conversation")).not.toBeInTheDocument();
   });
 });

@@ -46,7 +46,7 @@ function saveLayout(l: MosaicNode | null) {
 
 export default function MosaicView() {
   const navigate = useNavigate();
-  const { projects } = useProjects();
+  const { projects, createWorkspace } = useProjects();
   const liveData = useWorkspaceLiveDataContext();
   const { selectedIds, setSelectedIds, toggleId, removeId } = useMosaicWorkspaces();
 
@@ -195,6 +195,21 @@ export default function MosaicView() {
     [removeId, setLayout],
   );
 
+  // ── Add tile: create a new workspace for the same project ──
+  const handleAddTile = useCallback(
+    async (wsId: string) => {
+      const ws = wsById.get(wsId);
+      if (!ws) return;
+      try {
+        const newWs = await createWorkspace(ws.projectId);
+        toggleId(newWs.id);
+      } catch {
+        // workspace creation failed — ignore silently
+      }
+    },
+    [wsById, createWorkspace, toggleId],
+  );
+
   // ── Tile drag state ───────────────────────────────────────────────
   const [dragWsId, setDragWsId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -298,6 +313,7 @@ export default function MosaicView() {
           projectLabel={getProjectLabel(ws)}
           onJumpOut={(id) => navigate(`/workspaces/${id}`, { state: { fromMosaic: true } })}
           onHide={tileCount > 1 ? () => handleHide(ws.id) : undefined}
+          onAddTile={tileCount < MAX_MOSAIC ? () => handleAddTile(ws.id) : undefined}
           onNeedsInputChange={handleNeedsInputChange}
           onHeaderPointerDown={(e) => startTileDrag(e, ws.id)}
           isDragSource={isSource}
