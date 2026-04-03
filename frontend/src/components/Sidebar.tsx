@@ -272,7 +272,10 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
         <TooltipTrigger asChild>
           <Link
             to="/mosaic"
-            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-sidebar-foreground"
+            className={cn(
+              "shrink-0 rounded p-1 transition-colors hover:text-sidebar-foreground",
+              pathname === "/mosaic" ? "text-primary" : "text-muted-foreground",
+            )}
             aria-label="Mosaic View"
           >
             <LayoutGrid className="h-4 w-4" />
