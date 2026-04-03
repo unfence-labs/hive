@@ -134,10 +134,10 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
     [hasPendingPlan, hasPendingExitPlanInput, rejectToolInput, sendMessage],
   );
 
-  // In mosaic, create session without switching — keeps current conversation visible
   const handleNewSession = useCallback(async () => {
-    await createSession();
-  }, [createSession]);
+    const meta = await createSession();
+    if (meta) switchSession(meta.sessionId);
+  }, [createSession, switchSession]);
 
   return (
     <div
@@ -183,6 +183,25 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
             </>
           )}
         </div>
+        {sessions.length > 1 && (
+          <div className="flex shrink-0 items-center gap-0.5">
+            {sessions.map((s) => (
+              <button
+                key={s.sessionId}
+                type="button"
+                onClick={() => switchSession(s.sessionId)}
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full transition-colors",
+                  s.sessionId === sessionId
+                    ? "bg-primary"
+                    : "bg-muted-foreground/30 hover:bg-muted-foreground/60",
+                )}
+                aria-label={`Switch to session ${s.sessionId}`}
+                title={s.sessionId === sessionId ? "Current session" : "Switch session"}
+              />
+            ))}
+          </div>
+        )}
         {!maxSessionsReached && (
           <button
             type="button"

@@ -226,11 +226,11 @@ describe("ConversationTile", () => {
     expect(onHide).toHaveBeenCalledWith("ws-1");
   });
 
-  it("new session button creates session without switching (mosaic keeps current view)", async () => {
+  it("new session button creates and switches to a new session", async () => {
     const user = userEvent.setup();
     renderTile();
     await user.click(screen.getByTitle("New session"));
     expect(mocks.createSession).toHaveBeenCalled();
-    expect(mocks.switchSession).not.toHaveBeenCalled();
+    expect(mocks.switchSession).toHaveBeenCalledWith("new-sess");
   });
 });
