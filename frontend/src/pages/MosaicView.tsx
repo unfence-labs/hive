@@ -57,6 +57,17 @@ export default function MosaicView() {
     return stored === "3" ? 3 : 2;
   });
 
+  // ── Responsive narrow viewport detection ──────────────────────────
+  const [isNarrow, setIsNarrow] = useState(
+    () => typeof window !== "undefined" && !window.matchMedia("(min-width: 768px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const handler = (e: MediaQueryListEvent) => setIsNarrow(!e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
   // "Needs input" state reported by each tile
   const [needsInputMap, setNeedsInputMap] = useState<Record<string, boolean>>({});
   const handleNeedsInputChange = useCallback((wsId: string, needsInput: boolean) => {
@@ -359,7 +370,7 @@ export default function MosaicView() {
           onHide={tileCount > 1 ? () => handleHide(tileId) : undefined}
           onAddTile={!sessionId && tileCount < MAX_MOSAIC ? (sessionIdToPin) => handleAddTile(wsId, sessionIdToPin) : undefined}
           onNeedsInputChange={handleNeedsInputChange}
-          onHeaderPointerDown={(e) => startTileDrag(e, tileId)}
+          onHeaderPointerDown={isNarrow ? undefined : (e) => startTileDrag(e, tileId)}
           isDragSource={isSource}
           className="h-full"
         />
@@ -490,6 +501,14 @@ export default function MosaicView() {
             <Plus className="h-3.5 w-3.5" />
             Add workspaces
           </button>
+        </div>
+      ) : isNarrow ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          {selectedIds.map((tileId) => (
+            <div key={tileId} className="min-h-[300px] shrink-0 border-b border-border">
+              {renderTile(tileId)}
+            </div>
+          ))}
         </div>
       ) : layout.type === "leaf" ? (
         <div className="flex min-h-0 flex-1">
