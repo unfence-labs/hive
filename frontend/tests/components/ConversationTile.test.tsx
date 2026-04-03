@@ -64,8 +64,8 @@ vi.mock("@/components/BranchLabel", () => ({
   ),
 }));
 
-vi.mock("@/components/ChatInput", () => ({
-  default: () => <div data-testid="chat-input">ChatInput</div>,
+vi.mock("@/components/mosaic/CompactChatInput", () => ({
+  CompactChatInput: () => <div data-testid="compact-chat-input">CompactChatInput</div>,
 }));
 
 vi.mock("@/components/chat/PlanActionBar", () => ({
@@ -163,9 +163,9 @@ describe("ConversationTile", () => {
     expect(screen.getByTestId("chat-conversation")).toHaveAttribute("data-compact", "true");
   });
 
-  it("always shows full ChatInput", () => {
+  it("always shows CompactChatInput", () => {
     renderTile();
-    expect(screen.getByTestId("chat-input")).toBeInTheDocument();
+    expect(screen.getByTestId("compact-chat-input")).toBeInTheDocument();
   });
 
   it("shows activity indicator when streaming", () => {

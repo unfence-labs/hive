@@ -101,6 +101,57 @@ describe("buildDefaultLayout", () => {
   });
 });
 
+describe("buildDefaultLayout with columns=3", () => {
+  it("returns a 3-wide horizontal split for 3 IDs", () => {
+    const layout = buildDefaultLayout(["a", "b", "c"], 3);
+    expect(layout).toEqual({
+      type: "split",
+      direction: "horizontal",
+      children: [
+        { type: "leaf", wsId: "a" },
+        { type: "leaf", wsId: "b" },
+        { type: "leaf", wsId: "c" },
+      ],
+    });
+  });
+
+  it("returns V(H(a,b,c), d) for 4 IDs with columns=3", () => {
+    const layout = buildDefaultLayout(["a", "b", "c", "d"], 3);
+    expect(layout).toEqual({
+      type: "split",
+      direction: "vertical",
+      children: [
+        {
+          type: "split",
+          direction: "horizontal",
+          children: [
+            { type: "leaf", wsId: "a" },
+            { type: "leaf", wsId: "b" },
+            { type: "leaf", wsId: "c" },
+          ],
+        },
+        { type: "leaf", wsId: "d" },
+      ],
+    });
+  });
+
+  it("returns a horizontal split for 2 IDs with columns=3", () => {
+    const layout = buildDefaultLayout(["a", "b"], 3);
+    expect(layout).toEqual({
+      type: "split",
+      direction: "horizontal",
+      children: [
+        { type: "leaf", wsId: "a" },
+        { type: "leaf", wsId: "b" },
+      ],
+    });
+  });
+
+  it("returns a leaf for 1 ID with columns=3", () => {
+    expect(buildDefaultLayout(["a"], 3)).toEqual({ type: "leaf", wsId: "a" });
+  });
+});
+
 describe("applyDrop", () => {
   it("swaps tiles on center drop", () => {
     const tree: MosaicNode = {
