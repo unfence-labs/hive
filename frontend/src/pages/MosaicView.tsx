@@ -21,9 +21,11 @@ import {
   buildDefaultLayout,
   applyDrop,
   removeFromLayout,
+  addToLayout,
+  insertNextTo,
   getDropZone,
 } from "@/lib/mosaic-layout";
-import type { Workspace } from "@/types";
+import type { Workspace, SessionMetadata } from "@/types";
 
 interface WorkspaceWithProject extends Workspace {
   projectId: string;
@@ -142,20 +144,59 @@ export default function MosaicView() {
     saveLayout(l);
   }, []);
 
-  // Sync layout when visibleTileIds change
-  const prevVisibleJson = useRef(JSON.stringify(visibleTileIds));
-  useEffect(() => {
-    const json = JSON.stringify(visibleTileIds);
-    if (prevVisibleJson.current === json) return;
-    prevVisibleJson.current = json;
+  // Pending insertion: when a new session is created, insert it next to the source tile
+  const insertNextToRef = useRef<{ newTileId: string; nextToTileId: string } | null>(null);
 
-    if (visibleTileIds.length === 0) {
+  // Incremental layout sync when visibleTileIds change
+  const prevVisibleRef = useRef<string[]>(visibleTileIds);
+  useEffect(() => {
+    const prev = prevVisibleRef.current;
+    const next = visibleTileIds;
+
+    if (JSON.stringify(prev) === JSON.stringify(next)) return;
+    prevVisibleRef.current = next;
+
+    if (next.length === 0) {
       setLayout(null);
       return;
     }
 
-    // Always rebuild to match current visible set
-    setLayout(buildDefaultLayout(visibleTileIds, COLUMNS));
+    // No existing layout → build from scratch
+    if (!layoutRef.current) {
+      setLayout(buildDefaultLayout(next, COLUMNS));
+      return;
+    }
+
+    const prevSet = new Set(prev);
+    const nextSet = new Set(next);
+    const removed = prev.filter((id) => !nextSet.has(id));
+    const added = next.filter((id) => !prevSet.has(id));
+
+    if (removed.length === 0 && added.length === 0) return;
+
+    let tree: MosaicNode | null = layoutRef.current;
+
+    // Remove tiles
+    for (const id of removed) {
+      tree = tree ? removeFromLayout(tree, id) : null;
+    }
+
+    // Add tiles (incremental)
+    if (tree && added.length > 0) {
+      for (const id of added) {
+        const ref = insertNextToRef.current;
+        if (ref && ref.newTileId === id) {
+          tree = insertNextTo(tree, ref.nextToTileId, id);
+          insertNextToRef.current = null;
+        } else {
+          tree = addToLayout(tree, id);
+        }
+      }
+    } else if (!tree) {
+      tree = buildDefaultLayout(next, COLUMNS);
+    }
+
+    setLayout(tree);
   }, [visibleTileIds, setLayout]);
 
   const tileCount = layout ? getLeafIds(layout).length : 0;
@@ -181,11 +222,15 @@ export default function MosaicView() {
     [toggleSession, setLayout],
   );
 
-  // ── New session for a workspace ──
+  // ── New session for a workspace (insert to the right of the source tile) ──
   const handleNewSession = useCallback(
-    async (wsId: string) => {
+    async (wsId: string, sourceTileId: string) => {
       try {
-        await api.post(`/api/workspaces/${wsId}/sessions`);
+        const meta = await api.post<SessionMetadata>(`/api/workspaces/${wsId}/sessions`);
+        insertNextToRef.current = {
+          newTileId: `${wsId}:${meta.sessionId}`,
+          nextToTileId: sourceTileId,
+        };
         queryClient.invalidateQueries({ queryKey: ["sessions", wsId] });
       } catch {
         // ignore — session creation can fail if workspace is busy
@@ -324,7 +369,7 @@ export default function MosaicView() {
           onJumpOut={(id) => navigate(`/workspaces/${id}`, { state: { fromMosaic: true } })}
           onHide={tileCount > 1 ? () => handleHide(tileId) : undefined}
           onClose={sessionId ? () => handleCloseSession(wsId, sessionId) : undefined}
-          onNewSession={tile.isActive ? handleNewSession : undefined}
+          onNewSession={tile.isActive ? (id: string) => handleNewSession(id, tileId) : undefined}
           onNeedsInputChange={handleNeedsInputChange}
           onHeaderPointerDown={isNarrow ? undefined : (e) => startTileDrag(e, tileId)}
           isDragSource={isSource}

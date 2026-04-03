@@ -6,6 +6,7 @@ import {
   applyDrop,
   removeFromLayout,
   addToLayout,
+  insertNextTo,
   getDropZone,
 } from "@/lib/mosaic-layout";
 
@@ -353,6 +354,63 @@ describe("addToLayout", () => {
     };
     const result = addToLayout(tree, "c");
     expect(getLeafIds(result)).toEqual(["a", "b", "c"]);
+  });
+});
+
+describe("insertNextTo", () => {
+  it("inserts new tile to the right of existing tile in a leaf", () => {
+    const result = insertNextTo({ type: "leaf", tileId: "a" }, "a", "b");
+    expect(result).toEqual({
+      type: "split",
+      direction: "horizontal",
+      children: [
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
+      ],
+    });
+  });
+
+  it("inserts next to a tile inside a split (flattened)", () => {
+    // H(a, b) → insert c next to a → H(a, c, b) (flattened)
+    const tree: MosaicNode = {
+      type: "split",
+      direction: "horizontal",
+      children: [
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
+      ],
+    };
+    const result = insertNextTo(tree, "a", "c");
+    expect(getLeafIds(result)).toEqual(["a", "c", "b"]);
+  });
+
+  it("inserts in a vertical split without flattening", () => {
+    // V(a, b) → insert c next to a → V(H(a, c), b)
+    const tree: MosaicNode = {
+      type: "split",
+      direction: "vertical",
+      children: [
+        { type: "leaf", tileId: "a" },
+        { type: "leaf", tileId: "b" },
+      ],
+    };
+    const result = insertNextTo(tree, "a", "c");
+    expect(getLeafIds(result)).toEqual(["a", "c", "b"]);
+    expect(result).toEqual({
+      type: "split",
+      direction: "vertical",
+      children: [
+        {
+          type: "split",
+          direction: "horizontal",
+          children: [
+            { type: "leaf", tileId: "a" },
+            { type: "leaf", tileId: "c" },
+          ],
+        },
+        { type: "leaf", tileId: "b" },
+      ],
+    });
   });
 });
 

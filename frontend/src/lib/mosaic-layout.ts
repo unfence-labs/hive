@@ -152,6 +152,23 @@ export function addToLayout(tree: MosaicNode, tileId: string): MosaicNode {
   return cleanTree({ ...tree, children: [...tree.children, leaf] });
 }
 
+/** Insert a new tile to the right of an existing tile. */
+export function insertNextTo(
+  tree: MosaicNode,
+  existingTileId: string,
+  newTileId: string,
+): MosaicNode {
+  const newSplit: MosaicSplit = {
+    type: "split",
+    direction: "horizontal",
+    children: [
+      { type: "leaf", tileId: existingTileId },
+      { type: "leaf", tileId: newTileId },
+    ],
+  };
+  return cleanTree(replaceLeaf(tree, existingTileId, newSplit));
+}
+
 /** Determine which drop zone the cursor is in within a bounding rect. */
 export function getDropZone(
   rect: DOMRect,
