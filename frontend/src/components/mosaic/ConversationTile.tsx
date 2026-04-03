@@ -22,6 +22,7 @@ interface ConversationTileProps {
   workspace: Workspace;
   pinnedSessionId?: string;
   sessionTitle?: string;
+  projectLabel?: string;
   onJumpOut: (wsId: string) => void;
   onHide?: () => void;
   onNewSession?: (wsId: string) => void;
@@ -37,6 +38,7 @@ export function ConversationTile({
   workspace,
   pinnedSessionId,
   sessionTitle,
+  projectLabel,
   onJumpOut,
   onHide,
   onNewSession,
@@ -170,6 +172,12 @@ export function ConversationTile({
             <div className="h-2 w-2 shrink-0 rounded-full bg-emerald-400 shadow-[0_0_6px_theme(colors.emerald.400)]" />
           ) : (
             <div className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/40" />
+          )}
+          {projectLabel && (
+            <>
+              <span className="shrink-0 text-[10px] text-muted-foreground/60">{projectLabel}</span>
+              <span className="text-muted-foreground/30">·</span>
+            </>
           )}
           {displayBranch && (
             <BranchLabel

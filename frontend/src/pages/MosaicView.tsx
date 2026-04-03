@@ -12,6 +12,7 @@ import { ConversationTile } from "@/components/mosaic/ConversationTile";
 import { SessionPicker } from "@/components/mosaic/SessionPicker";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
+import { parseProjectOwnerRepo } from "@/components/Sidebar";
 import { cn } from "@/lib/utils";
 import {
   type MosaicNode,
@@ -24,9 +25,10 @@ import {
 } from "@/lib/mosaic-layout";
 import type { Workspace } from "@/types";
 
-// Extend Workspace with project ID for lookup
 interface WorkspaceWithProject extends Workspace {
   projectId: string;
+  projectUrl: string;
+  projectName: string;
 }
 
 const LAYOUT_KEY = "hive-mosaic-layout";
@@ -80,6 +82,8 @@ export default function MosaicView() {
         (p.workspaces ?? []).map((ws) => ({
           ...ws,
           projectId: p.id,
+          projectUrl: p.url,
+          projectName: p.name,
         })),
       ),
     [projects],
@@ -162,6 +166,11 @@ export default function MosaicView() {
     return liveData[wsId]?.streaming;
   }).length;
   const needsInputCount = Object.values(needsInputMap).filter(Boolean).length;
+
+  const getProjectLabel = (ws: WorkspaceWithProject) => {
+    const parsed = parseProjectOwnerRepo(ws.projectUrl);
+    return parsed ? `${parsed.owner}/${parsed.repo}` : ws.projectName;
+  };
 
   // ── Hide tile ──
   const handleHide = useCallback(
@@ -298,6 +307,7 @@ export default function MosaicView() {
           workspace={ws}
           pinnedSessionId={pinnedSessionId}
           sessionTitle={sessionTitle}
+          projectLabel={getProjectLabel(ws)}
           onJumpOut={(id) => navigate(`/workspaces/${id}`, { state: { fromMosaic: true } })}
           onHide={tileCount > 1 ? () => handleHide(tileId) : undefined}
           onNewSession={tile.isActive ? handleNewSession : undefined}
