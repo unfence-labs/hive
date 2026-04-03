@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties }
 import { ArrowUpRight, EyeOff, Plus, X } from "lucide-react";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessionMessages } from "@/hooks/useSessionMessages";
+import { useMessageQueue } from "@/hooks/useMessageQueue";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import ChatConversation from "@/components/ChatConversation";
 import { CompactChatInput } from "@/components/mosaic/CompactChatInput";
@@ -11,7 +12,7 @@ import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { BranchLabel } from "@/components/BranchLabel";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
 import { cn } from "@/lib/utils";
-import type { Workspace, QueuedMessage, ToolCall, MessageOptions } from "@/types";
+import type { Workspace, ToolCall, MessageOptions } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
 
 const EMPTY_TOOL_CALLS: ToolCall[] = [];
@@ -73,7 +74,17 @@ export function ConversationTile({
   const tileId = pinnedSessionId ? `${wsId}:${pinnedSessionId}` : `${wsId}:${conversation.sessionId ?? ""}`;
 
   const [scrollToBottomTrigger, setScrollToBottomTrigger] = useState(0);
-  const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
+
+  const { queuedMessage, setQueuedMessage } = useMessageQueue({
+    resetKey: `${wsId}:${conversation.sessionId}`,
+    isStreaming: conversation.isStreaming,
+    workspaceStatus: conversation.workspaceStatus,
+    pendingToolInputCount: conversation.pendingToolInputs.length,
+    sendMessage: conversation.sendMessage,
+    pinnedSessionId,
+    currentSessionId: conversation.sessionId,
+    switchSession: conversation.switchSession,
+  });
 
   // ── Border flash on turn completion ─────────────────────────────
   const prevStreamingRef = useRef(wsStreaming);
@@ -93,31 +104,8 @@ export function ConversationTile({
 
   useEffect(() => {
     onNeedsInputChange?.(tileId, hasAskUser);
-  }, [tileId, hasAskUser, onNeedsInputChange]);
-
-  useEffect(() => {
     return () => onNeedsInputChange?.(tileId, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tileId]);
-
-  useEffect(() => { setQueuedMessage(null); }, [wsId, conversation.sessionId]);
-
-  useEffect(() => {
-    if (!queuedMessage) return;
-    if (conversation.isStreaming) return;
-    if (conversation.workspaceStatus !== "idle") return;
-    if (conversation.pendingToolInputs.length > 0) return;
-
-    // Switch to this tile's session if needed before draining the queue
-    if (pinnedSessionId && pinnedSessionId !== conversation.sessionId) {
-      conversation.switchSession(pinnedSessionId);
-      return; // Wait for switch to complete before sending
-    }
-
-    const { content, images, options, fileMentions } = queuedMessage;
-    const sent = conversation.sendMessage(content, images, options, pinnedSessionId ?? undefined, fileMentions);
-    if (sent) setQueuedMessage(null);
-  }, [queuedMessage, conversation, pinnedSessionId]);
+  }, [tileId, hasAskUser, onNeedsInputChange]);
 
   // ── Plan detection (live tiles only) ───────────────────────────
   const hasPendingExitPlanInput = isLive ? hasPendingExitPlanModeInput(pendingToolInputs) : false;

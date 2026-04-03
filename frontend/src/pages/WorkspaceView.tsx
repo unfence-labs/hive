@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { useMessageQueue } from "@/hooks/useMessageQueue";
 import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
@@ -52,7 +54,7 @@ import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent }
 import { PlanActionBar } from "@/components/chat/PlanActionBar";
 import { useScripts } from "@/hooks/useScripts";
 import { useTabs } from "@/hooks/useTabs";
-import type { DiffStatResponse, FileMention, ImageAttachment, MessageOptions, QueuedMessage, Workspace, WorkspaceFileTreeNode } from "@/types";
+import type { DiffStatResponse, FileMention, ImageAttachment, MessageOptions, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 const DEFAULT_EXPANDED = new Set<string>();
 
@@ -254,23 +256,13 @@ export default function WorkspaceView() {
   const [scrollToBottomTrigger, setScrollToBottomTrigger] = useState(0);
 
   // ── Message queue: lets users type one follow-up while agent is busy ──
-  const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
-
-  // Clear queue on workspace or session switch
-  useEffect(() => { setQueuedMessage(null); }, [wsId, sessionId]);
-
-  // Auto-dequeue when the agent finishes and workspace is truly idle
-  useEffect(() => {
-    if (!queuedMessage) return;
-    if (isStreaming) return;
-    if (workspaceStatus !== "idle") return;
-    if (pendingToolInputs.length > 0) return;
-
-    const { content, images, options, fileMentions } = queuedMessage;
-    const sent = sendMessage(content, images, options, undefined, fileMentions);
-    if (sent) setQueuedMessage(null);
-    // If send fails (WS disconnected), keep queue — effect re-fires on reconnect
-  }, [queuedMessage, isStreaming, workspaceStatus, pendingToolInputs, sendMessage]);
+  const { queuedMessage, setQueuedMessage } = useMessageQueue({
+    resetKey: `${wsId}:${sessionId}`,
+    isStreaming,
+    workspaceStatus,
+    pendingToolInputCount: pendingToolInputs.length,
+    sendMessage,
+  });
 
   const { tasks, currentTask, counts: taskCounts } = useTasks(messages, activeToolCalls);
   const { agents: backgroundAgents, runningCount: bgRunningCount } = useBackgroundAgents(messages, activeToolCalls);
@@ -305,15 +297,7 @@ export default function WorkspaceView() {
   });
 
   // Responsive: collapse right panel below lg breakpoint
-  const [isLg, setIsLg] = useState(() =>
-    typeof window !== "undefined" ? window.matchMedia("(min-width: 1024px)").matches : true,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1024px)");
-    const handler = (e: MediaQueryListEvent) => setIsLg(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
+  const isLg = useMediaQuery("(min-width: 1024px)");
   useEffect(() => {
     if (!isLg) {
       rightPanelRef.current?.collapse();

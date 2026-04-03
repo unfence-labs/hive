@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useNavigate } from "react-router-dom";
 import { Group, Panel } from "react-resizable-panels";
 import { ArrowLeft, CircleAlert, Columns2Icon, Columns3Icon, Pencil, Plus } from "lucide-react";
@@ -65,8 +66,6 @@ export default function MosaicView() {
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [columns, setColumnsRaw] = useState<2 | 3>(loadColumns);
-  const columnsRef = useRef(columns);
-  columnsRef.current = columns;
 
   const setColumns = useCallback((c: 2 | 3) => {
     setColumnsRaw(c);
@@ -74,15 +73,7 @@ export default function MosaicView() {
   }, []);
 
   // ── Responsive narrow viewport detection ──────────────────────────
-  const [isNarrow, setIsNarrow] = useState(
-    () => typeof window !== "undefined" && !window.matchMedia("(min-width: 768px)").matches,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 768px)");
-    const handler = (e: MediaQueryListEvent) => setIsNarrow(!e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
+  const isNarrow = !useMediaQuery("(min-width: 768px)");
 
   // "Needs input" state reported by each tile
   const [needsInputMap, setNeedsInputMap] = useState<Record<string, boolean>>({});
@@ -198,26 +189,14 @@ export default function MosaicView() {
     saveLayout(l);
   }, []);
 
-  // Rebuild layout when padded tile IDs change (selection add/remove)
-  const prevPaddedRef = useRef<string[]>(paddedTileIds);
+  // Rebuild layout when tiles or columns change
+  const layoutKey = `${paddedTileIds.join(",")}|${columns}`;
+  const prevLayoutKeyRef = useRef(layoutKey);
   useEffect(() => {
-    const prev = prevPaddedRef.current;
-    const next = paddedTileIds;
-
-    if (JSON.stringify(prev) === JSON.stringify(next)) return;
-    prevPaddedRef.current = next;
-
-    // Rebuild from scratch — empty slots make incremental updates fragile
-    setLayout(buildDefaultLayout(next, columnsRef.current));
-  }, [paddedTileIds, setLayout]);
-
-  // Rebuild layout when columns change
-  const prevColumnsRef = useRef(columns);
-  useEffect(() => {
-    if (prevColumnsRef.current === columns) return;
-    prevColumnsRef.current = columns;
+    if (prevLayoutKeyRef.current === layoutKey) return;
+    prevLayoutKeyRef.current = layoutKey;
     setLayout(buildDefaultLayout(paddedTileIds, columns));
-  }, [columns, paddedTileIds, setLayout]);
+  }, [layoutKey, paddedTileIds, columns, setLayout]);
 
   const tileCount = layout ? getLeafIds(layout).filter((id) => !isEmptySlot(id)).length : 0;
 
@@ -294,19 +273,12 @@ export default function MosaicView() {
     dragStartPos.current = { x: e.clientX, y: e.clientY };
   }, []);
 
-  // Prevent text selection and set grabbing cursor during drag
+  // Drag: cursor styling + pointer event handling
   useEffect(() => {
     if (dragTileId === null) return;
+
     document.body.style.userSelect = "none";
     document.body.style.cursor = "grabbing";
-    return () => {
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
-    };
-  }, [dragTileId]);
-
-  useEffect(() => {
-    if (dragTileId === null) return;
 
     const onMove = (e: PointerEvent) => {
       e.preventDefault();
@@ -353,6 +325,8 @@ export default function MosaicView() {
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
     return () => {
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
     };

@@ -24,17 +24,19 @@ const MosaicView = lazy(() => import("@/pages/MosaicView"));
 const PromptTemplatesSettings = lazy(() => import("@/pages/settings/PromptTemplatesSettings"));
 const CreateAutomationDialog = lazy(() => import("@/components/CreateAutomationDialog"));
 
-function NotificationToastsBridge({ projects }: { projects: Project[] }) {
+function GlobalHooks({ projects }: { projects: Project[] }) {
+  useMosaicShortcut();
   useNotificationToasts(projects);
   return null;
 }
 
 /** Global Cmd+G / Ctrl+G toggle for Mosaic View. */
-function MosaicShortcut() {
+function useMosaicShortcut() {
   const navigate = useNavigate();
   const location = useLocation();
   const prevPathRef = useRef("/home");
 
+  // Track previous non-mosaic path for toggle-back navigation
   useEffect(() => {
     if (location.pathname !== "/mosaic") {
       prevPathRef.current = location.pathname;
@@ -56,8 +58,6 @@ function MosaicShortcut() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [navigate, location.pathname]);
-
-  return null;
 }
 
 export default function App() {
@@ -101,8 +101,7 @@ export default function App() {
             },
           }}
         />
-        <MosaicShortcut />
-        <NotificationToastsBridge projects={projects} />
+        <GlobalHooks projects={projects} />
         <AddProjectDialog
           open={showAddProject}
           onOpenChange={setShowAddProject}
