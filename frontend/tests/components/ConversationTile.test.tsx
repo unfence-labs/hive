@@ -9,10 +9,27 @@ const mocks = vi.hoisted(() => ({
   answerQuestion: vi.fn(),
   batchAnswerQuestions: vi.fn(),
   rejectToolInput: vi.fn(),
+  createSession: vi.fn(),
+  switchSession: vi.fn(),
 }));
 
 vi.mock("@/hooks/useConversation", () => ({
   useConversation: mocks.useConversation,
+}));
+
+vi.mock("@/hooks/useSessions", () => ({
+  useSessions: () => ({
+    sessions: [],
+    createSession: mocks.createSession,
+    switchSession: mocks.switchSession,
+  }),
+}));
+
+vi.mock("@/hooks/useSessionMessages", () => ({
+  useSessionMessages: () => ({
+    messages: [],
+    isLoading: false,
+  }),
 }));
 
 vi.mock("@/contexts/WorkspaceLiveDataContext", () => ({
@@ -85,6 +102,7 @@ const defaultConversation = {
   agentPlanMode: false,
   lockedProvider: undefined,
   switchCounter: 0,
+  switchSession: mocks.switchSession,
 };
 
 const workspace: Workspace = {
@@ -215,12 +233,16 @@ describe("ConversationTile", () => {
     expect(onHide).toHaveBeenCalledWith("ws-1");
   });
 
-  it("add tile button calls onAddTile when provided", async () => {
+  it("add tile button calls onAddTile with old session ID", async () => {
     const user = userEvent.setup();
     const onAddTile = vi.fn();
+    mocks.createSession.mockResolvedValue({ sessionId: "sess-new" });
     renderTile({ onAddTile });
     await user.click(screen.getByTitle("New conversation"));
-    expect(onAddTile).toHaveBeenCalled();
+    // Wait for async createSession to resolve
+    await vi.waitFor(() => {
+      expect(onAddTile).toHaveBeenCalledWith("sess-1");
+    });
   });
 
   it("does not show add tile button when onAddTile is not provided", () => {

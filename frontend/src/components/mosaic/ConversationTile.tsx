@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from "react";
 import { ArrowUpRight, EyeOff, Plus } from "lucide-react";
 import { useConversation } from "@/hooks/useConversation";
+import { useSessions } from "@/hooks/useSessions";
+import { useSessionMessages } from "@/hooks/useSessionMessages";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import ChatConversation from "@/components/ChatConversation";
 import ChatInput from "@/components/ChatInput";
@@ -15,10 +17,12 @@ import type { Workspace, QueuedMessage, ImageAttachment, MessageOptions, FileMen
 interface ConversationTileProps {
   wsId: string;
   workspace: Workspace;
+  pinnedSessionId?: string;
   projectLabel?: string;
   onJumpOut: (wsId: string) => void;
   onHide?: (wsId: string) => void;
-  onAddTile?: () => void;
+  /** Called when "+" is clicked. Receives the current active sessionId to pin as read-only. */
+  onAddTile?: (sessionIdToPin: string) => void;
   onNeedsInputChange?: (wsId: string, needsInput: boolean) => void;
   onHeaderPointerDown?: (e: React.PointerEvent) => void;
   isDragSource?: boolean;
@@ -26,36 +30,38 @@ interface ConversationTileProps {
   style?: CSSProperties;
 }
 
-export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onHide, onAddTile, onNeedsInputChange, onHeaderPointerDown, isDragSource, className, style }: ConversationTileProps) {
-  const {
-    messages,
-    isStreaming,
-    streamingStartedAt,
-    currentStreamingText,
-    currentThinking,
-    activeToolCalls,
-    pendingToolInputs,
-    connectionStatus,
-    error,
-    workspaceStatus,
-    sessionId,
-    sendMessage,
-    stopStreaming,
-    answerQuestion,
-    batchAnswerQuestions,
-    rejectToolInput,
-    approvePlan,
-    dismissPlan,
-    agentPlanMode,
-    lockedProvider,
-    switchCounter,
-  } = useConversation(wsId);
+export function ConversationTile({
+  wsId,
+  workspace,
+  pinnedSessionId,
+  projectLabel,
+  onJumpOut,
+  onHide,
+  onAddTile,
+  onNeedsInputChange,
+  onHeaderPointerDown,
+  isDragSource,
+  className,
+  style,
+}: ConversationTileProps) {
+  const conversation = useConversation(wsId);
+  const { createSession } = useSessions(wsId);
+
+  // Read-only mode: tile is pinned to a specific (non-active) session
+  const isReadOnly = !!pinnedSessionId;
+  const pinnedHistory = useSessionMessages(wsId, pinnedSessionId ?? null);
+
+  // Choose data source based on mode
+  const messages = isReadOnly ? pinnedHistory.messages : conversation.messages;
+  const isStreaming = isReadOnly ? false : conversation.isStreaming;
+  const activeToolCalls = isReadOnly ? [] : conversation.activeToolCalls;
+  const pendingToolInputs = isReadOnly ? [] : conversation.pendingToolInputs;
 
   const liveData = useWorkspaceLiveDataContext();
   const wsLive = liveData[wsId];
   const displayBranch = wsLive?.branch || workspace.branch;
-  const wsStreaming = wsLive?.streaming ?? false;
-  const wsUnread = Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
+  const wsStreaming = isReadOnly ? false : (wsLive?.streaming ?? false);
+  const wsUnread = isReadOnly ? false : Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
 
   const [scrollToBottomTrigger, setScrollToBottomTrigger] = useState(0);
   const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
@@ -85,22 +91,27 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsId]);
 
-  useEffect(() => { setQueuedMessage(null); }, [wsId, sessionId]);
+  useEffect(() => { setQueuedMessage(null); }, [wsId, conversation.sessionId]);
 
   useEffect(() => {
+    if (isReadOnly) return;
     if (!queuedMessage) return;
-    if (isStreaming) return;
-    if (workspaceStatus !== "idle") return;
-    if (pendingToolInputs.length > 0) return;
+    if (conversation.isStreaming) return;
+    if (conversation.workspaceStatus !== "idle") return;
+    if (conversation.pendingToolInputs.length > 0) return;
 
     const { content, images, options, fileMentions } = queuedMessage;
-    const sent = sendMessage(content, images, options, undefined, fileMentions);
+    const sent = conversation.sendMessage(content, images, options, undefined, fileMentions);
     if (sent) setQueuedMessage(null);
-  }, [queuedMessage, isStreaming, workspaceStatus, pendingToolInputs, sendMessage]);
+  }, [isReadOnly, queuedMessage, conversation]);
 
-  // ── Plan detection ──────────────────────────────────────────────
-  const hasPendingExitPlanInput = hasPendingExitPlanModeInput(pendingToolInputs);
-  const hasPendingPlan = isPlanAwaitingUserInput({ messages, isStreaming, pendingToolInputs });
+  // ── Plan detection (live tiles only) ───────────────────────────
+  const hasPendingExitPlanInput = isReadOnly ? false : hasPendingExitPlanModeInput(pendingToolInputs);
+  const hasPendingPlan = isReadOnly ? false : isPlanAwaitingUserInput({
+    messages: conversation.messages,
+    isStreaming: conversation.isStreaming,
+    pendingToolInputs: conversation.pendingToolInputs,
+  });
 
   const pendingPlanData = useMemo(() => {
     if (!hasPendingPlan) return undefined;
@@ -119,16 +130,26 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
   const handleSend = useCallback(
     (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]): boolean => {
       if (hasPendingPlan && hasPendingExitPlanInput) {
-        rejectToolInput(content);
+        conversation.rejectToolInput(content);
         setScrollToBottomTrigger((c) => c + 1);
         return true;
       }
-      const sent = sendMessage(content, images, options, undefined, fileMentions);
+      const sent = conversation.sendMessage(content, images, options, undefined, fileMentions);
       if (sent) setScrollToBottomTrigger((c) => c + 1);
       return sent;
     },
-    [hasPendingPlan, hasPendingExitPlanInput, rejectToolInput, sendMessage],
+    [hasPendingPlan, hasPendingExitPlanInput, conversation],
   );
+
+  // "+" creates a new session, switches to it, pins the old session as read-only
+  const handleNewConversation = useCallback(async () => {
+    if (!onAddTile) return;
+    const oldSessionId = conversation.sessionId;
+    const meta = await createSession();
+    if (!meta || !oldSessionId) return;
+    conversation.switchSession(meta.sessionId);
+    onAddTile(oldSessionId);
+  }, [onAddTile, conversation, createSession]);
 
   return (
     <div
@@ -174,10 +195,10 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
             </>
           )}
         </div>
-        {onAddTile && (
+        {!isReadOnly && onAddTile && (
           <button
             type="button"
-            onClick={onAddTile}
+            onClick={handleNewConversation}
             className="shrink-0 rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-muted-foreground"
             aria-label="New conversation"
             title="New conversation"
@@ -212,30 +233,34 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
         <ChatConversation
           messages={messages}
           isStreaming={isStreaming}
-          streamingStartedAt={streamingStartedAt}
-          currentStreamingText={currentStreamingText}
-          currentThinking={currentThinking}
+          streamingStartedAt={isReadOnly ? null : conversation.streamingStartedAt}
+          currentStreamingText={isReadOnly ? "" : conversation.currentStreamingText}
+          currentThinking={isReadOnly ? "" : conversation.currentThinking}
           activeToolCalls={activeToolCalls}
           pendingToolInputs={pendingToolInputs}
-          onQuestionAnswer={answerQuestion}
+          onQuestionAnswer={conversation.answerQuestion}
           workspaceName={workspace.name}
           branch={displayBranch}
-          switchCounter={switchCounter}
-          agentPlanMode={agentPlanMode}
-          error={error}
-          queuedMessage={queuedMessage}
+          switchCounter={isReadOnly ? 0 : conversation.switchCounter}
+          agentPlanMode={isReadOnly ? false : conversation.agentPlanMode}
+          error={isReadOnly ? undefined : conversation.error}
+          queuedMessage={isReadOnly ? null : queuedMessage}
           onClearQueue={() => setQueuedMessage(null)}
           scrollToBottomTrigger={scrollToBottomTrigger}
           compactMode
         />
       </div>
 
-      {/* ── Input ────────────────────────────────────────────────── */}
-      {hasAskUser ? (
+      {/* ── Input (live tiles only) ─────────────────────────────── */}
+      {isReadOnly ? (
+        <div className="shrink-0 border-t border-border bg-card/50 px-3 py-1.5 text-center text-[10px] text-muted-foreground/60">
+          Read-only session
+        </div>
+      ) : hasAskUser ? (
         <QuestionPanel
           pendingToolInputs={pendingToolInputs}
-          onBatchSubmit={batchAnswerQuestions}
-          onDismiss={() => rejectToolInput("[question_dismissed]")}
+          onBatchSubmit={conversation.batchAnswerQuestions}
+          onDismiss={() => conversation.rejectToolInput("[question_dismissed]")}
         />
       ) : (
         <div className="relative">
@@ -243,30 +268,30 @@ export function ConversationTile({ wsId, workspace, projectLabel, onJumpOut, onH
             <PlanActionBar
               planContent={pendingPlanData.content}
               planPath={pendingPlanData.planPath}
-              onApprove={approvePlan}
-              onHandOff={(content, planPath) => {
-                dismissPlan("Plan handed off.");
+              onApprove={conversation.approvePlan}
+              onHandOff={() => {
+                conversation.dismissPlan("Plan handed off.");
                 onJumpOut(wsId);
               }}
             />
           )}
           <ChatInput
             wsId={wsId}
-            sessionId={sessionId}
-            lockedProvider={lockedProvider}
+            sessionId={conversation.sessionId}
+            lockedProvider={conversation.lockedProvider}
             onSend={handleSend}
-            onStop={stopStreaming}
+            onStop={conversation.stopStreaming}
             disabled={false}
-            isStreaming={isStreaming}
-            connectionStatus={connectionStatus}
+            isStreaming={conversation.isStreaming}
+            connectionStatus={conversation.connectionStatus}
             placeholder={hasPendingPlan ? "Enter your plan adjustments here..." : undefined}
-            messages={messages}
+            messages={conversation.messages}
             queuedMessage={queuedMessage}
             onQueue={(msg) => {
               setQueuedMessage(msg);
               setScrollToBottomTrigger((c) => c + 1);
             }}
-            agentPlanMode={agentPlanMode}
+            agentPlanMode={conversation.agentPlanMode}
           />
         </div>
       )}

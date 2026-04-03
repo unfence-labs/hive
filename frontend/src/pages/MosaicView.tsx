@@ -4,7 +4,7 @@ import { Group, Panel } from "react-resizable-panels";
 import { ArrowLeft, CircleAlert, Pencil, Plus } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
-import { useMosaicWorkspaces, MAX_MOSAIC } from "@/hooks/useMosaicWorkspaces";
+import { useMosaicWorkspaces, parseTileId, MAX_MOSAIC } from "@/hooks/useMosaicWorkspaces";
 import { ConversationTile } from "@/components/mosaic/ConversationTile";
 import { WorkspacePicker } from "@/components/mosaic/WorkspacePicker";
 import { ResizeHandle } from "@/components/ResizeHandle";
@@ -46,9 +46,9 @@ function saveLayout(l: MosaicNode | null) {
 
 export default function MosaicView() {
   const navigate = useNavigate();
-  const { projects, createWorkspace } = useProjects();
+  const { projects } = useProjects();
   const liveData = useWorkspaceLiveDataContext();
-  const { selectedIds, setSelectedIds, toggleId, removeId } = useMosaicWorkspaces();
+  const { selectedIds, setSelectedIds, toggleId, removeId, addTileId } = useMosaicWorkspaces();
 
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -115,7 +115,7 @@ export default function MosaicView() {
   // Clean up stale IDs from persistence
   useEffect(() => {
     if (allWorkspaces.length === 0) return;
-    const validIds = selectedIds.filter((id) => wsById.has(id));
+    const validIds = selectedIds.filter((id) => wsById.has(parseTileId(id).wsId));
     if (validIds.length !== selectedIds.length) {
       setSelectedIds(validIds);
     }
@@ -177,7 +177,7 @@ export default function MosaicView() {
   const tileCount = layout ? getLeafIds(layout).length : 0;
 
   // Toolbar summary
-  const streamingCount = selectedIds.filter((id) => liveData[id]?.streaming).length;
+  const streamingCount = selectedIds.filter((id) => liveData[parseTileId(id).wsId]?.streaming).length;
   const needsInputCount = Object.values(needsInputMap).filter(Boolean).length;
 
   // Project label for a workspace
@@ -188,26 +188,19 @@ export default function MosaicView() {
 
   // ── Hide tile (updates both selectedIds and layout immediately) ──
   const handleHide = useCallback(
-    (wsId: string) => {
-      removeId(wsId);
-      setLayout((layoutRef.current ? removeFromLayout(layoutRef.current, wsId) : null));
+    (tileId: string) => {
+      removeId(tileId);
+      setLayout((layoutRef.current ? removeFromLayout(layoutRef.current, tileId) : null));
     },
     [removeId, setLayout],
   );
 
-  // ── Add tile: create a new workspace for the same project ──
+  // ── Add tile: pin old session as read-only tile ──
   const handleAddTile = useCallback(
-    async (wsId: string) => {
-      const ws = wsById.get(wsId);
-      if (!ws) return;
-      try {
-        const newWs = await createWorkspace(ws.projectId);
-        toggleId(newWs.id);
-      } catch {
-        // workspace creation failed — ignore silently
-      }
+    (wsId: string, sessionIdToPin: string) => {
+      addTileId(`${wsId}:${sessionIdToPin}`);
     },
-    [wsById, createWorkspace, toggleId],
+    [addTileId],
   );
 
   // ── Tile drag state ───────────────────────────────────────────────
@@ -298,24 +291,29 @@ export default function MosaicView() {
   }, [dragWsId]);
 
   // ── Render helpers ────────────────────────────────────────────────
-  function renderTile(ws: WorkspaceWithProject) {
-    const isSource = isDragging && dragWsId === ws.id;
-    const dt = isDragging && !isSource && dropTarget?.wsId === ws.id ? dropTarget.zone : null;
+  function renderTile(tileId: string) {
+    const { wsId, sessionId } = parseTileId(tileId);
+    const ws = wsById.get(wsId);
+    if (!ws) return null;
+
+    const isSource = isDragging && dragWsId === tileId;
+    const dt = isDragging && !isSource && dropTarget?.wsId === tileId ? dropTarget.zone : null;
 
     return (
       <div
-        data-tile-wsid={ws.id}
+        data-tile-wsid={tileId}
         className={cn("h-full relative", isSource && "opacity-30")}
       >
         <ConversationTile
-          wsId={ws.id}
+          wsId={wsId}
           workspace={ws}
+          pinnedSessionId={sessionId}
           projectLabel={getProjectLabel(ws)}
           onJumpOut={(id) => navigate(`/workspaces/${id}`, { state: { fromMosaic: true } })}
-          onHide={tileCount > 1 ? () => handleHide(ws.id) : undefined}
-          onAddTile={tileCount < MAX_MOSAIC ? () => handleAddTile(ws.id) : undefined}
+          onHide={tileCount > 1 ? () => handleHide(tileId) : undefined}
+          onAddTile={!sessionId && tileCount < MAX_MOSAIC ? (sessionIdToPin) => handleAddTile(wsId, sessionIdToPin) : undefined}
           onNeedsInputChange={handleNeedsInputChange}
-          onHeaderPointerDown={(e) => startTileDrag(e, ws.id)}
+          onHeaderPointerDown={(e) => startTileDrag(e, tileId)}
           isDragSource={isSource}
           className="h-full"
         />
@@ -326,8 +324,7 @@ export default function MosaicView() {
 
   function renderNode(node: MosaicNode, path: string): React.ReactNode {
     if (node.type === "leaf") {
-      const ws = wsById.get(node.wsId);
-      return ws ? renderTile(ws) : null;
+      return renderTile(node.wsId);
     }
 
     const handleOrientation = node.direction === "horizontal" ? "vertical" : "horizontal";
@@ -340,10 +337,7 @@ export default function MosaicView() {
             <Fragment key={childKey}>
               <Panel id={`p-${path}-${i}`} minSize={15}>
                 {child.type === "leaf"
-                  ? (() => {
-                      const ws = wsById.get(child.wsId);
-                      return ws ? renderTile(ws) : null;
-                    })()
+                  ? renderTile(child.wsId)
                   : renderNode(child, `${path}-${i}`)}
               </Panel>
               {i < node.children.length - 1 && (
@@ -357,7 +351,7 @@ export default function MosaicView() {
   }
 
   // Floating ghost for dragged tile
-  const draggedWs = dragWsId ? wsById.get(dragWsId) : null;
+  const draggedWs = dragWsId ? wsById.get(parseTileId(dragWsId).wsId) : null;
 
   return (
     <div className="flex h-screen flex-col bg-background">
@@ -425,10 +419,7 @@ export default function MosaicView() {
         </div>
       ) : layout.type === "leaf" ? (
         <div className="flex min-h-0 flex-1">
-          {(() => {
-            const ws = wsById.get(layout.wsId);
-            return ws ? renderTile(ws) : null;
-          })()}
+          {renderTile(layout.wsId)}
         </div>
       ) : (
         <div className="min-h-0 flex-1">

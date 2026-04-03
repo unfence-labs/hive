@@ -12,7 +12,7 @@ import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { parseProjectOwnerRepo } from "@/components/Sidebar";
 import { useProjects } from "@/hooks/useProjects";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
-import { MAX_MOSAIC } from "@/hooks/useMosaicWorkspaces";
+import { MAX_MOSAIC, parseTileId } from "@/hooks/useMosaicWorkspaces";
 import { cn } from "@/lib/utils";
 
 interface WorkspacePickerProps {
@@ -33,7 +33,10 @@ export function WorkspacePicker({
   const { projects } = useProjects();
   const liveData = useWorkspaceLiveDataContext();
 
-  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedWsIds = useMemo(
+    () => new Set(selectedIds.map((id) => parseTileId(id).wsId)),
+    [selectedIds],
+  );
   const atMax = selectedIds.length >= MAX_MOSAIC;
 
   return (
@@ -77,7 +80,7 @@ export function WorkspacePicker({
 
                   <div className="space-y-1">
                     {workspaces.map((ws) => {
-                      const isSelected = selectedSet.has(ws.id);
+                      const isSelected = selectedWsIds.has(ws.id);
                       const wsLive = liveData[ws.id];
                       const streaming = wsLive?.streaming ?? false;
                       const displayBranch = wsLive?.branch ?? ws.branch;

@@ -42,6 +42,13 @@ function writeIds(ids: string[]) {
   notify();
 }
 
+/** Parse a tile ID into workspace ID and optional pinned session ID. */
+export function parseTileId(id: string): { wsId: string; sessionId?: string } {
+  const sep = id.indexOf(":");
+  if (sep === -1) return { wsId: id };
+  return { wsId: id.substring(0, sep), sessionId: id.substring(sep + 1) };
+}
+
 export function useMosaicWorkspaces() {
   const raw = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
@@ -59,21 +66,32 @@ export function useMosaicWorkspaces() {
     writeIds(ids.slice(0, MAX_MOSAIC));
   }, []);
 
-  const toggleId = useCallback((id: string) => {
+  /** Toggle a workspace from the picker (removes ALL tiles for that workspace, or adds the base ID). */
+  const toggleId = useCallback((wsId: string) => {
     const current = readIds();
-    if (current.includes(id)) {
-      writeIds(current.filter((x) => x !== id));
+    const hasTiles = current.some((x) => parseTileId(x).wsId === wsId);
+    if (hasTiles) {
+      writeIds(current.filter((x) => parseTileId(x).wsId !== wsId));
     } else if (current.length < MAX_MOSAIC) {
-      writeIds([...current, id]);
+      writeIds([...current, wsId]);
     }
   }, []);
 
+  /** Remove a specific tile (base or composite). */
   const removeId = useCallback((id: string) => {
     const current = readIds();
     writeIds(current.filter((x) => x !== id));
   }, []);
 
-  return { selectedIds, setSelectedIds, toggleId, removeId };
+  /** Add a session-pinned tile (composite ID like "wsId:sessionId"). */
+  const addTileId = useCallback((compositeId: string) => {
+    const current = readIds();
+    if (current.length < MAX_MOSAIC && !current.includes(compositeId)) {
+      writeIds([...current, compositeId]);
+    }
+  }, []);
+
+  return { selectedIds, setSelectedIds, toggleId, removeId, addTileId };
 }
 
 export { MAX_MOSAIC };
