@@ -194,6 +194,19 @@ export default function MosaicView() {
     [queryClient],
   );
 
+  // ── Close (delete) a session ──
+  const handleCloseSession = useCallback(
+    async (wsId: string, sessionId: string) => {
+      try {
+        await api.delete(`/api/workspaces/${wsId}/sessions/${sessionId}`);
+        queryClient.invalidateQueries({ queryKey: ["sessions", wsId] });
+      } catch {
+        // ignore
+      }
+    },
+    [queryClient],
+  );
+
   // ── Tile drag state ───────────────────────────────────────────────
   const [dragTileId, setDragTileId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -310,6 +323,7 @@ export default function MosaicView() {
           projectLabel={getProjectLabel(ws)}
           onJumpOut={(id) => navigate(`/workspaces/${id}`, { state: { fromMosaic: true } })}
           onHide={tileCount > 1 ? () => handleHide(tileId) : undefined}
+          onClose={sessionId ? () => handleCloseSession(wsId, sessionId) : undefined}
           onNewSession={tile.isActive ? handleNewSession : undefined}
           onNeedsInputChange={handleNeedsInputChange}
           onHeaderPointerDown={isNarrow ? undefined : (e) => startTileDrag(e, tileId)}

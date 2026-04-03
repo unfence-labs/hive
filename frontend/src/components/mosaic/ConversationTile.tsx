@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type CSSProperties } from "react";
-import { ArrowUpRight, EyeOff, Plus } from "lucide-react";
+import { ArrowUpRight, EyeOff, Plus, X } from "lucide-react";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessionMessages } from "@/hooks/useSessionMessages";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
@@ -25,6 +25,7 @@ interface ConversationTileProps {
   projectLabel?: string;
   onJumpOut: (wsId: string) => void;
   onHide?: () => void;
+  onClose?: () => void;
   onNewSession?: (wsId: string) => void;
   onNeedsInputChange?: (tileId: string, needsInput: boolean) => void;
   onHeaderPointerDown?: (e: React.PointerEvent) => void;
@@ -41,6 +42,7 @@ export function ConversationTile({
   projectLabel,
   onJumpOut,
   onHide,
+  onClose,
   onNewSession,
   onNeedsInputChange,
   onHeaderPointerDown,
@@ -218,6 +220,17 @@ export function ConversationTile({
             title="Hide tile"
           >
             <EyeOff className="h-3 w-3" />
+          </button>
+        )}
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-destructive"
+            aria-label="Close session"
+            title="Close session"
+          >
+            <X className="h-3 w-3" />
           </button>
         )}
         <button
