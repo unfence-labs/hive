@@ -78,7 +78,7 @@ const ChatMessage = memo(function ChatMessage({
         className={cn(
           "max-w-[85%] text-sm leading-relaxed",
           isUser
-            ? "group/user-msg relative rounded-[10px] rounded-br-[2px] border border-primary/15 bg-primary/20 px-3.5 py-2 text-white"
+            ? "group/user-msg relative rounded-[10px] rounded-br-[2px] border border-primary/25 bg-primary/10 px-3.5 py-2 text-foreground dark:border-primary/15 dark:bg-primary/20 dark:text-white"
             : "text-foreground",
         )}
       >
