@@ -96,7 +96,6 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   agentPlanMode,
 }, ref) {
   const [value, setValue] = useState("");
-  const [thinkingEnabled, setThinkingEnabled] = useState(true);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("high");
   const [planMode, setPlanMode] = useState(false);
   const [fileCount, setFileCount] = useState(0);
@@ -121,8 +120,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   const { models, defaultModelId, selectedModelId, selectedModel, setSelectedModelId, capabilities } = useModels(lockedProvider);
   const contextUsage = useContextUsage(messages, selectedModel);
 
-  const supportsThinkingToggle = capabilities?.thinking === true;
-  const supportsThinkingLevels = capabilities?.thinking === "levels";
+  const supportsThinking = capabilities?.thinking ?? false;
   const supportsPlanMode = capabilities?.planMode ?? true;
   const supportsCompletions = capabilities?.completions ?? true;
 
@@ -130,7 +128,6 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
     wsId,
     sessionId,
     value,
-    thinkingEnabled,
     planMode,
     selectedModelId,
     defaultModelId,
@@ -138,7 +135,6 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
     attachmentsRef,
     fileMentions,
     setValue,
-    setThinkingEnabled,
     setPlanMode,
     setSelectedModelId,
     setThinkingLevel,
@@ -308,8 +304,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
     const options: MessageOptions = {
       model: selectedModelId || undefined,
       ...(supportsPlanMode && { planMode }),
-      ...(supportsThinkingToggle && { thinkingEnabled }),
-      ...(supportsThinkingLevels && { thinkingLevel }),
+      ...(supportsThinking && { thinkingLevel }),
     };
 
     const mentions: FileMention[] | undefined = fileMentions.length > 0
@@ -386,19 +381,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
               onSelect={setSelectedModelId}
               lockedProvider={lockedProvider}
             />
-            {supportsThinkingToggle && (
-              <PromptInputButton
-                aria-label="Toggle thinking"
-                variant="ghost"
-                size="xs"
-                onClick={() => setThinkingEnabled((v) => !v)}
-                className={cn("h-5 text-[11px] transition-colors", thinkingEnabled && activeStyle)}
-              >
-                <BrainIcon className="size-3" />
-                Thinking
-              </PromptInputButton>
-            )}
-            {supportsThinkingLevels && (
+            {supportsThinking && (
               <PromptInputButton
                 aria-label={`Thinking: ${THINKING_LEVEL_LABELS[thinkingLevel]}`}
                 variant="ghost"
@@ -468,8 +451,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
                 const options: MessageOptions = {
                   model: selectedModelId || undefined,
                   ...(supportsPlanMode && { planMode: false }),
-                  ...(supportsThinkingToggle && { thinkingEnabled: false }),
-                  ...(supportsThinkingLevels && { thinkingLevel: "low" as ThinkingLevel }),
+                  ...(supportsThinking && { thinkingLevel: "low" as ThinkingLevel }),
                 };
                 if (isStreaming) {
                   onQueue({ content: text, options });

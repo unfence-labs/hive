@@ -259,17 +259,17 @@ export type ThinkingLevel = "low" | "medium" | "high" | "xhigh";
 /** Per-message options that control agent CLI behavior. */
 export interface MessageOptions {
   planMode?: boolean;
-  thinkingEnabled?: boolean;
   /** Compound model ID: "provider:model", e.g. "claude:opus-4-7" */
   model?: string;
-  /** Codex reasoning effort level (ignored by Claude provider). */
+  /** Reasoning effort level for providers that support it (Claude `--effort`, Codex `model_reasoning_effort`). */
   thinkingLevel?: ThinkingLevel;
 }
 
 // ── Model catalog types ─────────────────────────────────────────────
 
 export interface ProviderCapabilities {
-  thinking: boolean | "levels";
+  /** Whether the provider exposes a reasoning-effort control (low/medium/high/xhigh). */
+  thinking: boolean;
   planMode: boolean;
   blockingTools: boolean;
   completions: boolean;

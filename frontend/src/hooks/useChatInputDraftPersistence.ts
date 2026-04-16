@@ -4,7 +4,6 @@ import type { FileMention, ThinkingLevel } from "@/types";
 
 interface DraftState {
   value: string;
-  thinkingEnabled: boolean;
   planMode: boolean;
   selectedModelId: string;
   thinkingLevel: ThinkingLevel;
@@ -16,7 +15,6 @@ interface UseChatInputDraftPersistenceParams {
   wsId?: string;
   sessionId?: string;
   value: string;
-  thinkingEnabled: boolean;
   planMode: boolean;
   selectedModelId: string;
   defaultModelId: string;
@@ -24,7 +22,6 @@ interface UseChatInputDraftPersistenceParams {
   attachmentsRef: MutableRefObject<AttachmentsContext | null>;
   fileMentions: FileMention[];
   setValue: (value: string) => void;
-  setThinkingEnabled: (value: boolean) => void;
   setPlanMode: (value: boolean) => void;
   setSelectedModelId: (value: string) => void;
   setThinkingLevel: (value: ThinkingLevel) => void;
@@ -71,7 +68,7 @@ function hasPersistableDraft(draft: DraftState): boolean {
     draft.files.length > 0 ||
     draft.fileMentions.length > 0 ||
     draft.planMode ||
-    !draft.thinkingEnabled
+    draft.thinkingLevel !== "high"
   );
 }
 
@@ -101,7 +98,6 @@ export function useChatInputDraftPersistence({
   wsId,
   sessionId,
   value,
-  thinkingEnabled,
   planMode,
   selectedModelId,
   defaultModelId,
@@ -109,7 +105,6 @@ export function useChatInputDraftPersistence({
   attachmentsRef,
   fileMentions,
   setValue,
-  setThinkingEnabled,
   setPlanMode,
   setSelectedModelId,
   setThinkingLevel,
@@ -120,8 +115,6 @@ export function useChatInputDraftPersistence({
   const prevWsIdRef = useRef<string | undefined>(undefined);
   const valueRef = useRef(value);
   valueRef.current = value;
-  const thinkingRef = useRef(thinkingEnabled);
-  thinkingRef.current = thinkingEnabled;
   const planModeRef = useRef(planMode);
   planModeRef.current = planMode;
   const selectedModelIdRef = useRef(selectedModelId);
@@ -143,7 +136,6 @@ export function useChatInputDraftPersistence({
     const files = attachmentsRef.current?.files ?? [];
     upsertDraft(options?.targetWsId ?? wsIdRef.current, targetSessionId, {
       value: valueRef.current,
-      thinkingEnabled: thinkingRef.current,
       planMode: planModeRef.current,
       selectedModelId: selectedModelIdRef.current,
       thinkingLevel: thinkingLevelRef.current,
@@ -174,7 +166,6 @@ export function useChatInputDraftPersistence({
       const draft = getWorkspaceDrafts(wsId).get(sessionId);
       if (draft) {
         setValue(draft.value);
-        setThinkingEnabled(draft.thinkingEnabled);
         setPlanMode(draft.planMode);
         setSelectedModelId(draft.selectedModelId);
         setThinkingLevel(draft.thinkingLevel);
@@ -183,8 +174,8 @@ export function useChatInputDraftPersistence({
         setFileMentions(draft.fileMentions ?? []);
       } else {
         setValue("");
-        setThinkingEnabled(true);
         setPlanMode(false);
+        setThinkingLevel("high");
         if (defaultModelIdRef.current) setSelectedModelId(defaultModelIdRef.current);
         attachmentsRef.current?.restore([]);
         setFileCount(0);
@@ -200,7 +191,6 @@ export function useChatInputDraftPersistence({
     saveDraftForSession,
     attachmentsRef,
     setValue,
-    setThinkingEnabled,
     setPlanMode,
     setSelectedModelId,
     setThinkingLevel,

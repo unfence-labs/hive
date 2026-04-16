@@ -15,7 +15,7 @@ const CODEX_MODELS: ModelDefinition[] = [
 ];
 
 const CODEX_CAPABILITIES: ProviderCapabilities = {
-  thinking: "levels",
+  thinking: true,
   planMode: false,
   blockingTools: false,
   completions: false,

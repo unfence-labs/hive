@@ -38,6 +38,7 @@ export class ClaudeProvider implements AgentProvider {
       "--output-format", "stream-json",
       "--verbose",
       ...(model ? ["--model", model.cliValue] : []),
+      ...(options.thinkingLevel ? ["--effort", options.thinkingLevel] : []),
       ...(options.planMode
         ? ["--permission-mode", "plan"]
         : session.skipPermissions ? ["--dangerously-skip-permissions"] : []),
@@ -51,14 +52,10 @@ export class ClaudeProvider implements AgentProvider {
     ];
   }
 
-  buildEnv(options: ProviderMessageOptions): Record<string, string> {
-    const env: Record<string, string> = {
+  buildEnv(_options: ProviderMessageOptions): Record<string, string> {
+    return {
       CLAUDE_CODE_ENABLE_TASKS: "true",
     };
-    if (options.thinkingEnabled !== undefined) {
-      env.MAX_THINKING_TOKENS = options.thinkingEnabled ? "31999" : "0";
-    }
-    return env;
   }
 
   createStreamAdapter(): StreamAdapter {

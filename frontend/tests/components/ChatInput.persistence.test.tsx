@@ -26,7 +26,7 @@ vi.mock("@/hooks/useApi", () => ({
 type SendFn = (
   content: string,
   images?: unknown[],
-  options?: { planMode: boolean; thinkingEnabled: boolean },
+  options?: { planMode: boolean; thinkingLevel: "low" | "medium" | "high" | "xhigh" },
 ) => boolean;
 
 function chatInputProps({
@@ -200,7 +200,8 @@ describe("ChatInput draft persistence", () => {
     const { a: sessionA, b: sessionB } = makeSessionIds();
     const { rerender } = renderChatInput(sessionA, undefined, onSend);
 
-    await user.click(screen.getByRole("button", { name: "Toggle thinking" }));
+    // Default "high" + one click -> "xhigh"
+    await user.click(screen.getByRole("button", { name: /^Thinking:/ }));
     await user.click(screen.getByRole("button", { name: "Toggle plan mode" }));
 
     rerenderChatInput(rerender, { sessionId: sessionB, onSend });
@@ -209,7 +210,7 @@ describe("ChatInput draft persistence", () => {
 
     expect(onSend).toHaveBeenLastCalledWith("session b", undefined, {
       planMode: false,
-      thinkingEnabled: true,
+      thinkingLevel: "high",
     }, undefined);
 
     rerenderChatInput(rerender, { sessionId: sessionA, onSend });
@@ -218,7 +219,7 @@ describe("ChatInput draft persistence", () => {
 
     expect(onSend).toHaveBeenLastCalledWith("session a", undefined, {
       planMode: true,
-      thinkingEnabled: false,
+      thinkingLevel: "xhigh",
     }, undefined);
   });
 

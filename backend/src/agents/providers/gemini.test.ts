@@ -107,7 +107,7 @@ describe("GeminiProvider", () => {
 
   it("always returns undefined for env overrides", () => {
     expect(provider.buildEnv({})).toBeUndefined();
-    expect(provider.buildEnv({ thinkingEnabled: true })).toBeUndefined();
+    expect(provider.buildEnv({ thinkingLevel: "high" })).toBeUndefined();
     expect(provider.buildEnv({ planMode: true })).toBeUndefined();
   });
 

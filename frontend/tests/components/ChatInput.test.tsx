@@ -118,7 +118,7 @@ describe("ChatInput", () => {
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: false, thinkingEnabled: true }, undefined);
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: false, thinkingLevel: "high" }, undefined);
   });
 
   it("sends message on Enter without Shift", async () => {
@@ -127,7 +127,7 @@ describe("ChatInput", () => {
 
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello{enter}");
 
-    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: false, thinkingEnabled: true }, undefined);
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: false, thinkingLevel: "high" }, undefined);
   });
 
   it("does not send on Shift+Enter", async () => {
@@ -139,30 +139,33 @@ describe("ChatInput", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it("sends toggled thinking/plan options", async () => {
+  it("cycles thinking level and toggles plan mode", async () => {
     const user = userEvent.setup();
     const { onSend } = renderChatInput();
 
-    await user.click(screen.getByRole("button", { name: "Toggle thinking" }));
+    // Default is "high"; one click cycles to "xhigh" (low -> medium -> high -> xhigh -> low).
+    await user.click(screen.getByRole("button", { name: /^Thinking:/ }));
     await user.click(screen.getByRole("button", { name: "Toggle plan mode" }));
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: true, thinkingEnabled: false }, undefined);
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: true, thinkingLevel: "xhigh" }, undefined);
   });
 
-  it("restores default options when toggles are clicked twice", async () => {
+  it("cycles thinking level back to default after four clicks", async () => {
     const user = userEvent.setup();
     const { onSend } = renderChatInput();
 
-    await user.click(screen.getByRole("button", { name: "Toggle thinking" }));
-    await user.click(screen.getByRole("button", { name: "Toggle plan mode" }));
-    await user.click(screen.getByRole("button", { name: "Toggle thinking" }));
-    await user.click(screen.getByRole("button", { name: "Toggle plan mode" }));
+    // Cycle four times to return to "high": high -> xhigh -> low -> medium -> high.
+    const thinkingButton = () => screen.getByRole("button", { name: /^Thinking:/ });
+    await user.click(thinkingButton());
+    await user.click(thinkingButton());
+    await user.click(thinkingButton());
+    await user.click(thinkingButton());
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: false, thinkingEnabled: true }, undefined);
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: false, thinkingLevel: "high" }, undefined);
   });
 
   it("enables plan mode automatically when agentPlanMode is true", async () => {
@@ -175,7 +178,7 @@ describe("ChatInput", () => {
     expect(onSend).toHaveBeenCalledWith("hello", undefined, {
       model: "claude:opus-4-7",
       planMode: true,
-      thinkingEnabled: true,
+      thinkingLevel: "high",
     }, undefined);
   });
 
@@ -190,7 +193,7 @@ describe("ChatInput", () => {
     expect(onSend).toHaveBeenCalledWith("hello", undefined, {
       model: "claude:opus-4-7",
       planMode: false,
-      thinkingEnabled: true,
+      thinkingLevel: "high",
     }, undefined);
   });
 
@@ -220,7 +223,7 @@ describe("ChatInput", () => {
     await user.type(input, "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: false, thinkingEnabled: true }, undefined);
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: false, thinkingLevel: "high" }, undefined);
     expect(input).toHaveValue("hello");
   });
 
@@ -300,7 +303,7 @@ describe("ChatInput", () => {
     expect(onQueue).toHaveBeenCalledWith({
       content: "follow up",
       images: undefined,
-      options: { model: "claude:opus-4-7", planMode: false, thinkingEnabled: true },
+      options: { model: "claude:opus-4-7", planMode: false, thinkingLevel: "high" },
     });
     expect(onSend).not.toHaveBeenCalled();
   });

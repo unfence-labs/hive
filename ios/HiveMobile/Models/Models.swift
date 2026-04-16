@@ -2,32 +2,8 @@ import Foundation
 
 // MARK: - Model Catalog
 
-enum ThinkingCapability: Codable, Equatable {
-    case boolean(Bool)
-    case levels
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let boolVal = try? container.decode(Bool.self) {
-            self = .boolean(boolVal)
-        } else if let strVal = try? container.decode(String.self), strVal == "levels" {
-            self = .levels
-        } else {
-            self = .boolean(false)
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .boolean(let val): try container.encode(val)
-        case .levels: try container.encode("levels")
-        }
-    }
-}
-
 struct ProviderCapabilities: Codable, Equatable {
-    let thinking: ThinkingCapability
+    let thinking: Bool
     let planMode: Bool
     let blockingTools: Bool
     let completions: Bool
@@ -369,7 +345,6 @@ enum ThinkingLevel: String, Codable, CaseIterable {
 
 struct MessageOptions: Codable {
     let planMode: Bool?
-    let thinkingEnabled: Bool?
     let model: String?
     let thinkingLevel: ThinkingLevel?
 }

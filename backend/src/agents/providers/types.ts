@@ -20,8 +20,8 @@ export interface ModelDefinition {
 }
 
 export interface ProviderCapabilities {
-  /** true = boolean toggle, "levels" = ThinkingLevel selector */
-  thinking: boolean | "levels";
+  /** Whether the provider exposes a reasoning-effort control (low/medium/high/xhigh). */
+  thinking: boolean;
   planMode: boolean;
   blockingTools: boolean;
   completions: boolean;
@@ -41,7 +41,6 @@ export interface ProviderSessionState {
 export interface ProviderMessageOptions {
   model?: string;
   planMode?: boolean;
-  thinkingEnabled?: boolean;
   thinkingLevel?: ThinkingLevel;
 }
 

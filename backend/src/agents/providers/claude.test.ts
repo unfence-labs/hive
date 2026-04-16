@@ -51,7 +51,7 @@ describe("ClaudeProvider", () => {
 
   // ── Capabilities ───────────────────────────────────────────────────
 
-  it("supports boolean thinking toggle", () => {
+  it("supports effort-level thinking control", () => {
     expect(provider.capabilities.thinking).toBe(true);
   });
 
@@ -155,24 +155,37 @@ describe("ClaudeProvider", () => {
     expect(args.slice(-2)).toEqual(["-p", "My message"]);
   });
 
+  // ── --effort flag ──────────────────────────────────────────────────
+
+  it("adds --effort with the thinking level when provided", () => {
+    const args = provider.buildArgs("Hello", { thinkingLevel: "high" }, baseSession());
+    expect(args).toContain("--effort");
+    expect(args).toContain("high");
+  });
+
+  it("passes each effort level through unchanged", () => {
+    for (const level of ["low", "medium", "high", "xhigh"] as const) {
+      const args = provider.buildArgs("Hi", { thinkingLevel: level }, baseSession());
+      const idx = args.indexOf("--effort");
+      expect(args[idx + 1]).toBe(level);
+    }
+  });
+
+  it("omits --effort when thinkingLevel is not provided", () => {
+    const args = provider.buildArgs("Hello", {}, baseSession());
+    expect(args).not.toContain("--effort");
+  });
+
   // ── buildEnv ───────────────────────────────────────────────────────
 
   it("always includes CLAUDE_CODE_ENABLE_TASKS", () => {
     const env = provider.buildEnv({});
     expect(env.CLAUDE_CODE_ENABLE_TASKS).toBe("true");
-    expect(env.MAX_THINKING_TOKENS).toBeUndefined();
   });
 
-  it("sets MAX_THINKING_TOKENS=31999 when thinking is enabled", () => {
-    const env = provider.buildEnv({ thinkingEnabled: true });
-    expect(env.MAX_THINKING_TOKENS).toBe("31999");
-    expect(env.CLAUDE_CODE_ENABLE_TASKS).toBe("true");
-  });
-
-  it("sets MAX_THINKING_TOKENS=0 when thinking is disabled", () => {
-    const env = provider.buildEnv({ thinkingEnabled: false });
-    expect(env.MAX_THINKING_TOKENS).toBe("0");
-    expect(env.CLAUDE_CODE_ENABLE_TASKS).toBe("true");
+  it("does not leak MAX_THINKING_TOKENS env var", () => {
+    expect(provider.buildEnv({ thinkingLevel: "high" }).MAX_THINKING_TOKENS).toBeUndefined();
+    expect(provider.buildEnv({ thinkingLevel: "low" }).MAX_THINKING_TOKENS).toBeUndefined();
   });
 
   // ── createStreamAdapter ────────────────────────────────────────────
