@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
@@ -176,6 +176,34 @@ function mockPostWithBulkFallback(overrides: Record<string, unknown | Error>) {
   });
 }
 
+function createDataTransfer(): DataTransfer {
+  const data = new Map<string, string>();
+  const types = new Set<string>();
+
+  return {
+    dropEffect: "move",
+    effectAllowed: "move",
+    files: [] as unknown as FileList,
+    items: [] as unknown as DataTransferItemList,
+    types: [],
+    clearData: (format?: string) => {
+      if (format) {
+        data.delete(format);
+        types.delete(format);
+      } else {
+        data.clear();
+        types.clear();
+      }
+    },
+    getData: (format: string) => data.get(format) ?? "",
+    setData: (format: string, value: string) => {
+      data.set(format, value);
+      types.add(format);
+    },
+    setDragImage: vi.fn(),
+  } as unknown as DataTransfer;
+}
+
 describe("Sidebar", () => {
   const projects: Project[] = [
     {
@@ -206,6 +234,7 @@ describe("Sidebar", () => {
     vi.mocked(api.get).mockReset();
     vi.mocked(api.post).mockReset();
     vi.mocked(api.delete).mockReset();
+    localStorage.removeItem("hive:sidebar-project-folders:v1");
     mockPostWithBulkFallback({});
     const { __wsMock } = await getWsMock();
     __wsMock.reset();
@@ -236,6 +265,111 @@ describe("Sidebar", () => {
     expect(alphaHeader.querySelector("[class*='tabular-nums']")).toHaveTextContent("1");
     // Beta has 0 workspaces → count "0" visible in project header
     expect(betaHeader.querySelector("[class*='tabular-nums']")).toHaveTextContent("0");
+  });
+
+  it("creates collapsible folders from the workspaces header", async () => {
+    const user = userEvent.setup();
+    renderSidebar("/projects", projects);
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    await user.click(screen.getByRole("button", { name: "New folder" }));
+    await user.type(screen.getByLabelText("Folder name"), "Client work");
+    await user.click(screen.getByRole("button", { name: "Create folder" }));
+
+    expect(await screen.findByRole("button", { name: "Client work" })).toBeInTheDocument();
+    expect(screen.getByText("Drop repositories here")).toBeInTheDocument();
+  });
+
+  it("moves a project into a folder via drag and drop", async () => {
+    const user = userEvent.setup();
+    renderSidebar("/projects", projects);
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    await user.click(screen.getByRole("button", { name: "New folder" }));
+    await user.type(screen.getByLabelText("Folder name"), "Client work");
+    await user.click(screen.getByRole("button", { name: "Create folder" }));
+
+    const betaButton = screen.getByText(withTextContent("acme/beta")).closest("button");
+    const folder = screen.getByText("Client work").closest("[data-sidebar-folder]");
+    expect(betaButton).not.toBeNull();
+    expect(folder).not.toBeNull();
+
+    const dataTransfer = createDataTransfer();
+    fireEvent.dragStart(betaButton!, { dataTransfer });
+    fireEvent.dragOver(folder!, { dataTransfer });
+    fireEvent.drop(folder!, { dataTransfer });
+    fireEvent.dragEnd(betaButton!, { dataTransfer });
+
+    await waitFor(() => {
+      expect(screen.getByText(withTextContent("acme/beta")).closest("[data-sidebar-folder]")).toBe(folder);
+    });
+  });
+
+  it("moves a project back to top level via drag and drop", async () => {
+    const user = userEvent.setup();
+    renderSidebar("/projects", projects);
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    await user.click(screen.getByRole("button", { name: "New folder" }));
+    await user.type(screen.getByLabelText("Folder name"), "Client work");
+    await user.click(screen.getByRole("button", { name: "Create folder" }));
+
+    const folder = screen.getByText("Client work").closest("[data-sidebar-folder]");
+    expect(folder).not.toBeNull();
+
+    const firstTransfer = createDataTransfer();
+    const initialBetaButton = screen.getByText(withTextContent("acme/beta")).closest("button");
+    expect(initialBetaButton).not.toBeNull();
+    fireEvent.dragStart(initialBetaButton!, { dataTransfer: firstTransfer });
+    fireEvent.dragOver(folder!, { dataTransfer: firstTransfer });
+    fireEvent.drop(folder!, { dataTransfer: firstTransfer });
+    fireEvent.dragEnd(initialBetaButton!, { dataTransfer: firstTransfer });
+
+    await waitFor(() => {
+      expect(screen.getByText(withTextContent("acme/beta")).closest("[data-sidebar-folder]")).toBe(folder);
+    });
+
+    const secondTransfer = createDataTransfer();
+    const movedBetaButton = screen.getByText(withTextContent("acme/beta")).closest("button");
+    expect(movedBetaButton).not.toBeNull();
+    fireEvent.dragStart(movedBetaButton!, { dataTransfer: secondTransfer });
+
+    const rootDropZone = await screen.findByTestId("sidebar-root-drop-zone");
+    fireEvent.dragOver(rootDropZone, { dataTransfer: secondTransfer });
+    fireEvent.drop(rootDropZone, { dataTransfer: secondTransfer });
+    fireEvent.dragEnd(movedBetaButton!, { dataTransfer: secondTransfer });
+
+    await waitFor(() => {
+      expect(screen.getByText(withTextContent("acme/beta")).closest("[data-sidebar-folder]")).toBeNull();
+    });
+  });
+
+  it("collapses folders and hides their projects", async () => {
+    const user = userEvent.setup();
+    renderSidebar("/projects", projects);
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    await user.click(screen.getByRole("button", { name: "New folder" }));
+    await user.type(screen.getByLabelText("Folder name"), "Client work");
+    await user.click(screen.getByRole("button", { name: "Create folder" }));
+
+    const folder = screen.getByText("Client work").closest("[data-sidebar-folder]");
+    expect(folder).not.toBeNull();
+
+    const dataTransfer = createDataTransfer();
+    const betaButton = screen.getByText(withTextContent("acme/beta")).closest("button");
+    expect(betaButton).not.toBeNull();
+    fireEvent.dragStart(betaButton!, { dataTransfer });
+    fireEvent.dragOver(folder!, { dataTransfer });
+    fireEvent.drop(folder!, { dataTransfer });
+    fireEvent.dragEnd(betaButton!, { dataTransfer });
+
+    expect(await screen.findByText(withTextContent("acme/beta"))).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Client work" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(withTextContent("acme/beta"))).not.toBeInTheDocument();
+    });
   });
 
   it("expands the active project's workspaces on workspace route", async () => {

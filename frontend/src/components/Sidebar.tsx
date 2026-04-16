@@ -1,6 +1,17 @@
 import { useMemo, useState } from "react";
 import { getNextRun, formatTimeUntil } from "@/lib/cron";
-import { ArchiveIcon, FolderPlus, Loader2, Plus, Settings } from "lucide-react";
+import {
+  ArchiveIcon,
+  Check,
+  ChevronRight,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  Loader2,
+  Plus,
+  Settings,
+  X,
+} from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,10 +36,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import { useProjects } from "@/hooks/useProjects";
 import { useBulkPrStatus, usePrStatusMap } from "@/hooks/usePrStatus";
+import { useSidebarProjectFolders } from "@/hooks/useSidebarProjectFolders";
 import { computePrDisplayCompact } from "@/lib/pr-display";
 import { BranchLabel } from "@/components/BranchLabel";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
@@ -38,7 +51,8 @@ import { cn } from "@/lib/utils";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { useAutomations } from "@/hooks/useAutomations";
 import { SidebarShell } from "@/components/SidebarShell";
-import type { Automation, DiffStatResponse } from "@/types";
+import { Input } from "@/components/ui/input";
+import type { Automation, DiffStatResponse, Project } from "@/types";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -73,6 +87,7 @@ interface SidebarGroupHeaderProps {
   addLabel?: string;
   variant?: "default" | "plain";
   buttonClassName?: string;
+  buttonProps?: React.ComponentProps<"button">;
 }
 
 function SidebarGroupHeader({
@@ -85,8 +100,10 @@ function SidebarGroupHeader({
   addLabel,
   variant = "default",
   buttonClassName,
+  buttonProps,
 }: SidebarGroupHeaderProps) {
   const isPlain = variant === "plain";
+  const { className: buttonPropsClassName, ...restButtonProps } = buttonProps ?? {};
 
   return (
     <div className="group relative flex w-full items-center">
@@ -100,7 +117,9 @@ function SidebarGroupHeader({
               : "gap-2.5 rounded-md px-2.5 py-2.5 hover:bg-sidebar-accent/40",
             count !== undefined && "pr-8",
             buttonClassName,
+            buttonPropsClassName,
           )}
+          {...restButtonProps}
         >
           {icon}
           <span className="min-w-0 flex-1 truncate text-xs font-semibold lowercase tracking-wider text-sidebar-foreground">
@@ -148,6 +167,8 @@ interface SidebarSectionHeaderProps {
   onAdd?: () => void;
   addLabel?: string;
   className?: string;
+  addIcon?: React.ReactNode;
+  addButtonClassName?: string;
 }
 
 function SidebarSectionHeader({
@@ -156,6 +177,8 @@ function SidebarSectionHeader({
   onAdd,
   addLabel,
   className,
+  addIcon,
+  addButtonClassName,
 }: SidebarSectionHeaderProps) {
   return (
     <div className={cn("group relative flex w-full items-center", className)}>
@@ -168,12 +191,15 @@ function SidebarSectionHeader({
         ) : onAdd ? (
           <button
             type="button"
-            className="flex items-center justify-center text-primary transition-colors hover:text-primary/80"
+            className={cn(
+              "flex items-center justify-center text-muted-foreground/70 transition-colors hover:text-sidebar-foreground",
+              addButtonClassName,
+            )}
             onClick={onAdd}
             aria-label={addLabel}
             title={addLabel}
           >
-            <Plus className="h-4 w-4" />
+            {addIcon ?? <Plus className="h-4 w-4" />}
           </button>
         ) : null
         }
@@ -189,6 +215,10 @@ interface SidebarProps {
   onAddAutomation?: () => void;
 }
 
+type SidebarDropTarget =
+  | { type: "folder"; folderId: string }
+  | { type: "root" };
+
 export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps) {
   const { projects, loading, createWorkspace, archiveWorkspace } = useProjects();
   const { data: automations, isLoading: automationsLoading } = useAutomations();
@@ -200,6 +230,10 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
   const [archivingWsId, setArchivingWsId] = useState<string | null>(null);
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<SidebarDropTarget | null>(null);
   const liveData = useWorkspaceLiveDataContext();
 
   const activeProjectId = projects.find((project) =>
@@ -216,11 +250,32 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     if (!automations) return [];
     return [...automations].sort((a, b) => automationSortKey(a) - automationSortKey(b));
   }, [automations]);
+  const {
+    folders,
+    rootProjects,
+    createFolder,
+    moveProjectToFolder,
+    isFolderExpanded,
+    setFolderExpanded,
+    getFolderIdForProject,
+  } = useSidebarProjectFolders(projects);
+  const draggedProjectFolderId = draggingProjectId ? getFolderIdForProject(draggingProjectId) : null;
 
   const isProjectExpanded = (projectId: string) => {
     const expanded = expandedProjects[projectId];
     if (typeof expanded === "boolean") return expanded;
     return activeProjectId === projectId;
+  };
+
+  const resetFolderComposer = () => {
+    setIsCreatingFolder(false);
+    setNewFolderName("");
+  };
+
+  const handleCreateFolder = () => {
+    const folderId = createFolder(newFolderName);
+    if (!folderId) return;
+    resetFolderComposer();
   };
 
   const handleAddWorkspace = async (projectId: string) => {
@@ -266,6 +321,212 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     }
   };
 
+  const handleProjectDragStart = (
+    event: React.DragEvent<HTMLButtonElement>,
+    projectId: string,
+  ) => {
+    setDraggingProjectId(projectId);
+    setDropTarget(null);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-hive-project-id", projectId);
+    event.dataTransfer.setData("text/plain", projectId);
+  };
+
+  const handleProjectDragEnd = () => {
+    setDraggingProjectId(null);
+    setDropTarget(null);
+  };
+
+  const handleRootDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!draggingProjectId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (dropTarget?.type !== "root") {
+      setDropTarget({ type: "root" });
+    }
+  };
+
+  const handleRootDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!draggingProjectId) return;
+    event.preventDefault();
+    moveProjectToFolder(draggingProjectId, null);
+    setDraggingProjectId(null);
+    setDropTarget(null);
+  };
+
+  const handleFolderDragOver = (
+    event: React.DragEvent<HTMLDivElement>,
+    folderId: string,
+  ) => {
+    if (!draggingProjectId) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (getFolderIdForProject(draggingProjectId) === folderId) {
+      if (dropTarget !== null) setDropTarget(null);
+      return;
+    }
+
+    event.dataTransfer.dropEffect = "move";
+    if (dropTarget?.type !== "folder" || dropTarget.folderId !== folderId) {
+      setDropTarget({ type: "folder", folderId });
+    }
+  };
+
+  const handleFolderDrop = (
+    event: React.DragEvent<HTMLDivElement>,
+    folderId: string,
+  ) => {
+    if (!draggingProjectId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    moveProjectToFolder(draggingProjectId, folderId);
+    setDraggingProjectId(null);
+    setDropTarget(null);
+  };
+
+  const renderProjectItem = (project: Project, className?: string) => {
+    const parsed = project.url ? parseProjectOwnerRepo(project.url) : null;
+    const displayLabel = parsed ? (
+      <><span className="text-muted-foreground">{parsed.owner}/</span>{parsed.repo}</>
+    ) : project.name;
+    const displayLabelPlain = parsed ? `${parsed.owner}/${parsed.repo}` : project.name;
+    const isDragged = draggingProjectId === project.id;
+
+    return (
+      <div key={project.id} className={className}>
+        <Collapsible
+          open={isProjectExpanded(project.id)}
+          onOpenChange={(open) =>
+            setExpandedProjects((prev) => ({ ...prev, [project.id]: open }))
+          }
+        >
+          <SidebarGroupHeader
+            icon={
+              <ProjectAvatar
+                name={project.name}
+                projectId={project.id}
+                hasFavicon={project.hasFavicon}
+                className="h-[18px] w-[18px]"
+              />
+            }
+            label={displayLabel}
+            count={(project.workspaces ?? []).length}
+            isLoading={creatingProjectId === project.id}
+            onAdd={() => { void handleAddWorkspace(project.id); }}
+            addLabel={`Add workspace to ${displayLabelPlain}`}
+            variant="plain"
+            buttonClassName={cn(
+              "rounded-md px-1.5 hover:bg-sidebar-accent/35",
+              isDragged && "cursor-grabbing opacity-45",
+            )}
+            buttonProps={{
+              draggable: true,
+              onDragStart: (event) => handleProjectDragStart(event, project.id),
+              onDragEnd: handleProjectDragEnd,
+              "aria-grabbed": isDragged,
+            }}
+          />
+
+          <CollapsibleContent>
+            <div className="mt-1 space-y-1.5">
+              {(project.workspaces ?? []).map((ws) => {
+                const wsLive = liveData[ws.id];
+                const wsStreaming = wsLive?.streaming ?? false;
+                const wsScriptRunning = wsLive?.scriptRunning ?? false;
+                const displayBranch = wsLive?.branch ?? ws.branch;
+                const wsUnread = !wsStreaming && Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
+                const prStatus = prStatuses[ws.id];
+                const wsArchiving = archivingWsId === ws.id;
+
+                return (
+                  <div key={ws.id} className={cn("group/ws relative transition-opacity", wsArchiving && "pointer-events-none opacity-40")}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Link
+                          to={`/workspaces/${ws.id}`}
+                          className={cn(
+                            "sidebar-card block rounded-md border py-1.5 pl-2 pr-2",
+                            activeWsId === ws.id && "sidebar-card-active",
+                          )}
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-visible">
+                              {wsStreaming ? (
+                                <AgentActivityPreview size="small" />
+                              ) : wsUnread ? (
+                                <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                              ) : null}
+                            </div>
+                            <BranchLabel
+                              branch={displayBranch}
+                              showIcon={false}
+                              className={cn(
+                                "min-w-0 flex-1 text-sm",
+                                activeWsId === ws.id || wsUnread
+                                  ? "text-sidebar-foreground"
+                                  : "text-muted-foreground",
+                              )}
+                            />
+                            {wsScriptRunning && (
+                              <ActivityWave size="small" decorative className="shrink-0" />
+                            )}
+                          </div>
+
+                          <div className="mt-0.5 flex items-center gap-1 pl-5 text-[11px]">
+                            {prStatus?.pr ? (
+                              (() => {
+                                const display = computePrDisplayCompact(prStatus.pr);
+                                return (
+                                  <span className={cn("truncate", display.textClass)}>
+                                    #{prStatus.pr.number} {display.label}
+                                  </span>
+                                );
+                              })()
+                            ) : prLoading ? (
+                              <span className="text-muted-foreground">Loading…</span>
+                            ) : prStatus?.error ? (
+                              <span className="text-muted-foreground">Error fetching PR</span>
+                            ) : (
+                              <span className="text-muted-foreground">No PR</span>
+                            )}
+                          </div>
+                        </Link>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="text-xs">
+                        {ws.name}
+                      </TooltipContent>
+                    </Tooltip>
+
+                    {wsArchiving ? (
+                      <div className="absolute right-1.5 top-1.5 p-0.5">
+                        <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : !wsScriptRunning && (
+                      <button
+                        type="button"
+                        className="absolute right-1.5 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          void handleArchiveClick(ws.id);
+                        }}
+                        aria-label={`Archive workspace ${ws.name}`}
+                        title="Archive workspace"
+                      >
+                        <ArchiveIcon className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      </div>
+    );
+  };
+
   const footerActions = (
     <div className="flex items-center justify-end px-2 py-1.5">
       <Link
@@ -295,140 +556,150 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
               <SidebarSectionHeader
                 label="Workspaces"
                 className="mb-2"
+                onAdd={() => {
+                  setIsCreatingFolder(true);
+                  setNewFolderName("");
+                }}
+                addLabel="New folder"
+                addIcon={<FolderPlus className="h-4 w-4" />}
+                addButtonClassName="rounded p-0.5 hover:bg-sidebar-accent/50"
               />
 
-              {projects.map((project, index) => {
-                const parsed = project.url ? parseProjectOwnerRepo(project.url) : null;
-                const displayLabel = parsed ? (
-                  <><span className="text-muted-foreground">{parsed.owner}/</span>{parsed.repo}</>
-                ) : project.name;
-                const displayLabelPlain = parsed ? `${parsed.owner}/${parsed.repo}` : project.name;
-                return (
-                <div
-                  key={project.id}
-                  className={cn(index > 0 && "mt-3")}
+              {isCreatingFolder && (
+                <form
+                  className="mb-2 rounded-lg border border-sidebar-border/80 bg-sidebar-accent/25 p-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleCreateFolder();
+                  }}
                 >
-                  <Collapsible
-                    open={isProjectExpanded(project.id)}
-                    onOpenChange={(open) =>
-                      setExpandedProjects((prev) => ({ ...prev, [project.id]: open }))
-                    }
-                  >
-                    <SidebarGroupHeader
-                      icon={
-                        <ProjectAvatar
-                          name={project.name}
-                          projectId={project.id}
-                          hasFavicon={project.hasFavicon}
-                          className="h-[18px] w-[18px]"
-                        />
-                      }
-                      label={displayLabel}
-                      count={(project.workspaces ?? []).length}
-                      isLoading={creatingProjectId === project.id}
-                      onAdd={() => { void handleAddWorkspace(project.id); }}
-                      addLabel={`Add workspace to ${displayLabelPlain}`}
-                      variant="plain"
+                  <div className="flex items-center gap-2">
+                    <FolderPlus className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <Input
+                      value={newFolderName}
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          resetFolderComposer();
+                        }
+                      }}
+                      placeholder="Folder name"
+                      aria-label="Folder name"
+                      autoFocus
+                      className="h-8 bg-background/80 text-sm"
                     />
+                    <Button
+                      type="submit"
+                      variant="ghost"
+                      size="icon-xs"
+                      disabled={newFolderName.trim().length === 0}
+                      aria-label="Create folder"
+                      title="Create folder"
+                    >
+                      <Check />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={resetFolderComposer}
+                      aria-label="Cancel folder creation"
+                      title="Cancel folder creation"
+                    >
+                      <X />
+                    </Button>
+                  </div>
+                </form>
+              )}
 
-                    <CollapsibleContent>
-                      <div className="mt-1 space-y-1.5">
-                        {(project.workspaces ?? []).map((ws) => {
-                          const wsLive = liveData[ws.id];
-                          const wsStreaming = wsLive?.streaming ?? false;
-                          const wsScriptRunning = wsLive?.scriptRunning ?? false;
-                          const displayBranch = wsLive?.branch ?? ws.branch;
-                          const wsUnread = !wsStreaming && Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
-                          const prStatus = prStatuses[ws.id];
-                          const wsArchiving = archivingWsId === ws.id;
+              {draggedProjectFolderId !== null && (
+                <div
+                  data-testid="sidebar-root-drop-zone"
+                  onDragOver={handleRootDragOver}
+                  onDrop={handleRootDrop}
+                  className={cn(
+                    "mb-2 rounded-md border border-dashed px-2 py-1.5 text-[11px] font-medium transition-colors",
+                    dropTarget?.type === "root"
+                      ? "border-primary/45 bg-primary/10 text-primary"
+                      : "border-sidebar-border/80 text-muted-foreground",
+                  )}
+                >
+                  Move to top level
+                </div>
+              )}
 
-                          return (
-                            <div key={ws.id} className={cn("group/ws relative transition-opacity", wsArchiving && "pointer-events-none opacity-40")}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Link
-                                    to={`/workspaces/${ws.id}`}
-                                    className={cn(
-                                      "sidebar-card block rounded-md border py-1.5 pl-2 pr-2",
-                                      activeWsId === ws.id && "sidebar-card-active",
-                                    )}
-                                  >
-                                    <div className="flex items-center gap-1.5">
-                                      <div className="flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-visible">
-                                        {wsStreaming ? (
-                                          <AgentActivityPreview size="small" />
-                                        ) : wsUnread ? (
-                                          <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                                        ) : null}
-                                      </div>
-                                      <BranchLabel
-                                        branch={displayBranch}
-                                        showIcon={false}
-                                        className={cn(
-                                          "min-w-0 flex-1 text-sm",
-                                          activeWsId === ws.id || wsUnread
-                                            ? "text-sidebar-foreground"
-                                            : "text-muted-foreground",
-                                        )}
-                                      />
-                                      {wsScriptRunning && (
-                                        <ActivityWave size="small" decorative className="shrink-0" />
-                                      )}
-                                    </div>
+              {folders.length > 0 && (
+                <div className="space-y-1.5">
+                  {folders.map((folder) => {
+                    const expanded = isFolderExpanded(folder.id);
+                    const isActiveDropTarget =
+                      dropTarget?.type === "folder" && dropTarget.folderId === folder.id;
+                    const containsActiveProject = folder.projects.some((project) => project.id === activeProjectId);
 
-                                    <div className="mt-0.5 flex items-center gap-1 pl-5 text-[11px]">
-                                      {prStatus?.pr ? (
-                                        (() => {
-                                          const display = computePrDisplayCompact(prStatus.pr);
-                                          return (
-                                            <span className={cn("truncate", display.textClass)}>
-                                              #{prStatus.pr.number} {display.label}
-                                            </span>
-                                          );
-                                        })()
-                                      ) : prLoading ? (
-                                        <span className="text-muted-foreground">Loading…</span>
-                                      ) : prStatus?.error ? (
-                                        <span className="text-muted-foreground">Error fetching PR</span>
-                                      ) : (
-                                        <span className="text-muted-foreground">No PR</span>
-                                      )}
-                                    </div>
-                                  </Link>
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="text-xs">
-                                  {ws.name}
-                                </TooltipContent>
-                              </Tooltip>
+                    return (
+                      <Collapsible
+                        key={folder.id}
+                        open={expanded}
+                        onOpenChange={(open) => setFolderExpanded(folder.id, open)}
+                      >
+                        <div
+                          data-sidebar-folder={folder.id}
+                          onDragOver={(event) => handleFolderDragOver(event, folder.id)}
+                          onDrop={(event) => handleFolderDrop(event, folder.id)}
+                          className="rounded-lg"
+                        >
+                          <CollapsibleTrigger asChild>
+                            <button
+                              type="button"
+                              className={cn(
+                                "flex min-h-9 w-full items-center gap-1.5 rounded-md px-1.5 text-left transition-colors hover:bg-sidebar-accent/40",
+                                containsActiveProject ? "text-sidebar-foreground" : "text-muted-foreground",
+                                isActiveDropTarget && "bg-primary/10 text-sidebar-foreground ring-1 ring-primary/20",
+                              )}
+                            >
+                              <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 transition-transform", expanded && "rotate-90")} />
+                              {expanded ? (
+                                <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              ) : (
+                                <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+                              )}
+                              <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
+                                {folder.name}
+                              </span>
+                            </button>
+                          </CollapsibleTrigger>
 
-                              {wsArchiving ? (
-                                <div className="absolute right-1.5 top-1.5 p-0.5">
-                                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                          <CollapsibleContent>
+                            <div className="ml-3 mt-1 border-l border-sidebar-border/70 pl-2.5">
+                              {folder.projects.length > 0 ? (
+                                <div className="space-y-1.5 py-0.5">
+                                  {folder.projects.map((project) => renderProjectItem(project))}
                                 </div>
-                              ) : !wsScriptRunning && (
-                                <button
-                                  type="button"
-                                  className="absolute right-1.5 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    void handleArchiveClick(ws.id);
-                                  }}
-                                  aria-label={`Archive workspace ${ws.name}`}
-                                  title="Archive workspace"
+                              ) : (
+                                <div
+                                  className={cn(
+                                    "py-2 text-xs text-muted-foreground/70 transition-colors",
+                                    isActiveDropTarget && "text-primary",
+                                  )}
                                 >
-                                  <ArchiveIcon className="h-3 w-3" />
-                                </button>
+                                  Drop repositories here
+                                </div>
                               )}
                             </div>
-                          );
-                        })}
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
+                          </CollapsibleContent>
+                        </div>
+                      </Collapsible>
+                    );
+                  })}
                 </div>
-                );
-              })}
+              )}
+
+              {rootProjects.length > 0 && (
+                <div className={cn("space-y-1.5", folders.length > 0 && "mt-2")}>
+                  {rootProjects.map((project) => renderProjectItem(project))}
+                </div>
+              )}
 
               <div className="mt-6">
                 <div className="mb-6 border-t border-white/15" />
