@@ -45,7 +45,7 @@ describe("GeminiProvider", () => {
   // ── Capabilities ───────────────────────────────────────────────────
 
   it("does not expose thinking toggle", () => {
-    expect(provider.capabilities.thinking).toBe(false);
+    expect(provider.capabilities.thinkingLevels).toEqual([]);
   });
 
   it("does not support plan mode", () => {
@@ -107,7 +107,7 @@ describe("GeminiProvider", () => {
 
   it("always returns undefined for env overrides", () => {
     expect(provider.buildEnv({})).toBeUndefined();
-    expect(provider.buildEnv({ thinkingEnabled: true })).toBeUndefined();
+    expect(provider.buildEnv({ thinkingLevel: "high" })).toBeUndefined();
     expect(provider.buildEnv({ planMode: true })).toBeUndefined();
   });
 

@@ -44,7 +44,6 @@ function createAttachmentsContext(initialFiles: AttachmentFile[] = []): Attachme
 
 function useDraftHarness({ wsId, sessionId }: { wsId?: string; sessionId?: string }) {
   const [value, setValue] = useState("");
-  const [thinkingEnabled, setThinkingEnabled] = useState(true);
   const [planMode, setPlanMode] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState("");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("high");
@@ -66,7 +65,6 @@ function useDraftHarness({ wsId, sessionId }: { wsId?: string; sessionId?: strin
     wsId,
     sessionId,
     value,
-    thinkingEnabled,
     planMode,
     selectedModelId,
     defaultModelId: "claude:opus-4-7",
@@ -74,7 +72,6 @@ function useDraftHarness({ wsId, sessionId }: { wsId?: string; sessionId?: strin
     attachmentsRef: attachmentsRef as MutableRefObject<AttachmentsContext | null>,
     fileMentions,
     setValue,
-    setThinkingEnabled,
     setPlanMode,
     setSelectedModelId,
     setThinkingLevel,
@@ -84,14 +81,12 @@ function useDraftHarness({ wsId, sessionId }: { wsId?: string; sessionId?: strin
 
   return {
     value,
-    thinkingEnabled,
     planMode,
     selectedModelId,
     thinkingLevel,
     fileCount,
     fileMentions,
     setValue,
-    setThinkingEnabled,
     setPlanMode,
     setSelectedModelId,
     setThinkingLevel,
@@ -139,20 +134,20 @@ describe("useChatInputDraftPersistence", () => {
 
     act(() => {
       result.current.setValue("draft A");
-      result.current.setThinkingEnabled(false);
+      result.current.setThinkingLevel("low");
       result.current.setPlanMode(true);
       result.current.setFiles([fileA]);
     });
 
     rerender({ currentSessionId: sessionB });
     expect(result.current.value).toBe("");
-    expect(result.current.thinkingEnabled).toBe(true);
+    expect(result.current.thinkingLevel).toBe("high");
     expect(result.current.planMode).toBe(false);
     expect(result.current.fileCount).toBe(0);
 
     rerender({ currentSessionId: sessionA });
     expect(result.current.value).toBe("draft A");
-    expect(result.current.thinkingEnabled).toBe(false);
+    expect(result.current.thinkingLevel).toBe("low");
     expect(result.current.planMode).toBe(true);
     expect(result.current.fileCount).toBe(1);
     expect(result.current.attachments?.files).toEqual([fileA]);
@@ -205,7 +200,7 @@ describe("useChatInputDraftPersistence", () => {
     expect(result.current.planMode).toBe(true);
   });
 
-  it("persists toggle-only drafts when thinking is disabled", () => {
+  it("persists toggle-only drafts when thinking level differs from default", () => {
     const wsId = nextId("ws");
     const sessionA = nextId("sess-a");
     const sessionB = nextId("sess-b");
@@ -217,14 +212,14 @@ describe("useChatInputDraftPersistence", () => {
     );
 
     act(() => {
-      result.current.setThinkingEnabled(false);
+      result.current.setThinkingLevel("low");
     });
 
     rerender({ currentSessionId: sessionB });
-    expect(result.current.thinkingEnabled).toBe(true);
+    expect(result.current.thinkingLevel).toBe("high");
 
     rerender({ currentSessionId: sessionA });
-    expect(result.current.thinkingEnabled).toBe(false);
+    expect(result.current.thinkingLevel).toBe("low");
   });
 
   it("deletes empty drafts after a switch when defaults are restored", () => {
@@ -248,7 +243,7 @@ describe("useChatInputDraftPersistence", () => {
 
     act(() => {
       result.current.setValue("");
-      result.current.setThinkingEnabled(true);
+      result.current.setThinkingLevel("high");
       result.current.setPlanMode(false);
       result.current.setFiles([]);
     });

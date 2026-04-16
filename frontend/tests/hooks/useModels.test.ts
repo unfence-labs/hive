@@ -20,7 +20,7 @@ const MOCK_CATALOG: ModelCatalogResponse = {
       provider: "claude",
       providerLabel: "Claude Code",
       isDefault: true,
-      capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },
+      capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true },
     },
     {
       id: "claude:sonnet-4-6",
@@ -28,7 +28,7 @@ const MOCK_CATALOG: ModelCatalogResponse = {
       provider: "claude",
       providerLabel: "Claude Code",
       isNew: true,
-      capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },
+      capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true },
     },
     {
       id: "codex:gpt-5.3-codex",
@@ -36,7 +36,7 @@ const MOCK_CATALOG: ModelCatalogResponse = {
       provider: "codex",
       providerLabel: "Codex",
       isDefault: true,
-      capabilities: { thinking: "levels", planMode: false, blockingTools: false, completions: false },
+      capabilities: { thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"], planMode: false, blockingTools: false, completions: false },
     },
   ],
   defaultModelId: "claude:opus-4-7",
@@ -118,7 +118,7 @@ describe("useModels", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     expect(result.current.capabilities).toEqual({
-      thinking: true,
+      thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
       planMode: true,
       blockingTools: true,
       completions: true,
@@ -129,7 +129,7 @@ describe("useModels", () => {
     });
 
     expect(result.current.capabilities).toEqual({
-      thinking: "levels",
+      thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"],
       planMode: false,
       blockingTools: false,
       completions: false,
@@ -142,7 +142,7 @@ describe("useModels", () => {
 
     // While loading, models is empty, should use fallback
     expect(result.current.capabilities).toEqual({
-      thinking: true,
+      thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
       planMode: true,
       blockingTools: true,
       completions: true,

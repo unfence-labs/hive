@@ -10,7 +10,6 @@ struct ChatView: View {
     @State private var sessions: [SessionMetadata] = []
     @State private var activeSessionId: String?
     @State private var showSessionSheet = false
-    @State private var thinkingEnabled = true
     @State private var planModeEnabled = false
     @State private var thinkingLevel: ThinkingLevel = .high
     @State private var selectedModelId: String = ""
@@ -129,7 +128,6 @@ struct ChatView: View {
                     draft: $draft,
                     draftAttachments: draftAttachments,
                     isBusy: store.isBusy,
-                    thinkingEnabled: $thinkingEnabled,
                     planModeEnabled: $planModeEnabled,
                     thinkingLevel: $thinkingLevel,
                     models: modelCatalog.models,
@@ -391,7 +389,6 @@ struct ChatView: View {
         let savedAttachments = draftAttachments
         let savedDraftState = ChatDraftStore.Draft(
             text: savedDraft,
-            thinkingEnabled: thinkingEnabled,
             planModeEnabled: planModeEnabled,
             thinkingLevel: thinkingLevel,
             selectedModelId: selectedModelId.isEmpty ? nil : selectedModelId,
@@ -401,15 +398,21 @@ struct ChatView: View {
         draftAttachments = []
 
         let caps = selectedCapabilities
-        let supportsThinkingToggle = caps?.thinking == .boolean(true)
-        let supportsThinkingLevels = caps?.thinking == .levels
+        let levels = caps?.thinkingLevels ?? []
+        let supportsThinking = !levels.isEmpty
         let supportsPlanMode = caps?.planMode ?? true
+
+        let effectiveThinking: ThinkingLevel = {
+            guard supportsThinking else { return thinkingLevel }
+            if levels.contains(thinkingLevel) { return thinkingLevel }
+            if levels.contains(.high) { return .high }
+            return levels[0]
+        }()
 
         let options = MessageOptions(
             planMode: supportsPlanMode ? (planModeEnabled ? true : nil) : nil,
-            thinkingEnabled: supportsThinkingToggle ? (thinkingEnabled ? true : nil) : nil,
             model: selectedModelId.isEmpty ? nil : selectedModelId,
-            thinkingLevel: supportsThinkingLevels ? thinkingLevel : nil
+            thinkingLevel: supportsThinking ? effectiveThinking : nil
         )
 
         Task {
@@ -487,7 +490,6 @@ struct ChatView: View {
             sessionId: sessionId,
             draft: .init(
                 text: draft,
-                thinkingEnabled: thinkingEnabled,
                 planModeEnabled: planModeEnabled,
                 thinkingLevel: thinkingLevel,
                 selectedModelId: selectedModelId.isEmpty ? nil : selectedModelId,
@@ -499,7 +501,6 @@ struct ChatView: View {
     private func restoreDraft(for sessionId: String) {
         if let saved = draftStore.restore(workspaceId: workspace.id, sessionId: sessionId) {
             draft = saved.text
-            thinkingEnabled = saved.thinkingEnabled
             planModeEnabled = saved.planModeEnabled
             thinkingLevel = saved.thinkingLevel
             if let modelId = saved.selectedModelId {
@@ -508,7 +509,6 @@ struct ChatView: View {
             draftAttachments = saved.attachments.map(ImageAttachment.init)
         } else {
             draft = ""
-            thinkingEnabled = true
             planModeEnabled = false
             thinkingLevel = .high
             selectedModelId = modelCatalog.defaultModelId

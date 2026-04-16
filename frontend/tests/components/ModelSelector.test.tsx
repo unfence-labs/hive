@@ -11,14 +11,14 @@ const CLAUDE_MODELS: ModelCatalogEntry[] = [
     provider: "claude",
     providerLabel: "Claude Code",
     isDefault: true,
-    capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },
+    capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true },
   },
   {
     id: "claude:sonnet-4-6",
     label: "Sonnet 4.6",
     provider: "claude",
     providerLabel: "Claude Code",
-    capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },
+    capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true },
   },
 ];
 
@@ -29,7 +29,7 @@ const CODEX_MODELS: ModelCatalogEntry[] = [
     provider: "codex",
     providerLabel: "Codex",
     isDefault: true,
-    capabilities: { thinking: "levels", planMode: false, blockingTools: false, completions: false },
+    capabilities: { thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"], planMode: false, blockingTools: false, completions: false },
   },
 ];
 
@@ -40,7 +40,7 @@ const GEMINI_MODELS: ModelCatalogEntry[] = [
     provider: "gemini",
     providerLabel: "Gemini CLI",
     isDefault: true,
-    capabilities: { thinking: false, planMode: false, blockingTools: false, completions: false },
+    capabilities: { thinkingLevels: [], planMode: false, blockingTools: false, completions: false },
   },
 ];
 

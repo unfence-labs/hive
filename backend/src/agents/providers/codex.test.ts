@@ -43,8 +43,10 @@ describe("CodexProvider", () => {
 
   // ── Capabilities ───────────────────────────────────────────────────
 
-  it("supports thinking levels", () => {
-    expect(provider.capabilities.thinking).toBe("levels");
+  it("supports effort-level thinking control", () => {
+    expect(provider.capabilities.thinkingLevels).toEqual([
+      "none", "minimal", "low", "medium", "high", "xhigh",
+    ]);
   });
 
   it("does not support plan mode", () => {
@@ -127,7 +129,6 @@ describe("CodexProvider", () => {
 
   it("always returns undefined (no env overrides)", () => {
     expect(provider.buildEnv({})).toBeUndefined();
-    expect(provider.buildEnv({ thinkingEnabled: true })).toBeUndefined();
     expect(provider.buildEnv({ thinkingLevel: "xhigh" })).toBeUndefined();
   });
 

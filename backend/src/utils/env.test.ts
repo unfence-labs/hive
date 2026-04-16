@@ -11,7 +11,6 @@ describe("buildWorkspaceEnv()", () => {
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_CHAT_ID",
     "GITHUB_CLIENT_ID",
-    "MAX_THINKING_TOKENS",
     "CLAUDECODE",
     "NODE_APP_INSTANCE",
     "GIT_EDITOR",
@@ -39,7 +38,6 @@ describe("buildWorkspaceEnv()", () => {
     process.env.TELEGRAM_BOT_TOKEN = "secret-bot-token";
     process.env.TELEGRAM_CHAT_ID = "12345";
     process.env.GITHUB_CLIENT_ID = "gh-client-id";
-    process.env.MAX_THINKING_TOKENS = "31999";
     process.env.CLAUDECODE = "1";
     process.env.NODE_APP_INSTANCE = "0";
     process.env.GIT_EDITOR = "true";
@@ -74,7 +72,6 @@ describe("buildWorkspaceEnv()", () => {
     expect(env.TELEGRAM_BOT_TOKEN).toBeUndefined();
     expect(env.TELEGRAM_CHAT_ID).toBeUndefined();
     expect(env.GITHUB_CLIENT_ID).toBeUndefined();
-    expect(env.MAX_THINKING_TOKENS).toBeUndefined();
     expect(env.CLAUDECODE).toBeUndefined();
     expect(env.NODE_APP_INSTANCE).toBeUndefined();
     expect(env.GIT_EDITOR).toBeUndefined();

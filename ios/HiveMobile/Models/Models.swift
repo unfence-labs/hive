@@ -2,32 +2,8 @@ import Foundation
 
 // MARK: - Model Catalog
 
-enum ThinkingCapability: Codable, Equatable {
-    case boolean(Bool)
-    case levels
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let boolVal = try? container.decode(Bool.self) {
-            self = .boolean(boolVal)
-        } else if let strVal = try? container.decode(String.self), strVal == "levels" {
-            self = .levels
-        } else {
-            self = .boolean(false)
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch self {
-        case .boolean(let val): try container.encode(val)
-        case .levels: try container.encode("levels")
-        }
-    }
-}
-
 struct ProviderCapabilities: Codable, Equatable {
-    let thinking: ThinkingCapability
+    let thinkingLevels: [ThinkingLevel]
     let planMode: Bool
     let blockingTools: Bool
     let completions: Bool
@@ -349,27 +325,31 @@ struct QuestionInput: Codable {
 }
 
 enum ThinkingLevel: String, Codable, CaseIterable {
-    case low, medium, high, xhigh
+    case none, minimal, low, medium, high, xhigh, max
 
     var label: String {
         switch self {
+        case .none: "None"
+        case .minimal: "Min"
         case .low: "Low"
         case .medium: "Med"
         case .high: "High"
         case .xhigh: "xHigh"
+        case .max: "Max"
         }
     }
 
-    func next() -> ThinkingLevel {
-        let all = Self.allCases
-        let idx = all.firstIndex(of: self)!
-        return all[(idx + 1) % all.count]
+    /// Next level within the given supported list (wraps around).
+    /// If the current value isn't in the list, returns the first supported level.
+    func next(in supported: [ThinkingLevel]) -> ThinkingLevel {
+        guard !supported.isEmpty else { return self }
+        guard let idx = supported.firstIndex(of: self) else { return supported[0] }
+        return supported[(idx + 1) % supported.count]
     }
 }
 
 struct MessageOptions: Codable {
     let planMode: Bool?
-    let thinkingEnabled: Bool?
     let model: String?
     let thinkingLevel: ThinkingLevel?
 }

@@ -15,7 +15,7 @@ const GEMINI_MODELS: ModelDefinition[] = [
 ];
 
 const GEMINI_CAPABILITIES: ProviderCapabilities = {
-  thinking: false, // Gemini 2.5 thinks by default; no CLI flag to control it
+  thinkingLevels: [], // Gemini 2.5+ thinks by default; no CLI flag to control it
   planMode: false,
   blockingTools: false,
   completions: false,

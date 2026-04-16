@@ -189,25 +189,27 @@ describe("ConversationSession", () => {
     expect(args).not.toContain("--dangerously-skip-permissions");
   });
 
-  it("sets MAX_THINKING_TOKENS=0 when thinking is disabled", () => {
-    const session = createSession({ sessionId: "sess-think-off", command: "claude" });
+  it("passes --effort with thinking level when provided", () => {
+    const session = createSession({ sessionId: "sess-effort-low", command: "claude" });
 
-    session.sendMessage("Hello", { thinkingEnabled: false });
+    session.sendMessage("Hello", { thinkingLevel: "low" });
 
-    const spawnOpts = mockSpawn.mock.calls[0]?.[2] as { env?: NodeJS.ProcessEnv };
-    expect(spawnOpts.env?.MAX_THINKING_TOKENS).toBe("0");
+    const args = mockSpawn.mock.calls[0]?.[1] as string[];
+    const idx = args.indexOf("--effort");
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe("low");
   });
 
-  it("sets MAX_THINKING_TOKENS=31999 when thinking is enabled", () => {
-    const session = createSession({ sessionId: "sess-think-on", command: "claude" });
+  it("omits --effort when thinkingLevel is not provided", () => {
+    const session = createSession({ sessionId: "sess-effort-default", command: "claude" });
 
-    session.sendMessage("Hello", { thinkingEnabled: true });
+    session.sendMessage("Hello");
 
-    const spawnOpts = mockSpawn.mock.calls[0]?.[2] as { env?: NodeJS.ProcessEnv };
-    expect(spawnOpts.env?.MAX_THINKING_TOKENS).toBe("31999");
+    const args = mockSpawn.mock.calls[0]?.[1] as string[];
+    expect(args).not.toContain("--effort");
   });
 
-  it("passes env with CLAUDE_CODE_ENABLE_TASKS even when thinking is omitted", () => {
+  it("always includes CLAUDE_CODE_ENABLE_TASKS in env", () => {
     const session = createSession({ sessionId: "sess-think-default", command: "claude" });
 
     session.sendMessage("Hello");
@@ -215,7 +217,6 @@ describe("ConversationSession", () => {
     const spawnOpts = mockSpawn.mock.calls[0]?.[2] as { env?: Record<string, string> };
     expect(spawnOpts.env).toBeDefined();
     expect(spawnOpts.env!.CLAUDE_CODE_ENABLE_TASKS).toBe("true");
-    expect(spawnOpts.env!.MAX_THINKING_TOKENS).toBeUndefined();
   });
 
   it("merges provider env overrides with existing process env", () => {
@@ -225,12 +226,11 @@ describe("ConversationSession", () => {
 
     try {
       const session = createSession({ sessionId: "sess-env-merge", command: "claude" });
-      session.sendMessage("Hello", { thinkingEnabled: false });
+      session.sendMessage("Hello", { thinkingLevel: "high" });
 
       const spawnOpts = mockSpawn.mock.calls[0]?.[2] as { env?: Record<string, string | undefined> };
       expect(spawnOpts.env?.[key]).toBe("keep-me");
       expect(spawnOpts.env?.CLAUDE_CODE_ENABLE_TASKS).toBe("true");
-      expect(spawnOpts.env?.MAX_THINKING_TOKENS).toBe("0");
     } finally {
       if (previousValue === undefined) {
         delete process.env[key];

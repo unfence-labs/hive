@@ -528,7 +528,7 @@ describe("WS /ws/hub", () => {
     ws.send(hubEvent(wsId, {
       type: "user_message",
       content: "Hello with options",
-      options: { planMode: true, thinkingEnabled: false },
+      options: { planMode: true, thinkingLevel: "low" },
     }));
 
     await waitForMessage(
