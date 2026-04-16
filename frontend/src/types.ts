@@ -254,7 +254,7 @@ export interface QuestionInput {
 
 // ── Per-message options ──────────────────────────────────────────────
 
-export type ThinkingLevel = "low" | "medium" | "high" | "xhigh";
+export type ThinkingLevel = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /** Per-message options that control agent CLI behavior. */
 export interface MessageOptions {
@@ -268,8 +268,8 @@ export interface MessageOptions {
 // ── Model catalog types ─────────────────────────────────────────────
 
 export interface ProviderCapabilities {
-  /** Whether the provider exposes a reasoning-effort control (low/medium/high/xhigh). */
-  thinking: boolean;
+  /** Reasoning-effort levels this provider supports. Empty array means no control. */
+  thinkingLevels: ThinkingLevel[];
   planMode: boolean;
   blockingTools: boolean;
   completions: boolean;

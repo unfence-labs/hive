@@ -20,8 +20,8 @@ export interface ModelDefinition {
 }
 
 export interface ProviderCapabilities {
-  /** Whether the provider exposes a reasoning-effort control (low/medium/high/xhigh). */
-  thinking: boolean;
+  /** Reasoning-effort levels this provider supports. Empty array means no control. */
+  thinkingLevels: ThinkingLevel[];
   planMode: boolean;
   blockingTools: boolean;
   completions: boolean;

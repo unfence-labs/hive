@@ -18,7 +18,7 @@ const claudeModel: ModelCatalogEntry = {
   label: "Opus 4.7",
   provider: "claude",
   providerLabel: "Claude Code",
-  capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },
+  capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true },
   contextWindow: 200_000,
 };
 

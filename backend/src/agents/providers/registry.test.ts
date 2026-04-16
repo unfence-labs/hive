@@ -198,7 +198,7 @@ describe("getModelCatalog", () => {
 
     for (const model of catalog.models) {
       expect(model.capabilities).toBeDefined();
-      expect(typeof model.capabilities.thinking).toBeDefined();
+      expect(Array.isArray(model.capabilities.thinkingLevels)).toBe(true);
       expect(typeof model.capabilities.planMode).toBe("boolean");
       expect(typeof model.capabilities.blockingTools).toBe("boolean");
       expect(typeof model.capabilities.completions).toBe("boolean");
@@ -212,7 +212,7 @@ describe("getModelCatalog", () => {
     const geminiModel = catalog.models.find((m) => m.provider === "gemini");
     expect(geminiModel).toBeDefined();
     expect(geminiModel?.capabilities).toEqual({
-      thinking: false,
+      thinkingLevels: [],
       planMode: false,
       blockingTools: false,
       completions: false,

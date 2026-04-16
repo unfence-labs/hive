@@ -53,13 +53,17 @@ interface AutocompleteState {
   triggerIndex: number;
 }
 
-const THINKING_LEVELS: ThinkingLevel[] = ["low", "medium", "high", "xhigh"];
 const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
+  none: "None",
+  minimal: "Min",
   low: "Low",
   medium: "Med",
   high: "High",
   xhigh: "xHigh",
+  max: "Max",
 };
+
+const DEFAULT_THINKING_LEVEL: ThinkingLevel = "high";
 
 /** Bridge component: syncs PromptInput's internal attachment state to the parent. */
 function ChatInputAttachments({
@@ -96,7 +100,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   agentPlanMode,
 }, ref) {
   const [value, setValue] = useState("");
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("high");
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(DEFAULT_THINKING_LEVEL);
   const [planMode, setPlanMode] = useState(false);
   const [fileCount, setFileCount] = useState(0);
   const [autocomplete, setAutocomplete] = useState<AutocompleteState | null>(null);
@@ -120,9 +124,16 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   const { models, defaultModelId, selectedModelId, selectedModel, setSelectedModelId, capabilities } = useModels(lockedProvider);
   const contextUsage = useContextUsage(messages, selectedModel);
 
-  const supportsThinking = capabilities?.thinking ?? false;
+  const thinkingLevels: ThinkingLevel[] = capabilities?.thinkingLevels ?? [];
+  const supportsThinking = thinkingLevels.length > 0;
   const supportsPlanMode = capabilities?.planMode ?? true;
   const supportsCompletions = capabilities?.completions ?? true;
+
+  const effectiveThinkingLevel: ThinkingLevel = supportsThinking
+    ? (thinkingLevels.includes(thinkingLevel)
+        ? thinkingLevel
+        : (thinkingLevels.includes(DEFAULT_THINKING_LEVEL) ? DEFAULT_THINKING_LEVEL : thinkingLevels[0]))
+    : thinkingLevel;
 
   useChatInputDraftPersistence({
     wsId,
@@ -283,10 +294,12 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
 
   const cycleThinkingLevel = useCallback(() => {
     setThinkingLevel((current) => {
-      const idx = THINKING_LEVELS.indexOf(current);
-      return THINKING_LEVELS[(idx + 1) % THINKING_LEVELS.length];
+      if (thinkingLevels.length === 0) return current;
+      const idx = thinkingLevels.indexOf(current);
+      if (idx === -1) return thinkingLevels[0];
+      return thinkingLevels[(idx + 1) % thinkingLevels.length];
     });
-  }, []);
+  }, [thinkingLevels]);
 
   const handleSubmit = ({ text, files }: PromptInputMessage) => {
     const trimmed = text.trim();
@@ -304,7 +317,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
     const options: MessageOptions = {
       model: selectedModelId || undefined,
       ...(supportsPlanMode && { planMode }),
-      ...(supportsThinking && { thinkingLevel }),
+      ...(supportsThinking && { thinkingLevel: effectiveThinkingLevel }),
     };
 
     const mentions: FileMention[] | undefined = fileMentions.length > 0
@@ -383,14 +396,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
             />
             {supportsThinking && (
               <PromptInputButton
-                aria-label={`Thinking: ${THINKING_LEVEL_LABELS[thinkingLevel]}`}
+                aria-label={`Thinking: ${THINKING_LEVEL_LABELS[effectiveThinkingLevel]}`}
                 variant="ghost"
                 size="xs"
                 onClick={cycleThinkingLevel}
                 className={cn("h-5 text-[11px] transition-colors", activeStyle)}
               >
                 <BrainIcon className="size-3" />
-                {THINKING_LEVEL_LABELS[thinkingLevel]}
+                {THINKING_LEVEL_LABELS[effectiveThinkingLevel]}
               </PromptInputButton>
             )}
             {supportsPlanMode && (

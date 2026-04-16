@@ -215,7 +215,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - The app maintains a single hub WS connection; `wsTransport.syncWorkspaces` sends `sync_workspaces` with the full workspace ID set to the backend.
 - `useConversation` hydrates from REST history and resolves stale replay races with request tokens. It also tracks `lockedProvider` from WS status events.
 - Session tabs support create/switch/delete (max 4 sessions) with live message replay, per-session streaming indicators, and per-session unread badges.
-- Chat input dynamically adapts controls based on the selected provider's capabilities: thinking-level cycling (Low/Med/High/xHigh) for providers that support reasoning effort (Claude via `--effort`, Codex via `model_reasoning_effort`), plan mode hidden when unsupported, `/` and `@` autocomplete gated by `completions` capability, `#` file mention autocomplete with fuzzy matching.
+- Chat input dynamically adapts controls based on the selected provider's capabilities: a unified thinking-level cycler reads the supported list from `capabilities.thinkingLevels` (Claude: low/medium/high/xhigh/max via `--effort`; Codex: none/minimal/low/medium/high/xhigh via `model_reasoning_effort`; Gemini: `[]` → hidden), plan mode hidden when unsupported, `/` and `@` autocomplete gated by `completions` capability, `#` file mention autocomplete with fuzzy matching.
 - Chat input supports image attachments (paste/drag-drop/picker), Commit & Push quick action button, and context window usage ring.
 - Message queue: users can type and submit one follow-up while the agent is streaming. Queued message renders with dashed border and "Queued" label, auto-dispatches on turn complete.
 - Plan proposals render inline in chat. `PlanActionBar` floats above the input with Copy, Hand-off (creates new session with plan content), and Approve. Backend emits `plan_mode_changed` WS events on `EnterPlanMode`/`ExitPlanMode` for automatic UI sync.
@@ -281,7 +281,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - ExitPlanMode renders as a markdown preview with approve/reject actions.
 - Chat drafts are persisted per-workspace and restored on app relaunch (includes `selectedModelId`, `thinkingLevel`).
 - Model catalog is fetched dynamically from `/api/models`. Picker groups by provider, disables cross-provider items when session is locked.
-- All providers supporting reasoning effort show thinking-level cycling (Low/Med/High/xHigh). Plan mode hidden for providers that don't support it.
+- All providers supporting reasoning effort show a unified thinking-level cycler; the supported list comes from `capabilities.thinkingLevels` (Claude: low/medium/high/xhigh/max; Codex: none/minimal/low/medium/high/xhigh). Plan mode hidden for providers that don't support it.
 - `lockedProvider` is read from WS status events (not REST) for instant model locking after first message.
 - Pre-multi-model sessions default to `"claude"` when they have messages but no `lockedProvider`.
 - PR status uses bulk endpoint matching the frontend.

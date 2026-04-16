@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Model Catalog
 
 struct ProviderCapabilities: Codable, Equatable {
-    let thinking: Bool
+    let thinkingLevels: [ThinkingLevel]
     let planMode: Bool
     let blockingTools: Bool
     let completions: Bool
@@ -325,21 +325,26 @@ struct QuestionInput: Codable {
 }
 
 enum ThinkingLevel: String, Codable, CaseIterable {
-    case low, medium, high, xhigh
+    case none, minimal, low, medium, high, xhigh, max
 
     var label: String {
         switch self {
+        case .none: "None"
+        case .minimal: "Min"
         case .low: "Low"
         case .medium: "Med"
         case .high: "High"
         case .xhigh: "xHigh"
+        case .max: "Max"
         }
     }
 
-    func next() -> ThinkingLevel {
-        let all = Self.allCases
-        let idx = all.firstIndex(of: self)!
-        return all[(idx + 1) % all.count]
+    /// Next level within the given supported list (wraps around).
+    /// If the current value isn't in the list, returns the first supported level.
+    func next(in supported: [ThinkingLevel]) -> ThinkingLevel {
+        guard !supported.isEmpty else { return self }
+        guard let idx = supported.firstIndex(of: self) else { return supported[0] }
+        return supported[(idx + 1) % supported.count]
     }
 }
 

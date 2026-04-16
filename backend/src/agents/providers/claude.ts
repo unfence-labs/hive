@@ -15,7 +15,7 @@ const CLAUDE_MODELS: ModelDefinition[] = [
 ];
 
 const CLAUDE_CAPABILITIES: ProviderCapabilities = {
-  thinking: true,
+  thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
   planMode: true,
   blockingTools: true,
   completions: true,

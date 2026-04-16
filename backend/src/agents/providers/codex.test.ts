@@ -44,7 +44,9 @@ describe("CodexProvider", () => {
   // ── Capabilities ───────────────────────────────────────────────────
 
   it("supports effort-level thinking control", () => {
-    expect(provider.capabilities.thinking).toBe(true);
+    expect(provider.capabilities.thinkingLevels).toEqual([
+      "none", "minimal", "low", "medium", "high", "xhigh",
+    ]);
   });
 
   it("does not support plan mode", () => {

@@ -62,8 +62,18 @@ struct ChatInputBar: View {
         models.first { $0.id == selectedModelId }?.label ?? "Model"
     }
 
-    private var supportsThinking: Bool { capabilities?.thinking ?? false }
+    private var thinkingLevels: [ThinkingLevel] { capabilities?.thinkingLevels ?? [] }
+    private var supportsThinking: Bool { !thinkingLevels.isEmpty }
     private var supportsPlanMode: Bool { capabilities?.planMode ?? true }
+
+    /// Clamp the bound `thinkingLevel` to a value the current provider supports;
+    /// prefer the user's current selection, else `.high`, else the provider's first level.
+    private var effectiveThinkingLevel: ThinkingLevel {
+        guard !thinkingLevels.isEmpty else { return thinkingLevel }
+        if thinkingLevels.contains(thinkingLevel) { return thinkingLevel }
+        if thinkingLevels.contains(.high) { return .high }
+        return thinkingLevels[0]
+    }
 
     private var controlBar: some View {
         HStack(spacing: 8) {
@@ -102,8 +112,8 @@ struct ChatInputBar: View {
             .frame(minHeight: 44)
 
             if supportsThinking {
-                LevelCycleButton(systemImage: "brain", label: thinkingLevel.label, highlightColor: hiveAccent) {
-                    thinkingLevel = thinkingLevel.next()
+                LevelCycleButton(systemImage: "brain", label: effectiveThinkingLevel.label, highlightColor: hiveAccent) {
+                    thinkingLevel = effectiveThinkingLevel.next(in: thinkingLevels)
                 }
             }
             if supportsPlanMode {
@@ -378,11 +388,11 @@ private extension ImageAttachment {
     let sampleModels: [ModelCatalogEntry] = [
         .init(id: "claude:opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code",
               isDefault: true, isNew: nil,
-              capabilities: .init(thinking: true, planMode: true, blockingTools: true, completions: true),
+              capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true),
               contextWindow: 1_000_000),
         .init(id: "claude:sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code",
               isDefault: nil, isNew: true,
-              capabilities: .init(thinking: true, planMode: true, blockingTools: true, completions: true),
+              capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true),
               contextWindow: 1_000_000),
     ]
     let grouped = [ModelProviderGroup(provider: "claude", providerLabel: "Claude Code", models: sampleModels)]
@@ -400,7 +410,7 @@ private extension ImageAttachment {
             selectedModelId: "claude:opus-4-7",
             defaultModelId: "claude:opus-4-7",
             lockedProvider: nil,
-            capabilities: .init(thinking: true, planMode: true, blockingTools: true, completions: true),
+            capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true),
             onModelSelect: { _ in },
             contextUsage: ContextUsageData(inputTokens: 62_000, contextWindow: 200_000),
             onDraftAttachmentsChange: { _ in },
@@ -417,7 +427,7 @@ private extension ImageAttachment {
             selectedModelId: "claude:sonnet-4-6",
             defaultModelId: "claude:opus-4-7",
             lockedProvider: "claude",
-            capabilities: .init(thinking: true, planMode: true, blockingTools: true, completions: true),
+            capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true),
             onModelSelect: { _ in },
             contextUsage: ContextUsageData(inputTokens: 170_000, contextWindow: 200_000),
             onDraftAttachmentsChange: { _ in },

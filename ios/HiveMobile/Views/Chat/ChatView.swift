@@ -398,13 +398,21 @@ struct ChatView: View {
         draftAttachments = []
 
         let caps = selectedCapabilities
-        let supportsThinking = caps?.thinking ?? false
+        let levels = caps?.thinkingLevels ?? []
+        let supportsThinking = !levels.isEmpty
         let supportsPlanMode = caps?.planMode ?? true
+
+        let effectiveThinking: ThinkingLevel = {
+            guard supportsThinking else { return thinkingLevel }
+            if levels.contains(thinkingLevel) { return thinkingLevel }
+            if levels.contains(.high) { return .high }
+            return levels[0]
+        }()
 
         let options = MessageOptions(
             planMode: supportsPlanMode ? (planModeEnabled ? true : nil) : nil,
             model: selectedModelId.isEmpty ? nil : selectedModelId,
-            thinkingLevel: supportsThinking ? thinkingLevel : nil
+            thinkingLevel: supportsThinking ? effectiveThinking : nil
         )
 
         Task {

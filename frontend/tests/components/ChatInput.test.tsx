@@ -8,13 +8,13 @@ import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 vi.mock("@/hooks/useModels", () => ({
   useModels: () => ({
     models: [
-      { id: "claude:opus-4-7", modelId: "opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code", isNew: false, capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true } },
-      { id: "claude:sonnet-4-6", modelId: "sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code", isNew: true, capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true } },
+      { id: "claude:opus-4-7", modelId: "opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code", isNew: false, capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true } },
+      { id: "claude:sonnet-4-6", modelId: "sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code", isNew: true, capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true } },
     ],
     defaultModelId: "claude:opus-4-7",
     selectedModelId: "claude:opus-4-7",
-    selectedModel: { id: "claude:opus-4-7", modelId: "opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code", isNew: false, capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true } },
-    capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },
+    selectedModel: { id: "claude:opus-4-7", modelId: "opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code", isNew: false, capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true } },
+    capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true },
     setSelectedModelId: vi.fn(),
     isLoading: false,
   }),
@@ -143,7 +143,7 @@ describe("ChatInput", () => {
     const user = userEvent.setup();
     const { onSend } = renderChatInput();
 
-    // Default is "high"; one click cycles to "xhigh" (low -> medium -> high -> xhigh -> low).
+    // Claude levels=[low,medium,high,xhigh,max]; default is "high"; one click cycles to "xhigh".
     await user.click(screen.getByRole("button", { name: /^Thinking:/ }));
     await user.click(screen.getByRole("button", { name: "Toggle plan mode" }));
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
@@ -152,12 +152,13 @@ describe("ChatInput", () => {
     expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: true, thinkingLevel: "xhigh" }, undefined);
   });
 
-  it("cycles thinking level back to default after four clicks", async () => {
+  it("cycles thinking level back to default after a full rotation", async () => {
     const user = userEvent.setup();
     const { onSend } = renderChatInput();
 
-    // Cycle four times to return to "high": high -> xhigh -> low -> medium -> high.
+    // Claude levels=[low,medium,high,xhigh,max] — 5 clicks from "high" returns to "high".
     const thinkingButton = () => screen.getByRole("button", { name: /^Thinking:/ });
+    await user.click(thinkingButton());
     await user.click(thinkingButton());
     await user.click(thinkingButton());
     await user.click(thinkingButton());

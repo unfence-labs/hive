@@ -26,7 +26,7 @@ vi.mock("@/hooks/useApi", () => ({
 type SendFn = (
   content: string,
   images?: unknown[],
-  options?: { planMode: boolean; thinkingLevel: "low" | "medium" | "high" | "xhigh" },
+  options?: { planMode: boolean; thinkingLevel: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" },
 ) => boolean;
 
 function chatInputProps({

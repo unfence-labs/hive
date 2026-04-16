@@ -52,7 +52,7 @@ describe("ClaudeProvider", () => {
   // ── Capabilities ───────────────────────────────────────────────────
 
   it("supports effort-level thinking control", () => {
-    expect(provider.capabilities.thinking).toBe(true);
+    expect(provider.capabilities.thinkingLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
 
   it("supports plan mode", () => {
@@ -164,7 +164,7 @@ describe("ClaudeProvider", () => {
   });
 
   it("passes each effort level through unchanged", () => {
-    for (const level of ["low", "medium", "high", "xhigh"] as const) {
+    for (const level of ["low", "medium", "high", "xhigh", "max"] as const) {
       const args = provider.buildArgs("Hi", { thinkingLevel: level }, baseSession());
       const idx = args.indexOf("--effort");
       expect(args[idx + 1]).toBe(level);

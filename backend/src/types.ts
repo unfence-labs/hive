@@ -282,7 +282,7 @@ export interface MessageOptions {
   thinkingLevel?: ThinkingLevel;
 }
 
-export type ThinkingLevel = "low" | "medium" | "high" | "xhigh";
+export type ThinkingLevel = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /** Frontend -> Backend */
 export type WsIncoming =

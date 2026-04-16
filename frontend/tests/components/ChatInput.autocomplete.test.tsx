@@ -20,7 +20,7 @@ vi.mock("@/hooks/useModels", () => ({
     defaultModelId: "",
     selectedModelId: "",
     selectedModel: undefined,
-    capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },
+    capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true },
     setSelectedModelId: vi.fn(),
     isLoading: false,
   })),
@@ -208,7 +208,7 @@ describe("ChatInput autocomplete", () => {
       defaultModelId: "",
       selectedModelId: "codex:gpt-5.3-codex",
       selectedModel: undefined,
-      capabilities: { thinking: "levels", planMode: false, blockingTools: false, completions: false },
+      capabilities: { thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"], planMode: false, blockingTools: false, completions: false },
       setSelectedModelId: vi.fn(),
       isLoading: false,
     });

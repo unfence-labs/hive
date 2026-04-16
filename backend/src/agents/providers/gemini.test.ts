@@ -45,7 +45,7 @@ describe("GeminiProvider", () => {
   // ── Capabilities ───────────────────────────────────────────────────
 
   it("does not expose thinking toggle", () => {
-    expect(provider.capabilities.thinking).toBe(false);
+    expect(provider.capabilities.thinkingLevels).toEqual([]);
   });
 
   it("does not support plan mode", () => {
