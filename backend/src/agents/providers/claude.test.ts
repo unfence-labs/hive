@@ -98,7 +98,7 @@ describe("ClaudeProvider", () => {
   it("adds --model with cli value when model is specified", () => {
     const args = provider.buildArgs("Hello", { model: "sonnet-4-6" }, baseSession());
     expect(args).toContain("--model");
-    expect(args).toContain("sonnet");
+    expect(args).toContain("claude-sonnet-4-6");
   });
 
   it("omits --model when model is not in the list", () => {
