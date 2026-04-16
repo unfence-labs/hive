@@ -1505,7 +1505,7 @@ describe("ConversationSession", () => {
   it("defaults to claude provider when model has no prefix", () => {
     const session = createSession({ sessionId: "lock-default" });
 
-    session.sendMessage("Hello", { model: "opus-4-6" });
+    session.sendMessage("Hello", { model: "opus-4-7" });
     expect(session.metadata.lockedProvider).toBe("claude");
   });
 
@@ -1520,16 +1520,16 @@ describe("ConversationSession", () => {
     const resolveSpy = vi.spyOn(providerRegistry, "resolveProvider");
     const session = createSession({ sessionId: "resolve-once" });
 
-    session.sendMessage("Hello", { model: "claude:opus-4-6" });
+    session.sendMessage("Hello", { model: "claude:opus-4-7" });
 
     expect(resolveSpy).toHaveBeenCalledTimes(1);
-    expect(resolveSpy).toHaveBeenCalledWith("claude:opus-4-6");
+    expect(resolveSpy).toHaveBeenCalledWith("claude:opus-4-7");
   });
 
   it("throws when trying to switch providers mid-session", () => {
     const session = createSession({ sessionId: "lock-switch" });
 
-    session.sendMessage("First", { model: "claude:opus-4-6" });
+    session.sendMessage("First", { model: "claude:opus-4-7" });
 
     mockProc._stdout.push(assistantLine("OK"));
     mockProc._stdout.push(resultLine());
@@ -1545,7 +1545,7 @@ describe("ConversationSession", () => {
   it("allows same provider on subsequent messages", () => {
     const session = createSession({ sessionId: "lock-same" });
 
-    session.sendMessage("First", { model: "claude:opus-4-6" });
+    session.sendMessage("First", { model: "claude:opus-4-7" });
 
     mockProc._stdout.push(assistantLine("OK"));
     mockProc._stdout.push(resultLine());
@@ -1568,7 +1568,7 @@ describe("ConversationSession", () => {
   it("persists lockedProvider in metadata.json", async () => {
     const session = createSession({ sessionId: "lock-persist" });
 
-    session.sendMessage("Hello", { model: "claude:opus-4-6" });
+    session.sendMessage("Hello", { model: "claude:opus-4-7" });
     mockProc._stdout.push(assistantLine("OK"));
     mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);

@@ -14,8 +14,8 @@ function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role
 }
 
 const claudeModel: ModelCatalogEntry = {
-  id: "claude:opus-4-6",
-  label: "Opus 4.6",
+  id: "claude:opus-4-7",
+  label: "Opus 4.7",
   provider: "claude",
   providerLabel: "Claude Code",
   capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },

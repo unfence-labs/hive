@@ -277,7 +277,7 @@ export interface QuestionInput {
 export interface MessageOptions {
   planMode?: boolean;
   thinkingEnabled?: boolean;
-  /** Compound model ID: "provider:model", e.g. "claude:opus-4-6" or "codex:gpt-5.3-codex" */
+  /** Compound model ID: "provider:model", e.g. "claude:opus-4-7" or "codex:gpt-5.3-codex" */
   model?: string;
   /** Codex reasoning effort level (ignored by Claude provider). */
   thinkingLevel?: ThinkingLevel;

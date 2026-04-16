@@ -75,7 +75,7 @@ function makeAutomation(overrides: Partial<Automation> = {}): Automation {
     trigger: { type: "cron", expression: "0 2 * * *" },
     action: {
       type: "agent",
-      modelId: "claude:opus-4-6",
+      modelId: "claude:opus-4-7",
       systemPromptInline: "Be strict.",
       userPromptInline: "Review the latest commit.",
     },
@@ -112,8 +112,8 @@ describe("CreateAutomationDialog", () => {
     mocks.useCreateAutomation.mockReturnValue({ mutateAsync: mocks.createMutateAsync, isPending: false });
     mocks.useUpdateAutomation.mockReturnValue({ mutateAsync: mocks.updateMutateAsync, isPending: false });
     mocks.apiGet.mockResolvedValue({
-      models: [{ id: "claude:opus-4-6", label: "Claude Opus", providerLabel: "Anthropic" }],
-      defaultModelId: "claude:opus-4-6",
+      models: [{ id: "claude:opus-4-7", label: "Claude Opus", providerLabel: "Anthropic" }],
+      defaultModelId: "claude:opus-4-7",
     });
     mocks.createMutateAsync.mockResolvedValue({ id: "auto-new" });
     mocks.updateMutateAsync.mockResolvedValue(makeAutomation());
@@ -154,7 +154,7 @@ describe("CreateAutomationDialog", () => {
         trigger: { type: "cron", expression: "0 2 * * *" },
         action: {
           type: "agent",
-          modelId: "claude:opus-4-6",
+          modelId: "claude:opus-4-7",
           systemPromptInline: "Be strict.",
           userPromptInline: "Review the latest commit.",
         },
@@ -187,7 +187,7 @@ describe("CreateAutomationDialog", () => {
         trigger: { type: "cron", expression: "0 2 * * *" },
         action: {
           type: "agent",
-          modelId: "claude:opus-4-6",
+          modelId: "claude:opus-4-7",
           userPromptInline: "Check yesterday changes",
         },
         notification: { onComplete: true, onFailure: true },

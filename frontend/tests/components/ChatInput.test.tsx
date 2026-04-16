@@ -8,12 +8,12 @@ import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 vi.mock("@/hooks/useModels", () => ({
   useModels: () => ({
     models: [
-      { id: "claude:opus-4-6", modelId: "opus-4-6", label: "Opus 4.6", provider: "claude", providerLabel: "Claude Code", isNew: false, capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true } },
+      { id: "claude:opus-4-7", modelId: "opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code", isNew: false, capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true } },
       { id: "claude:sonnet-4-6", modelId: "sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code", isNew: true, capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true } },
     ],
-    defaultModelId: "claude:opus-4-6",
-    selectedModelId: "claude:opus-4-6",
-    selectedModel: { id: "claude:opus-4-6", modelId: "opus-4-6", label: "Opus 4.6", provider: "claude", providerLabel: "Claude Code", isNew: false, capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true } },
+    defaultModelId: "claude:opus-4-7",
+    selectedModelId: "claude:opus-4-7",
+    selectedModel: { id: "claude:opus-4-7", modelId: "opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code", isNew: false, capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true } },
     capabilities: { thinking: true, planMode: true, blockingTools: true, completions: true },
     setSelectedModelId: vi.fn(),
     isLoading: false,
@@ -118,7 +118,7 @@ describe("ChatInput", () => {
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true }, undefined);
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: false, thinkingEnabled: true }, undefined);
   });
 
   it("sends message on Enter without Shift", async () => {
@@ -127,7 +127,7 @@ describe("ChatInput", () => {
 
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello{enter}");
 
-    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true }, undefined);
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: false, thinkingEnabled: true }, undefined);
   });
 
   it("does not send on Shift+Enter", async () => {
@@ -148,7 +148,7 @@ describe("ChatInput", () => {
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: true, thinkingEnabled: false }, undefined);
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: true, thinkingEnabled: false }, undefined);
   });
 
   it("restores default options when toggles are clicked twice", async () => {
@@ -162,7 +162,7 @@ describe("ChatInput", () => {
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true }, undefined);
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: false, thinkingEnabled: true }, undefined);
   });
 
   it("enables plan mode automatically when agentPlanMode is true", async () => {
@@ -173,7 +173,7 @@ describe("ChatInput", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(onSend).toHaveBeenCalledWith("hello", undefined, {
-      model: "claude:opus-4-6",
+      model: "claude:opus-4-7",
       planMode: true,
       thinkingEnabled: true,
     }, undefined);
@@ -188,7 +188,7 @@ describe("ChatInput", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(onSend).toHaveBeenCalledWith("hello", undefined, {
-      model: "claude:opus-4-6",
+      model: "claude:opus-4-7",
       planMode: false,
       thinkingEnabled: true,
     }, undefined);
@@ -220,7 +220,7 @@ describe("ChatInput", () => {
     await user.type(input, "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true }, undefined);
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: false, thinkingEnabled: true }, undefined);
     expect(input).toHaveValue("hello");
   });
 
@@ -233,7 +233,7 @@ describe("ChatInput", () => {
 
   it("renders model label", () => {
     renderChatInput();
-    expect(screen.getByText("Opus 4.6")).toBeInTheDocument();
+    expect(screen.getByText("Opus 4.7")).toBeInTheDocument();
   });
 
   it("disables send button when input is empty and not streaming", () => {
@@ -300,7 +300,7 @@ describe("ChatInput", () => {
     expect(onQueue).toHaveBeenCalledWith({
       content: "follow up",
       images: undefined,
-      options: { model: "claude:opus-4-6", planMode: false, thinkingEnabled: true },
+      options: { model: "claude:opus-4-7", planMode: false, thinkingEnabled: true },
     });
     expect(onSend).not.toHaveBeenCalled();
   });

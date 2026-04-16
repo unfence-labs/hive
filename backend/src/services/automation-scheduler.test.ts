@@ -105,7 +105,7 @@ function makeAutomation(overrides: Partial<Automation> = {}): Automation {
     name: "Test Automation",
     enabled: true,
     trigger: { type: "cron", expression: "0 * * * *" },
-    action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "Review code" },
+    action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "Review code" },
     notification: { onComplete: true, onFailure: true },
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -341,7 +341,7 @@ describe("AutomationScheduler", () => {
       const auto = makeAutomation({
         action: {
           type: "agent",
-          modelId: "claude:opus-4-6",
+          modelId: "claude:opus-4-7",
           userPromptId: "tpl-1",
         },
       });
@@ -359,7 +359,7 @@ describe("AutomationScheduler", () => {
       const auto = makeAutomation({
         action: {
           type: "agent",
-          modelId: "claude:opus-4-6",
+          modelId: "claude:opus-4-7",
           userPromptId: "nonexistent-tpl",
         },
       });
@@ -649,7 +649,7 @@ describe("AutomationScheduler", () => {
 
       const auto = makeAutomation({
         projectId: "proj-1",
-        action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "Review code", systemPromptInline: "You are a reviewer." },
+        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "Review code", systemPromptInline: "You are a reviewer." },
       });
       await saveAutomations([auto], dataDir);
 
@@ -672,7 +672,7 @@ describe("AutomationScheduler", () => {
 
       const auto = makeAutomation({
         projectId: "proj-1",
-        action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "Review code" },
+        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "Review code" },
       });
       await saveAutomations([auto], dataDir);
 
@@ -695,7 +695,7 @@ describe("AutomationScheduler", () => {
 
       const auto = makeAutomation({
         projectId: undefined,
-        action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "Do stuff", systemPromptInline: "You are helpful." },
+        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "Do stuff", systemPromptInline: "You are helpful." },
       });
       await saveAutomations([auto], dataDir);
 
@@ -718,7 +718,7 @@ describe("AutomationScheduler", () => {
         projectId: "proj-1",
         action: {
           type: "agent",
-          modelId: "claude:opus-4-6",
+          modelId: "claude:opus-4-7",
           userPromptInline: "Review code",
           systemPromptInline: "Project={PROJECT}\nDir={DIR}\nBranch={DEFAULT_BRANCH}",
         },
@@ -788,7 +788,7 @@ describe("AutomationScheduler", () => {
         projectId: undefined,
         action: {
           type: "agent",
-          modelId: "claude:opus-4-6",
+          modelId: "claude:opus-4-7",
           userPromptInline: "Do stuff",
           systemPromptInline: "You are strict.",
         },
@@ -821,7 +821,7 @@ describe("AutomationScheduler", () => {
         projectId: undefined,
         action: {
           type: "agent",
-          modelId: "claude:opus-4-6",
+          modelId: "claude:opus-4-7",
           userPromptInline: "Do stuff",
         },
       });

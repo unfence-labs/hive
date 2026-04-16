@@ -9,9 +9,9 @@ import type {
 } from "./types.js";
 
 const CLAUDE_MODELS: ModelDefinition[] = [
-  { id: "opus-4-6", label: "Opus 4.6", cliValue: "opus", isDefault: true, contextWindow: 1_000_000 },
-  { id: "sonnet-4-6", label: "Sonnet 4.6", cliValue: "sonnet", contextWindow: 1_000_000 },
-  { id: "haiku-4-5", label: "Haiku 4.5", cliValue: "haiku", contextWindow: 200_000 },
+  { id: "opus-4-7", label: "Opus 4.7", cliValue: "claude-opus-4-7", isDefault: true, contextWindow: 1_000_000 },
+  { id: "sonnet-4-6", label: "Sonnet 4.6", cliValue: "claude-sonnet-4-6", contextWindow: 1_000_000 },
+  { id: "haiku-4-5", label: "Haiku 4.5", cliValue: "claude-haiku-4-5", contextWindow: 200_000 },
 ];
 
 const CLAUDE_CAPABILITIES: ProviderCapabilities = {

@@ -6,8 +6,8 @@ import type { ModelCatalogEntry } from "@/types";
 
 const CLAUDE_MODELS: ModelCatalogEntry[] = [
   {
-    id: "claude:opus-4-6",
-    label: "Opus 4.6",
+    id: "claude:opus-4-7",
+    label: "Opus 4.7",
     provider: "claude",
     providerLabel: "Claude Code",
     isDefault: true,
@@ -51,13 +51,13 @@ describe("ModelSelector", () => {
     render(
       <ModelSelector
         models={ALL_MODELS}
-        selectedModelId="claude:opus-4-6"
+        selectedModelId="claude:opus-4-7"
 
         onSelect={vi.fn()}
       />,
     );
 
-    expect(screen.getByText("Opus 4.6")).toBeInTheDocument();
+    expect(screen.getByText("Opus 4.7")).toBeInTheDocument();
   });
 
   it("shows 'Select model' when selectedModelId does not match any model", () => {
@@ -78,13 +78,13 @@ describe("ModelSelector", () => {
     render(
       <ModelSelector
         models={[...ALL_MODELS, ...GEMINI_MODELS]}
-        selectedModelId="claude:opus-4-6"
+        selectedModelId="claude:opus-4-7"
 
         onSelect={vi.fn()}
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /Model: Opus 4.6/i }));
+    await user.click(screen.getByRole("button", { name: /Model: Opus 4.7/i }));
 
     // Provider labels
     expect(screen.getByText("Claude Code")).toBeInTheDocument();
@@ -106,13 +106,13 @@ describe("ModelSelector", () => {
     render(
       <ModelSelector
         models={modelsWithNew}
-        selectedModelId="claude:opus-4-6"
+        selectedModelId="claude:opus-4-7"
 
         onSelect={vi.fn()}
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /Model: Opus 4.6/i }));
+    await user.click(screen.getByRole("button", { name: /Model: Opus 4.7/i }));
 
     expect(screen.getByText("NEW")).toBeInTheDocument();
   });
@@ -123,13 +123,13 @@ describe("ModelSelector", () => {
     render(
       <ModelSelector
         models={ALL_MODELS}
-        selectedModelId="claude:opus-4-6"
+        selectedModelId="claude:opus-4-7"
 
         onSelect={onSelect}
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /Model: Opus 4.6/i }));
+    await user.click(screen.getByRole("button", { name: /Model: Opus 4.7/i }));
     await user.click(screen.getByText("Sonnet 4.6"));
 
     expect(onSelect).toHaveBeenCalledWith("claude:sonnet-4-6");
@@ -140,14 +140,14 @@ describe("ModelSelector", () => {
     render(
       <ModelSelector
         models={ALL_MODELS}
-        selectedModelId="claude:opus-4-6"
+        selectedModelId="claude:opus-4-7"
 
         onSelect={vi.fn()}
         lockedProvider="claude"
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /Model: Opus 4.6/i }));
+    await user.click(screen.getByRole("button", { name: /Model: Opus 4.7/i }));
 
     // Codex models should be visually disabled (opacity-30, cursor-not-allowed)
     const codexModelElement = screen.getByText("GPT-5.3-Codex");
@@ -162,14 +162,14 @@ describe("ModelSelector", () => {
     render(
       <ModelSelector
         models={ALL_MODELS}
-        selectedModelId="claude:opus-4-6"
+        selectedModelId="claude:opus-4-7"
 
         onSelect={onSelect}
         lockedProvider="claude"
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /Model: Opus 4.6/i }));
+    await user.click(screen.getByRole("button", { name: /Model: Opus 4.7/i }));
 
     // The codex model is rendered as a plain div (not a DropdownMenuItem),
     // so clicking it should NOT trigger onSelect
@@ -186,14 +186,14 @@ describe("ModelSelector", () => {
     render(
       <ModelSelector
         models={ALL_MODELS}
-        selectedModelId="claude:opus-4-6"
+        selectedModelId="claude:opus-4-7"
 
         onSelect={onSelect}
         lockedProvider="claude"
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /Model: Opus 4.6/i }));
+    await user.click(screen.getByRole("button", { name: /Model: Opus 4.7/i }));
     await user.click(screen.getByText("Sonnet 4.6"));
 
     expect(onSelect).toHaveBeenCalledWith("claude:sonnet-4-6");
@@ -205,13 +205,13 @@ describe("ModelSelector", () => {
     render(
       <ModelSelector
         models={ALL_MODELS}
-        selectedModelId="claude:opus-4-6"
+        selectedModelId="claude:opus-4-7"
 
         onSelect={onSelect}
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /Model: Opus 4.6/i }));
+    await user.click(screen.getByRole("button", { name: /Model: Opus 4.7/i }));
     await user.click(screen.getByText("GPT-5.3-Codex"));
 
     expect(onSelect).toHaveBeenCalledWith("codex:gpt-5.3-codex");
@@ -249,13 +249,13 @@ describe("ModelSelector", () => {
     render(
       <ModelSelector
         models={ALL_MODELS}
-        selectedModelId="claude:opus-4-6"
+        selectedModelId="claude:opus-4-7"
 
         onSelect={vi.fn()}
       />,
     );
 
-    const trigger = screen.getByRole("button", { name: /Model: Opus 4.6/i });
+    const trigger = screen.getByRole("button", { name: /Model: Opus 4.7/i });
     const iconPath = trigger.querySelector("svg path")?.getAttribute("d");
     expect(iconPath).toContain("M177.888 112.776");
   });

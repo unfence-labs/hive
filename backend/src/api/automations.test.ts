@@ -18,7 +18,7 @@ function makeAutomation(overrides: Partial<Automation> = {}): Automation {
     name: "Test Auto",
     enabled: true,
     trigger: { type: "cron", expression: "0 * * * *" },
-    action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "Do something" },
+    action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "Do something" },
     notification: { onComplete: true, onFailure: true },
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -63,7 +63,7 @@ describe("POST /api/automations", () => {
       payload: {
         name: "My Auto",
         trigger: { type: "cron", expression: "0 2 * * *" },
-        action: { type: "agent", modelId: "claude:opus-4-6", userPromptInline: "Audit code" },
+        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "Audit code" },
       },
     });
     expect(res.statusCode).toBe(201);

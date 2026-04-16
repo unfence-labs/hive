@@ -78,7 +78,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/agents/naming.ts`: branch + session auto-naming via dedicated Claude subprocess
 - `backend/src/agents/system-prompt.ts`: system prompt construction — `DEFAULT_BASE_PROMPT`, `loadBasePrompt()`, `getGitContext()`, `formatGitContextBlock()`, `buildSystemPrompt()` with template variable interpolation (`{PROJECT}`, `{DIR}`, `{DEFAULT_BRANCH}`)
 - `backend/src/agents/providers/types.ts`: `AgentProvider` interface, `ProviderCapabilities`, `ModelDefinition` (includes `contextWindow`), `StreamAdapter`
-- `backend/src/agents/providers/registry.ts`: CLI detection, model ID resolution (`"claude:opus-4-6"`), model catalog builder, npm package version tracking
+- `backend/src/agents/providers/registry.ts`: CLI detection, model ID resolution (`"claude:opus-4-7"`), model catalog builder, npm package version tracking
 - `backend/src/agents/providers/claude.ts`: Claude provider (CLI args, env, thinking tokens)
 - `backend/src/agents/providers/codex.ts`: Codex provider (`codex exec` CLI args, thread resume)
 - `backend/src/agents/providers/codex-stream-adapter.ts`: Codex JSONL->StreamParserEvent normalizer
@@ -102,7 +102,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 
 ### Important backend behavior
 
-- Conversation turns use the provider abstraction: `conversation-session.ts` resolves the provider from compound model IDs (e.g. `"claude:opus-4-6"`, `"codex:o3-pro"`, `"gemini:gemini-3.1-pro-preview"`) via `resolveProvider()` and delegates CLI arg building, env config, and stream parsing to the matched provider.
+- Conversation turns use the provider abstraction: `conversation-session.ts` resolves the provider from compound model IDs (e.g. `"claude:opus-4-7"`, `"codex:o3-pro"`, `"gemini:gemini-3.1-pro-preview"`) via `resolveProvider()` and delegates CLI arg building, env config, and stream parsing to the matched provider.
 - Claude provider uses `--print --output-format stream-json -p`. Codex provider uses `codex exec --json`. Gemini provider uses `gemini -p -o stream-json`.
 - Session continuity: Claude uses `--session-id` and `--resume`; Codex uses `--thread-id`; Gemini uses `-r <sessionId>`.
 - Provider is locked per session after the first message (`lockedProvider`). Subsequent messages validate against it. The lock is broadcast via WS status events.
