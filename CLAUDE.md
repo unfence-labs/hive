@@ -65,6 +65,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/api/scripts.ts`: workspace setup/run script lifecycle (start/stop/status)
 - `backend/src/api/agents-settings.ts`: `GET /api/settings/agents` — provider version check + npm update detection
 - `backend/src/api/base-prompt.ts`: `GET/PUT/DELETE /api/prompts/base` — base system prompt CRUD
+- `backend/src/api/ui-preferences.ts`: `GET/PUT /api/ui-preferences` — global UI preferences (sidebar folders + folderOpenState), sanitized against known project IDs on read and write
 - `backend/src/api/automations.ts`: automation CRUD + manual trigger + run history + run messages
 - `backend/src/api/prompt-templates.ts`: prompt template CRUD (deletion guard if referenced by automation)
 - `backend/src/ws/stream.ts`: multiplexed hub WebSocket protocol (`/ws/hub`; `sync_workspaces` subscription, `HubOutgoing` envelopes)
@@ -91,6 +92,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/state/automations.ts`: automation + run persistence (atomic writes, run capping at 50)
 - `backend/src/state/prompt-templates.ts`: template persistence (`.md` files with YAML frontmatter in `~/.hive/prompts/`)
 - `backend/src/state/base-prompt.ts`: base prompt persistence (`~/.hive/prompts/base.md`), atomic write, reset-to-default
+- `backend/src/state/ui-preferences.ts`: UI preferences persistence (`$DATA_DIR/ui-preferences.json`) — atomic write, sanitize helper drops folders/project refs that no longer exist
 - `backend/src/state/state.ts`: JSON persistence + per-project locks
 - `backend/src/state/config.ts`: file-based app config (`$DATA_DIR/config.json`)
 - `backend/src/utils/preflight.ts`: startup dependency checks (git >= 2.17, claude, gh; codex/gemini optional)
@@ -174,6 +176,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/hooks/useTasks.ts`: derives `TrackedTask[]` from `TaskCreate`/`TaskUpdate` tool calls for task tracker display
 - `frontend/src/hooks/useDiff.ts`: diff fetching via `@pierre/diffs` for inline diff viewer
 - `frontend/src/hooks/useSidebarCollapsed.ts`: localStorage-backed sidebar collapsed state, Cmd/Ctrl+B keyboard shortcut
+- `frontend/src/hooks/useSidebarProjectFolders.ts`: sidebar folder organization — TanStack Query fetch + optimistic mutations with 300ms debounced PUT to `/api/ui-preferences`, localStorage cache for first-render bootstrap, one-shot migration from legacy `hive:sidebar-project-folders:v1` key
 - `frontend/src/hooks/useThemeType.ts`: dark/light theme detection via DOM class mutations + `prefers-color-scheme`
 - `frontend/src/hooks/useWsCacheInvalidation.ts`: centralized WS-driven TanStack Query invalidation (sessions, files, diff-stat, file-completions)
 - `frontend/src/hooks/useTerminalApps.ts`: detect available terminal emulators (Tauri)

@@ -219,6 +219,11 @@ type SidebarDropTarget =
   | { type: "folder"; folderId: string }
   | { type: "root" };
 
+type FolderOrderDropTarget = {
+  folderId: string;
+  position: "before" | "after";
+};
+
 export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps) {
   const { projects, loading, createWorkspace, archiveWorkspace } = useProjects();
   const { data: automations, isLoading: automationsLoading } = useAutomations();
@@ -234,6 +239,8 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   const [newFolderName, setNewFolderName] = useState("");
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<SidebarDropTarget | null>(null);
+  const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
+  const [folderOrderDropTarget, setFolderOrderDropTarget] = useState<FolderOrderDropTarget | null>(null);
   const liveData = useWorkspaceLiveDataContext();
 
   const activeProjectId = projects.find((project) =>
@@ -255,6 +262,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     rootProjects,
     createFolder,
     moveProjectToFolder,
+    moveFolderById,
     isFolderExpanded,
     setFolderExpanded,
     getFolderIdForProject,
@@ -383,6 +391,60 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     moveProjectToFolder(draggingProjectId, folderId);
     setDraggingProjectId(null);
     setDropTarget(null);
+  };
+
+  const handleFolderDragStart = (
+    event: React.DragEvent<HTMLButtonElement>,
+    folderId: string,
+  ) => {
+    setDraggingFolderId(folderId);
+    setFolderOrderDropTarget(null);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-hive-folder-id", folderId);
+    event.dataTransfer.setData("text/plain", folderId);
+  };
+
+  const handleFolderDragEnd = () => {
+    setDraggingFolderId(null);
+    setFolderOrderDropTarget(null);
+  };
+
+  const getDraggedFolderId = (event: React.DragEvent<HTMLDivElement>) =>
+    draggingFolderId
+    ?? event.dataTransfer.getData("application/x-hive-folder-id")
+    ?? null;
+
+  const handleFolderReorderDragOver = (
+    event: React.DragEvent<HTMLDivElement>,
+    folderId: string,
+    position: "before" | "after",
+  ) => {
+    const sourceFolderId = getDraggedFolderId(event);
+    if (!sourceFolderId || sourceFolderId === folderId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+
+    if (
+      folderOrderDropTarget?.folderId !== folderId
+      || folderOrderDropTarget.position !== position
+    ) {
+      setFolderOrderDropTarget({ folderId, position });
+    }
+  };
+
+  const handleFolderReorderDrop = (
+    event: React.DragEvent<HTMLDivElement>,
+    folderId: string,
+    position: "before" | "after",
+  ) => {
+    const sourceFolderId = getDraggedFolderId(event);
+    if (!sourceFolderId || sourceFolderId === folderId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    moveFolderById(sourceFolderId, folderId, position);
+    setDraggingFolderId(null);
+    setFolderOrderDropTarget(null);
   };
 
   const renderProjectItem = (project: Project, className?: string) => {
@@ -636,6 +698,10 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                     const isActiveDropTarget =
                       dropTarget?.type === "folder" && dropTarget.folderId === folder.id;
                     const containsActiveProject = folder.projects.some((project) => project.id === activeProjectId);
+                    const isDraggedFolder = draggingFolderId === folder.id;
+                    const folderInsertIndicator = folderOrderDropTarget?.folderId === folder.id
+                      ? folderOrderDropTarget.position
+                      : null;
 
                     return (
                       <Collapsible
@@ -647,15 +713,44 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                           data-sidebar-folder={folder.id}
                           onDragOver={(event) => handleFolderDragOver(event, folder.id)}
                           onDrop={(event) => handleFolderDrop(event, folder.id)}
-                          className="rounded-lg"
+                          className="relative rounded-lg"
                         >
+                          {draggingFolderId !== null && draggingFolderId !== folder.id && (
+                            <>
+                              <div
+                                data-folder-reorder="before"
+                                className="absolute inset-x-0 top-0 z-20 h-3"
+                                onDragOver={(event) => handleFolderReorderDragOver(event, folder.id, "before")}
+                                onDrop={(event) => handleFolderReorderDrop(event, folder.id, "before")}
+                              />
+                              <div
+                                data-folder-reorder="after"
+                                className="absolute inset-x-0 bottom-0 z-20 h-3"
+                                onDragOver={(event) => handleFolderReorderDragOver(event, folder.id, "after")}
+                                onDrop={(event) => handleFolderReorderDrop(event, folder.id, "after")}
+                              />
+                            </>
+                          )}
+                          {folderInsertIndicator && (
+                            <div
+                              className={cn(
+                                "pointer-events-none absolute inset-x-1 z-10 h-0.5 rounded-full bg-primary",
+                                folderInsertIndicator === "before" ? "top-0" : "bottom-0",
+                              )}
+                            />
+                          )}
                           <CollapsibleTrigger asChild>
                             <button
                               type="button"
+                              draggable
+                              onDragStart={(event) => handleFolderDragStart(event, folder.id)}
+                              onDragEnd={handleFolderDragEnd}
+                              aria-grabbed={isDraggedFolder}
                               className={cn(
                                 "flex min-h-9 w-full items-center gap-1.5 rounded-md px-1.5 text-left transition-colors hover:bg-sidebar-accent/40",
                                 containsActiveProject ? "text-sidebar-foreground" : "text-muted-foreground",
                                 isActiveDropTarget && "bg-primary/10 text-sidebar-foreground ring-1 ring-primary/20",
+                                isDraggedFolder && "cursor-grabbing opacity-45",
                               )}
                             >
                               <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 transition-transform", expanded && "rotate-90")} />

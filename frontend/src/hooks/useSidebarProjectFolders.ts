@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/hooks/useApi";
 import type { Project } from "@/types";
 
 export interface SidebarProjectFolder {
@@ -12,55 +14,78 @@ interface SidebarProjectFoldersState {
   folderOpenState: Record<string, boolean>;
 }
 
+interface UiPreferencesPayload {
+  sidebar: SidebarProjectFoldersState;
+}
+
+type FolderInsertPosition = "before" | "after";
+
 export interface SidebarProjectFolderView extends SidebarProjectFolder {
   projects: Project[];
 }
 
-const STORAGE_KEY = "hive:sidebar-project-folders:v1";
+const LEGACY_STORAGE_KEY = "hive:sidebar-project-folders:v1";
+const CACHE_STORAGE_KEY = "hive:sidebar-project-folders:cache:v1";
+const FLUSH_DEBOUNCE_MS = 300;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function readStoredState(): SidebarProjectFoldersState {
+function parseStoredState(raw: string | null): SidebarProjectFoldersState | null {
+  if (!raw) return null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return { folders: [], folderOpenState: {} };
-    }
-
     const parsed = JSON.parse(raw);
-    if (!isRecord(parsed)) {
-      return { folders: [], folderOpenState: {} };
-    }
+    if (!isRecord(parsed)) return null;
 
-    const folders = Array.isArray(parsed.folders) ? parsed.folders : [];
-    const folderOpenState = isRecord(parsed.folderOpenState) ? parsed.folderOpenState : {};
+    const foldersRaw = Array.isArray(parsed.folders) ? parsed.folders : [];
+    const folders = foldersRaw.flatMap((folder): SidebarProjectFolder[] => {
+      if (!isRecord(folder)) return [];
+      if (typeof folder.id !== "string" || typeof folder.name !== "string") return [];
+      const projectIds = Array.isArray(folder.projectIds)
+        ? folder.projectIds.filter((id): id is string => typeof id === "string")
+        : [];
+      return [{ id: folder.id, name: folder.name, projectIds }];
+    });
 
-    return {
-      folders: folders.flatMap((folder): SidebarProjectFolder[] => {
-        if (!isRecord(folder)) return [];
-        if (typeof folder.id !== "string" || typeof folder.name !== "string") return [];
-
-        const projectIds = Array.isArray(folder.projectIds)
-          ? folder.projectIds.filter((projectId): projectId is string => typeof projectId === "string")
-          : [];
-
-        return [{
-          id: folder.id,
-          name: folder.name,
-          projectIds,
-        }];
-      }),
-      folderOpenState: Object.fromEntries(
-        Object.entries(folderOpenState).flatMap(([key, value]) =>
-          typeof value === "boolean" ? [[key, value] as const] : [],
-        ),
+    const openStateRaw = isRecord(parsed.folderOpenState) ? parsed.folderOpenState : {};
+    const folderOpenState = Object.fromEntries(
+      Object.entries(openStateRaw).flatMap(([key, value]) =>
+        typeof value === "boolean" ? [[key, value] as const] : [],
       ),
-    };
+    );
+
+    return { folders, folderOpenState };
   } catch {
-    return { folders: [], folderOpenState: {} };
+    return null;
   }
+}
+
+function readLocalCache(): SidebarProjectFoldersState {
+  if (typeof localStorage === "undefined") return { folders: [], folderOpenState: {} };
+  return (
+    parseStoredState(localStorage.getItem(CACHE_STORAGE_KEY)) ??
+    parseStoredState(localStorage.getItem(LEGACY_STORAGE_KEY)) ??
+    { folders: [], folderOpenState: {} }
+  );
+}
+
+function readLegacyStorage(): SidebarProjectFoldersState | null {
+  if (typeof localStorage === "undefined") return null;
+  return parseStoredState(localStorage.getItem(LEGACY_STORAGE_KEY));
+}
+
+function writeLocalCache(state: SidebarProjectFoldersState): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // Storage may be full or disabled; ignore.
+  }
+}
+
+function isEmptyState(state: SidebarProjectFoldersState): boolean {
+  return state.folders.length === 0 && Object.keys(state.folderOpenState).length === 0;
 }
 
 function sanitizeState(
@@ -134,6 +159,29 @@ function moveProject(
   };
 }
 
+function moveFolder(
+  state: SidebarProjectFoldersState,
+  folderId: string,
+  targetFolderId: string,
+  position: FolderInsertPosition,
+): SidebarProjectFoldersState {
+  if (folderId === targetFolderId) return state;
+
+  const sourceIndex = state.folders.findIndex((folder) => folder.id === folderId);
+  const targetIndex = state.folders.findIndex((folder) => folder.id === targetFolderId);
+  if (sourceIndex === -1 || targetIndex === -1) return state;
+
+  const folders = [...state.folders];
+  const [movedFolder] = folders.splice(sourceIndex, 1);
+  const currentTargetIndex = folders.findIndex((folder) => folder.id === targetFolderId);
+  if (currentTargetIndex === -1) return state;
+
+  const insertionIndex = position === "before" ? currentTargetIndex : currentTargetIndex + 1;
+  folders.splice(insertionIndex, 0, movedFolder);
+
+  return { ...state, folders };
+}
+
 function createId(): string {
   return self.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
 }
@@ -173,7 +221,7 @@ export function useSidebarProjectFolders(projects: Project[]) {
   );
 
   const [state, setState] = useState<SidebarProjectFoldersState>(() =>
-    sanitizeState(readStoredState(), projectIds),
+    sanitizeState(readLocalCache(), projectIds),
   );
 
   const projectIdsKey = useMemo(
@@ -181,6 +229,54 @@ export function useSidebarProjectFolders(projects: Project[]) {
     [projectIds],
   );
 
+  // Remote fetch (single source of truth after first hydration).
+  const query = useQuery({
+    queryKey: ["ui-preferences"],
+    queryFn: () => api.get<UiPreferencesPayload>("/api/ui-preferences"),
+    staleTime: 60_000,
+  });
+
+  // Track whether the first server response has been applied. Before that,
+  // we don't PUT anything (the user hasn't seen the server state yet, and
+  // flushing cached/legacy data would clobber it).
+  const hydratedRef = useRef(false);
+  const lastFlushedRef = useRef<SidebarProjectFoldersState | null>(null);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Hydrate from server when data arrives.
+  useEffect(() => {
+    if (!query.data) return;
+    const serverState: SidebarProjectFoldersState = {
+      folders: query.data.sidebar.folders,
+      folderOpenState: query.data.sidebar.folderOpenState,
+    };
+
+    // One-shot migration: empty server + legacy localStorage -> push legacy up.
+    if (!hydratedRef.current && isEmptyState(serverState)) {
+      const legacy = readLegacyStorage();
+      if (legacy && !isEmptyState(legacy)) {
+        const sanitized = sanitizeState(legacy, projectIds);
+        hydratedRef.current = true;
+        lastFlushedRef.current = serverState;
+        setState(sanitized);
+        try {
+          localStorage.removeItem(LEGACY_STORAGE_KEY);
+        } catch {
+          // ignore
+        }
+        return;
+      }
+    }
+
+    hydratedRef.current = true;
+    lastFlushedRef.current = serverState;
+    setState((prev) => {
+      const next = sanitizeState(serverState, projectIds);
+      return areStatesEqual(prev, next) ? prev : next;
+    });
+  }, [query.data, projectIds, projectIdsKey]);
+
+  // Re-sanitize when the list of projects changes (e.g. project deleted).
   useEffect(() => {
     setState((prev) => {
       const next = sanitizeState(prev, projectIds);
@@ -188,8 +284,39 @@ export function useSidebarProjectFolders(projects: Project[]) {
     });
   }, [projectIds, projectIdsKey]);
 
+  // Persist local cache immediately + schedule a debounced PUT to the backend.
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    writeLocalCache(state);
+
+    if (!hydratedRef.current) return;
+    if (lastFlushedRef.current && areStatesEqual(lastFlushedRef.current, state)) return;
+
+    if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+    flushTimerRef.current = setTimeout(() => {
+      const snapshot = state;
+      api
+        .put<UiPreferencesPayload>("/api/ui-preferences", { sidebar: snapshot })
+        .then((payload) => {
+          const applied: SidebarProjectFoldersState = {
+            folders: payload.sidebar.folders,
+            folderOpenState: payload.sidebar.folderOpenState,
+          };
+          lastFlushedRef.current = applied;
+        })
+        .catch(() => {
+          // Revert to last-known server state on failure.
+          if (lastFlushedRef.current) {
+            setState(lastFlushedRef.current);
+          }
+        });
+    }, FLUSH_DEBOUNCE_MS);
+
+    return () => {
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+    };
   }, [state]);
 
   const projectMap = useMemo(
@@ -246,6 +373,14 @@ export function useSidebarProjectFolders(projects: Project[]) {
     setState((prev) => moveProject(prev, projectId, targetFolderId));
   }, []);
 
+  const moveFolderById = useCallback((
+    folderId: string,
+    targetFolderId: string,
+    position: FolderInsertPosition,
+  ) => {
+    setState((prev) => moveFolder(prev, folderId, targetFolderId, position));
+  }, []);
+
   const setFolderExpanded = useCallback((folderId: string, expanded: boolean) => {
     setState((prev) => {
       if (!prev.folders.some((folder) => folder.id === folderId)) return prev;
@@ -275,6 +410,7 @@ export function useSidebarProjectFolders(projects: Project[]) {
     rootProjects,
     createFolder,
     moveProjectToFolder,
+    moveFolderById,
     isFolderExpanded,
     setFolderExpanded,
     getFolderIdForProject,

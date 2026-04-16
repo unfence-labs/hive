@@ -20,6 +20,7 @@ vi.mock("@/hooks/useApi", () => ({
   api: {
     get: vi.fn(),
     post: vi.fn(),
+    put: vi.fn(),
     delete: vi.fn(),
   },
 }));
@@ -102,6 +103,9 @@ function renderSidebar(
       if (override instanceof Error) throw override;
       return override ?? [];
     }
+    if (url === "/api/ui-preferences") {
+      return { sidebar: { folders: [], folderOpenState: {} } };
+    }
     const diffMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
     if (diffMatch) {
       const override = apiOverrides?.diffStat;
@@ -110,6 +114,11 @@ function renderSidebar(
       return { committed: [], uncommitted: [] };
     }
     throw new Error(`Unexpected GET: ${url}`);
+  });
+
+  vi.mocked(api.put).mockImplementation(async (url: string, body?: unknown) => {
+    if (url === "/api/ui-preferences") return body;
+    throw new Error(`Unexpected PUT: ${url}`);
   });
 
   const workspaceIds = projects.flatMap((p) => (p.workspaces ?? []).map((ws) => ws.id));
@@ -179,13 +188,12 @@ function mockPostWithBulkFallback(overrides: Record<string, unknown | Error>) {
 function createDataTransfer(): DataTransfer {
   const data = new Map<string, string>();
   const types = new Set<string>();
-
-  return {
+  const transfer = {
     dropEffect: "move",
     effectAllowed: "move",
     files: [] as unknown as FileList,
     items: [] as unknown as DataTransferItemList,
-    types: [],
+    types: [] as string[],
     clearData: (format?: string) => {
       if (format) {
         data.delete(format);
@@ -194,14 +202,25 @@ function createDataTransfer(): DataTransfer {
         data.clear();
         types.clear();
       }
+      transfer.types = [...types];
     },
     getData: (format: string) => data.get(format) ?? "",
     setData: (format: string, value: string) => {
       data.set(format, value);
       types.add(format);
+      transfer.types = [...types];
     },
     setDragImage: vi.fn(),
-  } as unknown as DataTransfer;
+  };
+
+  return transfer as unknown as DataTransfer;
+}
+
+function expectFolderOrder(labels: string[]) {
+  const actual = Array.from(document.querySelectorAll("[data-sidebar-folder] > button")).map(
+    (button) => button.textContent?.trim() ?? "",
+  );
+  expect(actual).toEqual(labels);
 }
 
 describe("Sidebar", () => {
@@ -233,8 +252,10 @@ describe("Sidebar", () => {
   beforeEach(async () => {
     vi.mocked(api.get).mockReset();
     vi.mocked(api.post).mockReset();
+    vi.mocked(api.put).mockReset();
     vi.mocked(api.delete).mockReset();
     localStorage.removeItem("hive:sidebar-project-folders:v1");
+    localStorage.removeItem("hive:sidebar-project-folders:cache:v1");
     mockPostWithBulkFallback({});
     const { __wsMock } = await getWsMock();
     __wsMock.reset();
@@ -278,6 +299,99 @@ describe("Sidebar", () => {
 
     expect(await screen.findByRole("button", { name: "Client work" })).toBeInTheDocument();
     expect(screen.getByText("Drop repositories here")).toBeInTheDocument();
+  });
+
+  it("persists folder changes to /api/ui-preferences", async () => {
+    const user = userEvent.setup();
+    renderSidebar("/projects", projects);
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    await user.click(screen.getByRole("button", { name: "New folder" }));
+    await user.type(screen.getByLabelText("Folder name"), "Client work");
+    await user.click(screen.getByRole("button", { name: "Create folder" }));
+
+    await waitFor(
+      () => {
+        expect(api.put).toHaveBeenCalledWith(
+          "/api/ui-preferences",
+          expect.objectContaining({
+            sidebar: expect.objectContaining({
+              folders: expect.arrayContaining([
+                expect.objectContaining({ name: "Client work" }),
+              ]),
+            }),
+          }),
+        );
+      },
+      { timeout: 2000 },
+    );
+  });
+
+  it("hydrates folders from the server response", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/projects") return projects;
+      if (url === "/api/automations") return [];
+      if (url === "/api/ui-preferences") {
+        return {
+          sidebar: {
+            folders: [{ id: "remote-folder", name: "Server Folder", projectIds: ["p2"] }],
+            folderOpenState: { "remote-folder": true },
+          },
+        };
+      }
+      return { committed: [], uncommitted: [] };
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceLiveDataProvider workspaceIds={["w1"]}>
+          <MemoryRouter initialEntries={["/projects"]}>
+            <Routes>
+              <Route path="/projects" element={<SidebarRoute />} />
+            </Routes>
+          </MemoryRouter>
+        </WorkspaceLiveDataProvider>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByRole("button", { name: "Server Folder" })).toBeInTheDocument();
+    const folder = screen.getByText("Server Folder").closest("[data-sidebar-folder]");
+    expect(folder).not.toBeNull();
+    expect(folder!.textContent).toContain("acme/beta");
+  });
+
+  it("migrates legacy localStorage to the backend on first hydration", async () => {
+    localStorage.setItem(
+      "hive:sidebar-project-folders:v1",
+      JSON.stringify({
+        folders: [{ id: "legacy", name: "Migrated", projectIds: ["p1"] }],
+        folderOpenState: { legacy: true },
+      }),
+    );
+
+    renderSidebar("/projects", projects);
+
+    await waitFor(
+      () => {
+        expect(api.put).toHaveBeenCalledWith(
+          "/api/ui-preferences",
+          expect.objectContaining({
+            sidebar: expect.objectContaining({
+              folders: expect.arrayContaining([
+                expect.objectContaining({ name: "Migrated", projectIds: ["p1"] }),
+              ]),
+            }),
+          }),
+        );
+      },
+      { timeout: 2000 },
+    );
+
+    expect(localStorage.getItem("hive:sidebar-project-folders:v1")).toBeNull();
   });
 
   it("moves a project into a folder via drag and drop", async () => {
@@ -369,6 +483,38 @@ describe("Sidebar", () => {
 
     await waitFor(() => {
       expect(screen.queryByText(withTextContent("acme/beta"))).not.toBeInTheDocument();
+    });
+  });
+
+  it("reorders folders by dragging one before another", async () => {
+    const user = userEvent.setup();
+    renderSidebar("/projects", projects);
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    await user.click(screen.getByRole("button", { name: "New folder" }));
+    await user.type(screen.getByLabelText("Folder name"), "Client work");
+    await user.click(screen.getByRole("button", { name: "Create folder" }));
+    await user.click(screen.getByRole("button", { name: "New folder" }));
+    await user.type(screen.getByLabelText("Folder name"), "Infra");
+    await user.click(screen.getByRole("button", { name: "Create folder" }));
+
+    expectFolderOrder(["Client work", "Infra"]);
+
+    const infraButton = screen.getByRole("button", { name: "Infra" });
+    const dataTransfer = createDataTransfer();
+    fireEvent.dragStart(infraButton, { dataTransfer });
+
+    const clientFolder = screen.getByText("Client work").closest("[data-sidebar-folder]");
+    expect(clientFolder).not.toBeNull();
+    const beforeZone = clientFolder!.querySelector("[data-folder-reorder='before']");
+    expect(beforeZone).not.toBeNull();
+
+    fireEvent.dragOver(beforeZone!, { dataTransfer });
+    fireEvent.drop(beforeZone!, { dataTransfer });
+    fireEvent.dragEnd(infraButton, { dataTransfer });
+
+    await waitFor(() => {
+      expectFolderOrder(["Infra", "Client work"]);
     });
   });
 
@@ -954,6 +1100,9 @@ describe("Sidebar", () => {
     vi.mocked(api.get).mockImplementation(async (url: string) => {
       if (url === "/api/projects") return projects;
       if (url === "/api/automations") return pendingAutomations;
+      if (url === "/api/ui-preferences") {
+        return { sidebar: { folders: [], folderOpenState: {} } };
+      }
       return { committed: [], uncommitted: [] };
     });
 
@@ -1156,6 +1305,9 @@ describe("Sidebar", () => {
     vi.mocked(api.get).mockImplementation(async (url: string) => {
       if (url === "/api/projects") return projects;
       if (url === "/api/automations") return [];
+      if (url === "/api/ui-preferences") {
+        return { sidebar: { folders: [], folderOpenState: {} } };
+      }
       return { committed: [], uncommitted: [] };
     });
 
