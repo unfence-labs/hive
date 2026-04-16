@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   fetchProjects: vi.fn(),
   createWorkspace: vi.fn(),
   createProjectWithWorkspace: vi.fn(),
+  createNewProjectWithWorkspace: vi.fn(),
   deleteProject: vi.fn(),
   archiveWorkspace: vi.fn(),
   syncWorkspaces: vi.fn(),
@@ -64,6 +65,7 @@ vi.mock("@/hooks/useProjects", () => ({
     fetchProjects: mocks.fetchProjects,
     createWorkspace: mocks.createWorkspace,
     createProjectWithWorkspace: mocks.createProjectWithWorkspace,
+    createNewProjectWithWorkspace: mocks.createNewProjectWithWorkspace,
     deleteProject: mocks.deleteProject,
     archiveWorkspace: mocks.archiveWorkspace,
   }),
@@ -83,11 +85,12 @@ vi.mock("@/components/AddProjectDialog", () => ({
   default: ({
     open,
     onOpenChange,
-    onSubmit,
+    onClone,
   }: {
     open?: boolean;
     onOpenChange?: (open: boolean) => void;
-    onSubmit?: (url: string) => void;
+    onClone?: (url: string) => void;
+    onCreate?: (params: { name: string; visibility?: "public" | "private" }) => void;
   }) => (
     <div data-testid="add-project-dialog">
       <div data-testid="dialog-open">{String(Boolean(open))}</div>
@@ -96,7 +99,7 @@ vi.mock("@/components/AddProjectDialog", () => ({
       </button>
       <button
         type="button"
-        onClick={() => onSubmit?.("https://github.com/acme/new-repo.git")}
+        onClick={() => onClone?.("https://github.com/acme/new-repo.git")}
       >
         submit dialog
       </button>

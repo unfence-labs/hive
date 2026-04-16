@@ -87,6 +87,49 @@ describe("POST /api/projects", () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("not allowed");
   });
+
+  it("creates a local-only project with mode=create", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { mode: "create", name: "my-new-repo" },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body.id).toMatch(/^proj-/);
+    expect(body.name).toBe("my-new-repo");
+    expect(body.url).toBeUndefined();
+  });
+
+  it("returns 400 for missing name in create mode", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { mode: "create" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("name is required");
+  });
+
+  it("returns 400 for invalid visibility", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { mode: "create", name: "test-repo", visibility: "internal" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("visibility must be");
+  });
+
+  it("returns 400 for malicious visibility value", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      payload: { mode: "create", name: "test-repo", visibility: "template=evil/repo" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("visibility must be");
+  });
 });
 
 describe("GET /api/projects", () => {

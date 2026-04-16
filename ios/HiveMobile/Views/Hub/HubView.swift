@@ -65,9 +65,15 @@ struct HubView: View {
         }
         .animation(.default, value: store.cloningRepoName != nil)
         .sheet(isPresented: $showAddProject) {
-            AddProjectSheet { url in
-                Task { await store.createProject(url: url) }
-            }
+            AddProjectSheet(
+                api: APIClient(),
+                onClone: { url in
+                    Task { await store.createProject(url: url) }
+                },
+                onCreate: { name, visibility in
+                    Task { await store.createNewProject(name: name, visibility: visibility) }
+                }
+            )
         }
         .alert(
             "Archive workspace?",
@@ -272,7 +278,7 @@ struct HubView: View {
 
     @ViewBuilder
     private func projectTitle(_ project: Project) -> some View {
-        if let parts = ownerAndRepo(from: project.url) ?? ownerAndRepo(from: project.name) {
+        if let parts = project.url.flatMap({ ownerAndRepo(from: $0) }) ?? ownerAndRepo(from: project.name) {
             Text("\(Text("\(parts.owner)/").foregroundStyle(.secondary))\(Text(parts.repo).foregroundStyle(.white))")
                 .font(.headline)
         } else {

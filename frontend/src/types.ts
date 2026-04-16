@@ -1,12 +1,14 @@
 export interface Project {
   id: string;
   name: string;
-  url: string;
+  url?: string;
   createdAt: string;
   workspaces: Workspace[];
   repoPath?: string;
   workspacesPath?: string;
   hasFavicon?: boolean;
+  /** Present when GitHub repo creation failed (project degraded to local-only). */
+  warning?: string;
 }
 
 export interface Workspace {

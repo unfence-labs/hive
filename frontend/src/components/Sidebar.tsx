@@ -298,7 +298,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
               />
 
               {projects.map((project, index) => {
-                const parsed = parseProjectOwnerRepo(project.url);
+                const parsed = project.url ? parseProjectOwnerRepo(project.url) : null;
                 const displayLabel = parsed ? (
                   <><span className="text-muted-foreground">{parsed.owner}/</span>{parsed.repo}</>
                 ) : project.name;
