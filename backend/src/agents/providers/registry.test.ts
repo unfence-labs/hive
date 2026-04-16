@@ -305,7 +305,7 @@ describe("contextWindow in catalog", () => {
     const claudeModels = catalog.models.filter((m) => m.provider === "claude");
 
     const opus = claudeModels.find((m) => m.id === "claude:opus-4-7");
-    expect(opus?.contextWindow).toBe(200_000);
+    expect(opus?.contextWindow).toBe(1_000_000);
     const sonnet = claudeModels.find((m) => m.id === "claude:sonnet-4-6");
     expect(sonnet?.contextWindow).toBe(1_000_000);
     const haiku = claudeModels.find((m) => m.id === "claude:haiku-4-5");
