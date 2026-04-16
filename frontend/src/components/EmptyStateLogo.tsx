@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { FolderGit2, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
+import { useThemeType } from "@/hooks/useThemeType";
 
 interface EmptyStateLogoProps {
   className?: string;
@@ -11,7 +12,8 @@ interface EmptyStateLogoProps {
 }
 
 const CELL_SIZE = 8;
-const BG = "#09090f";
+const BG_DARK = "#09090f";
+const BG_LIGHT = "#f7f7f8";
 
 function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
@@ -27,10 +29,10 @@ function rgbToHex(r: number, g: number, b: number): string {
   return `#${[clamp(r), clamp(g), clamp(b)].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
 
-function buildPalette(accent: string) {
+function buildPalette(accent: string, bg: string) {
   const [r, g, b] = hexToRgb(accent);
   return {
-    bg: BG,
+    bg,
     bright: rgbToHex(r * 0.8, g * 0.8, b * 0.8),
     hot: rgbToHex(
       r + (255 - r) * 0.45,
@@ -50,6 +52,7 @@ function getAccentHex(): string {
 function renderStaticLogo(
   canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
+  bg: string,
 ) {
   ctx.imageSmoothingEnabled = false;
   let resizeRafId = 0;
@@ -69,7 +72,7 @@ function renderStaticLogo(
     const rows = Math.max(1, Math.floor(height / CELL_SIZE));
 
     const accent = getAccentHex();
-    const palette = buildPalette(accent);
+    const palette = buildPalette(accent, bg);
     const [acR, acG, acB] = hexToRgb(accent);
 
     const off = document.createElement("canvas");
@@ -143,13 +146,14 @@ function renderLogo(
   canvas: HTMLCanvasElement,
   ctx: CanvasRenderingContext2D,
   enableAnimation: boolean,
+  bg: string,
 ) {
   if (enableAnimation) {
     // Animation path intentionally disabled for now due to perf concerns.
-    return renderStaticLogo(canvas, ctx);
+    return renderStaticLogo(canvas, ctx, bg);
   }
 
-  return renderStaticLogo(canvas, ctx);
+  return renderStaticLogo(canvas, ctx, bg);
 }
 
 export default function EmptyStateLogo({
@@ -159,19 +163,21 @@ export default function EmptyStateLogo({
 }: EmptyStateLogoProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { isConfigured } = useTailscaleConfig();
+  const theme = useThemeType();
+  const bg = theme === "dark" ? BG_DARK : BG_LIGHT;
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    return renderLogo(canvas, ctx, enableAnimation);
-  }, [enableAnimation]);
+    return renderLogo(canvas, ctx, enableAnimation, bg);
+  }, [enableAnimation, bg]);
 
   return (
     <div
       className={cn("relative h-full w-full", className)}
-      style={{ background: BG }}
+      style={{ background: bg }}
     >
       <canvas
         ref={canvasRef}
