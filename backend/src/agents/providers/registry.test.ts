@@ -43,9 +43,9 @@ describe("resolveProvider", () => {
   });
 
   it("assumes claude provider for unprefixed model ID", () => {
-    const { provider, modelId } = resolveProvider("opus-4-6");
+    const { provider, modelId } = resolveProvider("opus-4-7");
     expect(provider.id).toBe("claude");
-    expect(modelId).toBe("opus-4-6");
+    expect(modelId).toBe("opus-4-7");
   });
 
   it("resolves claude:model-id correctly", () => {
@@ -304,8 +304,8 @@ describe("contextWindow in catalog", () => {
     const catalog = getModelCatalog();
     const claudeModels = catalog.models.filter((m) => m.provider === "claude");
 
-    const opus = claudeModels.find((m) => m.id === "claude:opus-4-6");
-    expect(opus?.contextWindow).toBe(1_000_000);
+    const opus = claudeModels.find((m) => m.id === "claude:opus-4-7");
+    expect(opus?.contextWindow).toBe(200_000);
     const sonnet = claudeModels.find((m) => m.id === "claude:sonnet-4-6");
     expect(sonnet?.contextWindow).toBe(1_000_000);
     const haiku = claudeModels.find((m) => m.id === "claude:haiku-4-5");

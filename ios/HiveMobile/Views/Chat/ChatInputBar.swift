@@ -381,7 +381,7 @@ private extension ImageAttachment {
 
 #Preview {
     let sampleModels: [ModelCatalogEntry] = [
-        .init(id: "claude:opus-4-6", label: "Opus 4.6", provider: "claude", providerLabel: "Claude Code",
+        .init(id: "claude:opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code",
               isDefault: true, isNew: nil,
               capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true),
               contextWindow: 200_000),
@@ -403,8 +403,8 @@ private extension ImageAttachment {
             thinkingLevel: .constant(.high),
             models: sampleModels,
             groupedModels: grouped,
-            selectedModelId: "claude:opus-4-6",
-            defaultModelId: "claude:opus-4-6",
+            selectedModelId: "claude:opus-4-7",
+            defaultModelId: "claude:opus-4-7",
             lockedProvider: nil,
             capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true),
             onModelSelect: { _ in },
@@ -422,7 +422,7 @@ private extension ImageAttachment {
             models: sampleModels,
             groupedModels: grouped,
             selectedModelId: "claude:sonnet-4-6",
-            defaultModelId: "claude:opus-4-6",
+            defaultModelId: "claude:opus-4-7",
             lockedProvider: "claude",
             capabilities: .init(thinking: .boolean(true), planMode: true, blockingTools: true, completions: true),
             onModelSelect: { _ in },

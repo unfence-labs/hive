@@ -38,7 +38,7 @@ describe("ClaudeProvider", () => {
 
   it("includes opus, sonnet, and haiku", () => {
     const ids = provider.models.map((m) => m.id);
-    expect(ids).toContain("opus-4-6");
+    expect(ids).toContain("opus-4-7");
     expect(ids).toContain("sonnet-4-6");
     expect(ids).toContain("haiku-4-5");
   });

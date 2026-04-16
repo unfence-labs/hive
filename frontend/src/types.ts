@@ -260,7 +260,7 @@ export type ThinkingLevel = "low" | "medium" | "high" | "xhigh";
 export interface MessageOptions {
   planMode?: boolean;
   thinkingEnabled?: boolean;
-  /** Compound model ID: "provider:model", e.g. "claude:opus-4-6" */
+  /** Compound model ID: "provider:model", e.g. "claude:opus-4-7" */
   model?: string;
   /** Codex reasoning effort level (ignored by Claude provider). */
   thinkingLevel?: ThinkingLevel;

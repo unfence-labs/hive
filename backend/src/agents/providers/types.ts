@@ -7,9 +7,9 @@ export type { ThinkingLevel };
 // ── Model & capability definitions ──────────────────────────────────
 
 export interface ModelDefinition {
-  /** Display ID sent over the wire, e.g. "opus-4-6" */
+  /** Display ID sent over the wire, e.g. "opus-4-7" */
   id: string;
-  /** Human label, e.g. "Opus 4.6" */
+  /** Human label, e.g. "Opus 4.7" */
   label: string;
   /** CLI value passed to --model, e.g. "opus" */
   cliValue: string;
@@ -77,7 +77,7 @@ export interface AgentProvider {
 // ── Catalog types (returned by GET /api/models) ─────────────────────
 
 export interface ModelCatalogEntry {
-  /** Compound ID: "provider:model", e.g. "claude:opus-4-6" */
+  /** Compound ID: "provider:model", e.g. "claude:opus-4-7" */
   id: string;
   label: string;
   provider: string;

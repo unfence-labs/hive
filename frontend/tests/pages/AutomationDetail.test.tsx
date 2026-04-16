@@ -66,7 +66,7 @@ function makeAutomation(overrides: Partial<Automation> = {}): Automation {
     trigger: { type: "cron", expression: "0 2 * * *" },
     action: {
       type: "agent",
-      modelId: "claude:opus-4-6",
+      modelId: "claude:opus-4-7",
       userPromptInline: "Review changes",
     },
     notification: { onComplete: true, onFailure: true },
