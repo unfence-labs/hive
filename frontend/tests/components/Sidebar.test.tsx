@@ -419,45 +419,6 @@ describe("Sidebar", () => {
     });
   });
 
-  it("moves a project back to top level via drag and drop", async () => {
-    const user = userEvent.setup();
-    renderSidebar("/projects", projects);
-
-    await screen.findByText(withTextContent("acme/alpha"));
-    await user.click(screen.getByRole("button", { name: "New folder" }));
-    await user.type(screen.getByLabelText("Folder name"), "Client work");
-    await user.click(screen.getByRole("button", { name: "Create folder" }));
-
-    const folder = screen.getByText("Client work").closest("[data-sidebar-folder]");
-    expect(folder).not.toBeNull();
-
-    const firstTransfer = createDataTransfer();
-    const initialBetaButton = screen.getByText(withTextContent("acme/beta")).closest("button");
-    expect(initialBetaButton).not.toBeNull();
-    fireEvent.dragStart(initialBetaButton!, { dataTransfer: firstTransfer });
-    fireEvent.dragOver(folder!, { dataTransfer: firstTransfer });
-    fireEvent.drop(folder!, { dataTransfer: firstTransfer });
-    fireEvent.dragEnd(initialBetaButton!, { dataTransfer: firstTransfer });
-
-    await waitFor(() => {
-      expect(screen.getByText(withTextContent("acme/beta")).closest("[data-sidebar-folder]")).toBe(folder);
-    });
-
-    const secondTransfer = createDataTransfer();
-    const movedBetaButton = screen.getByText(withTextContent("acme/beta")).closest("button");
-    expect(movedBetaButton).not.toBeNull();
-    fireEvent.dragStart(movedBetaButton!, { dataTransfer: secondTransfer });
-
-    const rootDropZone = await screen.findByTestId("sidebar-root-drop-zone");
-    fireEvent.dragOver(rootDropZone, { dataTransfer: secondTransfer });
-    fireEvent.drop(rootDropZone, { dataTransfer: secondTransfer });
-    fireEvent.dragEnd(movedBetaButton!, { dataTransfer: secondTransfer });
-
-    await waitFor(() => {
-      expect(screen.getByText(withTextContent("acme/beta")).closest("[data-sidebar-folder]")).toBeNull();
-    });
-  });
-
   it("collapses folders and hides their projects", async () => {
     const user = userEvent.setup();
     renderSidebar("/projects", projects);
@@ -483,6 +444,140 @@ describe("Sidebar", () => {
 
     await waitFor(() => {
       expect(screen.queryByText(withTextContent("acme/beta"))).not.toBeInTheDocument();
+    });
+  });
+
+  it("reorders projects within a folder via drag and drop", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/projects") return projects;
+      if (url === "/api/automations") return [];
+      if (url === "/api/ui-preferences") {
+        return {
+          sidebar: {
+            folders: [{ id: "f-client", name: "Client", projectIds: ["p1", "p2"] }],
+            folderOpenState: { "f-client": true },
+          },
+        };
+      }
+      return { committed: [], uncommitted: [] };
+    });
+
+    vi.mocked(api.put).mockImplementation(async (_url: string, body?: unknown) => body);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceLiveDataProvider workspaceIds={["w1"]}>
+          <MemoryRouter initialEntries={["/projects"]}>
+            <Routes>
+              <Route path="/projects" element={<SidebarRoute />} />
+            </Routes>
+          </MemoryRouter>
+        </WorkspaceLiveDataProvider>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("button", { name: "Client" });
+
+    const folderContainer = screen.getByText("Client").closest("[data-sidebar-folder]")!;
+    const projectItems = () =>
+      Array.from(folderContainer.querySelectorAll("[data-sidebar-project]")).map(
+        (el) => el.getAttribute("data-sidebar-project"),
+      );
+
+    expect(projectItems()).toEqual(["p1", "p2"]);
+
+    const betaButton = screen.getByText(withTextContent("acme/beta")).closest("button")!;
+    const dataTransfer = createDataTransfer();
+    fireEvent.dragStart(betaButton, { dataTransfer });
+
+    const alphaItem = folderContainer.querySelector("[data-sidebar-project='p1']")!;
+    const beforeZone = alphaItem.querySelector("[data-project-reorder='before']")!;
+    expect(beforeZone).not.toBeNull();
+
+    fireEvent.dragOver(beforeZone, { dataTransfer });
+    fireEvent.drop(beforeZone, { dataTransfer });
+    fireEvent.dragEnd(betaButton, { dataTransfer });
+
+    await waitFor(() => {
+      expect(projectItems()).toEqual(["p2", "p1"]);
+    });
+  });
+
+  it("moves a project between folders at a specific position via drag and drop", async () => {
+    const multiProjects: Project[] = [
+      ...projects,
+      {
+        id: "p3",
+        name: "Gamma",
+        url: "https://github.com/acme/gamma.git",
+        createdAt: "2026-02-11T00:00:00.000Z",
+        workspaces: [],
+      },
+    ];
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/projects") return multiProjects;
+      if (url === "/api/automations") return [];
+      if (url === "/api/ui-preferences") {
+        return {
+          sidebar: {
+            folders: [
+              { id: "f-a", name: "Folder A", projectIds: ["p1", "p2"] },
+              { id: "f-b", name: "Folder B", projectIds: ["p3"] },
+            ],
+            folderOpenState: { "f-a": true, "f-b": true },
+          },
+        };
+      }
+      return { committed: [], uncommitted: [] };
+    });
+
+    vi.mocked(api.put).mockImplementation(async (_url: string, body?: unknown) => body);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceLiveDataProvider workspaceIds={["w1"]}>
+          <MemoryRouter initialEntries={["/projects"]}>
+            <Routes>
+              <Route path="/projects" element={<SidebarRoute />} />
+            </Routes>
+          </MemoryRouter>
+        </WorkspaceLiveDataProvider>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("button", { name: "Folder B" });
+
+    const folderB = screen.getByText("Folder B").closest("[data-sidebar-folder]")!;
+    const folderBProjectIds = () =>
+      Array.from(folderB.querySelectorAll("[data-sidebar-project]")).map(
+        (el) => el.getAttribute("data-sidebar-project"),
+      );
+
+    expect(folderBProjectIds()).toEqual(["p3"]);
+
+    const alphaButton = screen.getByText(withTextContent("acme/alpha")).closest("button")!;
+    const dataTransfer = createDataTransfer();
+    fireEvent.dragStart(alphaButton, { dataTransfer });
+
+    const gammaItem = folderB.querySelector("[data-sidebar-project='p3']")!;
+    const beforeZone = gammaItem.querySelector("[data-project-reorder='before']")!;
+    expect(beforeZone).not.toBeNull();
+
+    fireEvent.dragOver(beforeZone, { dataTransfer });
+    fireEvent.drop(beforeZone, { dataTransfer });
+    fireEvent.dragEnd(alphaButton, { dataTransfer });
+
+    await waitFor(() => {
+      expect(folderBProjectIds()).toEqual(["p1", "p3"]);
     });
   });
 

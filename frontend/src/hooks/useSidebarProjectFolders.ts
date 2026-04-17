@@ -19,6 +19,7 @@ interface UiPreferencesPayload {
 }
 
 type FolderInsertPosition = "before" | "after";
+type ProjectInsertPosition = "before" | "after";
 
 export interface SidebarProjectFolderView extends SidebarProjectFolder {
   projects: Project[];
@@ -152,6 +153,43 @@ function moveProject(
         ? folder
         : { ...folder, projectIds: [...folder.projectIds, projectId] },
     ),
+    folderOpenState: {
+      ...state.folderOpenState,
+      [targetFolderId]: true,
+    },
+  };
+}
+
+function moveProjectToPositionImpl(
+  state: SidebarProjectFoldersState,
+  projectId: string,
+  targetFolderId: string,
+  anchorProjectId: string,
+  position: ProjectInsertPosition,
+): SidebarProjectFoldersState {
+  if (projectId === anchorProjectId) return state;
+
+  const targetFolder = state.folders.find((folder) => folder.id === targetFolderId);
+  if (!targetFolder) return state;
+  if (!targetFolder.projectIds.includes(anchorProjectId)) return state;
+
+  const folders = state.folders.map((folder) => ({
+    ...folder,
+    projectIds: folder.projectIds.filter((id) => id !== projectId),
+  }));
+
+  const nextFolders = folders.map((folder) => {
+    if (folder.id !== targetFolderId) return folder;
+    const anchorIndex = folder.projectIds.findIndex((id) => id === anchorProjectId);
+    if (anchorIndex === -1) return folder;
+    const insertIndex = position === "before" ? anchorIndex : anchorIndex + 1;
+    const projectIds = [...folder.projectIds];
+    projectIds.splice(insertIndex, 0, projectId);
+    return { ...folder, projectIds };
+  });
+
+  return {
+    folders: nextFolders,
     folderOpenState: {
       ...state.folderOpenState,
       [targetFolderId]: true,
@@ -373,6 +411,15 @@ export function useSidebarProjectFolders(projects: Project[]) {
     setState((prev) => moveProject(prev, projectId, targetFolderId));
   }, []);
 
+  const moveProjectToPosition = useCallback((
+    projectId: string,
+    targetFolderId: string,
+    anchorProjectId: string,
+    position: ProjectInsertPosition,
+  ) => {
+    setState((prev) => moveProjectToPositionImpl(prev, projectId, targetFolderId, anchorProjectId, position));
+  }, []);
+
   const moveFolderById = useCallback((
     folderId: string,
     targetFolderId: string,
@@ -410,6 +457,7 @@ export function useSidebarProjectFolders(projects: Project[]) {
     rootProjects,
     createFolder,
     moveProjectToFolder,
+    moveProjectToPosition,
     moveFolderById,
     isFolderExpanded,
     setFolderExpanded,

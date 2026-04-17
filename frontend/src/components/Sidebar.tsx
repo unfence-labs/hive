@@ -215,12 +215,15 @@ interface SidebarProps {
   onAddAutomation?: () => void;
 }
 
-type SidebarDropTarget =
-  | { type: "folder"; folderId: string }
-  | { type: "root" };
+type SidebarDropTarget = { type: "folder"; folderId: string };
 
 type FolderOrderDropTarget = {
   folderId: string;
+  position: "before" | "after";
+};
+
+type ProjectOrderDropTarget = {
+  projectId: string;
   position: "before" | "after";
 };
 
@@ -241,6 +244,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   const [dropTarget, setDropTarget] = useState<SidebarDropTarget | null>(null);
   const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
   const [folderOrderDropTarget, setFolderOrderDropTarget] = useState<FolderOrderDropTarget | null>(null);
+  const [projectOrderDropTarget, setProjectOrderDropTarget] = useState<ProjectOrderDropTarget | null>(null);
   const liveData = useWorkspaceLiveDataContext();
 
   const activeProjectId = projects.find((project) =>
@@ -262,12 +266,12 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     rootProjects,
     createFolder,
     moveProjectToFolder,
+    moveProjectToPosition,
     moveFolderById,
     isFolderExpanded,
     setFolderExpanded,
     getFolderIdForProject,
   } = useSidebarProjectFolders(projects);
-  const draggedProjectFolderId = draggingProjectId ? getFolderIdForProject(draggingProjectId) : null;
 
   const isProjectExpanded = (projectId: string) => {
     const expanded = expandedProjects[projectId];
@@ -333,33 +337,59 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     event: React.DragEvent<HTMLButtonElement>,
     projectId: string,
   ) => {
-    setDraggingProjectId(projectId);
-    setDropTarget(null);
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("application/x-hive-project-id", projectId);
     event.dataTransfer.setData("text/plain", projectId);
+    setDraggingProjectId(projectId);
+    setDropTarget(null);
+    setProjectOrderDropTarget(null);
   };
 
   const handleProjectDragEnd = () => {
     setDraggingProjectId(null);
     setDropTarget(null);
+    setProjectOrderDropTarget(null);
   };
 
-  const handleRootDragOver = (event: React.DragEvent<HTMLDivElement>) => {
-    if (!draggingProjectId) return;
+  const getDraggedProjectId = (event: React.DragEvent<HTMLDivElement>) =>
+    draggingProjectId
+    ?? event.dataTransfer.getData("application/x-hive-project-id")
+    ?? null;
+
+  const handleProjectReorderDragOver = (
+    event: React.DragEvent<HTMLDivElement>,
+    anchorProjectId: string,
+    position: "before" | "after",
+  ) => {
+    const sourceProjectId = getDraggedProjectId(event);
+    if (!sourceProjectId || sourceProjectId === anchorProjectId) return;
     event.preventDefault();
+    event.stopPropagation();
     event.dataTransfer.dropEffect = "move";
-    if (dropTarget?.type !== "root") {
-      setDropTarget({ type: "root" });
+    if (dropTarget !== null) setDropTarget(null);
+
+    if (
+      projectOrderDropTarget?.projectId !== anchorProjectId
+      || projectOrderDropTarget.position !== position
+    ) {
+      setProjectOrderDropTarget({ projectId: anchorProjectId, position });
     }
   };
 
-  const handleRootDrop = (event: React.DragEvent<HTMLDivElement>) => {
-    if (!draggingProjectId) return;
+  const handleProjectReorderDrop = (
+    event: React.DragEvent<HTMLDivElement>,
+    anchorProjectId: string,
+    anchorFolderId: string,
+    position: "before" | "after",
+  ) => {
+    const sourceProjectId = getDraggedProjectId(event);
+    if (!sourceProjectId || sourceProjectId === anchorProjectId) return;
     event.preventDefault();
-    moveProjectToFolder(draggingProjectId, null);
+    event.stopPropagation();
+    moveProjectToPosition(sourceProjectId, anchorFolderId, anchorProjectId, position);
     setDraggingProjectId(null);
     setDropTarget(null);
+    setProjectOrderDropTarget(null);
   };
 
   const handleFolderDragOver = (
@@ -379,6 +409,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     if (dropTarget?.type !== "folder" || dropTarget.folderId !== folderId) {
       setDropTarget({ type: "folder", folderId });
     }
+    if (projectOrderDropTarget) setProjectOrderDropTarget(null);
   };
 
   const handleFolderDrop = (
@@ -447,16 +478,27 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     setFolderOrderDropTarget(null);
   };
 
-  const renderProjectItem = (project: Project, className?: string) => {
+  const renderProjectItem = (
+    project: Project,
+    folderId: string | null,
+    className?: string,
+  ) => {
     const parsed = project.url ? parseProjectOwnerRepo(project.url) : null;
     const displayLabel = parsed ? (
       <><span className="text-muted-foreground">{parsed.owner}/</span>{parsed.repo}</>
     ) : project.name;
     const displayLabelPlain = parsed ? `${parsed.owner}/${parsed.repo}` : project.name;
     const isDragged = draggingProjectId === project.id;
+    const showReorderZones =
+      folderId !== null
+      && draggingProjectId !== null
+      && draggingProjectId !== project.id;
+    const projectInsertIndicator = projectOrderDropTarget?.projectId === project.id
+      ? projectOrderDropTarget.position
+      : null;
 
     return (
-      <div key={project.id} className={className}>
+      <div key={project.id} className={cn("relative", className)} data-sidebar-project={project.id}>
         <Collapsible
           open={isProjectExpanded(project.id)}
           onOpenChange={(open) =>
@@ -585,6 +627,30 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
             </div>
           </CollapsibleContent>
         </Collapsible>
+        {showReorderZones && folderId !== null && (
+          <>
+            <div
+              data-project-reorder="before"
+              className="absolute inset-x-0 top-0 z-20 h-2.5"
+              onDragOver={(event) => handleProjectReorderDragOver(event, project.id, "before")}
+              onDrop={(event) => handleProjectReorderDrop(event, project.id, folderId, "before")}
+            />
+            <div
+              data-project-reorder="after"
+              className="absolute inset-x-0 bottom-0 z-20 h-2.5"
+              onDragOver={(event) => handleProjectReorderDragOver(event, project.id, "after")}
+              onDrop={(event) => handleProjectReorderDrop(event, project.id, folderId, "after")}
+            />
+          </>
+        )}
+        {projectInsertIndicator && (
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-x-1 z-10 h-0.5 rounded-full bg-primary",
+              projectInsertIndicator === "before" ? "top-0" : "bottom-0",
+            )}
+          />
+        )}
       </div>
     );
   };
@@ -675,22 +741,6 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                 </form>
               )}
 
-              {draggedProjectFolderId !== null && (
-                <div
-                  data-testid="sidebar-root-drop-zone"
-                  onDragOver={handleRootDragOver}
-                  onDrop={handleRootDrop}
-                  className={cn(
-                    "mb-2 rounded-md border border-dashed px-2 py-1.5 text-[11px] font-medium transition-colors",
-                    dropTarget?.type === "root"
-                      ? "border-primary/45 bg-primary/10 text-primary"
-                      : "border-sidebar-border/80 text-muted-foreground",
-                  )}
-                >
-                  Move to top level
-                </div>
-              )}
-
               {folders.length > 0 && (
                 <div className="space-y-1.5">
                   {folders.map((folder) => {
@@ -769,7 +819,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                             <div className="ml-3 mt-1 border-l border-sidebar-border/70 pl-2.5">
                               {folder.projects.length > 0 ? (
                                 <div className="space-y-1.5 py-0.5">
-                                  {folder.projects.map((project) => renderProjectItem(project))}
+                                  {folder.projects.map((project) => renderProjectItem(project, folder.id))}
                                 </div>
                               ) : (
                                 <div
@@ -792,7 +842,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
 
               {rootProjects.length > 0 && (
                 <div className={cn("space-y-1.5", folders.length > 0 && "mt-2")}>
-                  {rootProjects.map((project) => renderProjectItem(project))}
+                  {rootProjects.map((project) => renderProjectItem(project, null))}
                 </div>
               )}
 
@@ -863,7 +913,6 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
     </SidebarShell>
   );
 }
