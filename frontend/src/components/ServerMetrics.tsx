@@ -19,7 +19,7 @@ function MetricBar({ label, percent }: MetricBarProps) {
       <span className="shrink-0 text-[10px] font-medium text-muted-foreground">
         {label}
       </span>
-      <div className="h-1 flex-1 rounded-full bg-muted/40">
+      <div className="h-1 flex-1 rounded-full bg-border dark:bg-muted/40">
         <div
           className="h-full rounded-full transition-[width] duration-700 ease-out"
           style={{ width: `${percent}%`, backgroundColor: color }}

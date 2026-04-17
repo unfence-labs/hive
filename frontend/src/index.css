@@ -94,7 +94,7 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.92 0 0);
+  --border: oklch(0.86 0 0);
   --input: oklch(0.94 0 0);
   --ring: var(--hive-accent, #635BFF);
   --chart-1: var(--hive-accent, #635BFF);
@@ -108,22 +108,22 @@
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: oklch(0.97 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.92 0 0);
+  --sidebar-border: oklch(0.86 0 0);
   --sidebar-ring: var(--hive-accent, #635BFF);
   --sidebar-card-bg: oklch(1 0 0);
   --sidebar-card-bg-hover: oklch(0.975 0 0);
   --sidebar-card-bg-active: color-mix(in oklch, var(--hive-accent, #635BFF) 8%, transparent);
-  --sidebar-card-border: oklch(0.92 0 0);
-  --sidebar-card-border-hover: oklch(0.86 0 0);
+  --sidebar-card-border: oklch(0.88 0 0);
+  --sidebar-card-border-hover: oklch(0.82 0 0);
   --sidebar-card-border-active: color-mix(in oklch, var(--hive-accent, #635BFF) 40%, transparent);
   --sidebar-card-text: var(--sidebar-foreground);
   --sidebar-card-text-muted: var(--muted-foreground);
   --sidebar-card-text-active: var(--sidebar-foreground);
 
-  /* Sidebar card shadows — subtle in light mode */
-  --sidebar-card-shadow: 0 1px 2px oklch(0 0 0 / 4%);
-  --sidebar-card-shadow-hover: 0 4px 10px oklch(0 0 0 / 6%);
-  --sidebar-card-shadow-active: 0 2px 6px oklch(0 0 0 / 5%);
+  /* Sidebar card shadows — flat in light mode */
+  --sidebar-card-shadow: none;
+  --sidebar-card-shadow-hover: none;
+  --sidebar-card-shadow-active: none;
 
   /* Accent glow for focus rings & highlights */
   --hive-accent-glow: color-mix(in oklch, var(--hive-accent, #635BFF) 12%, transparent);
