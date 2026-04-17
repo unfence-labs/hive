@@ -30,7 +30,7 @@ import {
   parseProjectOwnerRepo,
 } from "@/lib/sidebar-helpers";
 import { cn } from "@/lib/utils";
-import { aggregateWorkspaceActivity } from "@/lib/workspace-activity";
+import { aggregateScriptRunning, aggregateWorkspaceActivity } from "@/lib/workspace-activity";
 import { useAutomations } from "@/hooks/useAutomations";
 import { SidebarShell } from "@/components/SidebarShell";
 import { SidebarFolderComposer } from "@/components/sidebar/SidebarFolderComposer";
@@ -460,6 +460,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                       (project.workspaces ?? []).map((ws) => ws.id),
                     );
                     const folderActivity = aggregateWorkspaceActivity(folderWorkspaceIds, liveData);
+                    const folderScriptRunning = aggregateScriptRunning(folderWorkspaceIds, liveData);
 
                     return (
                       <SidebarFolderItem
@@ -475,6 +476,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                         draggingFolderId={draggingFolderId}
                         folderInsertIndicator={folderInsertIndicator}
                         activityState={folderActivity}
+                        scriptRunning={folderScriptRunning}
                         renameDraft={renameDraft}
                         onOpenChange={(open) => setFolderExpanded(folder.id, open)}
                         onFolderDragOver={handleFolderDragOver}

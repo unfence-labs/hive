@@ -29,3 +29,10 @@ export function aggregateWorkspaceActivity(
 ): ActivityState {
   return aggregateActivityState(workspaceIds.map((id) => workspaceActivityState(liveData[id])));
 }
+
+export function aggregateScriptRunning(
+  workspaceIds: string[],
+  liveData: Record<string, WorkspaceLiveData>,
+): boolean {
+  return workspaceIds.some((id) => liveData[id]?.scriptRunning === true);
+}

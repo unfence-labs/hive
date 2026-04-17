@@ -6,6 +6,7 @@ interface SidebarGroupHeaderProps {
   icon: React.ReactNode;
   label: React.ReactNode;
   badge?: React.ReactNode;
+  activityIndicator?: React.ReactNode;
   count?: number;
   isLoading?: boolean;
   onAdd?: (e: React.MouseEvent) => void;
@@ -19,6 +20,7 @@ export function SidebarGroupHeader({
   icon,
   label,
   badge,
+  activityIndicator,
   count,
   isLoading,
   onAdd,
@@ -29,6 +31,17 @@ export function SidebarGroupHeader({
 }: SidebarGroupHeaderProps) {
   const isPlain = variant === "plain";
   const { className: buttonPropsClassName, ...restButtonProps } = buttonProps ?? {};
+  const hasActivity = activityIndicator !== undefined && activityIndicator !== null && activityIndicator !== false;
+  const hasCount = count !== undefined;
+  // When both count and activity are shown, count takes the rightmost rail
+  // and the activity indicator sits to its left. When only one is shown,
+  // it takes the rightmost rail.
+  const activitySlotRight = hasCount ? "right-6" : "right-0";
+  const buttonRightPad = hasActivity && hasCount
+    ? "pr-12"
+    : hasCount || hasActivity
+      ? "pr-6"
+      : undefined;
 
   return (
     <div className="group relative flex w-full items-center">
@@ -40,7 +53,7 @@ export function SidebarGroupHeader({
             isPlain
               ? "gap-1.5 px-0 py-0.5"
               : "gap-2 rounded px-2 py-1 hover:bg-sidebar-accent/40",
-            count !== undefined && "pr-7",
+            buttonRightPad,
             buttonClassName,
             buttonPropsClassName,
           )}
@@ -53,8 +66,15 @@ export function SidebarGroupHeader({
           {badge}
         </button>
       </CollapsibleTrigger>
-      {count !== undefined && (
-        <div className={cn("absolute inset-y-0 flex items-center", isPlain ? "right-0" : "right-2")}>
+      {hasActivity && (
+        <div className={cn("pointer-events-none absolute inset-y-0 flex items-center", activitySlotRight)}>
+          <div className="flex h-5 w-5 items-center justify-center">
+            {activityIndicator}
+          </div>
+        </div>
+      )}
+      {hasCount && (
+        <div className="absolute inset-y-0 right-0 flex items-center">
           <div className="relative flex h-5 w-5 items-center justify-center">
             {isLoading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />

@@ -2,6 +2,7 @@ import { ChevronRight, Folder, FolderOpen, Pencil, Trash2 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { ActivityWave } from "@/components/ui/activity-wave";
 import { SidebarActivityDot } from "@/components/sidebar/SidebarActivityDot";
 import type { ActivityState } from "@/lib/workspace-activity";
 import type { SidebarProjectFolderView } from "@/hooks/useSidebarProjectFolders";
@@ -19,6 +20,7 @@ interface SidebarFolderItemProps {
   draggingFolderId: string | null;
   folderInsertIndicator: "before" | "after" | null;
   activityState: ActivityState;
+  scriptRunning: boolean;
   renameDraft: string;
   onOpenChange: (open: boolean) => void;
   onFolderDragOver: (event: React.DragEvent<HTMLDivElement>, folderId: string) => void;
@@ -55,6 +57,7 @@ export function SidebarFolderItem({
   draggingFolderId,
   folderInsertIndicator,
   activityState,
+  scriptRunning,
   renameDraft,
   onOpenChange,
   onFolderDragOver,
@@ -171,8 +174,19 @@ export function SidebarFolderItem({
               </button>
             </CollapsibleTrigger>
 
+            {scriptRunning && !expanded && (
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center">
+                <div className="flex h-5 w-5 items-center justify-center">
+                  <ActivityWave size="small" decorative className="shrink-0" />
+                </div>
+              </div>
+            )}
+
             {canInteract && (
-              <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/folder:pointer-events-auto group-hover/folder:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
+              <div className={cn(
+                "pointer-events-none absolute inset-y-0 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/folder:pointer-events-auto group-hover/folder:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100",
+                scriptRunning && !expanded ? "right-6" : "right-0",
+              )}>
               <button
                 type="button"
                 onClick={(event) => {
@@ -180,7 +194,7 @@ export function SidebarFolderItem({
                   event.stopPropagation();
                   onStartRenaming(folder.id, folder.name);
                 }}
-                className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
                 aria-label={`Rename folder ${folder.name}`}
               >
                 <Pencil className="h-3 w-3" />
@@ -193,7 +207,7 @@ export function SidebarFolderItem({
                     event.stopPropagation();
                     onDeleteRequest(folder.id, folder.name);
                   }}
-                  className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/60"
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/60"
                   aria-label={`Delete folder ${folder.name}`}
                 >
                   <Trash2 className="h-3 w-3" />
