@@ -327,6 +327,83 @@ describe("Sidebar", () => {
     );
   });
 
+  it("keeps the latest folder state in react-query cache after saving", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/projects") return projects;
+      if (url === "/api/automations") return [];
+      if (url === "/api/ui-preferences") {
+        return { sidebar: { folders: [], folderOpenState: {} } };
+      }
+      return { committed: [], uncommitted: [] };
+    });
+
+    vi.mocked(api.put).mockImplementation(async (url: string, body?: unknown) => {
+      if (url === "/api/ui-preferences") return body;
+      throw new Error(`Unexpected PUT: ${url}`);
+    });
+
+    const workspaceIds = projects.flatMap((project) => (
+      (project.workspaces ?? []).map((workspace) => workspace.id)
+    ));
+
+    const firstRender = render(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceLiveDataProvider workspaceIds={workspaceIds}>
+          <MemoryRouter initialEntries={["/projects"]}>
+            <Routes>
+              <Route path="/projects" element={<SidebarRoute />} />
+            </Routes>
+          </MemoryRouter>
+        </WorkspaceLiveDataProvider>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    await user.click(screen.getByRole("button", { name: "New folder" }));
+    await user.type(screen.getByLabelText("Folder name"), "Client work");
+    await user.click(screen.getByRole("button", { name: "Create folder" }));
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith(
+        "/api/ui-preferences",
+        expect.objectContaining({
+          sidebar: expect.objectContaining({
+            folders: expect.arrayContaining([
+              expect.objectContaining({ name: "Client work" }),
+            ]),
+          }),
+        }),
+      );
+    });
+
+    firstRender.unmount();
+    localStorage.removeItem("hive:sidebar-project-folders:cache:v1");
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceLiveDataProvider workspaceIds={workspaceIds}>
+          <MemoryRouter initialEntries={["/projects"]}>
+            <Routes>
+              <Route path="/projects" element={<SidebarRoute />} />
+            </Routes>
+          </MemoryRouter>
+        </WorkspaceLiveDataProvider>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("button", { name: "Client work" })).toBeInTheDocument();
+  });
+
   it("hydrates folders from the server response", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },

@@ -33,26 +33,30 @@ function parseStoredState(raw: string | null): SidebarProjectFoldersState | null
   }
 }
 
+function readStorageItem(key: string): string | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 export function readSidebarPreferencesLocalSeed(): {
   source: LocalSeedSource;
   state: SidebarProjectFoldersState;
 } {
-  if (typeof localStorage === "undefined") {
-    return { source: "empty", state: EMPTY_SIDEBAR_PROJECT_FOLDERS_STATE };
-  }
-
-  const cached = parseStoredState(localStorage.getItem(CACHE_STORAGE_KEY));
+  const cached = parseStoredState(readStorageItem(CACHE_STORAGE_KEY));
   if (cached) return { source: "cache", state: cached };
 
-  const legacy = parseStoredState(localStorage.getItem(LEGACY_STORAGE_KEY));
+  const legacy = parseStoredState(readStorageItem(LEGACY_STORAGE_KEY));
   if (legacy) return { source: "legacy", state: legacy };
 
   return { source: "empty", state: EMPTY_SIDEBAR_PROJECT_FOLDERS_STATE };
 }
 
 export function readLegacySidebarPreferences(): SidebarProjectFoldersState | null {
-  if (typeof localStorage === "undefined") return null;
-  return parseStoredState(localStorage.getItem(LEGACY_STORAGE_KEY));
+  return parseStoredState(readStorageItem(LEGACY_STORAGE_KEY));
 }
 
 export function writeSidebarPreferencesLocalCache(state: SidebarProjectFoldersState): void {

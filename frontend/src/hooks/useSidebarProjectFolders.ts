@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import type { Project } from "@/types";
 import {
@@ -35,6 +35,7 @@ function createId(): string {
 }
 
 export function useSidebarProjectFolders(projects: Project[], projectsReady = true) {
+  const queryClient = useQueryClient();
   const projectIds = useMemo(
     () => projects.map((project) => project.id),
     [projects],
@@ -149,6 +150,11 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
             payloadToSidebarPreferencesState(payload),
             projectIds,
           );
+          queryClient.setQueryData<UiPreferencesPayload>(
+            ["ui-preferences"],
+            { sidebar: applied },
+          );
+
           if (requestId > latestSuccessfulSaveRef.current) {
             latestSuccessfulSaveRef.current = requestId;
             lastFlushedRef.current = applied;
@@ -194,7 +200,7 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
         flushTimerRef.current = null;
       }
     };
-  }, [projectIds, projectIdsKey, refetchPreferences, state]);
+  }, [projectIds, projectIdsKey, queryClient, refetchPreferences, state]);
 
   const folders = useMemo<SidebarProjectFolderView[]>(
     () => mapSidebarFolderProjects(state.folders, projects),
