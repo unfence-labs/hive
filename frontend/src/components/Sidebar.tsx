@@ -24,6 +24,11 @@ import { useProjects } from "@/hooks/useProjects";
 import { useBulkPrStatus, usePrStatusMap } from "@/hooks/usePrStatus";
 import { useSidebarProjectFolders } from "@/hooks/useSidebarProjectFolders";
 import { api } from "@/hooks/useApi";
+import {
+  automationSortKey,
+  describeSchedule,
+  parseProjectOwnerRepo,
+} from "@/lib/sidebar-helpers";
 import { cn } from "@/lib/utils";
 import { useAutomations } from "@/hooks/useAutomations";
 import { SidebarShell } from "@/components/SidebarShell";
@@ -32,13 +37,8 @@ import { SidebarFolderItem } from "@/components/sidebar/SidebarFolderItem";
 import {
   SidebarSectionHeader,
 } from "@/components/sidebar/SidebarHeaders";
-import {
-  SidebarProjectItem,
-  parseProjectOwnerRepo,
-} from "@/components/sidebar/SidebarProjectItem";
+import { SidebarProjectItem } from "@/components/sidebar/SidebarProjectItem";
 import type { Automation, DiffStatResponse, Project } from "@/types";
-
-export { parseProjectOwnerRepo } from "@/components/sidebar/SidebarProjectItem";
 
 // ── Sidebar ──────────────────────────────────────────────────────────
 
@@ -574,27 +574,6 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
       </AlertDialog>
     </SidebarShell>
   );
-}
-
-// ── Automation sidebar list ──────────────────────────────────────────
-
-export function automationSortKey(a: Automation): number {
-  if (a.lastRunStatus === "running") return 0;
-  if (a.enabled) return 1;
-  return 2;
-}
-
-export function describeSchedule(expression: string): string {
-  const presets: Record<string, string> = {
-    "0 * * * *": "Hourly",
-    "0 */6 * * *": "Every 6h",
-    "0 2 * * *": "Daily 2am",
-    "0 8 * * *": "Daily 8am",
-    "0 0 * * *": "Daily midnight",
-    "0 9 * * 1-5": "Weekdays 9am",
-    "0 9 * * 1": "Weekly Mon",
-  };
-  return presets[expression] ?? expression;
 }
 
 function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string }) {

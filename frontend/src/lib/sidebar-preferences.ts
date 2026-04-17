@@ -1,19 +1,20 @@
 import type { Project } from "@/types";
+import {
+  EMPTY_SIDEBAR_PROJECT_FOLDERS_STATE,
+  parseSidebarProjectFoldersState,
+  sanitizeSidebarPreferencesState,
+  type SidebarProjectFolder,
+  type SidebarProjectFoldersState,
+  type UiPreferencesPayload,
+} from "../../../shared/sidebar-preferences";
 
-export interface SidebarProjectFolder {
-  id: string;
-  name: string;
-  projectIds: string[];
-}
-
-export interface SidebarProjectFoldersState {
-  folders: SidebarProjectFolder[];
-  folderOpenState: Record<string, boolean>;
-}
-
-export interface UiPreferencesPayload {
-  sidebar: SidebarProjectFoldersState;
-}
+export {
+  EMPTY_SIDEBAR_PROJECT_FOLDERS_STATE,
+  sanitizeSidebarPreferencesState,
+  type SidebarProjectFolder,
+  type SidebarProjectFoldersState,
+  type UiPreferencesPayload,
+};
 
 export type FolderInsertPosition = "before" | "after";
 export type ProjectInsertPosition = "before" | "after";
@@ -23,39 +24,10 @@ type LocalSeedSource = "cache" | "legacy" | "empty";
 const LEGACY_STORAGE_KEY = "hive:sidebar-project-folders:v1";
 const CACHE_STORAGE_KEY = "hive:sidebar-project-folders:cache:v1";
 
-export const EMPTY_SIDEBAR_PROJECT_FOLDERS_STATE: SidebarProjectFoldersState = {
-  folders: [],
-  folderOpenState: {},
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 function parseStoredState(raw: string | null): SidebarProjectFoldersState | null {
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw);
-    if (!isRecord(parsed)) return null;
-
-    const foldersRaw = Array.isArray(parsed.folders) ? parsed.folders : [];
-    const folders = foldersRaw.flatMap((folder): SidebarProjectFolder[] => {
-      if (!isRecord(folder)) return [];
-      if (typeof folder.id !== "string" || typeof folder.name !== "string") return [];
-      const projectIds = Array.isArray(folder.projectIds)
-        ? folder.projectIds.filter((id): id is string => typeof id === "string")
-        : [];
-      return [{ id: folder.id, name: folder.name, projectIds }];
-    });
-
-    const openStateRaw = isRecord(parsed.folderOpenState) ? parsed.folderOpenState : {};
-    const folderOpenState = Object.fromEntries(
-      Object.entries(openStateRaw).flatMap(([key, value]) =>
-        typeof value === "boolean" ? [[key, value] as const] : [],
-      ),
-    );
-
-    return { folders, folderOpenState };
+    return parseSidebarProjectFoldersState(JSON.parse(raw), { mode: "permissive" });
   } catch {
     return null;
   }
@@ -108,49 +80,7 @@ export function isEmptySidebarPreferencesState(state: SidebarProjectFoldersState
 export function payloadToSidebarPreferencesState(
   payload: UiPreferencesPayload,
 ): SidebarProjectFoldersState {
-  return {
-    folders: payload.sidebar.folders,
-    folderOpenState: payload.sidebar.folderOpenState,
-  };
-}
-
-export function sanitizeSidebarPreferencesState(
-  state: SidebarProjectFoldersState,
-  projectIds: string[],
-): SidebarProjectFoldersState {
-  const knownProjectIds = new Set(projectIds);
-  const usedProjectIds = new Set<string>();
-  const seenFolderIds = new Set<string>();
-
-  const folders = state.folders.flatMap((folder): SidebarProjectFolder[] => {
-    const name = folder.name.trim();
-    if (!folder.id || !name || seenFolderIds.has(folder.id)) return [];
-    seenFolderIds.add(folder.id);
-
-    const seenProjectIds = new Set<string>();
-    const nextProjectIds = folder.projectIds.filter((projectId) => {
-      if (!knownProjectIds.has(projectId)) return false;
-      if (usedProjectIds.has(projectId)) return false;
-      if (seenProjectIds.has(projectId)) return false;
-      usedProjectIds.add(projectId);
-      seenProjectIds.add(projectId);
-      return true;
-    });
-
-    return [{
-      id: folder.id,
-      name,
-      projectIds: nextProjectIds,
-    }];
-  });
-
-  const folderOpenState = Object.fromEntries(
-    Object.entries(state.folderOpenState).filter(([folderId, value]) =>
-      seenFolderIds.has(folderId) && typeof value === "boolean",
-    ),
-  );
-
-  return { folders, folderOpenState };
+  return payload.sidebar;
 }
 
 export function areSidebarPreferencesStatesEqual(

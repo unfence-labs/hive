@@ -5,7 +5,7 @@
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": "..",
     "declaration": false,
     "declarationMap": false,
     "baseUrl": ".",
@@ -13,5 +13,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "../shared/**/*.ts"]
 }

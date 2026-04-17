@@ -51,25 +51,6 @@ interface SidebarProjectItemProps {
   ) => void;
 }
 
-export function parseProjectOwnerRepo(
-  url: string,
-): { owner: string; repo: string } | null {
-  const scpMatch = url.match(/^[^@]+@[^:]+:([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (scpMatch) return { owner: scpMatch[1], repo: scpMatch[2] };
-
-  try {
-    const parsed = new URL(url);
-    const segments = parsed.pathname.split("/").filter(Boolean);
-    if (segments.length >= 2) {
-      return { owner: segments[0], repo: segments[1].replace(/\.git$/, "") };
-    }
-  } catch {
-    // not a valid URL
-  }
-
-  return null;
-}
-
 export function SidebarProjectItem({
   project,
   folderId,

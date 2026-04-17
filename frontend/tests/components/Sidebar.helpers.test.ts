@@ -3,7 +3,7 @@ import {
   parseProjectOwnerRepo,
   automationSortKey,
   describeSchedule,
-} from "@/components/Sidebar";
+} from "@/lib/sidebar-helpers";
 import type { Automation } from "@/types";
 
 // ── parseProjectOwnerRepo ───────────────────────────────────────────
