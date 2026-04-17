@@ -217,7 +217,7 @@ function createDataTransfer(): DataTransfer {
 }
 
 function expectFolderOrder(labels: string[]) {
-  const actual = Array.from(document.querySelectorAll("[data-sidebar-folder] > button")).map(
+  const actual = Array.from(document.querySelectorAll("[data-sidebar-folder] > div > button")).map(
     (button) => button.textContent?.trim() ?? "",
   );
   expect(actual).toEqual(labels);
@@ -611,6 +611,106 @@ describe("Sidebar", () => {
     await waitFor(() => {
       expectFolderOrder(["Infra", "Client work"]);
     });
+  });
+
+  it("renames a folder via the inline rename input", async () => {
+    const user = userEvent.setup();
+    renderSidebar("/projects", projects);
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    await user.click(screen.getByRole("button", { name: "New folder" }));
+    await user.type(screen.getByLabelText("Folder name"), "Old name");
+    await user.click(screen.getByRole("button", { name: "Create folder" }));
+
+    await screen.findByRole("button", { name: "Old name" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename folder Old name" }));
+
+    const input = await screen.findByLabelText("Rename folder");
+    await user.clear(input);
+    await user.type(input, "Renamed folder{Enter}");
+
+    expect(await screen.findByRole("button", { name: "Renamed folder" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Old name" })).not.toBeInTheDocument();
+  });
+
+  it("cancels folder rename when Escape is pressed", async () => {
+    const user = userEvent.setup();
+    renderSidebar("/projects", projects);
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    await user.click(screen.getByRole("button", { name: "New folder" }));
+    await user.type(screen.getByLabelText("Folder name"), "Keep me");
+    await user.click(screen.getByRole("button", { name: "Create folder" }));
+
+    await screen.findByRole("button", { name: "Keep me" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename folder Keep me" }));
+
+    const input = await screen.findByLabelText("Rename folder");
+    await user.clear(input);
+    await user.type(input, "Discarded{Escape}");
+
+    expect(await screen.findByRole("button", { name: "Keep me" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Rename folder")).not.toBeInTheDocument();
+  });
+
+  it("deletes an empty folder after confirmation", async () => {
+    const user = userEvent.setup();
+    renderSidebar("/projects", projects);
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    await user.click(screen.getByRole("button", { name: "New folder" }));
+    await user.type(screen.getByLabelText("Folder name"), "Temporary");
+    await user.click(screen.getByRole("button", { name: "Create folder" }));
+
+    await screen.findByRole("button", { name: "Temporary" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete folder Temporary" }));
+
+    const confirm = await screen.findByRole("button", { name: "Delete" });
+    await user.click(confirm);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Temporary" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("hides the delete button for non-empty folders", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/projects") return projects;
+      if (url === "/api/automations") return [];
+      if (url === "/api/ui-preferences") {
+        return {
+          sidebar: {
+            folders: [{ id: "f-client", name: "Client", projectIds: ["p1"] }],
+            folderOpenState: { "f-client": true },
+          },
+        };
+      }
+      return { committed: [], uncommitted: [] };
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceLiveDataProvider workspaceIds={["w1"]}>
+          <MemoryRouter initialEntries={["/projects"]}>
+            <Routes>
+              <Route path="/projects" element={<SidebarRoute />} />
+            </Routes>
+          </MemoryRouter>
+        </WorkspaceLiveDataProvider>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole("button", { name: "Client" });
+
+    expect(screen.queryByRole("button", { name: "Delete folder Client" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rename folder Client" })).toBeInTheDocument();
   });
 
   it("expands the active project's workspaces on workspace route", async () => {

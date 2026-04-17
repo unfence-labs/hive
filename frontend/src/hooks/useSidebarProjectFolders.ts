@@ -407,6 +407,37 @@ export function useSidebarProjectFolders(projects: Project[]) {
     return folderId;
   }, []);
 
+  const renameFolder = useCallback((folderId: string, nextName: string) => {
+    const trimmed = nextName.trim();
+    if (!trimmed) return false;
+    setState((prev) => {
+      const target = prev.folders.find((folder) => folder.id === folderId);
+      if (!target || target.name === trimmed) return prev;
+      return {
+        ...prev,
+        folders: prev.folders.map((folder) =>
+          folder.id === folderId ? { ...folder, name: trimmed } : folder,
+        ),
+      };
+    });
+    return true;
+  }, []);
+
+  const deleteFolder = useCallback((folderId: string) => {
+    let deleted = false;
+    setState((prev) => {
+      const target = prev.folders.find((folder) => folder.id === folderId);
+      if (!target || target.projectIds.length > 0) return prev;
+      deleted = true;
+      const { [folderId]: _removed, ...folderOpenState } = prev.folderOpenState;
+      return {
+        folders: prev.folders.filter((folder) => folder.id !== folderId),
+        folderOpenState,
+      };
+    });
+    return deleted;
+  }, []);
+
   const moveProjectToFolder = useCallback((projectId: string, targetFolderId: string | null) => {
     setState((prev) => moveProject(prev, projectId, targetFolderId));
   }, []);
@@ -456,6 +487,8 @@ export function useSidebarProjectFolders(projects: Project[]) {
     folders,
     rootProjects,
     createFolder,
+    renameFolder,
+    deleteFolder,
     moveProjectToFolder,
     moveProjectToPosition,
     moveFolderById,

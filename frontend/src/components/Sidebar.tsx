@@ -8,8 +8,10 @@ import {
   FolderOpen,
   FolderPlus,
   Loader2,
+  Pencil,
   Plus,
   Settings,
+  Trash2,
   X,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -240,6 +242,9 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   const [archivingWsId, setArchivingWsId] = useState<string | null>(null);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [deleteFolderTarget, setDeleteFolderTarget] = useState<{ id: string; name: string } | null>(null);
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<SidebarDropTarget | null>(null);
   const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
@@ -265,6 +270,8 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     folders,
     rootProjects,
     createFolder,
+    renameFolder,
+    deleteFolder,
     moveProjectToFolder,
     moveProjectToPosition,
     moveFolderById,
@@ -288,6 +295,33 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     const folderId = createFolder(newFolderName);
     if (!folderId) return;
     resetFolderComposer();
+  };
+
+  const startRenamingFolder = (folderId: string, currentName: string) => {
+    setRenamingFolderId(folderId);
+    setRenameDraft(currentName);
+  };
+
+  const cancelRenamingFolder = () => {
+    setRenamingFolderId(null);
+    setRenameDraft("");
+  };
+
+  const commitRenamingFolder = () => {
+    if (!renamingFolderId) return;
+    const trimmed = renameDraft.trim();
+    if (trimmed.length === 0) {
+      cancelRenamingFolder();
+      return;
+    }
+    renameFolder(renamingFolderId, trimmed);
+    cancelRenamingFolder();
+  };
+
+  const confirmDeleteFolder = () => {
+    if (!deleteFolderTarget) return;
+    deleteFolder(deleteFolderTarget.id);
+    setDeleteFolderTarget(null);
   };
 
   const handleAddWorkspace = async (projectId: string) => {
@@ -753,6 +787,9 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                       ? folderOrderDropTarget.position
                       : null;
 
+                    const isRenaming = renamingFolderId === folder.id;
+                    const isEmptyFolder = folder.projects.length === 0;
+
                     return (
                       <Collapsible
                         key={folder.id}
@@ -789,31 +826,95 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                               )}
                             />
                           )}
-                          <CollapsibleTrigger asChild>
-                            <button
-                              type="button"
-                              draggable
-                              onDragStart={(event) => handleFolderDragStart(event, folder.id)}
-                              onDragEnd={handleFolderDragEnd}
-                              aria-grabbed={isDraggedFolder}
-                              className={cn(
-                                "flex w-full items-center gap-1.5 rounded py-1 pl-0 pr-1.5 text-left transition-colors hover:bg-sidebar-accent/40",
-                                containsActiveProject ? "text-sidebar-foreground" : "text-muted-foreground",
-                                isActiveDropTarget && "bg-primary/10 text-sidebar-foreground ring-1 ring-primary/20",
-                                isDraggedFolder && "cursor-grabbing opacity-45",
-                              )}
+
+                          {isRenaming ? (
+                            <form
+                              className="flex w-full items-center gap-1.5 rounded py-1 pl-0 pr-1.5"
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                commitRenamingFolder();
+                              }}
                             >
-                              <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 transition-transform", expanded && "rotate-90")} />
+                              <ChevronRight className={cn("h-3.5 w-3.5 shrink-0", expanded && "rotate-90")} />
                               {expanded ? (
                                 <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
                               ) : (
                                 <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
                               )}
-                              <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
-                                {folder.name}
-                              </span>
-                            </button>
-                          </CollapsibleTrigger>
+                              <Input
+                                value={renameDraft}
+                                onChange={(event) => setRenameDraft(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Escape") {
+                                    event.preventDefault();
+                                    cancelRenamingFolder();
+                                  }
+                                }}
+                                onFocus={(event) => event.currentTarget.select()}
+                                onBlur={commitRenamingFolder}
+                                autoFocus
+                                aria-label="Rename folder"
+                                className="h-6 min-w-0 flex-1 bg-background/80 px-1.5 py-0 text-[12px] font-medium"
+                              />
+                            </form>
+                          ) : (
+                            <div className="group/folder relative flex w-full items-center">
+                              <CollapsibleTrigger asChild>
+                                <button
+                                  type="button"
+                                  draggable
+                                  onDragStart={(event) => handleFolderDragStart(event, folder.id)}
+                                  onDragEnd={handleFolderDragEnd}
+                                  aria-grabbed={isDraggedFolder}
+                                  className={cn(
+                                    "flex w-full items-center gap-1.5 rounded py-1 pl-0 pr-12 text-left transition-colors hover:bg-sidebar-accent/40",
+                                    containsActiveProject ? "text-sidebar-foreground" : "text-muted-foreground",
+                                    isActiveDropTarget && "bg-primary/10 text-sidebar-foreground ring-1 ring-primary/20",
+                                    isDraggedFolder && "cursor-grabbing opacity-45",
+                                  )}
+                                >
+                                  <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 transition-transform", expanded && "rotate-90")} />
+                                  {expanded ? (
+                                    <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                  ) : (
+                                    <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                  )}
+                                  <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
+                                    {folder.name}
+                                  </span>
+                                </button>
+                              </CollapsibleTrigger>
+
+                              <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/folder:pointer-events-auto group-hover/folder:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    startRenamingFolder(folder.id, folder.name);
+                                  }}
+                                  className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
+                                  aria-label={`Rename folder ${folder.name}`}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                                {isEmptyFolder && (
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
+                                      setDeleteFolderTarget({ id: folder.id, name: folder.name });
+                                    }}
+                                    className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/60"
+                                    aria-label={`Delete folder ${folder.name}`}
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
 
                           <CollapsibleContent>
                             <div className="ml-2 mt-px border-l border-sidebar-border/40 pl-2">
@@ -888,6 +989,24 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
           Add repository
         </button>
       </div>
+
+      <AlertDialog
+        open={deleteFolderTarget !== null}
+        onOpenChange={(open) => !open && setDeleteFolderTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete folder</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove the folder “{deleteFolderTarget?.name}”? Repositories are not affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteFolder}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={archiveTarget !== null}
