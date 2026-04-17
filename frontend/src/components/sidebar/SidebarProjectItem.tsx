@@ -128,8 +128,9 @@ export function SidebarProjectItem({
         />
 
         <CollapsibleContent>
-          <div className="mt-1 space-y-1.5">
-            {(project.workspaces ?? []).map((ws) => {
+          <div className="ml-2 mt-px border-l border-sidebar-border/40 pl-2">
+            <div className="mt-1 space-y-1.5">
+              {(project.workspaces ?? []).map((ws) => {
               const wsLive = liveData[ws.id];
               const wsStreaming = wsLive?.streaming ?? false;
               const wsScriptRunning = wsLive?.scriptRunning ?? false;
@@ -228,6 +229,7 @@ export function SidebarProjectItem({
                 </div>
               );
             })}
+            </div>
           </div>
         </CollapsibleContent>
       </Collapsible>
