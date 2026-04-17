@@ -2,264 +2,48 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import type { Project } from "@/types";
-
-export interface SidebarProjectFolder {
-  id: string;
-  name: string;
-  projectIds: string[];
-}
-
-interface SidebarProjectFoldersState {
-  folders: SidebarProjectFolder[];
-  folderOpenState: Record<string, boolean>;
-}
-
-interface UiPreferencesPayload {
-  sidebar: SidebarProjectFoldersState;
-}
-
-type FolderInsertPosition = "before" | "after";
-type ProjectInsertPosition = "before" | "after";
+import {
+  EMPTY_SIDEBAR_PROJECT_FOLDERS_STATE,
+  areSidebarPreferencesStatesEqual,
+  createSidebarFolderProjectMap,
+  mapSidebarFolderProjects,
+  moveProjectBetweenSidebarFolders,
+  moveProjectWithinSidebarFolders,
+  moveSidebarFolder,
+  payloadToSidebarPreferencesState,
+  readLegacySidebarPreferences,
+  readSidebarPreferencesLocalSeed,
+  removeLegacySidebarPreferences,
+  sanitizeSidebarPreferencesState,
+  writeSidebarPreferencesLocalCache,
+  isEmptySidebarPreferencesState,
+  type FolderInsertPosition,
+  type ProjectInsertPosition,
+  type SidebarProjectFolder,
+  type SidebarProjectFoldersState,
+  type UiPreferencesPayload,
+} from "@/lib/sidebar-preferences";
 
 export interface SidebarProjectFolderView extends SidebarProjectFolder {
   projects: Project[];
 }
 
-const LEGACY_STORAGE_KEY = "hive:sidebar-project-folders:v1";
-const CACHE_STORAGE_KEY = "hive:sidebar-project-folders:cache:v1";
 const FLUSH_DEBOUNCE_MS = 300;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function parseStoredState(raw: string | null): SidebarProjectFoldersState | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (!isRecord(parsed)) return null;
-
-    const foldersRaw = Array.isArray(parsed.folders) ? parsed.folders : [];
-    const folders = foldersRaw.flatMap((folder): SidebarProjectFolder[] => {
-      if (!isRecord(folder)) return [];
-      if (typeof folder.id !== "string" || typeof folder.name !== "string") return [];
-      const projectIds = Array.isArray(folder.projectIds)
-        ? folder.projectIds.filter((id): id is string => typeof id === "string")
-        : [];
-      return [{ id: folder.id, name: folder.name, projectIds }];
-    });
-
-    const openStateRaw = isRecord(parsed.folderOpenState) ? parsed.folderOpenState : {};
-    const folderOpenState = Object.fromEntries(
-      Object.entries(openStateRaw).flatMap(([key, value]) =>
-        typeof value === "boolean" ? [[key, value] as const] : [],
-      ),
-    );
-
-    return { folders, folderOpenState };
-  } catch {
-    return null;
-  }
-}
-
-function readLocalCache(): SidebarProjectFoldersState {
-  if (typeof localStorage === "undefined") return { folders: [], folderOpenState: {} };
-  return (
-    parseStoredState(localStorage.getItem(CACHE_STORAGE_KEY)) ??
-    parseStoredState(localStorage.getItem(LEGACY_STORAGE_KEY)) ??
-    { folders: [], folderOpenState: {} }
-  );
-}
-
-function readLegacyStorage(): SidebarProjectFoldersState | null {
-  if (typeof localStorage === "undefined") return null;
-  return parseStoredState(localStorage.getItem(LEGACY_STORAGE_KEY));
-}
-
-function writeLocalCache(state: SidebarProjectFoldersState): void {
-  if (typeof localStorage === "undefined") return;
-  try {
-    localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // Storage may be full or disabled; ignore.
-  }
-}
-
-function isEmptyState(state: SidebarProjectFoldersState): boolean {
-  return state.folders.length === 0 && Object.keys(state.folderOpenState).length === 0;
-}
-
-function sanitizeState(
-  state: SidebarProjectFoldersState,
-  projectIds: string[],
-): SidebarProjectFoldersState {
-  const knownProjectIds = new Set(projectIds);
-  const usedProjectIds = new Set<string>();
-  const seenFolderIds = new Set<string>();
-
-  const folders = state.folders.flatMap((folder): SidebarProjectFolder[] => {
-    const name = folder.name.trim();
-    if (!folder.id || !name || seenFolderIds.has(folder.id)) return [];
-    seenFolderIds.add(folder.id);
-
-    const seenProjectIds = new Set<string>();
-    const projectIds = folder.projectIds.filter((projectId) => {
-      if (!knownProjectIds.has(projectId)) return false;
-      if (usedProjectIds.has(projectId)) return false;
-      if (seenProjectIds.has(projectId)) return false;
-      usedProjectIds.add(projectId);
-      seenProjectIds.add(projectId);
-      return true;
-    });
-
-    return [{
-      id: folder.id,
-      name,
-      projectIds,
-    }];
-  });
-
-  const folderOpenState = Object.fromEntries(
-    Object.entries(state.folderOpenState).filter(([folderId, value]) =>
-      seenFolderIds.has(folderId) && typeof value === "boolean",
-    ),
-  );
-
-  return { folders, folderOpenState };
-}
-
-function moveProject(
-  state: SidebarProjectFoldersState,
-  projectId: string,
-  targetFolderId: string | null,
-): SidebarProjectFoldersState {
-  const currentFolderId = state.folders.find((folder) => folder.projectIds.includes(projectId))?.id ?? null;
-
-  if (currentFolderId === targetFolderId) return state;
-  if (targetFolderId && !state.folders.some((folder) => folder.id === targetFolderId)) return state;
-
-  const folders = state.folders.map((folder) => ({
-    ...folder,
-    projectIds: folder.projectIds.filter((id) => id !== projectId),
-  }));
-
-  if (!targetFolderId) {
-    return { ...state, folders };
-  }
-
-  return {
-    folders: folders.map((folder) =>
-      folder.id !== targetFolderId
-        ? folder
-        : { ...folder, projectIds: [...folder.projectIds, projectId] },
-    ),
-    folderOpenState: {
-      ...state.folderOpenState,
-      [targetFolderId]: true,
-    },
-  };
-}
-
-function moveProjectToPositionImpl(
-  state: SidebarProjectFoldersState,
-  projectId: string,
-  targetFolderId: string,
-  anchorProjectId: string,
-  position: ProjectInsertPosition,
-): SidebarProjectFoldersState {
-  if (projectId === anchorProjectId) return state;
-
-  const targetFolder = state.folders.find((folder) => folder.id === targetFolderId);
-  if (!targetFolder) return state;
-  if (!targetFolder.projectIds.includes(anchorProjectId)) return state;
-
-  const folders = state.folders.map((folder) => ({
-    ...folder,
-    projectIds: folder.projectIds.filter((id) => id !== projectId),
-  }));
-
-  const nextFolders = folders.map((folder) => {
-    if (folder.id !== targetFolderId) return folder;
-    const anchorIndex = folder.projectIds.findIndex((id) => id === anchorProjectId);
-    if (anchorIndex === -1) return folder;
-    const insertIndex = position === "before" ? anchorIndex : anchorIndex + 1;
-    const projectIds = [...folder.projectIds];
-    projectIds.splice(insertIndex, 0, projectId);
-    return { ...folder, projectIds };
-  });
-
-  return {
-    folders: nextFolders,
-    folderOpenState: {
-      ...state.folderOpenState,
-      [targetFolderId]: true,
-    },
-  };
-}
-
-function moveFolder(
-  state: SidebarProjectFoldersState,
-  folderId: string,
-  targetFolderId: string,
-  position: FolderInsertPosition,
-): SidebarProjectFoldersState {
-  if (folderId === targetFolderId) return state;
-
-  const sourceIndex = state.folders.findIndex((folder) => folder.id === folderId);
-  const targetIndex = state.folders.findIndex((folder) => folder.id === targetFolderId);
-  if (sourceIndex === -1 || targetIndex === -1) return state;
-
-  const folders = [...state.folders];
-  const [movedFolder] = folders.splice(sourceIndex, 1);
-  const currentTargetIndex = folders.findIndex((folder) => folder.id === targetFolderId);
-  if (currentTargetIndex === -1) return state;
-
-  const insertionIndex = position === "before" ? currentTargetIndex : currentTargetIndex + 1;
-  folders.splice(insertionIndex, 0, movedFolder);
-
-  return { ...state, folders };
-}
 
 function createId(): string {
   return self.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
 }
 
-function areStatesEqual(
-  left: SidebarProjectFoldersState,
-  right: SidebarProjectFoldersState,
-): boolean {
-  if (left.folders.length !== right.folders.length) return false;
-
-  for (let i = 0; i < left.folders.length; i += 1) {
-    const leftFolder = left.folders[i];
-    const rightFolder = right.folders[i];
-
-    if (leftFolder.id !== rightFolder.id || leftFolder.name !== rightFolder.name) return false;
-    if (leftFolder.projectIds.length !== rightFolder.projectIds.length) return false;
-    for (let j = 0; j < leftFolder.projectIds.length; j += 1) {
-      if (leftFolder.projectIds[j] !== rightFolder.projectIds[j]) return false;
-    }
-  }
-
-  const leftEntries = Object.entries(left.folderOpenState);
-  const rightEntries = Object.entries(right.folderOpenState);
-  if (leftEntries.length !== rightEntries.length) return false;
-
-  for (const [folderId, expanded] of leftEntries) {
-    if (right.folderOpenState[folderId] !== expanded) return false;
-  }
-
-  return true;
-}
-
-export function useSidebarProjectFolders(projects: Project[]) {
+export function useSidebarProjectFolders(projects: Project[], projectsReady = true) {
   const projectIds = useMemo(
     () => projects.map((project) => project.id),
     [projects],
   );
 
-  const [state, setState] = useState<SidebarProjectFoldersState>(() =>
-    sanitizeState(readLocalCache(), projectIds),
+  const initialLocalSeedRef = useRef(readSidebarPreferencesLocalSeed());
+  const bootstrappedRef = useRef(false);
+  const [state, setState] = useState<SidebarProjectFoldersState>(
+    EMPTY_SIDEBAR_PROJECT_FOLDERS_STATE,
   );
 
   const projectIdsKey = useMemo(
@@ -268,7 +52,7 @@ export function useSidebarProjectFolders(projects: Project[]) {
   );
 
   // Remote fetch (single source of truth after first hydration).
-  const query = useQuery({
+  const { data: preferencesData, refetch: refetchPreferences } = useQuery({
     queryKey: ["ui-preferences"],
     queryFn: () => api.get<UiPreferencesPayload>("/api/ui-preferences"),
     staleTime: 60_000,
@@ -280,71 +64,126 @@ export function useSidebarProjectFolders(projects: Project[]) {
   const hydratedRef = useRef(false);
   const lastFlushedRef = useRef<SidebarProjectFoldersState | null>(null);
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestStartedSaveRef = useRef(0);
+  const latestSuccessfulSaveRef = useRef(0);
+  const pendingLegacyRemovalRef = useRef(false);
+
+  useEffect(() => {
+    if (!projectsReady) return;
+    if (bootstrappedRef.current || hydratedRef.current) return;
+
+    bootstrappedRef.current = true;
+    const next = sanitizeSidebarPreferencesState(initialLocalSeedRef.current.state, projectIds);
+    setState((prev) => (areSidebarPreferencesStatesEqual(prev, next) ? prev : next));
+  }, [projectIds, projectIdsKey, projectsReady]);
 
   // Hydrate from server when data arrives.
   useEffect(() => {
-    if (!query.data) return;
-    const serverState: SidebarProjectFoldersState = {
-      folders: query.data.sidebar.folders,
-      folderOpenState: query.data.sidebar.folderOpenState,
-    };
+    if (!projectsReady || !preferencesData) return;
+    const serverState = sanitizeSidebarPreferencesState(
+      payloadToSidebarPreferencesState(preferencesData),
+      projectIds,
+    );
 
     // One-shot migration: empty server + legacy localStorage -> push legacy up.
-    if (!hydratedRef.current && isEmptyState(serverState)) {
-      const legacy = readLegacyStorage();
-      if (legacy && !isEmptyState(legacy)) {
-        const sanitized = sanitizeState(legacy, projectIds);
-        hydratedRef.current = true;
-        lastFlushedRef.current = serverState;
-        setState(sanitized);
-        try {
-          localStorage.removeItem(LEGACY_STORAGE_KEY);
-        } catch {
-          // ignore
+    if (!hydratedRef.current && isEmptySidebarPreferencesState(serverState)) {
+      const legacy = readLegacySidebarPreferences();
+      if (legacy && !isEmptySidebarPreferencesState(legacy)) {
+        const sanitized = sanitizeSidebarPreferencesState(legacy, projectIds);
+        if (!isEmptySidebarPreferencesState(sanitized)) {
+          hydratedRef.current = true;
+          lastFlushedRef.current = serverState;
+          bootstrappedRef.current = true;
+          pendingLegacyRemovalRef.current = true;
+          setState(sanitized);
+          return;
         }
-        return;
       }
     }
 
     hydratedRef.current = true;
     lastFlushedRef.current = serverState;
+    bootstrappedRef.current = true;
     setState((prev) => {
-      const next = sanitizeState(serverState, projectIds);
-      return areStatesEqual(prev, next) ? prev : next;
+      return areSidebarPreferencesStatesEqual(prev, serverState) ? prev : serverState;
     });
-  }, [query.data, projectIds, projectIdsKey]);
+  }, [preferencesData, projectIds, projectIdsKey, projectsReady]);
 
   // Re-sanitize when the list of projects changes (e.g. project deleted).
   useEffect(() => {
+    if (!projectsReady || !bootstrappedRef.current) return;
     setState((prev) => {
-      const next = sanitizeState(prev, projectIds);
-      return areStatesEqual(prev, next) ? prev : next;
+      const next = sanitizeSidebarPreferencesState(prev, projectIds);
+      return areSidebarPreferencesStatesEqual(prev, next) ? prev : next;
     });
-  }, [projectIds, projectIdsKey]);
+  }, [projectIds, projectIdsKey, projectsReady]);
 
   // Persist local cache immediately + schedule a debounced PUT to the backend.
   useEffect(() => {
-    writeLocalCache(state);
+    const canWriteLocalCache =
+      bootstrappedRef.current
+      && (hydratedRef.current || initialLocalSeedRef.current.source !== "legacy");
+
+    if (canWriteLocalCache) {
+      writeSidebarPreferencesLocalCache(state);
+    }
 
     if (!hydratedRef.current) return;
-    if (lastFlushedRef.current && areStatesEqual(lastFlushedRef.current, state)) return;
+    if (
+      lastFlushedRef.current
+      && areSidebarPreferencesStatesEqual(lastFlushedRef.current, state)
+    ) {
+      return;
+    }
 
     if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
     flushTimerRef.current = setTimeout(() => {
       const snapshot = state;
+      const requestId = latestStartedSaveRef.current + 1;
+      latestStartedSaveRef.current = requestId;
+
       api
         .put<UiPreferencesPayload>("/api/ui-preferences", { sidebar: snapshot })
         .then((payload) => {
-          const applied: SidebarProjectFoldersState = {
-            folders: payload.sidebar.folders,
-            folderOpenState: payload.sidebar.folderOpenState,
-          };
-          lastFlushedRef.current = applied;
+          const applied = sanitizeSidebarPreferencesState(
+            payloadToSidebarPreferencesState(payload),
+            projectIds,
+          );
+          if (requestId > latestSuccessfulSaveRef.current) {
+            latestSuccessfulSaveRef.current = requestId;
+            lastFlushedRef.current = applied;
+          }
+
+          if (pendingLegacyRemovalRef.current) {
+            removeLegacySidebarPreferences();
+            pendingLegacyRemovalRef.current = false;
+          }
         })
-        .catch(() => {
-          // Revert to last-known server state on failure.
+        .catch(async () => {
+          if (requestId !== latestStartedSaveRef.current) return;
+
+          try {
+            const result = await refetchPreferences();
+            if (result.data) {
+              const canonical = sanitizeSidebarPreferencesState(
+                payloadToSidebarPreferencesState(result.data),
+                projectIds,
+              );
+              lastFlushedRef.current = canonical;
+              setState((prev) => (
+                areSidebarPreferencesStatesEqual(prev, canonical) ? prev : canonical
+              ));
+              return;
+            }
+          } catch {
+            // Fall back to the last known server state below.
+          }
+
           if (lastFlushedRef.current) {
-            setState(lastFlushedRef.current);
+            const fallback = lastFlushedRef.current;
+            setState((prev) => (
+              areSidebarPreferencesStatesEqual(prev, fallback) ? prev : fallback
+            ));
           }
         });
     }, FLUSH_DEBOUNCE_MS);
@@ -355,33 +194,17 @@ export function useSidebarProjectFolders(projects: Project[]) {
         flushTimerRef.current = null;
       }
     };
-  }, [state]);
-
-  const projectMap = useMemo(
-    () => new Map(projects.map((project) => [project.id, project])),
-    [projects],
-  );
+  }, [projectIds, projectIdsKey, refetchPreferences, state]);
 
   const folders = useMemo<SidebarProjectFolderView[]>(
-    () =>
-      state.folders.map((folder) => ({
-        ...folder,
-        projects: folder.projectIds
-          .map((projectId) => projectMap.get(projectId))
-          .filter((project): project is Project => project !== undefined),
-      })),
-    [projectMap, state.folders],
+    () => mapSidebarFolderProjects(state.folders, projects),
+    [projects, state.folders],
   );
 
-  const projectFolderMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const folder of state.folders) {
-      for (const projectId of folder.projectIds) {
-        map.set(projectId, folder.id);
-      }
-    }
-    return map;
-  }, [state.folders]);
+  const projectFolderMap = useMemo(
+    () => createSidebarFolderProjectMap(state.folders),
+    [state.folders],
+  );
 
   const rootProjects = useMemo(
     () => projects.filter((project) => !projectFolderMap.has(project.id)),
@@ -439,7 +262,7 @@ export function useSidebarProjectFolders(projects: Project[]) {
   }, []);
 
   const moveProjectToFolder = useCallback((projectId: string, targetFolderId: string | null) => {
-    setState((prev) => moveProject(prev, projectId, targetFolderId));
+    setState((prev) => moveProjectBetweenSidebarFolders(prev, projectId, targetFolderId));
   }, []);
 
   const moveProjectToPosition = useCallback((
@@ -448,7 +271,9 @@ export function useSidebarProjectFolders(projects: Project[]) {
     anchorProjectId: string,
     position: ProjectInsertPosition,
   ) => {
-    setState((prev) => moveProjectToPositionImpl(prev, projectId, targetFolderId, anchorProjectId, position));
+    setState((prev) =>
+      moveProjectWithinSidebarFolders(prev, projectId, targetFolderId, anchorProjectId, position)
+    );
   }, []);
 
   const moveFolderById = useCallback((
@@ -456,7 +281,7 @@ export function useSidebarProjectFolders(projects: Project[]) {
     targetFolderId: string,
     position: FolderInsertPosition,
   ) => {
-    setState((prev) => moveFolder(prev, folderId, targetFolderId, position));
+    setState((prev) => moveSidebarFolder(prev, folderId, targetFolderId, position));
   }, []);
 
   const setFolderExpanded = useCallback((folderId: string, expanded: boolean) => {

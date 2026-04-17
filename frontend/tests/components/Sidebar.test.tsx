@@ -394,6 +394,123 @@ describe("Sidebar", () => {
     expect(localStorage.getItem("hive:sidebar-project-folders:v1")).toBeNull();
   });
 
+  it("waits for projects before migrating legacy folders and does not shadow legacy storage early", async () => {
+    localStorage.setItem(
+      "hive:sidebar-project-folders:v1",
+      JSON.stringify({
+        folders: [{ id: "legacy", name: "Migrated", projectIds: ["p1"] }],
+        folderOpenState: { legacy: true },
+      }),
+    );
+
+    let resolveProjects!: (value: Project[]) => void;
+    const pendingProjects = new Promise<Project[]>((resolve) => {
+      resolveProjects = resolve;
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/projects") return pendingProjects;
+      if (url === "/api/automations") return [];
+      if (url === "/api/ui-preferences") {
+        return { sidebar: { folders: [], folderOpenState: {} } };
+      }
+      return { committed: [], uncommitted: [] };
+    });
+
+    vi.mocked(api.put).mockImplementation(async (_url: string, body?: unknown) => body);
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceLiveDataProvider workspaceIds={["w1"]}>
+          <MemoryRouter initialEntries={["/projects"]}>
+            <Routes>
+              <Route path="/projects" element={<SidebarRoute />} />
+            </Routes>
+          </MemoryRouter>
+        </WorkspaceLiveDataProvider>
+      </QueryClientProvider>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(localStorage.getItem("hive:sidebar-project-folders:v1")).not.toBeNull();
+    expect(localStorage.getItem("hive:sidebar-project-folders:cache:v1")).toBeNull();
+    expect(api.put).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveProjects(projects);
+    });
+
+    expect(await screen.findByRole("button", { name: "Migrated" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith(
+        "/api/ui-preferences",
+        expect.objectContaining({
+          sidebar: expect.objectContaining({
+            folders: expect.arrayContaining([
+              expect.objectContaining({ name: "Migrated", projectIds: ["p1"] }),
+            ]),
+          }),
+        }),
+      );
+    });
+    expect(localStorage.getItem("hive:sidebar-project-folders:v1")).toBeNull();
+  });
+
+  it("keeps legacy storage when the migration save fails", async () => {
+    localStorage.setItem(
+      "hive:sidebar-project-folders:v1",
+      JSON.stringify({
+        folders: [{ id: "legacy", name: "Migrated", projectIds: ["p1"] }],
+        folderOpenState: { legacy: true },
+      }),
+    );
+
+    let uiPreferencesReads = 0;
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/projects") return projects;
+      if (url === "/api/automations") return [];
+      if (url === "/api/ui-preferences") {
+        uiPreferencesReads += 1;
+        return { sidebar: { folders: [], folderOpenState: {} } };
+      }
+      return { committed: [], uncommitted: [] };
+    });
+
+    vi.mocked(api.put).mockRejectedValue(new Error("save failed"));
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceLiveDataProvider workspaceIds={["w1"]}>
+          <MemoryRouter initialEntries={["/projects"]}>
+            <Routes>
+              <Route path="/projects" element={<SidebarRoute />} />
+            </Routes>
+          </MemoryRouter>
+        </WorkspaceLiveDataProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(uiPreferencesReads).toBeGreaterThanOrEqual(2);
+    });
+
+    expect(localStorage.getItem("hive:sidebar-project-folders:v1")).not.toBeNull();
+  });
+
   it("moves a project into a folder via drag and drop", async () => {
     const user = userEvent.setup();
     renderSidebar("/projects", projects);
