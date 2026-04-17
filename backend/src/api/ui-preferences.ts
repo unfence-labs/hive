@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { parseUiPreferencesPayload } from "../../../shared/sidebar-preferences.js";
+import { parseUiPreferencesPayload } from "@hive/shared/sidebar-preferences";
 import {
   loadUiPreferences,
   saveUiPreferences,

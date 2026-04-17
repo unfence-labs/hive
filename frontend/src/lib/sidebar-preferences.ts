@@ -6,7 +6,7 @@ import {
   type SidebarProjectFolder,
   type SidebarProjectFoldersState,
   type UiPreferencesPayload,
-} from "../../../shared/sidebar-preferences";
+} from "@hive/shared/sidebar-preferences";
 
 export {
   EMPTY_SIDEBAR_PROJECT_FOLDERS_STATE,

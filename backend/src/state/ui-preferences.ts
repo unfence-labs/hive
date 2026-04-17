@@ -8,7 +8,7 @@ import {
   type SidebarProjectFolder,
   type SidebarProjectFoldersState,
   type UiPreferencesPayload,
-} from "../../../shared/sidebar-preferences.js";
+} from "@hive/shared/sidebar-preferences";
 import { getDataDir } from "./state.js";
 
 export type SidebarFolder = SidebarProjectFolder;
