@@ -36,7 +36,7 @@ export function SidebarGroupHeader({
         <button
           type="button"
           className={cn(
-            "flex w-full min-w-0 items-center overflow-hidden text-left transition-colors",
+            "flex w-full min-w-0 items-center text-left transition-colors",
             isPlain
               ? "gap-1.5 px-0 py-0.5"
               : "gap-2 rounded px-2 py-1 hover:bg-sidebar-accent/40",

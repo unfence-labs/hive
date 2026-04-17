@@ -6,6 +6,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { SidebarGroupHeader } from "@/components/sidebar/SidebarHeaders";
+import { SidebarActivityDot } from "@/components/sidebar/SidebarActivityDot";
 import { BranchLabel } from "@/components/BranchLabel";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { ActivityWave } from "@/components/ui/activity-wave";
@@ -13,6 +14,7 @@ import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { computePrDisplayCompact } from "@/lib/pr-display";
 import { cn } from "@/lib/utils";
 import type { WorkspaceLiveData } from "@/hooks/useWorkspaceLiveData";
+import { aggregateWorkspaceActivity } from "@/lib/workspace-activity";
 import type { PrStatusResponse, Project } from "@/types";
 import { ArchiveIcon, Loader2 } from "lucide-react";
 
@@ -83,17 +85,23 @@ export function SidebarProjectItem({
     && draggingProjectId !== null
     && draggingProjectId !== project.id;
 
+  const workspaceIds = (project.workspaces ?? []).map((ws) => ws.id);
+  const projectActivity = aggregateWorkspaceActivity(workspaceIds, liveData);
+
   return (
     <div key={project.id} className={cn("relative", className)} data-sidebar-project={project.id}>
       <Collapsible open={isExpanded} onOpenChange={setExpanded}>
         <SidebarGroupHeader
           icon={
-            <ProjectAvatar
-              name={project.name}
-              projectId={project.id}
-              hasFavicon={project.hasFavicon}
-              className="h-[18px] w-[18px]"
-            />
+            <span className="relative inline-flex shrink-0">
+              <ProjectAvatar
+                name={project.name}
+                projectId={project.id}
+                hasFavicon={project.hasFavicon}
+                className="h-[18px] w-[18px]"
+              />
+              <SidebarActivityDot state={projectActivity} dimmed={isExpanded} />
+            </span>
           }
           label={displayLabel}
           count={(project.workspaces ?? []).length}

@@ -334,6 +334,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Icons are compiled into the Rust binary; after changing icons run `cargo clean` in `src-tauri/` then rebuild.
 - Vite config (`frontend/vite.config.ts`) includes Tauri-specific settings (fixed port, HMR, build targets).
 - Sidebar collapse: CSS var `--traffic-light-clearance` (76px) provides clearance for macOS traffic lights. Tauri fullscreen detection resets to 0.
+- **HTML5 drag & drop inside the webview**: `dragDropEnabled` is set to `false` on the window in `tauri.conf.json`. When left at its default (`true`), Tauri's OS-level file-drop handler intercepts drag events before they reach the DOM — `dragstart` still fires but `dragover`/`drop` never do, which breaks in-app DnD (e.g. sidebar project folders reordering). The tradeoff: dropping files from Finder/Explorer onto the Hive window is disabled. If we later need OS file-drop for a feature, options are: (a) re-enable `dragDropEnabled` and migrate in-app DnD to pointer-event-based libs like `@dnd-kit/core` which aren't affected by the OS handler, or (b) keep it disabled and use a Tauri dialog / OS picker for file selection instead.
 
 ## Known Gaps (Current)
 

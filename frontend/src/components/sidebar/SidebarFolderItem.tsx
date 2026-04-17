@@ -2,6 +2,8 @@ import { ChevronRight, Folder, FolderOpen, Pencil, Trash2 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { SidebarActivityDot } from "@/components/sidebar/SidebarActivityDot";
+import type { ActivityState } from "@/lib/workspace-activity";
 import type { SidebarProjectFolderView } from "@/hooks/useSidebarProjectFolders";
 import type { Project } from "@/types";
 
@@ -16,6 +18,7 @@ interface SidebarFolderItemProps {
   isEmptyFolder: boolean;
   draggingFolderId: string | null;
   folderInsertIndicator: "before" | "after" | null;
+  activityState: ActivityState;
   renameDraft: string;
   onOpenChange: (open: boolean) => void;
   onFolderDragOver: (event: React.DragEvent<HTMLDivElement>, folderId: string) => void;
@@ -51,6 +54,7 @@ export function SidebarFolderItem({
   isEmptyFolder,
   draggingFolderId,
   folderInsertIndicator,
+  activityState,
   renameDraft,
   onOpenChange,
   onFolderDragOver,
@@ -112,11 +116,14 @@ export function SidebarFolderItem({
             }}
           >
             <ChevronRight className={cn("h-3.5 w-3.5 shrink-0", expanded && "rotate-90")} />
-            {expanded ? (
-              <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
-            ) : (
-              <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-            )}
+            <span className="relative inline-flex shrink-0">
+              {expanded ? (
+                <FolderOpen className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <Folder className="h-4 w-4 text-muted-foreground" />
+              )}
+              <SidebarActivityDot state={activityState} dimmed={expanded} />
+            </span>
             <Input
               value={renameDraft}
               onChange={(event) => onRenameDraftChange(event.target.value)}
@@ -150,11 +157,14 @@ export function SidebarFolderItem({
                 )}
               >
                 <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 transition-transform", expanded && "rotate-90")} />
-                {expanded ? (
-                  <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
-                ) : (
-                  <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
-                )}
+                <span className="relative inline-flex shrink-0">
+                  {expanded ? (
+                    <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Folder className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <SidebarActivityDot state={activityState} dimmed={expanded} />
+                </span>
                 <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
                   {folder.name}
                 </span>
