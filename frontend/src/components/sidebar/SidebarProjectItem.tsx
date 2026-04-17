@@ -21,6 +21,7 @@ type ProjectInsertIndicator = "before" | "after" | null;
 interface SidebarProjectItemProps {
   project: Project;
   folderId: string | null;
+  canReorder: boolean;
   className?: string;
   displayLabel: React.ReactNode;
   displayLabelPlain: string;
@@ -54,6 +55,7 @@ interface SidebarProjectItemProps {
 export function SidebarProjectItem({
   project,
   folderId,
+  canReorder,
   className,
   displayLabel,
   displayLabelPlain,
@@ -76,7 +78,8 @@ export function SidebarProjectItem({
 }: SidebarProjectItemProps) {
   const isDragged = draggingProjectId === project.id;
   const showReorderZones =
-    folderId !== null
+    canReorder
+    && folderId !== null
     && draggingProjectId !== null
     && draggingProjectId !== project.id;
 
@@ -103,9 +106,9 @@ export function SidebarProjectItem({
             isDragged && "cursor-grabbing opacity-45",
           )}
           buttonProps={{
-            draggable: true,
-            onDragStart: (event) => onProjectDragStart(event, project.id),
-            onDragEnd: onProjectDragEnd,
+            draggable: canReorder,
+            onDragStart: canReorder ? (event) => onProjectDragStart(event, project.id) : undefined,
+            onDragEnd: canReorder ? onProjectDragEnd : undefined,
             "aria-grabbed": isDragged,
           }}
         />

@@ -1,17 +1,25 @@
 import type { Automation } from "@/types";
 
+function parseRepoPath(path: string): { owner: string; repo: string } | null {
+  const segments = path.split("/").filter(Boolean);
+  if (segments.length < 2) return null;
+
+  const owner = segments[segments.length - 2];
+  const repo = segments[segments.length - 1]?.replace(/\.git$/, "");
+  if (!owner || !repo) return null;
+
+  return { owner, repo };
+}
+
 export function parseProjectOwnerRepo(
   url: string,
 ): { owner: string; repo: string } | null {
-  const scpMatch = url.match(/^[^@]+@[^:]+:([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (scpMatch) return { owner: scpMatch[1], repo: scpMatch[2] };
+  const scpMatch = url.match(/^[^@]+@[^:]+:(.+)$/);
+  if (scpMatch) return parseRepoPath(scpMatch[1]);
 
   try {
     const parsed = new URL(url);
-    const segments = parsed.pathname.split("/").filter(Boolean);
-    if (segments.length >= 2) {
-      return { owner: segments[0], repo: segments[1].replace(/\.git$/, "") };
-    }
+    return parseRepoPath(parsed.pathname);
   } catch {
     // not a valid URL
   }

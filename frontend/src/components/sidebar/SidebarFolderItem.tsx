@@ -8,6 +8,7 @@ import type { Project } from "@/types";
 interface SidebarFolderItemProps {
   folder: SidebarProjectFolderView;
   expanded: boolean;
+  canInteract: boolean;
   isActiveDropTarget: boolean;
   containsActiveProject: boolean;
   isDraggedFolder: boolean;
@@ -42,6 +43,7 @@ interface SidebarFolderItemProps {
 export function SidebarFolderItem({
   folder,
   expanded,
+  canInteract,
   isActiveDropTarget,
   containsActiveProject,
   isDraggedFolder,
@@ -72,11 +74,11 @@ export function SidebarFolderItem({
     >
       <div
         data-sidebar-folder={folder.id}
-        onDragOver={(event) => onFolderDragOver(event, folder.id)}
-        onDrop={(event) => onFolderDrop(event, folder.id)}
+        onDragOver={canInteract ? (event) => onFolderDragOver(event, folder.id) : undefined}
+        onDrop={canInteract ? (event) => onFolderDrop(event, folder.id) : undefined}
         className="relative rounded-lg"
       >
-        {draggingFolderId !== null && draggingFolderId !== folder.id && (
+        {canInteract && draggingFolderId !== null && draggingFolderId !== folder.id && (
           <>
             <div
               data-folder-reorder="before"
@@ -136,9 +138,9 @@ export function SidebarFolderItem({
             <CollapsibleTrigger asChild>
               <button
                 type="button"
-                draggable
-                onDragStart={(event) => onFolderDragStart(event, folder.id)}
-                onDragEnd={onFolderDragEnd}
+                draggable={canInteract}
+                onDragStart={canInteract ? (event) => onFolderDragStart(event, folder.id) : undefined}
+                onDragEnd={canInteract ? onFolderDragEnd : undefined}
                 aria-grabbed={isDraggedFolder}
                 className={cn(
                   "flex w-full items-center gap-1.5 rounded py-1 pl-0 pr-12 text-left transition-colors hover:bg-sidebar-accent/40",
@@ -159,7 +161,8 @@ export function SidebarFolderItem({
               </button>
             </CollapsibleTrigger>
 
-            <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/folder:pointer-events-auto group-hover/folder:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
+            {canInteract && (
+              <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/folder:pointer-events-auto group-hover/folder:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
               <button
                 type="button"
                 onClick={(event) => {
@@ -186,7 +189,8 @@ export function SidebarFolderItem({
                   <Trash2 className="h-3 w-3" />
                 </button>
               )}
-            </div>
+              </div>
+            )}
           </div>
         )}
 

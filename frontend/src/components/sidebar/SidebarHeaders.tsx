@@ -91,6 +91,7 @@ interface SidebarSectionHeaderProps {
   isLoading?: boolean;
   onAdd?: () => void;
   addLabel?: string;
+  addDisabled?: boolean;
   className?: string;
   addIcon?: React.ReactNode;
   addButtonClassName?: string;
@@ -101,6 +102,7 @@ export function SidebarSectionHeader({
   isLoading = false,
   onAdd,
   addLabel,
+  addDisabled = false,
   className,
   addIcon,
   addButtonClassName,
@@ -117,10 +119,11 @@ export function SidebarSectionHeader({
           <button
             type="button"
             className={cn(
-              "flex items-center justify-center text-muted-foreground/70 transition-colors hover:text-sidebar-foreground",
+              "flex items-center justify-center text-muted-foreground/70 transition-colors hover:text-sidebar-foreground disabled:pointer-events-none disabled:opacity-40",
               addButtonClassName,
             )}
             onClick={onAdd}
+            disabled={addDisabled}
             aria-label={addLabel}
             title={addLabel}
           >

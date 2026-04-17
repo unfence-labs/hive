@@ -99,6 +99,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   const {
     folders,
     rootProjects,
+    hasInitialHydration,
     createFolder,
     renameFolder,
     deleteFolder,
@@ -122,12 +123,14 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   };
 
   const handleCreateFolder = () => {
+    if (!hasInitialHydration) return;
     const folderId = createFolder(newFolderName);
     if (!folderId) return;
     resetFolderComposer();
   };
 
   const startRenamingFolder = (folderId: string, currentName: string) => {
+    if (!hasInitialHydration) return;
     setRenamingFolderId(folderId);
     setRenameDraft(currentName);
   };
@@ -146,12 +149,6 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     }
     renameFolder(renamingFolderId, trimmed);
     cancelRenamingFolder();
-  };
-
-  const confirmDeleteFolder = () => {
-    if (!deleteFolderTarget) return;
-    deleteFolder(deleteFolderTarget.id);
-    setDeleteFolderTarget(null);
   };
 
   const handleAddWorkspace = async (projectId: string) => {
@@ -201,6 +198,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     event: React.DragEvent<HTMLButtonElement>,
     projectId: string,
   ) => {
+    if (!hasInitialHydration) return;
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("application/x-hive-project-id", projectId);
     event.dataTransfer.setData("text/plain", projectId);
@@ -225,6 +223,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     anchorProjectId: string,
     position: "before" | "after",
   ) => {
+    if (!hasInitialHydration) return;
     const sourceProjectId = getDraggedProjectId(event);
     if (!sourceProjectId || sourceProjectId === anchorProjectId) return;
     event.preventDefault();
@@ -246,6 +245,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     anchorFolderId: string,
     position: "before" | "after",
   ) => {
+    if (!hasInitialHydration) return;
     const sourceProjectId = getDraggedProjectId(event);
     if (!sourceProjectId || sourceProjectId === anchorProjectId) return;
     event.preventDefault();
@@ -260,6 +260,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     event: React.DragEvent<HTMLDivElement>,
     folderId: string,
   ) => {
+    if (!hasInitialHydration) return;
     if (!draggingProjectId) return;
     event.preventDefault();
     event.stopPropagation();
@@ -280,6 +281,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     event: React.DragEvent<HTMLDivElement>,
     folderId: string,
   ) => {
+    if (!hasInitialHydration) return;
     if (!draggingProjectId) return;
     event.preventDefault();
     event.stopPropagation();
@@ -292,6 +294,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     event: React.DragEvent<HTMLButtonElement>,
     folderId: string,
   ) => {
+    if (!hasInitialHydration) return;
     setDraggingFolderId(folderId);
     setFolderOrderDropTarget(null);
     event.dataTransfer.effectAllowed = "move";
@@ -314,6 +317,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     folderId: string,
     position: "before" | "after",
   ) => {
+    if (!hasInitialHydration) return;
     const sourceFolderId = getDraggedFolderId(event);
     if (!sourceFolderId || sourceFolderId === folderId) return;
     event.preventDefault();
@@ -333,6 +337,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     folderId: string,
     position: "before" | "after",
   ) => {
+    if (!hasInitialHydration) return;
     const sourceFolderId = getDraggedFolderId(event);
     if (!sourceFolderId || sourceFolderId === folderId) return;
     event.preventDefault();
@@ -374,6 +379,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
         prLoading={prLoading}
         creatingProjectId={creatingProjectId}
         archivingWsId={archivingWsId}
+        canReorder={hasInitialHydration}
         draggingProjectId={draggingProjectId}
         projectInsertIndicator={projectInsertIndicator}
         onAddWorkspace={(projectId) => { void handleAddWorkspace(projectId); }}
@@ -399,6 +405,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
       </Link>
     </div>
   );
+  const deleteFolderTargetId = deleteFolderTarget?.id ?? null;
 
   return (
     <SidebarShell footerActions={footerActions}>
@@ -416,10 +423,12 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                 label="Workspaces"
                 className="mb-1"
                 onAdd={() => {
+                  if (!hasInitialHydration) return;
                   setIsCreatingFolder(true);
                   setNewFolderName("");
                 }}
                 addLabel="New folder"
+                addDisabled={!hasInitialHydration}
                 addIcon={<FolderPlus className="h-4 w-4" />}
                 addButtonClassName="rounded p-0.5 hover:bg-sidebar-accent/50"
               />
@@ -452,6 +461,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                         key={folder.id}
                         folder={folder}
                         expanded={expanded}
+                        canInteract={hasInitialHydration}
                         isActiveDropTarget={isActiveDropTarget}
                         containsActiveProject={containsActiveProject}
                         isDraggedFolder={isDraggedFolder}
@@ -543,7 +553,15 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDeleteFolder}>Delete</AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => {
+                if (!hasInitialHydration || !deleteFolderTargetId) return;
+                deleteFolder(deleteFolderTargetId);
+                setDeleteFolderTarget(null);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

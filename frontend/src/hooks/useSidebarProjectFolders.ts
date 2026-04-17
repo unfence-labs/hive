@@ -43,6 +43,7 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
 
   const initialLocalSeedRef = useRef(readSidebarPreferencesLocalSeed());
   const bootstrappedRef = useRef(false);
+  const [hasInitialHydration, setHasInitialHydration] = useState(false);
   const [state, setState] = useState<SidebarProjectFoldersState>(
     EMPTY_SIDEBAR_PROJECT_FOLDERS_STATE,
   );
@@ -53,9 +54,15 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
   );
 
   // Remote fetch (single source of truth after first hydration).
-  const { data: preferencesData, refetch: refetchPreferences } = useQuery({
+  const {
+    data: preferencesData,
+    error: preferencesError,
+    isFetched: preferencesFetched,
+    refetch: refetchPreferences,
+  } = useQuery({
     queryKey: ["ui-preferences"],
     queryFn: () => api.get<UiPreferencesPayload>("/api/ui-preferences"),
+    retry: false,
     staleTime: 60_000,
   });
 
@@ -93,6 +100,7 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
         const sanitized = sanitizeSidebarPreferencesState(legacy, projectIds);
         if (!isEmptySidebarPreferencesState(sanitized)) {
           hydratedRef.current = true;
+          setHasInitialHydration(true);
           lastFlushedRef.current = serverState;
           bootstrappedRef.current = true;
           pendingLegacyRemovalRef.current = true;
@@ -103,12 +111,23 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
     }
 
     hydratedRef.current = true;
+    setHasInitialHydration(true);
     lastFlushedRef.current = serverState;
     bootstrappedRef.current = true;
     setState((prev) => {
       return areSidebarPreferencesStatesEqual(prev, serverState) ? prev : serverState;
     });
   }, [preferencesData, projectIds, projectIdsKey, projectsReady]);
+
+  useEffect(() => {
+    if (!projectsReady) return;
+    if (hydratedRef.current) return;
+    if (!preferencesFetched || !preferencesError) return;
+
+    hydratedRef.current = true;
+    setHasInitialHydration(true);
+    bootstrappedRef.current = true;
+  }, [preferencesError, preferencesFetched, projectsReady]);
 
   // Re-sanitize when the list of projects changes (e.g. project deleted).
   useEffect(() => {
@@ -218,6 +237,7 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
   );
 
   const createFolder = useCallback((name: string) => {
+    if (!hydratedRef.current) return null;
     const trimmedName = name.trim();
     if (!trimmedName) return null;
 
@@ -237,6 +257,7 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
   }, []);
 
   const renameFolder = useCallback((folderId: string, nextName: string) => {
+    if (!hydratedRef.current) return false;
     const trimmed = nextName.trim();
     if (!trimmed) return false;
     setState((prev) => {
@@ -253,6 +274,7 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
   }, []);
 
   const deleteFolder = useCallback((folderId: string) => {
+    if (!hydratedRef.current) return false;
     let deleted = false;
     setState((prev) => {
       const target = prev.folders.find((folder) => folder.id === folderId);
@@ -268,6 +290,7 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
   }, []);
 
   const moveProjectToFolder = useCallback((projectId: string, targetFolderId: string | null) => {
+    if (!hydratedRef.current) return;
     setState((prev) => moveProjectBetweenSidebarFolders(prev, projectId, targetFolderId));
   }, []);
 
@@ -277,6 +300,7 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
     anchorProjectId: string,
     position: ProjectInsertPosition,
   ) => {
+    if (!hydratedRef.current) return;
     setState((prev) =>
       moveProjectWithinSidebarFolders(prev, projectId, targetFolderId, anchorProjectId, position)
     );
@@ -287,10 +311,12 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
     targetFolderId: string,
     position: FolderInsertPosition,
   ) => {
+    if (!hydratedRef.current) return;
     setState((prev) => moveSidebarFolder(prev, folderId, targetFolderId, position));
   }, []);
 
   const setFolderExpanded = useCallback((folderId: string, expanded: boolean) => {
+    if (!hydratedRef.current) return;
     setState((prev) => {
       if (!prev.folders.some((folder) => folder.id === folderId)) return prev;
       if ((prev.folderOpenState[folderId] ?? true) === expanded) return prev;
@@ -317,6 +343,7 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
   return {
     folders,
     rootProjects,
+    hasInitialHydration,
     createFolder,
     renameFolder,
     deleteFolder,

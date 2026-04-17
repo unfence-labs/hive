@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Sidebar from "@/components/Sidebar";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { api } from "@/hooks/useApi";
+import type { UiPreferencesPayload } from "@/lib/sidebar-preferences";
 import type { Project, PullRequestInfo, WsOutgoing } from "@/types";
 
 /** Match elements whose full textContent equals `text` (handles text split across child spans). */
@@ -402,6 +403,84 @@ describe("Sidebar", () => {
     });
 
     expect(screen.getByRole("button", { name: "Client work" })).toBeInTheDocument();
+  });
+
+  it("disables folder creation until the first ui-preferences hydration completes", async () => {
+    let resolvePreferences!: (value: UiPreferencesPayload) => void;
+    const pendingPreferences = new Promise<UiPreferencesPayload>((resolve) => {
+      resolvePreferences = resolve;
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/projects") return projects;
+      if (url === "/api/automations") return [];
+      if (url === "/api/ui-preferences") return pendingPreferences;
+      return { committed: [], uncommitted: [] };
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceLiveDataProvider workspaceIds={["w1"]}>
+          <MemoryRouter initialEntries={["/projects"]}>
+            <Routes>
+              <Route path="/projects" element={<SidebarRoute />} />
+            </Routes>
+          </MemoryRouter>
+        </WorkspaceLiveDataProvider>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    expect(screen.getByRole("button", { name: "New folder" })).toBeDisabled();
+
+    resolvePreferences({ sidebar: { folders: [], folderOpenState: {} } });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "New folder" })).toBeEnabled();
+    });
+  });
+
+  it("falls back to local hydration when the initial ui-preferences request fails", async () => {
+    const user = userEvent.setup();
+
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === "/api/projects") return projects;
+      if (url === "/api/automations") return [];
+      if (url === "/api/ui-preferences") throw new Error("ui-preferences unavailable");
+      return { committed: [], uncommitted: [] };
+    });
+
+    vi.mocked(api.put).mockImplementation(async (url: string, body?: unknown) => {
+      if (url === "/api/ui-preferences") return body;
+      throw new Error(`Unexpected PUT: ${url}`);
+    });
+
+    renderSidebar("/projects", projects);
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "New folder" })).toBeEnabled();
+    });
+
+    await user.click(screen.getByRole("button", { name: "New folder" }));
+    await user.type(screen.getByLabelText("Folder name"), "Recovered");
+    await user.click(screen.getByRole("button", { name: "Create folder" }));
+
+    await waitFor(() => {
+      expect(api.put).toHaveBeenCalledWith(
+        "/api/ui-preferences",
+        expect.objectContaining({
+          sidebar: expect.objectContaining({
+            folders: expect.arrayContaining([
+              expect.objectContaining({ name: "Recovered" }),
+            ]),
+          }),
+        }),
+      );
+    });
   });
 
   it("hydrates folders from the server response", async () => {

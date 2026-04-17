@@ -33,6 +33,11 @@ interface ParseUiPreferencesOptions {
   mode?: ParseMode;
 }
 
+interface NormalizedFoldersResult {
+  folders: SidebarProjectFolder[];
+  folderIds: Set<string>;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -123,21 +128,48 @@ export function parseUiPreferencesPayload(
   return { sidebar };
 }
 
+function normalizeFolders(
+  folders: SidebarProjectFoldersState["folders"],
+  mapProjectIds: (folder: SidebarProjectFolder) => string[],
+): NormalizedFoldersResult {
+  const folderIds = new Set<string>();
+
+  return {
+    folders: folders.flatMap((folder): SidebarProjectFolder[] => {
+      const name = folder.name.trim();
+      if (!folder.id || !name || folderIds.has(folder.id)) return [];
+      folderIds.add(folder.id);
+
+      return [{
+        id: folder.id,
+        name,
+        projectIds: mapProjectIds(folder),
+      }];
+    }),
+    folderIds,
+  };
+}
+
+function normalizeFolderOpenState(
+  folderOpenState: SidebarProjectFoldersState["folderOpenState"],
+  folderIds: Set<string>,
+): Record<string, boolean> {
+  return Object.fromEntries(
+    Object.entries(folderOpenState).filter(([folderId, value]) =>
+      folderIds.has(folderId) && typeof value === "boolean",
+    ),
+  );
+}
+
 export function sanitizeSidebarPreferencesState(
   state: SidebarProjectFoldersState,
   projectIds: string[],
 ): SidebarProjectFoldersState {
   const knownProjectIds = new Set(projectIds);
   const usedProjectIds = new Set<string>();
-  const seenFolderIds = new Set<string>();
-
-  const folders = state.folders.flatMap((folder): SidebarProjectFolder[] => {
-    const name = folder.name.trim();
-    if (!folder.id || !name || seenFolderIds.has(folder.id)) return [];
-    seenFolderIds.add(folder.id);
-
+  const { folders, folderIds } = normalizeFolders(state.folders, (folder) => {
     const seenProjectIds = new Set<string>();
-    const nextProjectIds = folder.projectIds.filter((projectId) => {
+    return folder.projectIds.filter((projectId) => {
       if (!knownProjectIds.has(projectId)) return false;
       if (usedProjectIds.has(projectId)) return false;
       if (seenProjectIds.has(projectId)) return false;
@@ -145,19 +177,9 @@ export function sanitizeSidebarPreferencesState(
       seenProjectIds.add(projectId);
       return true;
     });
-
-    return [{
-      id: folder.id,
-      name,
-      projectIds: nextProjectIds,
-    }];
   });
 
-  const folderOpenState = Object.fromEntries(
-    Object.entries(state.folderOpenState).filter(([folderId, value]) =>
-      seenFolderIds.has(folderId) && typeof value === "boolean",
-    ),
-  );
+  const folderOpenState = normalizeFolderOpenState(state.folderOpenState, folderIds);
 
   return { folders, folderOpenState };
 }
@@ -165,23 +187,11 @@ export function sanitizeSidebarPreferencesState(
 export function normalizeSidebarPreferencesState(
   state: SidebarProjectFoldersState,
 ): SidebarProjectFoldersState {
-  const seenFolderIds = new Set<string>();
-  const folders = state.folders.flatMap((folder): SidebarProjectFolder[] => {
-    const name = folder.name.trim();
-    if (!folder.id || !name || seenFolderIds.has(folder.id)) return [];
-    seenFolderIds.add(folder.id);
-    return [{
-      id: folder.id,
-      name,
-      projectIds: folder.projectIds,
-    }];
-  });
-
-  const folderOpenState = Object.fromEntries(
-    Object.entries(state.folderOpenState).filter(([folderId, value]) =>
-      seenFolderIds.has(folderId) && typeof value === "boolean",
-    ),
+  const { folders, folderIds } = normalizeFolders(
+    state.folders,
+    (folder) => folder.projectIds,
   );
+  const folderOpenState = normalizeFolderOpenState(state.folderOpenState, folderIds);
 
   return { folders, folderOpenState };
 }
