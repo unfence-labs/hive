@@ -524,7 +524,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                     <p className="text-xs text-muted-foreground/60">no automations</p>
                   </div>
                 ) : (
-                  <div className="mt-1 space-y-px">
+                  <div className="mt-2 space-y-1.5">
                     {sortedAutomations.map((auto) => (
                       <AutomationRow key={auto.id} auto={auto} pathname={pathname} />
                     ))}
@@ -619,51 +619,43 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
   })();
 
   return (
-    <div className="relative">
-      {isActive && (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-primary"
-        />
+    <Link
+      to={`/automations/${auto.id}`}
+      className={cn(
+        "sidebar-card block rounded-md border px-2.5 py-1.5",
+        isActive && "sidebar-card-active",
       )}
-      <Link
-        to={`/automations/${auto.id}`}
-        className={cn(
-          "sidebar-card block rounded px-2 py-1 transition-colors hover:bg-sidebar-accent/50",
-          isActive && "sidebar-card-active bg-sidebar-accent/70",
-        )}
-      >
-        <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              "h-1.5 w-1.5 shrink-0 rounded-full",
-              isRunning
-                ? "bg-green-500 animate-pulse"
-                : auto.enabled
-                  ? "bg-green-500"
-                  : "bg-muted-foreground/40",
-            )}
-          />
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate text-[13px]",
-              isActive || auto.enabled
-                ? "text-sidebar-foreground"
-                : "text-muted-foreground",
-            )}
-          >
-            {auto.name}
-          </span>
-          <span
-            className={cn(
-              "shrink-0 text-[11px]",
-              isActive ? "text-sidebar-foreground/70" : "text-muted-foreground",
-            )}
-          >
-            {rightLabel}
-          </span>
-        </div>
-      </Link>
-    </div>
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            "h-1.5 w-1.5 shrink-0 rounded-full",
+            isRunning
+              ? "bg-green-500 animate-pulse"
+              : auto.enabled
+                ? "bg-green-500"
+                : "bg-muted-foreground/40",
+          )}
+        />
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-sm",
+            isActive || auto.enabled
+              ? "text-sidebar-foreground"
+              : "text-muted-foreground",
+          )}
+        >
+          {auto.name}
+        </span>
+        <span
+          className={cn(
+            "shrink-0 text-[11px]",
+            isActive ? "text-sidebar-foreground/70" : "text-muted-foreground",
+          )}
+        >
+          {rightLabel}
+        </span>
+      </div>
+    </Link>
   );
 }
