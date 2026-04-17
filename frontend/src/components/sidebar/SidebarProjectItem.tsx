@@ -6,6 +6,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { SidebarGroupHeader } from "@/components/sidebar/SidebarHeaders";
+import { SidebarActivityDot } from "@/components/sidebar/SidebarActivityDot";
 import { BranchLabel } from "@/components/BranchLabel";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { ActivityWave } from "@/components/ui/activity-wave";
@@ -13,6 +14,7 @@ import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { computePrDisplayCompact } from "@/lib/pr-display";
 import { cn } from "@/lib/utils";
 import type { WorkspaceLiveData } from "@/hooks/useWorkspaceLiveData";
+import { aggregateScriptRunning, aggregateWorkspaceActivity } from "@/lib/workspace-activity";
 import type { PrStatusResponse, Project } from "@/types";
 import { ArchiveIcon, Loader2 } from "lucide-react";
 
@@ -83,19 +85,31 @@ export function SidebarProjectItem({
     && draggingProjectId !== null
     && draggingProjectId !== project.id;
 
+  const workspaceIds = (project.workspaces ?? []).map((ws) => ws.id);
+  const projectActivity = aggregateWorkspaceActivity(workspaceIds, liveData);
+  const projectScriptRunning = aggregateScriptRunning(workspaceIds, liveData);
+
   return (
     <div key={project.id} className={cn("relative", className)} data-sidebar-project={project.id}>
       <Collapsible open={isExpanded} onOpenChange={setExpanded}>
         <SidebarGroupHeader
           icon={
-            <ProjectAvatar
-              name={project.name}
-              projectId={project.id}
-              hasFavicon={project.hasFavicon}
-              className="h-[18px] w-[18px]"
-            />
+            <span className="relative inline-flex shrink-0">
+              <ProjectAvatar
+                name={project.name}
+                projectId={project.id}
+                hasFavicon={project.hasFavicon}
+                className="h-[18px] w-[18px]"
+              />
+              <SidebarActivityDot state={projectActivity} dimmed={isExpanded} />
+            </span>
           }
           label={displayLabel}
+          activityIndicator={
+            projectScriptRunning && !isExpanded ? (
+              <ActivityWave size="small" decorative className="shrink-0" />
+            ) : undefined
+          }
           count={(project.workspaces ?? []).length}
           isLoading={creatingProjectId === project.id}
           onAdd={() => { onAddWorkspace(project.id); }}
@@ -113,9 +127,10 @@ export function SidebarProjectItem({
           }}
         />
 
-        <CollapsibleContent>
-          <div className="mt-1 space-y-1.5">
-            {(project.workspaces ?? []).map((ws) => {
+        <CollapsibleContent className="mb-2">
+          <div className="ml-2 mt-px border-l border-sidebar-border/40 pl-2">
+            <div className="mt-1 space-y-1.5">
+              {(project.workspaces ?? []).map((ws) => {
               const wsLive = liveData[ws.id];
               const wsStreaming = wsLive?.streaming ?? false;
               const wsScriptRunning = wsLive?.scriptRunning ?? false;
@@ -153,15 +168,12 @@ export function SidebarProjectItem({
                             branch={displayBranch}
                             showIcon={false}
                             className={cn(
-                              "min-w-0 flex-1 text-sm",
+                              "min-w-0 flex-1 pr-5 text-sm",
                               activeWsId === ws.id || wsUnread
                                 ? "text-sidebar-foreground"
                                 : "text-muted-foreground",
                             )}
                           />
-                          {wsScriptRunning && (
-                            <ActivityWave size="small" decorative className="shrink-0" />
-                          )}
                         </div>
 
                         <div className="mt-0.5 flex items-center gap-1 pl-5 text-[11px]">
@@ -189,14 +201,20 @@ export function SidebarProjectItem({
                     </TooltipContent>
                   </Tooltip>
 
+                  {wsScriptRunning && !wsArchiving && (
+                    <div className="pointer-events-none absolute right-2 top-1.5">
+                      <ActivityWave size="small" decorative className="shrink-0" />
+                    </div>
+                  )}
+
                   {wsArchiving ? (
-                    <div className="absolute right-1.5 top-1.5 p-0.5">
+                    <div className="absolute right-2 top-1.5 p-0.5">
                       <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                     </div>
                   ) : !wsScriptRunning && (
                     <button
                       type="button"
-                      className="absolute right-1.5 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"
+                      className="absolute right-2 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
@@ -211,6 +229,7 @@ export function SidebarProjectItem({
                 </div>
               );
             })}
+            </div>
           </div>
         </CollapsibleContent>
       </Collapsible>

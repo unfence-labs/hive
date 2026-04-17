@@ -1230,17 +1230,16 @@ describe("Sidebar", () => {
 
     await screen.findByText("workspace/tokyo");
     const workspaceLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
-    // No wave indicator initially (no SVGs — GitBranch icon is always hidden)
-    const svgsBefore = workspaceLink.querySelectorAll("svg");
-    expect(svgsBefore).toHaveLength(0);
+    const workspaceRow = workspaceLink.closest('[class*="group/ws"]') as HTMLElement;
+    // No wave indicator initially
+    expect(workspaceRow.querySelectorAll('svg[viewBox="0 0 12 12"]')).toHaveLength(0);
 
     act(() => {
       __wsMock.emit("w1", { type: "script_status", scriptType: "run", state: "running" });
     });
 
     // Wave indicator SVG should appear (the inline SVG with viewBox="0 0 12 12")
-    const svgsAfter = workspaceLink.querySelectorAll("svg");
-    expect(svgsAfter.length).toBeGreaterThan(0);
+    expect(workspaceRow.querySelectorAll('svg[viewBox="0 0 12 12"]').length).toBeGreaterThan(0);
   });
 
   it("hides wave indicator when script finishes", async () => {
@@ -1254,13 +1253,14 @@ describe("Sidebar", () => {
     });
 
     const workspaceLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
-    expect(workspaceLink.querySelectorAll("svg").length).toBeGreaterThan(0);
+    const workspaceRow = workspaceLink.closest('[class*="group/ws"]') as HTMLElement;
+    expect(workspaceRow.querySelectorAll('svg[viewBox="0 0 12 12"]').length).toBeGreaterThan(0);
 
     act(() => {
       __wsMock.emit("w1", { type: "script_status", scriptType: "run", state: "done", exitCode: 0 });
     });
 
-    expect(workspaceLink.querySelectorAll("svg")).toHaveLength(0); // no SVGs at rest
+    expect(workspaceRow.querySelectorAll('svg[viewBox="0 0 12 12"]')).toHaveLength(0);
   });
 
   it("hides archive button when script is running", async () => {
