@@ -6,8 +6,10 @@ import AppearanceSettings from "@/pages/settings/AppearanceSettings";
 
 const mocks = vi.hoisted(() => ({
   setAccent: vi.fn(),
+  setThemeMode: vi.fn(),
   useConnectionStatus: vi.fn(),
   useAccentColor: vi.fn(),
+  useThemeMode: vi.fn(),
 }));
 
 vi.mock("@/hooks/useConnectionStatus", () => ({
@@ -16,6 +18,11 @@ vi.mock("@/hooks/useConnectionStatus", () => ({
 
 vi.mock("@/hooks/useAccentColor", () => ({
   useAccentColor: mocks.useAccentColor,
+}));
+
+vi.mock("@/hooks/useThemeMode", () => ({
+  useThemeMode: mocks.useThemeMode,
+  THEME_MODES: ["system", "light", "dark"],
 }));
 
 describe("ConnectionSettings", () => {
@@ -182,6 +189,14 @@ describe("AppearanceSettings", () => {
         { id: "emerald", label: "Emerald", color: "#10b981" },
       ],
     });
+
+    mocks.setThemeMode.mockReset();
+    mocks.useThemeMode.mockReset();
+    mocks.useThemeMode.mockReturnValue({
+      mode: "system",
+      setMode: mocks.setThemeMode,
+      options: ["system", "light", "dark"],
+    });
   });
 
   it("updates accent color from accent option buttons", async () => {
@@ -192,5 +207,29 @@ describe("AppearanceSettings", () => {
     await user.click(screen.getByRole("button", { name: "Accent color: Emerald" }));
 
     expect(mocks.setAccent).toHaveBeenCalledWith("emerald");
+  });
+
+  it("switches theme mode when selecting an option", async () => {
+    const user = userEvent.setup();
+    render(<AppearanceSettings />);
+
+    await user.click(screen.getByRole("radio", { name: "Light" }));
+    expect(mocks.setThemeMode).toHaveBeenCalledWith("light");
+
+    await user.click(screen.getByRole("radio", { name: "Dark" }));
+    expect(mocks.setThemeMode).toHaveBeenCalledWith("dark");
+  });
+
+  it("marks the active theme mode as checked", () => {
+    mocks.useThemeMode.mockReturnValue({
+      mode: "dark",
+      setMode: mocks.setThemeMode,
+      options: ["system", "light", "dark"],
+    });
+    render(<AppearanceSettings />);
+
+    expect(screen.getByRole("radio", { name: "Dark" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "Light" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("radio", { name: "System" })).toHaveAttribute("aria-checked", "false");
   });
 });

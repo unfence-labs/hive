@@ -69,7 +69,7 @@ describe("FileViewer", () => {
     expect(apiMock).toHaveBeenCalledWith(
       "/api/workspaces/ws-1/file?path=src%2Fapp.ts",
     );
-    expect(highlightMock).toHaveBeenCalledWith("const x = 1;", "typescript");
+    expect(highlightMock).toHaveBeenCalledWith("const x = 1;", "typescript", expect.any(String));
   });
 
   it("shows error message when API fails", async () => {
@@ -135,7 +135,7 @@ describe("FileViewer", () => {
       const { unmount } = renderFileViewer({ wsId: "ws-1", filePath: path });
 
       await waitFor(() => {
-        expect(highlightMock).toHaveBeenCalledWith("code", lang);
+        expect(highlightMock).toHaveBeenCalledWith("code", lang, expect.any(String));
       });
 
       unmount();

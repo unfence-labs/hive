@@ -16,9 +16,9 @@ export function SidebarShell({ children, footerActions }: SidebarShellProps) {
 
       {children}
 
-      <div className="shrink-0 border-t border-border/50">
+      <div className="shrink-0 border-t border-border">
         {footerActions}
-        <div className="mx-2 border-t border-border/50" />
+        <div className="mx-2 border-t border-border" />
         <div className="px-3 pb-2 pt-1.5">
           <ServerMetrics />
         </div>

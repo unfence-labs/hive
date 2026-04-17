@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import { highlightCode } from "@/lib/shiki";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useThemeType } from "@/hooks/useThemeType";
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: "typescript",
@@ -46,6 +47,9 @@ interface FileViewerProps {
 }
 
 export function FileViewer({ wsId, filePath }: FileViewerProps) {
+  const theme = useThemeType();
+  const shikiTheme = theme === "dark" ? "github-dark" : "github-light";
+
   const fileQuery = useQuery({
     queryKey: ["file", wsId, filePath],
     queryFn: () =>
@@ -56,7 +60,6 @@ export function FileViewer({ wsId, filePath }: FileViewerProps) {
     staleTime: 2 * 60 * 1000,
   });
 
-  // Async Shiki highlighting — runs after fetch resolves
   const [html, setHtml] = useState("");
   useEffect(() => {
     if (!fileQuery.data) {
@@ -64,13 +67,13 @@ export function FileViewer({ wsId, filePath }: FileViewerProps) {
       return;
     }
     let cancelled = false;
-    highlightCode(fileQuery.data.content, getLang(filePath)).then((result) => {
+    highlightCode(fileQuery.data.content, getLang(filePath), shikiTheme).then((result) => {
       if (!cancelled) setHtml(result);
     });
     return () => {
       cancelled = true;
     };
-  }, [fileQuery.data, filePath]);
+  }, [fileQuery.data, filePath, shikiTheme]);
 
   const loading = fileQuery.isLoading || (!!fileQuery.data && !html);
   const error = fileQuery.error?.message ?? null;
@@ -126,7 +129,7 @@ export function FileViewer({ wsId, filePath }: FileViewerProps) {
           user-select: none;
         }
         .file-viewer-content .line:hover {
-          background: hsl(var(--accent) / 0.3);
+          background: color-mix(in oklch, var(--foreground) 5%, transparent);
         }
       `}</style>
     </div>
