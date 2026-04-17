@@ -521,7 +521,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
             addLabel={`Add workspace to ${displayLabelPlain}`}
             variant="plain"
             buttonClassName={cn(
-              "rounded px-1.5 py-1 hover:bg-sidebar-accent/35",
+              "rounded py-1 pl-0 pr-1.5 hover:bg-sidebar-accent/35",
               isDragged && "cursor-grabbing opacity-45",
             )}
             buttonProps={{
@@ -797,7 +797,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                               onDragEnd={handleFolderDragEnd}
                               aria-grabbed={isDraggedFolder}
                               className={cn(
-                                "flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left transition-colors hover:bg-sidebar-accent/40",
+                                "flex w-full items-center gap-1.5 rounded py-1 pl-0 pr-1.5 text-left transition-colors hover:bg-sidebar-accent/40",
                                 containsActiveProject ? "text-sidebar-foreground" : "text-muted-foreground",
                                 isActiveDropTarget && "bg-primary/10 text-sidebar-foreground ring-1 ring-primary/20",
                                 isDraggedFolder && "cursor-grabbing opacity-45",
