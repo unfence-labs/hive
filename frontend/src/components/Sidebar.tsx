@@ -113,9 +113,9 @@ function SidebarGroupHeader({
           className={cn(
             "flex w-full min-w-0 items-center overflow-hidden text-left transition-colors",
             isPlain
-              ? "gap-2 px-0 py-1"
-              : "gap-2.5 rounded-md px-2.5 py-2.5 hover:bg-sidebar-accent/40",
-            count !== undefined && "pr-8",
+              ? "gap-1.5 px-0 py-0.5"
+              : "gap-2 rounded px-2 py-1 hover:bg-sidebar-accent/40",
+            count !== undefined && "pr-7",
             buttonClassName,
             buttonPropsClassName,
           )}
@@ -129,7 +129,7 @@ function SidebarGroupHeader({
         </button>
       </CollapsibleTrigger>
       {count !== undefined && (
-        <div className={cn("absolute inset-y-0 flex items-center", isPlain ? "right-0" : "right-2.5")}>
+        <div className={cn("absolute inset-y-0 flex items-center", isPlain ? "right-0" : "right-2")}>
           <div className="relative flex h-5 w-5 items-center justify-center">
             {isLoading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
@@ -521,7 +521,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
             addLabel={`Add workspace to ${displayLabelPlain}`}
             variant="plain"
             buttonClassName={cn(
-              "rounded-md px-1.5 hover:bg-sidebar-accent/35",
+              "rounded px-1.5 py-1 hover:bg-sidebar-accent/35",
               isDragged && "cursor-grabbing opacity-45",
             )}
             buttonProps={{
@@ -683,7 +683,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
             <TooltipProvider delayDuration={400}>
               <SidebarSectionHeader
                 label="Workspaces"
-                className="mb-2"
+                className="mb-1"
                 onAdd={() => {
                   setIsCreatingFolder(true);
                   setNewFolderName("");
@@ -742,7 +742,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
               )}
 
               {folders.length > 0 && (
-                <div className="space-y-1.5">
+                <div className="space-y-px">
                   {folders.map((folder) => {
                     const expanded = isFolderExpanded(folder.id);
                     const isActiveDropTarget =
@@ -797,7 +797,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                               onDragEnd={handleFolderDragEnd}
                               aria-grabbed={isDraggedFolder}
                               className={cn(
-                                "flex min-h-9 w-full items-center gap-1.5 rounded-md px-1.5 text-left transition-colors hover:bg-sidebar-accent/40",
+                                "flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left transition-colors hover:bg-sidebar-accent/40",
                                 containsActiveProject ? "text-sidebar-foreground" : "text-muted-foreground",
                                 isActiveDropTarget && "bg-primary/10 text-sidebar-foreground ring-1 ring-primary/20",
                                 isDraggedFolder && "cursor-grabbing opacity-45",
@@ -816,15 +816,15 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                           </CollapsibleTrigger>
 
                           <CollapsibleContent>
-                            <div className="ml-3 mt-1 border-l border-sidebar-border/70 pl-2.5">
+                            <div className="ml-2 mt-px border-l border-sidebar-border/40 pl-2">
                               {folder.projects.length > 0 ? (
-                                <div className="space-y-1.5 py-0.5">
+                                <div className="space-y-px py-0.5">
                                   {folder.projects.map((project) => renderProjectItem(project, folder.id))}
                                 </div>
                               ) : (
                                 <div
                                   className={cn(
-                                    "py-2 text-xs text-muted-foreground/70 transition-colors",
+                                    "py-1.5 text-xs text-muted-foreground/70 transition-colors",
                                     isActiveDropTarget && "text-primary",
                                   )}
                                 >
@@ -841,13 +841,13 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
               )}
 
               {rootProjects.length > 0 && (
-                <div className={cn("space-y-1.5", folders.length > 0 && "mt-2")}>
+                <div className={cn("space-y-px", folders.length > 0 && "mt-0.5")}>
                   {rootProjects.map((project) => renderProjectItem(project, null))}
                 </div>
               )}
 
-              <div className="mt-6">
-                <div className="mb-6 border-t border-white/15" />
+              <div className="mt-4">
+                <div className="mb-3 border-t border-white/10" />
                 <SidebarSectionHeader
                   label="Automations"
                   isLoading={automationsLoading}
@@ -865,7 +865,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                     <p className="text-xs text-muted-foreground/60">no automations</p>
                   </div>
                 ) : (
-                  <div className="mt-2 space-y-1.5">
+                  <div className="mt-1 space-y-px">
                     {sortedAutomations.map((auto) => (
                       <AutomationRow key={auto.id} auto={auto} pathname={pathname} />
                     ))}
@@ -955,43 +955,51 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
   })();
 
   return (
-    <Link
-      to={`/automations/${auto.id}`}
-      className={cn(
-        "sidebar-card block rounded-md border px-2.5 py-1.5",
-        isActive && "sidebar-card-active",
-      )}
-    >
-      <div className="flex items-center gap-2">
+    <div className="relative">
+      {isActive && (
         <span
-          className={cn(
-            "h-1.5 w-1.5 shrink-0 rounded-full",
-            isRunning
-              ? "bg-green-500 animate-pulse"
-              : auto.enabled
-                ? "bg-green-500"
-                : "bg-muted-foreground/40",
-          )}
+          aria-hidden
+          className="pointer-events-none absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-primary"
         />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-sm",
-            isActive || auto.enabled
-              ? "text-sidebar-foreground"
-              : "text-muted-foreground",
-          )}
-        >
-          {auto.name}
-        </span>
-        <span
-          className={cn(
-            "shrink-0 text-[11px]",
-            isActive ? "text-sidebar-foreground/70" : "text-muted-foreground",
-          )}
-        >
-          {rightLabel}
-        </span>
-      </div>
-    </Link>
+      )}
+      <Link
+        to={`/automations/${auto.id}`}
+        className={cn(
+          "block rounded px-2 py-1 transition-colors hover:bg-sidebar-accent/50",
+          isActive && "bg-sidebar-accent/70",
+        )}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "h-1.5 w-1.5 shrink-0 rounded-full",
+              isRunning
+                ? "bg-green-500 animate-pulse"
+                : auto.enabled
+                  ? "bg-green-500"
+                  : "bg-muted-foreground/40",
+            )}
+          />
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-[13px]",
+              isActive || auto.enabled
+                ? "text-sidebar-foreground"
+                : "text-muted-foreground",
+            )}
+          >
+            {auto.name}
+          </span>
+          <span
+            className={cn(
+              "shrink-0 text-[11px]",
+              isActive ? "text-sidebar-foreground/70" : "text-muted-foreground",
+            )}
+          >
+            {rightLabel}
+          </span>
+        </div>
+      </Link>
+    </div>
   );
 }
