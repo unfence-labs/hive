@@ -3,7 +3,7 @@ import {
   parseProjectOwnerRepo,
   automationSortKey,
   describeSchedule,
-} from "@/components/Sidebar";
+} from "@/lib/sidebar-helpers";
 import type { Automation } from "@/types";
 
 // ── parseProjectOwnerRepo ───────────────────────────────────────────
@@ -44,10 +44,17 @@ describe("parseProjectOwnerRepo", () => {
     });
   });
 
-  it("parses GitLab URL with nested path (uses first two segments)", () => {
+  it("parses GitLab URL with nested path using the last two segments", () => {
     expect(parseProjectOwnerRepo("https://gitlab.com/org/subgroup/repo.git")).toEqual({
-      owner: "org",
-      repo: "subgroup",
+      owner: "subgroup",
+      repo: "repo",
+    });
+  });
+
+  it("parses nested SCP-style SSH URL using the last two segments", () => {
+    expect(parseProjectOwnerRepo("git@gitlab.com:org/subgroup/repo.git")).toEqual({
+      owner: "subgroup",
+      repo: "repo",
     });
   });
 

@@ -1,20 +1,13 @@
 import { useMemo, useState } from "react";
 import { getNextRun, formatTimeUntil } from "@/lib/cron";
-import { ArchiveIcon, FolderPlus, Loader2, Plus, Settings } from "lucide-react";
+import {
+  FolderPlus,
+  Settings,
+} from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,158 +22,23 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import { useProjects } from "@/hooks/useProjects";
 import { useBulkPrStatus, usePrStatusMap } from "@/hooks/usePrStatus";
-import { computePrDisplayCompact } from "@/lib/pr-display";
-import { BranchLabel } from "@/components/BranchLabel";
-import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
-import { ActivityWave } from "@/components/ui/activity-wave";
+import { useSidebarProjectFolders } from "@/hooks/useSidebarProjectFolders";
 import { api } from "@/hooks/useApi";
+import {
+  automationSortKey,
+  describeSchedule,
+  parseProjectOwnerRepo,
+} from "@/lib/sidebar-helpers";
 import { cn } from "@/lib/utils";
-import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { useAutomations } from "@/hooks/useAutomations";
 import { SidebarShell } from "@/components/SidebarShell";
-import type { Automation, DiffStatResponse } from "@/types";
-
-// ── Helpers ──────────────────────────────────────────────────────────
-
-/** Extract { owner, repo } from any git URL, or null if unparseable. */
-export function parseProjectOwnerRepo(url: string): { owner: string; repo: string } | null {
-  // SCP-style: git@host:owner/repo.git
-  const scpMatch = url.match(/^[^@]+@[^:]+:([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (scpMatch) return { owner: scpMatch[1], repo: scpMatch[2] };
-
-  // URL-style: https://host/owner/repo.git or ssh://git@host/owner/repo
-  try {
-    const parsed = new URL(url);
-    const segments = parsed.pathname.split("/").filter(Boolean);
-    if (segments.length >= 2)
-      return { owner: segments[0], repo: segments[1].replace(/\.git$/, "") };
-  } catch {
-    // not a valid URL
-  }
-
-  return null;
-}
-
-// ── Shared sidebar group header ──────────────────────────────────────
-
-interface SidebarGroupHeaderProps {
-  icon: React.ReactNode;
-  label: React.ReactNode;
-  badge?: React.ReactNode;
-  count?: number;
-  isLoading?: boolean;
-  onAdd?: (e: React.MouseEvent) => void;
-  addLabel?: string;
-  variant?: "default" | "plain";
-  buttonClassName?: string;
-}
-
-function SidebarGroupHeader({
-  icon,
-  label,
-  badge,
-  count,
-  isLoading,
-  onAdd,
-  addLabel,
-  variant = "default",
-  buttonClassName,
-}: SidebarGroupHeaderProps) {
-  const isPlain = variant === "plain";
-
-  return (
-    <div className="group relative flex w-full items-center">
-      <CollapsibleTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            "flex w-full min-w-0 items-center overflow-hidden text-left transition-colors",
-            isPlain
-              ? "gap-2 px-0 py-1"
-              : "gap-2.5 rounded-md px-2.5 py-2.5 hover:bg-sidebar-accent/40",
-            count !== undefined && "pr-8",
-            buttonClassName,
-          )}
-        >
-          {icon}
-          <span className="min-w-0 flex-1 truncate text-xs font-semibold lowercase tracking-wider text-sidebar-foreground">
-            {label}
-          </span>
-          {badge}
-        </button>
-      </CollapsibleTrigger>
-      {count !== undefined && (
-        <div className={cn("absolute inset-y-0 flex items-center", isPlain ? "right-0" : "right-2.5")}>
-          <div className="relative flex h-5 w-5 items-center justify-center">
-            {isLoading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-            ) : (
-              <>
-                <span className="text-xs tabular-nums text-muted-foreground/60 transition-opacity group-hover:opacity-0">
-                  {count}
-                </span>
-                {onAdd && (
-                  <button
-                    type="button"
-                    className="absolute inset-0 flex items-center justify-center text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover:opacity-100"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onAdd(e);
-                    }}
-                    aria-label={addLabel}
-                    title={addLabel}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface SidebarSectionHeaderProps {
-  label: string;
-  isLoading?: boolean;
-  onAdd?: () => void;
-  addLabel?: string;
-  className?: string;
-}
-
-function SidebarSectionHeader({
-  label,
-  isLoading = false,
-  onAdd,
-  addLabel,
-  className,
-}: SidebarSectionHeaderProps) {
-  return (
-    <div className={cn("group relative flex w-full items-center", className)}>
-      <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-        {label}
-      </span>
-      <div className="relative flex h-5 w-5 items-center justify-center">
-        {isLoading ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-        ) : onAdd ? (
-          <button
-            type="button"
-            className="flex items-center justify-center text-primary transition-colors hover:text-primary/80"
-            onClick={onAdd}
-            aria-label={addLabel}
-            title={addLabel}
-          >
-            <Plus className="h-4 w-4" />
-          </button>
-        ) : null
-        }
-      </div>
-    </div>
-  );
-}
+import { SidebarFolderComposer } from "@/components/sidebar/SidebarFolderComposer";
+import { SidebarFolderItem } from "@/components/sidebar/SidebarFolderItem";
+import {
+  SidebarSectionHeader,
+} from "@/components/sidebar/SidebarHeaders";
+import { SidebarProjectItem } from "@/components/sidebar/SidebarProjectItem";
+import type { Automation, DiffStatResponse, Project } from "@/types";
 
 // ── Sidebar ──────────────────────────────────────────────────────────
 
@@ -188,6 +46,18 @@ interface SidebarProps {
   onAddProject: () => void;
   onAddAutomation?: () => void;
 }
+
+type SidebarDropTarget = { type: "folder"; folderId: string };
+
+type FolderOrderDropTarget = {
+  folderId: string;
+  position: "before" | "after";
+};
+
+type ProjectOrderDropTarget = {
+  projectId: string;
+  position: "before" | "after";
+};
 
 export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps) {
   const { projects, loading, createWorkspace, archiveWorkspace } = useProjects();
@@ -200,6 +70,16 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<string | null>(null);
   const [archivingWsId, setArchivingWsId] = useState<string | null>(null);
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [deleteFolderTarget, setDeleteFolderTarget] = useState<{ id: string; name: string } | null>(null);
+  const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<SidebarDropTarget | null>(null);
+  const [draggingFolderId, setDraggingFolderId] = useState<string | null>(null);
+  const [folderOrderDropTarget, setFolderOrderDropTarget] = useState<FolderOrderDropTarget | null>(null);
+  const [projectOrderDropTarget, setProjectOrderDropTarget] = useState<ProjectOrderDropTarget | null>(null);
   const liveData = useWorkspaceLiveDataContext();
 
   const activeProjectId = projects.find((project) =>
@@ -216,11 +96,59 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     if (!automations) return [];
     return [...automations].sort((a, b) => automationSortKey(a) - automationSortKey(b));
   }, [automations]);
+  const {
+    folders,
+    rootProjects,
+    hasInitialHydration,
+    createFolder,
+    renameFolder,
+    deleteFolder,
+    moveProjectToFolder,
+    moveProjectToPosition,
+    moveFolderById,
+    isFolderExpanded,
+    setFolderExpanded,
+    getFolderIdForProject,
+  } = useSidebarProjectFolders(projects, !loading);
 
   const isProjectExpanded = (projectId: string) => {
     const expanded = expandedProjects[projectId];
     if (typeof expanded === "boolean") return expanded;
     return activeProjectId === projectId;
+  };
+
+  const resetFolderComposer = () => {
+    setIsCreatingFolder(false);
+    setNewFolderName("");
+  };
+
+  const handleCreateFolder = () => {
+    if (!hasInitialHydration) return;
+    const folderId = createFolder(newFolderName);
+    if (!folderId) return;
+    resetFolderComposer();
+  };
+
+  const startRenamingFolder = (folderId: string, currentName: string) => {
+    if (!hasInitialHydration) return;
+    setRenamingFolderId(folderId);
+    setRenameDraft(currentName);
+  };
+
+  const cancelRenamingFolder = () => {
+    setRenamingFolderId(null);
+    setRenameDraft("");
+  };
+
+  const commitRenamingFolder = () => {
+    if (!renamingFolderId) return;
+    const trimmed = renameDraft.trim();
+    if (trimmed.length === 0) {
+      cancelRenamingFolder();
+      return;
+    }
+    renameFolder(renamingFolderId, trimmed);
+    cancelRenamingFolder();
   };
 
   const handleAddWorkspace = async (projectId: string) => {
@@ -266,6 +194,204 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     }
   };
 
+  const handleProjectDragStart = (
+    event: React.DragEvent<HTMLButtonElement>,
+    projectId: string,
+  ) => {
+    if (!hasInitialHydration) return;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-hive-project-id", projectId);
+    event.dataTransfer.setData("text/plain", projectId);
+    setDraggingProjectId(projectId);
+    setDropTarget(null);
+    setProjectOrderDropTarget(null);
+  };
+
+  const handleProjectDragEnd = () => {
+    setDraggingProjectId(null);
+    setDropTarget(null);
+    setProjectOrderDropTarget(null);
+  };
+
+  const getDraggedProjectId = (event: React.DragEvent<HTMLDivElement>) =>
+    draggingProjectId
+    ?? event.dataTransfer.getData("application/x-hive-project-id")
+    ?? null;
+
+  const handleProjectReorderDragOver = (
+    event: React.DragEvent<HTMLDivElement>,
+    anchorProjectId: string,
+    position: "before" | "after",
+  ) => {
+    if (!hasInitialHydration) return;
+    const sourceProjectId = getDraggedProjectId(event);
+    if (!sourceProjectId || sourceProjectId === anchorProjectId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+    if (dropTarget !== null) setDropTarget(null);
+
+    if (
+      projectOrderDropTarget?.projectId !== anchorProjectId
+      || projectOrderDropTarget.position !== position
+    ) {
+      setProjectOrderDropTarget({ projectId: anchorProjectId, position });
+    }
+  };
+
+  const handleProjectReorderDrop = (
+    event: React.DragEvent<HTMLDivElement>,
+    anchorProjectId: string,
+    anchorFolderId: string,
+    position: "before" | "after",
+  ) => {
+    if (!hasInitialHydration) return;
+    const sourceProjectId = getDraggedProjectId(event);
+    if (!sourceProjectId || sourceProjectId === anchorProjectId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    moveProjectToPosition(sourceProjectId, anchorFolderId, anchorProjectId, position);
+    setDraggingProjectId(null);
+    setDropTarget(null);
+    setProjectOrderDropTarget(null);
+  };
+
+  const handleFolderDragOver = (
+    event: React.DragEvent<HTMLDivElement>,
+    folderId: string,
+  ) => {
+    if (!hasInitialHydration) return;
+    if (!draggingProjectId) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (getFolderIdForProject(draggingProjectId) === folderId) {
+      if (dropTarget !== null) setDropTarget(null);
+      return;
+    }
+
+    event.dataTransfer.dropEffect = "move";
+    if (dropTarget?.type !== "folder" || dropTarget.folderId !== folderId) {
+      setDropTarget({ type: "folder", folderId });
+    }
+    if (projectOrderDropTarget) setProjectOrderDropTarget(null);
+  };
+
+  const handleFolderDrop = (
+    event: React.DragEvent<HTMLDivElement>,
+    folderId: string,
+  ) => {
+    if (!hasInitialHydration) return;
+    if (!draggingProjectId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    moveProjectToFolder(draggingProjectId, folderId);
+    setDraggingProjectId(null);
+    setDropTarget(null);
+  };
+
+  const handleFolderDragStart = (
+    event: React.DragEvent<HTMLButtonElement>,
+    folderId: string,
+  ) => {
+    if (!hasInitialHydration) return;
+    setDraggingFolderId(folderId);
+    setFolderOrderDropTarget(null);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-hive-folder-id", folderId);
+    event.dataTransfer.setData("text/plain", folderId);
+  };
+
+  const handleFolderDragEnd = () => {
+    setDraggingFolderId(null);
+    setFolderOrderDropTarget(null);
+  };
+
+  const getDraggedFolderId = (event: React.DragEvent<HTMLDivElement>) =>
+    draggingFolderId
+    ?? event.dataTransfer.getData("application/x-hive-folder-id")
+    ?? null;
+
+  const handleFolderReorderDragOver = (
+    event: React.DragEvent<HTMLDivElement>,
+    folderId: string,
+    position: "before" | "after",
+  ) => {
+    if (!hasInitialHydration) return;
+    const sourceFolderId = getDraggedFolderId(event);
+    if (!sourceFolderId || sourceFolderId === folderId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+
+    if (
+      folderOrderDropTarget?.folderId !== folderId
+      || folderOrderDropTarget.position !== position
+    ) {
+      setFolderOrderDropTarget({ folderId, position });
+    }
+  };
+
+  const handleFolderReorderDrop = (
+    event: React.DragEvent<HTMLDivElement>,
+    folderId: string,
+    position: "before" | "after",
+  ) => {
+    if (!hasInitialHydration) return;
+    const sourceFolderId = getDraggedFolderId(event);
+    if (!sourceFolderId || sourceFolderId === folderId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    moveFolderById(sourceFolderId, folderId, position);
+    setDraggingFolderId(null);
+    setFolderOrderDropTarget(null);
+  };
+
+  const renderProjectItem = (
+    project: Project,
+    folderId: string | null,
+    className?: string,
+  ) => {
+    const parsed = project.url ? parseProjectOwnerRepo(project.url) : null;
+    const displayLabel = parsed ? (
+      <><span className="text-muted-foreground">{parsed.owner}/</span>{parsed.repo}</>
+    ) : project.name;
+    const displayLabelPlain = parsed ? `${parsed.owner}/${parsed.repo}` : project.name;
+    const projectInsertIndicator = projectOrderDropTarget?.projectId === project.id
+      ? projectOrderDropTarget.position
+      : null;
+
+    return (
+      <SidebarProjectItem
+        key={project.id}
+        project={project}
+        folderId={folderId}
+        className={className}
+        displayLabel={displayLabel}
+        displayLabelPlain={displayLabelPlain}
+        isExpanded={isProjectExpanded(project.id)}
+        setExpanded={(open) =>
+          setExpandedProjects((prev) => ({ ...prev, [project.id]: open }))
+        }
+        activeWsId={activeWsId}
+        liveData={liveData}
+        prStatuses={prStatuses}
+        prLoading={prLoading}
+        creatingProjectId={creatingProjectId}
+        archivingWsId={archivingWsId}
+        canReorder={hasInitialHydration}
+        draggingProjectId={draggingProjectId}
+        projectInsertIndicator={projectInsertIndicator}
+        onAddWorkspace={(projectId) => { void handleAddWorkspace(projectId); }}
+        onArchiveWorkspace={(wsId) => { void handleArchiveClick(wsId); }}
+        onProjectDragStart={handleProjectDragStart}
+        onProjectDragEnd={handleProjectDragEnd}
+        onProjectReorderDragOver={handleProjectReorderDragOver}
+        onProjectReorderDrop={handleProjectReorderDrop}
+      />
+    );
+  };
+
   const footerActions = (
     <div className="flex items-center justify-end px-2 py-1.5">
       <Link
@@ -279,6 +405,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
       </Link>
     </div>
   );
+  const deleteFolderTargetId = deleteFolderTarget?.id ?? null;
 
   return (
     <SidebarShell footerActions={footerActions}>
@@ -294,144 +421,84 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
             <TooltipProvider delayDuration={400}>
               <SidebarSectionHeader
                 label="Workspaces"
-                className="mb-2"
+                className="mb-1"
+                onAdd={() => {
+                  if (!hasInitialHydration) return;
+                  setIsCreatingFolder(true);
+                  setNewFolderName("");
+                }}
+                addLabel="New folder"
+                addDisabled={!hasInitialHydration}
+                addIcon={<FolderPlus className="h-4 w-4" />}
+                addButtonClassName="rounded p-0.5 hover:bg-sidebar-accent/50"
               />
 
-              {projects.map((project, index) => {
-                const parsed = project.url ? parseProjectOwnerRepo(project.url) : null;
-                const displayLabel = parsed ? (
-                  <><span className="text-muted-foreground">{parsed.owner}/</span>{parsed.repo}</>
-                ) : project.name;
-                const displayLabelPlain = parsed ? `${parsed.owner}/${parsed.repo}` : project.name;
-                return (
-                <div
-                  key={project.id}
-                  className={cn(index > 0 && "mt-3")}
-                >
-                  <Collapsible
-                    open={isProjectExpanded(project.id)}
-                    onOpenChange={(open) =>
-                      setExpandedProjects((prev) => ({ ...prev, [project.id]: open }))
-                    }
-                  >
-                    <SidebarGroupHeader
-                      icon={
-                        <ProjectAvatar
-                          name={project.name}
-                          projectId={project.id}
-                          hasFavicon={project.hasFavicon}
-                          className="h-[18px] w-[18px]"
-                        />
-                      }
-                      label={displayLabel}
-                      count={(project.workspaces ?? []).length}
-                      isLoading={creatingProjectId === project.id}
-                      onAdd={() => { void handleAddWorkspace(project.id); }}
-                      addLabel={`Add workspace to ${displayLabelPlain}`}
-                      variant="plain"
-                    />
+              <SidebarFolderComposer
+                isOpen={isCreatingFolder}
+                name={newFolderName}
+                onNameChange={setNewFolderName}
+                onSubmit={handleCreateFolder}
+                onCancel={resetFolderComposer}
+              />
 
-                    <CollapsibleContent>
-                      <div className="mt-1 space-y-1.5">
-                        {(project.workspaces ?? []).map((ws) => {
-                          const wsLive = liveData[ws.id];
-                          const wsStreaming = wsLive?.streaming ?? false;
-                          const wsScriptRunning = wsLive?.scriptRunning ?? false;
-                          const displayBranch = wsLive?.branch ?? ws.branch;
-                          const wsUnread = !wsStreaming && Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
-                          const prStatus = prStatuses[ws.id];
-                          const wsArchiving = archivingWsId === ws.id;
+              {folders.length > 0 && (
+                <div className="space-y-px">
+                  {folders.map((folder) => {
+                    const expanded = isFolderExpanded(folder.id);
+                    const isActiveDropTarget =
+                      dropTarget?.type === "folder" && dropTarget.folderId === folder.id;
+                    const containsActiveProject = folder.projects.some((project) => project.id === activeProjectId);
+                    const isDraggedFolder = draggingFolderId === folder.id;
+                    const folderInsertIndicator = folderOrderDropTarget?.folderId === folder.id
+                      ? folderOrderDropTarget.position
+                      : null;
 
-                          return (
-                            <div key={ws.id} className={cn("group/ws relative transition-opacity", wsArchiving && "pointer-events-none opacity-40")}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Link
-                                    to={`/workspaces/${ws.id}`}
-                                    className={cn(
-                                      "sidebar-card block rounded-md border py-1.5 pl-2 pr-2",
-                                      activeWsId === ws.id && "sidebar-card-active",
-                                    )}
-                                  >
-                                    <div className="flex items-center gap-1.5">
-                                      <div className="flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-visible">
-                                        {wsStreaming ? (
-                                          <AgentActivityPreview size="small" />
-                                        ) : wsUnread ? (
-                                          <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                                        ) : null}
-                                      </div>
-                                      <BranchLabel
-                                        branch={displayBranch}
-                                        showIcon={false}
-                                        className={cn(
-                                          "min-w-0 flex-1 text-sm",
-                                          activeWsId === ws.id || wsUnread
-                                            ? "text-sidebar-foreground"
-                                            : "text-muted-foreground",
-                                        )}
-                                      />
-                                      {wsScriptRunning && (
-                                        <ActivityWave size="small" decorative className="shrink-0" />
-                                      )}
-                                    </div>
+                    const isRenaming = renamingFolderId === folder.id;
+                    const isEmptyFolder = folder.projects.length === 0;
 
-                                    <div className="mt-0.5 flex items-center gap-1 pl-5 text-[11px]">
-                                      {prStatus?.pr ? (
-                                        (() => {
-                                          const display = computePrDisplayCompact(prStatus.pr);
-                                          return (
-                                            <span className={cn("truncate", display.textClass)}>
-                                              #{prStatus.pr.number} {display.label}
-                                            </span>
-                                          );
-                                        })()
-                                      ) : prLoading ? (
-                                        <span className="text-muted-foreground">Loading…</span>
-                                      ) : prStatus?.error ? (
-                                        <span className="text-muted-foreground">Error fetching PR</span>
-                                      ) : (
-                                        <span className="text-muted-foreground">No PR</span>
-                                      )}
-                                    </div>
-                                  </Link>
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="text-xs">
-                                  {ws.name}
-                                </TooltipContent>
-                              </Tooltip>
-
-                              {wsArchiving ? (
-                                <div className="absolute right-1.5 top-1.5 p-0.5">
-                                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                                </div>
-                              ) : !wsScriptRunning && (
-                                <button
-                                  type="button"
-                                  className="absolute right-1.5 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    void handleArchiveClick(ws.id);
-                                  }}
-                                  aria-label={`Archive workspace ${ws.name}`}
-                                  title="Archive workspace"
-                                >
-                                  <ArchiveIcon className="h-3 w-3" />
-                                </button>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
+                    return (
+                      <SidebarFolderItem
+                        key={folder.id}
+                        folder={folder}
+                        expanded={expanded}
+                        canInteract={hasInitialHydration}
+                        isActiveDropTarget={isActiveDropTarget}
+                        containsActiveProject={containsActiveProject}
+                        isDraggedFolder={isDraggedFolder}
+                        isRenaming={isRenaming}
+                        isEmptyFolder={isEmptyFolder}
+                        draggingFolderId={draggingFolderId}
+                        folderInsertIndicator={folderInsertIndicator}
+                        renameDraft={renameDraft}
+                        onOpenChange={(open) => setFolderExpanded(folder.id, open)}
+                        onFolderDragOver={handleFolderDragOver}
+                        onFolderDrop={handleFolderDrop}
+                        onFolderDragStart={handleFolderDragStart}
+                        onFolderDragEnd={handleFolderDragEnd}
+                        onFolderReorderDragOver={handleFolderReorderDragOver}
+                        onFolderReorderDrop={handleFolderReorderDrop}
+                        onStartRenaming={startRenamingFolder}
+                        onDeleteRequest={(folderId, folderName) =>
+                          setDeleteFolderTarget({ id: folderId, name: folderName })
+                        }
+                        onRenameDraftChange={setRenameDraft}
+                        onCommitRename={commitRenamingFolder}
+                        onCancelRename={cancelRenamingFolder}
+                        renderProjectItem={renderProjectItem}
+                      />
+                    );
+                  })}
                 </div>
-                );
-              })}
+              )}
 
-              <div className="mt-6">
-                <div className="mb-6 border-t border-white/15" />
+              {rootProjects.length > 0 && (
+                <div className={cn("space-y-px", folders.length > 0 && "mt-0.5")}>
+                  {rootProjects.map((project) => renderProjectItem(project, null))}
+                </div>
+              )}
+
+              <div className="mt-4">
+                <div className="mb-3 border-t border-white/10" />
                 <SidebarSectionHeader
                   label="Automations"
                   isLoading={automationsLoading}
@@ -449,7 +516,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
                     <p className="text-xs text-muted-foreground/60">no automations</p>
                   </div>
                 ) : (
-                  <div className="mt-2 space-y-1.5">
+                  <div className="mt-1 space-y-px">
                     {sortedAutomations.map((auto) => (
                       <AutomationRow key={auto.id} auto={auto} pathname={pathname} />
                     ))}
@@ -472,6 +539,32 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
           Add repository
         </button>
       </div>
+
+      <AlertDialog
+        open={deleteFolderTarget !== null}
+        onOpenChange={(open) => !open && setDeleteFolderTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete folder</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove the folder “{deleteFolderTarget?.name}”? Repositories are not affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!hasInitialHydration || !deleteFolderTargetId) return;
+                deleteFolder(deleteFolderTargetId);
+                setDeleteFolderTarget(null);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={archiveTarget !== null}
@@ -497,30 +590,8 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
     </SidebarShell>
   );
-}
-
-// ── Automation sidebar list ──────────────────────────────────────────
-
-export function automationSortKey(a: Automation): number {
-  if (a.lastRunStatus === "running") return 0;
-  if (a.enabled) return 1;
-  return 2;
-}
-
-export function describeSchedule(expression: string): string {
-  const presets: Record<string, string> = {
-    "0 * * * *": "Hourly",
-    "0 */6 * * *": "Every 6h",
-    "0 2 * * *": "Daily 2am",
-    "0 8 * * *": "Daily 8am",
-    "0 0 * * *": "Daily midnight",
-    "0 9 * * 1-5": "Weekdays 9am",
-    "0 9 * * 1": "Weekly Mon",
-  };
-  return presets[expression] ?? expression;
 }
 
 function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string }) {
@@ -540,43 +611,51 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
   })();
 
   return (
-    <Link
-      to={`/automations/${auto.id}`}
-      className={cn(
-        "sidebar-card block rounded-md border px-2.5 py-1.5",
-        isActive && "sidebar-card-active",
-      )}
-    >
-      <div className="flex items-center gap-2">
+    <div className="relative">
+      {isActive && (
         <span
-          className={cn(
-            "h-1.5 w-1.5 shrink-0 rounded-full",
-            isRunning
-              ? "bg-green-500 animate-pulse"
-              : auto.enabled
-                ? "bg-green-500"
-                : "bg-muted-foreground/40",
-          )}
+          aria-hidden
+          className="pointer-events-none absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-primary"
         />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-sm",
-            isActive || auto.enabled
-              ? "text-sidebar-foreground"
-              : "text-muted-foreground",
-          )}
-        >
-          {auto.name}
-        </span>
-        <span
-          className={cn(
-            "shrink-0 text-[11px]",
-            isActive ? "text-sidebar-foreground/70" : "text-muted-foreground",
-          )}
-        >
-          {rightLabel}
-        </span>
-      </div>
-    </Link>
+      )}
+      <Link
+        to={`/automations/${auto.id}`}
+        className={cn(
+          "sidebar-card block rounded px-2 py-1 transition-colors hover:bg-sidebar-accent/50",
+          isActive && "sidebar-card-active bg-sidebar-accent/70",
+        )}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "h-1.5 w-1.5 shrink-0 rounded-full",
+              isRunning
+                ? "bg-green-500 animate-pulse"
+                : auto.enabled
+                  ? "bg-green-500"
+                  : "bg-muted-foreground/40",
+            )}
+          />
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-[13px]",
+              isActive || auto.enabled
+                ? "text-sidebar-foreground"
+                : "text-muted-foreground",
+            )}
+          >
+            {auto.name}
+          </span>
+          <span
+            className={cn(
+              "shrink-0 text-[11px]",
+              isActive ? "text-sidebar-foreground/70" : "text-muted-foreground",
+            )}
+          >
+            {rightLabel}
+          </span>
+        </div>
+      </Link>
+    </div>
   );
 }

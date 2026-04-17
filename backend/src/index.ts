@@ -23,6 +23,7 @@ import { scriptWsRoutes } from "./ws/script.js";
 import { automationRoutes } from "./api/automations.js";
 import { promptTemplateRoutes } from "./api/prompt-templates.js";
 import { basePromptRoutes } from "./api/base-prompt.js";
+import { uiPreferencesRoutes } from "./api/ui-preferences.js";
 import { AutomationScheduler } from "./services/automation-scheduler.js";
 import { loadConfig } from "./state/config.js";
 import { broadcastToWorkspace } from "./ws/stream.js";
@@ -320,6 +321,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   );
   await app.register((instance: FastifyInstance) => promptTemplateRoutes(instance));
   await app.register((instance: FastifyInstance) => basePromptRoutes(instance));
+  await app.register((instance: FastifyInstance) => uiPreferencesRoutes(instance));
 
   return app;
 }

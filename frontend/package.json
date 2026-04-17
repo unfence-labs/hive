@@ -4,17 +4,22 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "npm --prefix ../shared run build",
     "dev": "vite",
+    "prebuild": "npm --prefix ../shared run build",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "pretypecheck": "npm --prefix ../shared run build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "lint:fix": "eslint \"src/**/*.{ts,tsx}\" --fix",
+    "pretest": "npm --prefix ../shared run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "tauri": "tauri"
   },
   "dependencies": {
+    "@hive/shared": "^0.1.0",
     "@codemirror/lang-markdown": "^6.5.0",
     "@codemirror/language-data": "^6.5.2",
     "@codemirror/theme-one-dark": "^6.1.3",

@@ -4,16 +4,21 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "npm --prefix ../shared run build",
     "dev": "tsx watch src/index.ts",
+    "prebuild": "npm --prefix ../shared run build",
     "build": "tsc",
+    "pretypecheck": "npm --prefix ../shared run build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
     "lint:fix": "eslint \"src/**/*.{ts,tsx}\" --fix",
+    "pretest": "npm --prefix ../shared run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "postinstall": "chmod +x ../node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
   },
   "dependencies": {
+    "@hive/shared": "^0.1.0",
     "@fastify/cors": "^11.2.0",
     "@fastify/websocket": "^11.2.0",
     "croner": "^10.0.1",
