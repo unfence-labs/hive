@@ -127,7 +127,7 @@ export function SidebarProjectItem({
           }}
         />
 
-        <CollapsibleContent>
+        <CollapsibleContent className="mb-2">
           <div className="ml-2 mt-px border-l border-sidebar-border/40 pl-2">
             <div className="mt-1 space-y-1.5">
               {(project.workspaces ?? []).map((ws) => {
