@@ -1,18 +1,24 @@
 import { createHighlighter, type Highlighter } from "shiki";
 
+export type ShikiTheme = "github-dark" | "github-light";
+
 let instance: Promise<Highlighter> | null = null;
 
 function getOrCreateHighlighter() {
   if (!instance) {
     instance = createHighlighter({
-      themes: ["github-dark"],
+      themes: ["github-dark", "github-light"],
       langs: [],
     });
   }
   return instance;
 }
 
-export async function highlightCode(code: string, lang: string): Promise<string> {
+export async function highlightCode(
+  code: string,
+  lang: string,
+  theme: ShikiTheme = "github-dark",
+): Promise<string> {
   const highlighter = await getOrCreateHighlighter();
   const loaded = highlighter.getLoadedLanguages();
   if (!loaded.includes(lang)) {
@@ -24,7 +30,7 @@ export async function highlightCode(code: string, lang: string): Promise<string>
   }
   return highlighter.codeToHtml(code, {
     lang,
-    theme: "github-dark",
+    theme,
     transformers: [
       {
         line(node, line) {
