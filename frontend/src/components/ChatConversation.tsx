@@ -253,7 +253,7 @@ export default function ChatConversation({
         {/* Queued follow-up message */}
         {queuedMessage && (
           <div className="flex w-full flex-col items-end gap-0.5" data-testid="queued-message">
-            <div className="group/queued relative max-w-[85%] rounded-[10px] rounded-br-[2px] border border-dashed border-primary/40 bg-transparent px-3.5 py-2 text-sm leading-relaxed text-white/60">
+            <div className="group/queued relative max-w-[85%] rounded-[10px] rounded-br-[2px] border border-dashed border-primary/40 bg-transparent px-3.5 py-2 text-sm leading-relaxed text-foreground/70">
               <p className="whitespace-pre-wrap">{queuedMessage.content}</p>
               <button
                 type="button"
