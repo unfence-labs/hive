@@ -89,8 +89,10 @@ function renderSidebar(
   path: string,
   projects: Project[],
   apiOverrides?: {
+    projects?: Project[] | Error | (() => Promise<Project[]>);
     diffStat?: Record<string, unknown> | Error;
     automations?: Record<string, unknown>[] | Error;
+    uiPreferences?: UiPreferencesPayload;
   },
 ) {
   const queryClient = new QueryClient({
@@ -98,14 +100,19 @@ function renderSidebar(
   });
 
   vi.mocked(api.get).mockImplementation(async (url: string) => {
-    if (url === "/api/projects") return projects;
+    if (url === "/api/projects") {
+      const override = apiOverrides?.projects;
+      if (override instanceof Error) throw override;
+      if (typeof override === "function") return override();
+      return override ?? projects;
+    }
     if (url === "/api/automations") {
       const override = apiOverrides?.automations;
       if (override instanceof Error) throw override;
       return override ?? [];
     }
     if (url === "/api/ui-preferences") {
-      return { sidebar: { folders: [], folderOpenState: {} } };
+      return apiOverrides?.uiPreferences ?? { sidebar: { folders: [], folderOpenState: {} } };
     }
     const diffMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
     if (diffMatch) {
@@ -287,6 +294,46 @@ describe("Sidebar", () => {
     expect(alphaHeader.querySelector("[class*='tabular-nums']")).toHaveTextContent("1");
     // Beta has 0 workspaces → count "0" visible in project header
     expect(betaHeader.querySelector("[class*='tabular-nums']")).toHaveTextContent("0");
+  });
+
+  it("shows a retry banner when projects fail to load and can recover manually", async () => {
+    const user = userEvent.setup();
+    let attempts = 0;
+
+    renderSidebar("/projects", projects, {
+      projects: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("backend unreachable");
+        return projects;
+      },
+    });
+
+    expect(await screen.findByText("Unable to load repositories")).toBeInTheDocument();
+    expect(screen.getByText(/backend unreachable/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry now" }));
+
+    expect(await screen.findByText(withTextContent("acme/alpha"))).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByText("Unable to load repositories")).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows a recovery banner when folders load before any repositories", async () => {
+    renderSidebar("/projects", [], {
+      uiPreferences: {
+        sidebar: {
+          folders: [{ id: "f1", name: "Recovered", projectIds: ["p1"] }],
+          folderOpenState: { f1: true },
+        },
+      },
+    });
+
+    expect(await screen.findByText("Repository list looks incomplete")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Folders were restored, but the repository list is empty/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry now" })).toBeInTheDocument();
   });
 
   it("creates collapsible folders from the workspaces header", async () => {

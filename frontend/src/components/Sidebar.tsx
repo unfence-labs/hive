@@ -1,7 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getNextRun, formatTimeUntil } from "@/lib/cron";
 import {
+  AlertCircle,
   FolderPlus,
+  Loader2,
   Settings,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -18,6 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import { useProjects } from "@/hooks/useProjects";
@@ -61,7 +64,17 @@ type ProjectOrderDropTarget = {
 };
 
 export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps) {
-  const { projects, loading, ready: projectsReady, createWorkspace, archiveWorkspace } = useProjects();
+  const {
+    projects,
+    loading,
+    recovering: projectsRecovering,
+    unavailable: projectsUnavailable,
+    ready: projectsReady,
+    errorMessage: projectsErrorMessage,
+    retryProjects,
+    createWorkspace,
+    archiveWorkspace,
+  } = useProjects();
   const { data: automations, isLoading: automationsLoading } = useAutomations();
   const queryClient = useQueryClient();
   const { wsId: activeWsId } = useParams();
@@ -111,6 +124,17 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     setFolderExpanded,
     getFolderIdForProject,
   } = useSidebarProjectFolders(projects, projectsReady);
+  const projectsAppearIncomplete = projectsReady
+    && projects.length === 0
+    && folders.some((folder) => folder.projectIds.length > folder.projects.length);
+
+  useEffect(() => {
+    if (!projectsAppearIncomplete) return;
+    const intervalId = setInterval(() => {
+      void retryProjects();
+    }, 5_000);
+    return () => clearInterval(intervalId);
+  }, [projectsAppearIncomplete, retryProjects]);
 
   const isProjectExpanded = (projectId: string) => {
     const expanded = expandedProjects[projectId];
@@ -420,6 +444,44 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
             </div>
           ) : (
             <TooltipProvider delayDuration={400}>
+              {(projectsUnavailable || projectsAppearIncomplete) && (
+                <div
+                  className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3"
+                  role="alert"
+                >
+                  <div className="flex items-start gap-2.5">
+                    {projectsRecovering ? (
+                      <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-amber-500" />
+                    ) : (
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-sidebar-foreground">
+                        {projectsAppearIncomplete
+                          ? "Repository list looks incomplete"
+                          : "Unable to load repositories"}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {projectsAppearIncomplete
+                          ? "Folders were restored, but the repository list is empty. Hive is retrying automatically."
+                          : `${projectsErrorMessage ?? "The repository list is unavailable."} Hive will keep retrying automatically.`}
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        className="mt-3"
+                        onClick={() => { void retryProjects(); }}
+                        disabled={projectsRecovering}
+                      >
+                        {projectsRecovering && <Loader2 className="h-3 w-3 animate-spin" />}
+                        {projectsRecovering ? "Retrying..." : "Retry now"}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <SidebarSectionHeader
                 label="Workspaces"
                 className="mb-1"
