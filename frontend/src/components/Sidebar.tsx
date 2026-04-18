@@ -61,7 +61,7 @@ type ProjectOrderDropTarget = {
 };
 
 export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps) {
-  const { projects, loading, createWorkspace, archiveWorkspace } = useProjects();
+  const { projects, loading, ready: projectsReady, createWorkspace, archiveWorkspace } = useProjects();
   const { data: automations, isLoading: automationsLoading } = useAutomations();
   const queryClient = useQueryClient();
   const { wsId: activeWsId } = useParams();
@@ -110,7 +110,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     isFolderExpanded,
     setFolderExpanded,
     getFolderIdForProject,
-  } = useSidebarProjectFolders(projects, !loading);
+  } = useSidebarProjectFolders(projects, projectsReady);
 
   const isProjectExpanded = (projectId: string) => {
     const expanded = expandedProjects[projectId];

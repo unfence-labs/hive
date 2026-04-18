@@ -93,6 +93,9 @@ export function useProjects() {
   return {
     projects: query.data ?? [],
     loading: query.isLoading,
+    // True only after a successful fetch — guards destructive UI logic that
+    // must not run on an empty/failed project list (e.g. sidebar-folder sanitize).
+    ready: query.isSuccess,
     error: query.error,
     fetchProjects: () =>
       queryClient.invalidateQueries({ queryKey: ["projects"] }),

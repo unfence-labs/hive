@@ -6,6 +6,7 @@ import { gh } from "../utils/github.js";
 import { bareRepoPath } from "../utils/paths.js";
 import { saveProject, loadProject, loadAllProjects, getDataDir } from "../state/state.js";
 import { notifyProjectDeleted } from "../state/workspace-index.js";
+import { pruneProjectFromUiPreferences } from "../state/ui-preferences.js";
 import { validateRepositoryUrl } from "../utils/repo-url.js";
 import { NotFoundError } from "../utils/errors.js";
 import type { ProjectState } from "../types.js";
@@ -194,6 +195,7 @@ export async function deleteProject(
   const projectDir = join(dataDir, projectId);
   await rm(projectDir, { recursive: true, force: true });
   notifyProjectDeleted(projectId);
+  await pruneProjectFromUiPreferences(projectId, dataDir);
 }
 
 export async function fetchProject(

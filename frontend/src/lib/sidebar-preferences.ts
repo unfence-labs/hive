@@ -1,6 +1,7 @@
 import type { Project } from "@/types";
 import {
   EMPTY_SIDEBAR_PROJECT_FOLDERS_STATE,
+  normalizeSidebarPreferencesState,
   parseSidebarProjectFoldersState,
   sanitizeSidebarPreferencesState,
   type SidebarProjectFolder,
@@ -10,6 +11,7 @@ import {
 
 export {
   EMPTY_SIDEBAR_PROJECT_FOLDERS_STATE,
+  normalizeSidebarPreferencesState,
   sanitizeSidebarPreferencesState,
   type SidebarProjectFolder,
   type SidebarProjectFoldersState,

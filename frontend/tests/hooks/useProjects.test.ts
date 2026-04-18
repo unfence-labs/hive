@@ -46,7 +46,23 @@ describe("useProjects", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.projects).toEqual([makeProject("p1")]);
+    expect(result.current.ready).toBe(true);
     expect(api.get).toHaveBeenCalledWith("/api/projects");
+  });
+
+  // Regression: consumers that do destructive work against `projects` (e.g.
+  // sidebar-folder sanitize) must gate on `ready`, not on `!loading`. A failed
+  // first fetch leaves `loading=false` with `projects=[]` — treating that as
+  // "ready" wipes every folder.projectIds downstream.
+  it("ready stays false when the initial fetch fails", async () => {
+    vi.mocked(api.get).mockRejectedValueOnce(new Error("boom"));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.projects).toEqual([]);
+    expect(result.current.ready).toBe(false);
   });
 
   it("creates workspace and appends it to the project cache", async () => {
