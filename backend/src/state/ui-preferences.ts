@@ -50,3 +50,26 @@ export function sanitizeUiPreferences(
 ): UiPreferences {
   return sanitizeUiPreferencesPayload(prefs, knownProjectIds);
 }
+
+/**
+ * Remove a project's id from every folder and persist. Call this from
+ * project deletion — it's the only moment we know for sure the project is gone.
+ * No-op when the project isn't referenced anywhere.
+ */
+export async function pruneProjectFromUiPreferences(
+  projectId: string,
+  dataDir = getDataDir(),
+): Promise<void> {
+  const prefs = await loadUiPreferences(dataDir);
+  let changed = false;
+  const folders = prefs.sidebar.folders.map((folder) => {
+    const filtered = folder.projectIds.filter((id) => id !== projectId);
+    if (filtered.length !== folder.projectIds.length) changed = true;
+    return { ...folder, projectIds: filtered };
+  });
+  if (!changed) return;
+  await saveUiPreferences(
+    { sidebar: { folders, folderOpenState: prefs.sidebar.folderOpenState } },
+    dataDir,
+  );
+}

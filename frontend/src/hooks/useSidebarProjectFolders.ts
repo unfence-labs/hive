@@ -10,11 +10,11 @@ import {
   moveProjectBetweenSidebarFolders,
   moveProjectWithinSidebarFolders,
   moveSidebarFolder,
+  normalizeSidebarPreferencesState,
   payloadToSidebarPreferencesState,
   readLegacySidebarPreferences,
   readSidebarPreferencesLocalSeed,
   removeLegacySidebarPreferences,
-  sanitizeSidebarPreferencesState,
   writeSidebarPreferencesLocalCache,
   isEmptySidebarPreferencesState,
   type FolderInsertPosition,
@@ -36,21 +36,12 @@ function createId(): string {
 
 export function useSidebarProjectFolders(projects: Project[], projectsReady = true) {
   const queryClient = useQueryClient();
-  const projectIds = useMemo(
-    () => projects.map((project) => project.id),
-    [projects],
-  );
 
   const initialLocalSeedRef = useRef(readSidebarPreferencesLocalSeed());
   const bootstrappedRef = useRef(false);
   const [hasInitialHydration, setHasInitialHydration] = useState(false);
   const [state, setState] = useState<SidebarProjectFoldersState>(
     EMPTY_SIDEBAR_PROJECT_FOLDERS_STATE,
-  );
-
-  const projectIdsKey = useMemo(
-    () => [...projectIds].sort().join(","),
-    [projectIds],
   );
 
   // Remote fetch (single source of truth after first hydration).
@@ -81,30 +72,32 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
     if (bootstrappedRef.current || hydratedRef.current) return;
 
     bootstrappedRef.current = true;
-    const next = sanitizeSidebarPreferencesState(initialLocalSeedRef.current.state, projectIds);
+    // Non-destructive: normalize folder shape only. Filtering projectIds against
+    // the known project list is reserved for explicit project deletion; running
+    // it here would wipe refs whenever projects are transiently incomplete.
+    const next = normalizeSidebarPreferencesState(initialLocalSeedRef.current.state);
     setState((prev) => (areSidebarPreferencesStatesEqual(prev, next) ? prev : next));
-  }, [projectIds, projectIdsKey, projectsReady]);
+  }, [projectsReady]);
 
   // Hydrate from server when data arrives.
   useEffect(() => {
     if (!projectsReady || !preferencesData) return;
-    const serverState = sanitizeSidebarPreferencesState(
+    const serverState = normalizeSidebarPreferencesState(
       payloadToSidebarPreferencesState(preferencesData),
-      projectIds,
     );
 
     // One-shot migration: empty server + legacy localStorage -> push legacy up.
     if (!hydratedRef.current && isEmptySidebarPreferencesState(serverState)) {
       const legacy = readLegacySidebarPreferences();
       if (legacy && !isEmptySidebarPreferencesState(legacy)) {
-        const sanitized = sanitizeSidebarPreferencesState(legacy, projectIds);
-        if (!isEmptySidebarPreferencesState(sanitized)) {
+        const normalizedLegacy = normalizeSidebarPreferencesState(legacy);
+        if (!isEmptySidebarPreferencesState(normalizedLegacy)) {
           hydratedRef.current = true;
           setHasInitialHydration(true);
           lastFlushedRef.current = serverState;
           bootstrappedRef.current = true;
           pendingLegacyRemovalRef.current = true;
-          setState(sanitized);
+          setState(normalizedLegacy);
           return;
         }
       }
@@ -117,7 +110,7 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
     setState((prev) => {
       return areSidebarPreferencesStatesEqual(prev, serverState) ? prev : serverState;
     });
-  }, [preferencesData, projectIds, projectIdsKey, projectsReady]);
+  }, [preferencesData, projectsReady]);
 
   useEffect(() => {
     if (!projectsReady) return;
@@ -129,14 +122,10 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
     bootstrappedRef.current = true;
   }, [preferencesError, preferencesFetched, projectsReady]);
 
-  // Re-sanitize when the list of projects changes (e.g. project deleted).
-  useEffect(() => {
-    if (!projectsReady || !bootstrappedRef.current) return;
-    setState((prev) => {
-      const next = sanitizeSidebarPreferencesState(prev, projectIds);
-      return areSidebarPreferencesStatesEqual(prev, next) ? prev : next;
-    });
-  }, [projectIds, projectIdsKey, projectsReady]);
+  // Project deletion prunes folder refs server-side (see pruneProjectFromUiPreferences),
+  // and mapSidebarFolderProjects hides any stale refs at render. A client-side
+  // sanitize here would add nothing but one more way to clobber state when the
+  // project list is transiently incomplete.
 
   // Persist local cache immediately + schedule a debounced PUT to the backend.
   useEffect(() => {
@@ -165,9 +154,8 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
       api
         .put<UiPreferencesPayload>("/api/ui-preferences", { sidebar: snapshot })
         .then((payload) => {
-          const applied = sanitizeSidebarPreferencesState(
+          const applied = normalizeSidebarPreferencesState(
             payloadToSidebarPreferencesState(payload),
-            projectIds,
           );
           queryClient.setQueryData<UiPreferencesPayload>(
             ["ui-preferences"],
@@ -190,9 +178,8 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
           try {
             const result = await refetchPreferences();
             if (result.data) {
-              const canonical = sanitizeSidebarPreferencesState(
+              const canonical = normalizeSidebarPreferencesState(
                 payloadToSidebarPreferencesState(result.data),
-                projectIds,
               );
               lastFlushedRef.current = canonical;
               setState((prev) => (
@@ -219,7 +206,7 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
         flushTimerRef.current = null;
       }
     };
-  }, [projectIds, projectIdsKey, queryClient, refetchPreferences, state]);
+  }, [queryClient, refetchPreferences, state]);
 
   const folders = useMemo<SidebarProjectFolderView[]>(
     () => mapSidebarFolderProjects(state.folders, projects),

@@ -1,14 +1,104 @@
+import { useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "./useApi";
 import type { Project, Workspace } from "@/types";
+
+const PROJECTS_FETCH_TIMEOUT_MS = 10_000;
+const PROJECTS_RECOVERY_INTERVAL_MS = 5_000;
+
+function makeTimeoutError(message: string): Error {
+  if (typeof DOMException === "function") {
+    return new DOMException(message, "TimeoutError");
+  }
+  const error = new Error(message);
+  error.name = "TimeoutError";
+  return error;
+}
+
+function createLinkedAbortSignal(parentSignal?: AbortSignal): {
+  abort: (reason?: unknown) => void;
+  cleanup: () => void;
+  signal: AbortSignal;
+} {
+  const controller = new AbortController();
+
+  const abortFromParent = () => {
+    controller.abort(parentSignal?.reason);
+  };
+
+  if (parentSignal?.aborted) {
+    abortFromParent();
+  } else if (parentSignal) {
+    parentSignal.addEventListener("abort", abortFromParent, { once: true });
+  }
+
+  return {
+    abort: (reason?: unknown) => controller.abort(reason),
+    signal: controller.signal,
+    cleanup: () => {
+      parentSignal?.removeEventListener("abort", abortFromParent);
+    },
+  };
+}
+
+async function fetchProjects(signal?: AbortSignal): Promise<Project[]> {
+  const {
+    abort,
+    signal: requestSignal,
+    cleanup,
+  } = createLinkedAbortSignal(signal);
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const timeoutError = makeTimeoutError("Loading repositories timed out.");
+      abort(timeoutError);
+      reject(timeoutError);
+    }, PROJECTS_FETCH_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([
+      api.get<Project[]>("/api/projects", { signal: requestSignal }),
+      timeoutPromise,
+    ]);
+  } catch (error) {
+    if (!signal?.aborted && requestSignal.aborted && requestSignal.reason instanceof Error) {
+      throw requestSignal.reason;
+    }
+    throw error;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    cleanup();
+  }
+}
+
+function formatProjectsError(error: unknown): string {
+  if (error instanceof DOMException && error.name === "TimeoutError") {
+    return "The server took too long to respond.";
+  }
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  return "Unable to load repositories.";
+}
 
 export function useProjects() {
   const queryClient = useQueryClient();
 
   const query = useQuery({
     queryKey: ["projects"],
-    queryFn: () => api.get<Project[]>("/api/projects"),
+    queryFn: ({ signal }) => fetchProjects(signal),
+    refetchInterval: (currentQuery) =>
+      currentQuery.state.error && !currentQuery.state.data
+        ? PROJECTS_RECOVERY_INTERVAL_MS
+        : false,
+    refetchIntervalInBackground: true,
   });
+
+  const retryProjects = useCallback(
+    () => query.refetch(),
+    [query.refetch],
+  );
 
   /** Shared logic: create project → optimistic cache → create workspace → rollback on error. */
   async function createProjectThenWorkspace(
@@ -93,9 +183,16 @@ export function useProjects() {
   return {
     projects: query.data ?? [],
     loading: query.isLoading,
+    recovering: query.isFetching && query.isError && !query.data,
+    unavailable: query.isError && !query.data,
+    // True only after a successful fetch — guards destructive UI logic that
+    // must not run on an empty/failed project list (e.g. sidebar-folder sanitize).
+    ready: query.isSuccess,
     error: query.error,
+    errorMessage: query.error ? formatProjectsError(query.error) : null,
     fetchProjects: () =>
       queryClient.invalidateQueries({ queryKey: ["projects"] }),
+    retryProjects,
     createProjectWithWorkspace: (url: string) =>
       createProjectWithWorkspace.mutateAsync(url),
     createNewProjectWithWorkspace: (params: { name: string; visibility?: "public" | "private" }) =>

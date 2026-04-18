@@ -86,6 +86,30 @@ describe("deleteProject", () => {
     await deleteProject(state.id, dataDir);
     expect(existsSync(projDir)).toBe(false);
   });
+
+  it("prunes the deleted project from sidebar folder refs", async () => {
+    const state = await createProject(fixtureRepoUrl, dataDir);
+    const { writeFile, readFile } = await import("node:fs/promises");
+    await writeFile(
+      join(dataDir, "ui-preferences.json"),
+      JSON.stringify({
+        sidebar: {
+          folders: [
+            { id: "f1", name: "Work", projectIds: [state.id, "other"] },
+          ],
+          folderOpenState: { f1: true },
+        },
+      }),
+      "utf-8",
+    );
+
+    await deleteProject(state.id, dataDir);
+
+    const onDisk = JSON.parse(
+      await readFile(join(dataDir, "ui-preferences.json"), "utf-8"),
+    );
+    expect(onDisk.sidebar.folders[0].projectIds).toEqual(["other"]);
+  });
 });
 
 describe("initProject", () => {

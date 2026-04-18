@@ -35,6 +35,7 @@ function makeWorkspace(id: string): Workspace {
 
 describe("useProjects", () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -46,7 +47,74 @@ describe("useProjects", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.projects).toEqual([makeProject("p1")]);
-    expect(api.get).toHaveBeenCalledWith("/api/projects");
+    expect(result.current.ready).toBe(true);
+    expect(api.get).toHaveBeenCalledWith(
+      "/api/projects",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  // Regression: consumers that do destructive work against `projects` (e.g.
+  // sidebar-folder sanitize) must gate on `ready`, not on `!loading`. A failed
+  // first fetch leaves `loading=false` with `projects=[]` — treating that as
+  // "ready" wipes every folder.projectIds downstream.
+  it("ready stays false when the initial fetch fails", async () => {
+    vi.mocked(api.get).mockRejectedValueOnce(new Error("boom"));
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.projects).toEqual([]);
+    expect(result.current.ready).toBe(false);
+  });
+
+  it("retries automatically after an initial fetch failure", async () => {
+    vi.useFakeTimers();
+    vi.mocked(api.get)
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValueOnce([makeProject("p1")]);
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+
+    expect(result.current.errorMessage).toBe("boom");
+    expect(result.current.unavailable).toBe(true);
+
+    await act(async () => {
+      for (let i = 0; i < 5 && !result.current.ready; i += 1) {
+        await vi.advanceTimersByTimeAsync(1_000);
+      }
+    });
+
+    expect(result.current.ready).toBe(true);
+    expect(result.current.projects).toEqual([makeProject("p1")]);
+  });
+
+  it("times out a hung initial fetch and marks projects as unavailable", async () => {
+    vi.useFakeTimers();
+    vi.mocked(api.get).mockImplementation(
+      () => new Promise<Project[]>(() => {}),
+    );
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useProjects(), { wrapper });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+      for (let i = 0; i < 12 && !result.current.unavailable; i += 1) {
+        await vi.advanceTimersByTimeAsync(1_000);
+      }
+    });
+
+    vi.useRealTimers();
+    await waitFor(() => expect(result.current.unavailable).toBe(true));
+    expect(result.current.errorMessage).toBe("The server took too long to respond.");
+    expect(result.current.ready).toBe(false);
   });
 
   it("creates workspace and appends it to the project cache", async () => {
