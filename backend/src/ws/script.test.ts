@@ -61,7 +61,7 @@ function createMockProcess(overrides?: Partial<ScriptProcess>): ScriptProcess {
     } as unknown as ScriptProcess["pty"],
     type: "setup",
     state: "running",
-    outputBuffer: [],
+    outputBuffer: "",
     listeners: new Map(),
     exitListeners: new Map(),
   };
@@ -184,14 +184,14 @@ describe("script WS routes", () => {
     const proc = createMockProcess({
       state: "done",
       exitCode: 0,
-      outputBuffer: ["line-1", "line-2"],
+      outputBuffer: "line-1\r\nline-2\r\n",
     });
     mocks.getScriptProcess.mockReturnValue(proc);
 
     const { ws, jsonMessages, binaryMessages } = await connectScriptWs("/ws/script/ws-1?type=setup");
     await waitForCondition(() => binaryMessages.length > 0 && jsonMessages.length > 0);
 
-    expect(binaryMessages[0]).toBe("line-1\nline-2");
+    expect(binaryMessages[0]).toBe("line-1\r\nline-2\r\n");
     expect(jsonMessages).toContainEqual({ type: "exit", code: 0 });
     expect(jsonMessages).not.toContainEqual({ type: "ready" });
     expect(proc.listeners.size).toBe(0);
@@ -203,7 +203,7 @@ describe("script WS routes", () => {
     const proc = createMockProcess({
       state: "running",
       type: "run",
-      outputBuffer: ["boot"],
+      outputBuffer: "boot",
     });
     mocks.getScriptProcess.mockReturnValue(proc);
 

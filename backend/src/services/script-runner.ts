@@ -5,14 +5,14 @@ import { buildWorkspaceEnv } from "../utils/env.js";
 export type ScriptType = string;
 export type ScriptState = "idle" | "running" | "done" | "error";
 
-const MAX_BUFFER_LINES = 200;
+const MAX_BUFFER_BYTES = 256 * 1024;
 
 export interface ScriptProcess {
   pty: IPty;
   type: ScriptType;
   state: ScriptState;
   exitCode?: number;
-  outputBuffer: string[];
+  outputBuffer: string;
   /** Live data listeners (WS connections). Keyed by arbitrary id. */
   listeners: Map<string, (data: string) => void>;
   /** Exit listeners. */
@@ -56,20 +56,25 @@ export function startScript(
     pty: ptyProcess,
     type,
     state: "running",
-    outputBuffer: [],
+    outputBuffer: "",
     listeners: new Map(),
     exitListeners: new Map(),
   };
 
   ptyProcess.onData((data) => {
-    // Feed ring buffer
-    const lines = data.split("\n");
-    for (const line of lines) {
-      proc.outputBuffer.push(line);
-    }
-    // Trim buffer
-    if (proc.outputBuffer.length > MAX_BUFFER_LINES) {
-      proc.outputBuffer.splice(0, proc.outputBuffer.length - MAX_BUFFER_LINES);
+    // Append raw PTY chunk to the ring buffer. We intentionally keep the stream
+    // verbatim (ANSI escapes, partial lines, \r\n) so the replay on reconnect
+    // matches what xterm would have rendered live.
+    proc.outputBuffer += data;
+    if (proc.outputBuffer.length > MAX_BUFFER_BYTES) {
+      const overflow = proc.outputBuffer.length - MAX_BUFFER_BYTES;
+      // Trim at the next newline past the overflow point to avoid slicing an
+      // ANSI escape sequence in half.
+      const nextNewline = proc.outputBuffer.indexOf("\n", overflow);
+      proc.outputBuffer =
+        nextNewline === -1
+          ? proc.outputBuffer.slice(overflow)
+          : proc.outputBuffer.slice(nextNewline + 1);
     }
     // Notify live listeners
     for (const listener of proc.listeners.values()) {
@@ -194,7 +199,7 @@ export function _setScriptStatusForTests(
     type,
     state,
     ...(exitCode !== undefined ? { exitCode } : {}),
-    outputBuffer: [],
+    outputBuffer: "",
     listeners: new Map(),
     exitListeners: new Map(),
   };

@@ -6,8 +6,24 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ActivityWave } from "@/components/ui/activity-wave";
 import { cn } from "@/lib/utils";
+import { useThemeType } from "@/hooks/useThemeType";
 import type { ScriptStatusInfo, HiveConfig } from "@/types";
 import "@xterm/xterm/css/xterm.css";
+
+const XTERM_THEMES = {
+  dark: {
+    background: "#09090f",
+    foreground: "#e4e4e7",
+    cursor: "#e4e4e7",
+    selectionBackground: "#3f3f46",
+  },
+  light: {
+    background: "#f5f5f5",
+    foreground: "#18181b",
+    cursor: "#18181b",
+    selectionBackground: "#d4d4d8",
+  },
+} as const;
 
 interface ScriptPanelProps {
   config: HiveConfig | null;
@@ -88,6 +104,9 @@ export default function ScriptPanel({
   const fitAddonRef = useRef<FitAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const connectedTabRef = useRef<string | null>(null);
+  const theme = useThemeType();
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
 
   // Incremented on re-run to force the terminal init effect to re-fire
   const [runGeneration, setRunGeneration] = useState(0);
@@ -109,7 +128,7 @@ export default function ScriptPanel({
       fontSize: 12,
       fontFamily: '"Geist Mono", Menlo, Monaco, "Courier New", monospace',
       lineHeight: 1.3,
-      theme: { background: "#09090f" },
+      theme: XTERM_THEMES[themeRef.current],
       scrollback: 5000,
       disableStdin: false,
     });
@@ -171,6 +190,13 @@ export default function ScriptPanel({
     };
   }, [destroyTerminal]);
 
+  // Live theme updates without recreating the terminal
+  useEffect(() => {
+    if (termRef.current) {
+      termRef.current.options.theme = XTERM_THEMES[theme];
+    }
+  }, [theme]);
+
   const handleAction = async () => {
     if (currentStatus.state === "running") {
       if (isTerminalTab) {
@@ -226,15 +252,15 @@ export default function ScriptPanel({
               className={cn(
                 "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
                 effectiveTab === tab.key
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
+                  ? "font-semibold text-foreground"
+                  : "font-normal text-muted-foreground hover:text-foreground",
               )}
               onClick={() => setActiveTab(tab.key)}
             >
               {tab.isTerminal ? (
                 <>
                   {tabStatus.state === "running" && <ActivityWave size="small" decorative />}
-                  <span className="font-semibold">T1</span>
+                  <span>T1</span>
                 </>
               ) : (
                 <>
@@ -268,7 +294,11 @@ export default function ScriptPanel({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {shouldShowTerminal ? (
           <>
-            <div ref={containerRef} className="h-full w-full overflow-hidden px-3" style={{ backgroundColor: "#09090f" }} />
+            <div
+              ref={containerRef}
+              className="h-full w-full overflow-hidden px-3"
+              style={{ backgroundColor: XTERM_THEMES[theme].background }}
+            />
             {/* Port badge */}
             {!isSetupTab && !isTerminalTab && config?.port && currentStatus.state === "running" && (
               <div className="absolute bottom-2 right-2">

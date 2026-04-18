@@ -60,11 +60,11 @@ export async function scriptWsRoutes(
         return;
       }
 
-      // Replay buffered output
+      // Replay buffered output verbatim (preserves \r\n, ANSI escapes, cursor
+      // positioning). Splitting/rejoining the stream corrupts xterm rendering.
       if (proc.outputBuffer.length > 0) {
-        const buffered = proc.outputBuffer.join("\n");
         if (socket.readyState === socket.OPEN) {
-          socket.send(Buffer.from(buffered), { binary: true });
+          socket.send(Buffer.from(proc.outputBuffer), { binary: true });
         }
       }
 

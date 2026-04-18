@@ -145,14 +145,21 @@ describe("script-runner", () => {
     expect(getScriptStatus("ws-1").setup?.state).toBe("running");
   });
 
-  it("keeps only the latest 200 output lines in buffer", () => {
+  it("appends raw PTY chunks verbatim to the output buffer", () => {
     const proc = startScript("ws-1", "run", "npm run dev", "/tmp/workspace");
-    const lines = Array.from({ length: 205 }, (_, i) => `line-${i}`).join("\n");
-    mocks.processes[0]?.emitData(lines);
+    mocks.processes[0]?.emitData("\x1b[32m➜\x1b[0m  ");
+    mocks.processes[0]?.emitData("hello\r\nworld\r\n");
 
-    expect(proc.outputBuffer).toHaveLength(200);
-    expect(proc.outputBuffer[0]).toBe("line-5");
-    expect(proc.outputBuffer[199]).toBe("line-204");
+    expect(proc.outputBuffer).toBe("\x1b[32m➜\x1b[0m  hello\r\nworld\r\n");
+  });
+
+  it("caps the output buffer near the byte limit, trimming at newline boundaries", () => {
+    const proc = startScript("ws-1", "run", "npm run dev", "/tmp/workspace");
+    const big = "x".repeat(300 * 1024) + "\nTAIL\n";
+    mocks.processes[0]?.emitData(big);
+
+    expect(proc.outputBuffer.length).toBeLessThan(300 * 1024);
+    expect(proc.outputBuffer.endsWith("TAIL\n")).toBe(true);
   });
 
   it("notifies listeners and updates state on process exit", () => {
