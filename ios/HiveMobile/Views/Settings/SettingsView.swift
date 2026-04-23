@@ -26,7 +26,7 @@ struct SettingsView: View {
             healthSection
         }
         .scrollDismissesKeyboard(.interactively)
-        .onTapGesture { focusedField = nil }
+        .simultaneousGesture(TapGesture().onEnded { focusedField = nil })
         .toolbar(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -173,15 +173,17 @@ struct SettingsView: View {
             }
 
             Button {
+                focusedField = nil
                 checkHealth()
             } label: {
                 HStack {
                     Text("Test Connection")
+                    Spacer()
                     if isChecking {
-                        Spacer()
                         ProgressView()
                     }
                 }
+                .contentShape(Rectangle())
             }
             .disabled(isChecking)
         }
@@ -190,14 +192,14 @@ struct SettingsView: View {
     private func checkHealth() {
         isChecking = true
         healthStatus = .checking
-        Task {
+        Task { @MainActor in
+            defer { isChecking = false }
             do {
                 let ok = try await APIClient().checkHealth()
                 healthStatus = ok ? .connected : .error("Unexpected response")
             } catch {
                 healthStatus = .error(error.localizedDescription)
             }
-            isChecking = false
         }
     }
 }
