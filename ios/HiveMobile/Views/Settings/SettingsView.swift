@@ -8,8 +8,9 @@ struct SettingsView: View {
     @AppStorage("hiveThemeMode") private var themeModeId = HiveThemeMode.system.rawValue
 
     @FocusState private var focusedField: Field?
-    @State private var healthStatus: HealthStatus = .unknown
-    @State private var isChecking = false
+    @State private var healthStatus: HealthStatus = .disconnected
+    @State private var pollingTask: Task<Void, Never>?
+    @State private var debouncedCheckTask: Task<Void, Never>?
 
     private enum Field: Hashable {
         case host, port, token
@@ -23,10 +24,14 @@ struct SettingsView: View {
         Form {
             appearanceSection
             connectionSection
-            healthSection
         }
         .scrollDismissesKeyboard(.interactively)
         .onTapGesture { focusedField = nil }
+        .onAppear { startConnectionPolling() }
+        .onDisappear { stopConnectionPolling() }
+        .onChange(of: host) { _, _ in scheduleConnectionCheck() }
+        .onChange(of: port) { _, _ in scheduleConnectionCheck() }
+        .onChange(of: token) { _, _ in scheduleConnectionCheck() }
         .toolbar(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -130,7 +135,7 @@ struct SettingsView: View {
     // MARK: - Connection
 
     private var connectionSection: some View {
-        Section("Connection") {
+        Section {
             LabeledContent("Host") {
                 TextField("hostname or IP", text: $host)
                     .focused($focusedField, equals: .host)
@@ -150,54 +155,72 @@ struct SettingsView: View {
                     .focused($focusedField, equals: .token)
                     .multilineTextAlignment(.trailing)
             }
+        } header: {
+            connectionHeader
         }
     }
 
-    // MARK: - Health Check
-
-    private var healthSection: some View {
-        Section("Server") {
-            HStack {
-                Label {
-                    Text("Status")
-                } icon: {
-                    Circle()
-                        .fill(healthStatus.color)
-                        .frame(width: 8, height: 8)
-                }
-
-                Spacer()
-
-                Text(healthStatus.label)
-                    .foregroundStyle(.secondary)
-            }
-
-            Button {
-                checkHealth()
-            } label: {
-                HStack {
-                    Text("Test Connection")
-                    if isChecking {
-                        Spacer()
-                        ProgressView()
-                    }
-                }
-            }
-            .disabled(isChecking)
+    private var connectionHeader: some View {
+        HStack(spacing: HiveSpacing.xs) {
+            Text("Connection")
+            Circle()
+                .fill(healthStatus.color)
+                .frame(width: 8, height: 8)
+                .accessibilityLabel("Connection status")
+                .accessibilityValue(healthStatus.accessibilityValue)
         }
     }
 
-    private func checkHealth() {
-        isChecking = true
-        healthStatus = .checking
-        Task {
-            do {
-                let ok = try await APIClient().checkHealth()
-                healthStatus = ok ? .connected : .error("Unexpected response")
-            } catch {
-                healthStatus = .error(error.localizedDescription)
+    private func startConnectionPolling() {
+        pollingTask?.cancel()
+        pollingTask = Task {
+            while !Task.isCancelled {
+                await checkHealth()
+                try? await Task.sleep(for: .seconds(20))
             }
-            isChecking = false
+        }
+    }
+
+    private func stopConnectionPolling() {
+        pollingTask?.cancel()
+        pollingTask = nil
+        debouncedCheckTask?.cancel()
+        debouncedCheckTask = nil
+    }
+
+    private func scheduleConnectionCheck() {
+        debouncedCheckTask?.cancel()
+        debouncedCheckTask = Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            await checkHealth()
+        }
+    }
+
+    @MainActor
+    private func checkHealth() async {
+        let isConnected = await runHealthCheck()
+        guard !Task.isCancelled else { return }
+        healthStatus = isConnected ? .connected : .disconnected
+    }
+
+    private func runHealthCheck() async -> Bool {
+        await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
+            group.addTask {
+                do {
+                    return try await APIClient().checkHealth()
+                } catch {
+                    return false
+                }
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(4))
+                return false
+            }
+
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
         }
     }
 }
@@ -205,26 +228,20 @@ struct SettingsView: View {
 // MARK: - Health Status
 
 private enum HealthStatus {
-    case unknown
-    case checking
     case connected
-    case error(String)
-
-    var label: String {
-        switch self {
-        case .unknown: "Not checked"
-        case .checking: "Checking..."
-        case .connected: "Connected"
-        case .error(let msg): msg
-        }
-    }
+    case disconnected
 
     var color: Color {
         switch self {
-        case .unknown: .gray
-        case .checking: .yellow
         case .connected: .green
-        case .error: .red
+        case .disconnected: .red
+        }
+    }
+
+    var accessibilityValue: String {
+        switch self {
+        case .connected: "Connected"
+        case .disconnected: "Disconnected"
         }
     }
 }
