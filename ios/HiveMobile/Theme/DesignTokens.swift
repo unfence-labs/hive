@@ -73,13 +73,17 @@ enum HiveSpacing {
 // MARK: - Whisper Color Tokens
 
 enum WhisperColor {
-    static let border        = dynamic(light: UIColor(white: 0.78, alpha: 1), dark: UIColor(white: 1, alpha: 0.08))
-    static let borderSubtle  = dynamic(light: UIColor(white: 0.88, alpha: 1), dark: UIColor(white: 1, alpha: 0.04))
-    static let toolIconBg    = dynamic(light: UIColor(white: 0.94, alpha: 1), dark: UIColor(white: 1, alpha: 0.05))
-    static let surface       = dynamic(light: UIColor(white: 1.00, alpha: 0.92), dark: UIColor(white: 1, alpha: 0.06))
-    static let surfaceSubtle = dynamic(light: UIColor(white: 0.96, alpha: 0.92), dark: UIColor(white: 1, alpha: 0.03))
+    static let border        = dynamic(light: UIColor(white: 0.88, alpha: 1), dark: UIColor(white: 1, alpha: 0.08))
+    static let borderSubtle  = dynamic(light: UIColor(white: 0.92, alpha: 1), dark: UIColor(white: 1, alpha: 0.04))
+    static let toolIconBg    = dynamic(light: UIColor(white: 0.95, alpha: 1), dark: UIColor(white: 1, alpha: 0.05))
+    static let surface       = dynamic(light: UIColor(white: 0.965, alpha: 0.96), dark: UIColor(white: 1, alpha: 0.06))
+    static let surfaceSubtle = dynamic(light: UIColor(white: 0.975, alpha: 0.96), dark: UIColor(white: 1, alpha: 0.03))
     static let surfaceRaised = dynamic(light: UIColor(white: 1.00, alpha: 1), dark: UIColor(white: 1, alpha: 0.10))
     static let separator     = dynamic(light: UIColor(white: 0.86, alpha: 1), dark: UIColor(white: 1, alpha: 0.05))
+    static let hubCardFill   = dynamic(light: UIColor(white: 0.965, alpha: 0.94), dark: UIColor(white: 1, alpha: 0.06))
+    static let hubCardBorder = dynamic(light: UIColor(white: 0, alpha: 0), dark: UIColor(white: 1, alpha: 0.08))
+    static let hubStructure  = dynamic(light: UIColor(white: 0, alpha: 0), dark: UIColor(white: 1, alpha: 0.08))
+    static let hubSeparator  = dynamic(light: UIColor(white: 0, alpha: 0), dark: UIColor(white: 1, alpha: 0.05))
     static let text          = dynamic(light: UIColor(red: 0.09, green: 0.10, blue: 0.13, alpha: 1), dark: UIColor(red: 0.91, green: 0.91, blue: 0.94, alpha: 1))
     static let textSecondary = dynamic(light: UIColor(red: 0.34, green: 0.36, blue: 0.42, alpha: 1), dark: UIColor(red: 0.545, green: 0.545, blue: 0.62, alpha: 1))
     static let textMuted     = dynamic(light: UIColor(red: 0.55, green: 0.57, blue: 0.63, alpha: 1), dark: UIColor(red: 0.333, green: 0.333, blue: 0.416, alpha: 1))

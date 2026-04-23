@@ -6,7 +6,12 @@ struct MessageBubble: View {
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
 
+    @AppStorage("hiveAccent") private var accentId = "violet"
     @State private var copied = false
+
+    private var hiveAccent: Color {
+        AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -64,10 +69,13 @@ struct MessageBubble: View {
                     .lineSpacing(3)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
+                    .background(
+                        userBubbleShape.fill(hiveAccent.opacity(0.12))
+                    )
                     .glassEffect(.regular, in: userBubbleShape)
                     .overlay(
                         userBubbleShape
-                            .stroke(WhisperColor.border, lineWidth: 1)
+                            .stroke(hiveAccent.opacity(0.24), lineWidth: 1)
                     )
             case .assistant:
                 Markdown(message.content)
@@ -153,7 +161,7 @@ struct MessageBubble: View {
 
     private func highlightedUserContent(_ content: String, fileMentions: [FileMention]?) -> AttributedString {
         var result = AttributedString(content)
-        let accent = Color.accentColor.resolve(in: environment)
+        let accent = hiveAccent.resolve(in: environment)
         let accentUI = UIColor(red: CGFloat(accent.red), green: CGFloat(accent.green),
                                blue: CGFloat(accent.blue), alpha: CGFloat(accent.opacity))
         let bgColor = accentUI.withAlphaComponent(0.15)

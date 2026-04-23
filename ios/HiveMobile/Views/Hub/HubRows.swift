@@ -58,8 +58,8 @@ struct HubFolderHeader: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(WhisperColor.surface)
-                    .stroke(WhisperColor.border, lineWidth: 0.5)
+                    .fill(WhisperColor.hubCardFill)
+                    .stroke(WhisperColor.hubCardBorder, lineWidth: 0.5)
             )
         }
         .buttonStyle(.plain)
@@ -194,7 +194,7 @@ struct HubWorkspaceRow: View {
         .contentShape(Rectangle())
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(WhisperColor.separator)
+                .fill(WhisperColor.hubSeparator)
                 .frame(height: 0.5)
         }
     }
