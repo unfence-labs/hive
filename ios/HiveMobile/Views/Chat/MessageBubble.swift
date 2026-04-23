@@ -6,7 +6,12 @@ struct MessageBubble: View {
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
 
+    @AppStorage("hiveAccent") private var accentId = "violet"
     @State private var copied = false
+
+    private var hiveAccent: Color {
+        AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -64,10 +69,13 @@ struct MessageBubble: View {
                     .lineSpacing(3)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
+                    .background(
+                        userBubbleShape.fill(hiveAccent.opacity(0.12))
+                    )
                     .glassEffect(.regular, in: userBubbleShape)
                     .overlay(
                         userBubbleShape
-                            .stroke(WhisperColor.border, lineWidth: 1)
+                            .stroke(hiveAccent.opacity(0.24), lineWidth: 1)
                     )
             case .assistant:
                 Markdown(message.content)
@@ -153,7 +161,7 @@ struct MessageBubble: View {
 
     private func highlightedUserContent(_ content: String, fileMentions: [FileMention]?) -> AttributedString {
         var result = AttributedString(content)
-        let accent = Color.accentColor.resolve(in: environment)
+        let accent = hiveAccent.resolve(in: environment)
         let accentUI = UIColor(red: CGFloat(accent.red), green: CGFloat(accent.green),
                                blue: CGFloat(accent.blue), alpha: CGFloat(accent.opacity))
         let bgColor = accentUI.withAlphaComponent(0.15)
@@ -951,7 +959,7 @@ private struct ToolRowLabel: View {
                 .foregroundStyle(WhisperColor.textMuted)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
-                .background(Color.white.opacity(0.08), in: Capsule())
+                .background(WhisperColor.toolIconBg, in: Capsule())
             }
 
             if let detail {
@@ -961,7 +969,7 @@ private struct ToolRowLabel: View {
                     .lineLimit(1)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 4))
+                    .background(WhisperColor.surfaceRaised, in: RoundedRectangle(cornerRadius: 4))
             }
 
             if let stats {
@@ -1007,14 +1015,13 @@ private struct ToolContentPanel<Content: View>: View {
         content
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            .background(WhisperColor.surface, in: RoundedRectangle(cornerRadius: 8))
             .padding(.top, 2)
     }
 }
 
 // MARK: - Whisper Chat Markdown Theme
 
-private let whisperCodeColor = Color(red: 0.78, green: 0.82, blue: 0.90)
 private let whisperLinkColor = Color(red: 0.231, green: 0.510, blue: 0.965)
 
 private extension Theme {
@@ -1028,8 +1035,8 @@ private extension Theme {
         .code {
             FontFamilyVariant(.monospaced)
             FontSize(12)
-            ForegroundColor(whisperCodeColor)
-            BackgroundColor(Color.white.opacity(0.10))
+            ForegroundColor(WhisperColor.codeText)
+            BackgroundColor(WhisperColor.codeBg)
         }
         .strong {
             FontWeight(.semibold)
@@ -1108,17 +1115,17 @@ private extension Theme {
             .markdownTextStyle {
                 FontFamilyVariant(.monospaced)
                 FontSize(12)
-                ForegroundColor(whisperCodeColor)
+                ForegroundColor(WhisperColor.codeText)
             }
             .padding(12)
-            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            .background(WhisperColor.codeBlockBg, in: RoundedRectangle(cornerRadius: 8))
             .markdownMargin(top: .em(0.4), bottom: .em(0.4))
         }
         // ── Blockquotes ──
         .blockquote { configuration in
             HStack(spacing: 0) {
                 RoundedRectangle(cornerRadius: 1)
-                    .fill(Color.white.opacity(0.15))
+                    .fill(WhisperColor.border)
                     .frame(width: 3)
                 configuration.label
                     .markdownTextStyle {
@@ -1131,7 +1138,7 @@ private extension Theme {
         // ── Thematic break ──
         .thematicBreak {
             Divider()
-                .overlay(Color.white.opacity(0.10))
+                .overlay(WhisperColor.separator)
                 .markdownMargin(top: .em(0.8), bottom: .em(0.8))
         }
 }

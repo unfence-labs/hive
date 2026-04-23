@@ -146,7 +146,7 @@ struct ChatView: View {
                 .padding(.bottom, 4)
             }
         }
-        .toolbarBackground(.black, for: .navigationBar)
+        .toolbarBackground(WhisperColor.surfaceRaised, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

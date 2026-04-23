@@ -35,12 +35,17 @@ async function hasFaviconFlag(dir: string, projectId: string): Promise<boolean> 
   }
 }
 
-/** Count sessions per workspace by scanning the project's sessions directory once. */
-async function countSessionsPerWorkspace(
+interface WorkspaceSessionSummary {
+  count: number;
+  lastActivityAt?: string;
+}
+
+/** Summarize sessions per workspace by scanning the project's sessions directory once. */
+async function summarizeSessionsPerWorkspace(
   dir: string,
   projectId: string,
-): Promise<Map<string, number>> {
-  const counts = new Map<string, number>();
+): Promise<Map<string, WorkspaceSessionSummary>> {
+  const summaries = new Map<string, WorkspaceSessionSummary>();
   const sessionsRoot = join(dir, projectId, "sessions");
   try {
     const entries = await readdir(sessionsRoot, { withFileTypes: true });
@@ -50,9 +55,14 @@ async function countSessionsPerWorkspace(
         .map(async (e) => {
           try {
             const raw = await readFile(join(sessionsRoot, e.name, "metadata.json"), "utf-8");
-            const meta = JSON.parse(raw) as { workspaceId?: string };
+            const meta = JSON.parse(raw) as { workspaceId?: string; updatedAt?: string };
             if (meta.workspaceId) {
-              counts.set(meta.workspaceId, (counts.get(meta.workspaceId) ?? 0) + 1);
+              const summary = summaries.get(meta.workspaceId) ?? { count: 0 };
+              summary.count += 1;
+              if (meta.updatedAt && (!summary.lastActivityAt || meta.updatedAt > summary.lastActivityAt)) {
+                summary.lastActivityAt = meta.updatedAt;
+              }
+              summaries.set(meta.workspaceId, summary);
             }
           } catch {
             // Skip unreadable metadata.
@@ -62,13 +72,13 @@ async function countSessionsPerWorkspace(
   } catch {
     // No sessions directory yet.
   }
-  return counts;
+  return summaries;
 }
 
 async function enrichProject(project: ProjectState, dir: string) {
-  const [hasFavicon, sessionCounts] = await Promise.all([
+  const [hasFavicon, sessionSummaries] = await Promise.all([
     hasFaviconFlag(dir, project.id),
-    countSessionsPerWorkspace(dir, project.id),
+    summarizeSessionsPerWorkspace(dir, project.id),
   ]);
   return {
     ...project,
@@ -78,7 +88,8 @@ async function enrichProject(project: ProjectState, dir: string) {
     workspaces: project.workspaces.map((ws) => ({
       ...ws,
       projectName: project.name,
-      sessionCount: sessionCounts.get(ws.id) ?? 0,
+      sessionCount: sessionSummaries.get(ws.id)?.count ?? 0,
+      lastActivityAt: sessionSummaries.get(ws.id)?.lastActivityAt,
     })),
   };
 }

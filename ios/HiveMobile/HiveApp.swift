@@ -11,6 +11,7 @@ struct HiveApp: App {
     @State private var hubPath = NavigationPath()
     @State private var backgroundedAt: Date?
     @AppStorage("hiveAccent") private var accentId = "violet"
+    @AppStorage("hiveThemeMode") private var themeModeId = HiveThemeMode.system.rawValue
 
     init() {
         let cache = ConversationStoreCache()
@@ -20,6 +21,10 @@ struct HiveApp: App {
 
     private var accent: Color {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
+    }
+
+    private var themeMode: HiveThemeMode {
+        HiveThemeMode(rawValue: themeModeId) ?? .system
     }
 
     var body: some Scene {
@@ -37,20 +42,18 @@ struct HiveApp: App {
                                 .smoothTabBarTransition()
                             }
                     }
-                    .toolbarColorScheme(.dark, for: .navigationBar)
                 }
                 Tab("Settings", systemImage: "gearshape.fill", value: .settings) {
                     NavigationStack {
                         SettingsView()
                     }
-                    .tint(.white)
                 }
             }
             .tint(accent)
             .environment(projectStore)
             .environment(storeCache)
             .environment(modelCatalog)
-            .preferredColorScheme(.dark)
+            .preferredColorScheme(themeMode.preferredColorScheme)
             .task { await modelCatalog.loadIfNeeded() }
             .onChange(of: projectStore.pendingNavigation) { _, workspace in
                 guard let workspace else { return }

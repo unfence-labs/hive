@@ -17,6 +17,7 @@ export interface Workspace {
   branch: string;
   status: "idle" | "busy";
   createdAt: string;
+  lastActivityAt?: string;
   activeSessionId?: string;
   projectName?: string;
   defaultBranch?: string;

@@ -124,7 +124,7 @@ private struct AskUserQuestionView: View {
                     .padding(HiveSpacing.md)
                     .background(
                         RoundedRectangle(cornerRadius: 10)
-                            .fill(isSelected ? Color.white.opacity(0.06) : Color.white.opacity(0.02))
+                            .fill(isSelected ? WhisperColor.surface : WhisperColor.surfaceSubtle)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 10)
@@ -260,7 +260,7 @@ private struct ExitPlanModeView: View {
                     .padding(HiveSpacing.md)
                     .background(
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.white.opacity(0.03))
+                            .fill(WhisperColor.surfaceSubtle)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
@@ -304,11 +304,12 @@ private extension Theme {
     static let planProposal = Theme.gitHub
         .text {
             BackgroundColor(.clear)
-            ForegroundColor(Color(red: 0.91, green: 0.91, blue: 0.94))
+            ForegroundColor(WhisperColor.text)
         }
         .code {
             FontFamilyVariant(.monospaced)
             FontSize(13)
-            BackgroundColor(Color.white.opacity(0.05))
+            ForegroundColor(WhisperColor.codeText)
+            BackgroundColor(WhisperColor.codeBg)
         }
 }

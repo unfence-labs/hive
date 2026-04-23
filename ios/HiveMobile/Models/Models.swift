@@ -104,12 +104,34 @@ struct Workspace: Codable, Identifiable, Hashable {
     let branch: String
     let status: WorkspaceStatus
     let createdAt: String
+    var lastActivityAt: String? = nil
     let activeSessionId: String?
     let projectName: String?
     let defaultBranch: String?
     var sessionCount: Int? = nil
     var projectId: String? = nil
     var hasFavicon: Bool? = nil
+}
+
+// MARK: - UI Preferences
+
+struct SidebarProjectFolder: Codable, Identifiable {
+    let id: String
+    let name: String
+    let projectIds: [String]
+}
+
+struct SidebarProjectFoldersState: Codable {
+    let folders: [SidebarProjectFolder]
+    let folderOpenState: [String: Bool]
+
+    static let empty = SidebarProjectFoldersState(folders: [], folderOpenState: [:])
+}
+
+struct UiPreferencesPayload: Codable {
+    let sidebar: SidebarProjectFoldersState
+
+    static let empty = UiPreferencesPayload(sidebar: .empty)
 }
 
 // MARK: - Branch & PR

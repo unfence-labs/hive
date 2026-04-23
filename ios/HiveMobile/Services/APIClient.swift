@@ -136,6 +136,10 @@ final class APIClient {
         try await get(path: "/api/projects")
     }
 
+    func fetchUiPreferences() async throws -> UiPreferencesPayload {
+        try await get(path: "/api/ui-preferences")
+    }
+
     func createWorkspace(projectId: String) async throws -> Workspace {
         try await post(path: "/api/projects/\(projectId)/workspaces")
     }

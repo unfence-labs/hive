@@ -15,6 +15,7 @@ final class ProjectStore {
     private(set) var creatingWorkspaceProjectIds: Set<String> = []
     private(set) var isCreatingProject = false
     private(set) var cloningRepoName: String?
+    private(set) var uiPreferences: UiPreferencesPayload = .empty
 
     /// Set after workspace creation so HiveApp can navigate to it.
     var pendingNavigation: Workspace?
@@ -63,6 +64,7 @@ final class ProjectStore {
                 projects[projectIndex].workspaces.append(workspace)
             }
 
+            statusMonitor.seedLastActivityDates(from: [workspace])
             let allWorkspaceIds = projects.flatMap(\.workspaces).map(\.id)
             statusMonitor.sync(workspaceIds: allWorkspaceIds)
             pendingNavigation = workspace
@@ -115,6 +117,7 @@ final class ProjectStore {
 
             var newProject = project
             newProject.workspaces = [workspace]
+            statusMonitor.seedLastActivityDates(from: [workspace])
             projects.insert(newProject, at: 0)
 
             let allWorkspaceIds = projects.flatMap(\.workspaces).map(\.id)
@@ -150,7 +153,12 @@ final class ProjectStore {
         isLoading = true
         errorMessage = nil
         do {
-            var fresh = try await api.fetchProjects()
+            async let projectsTask = api.fetchProjects()
+            async let preferencesTask = api.fetchUiPreferences()
+
+            var fresh = try await projectsTask
+            let preferences = (try? await preferencesTask) ?? .empty
+
             // Enrich workspaces with parent project metadata for downstream views.
             for i in fresh.indices {
                 for j in fresh[i].workspaces.indices {
@@ -158,7 +166,9 @@ final class ProjectStore {
                     fresh[i].workspaces[j].hasFavicon = fresh[i].hasFavicon
                 }
             }
+            statusMonitor.seedLastActivityDates(from: fresh.flatMap(\.workspaces))
             projects = fresh
+            uiPreferences = preferences
             hasFetchedOnce = true
             let allWorkspaceIds = fresh.flatMap(\.workspaces).map(\.id)
             statusMonitor.sync(workspaceIds: allWorkspaceIds)
