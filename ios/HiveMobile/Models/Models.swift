@@ -112,6 +112,27 @@ struct Workspace: Codable, Identifiable, Hashable {
     var hasFavicon: Bool? = nil
 }
 
+// MARK: - UI Preferences
+
+struct SidebarProjectFolder: Codable, Identifiable {
+    let id: String
+    let name: String
+    let projectIds: [String]
+}
+
+struct SidebarProjectFoldersState: Codable {
+    let folders: [SidebarProjectFolder]
+    let folderOpenState: [String: Bool]
+
+    static let empty = SidebarProjectFoldersState(folders: [], folderOpenState: [:])
+}
+
+struct UiPreferencesPayload: Codable {
+    let sidebar: SidebarProjectFoldersState
+
+    static let empty = UiPreferencesPayload(sidebar: .empty)
+}
+
 // MARK: - Branch & PR
 
 struct PullRequestInfo: Codable {

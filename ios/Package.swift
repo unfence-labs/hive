@@ -16,13 +16,26 @@ let package = Package(
     targets: [
         .target(
             name: "HiveMobileStoresCore",
-            path: "HiveMobile/Stores",
+            path: "HiveMobile",
             exclude: [
-                "ConversationStore.swift",
-                "HubStatusMonitor.swift",
-                "ProjectStore.swift"
+                "Assets.xcassets",
+                "HiveApp.swift",
+                "HiveMobile.entitlements",
+                "Services",
+                "Stores/ConversationStore.swift",
+                "Stores/ConversationStoreCache.swift",
+                "Stores/HubStatusMonitor.swift",
+                "Stores/ModelCatalog.swift",
+                "Stores/ProjectStore.swift",
+                "Theme",
+                "Views"
             ],
-            sources: ["ChatDraftStore.swift"]
+            sources: [
+                "Models/Models.swift",
+                "Models/WebSocketTypes.swift",
+                "Stores/ChatDraftStore.swift",
+                "Stores/HubOrganization.swift"
+            ]
         ),
         .testTarget(
             name: "HiveMobileStoresCoreTests",

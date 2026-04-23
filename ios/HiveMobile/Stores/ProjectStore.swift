@@ -15,6 +15,7 @@ final class ProjectStore {
     private(set) var creatingWorkspaceProjectIds: Set<String> = []
     private(set) var isCreatingProject = false
     private(set) var cloningRepoName: String?
+    private(set) var uiPreferences: UiPreferencesPayload = .empty
 
     /// Set after workspace creation so HiveApp can navigate to it.
     var pendingNavigation: Workspace?
@@ -150,7 +151,12 @@ final class ProjectStore {
         isLoading = true
         errorMessage = nil
         do {
-            var fresh = try await api.fetchProjects()
+            async let projectsTask = api.fetchProjects()
+            async let preferencesTask = api.fetchUiPreferences()
+
+            var fresh = try await projectsTask
+            let preferences = (try? await preferencesTask) ?? .empty
+
             // Enrich workspaces with parent project metadata for downstream views.
             for i in fresh.indices {
                 for j in fresh[i].workspaces.indices {
@@ -159,6 +165,7 @@ final class ProjectStore {
                 }
             }
             projects = fresh
+            uiPreferences = preferences
             hasFetchedOnce = true
             let allWorkspaceIds = fresh.flatMap(\.workspaces).map(\.id)
             statusMonitor.sync(workspaceIds: allWorkspaceIds)
