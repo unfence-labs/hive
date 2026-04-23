@@ -64,6 +64,7 @@ final class ProjectStore {
                 projects[projectIndex].workspaces.append(workspace)
             }
 
+            statusMonitor.seedLastActivityDates(from: [workspace])
             let allWorkspaceIds = projects.flatMap(\.workspaces).map(\.id)
             statusMonitor.sync(workspaceIds: allWorkspaceIds)
             pendingNavigation = workspace
@@ -116,6 +117,7 @@ final class ProjectStore {
 
             var newProject = project
             newProject.workspaces = [workspace]
+            statusMonitor.seedLastActivityDates(from: [workspace])
             projects.insert(newProject, at: 0)
 
             let allWorkspaceIds = projects.flatMap(\.workspaces).map(\.id)
@@ -164,6 +166,7 @@ final class ProjectStore {
                     fresh[i].workspaces[j].hasFavicon = fresh[i].hasFavicon
                 }
             }
+            statusMonitor.seedLastActivityDates(from: fresh.flatMap(\.workspaces))
             projects = fresh
             uiPreferences = preferences
             hasFetchedOnce = true

@@ -15,6 +15,7 @@ export interface Workspace {
   status: WorkspaceStatus;
   createdAt: string;
   activeSessionId?: string;
+  lastActivityAt?: string;
 }
 
 // ── Completion / autocomplete types ─────────────────────────────────

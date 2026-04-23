@@ -89,6 +89,14 @@ final class HubStatusMonitor {
         workspaceLastActivityAt[workspaceId]
     }
 
+    func seedLastActivityDates(from workspaces: [Workspace]) {
+        for workspace in workspaces {
+            let rawDate = workspace.lastActivityAt ?? workspace.createdAt
+            guard let date = parseTimestamp(rawDate) else { continue }
+            markActivity(for: workspace.id, at: date)
+        }
+    }
+
     func clearCompleted(_ workspaceId: String) {
         completedWorkspaces.remove(workspaceId)
     }

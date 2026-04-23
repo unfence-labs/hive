@@ -104,6 +104,7 @@ struct Workspace: Codable, Identifiable, Hashable {
     let branch: String
     let status: WorkspaceStatus
     let createdAt: String
+    var lastActivityAt: String? = nil
     let activeSessionId: String?
     let projectName: String?
     let defaultBranch: String?

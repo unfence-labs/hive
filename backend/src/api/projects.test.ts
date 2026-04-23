@@ -212,22 +212,25 @@ describe("GET /api/projects", () => {
 
     // Write session fixtures directly on disk
     const sessionsRoot = join(dataDir, id, "sessions");
-    for (const [sessId, wsId] of [
-      ["sess-a", ws1Id],
-      ["sess-b", ws1Id],
-      ["sess-c", ws1Id],
-      ["sess-d", ws2Id],
+    for (const [sessId, wsId, updatedAt] of [
+      ["sess-a", ws1Id, "2026-02-12T10:00:00.000Z"],
+      ["sess-b", ws1Id, "2026-02-12T11:00:00.000Z"],
+      ["sess-c", ws1Id, "2026-02-12T09:00:00.000Z"],
+      ["sess-d", ws2Id, "2026-02-12T08:00:00.000Z"],
     ]) {
       const dir = join(sessionsRoot, sessId);
       await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, "metadata.json"), JSON.stringify({ sessionId: sessId, workspaceId: wsId }));
+      await writeFile(join(dir, "metadata.json"), JSON.stringify({ sessionId: sessId, workspaceId: wsId, updatedAt }));
     }
 
     const res = await app.inject({ method: "GET", url: "/api/projects" });
     const [project] = res.json();
     const countByWs = Object.fromEntries(project.workspaces.map((ws: { id: string; sessionCount: number }) => [ws.id, ws.sessionCount]));
+    const lastActivityByWs = Object.fromEntries(project.workspaces.map((ws: { id: string; lastActivityAt?: string }) => [ws.id, ws.lastActivityAt]));
     expect(countByWs[ws1Id]).toBe(3);
     expect(countByWs[ws2Id]).toBe(1);
+    expect(lastActivityByWs[ws1Id]).toBe("2026-02-12T11:00:00.000Z");
+    expect(lastActivityByWs[ws2Id]).toBe("2026-02-12T08:00:00.000Z");
   });
 
   it("returns hasFavicon=true when project repo contains a favicon", async () => {
