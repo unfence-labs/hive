@@ -238,7 +238,7 @@ struct HubView: View {
                         .padding(.vertical, HiveSpacing.xs)
                 } else {
                     VStack(spacing: HiveSpacing.xs) {
-                        ForEach(project.workspaces) { workspace in
+                        ForEach(sortedWorkspaces(project.workspaces)) { workspace in
                             NavigationLink(value: workspace) {
                                 HubWorkspaceRow(
                                     workspace: workspace,
@@ -263,6 +263,31 @@ struct HubView: View {
                 }
             }
         }
+    }
+
+    private func sortedWorkspaces(_ workspaces: [Workspace]) -> [Workspace] {
+        workspaces.enumerated().sorted { left, right in
+            let leftRank = workspaceActivityRank(left.element.id)
+            let rightRank = workspaceActivityRank(right.element.id)
+            if leftRank != rightRank {
+                return leftRank < rightRank
+            }
+
+            let leftDate = store.statusMonitor.lastActivityDate(for: left.element.id)
+            let rightDate = store.statusMonitor.lastActivityDate(for: right.element.id)
+            if leftDate != rightDate {
+                return (leftDate ?? .distantPast) > (rightDate ?? .distantPast)
+            }
+
+            return left.offset < right.offset
+        }
+        .map(\.element)
+    }
+
+    private func workspaceActivityRank(_ workspaceId: String) -> Int {
+        if store.statusMonitor.isStreaming(workspaceId) { return 0 }
+        if store.statusMonitor.isCompleted(workspaceId) { return 1 }
+        return 2
     }
 
     private func handleCreateWorkspace(for projectId: String) {

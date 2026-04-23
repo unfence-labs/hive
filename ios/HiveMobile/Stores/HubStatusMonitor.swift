@@ -15,6 +15,7 @@ final class HubStatusMonitor {
     private(set) var workspaceDiffStats: [String: DiffStatResponse] = [:]
     private(set) var workspaceBranchInfo: [String: BranchInfo] = [:]
     private(set) var workspacePrStatus: [String: PrStatusResponse] = [:]
+    private(set) var workspaceLastActivityAt: [String: Date] = [:]
     private(set) var completedWorkspaces: Set<String> = [] {
         didSet { persistCompleted() }
     }
@@ -29,6 +30,12 @@ final class HubStatusMonitor {
     private var bulkPrPollTask: Task<Void, Never>?
     private var prPollingIds: Set<String> = []
     private let apiClient = APIClient()
+    private let isoFormatter = ISO8601DateFormatter()
+    private let fractionalIsoFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     private static let completedKey = "completedWorkspaces"
 
@@ -78,6 +85,10 @@ final class HubStatusMonitor {
         completedWorkspaces.contains(workspaceId)
     }
 
+    func lastActivityDate(for workspaceId: String) -> Date? {
+        workspaceLastActivityAt[workspaceId]
+    }
+
     func clearCompleted(_ workspaceId: String) {
         completedWorkspaces.remove(workspaceId)
     }
@@ -103,6 +114,7 @@ final class HubStatusMonitor {
             workspaceDiffStats.removeValue(forKey: id)
             workspaceBranchInfo.removeValue(forKey: id)
             workspacePrStatus.removeValue(forKey: id)
+            workspaceLastActivityAt.removeValue(forKey: id)
             storeCache.evict(id)
             completedWorkspaces.remove(id)
         }
@@ -129,6 +141,7 @@ final class HubStatusMonitor {
         streamingSessions.removeAll()
         workspaceDiffStats.removeAll()
         workspaceBranchInfo.removeAll()
+        workspaceLastActivityAt.removeAll()
         bulkPrPollTask?.cancel()
         bulkPrPollTask = nil
         prPollingIds.removeAll()
@@ -220,6 +233,35 @@ final class HubStatusMonitor {
     fileprivate func didReceiveDone(for workspaceId: String) {
         guard workspaceId != viewingWorkspaceId else { return }
         completedWorkspaces.insert(workspaceId)
+    }
+
+    fileprivate func didReceiveActivity(_ event: WsOutgoing, for workspaceId: String) {
+        switch event {
+        case .history(let messages, _):
+            guard let latest = messages.compactMap({ parseTimestamp($0.timestamp) }).max() else {
+                return
+            }
+            markActivity(for: workspaceId, at: latest)
+        case .status(_, _, let streaming, _, _):
+            if streaming == true {
+                markActivity(for: workspaceId)
+            }
+        case .branchInfo, .diffStats, .scriptStatus, .planModeChanged:
+            break
+        default:
+            markActivity(for: workspaceId)
+        }
+    }
+
+    private func markActivity(for workspaceId: String, at date: Date = Date()) {
+        if let current = workspaceLastActivityAt[workspaceId], current >= date {
+            return
+        }
+        workspaceLastActivityAt[workspaceId] = date
+    }
+
+    private func parseTimestamp(_ value: String) -> Date? {
+        fractionalIsoFormatter.date(from: value) ?? isoFormatter.date(from: value)
     }
 
     /// Ensure a ConversationStore exists for a workspace (eager creation on streaming).
@@ -374,6 +416,7 @@ private final class HubConnection {
 
         let workspaceId = envelope.workspaceId
         let event = envelope.event
+        monitor?.didReceiveActivity(event, for: workspaceId)
 
         // Hub-level processing
         switch event {
