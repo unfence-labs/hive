@@ -165,6 +165,7 @@ struct SettingsView: View {
             Text("Connection")
             Spacer()
             Text(healthStatus.label)
+                .font(.caption2)
                 .foregroundStyle(healthStatus.color)
                 .accessibilityLabel("Connection status")
                 .accessibilityValue(healthStatus.accessibilityValue)
