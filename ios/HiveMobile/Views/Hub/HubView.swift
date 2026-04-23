@@ -245,8 +245,7 @@ struct HubView: View {
                                     isStreaming: store.statusMonitor.isStreaming(workspace.id),
                                     turnCompleted: store.statusMonitor.isCompleted(workspace.id),
                                     diffStats: store.statusMonitor.diffStats(for: workspace.id),
-                                    prStatus: store.statusMonitor.prStatus(for: workspace.id),
-                                    sessionCount: workspace.sessionCount
+                                    prStatus: store.statusMonitor.prStatus(for: workspace.id)
                                 )
                             }
                             .buttonStyle(.plain)

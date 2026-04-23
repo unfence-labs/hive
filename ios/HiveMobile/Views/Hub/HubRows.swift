@@ -148,7 +148,6 @@ struct HubWorkspaceRow: View {
     let turnCompleted: Bool
     let diffStats: DiffStatResponse?
     let prStatus: PrStatusResponse?
-    let sessionCount: Int?
 
     private var diffSummary: HubDiffSummary {
         HubDiffSummary(diffStats: diffStats)
@@ -168,31 +167,22 @@ struct HubWorkspaceRow: View {
                         .truncationMode(.middle)
 
                     Spacer(minLength: 0)
+
+                    Text(workspace.name)
+                        .font(.caption2)
+                        .lineLimit(1)
+                        .foregroundStyle(.tertiary)
                 }
 
                 HStack(spacing: HiveSpacing.sm) {
                     HubPrBadge(prStatus: prStatus)
+                    Spacer(minLength: 0)
 
                     if diffSummary.hasChanges {
                         HubDiffBadge(
                             additions: diffSummary.additions,
                             deletions: diffSummary.deletions
                         )
-                    }
-
-                    Text(workspace.name)
-                        .font(.caption2)
-                        .lineLimit(1)
-                        .foregroundStyle(.tertiary)
-
-                    Spacer(minLength: 0)
-
-                    if let sessionCount, sessionCount > 0 {
-                        HStack(spacing: 3) {
-                            Image(systemName: "text.bubble")
-                            Text("\(sessionCount)")
-                        }
-                        .foregroundStyle(.tertiary)
                     }
                 }
                 .font(.caption2)
