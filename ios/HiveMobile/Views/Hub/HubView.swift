@@ -2,7 +2,7 @@ import SwiftUI
 
 private enum HubLayout {
     static let projectIndent: CGFloat = 16
-    static let workspaceIndent: CGFloat = 24
+    static let workspaceIndent: CGFloat = 12
     static let hierarchyLineInset: CGFloat = 5
 }
 
