@@ -267,8 +267,8 @@ struct HubView: View {
 
     private func sortedWorkspaces(_ workspaces: [Workspace]) -> [Workspace] {
         workspaces.enumerated().sorted { left, right in
-            let leftRank = workspaceActivityRank(left.element.id)
-            let rightRank = workspaceActivityRank(right.element.id)
+            let leftRank = workspaceRunningRank(left.element.id)
+            let rightRank = workspaceRunningRank(right.element.id)
             if leftRank != rightRank {
                 return leftRank < rightRank
             }
@@ -284,10 +284,9 @@ struct HubView: View {
         .map(\.element)
     }
 
-    private func workspaceActivityRank(_ workspaceId: String) -> Int {
+    private func workspaceRunningRank(_ workspaceId: String) -> Int {
         if store.statusMonitor.isStreaming(workspaceId) { return 0 }
-        if store.statusMonitor.isCompleted(workspaceId) { return 1 }
-        return 2
+        return 1
     }
 
     private func handleCreateWorkspace(for projectId: String) {
