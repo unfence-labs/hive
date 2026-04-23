@@ -157,16 +157,20 @@ struct HubWorkspaceRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: HiveSpacing.sm) {
             workspaceStatus
-                .frame(width: 16, height: 16)
+                .frame(width: 14, height: 14)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: HiveSpacing.sm) {
-                    Text(workspace.name)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-
-                    Spacer(minLength: HiveSpacing.sm)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: HiveSpacing.sm) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                        Text(workspace.branch)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
 
                     if diffSummary.hasChanges {
                         HubDiffBadge(
@@ -174,19 +178,17 @@ struct HubWorkspaceRow: View {
                             deletions: diffSummary.deletions
                         )
                     }
+
+                    Spacer(minLength: 0)
                 }
 
                 HStack(spacing: HiveSpacing.sm) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 10))
-                        Text(workspace.branch)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    .foregroundStyle(.secondary)
-
                     HubPrBadge(prStatus: prStatus)
+
+                    Text(workspace.name)
+                        .font(.caption2)
+                        .lineLimit(1)
+                        .foregroundStyle(.tertiary)
 
                     Spacer(minLength: 0)
 
@@ -201,15 +203,15 @@ struct HubWorkspaceRow: View {
                 .font(.caption2)
             }
         }
-        .padding(.horizontal, HiveSpacing.md)
-        .padding(.vertical, HiveSpacing.sm)
-        .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
         .contentShape(Rectangle())
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.white.opacity(0.035))
-                .stroke(.white.opacity(0.06), lineWidth: 0.5)
-        )
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(.white.opacity(0.05))
+                .frame(height: 0.5)
+        }
     }
 
     @ViewBuilder
@@ -300,9 +302,6 @@ private struct HubDiffBadge: View {
             }
         }
         .font(.caption2.monospacedDigit().weight(.medium))
-        .padding(.horizontal, 7)
-        .padding(.vertical, 3)
-        .background(.primary.opacity(0.18), in: Capsule())
     }
 }
 
@@ -319,11 +318,8 @@ private struct HubPrBadge: View {
             }
             .foregroundStyle(display.color)
         } else {
-            HStack(spacing: 3) {
-                Image(systemName: "arrow.triangle.pull")
-                Text("No PR")
-            }
-            .foregroundStyle(.tertiary)
+            Text("No PR")
+                .foregroundStyle(.tertiary)
         }
     }
 }
