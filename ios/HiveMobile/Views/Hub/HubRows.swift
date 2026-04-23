@@ -3,8 +3,19 @@ import SwiftUI
 struct HubActivitySummary {
     var streaming = 0
     var completed = 0
-    var changed = 0
     var needsAttention = 0
+
+    var visualState: HubActivityVisualState {
+        if streaming > 0 { return .streaming }
+        if completed > 0 { return .completed }
+        return .idle
+    }
+}
+
+enum HubActivityVisualState {
+    case streaming
+    case completed
+    case idle
 }
 
 struct HubFolderHeader: View {
@@ -24,10 +35,7 @@ struct HubFolderHeader: View {
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
                     .frame(width: 12)
 
-                Image(systemName: isExpanded ? "folder.open" : "folder")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20)
+                HubFolderIcon(isExpanded: isExpanded, activityState: activity.visualState)
 
                 Text(title)
                     .font(.headline)
@@ -35,8 +43,6 @@ struct HubFolderHeader: View {
                     .lineLimit(1)
 
                 Spacer(minLength: HiveSpacing.sm)
-
-                HubActivityPills(activity: activity)
 
                 Text("\(projectCount)")
                     .font(.caption.monospacedDigit().weight(.medium))
@@ -77,7 +83,7 @@ struct HubProjectRow: View {
         HStack(spacing: HiveSpacing.sm) {
             Button(action: onToggle) {
                 HStack(spacing: HiveSpacing.sm) {
-                    ProjectAvatar(project: project)
+                    HubProjectIcon(project: project, activityState: activity.visualState)
 
                     VStack(alignment: .leading, spacing: 1) {
                         projectTitle
@@ -88,8 +94,6 @@ struct HubProjectRow: View {
                     }
 
                     Spacer(minLength: HiveSpacing.sm)
-
-                    HubActivityPills(activity: activity)
 
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
@@ -220,37 +224,63 @@ struct HubWorkspaceRow: View {
     }
 }
 
-private struct HubActivityPills: View {
-    let activity: HubActivitySummary
+private struct HubFolderIcon: View {
+    let isExpanded: Bool
+    let activityState: HubActivityVisualState
 
     var body: some View {
-        HStack(spacing: 4) {
-            if activity.streaming > 0 {
-                activityPill(systemImage: "bolt.fill", count: activity.streaming, color: .white)
-            }
-            if activity.completed > 0 {
-                activityPill(systemImage: "checkmark.circle.fill", count: activity.completed, color: .green)
-            }
-            if activity.needsAttention > 0 {
-                activityPill(systemImage: "exclamationmark.triangle.fill", count: activity.needsAttention, color: .orange)
-            }
-            if activity.changed > 0 {
-                activityPill(systemImage: "plus.forwardslash.minus", count: activity.changed, color: .secondary)
-            }
-        }
-    }
+        ZStack(alignment: .topTrailing) {
+            Image(systemName: isExpanded ? "folder.fill" : "folder")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 20, height: 20)
 
-    private func activityPill(systemImage: String, count: Int, color: Color) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: systemImage)
-                .font(.system(size: 9, weight: .semibold))
-            Text("\(count)")
-                .font(.caption2.monospacedDigit().weight(.medium))
+            HubActivityDot(state: activityState)
+                .offset(x: 3, y: -3)
         }
-        .foregroundStyle(color)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 2)
-        .background(.white.opacity(0.07), in: Capsule())
+        .frame(width: 20, height: 20)
+    }
+}
+
+private struct HubProjectIcon: View {
+    let project: Project
+    let activityState: HubActivityVisualState
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            ProjectAvatar(project: project)
+
+            HubActivityDot(state: activityState)
+                .offset(x: 3, y: -3)
+        }
+        .frame(width: 20, height: 20)
+    }
+}
+
+private struct HubActivityDot: View {
+    let state: HubActivityVisualState
+
+    var body: some View {
+        switch state {
+        case .streaming:
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.28))
+                    .frame(width: 11, height: 11)
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 7, height: 7)
+            }
+            .accessibilityLabel("Agent is working")
+        case .completed:
+            Circle()
+                .fill(.green)
+                .frame(width: 7, height: 7)
+                .shadow(color: .green.opacity(0.45), radius: 4)
+                .accessibilityLabel("Unread activity")
+        case .idle:
+            EmptyView()
+        }
     }
 }
 

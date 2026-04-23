@@ -294,7 +294,6 @@ struct HubView: View {
             let projectActivity = activitySummary(for: node.project)
             next.streaming += projectActivity.streaming
             next.completed += projectActivity.completed
-            next.changed += projectActivity.changed
             next.needsAttention += projectActivity.needsAttention
             return next
         }
@@ -309,18 +308,11 @@ struct HubView: View {
             if store.statusMonitor.isCompleted(workspace.id) {
                 next.completed += 1
             }
-            if workspaceHasChanges(workspace.id) {
-                next.changed += 1
-            }
             if workspaceNeedsAttention(workspace.id) {
                 next.needsAttention += 1
             }
             return next
         }
-    }
-
-    private func workspaceHasChanges(_ workspaceId: String) -> Bool {
-        HubDiffSummary(diffStats: store.statusMonitor.diffStats(for: workspaceId)).hasChanges
     }
 
     private func workspaceNeedsAttention(_ workspaceId: String) -> Bool {
