@@ -218,8 +218,13 @@ struct HubView: View {
                         .frame(width: 1)
                         .padding(.leading, HubLayout.hierarchyLineInset)
                 }
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .move(edge: .top)),
+                    removal: .opacity.combined(with: .move(edge: .top))
+                ))
             }
         }
+        .clipped()
     }
 
     private func projectView(_ project: Project) -> some View {
@@ -236,39 +241,46 @@ struct HubView: View {
             )
 
             if expanded {
-                if project.workspaces.isEmpty {
-                    Text("No active workspaces")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .padding(.leading, HubLayout.workspaceIndent)
-                        .padding(.vertical, HiveSpacing.xs)
-                } else {
-                    VStack(spacing: HiveSpacing.xs) {
-                        ForEach(sortedWorkspaces(project.workspaces)) { workspace in
-                            NavigationLink(value: workspace) {
-                                HubWorkspaceRow(
-                                    workspace: workspace,
-                                    isStreaming: store.statusMonitor.isStreaming(workspace.id),
-                                    turnCompleted: store.statusMonitor.isCompleted(workspace.id),
-                                    diffStats: store.statusMonitor.diffStats(for: workspace.id),
-                                    prStatus: store.statusMonitor.prStatus(for: workspace.id)
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                let streaming = store.statusMonitor.isStreaming(workspace.id)
-                                Button("Archive", systemImage: "archivebox", role: .destructive) {
-                                    workspaceToArchive = workspace
+                Group {
+                    if project.workspaces.isEmpty {
+                        Text("No active workspaces")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .padding(.leading, HubLayout.workspaceIndent)
+                            .padding(.vertical, HiveSpacing.xs)
+                    } else {
+                        VStack(spacing: HiveSpacing.xs) {
+                            ForEach(sortedWorkspaces(project.workspaces)) { workspace in
+                                NavigationLink(value: workspace) {
+                                    HubWorkspaceRow(
+                                        workspace: workspace,
+                                        isStreaming: store.statusMonitor.isStreaming(workspace.id),
+                                        turnCompleted: store.statusMonitor.isCompleted(workspace.id),
+                                        diffStats: store.statusMonitor.diffStats(for: workspace.id),
+                                        prStatus: store.statusMonitor.prStatus(for: workspace.id)
+                                    )
                                 }
-                                .tint(streaming ? nil : .red)
-                                .disabled(streaming)
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    let streaming = store.statusMonitor.isStreaming(workspace.id)
+                                    Button("Archive", systemImage: "archivebox", role: .destructive) {
+                                        workspaceToArchive = workspace
+                                    }
+                                    .tint(streaming ? nil : .red)
+                                    .disabled(streaming)
+                                }
                             }
                         }
+                        .padding(.leading, HubLayout.workspaceIndent)
                     }
-                    .padding(.leading, HubLayout.workspaceIndent)
                 }
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .move(edge: .top)),
+                    removal: .opacity.combined(with: .move(edge: .top))
+                ))
             }
         }
+        .clipped()
     }
 
     private func sortedWorkspaces(_ workspaces: [Workspace]) -> [Workspace] {
