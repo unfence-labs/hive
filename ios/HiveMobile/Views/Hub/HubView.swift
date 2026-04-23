@@ -195,55 +195,50 @@ struct HubView: View {
     private func sectionView(_ section: HubSection) -> some View {
         let expanded = isSectionExpanded(section)
 
-        return DisclosureGroup(isExpanded: sectionExpansionBinding(for: section)) {
-            VStack(alignment: .leading, spacing: HiveSpacing.xs) {
-                ForEach(section.projects) { node in
-                    projectView(node.project)
-                }
-            }
-            .padding(.leading, HubLayout.projectIndent)
-            .overlay(alignment: .leading) {
-                Rectangle()
-                    .fill(WhisperColor.hubStructure)
-                    .frame(width: 1)
-                    .padding(.leading, HubLayout.hierarchyLineInset)
-            }
-        } label: {
+        return VStack(alignment: .leading, spacing: HiveSpacing.sm) {
             HubFolderHeader(
                 title: section.title,
                 projectCount: section.projectCount,
                 workspaceCount: section.workspaceCount,
                 isExpanded: expanded,
-                activity: activitySummary(for: section)
+                activity: activitySummary(for: section),
+                onToggle: { setSection(section, expanded: !expanded) }
             )
+
+            if expanded {
+                VStack(alignment: .leading, spacing: HiveSpacing.xs) {
+                    ForEach(section.projects) { node in
+                        projectView(node.project)
+                    }
+                }
+                .padding(.leading, HubLayout.projectIndent)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(WhisperColor.hubStructure)
+                        .frame(width: 1)
+                        .padding(.leading, HubLayout.hierarchyLineInset)
+                }
+            }
         }
-        .buttonStyle(.plain)
-        .tint(.secondary)
     }
 
     private func projectView(_ project: Project) -> some View {
         let expanded = isProjectExpanded(project)
 
-        return DisclosureGroup(isExpanded: projectExpansionBinding(for: project)) {
-            projectWorkspaceContent(project)
-        } label: {
+        return VStack(alignment: .leading, spacing: HiveSpacing.xs) {
             HubProjectRow(
                 project: project,
-                activity: activitySummary(for: project)
-            )
-            .padding(.trailing, 36)
-        }
-        .overlay(alignment: .topTrailing) {
-            HubAddWorkspaceButton(
-                projectName: HubProjectDisplay.name(for: project).plain,
+                isExpanded: expanded,
+                activity: activitySummary(for: project),
                 isCreatingWorkspace: store.creatingWorkspaceProjectIds.contains(project.id),
+                onToggle: { setProject(project.id, expanded: !expanded) },
                 onAddWorkspace: { handleCreateWorkspace(for: project.id) }
             )
-            .padding(.top, 9)
+
+            if expanded {
+                projectWorkspaceContent(project)
+            }
         }
-        .buttonStyle(.plain)
-        .tint(.secondary)
-        .accessibilityValue(expanded ? "Expanded" : "Collapsed")
     }
 
     @ViewBuilder
@@ -279,20 +274,6 @@ struct HubView: View {
             }
             .padding(.leading, HubLayout.workspaceIndent)
         }
-    }
-
-    private func sectionExpansionBinding(for section: HubSection) -> Binding<Bool> {
-        Binding(
-            get: { isSectionExpanded(section) },
-            set: { setSection(section, expanded: $0) }
-        )
-    }
-
-    private func projectExpansionBinding(for project: Project) -> Binding<Bool> {
-        Binding(
-            get: { isProjectExpanded(project) },
-            set: { setProject(project.id, expanded: $0) }
-        )
     }
 
     private func sortedWorkspaces(_ workspaces: [Workspace]) -> [Workspace] {
