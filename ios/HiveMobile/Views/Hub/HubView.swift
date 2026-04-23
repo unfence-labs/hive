@@ -218,6 +218,7 @@ struct HubView: View {
                         .frame(width: 1)
                         .padding(.leading, HubLayout.hierarchyLineInset)
                 }
+                .transition(.opacity)
             }
         }
     }
@@ -228,7 +229,6 @@ struct HubView: View {
         return VStack(alignment: .leading, spacing: HiveSpacing.xs) {
             HubProjectRow(
                 project: project,
-                isExpanded: expanded,
                 activity: activitySummary(for: project),
                 isCreatingWorkspace: store.creatingWorkspaceProjectIds.contains(project.id),
                 onToggle: { setProject(project.id, expanded: !expanded) },
@@ -237,6 +237,7 @@ struct HubView: View {
 
             if expanded {
                 projectWorkspaceContent(project)
+                    .transition(.opacity)
             }
         }
     }
@@ -372,12 +373,16 @@ struct HubView: View {
     }
 
     private func setSection(_ section: HubSection, expanded: Bool) {
-        sectionExpansionOverrides[section.id] = expanded
+        withAnimation(.easeInOut(duration: 0.2)) {
+            sectionExpansionOverrides[section.id] = expanded
+        }
         saveExpansionOverrides(sectionExpansionOverrides, key: Self.sectionExpansionKey)
     }
 
     private func setProject(_ projectId: String, expanded: Bool) {
-        projectExpansionOverrides[projectId] = expanded
+        withAnimation(.easeInOut(duration: 0.2)) {
+            projectExpansionOverrides[projectId] = expanded
+        }
         saveExpansionOverrides(projectExpansionOverrides, key: Self.projectExpansionKey)
     }
 

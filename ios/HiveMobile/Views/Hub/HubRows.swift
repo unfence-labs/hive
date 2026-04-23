@@ -63,7 +63,6 @@ struct HubFolderHeader: View {
 
 struct HubProjectRow: View {
     let project: Project
-    let isExpanded: Bool
     let activity: HubActivitySummary
     let isCreatingWorkspace: Bool
     let onToggle: () -> Void
@@ -88,12 +87,6 @@ struct HubProjectRow: View {
                     }
 
                     Spacer(minLength: HiveSpacing.sm)
-
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .frame(width: 12)
                 }
                 .frame(maxWidth: .infinity, minHeight: 42)
                 .contentShape(Rectangle())
