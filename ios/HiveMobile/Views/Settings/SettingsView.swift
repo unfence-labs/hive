@@ -161,11 +161,11 @@ struct SettingsView: View {
     }
 
     private var connectionHeader: some View {
-        HStack(spacing: HiveSpacing.xs) {
+        HStack {
             Text("Connection")
-            Circle()
-                .fill(healthStatus.color)
-                .frame(width: 8, height: 8)
+            Spacer()
+            Text(healthStatus.label)
+                .foregroundStyle(healthStatus.color)
                 .accessibilityLabel("Connection status")
                 .accessibilityValue(healthStatus.accessibilityValue)
         }
@@ -238,12 +238,14 @@ private enum HealthStatus {
         }
     }
 
-    var accessibilityValue: String {
+    var label: String {
         switch self {
         case .connected: "Connected"
         case .disconnected: "Disconnected"
         }
     }
+
+    var accessibilityValue: String { label }
 }
 
 #Preview {
