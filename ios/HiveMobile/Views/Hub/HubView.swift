@@ -234,7 +234,7 @@ struct HubView: View {
                     Text("No active workspaces")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
-                        .padding(.leading, 32)
+                        .padding(.leading, 20)
                         .padding(.vertical, HiveSpacing.xs)
                 } else {
                     VStack(spacing: HiveSpacing.xs) {
@@ -260,7 +260,7 @@ struct HubView: View {
                             }
                         }
                     }
-                    .padding(.leading, 28)
+                    .padding(.leading, HiveSpacing.lg)
                 }
             }
         }

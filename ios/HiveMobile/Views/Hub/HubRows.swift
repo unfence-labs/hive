@@ -161,16 +161,17 @@ struct HubWorkspaceRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: HiveSpacing.sm) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                        Text(workspace.branch)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    Text(workspace.branch)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    Spacer(minLength: 0)
+                }
+
+                HStack(spacing: HiveSpacing.sm) {
+                    HubPrBadge(prStatus: prStatus)
 
                     if diffSummary.hasChanges {
                         HubDiffBadge(
@@ -178,12 +179,6 @@ struct HubWorkspaceRow: View {
                             deletions: diffSummary.deletions
                         )
                     }
-
-                    Spacer(minLength: 0)
-                }
-
-                HStack(spacing: HiveSpacing.sm) {
-                    HubPrBadge(prStatus: prStatus)
 
                     Text(workspace.name)
                         .font(.caption2)
