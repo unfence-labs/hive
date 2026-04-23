@@ -195,7 +195,7 @@ struct HubView: View {
     private func sectionView(_ section: HubSection) -> some View {
         let expanded = isSectionExpanded(section)
 
-        return VStack(alignment: .leading, spacing: HiveSpacing.sm) {
+        return VStack(alignment: .leading, spacing: expanded ? HiveSpacing.sm : 0) {
             HubFolderHeader(
                 title: section.title,
                 projectCount: section.projectCount,
@@ -205,7 +205,7 @@ struct HubView: View {
                 onToggle: { setSection(section, expanded: !expanded) }
             )
 
-            if expanded {
+            HubCollapsibleContent(isExpanded: expanded) {
                 VStack(alignment: .leading, spacing: HiveSpacing.xs) {
                     ForEach(section.projects) { node in
                         projectView(node.project)
@@ -225,7 +225,7 @@ struct HubView: View {
     private func projectView(_ project: Project) -> some View {
         let expanded = isProjectExpanded(project)
 
-        return VStack(alignment: .leading, spacing: HiveSpacing.xs) {
+        return VStack(alignment: .leading, spacing: expanded ? HiveSpacing.xs : 0) {
             HubProjectRow(
                 project: project,
                 isExpanded: expanded,
@@ -235,7 +235,7 @@ struct HubView: View {
                 onAddWorkspace: { handleCreateWorkspace(for: project.id) }
             )
 
-            if expanded {
+            HubCollapsibleContent(isExpanded: expanded) {
                 if project.workspaces.isEmpty {
                     Text("No active workspaces")
                         .font(.caption)
@@ -411,6 +411,53 @@ struct HubView: View {
         }
         .transition(.move(edge: .bottom))
         .animation(.default, value: store.errorMessage)
+    }
+}
+
+private struct HubCollapsibleContent<Content: View>: View {
+    let isExpanded: Bool
+    private let content: () -> Content
+    @State private var contentHeight: CGFloat = 0
+
+    init(isExpanded: Bool, @ViewBuilder content: @escaping () -> Content) {
+        self.isExpanded = isExpanded
+        self.content = content
+    }
+
+    private var targetHeight: CGFloat? {
+        if isExpanded {
+            return contentHeight > 0 ? contentHeight : nil
+        }
+        return 0
+    }
+
+    var body: some View {
+        content()
+            .fixedSize(horizontal: false, vertical: true)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: HubCollapsibleHeightPreferenceKey.self,
+                        value: proxy.size.height
+                    )
+                }
+            }
+            .onPreferenceChange(HubCollapsibleHeightPreferenceKey.self) { height in
+                contentHeight = height
+            }
+            .frame(height: targetHeight, alignment: .top)
+            .opacity(isExpanded ? 1 : 0)
+            .clipped()
+            .allowsHitTesting(isExpanded)
+            .accessibilityHidden(!isExpanded)
+    }
+}
+
+private struct HubCollapsibleHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
