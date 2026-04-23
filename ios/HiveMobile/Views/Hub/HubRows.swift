@@ -24,56 +24,42 @@ struct HubFolderHeader: View {
     let workspaceCount: Int
     let isExpanded: Bool
     let activity: HubActivitySummary
-    let onToggle: () -> Void
 
     var body: some View {
-        Button(action: onToggle) {
-            HStack(spacing: HiveSpacing.sm) {
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    .frame(width: 12)
+        HStack(spacing: HiveSpacing.sm) {
+            HubFolderIcon(isExpanded: isExpanded, activityState: activity.visualState)
 
-                HubFolderIcon(isExpanded: isExpanded, activityState: activity.visualState)
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
 
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+            Spacer(minLength: HiveSpacing.sm)
 
-                Spacer(minLength: HiveSpacing.sm)
+            Text("\(projectCount)")
+                .font(.caption.monospacedDigit().weight(.medium))
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 18, alignment: .trailing)
 
-                Text("\(projectCount)")
-                    .font(.caption.monospacedDigit().weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 18, alignment: .trailing)
-
-                Text("\(workspaceCount) ws")
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, HiveSpacing.md)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .contentShape(Rectangle())
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(WhisperColor.hubCardFill)
-                    .stroke(WhisperColor.hubCardBorder, lineWidth: 0.5)
-            )
+            Text("\(workspaceCount) ws")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.tertiary)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, HiveSpacing.md)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .contentShape(Rectangle())
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(WhisperColor.hubCardFill)
+                .stroke(WhisperColor.hubCardBorder, lineWidth: 0.5)
+        )
         .accessibilityLabel("\(title), \(projectCount) projects, \(workspaceCount) workspaces")
     }
 }
 
 struct HubProjectRow: View {
     let project: Project
-    let isExpanded: Bool
     let activity: HubActivitySummary
-    let isCreatingWorkspace: Bool
-    let onToggle: () -> Void
-    let onAddWorkspace: () -> Void
 
     private var displayName: HubProjectDisplayName {
         HubProjectDisplay.name(for: project)
@@ -81,50 +67,22 @@ struct HubProjectRow: View {
 
     var body: some View {
         HStack(spacing: HiveSpacing.sm) {
-            Button(action: onToggle) {
-                HStack(spacing: HiveSpacing.sm) {
-                    HubProjectIcon(project: project, activityState: activity.visualState)
+            HubProjectIcon(project: project, activityState: activity.visualState)
 
-                    VStack(alignment: .leading, spacing: 1) {
-                        projectTitle
+            VStack(alignment: .leading, spacing: 1) {
+                projectTitle
 
-                        Text("\(project.workspaces.count) workspaces")
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.tertiary)
-                    }
-
-                    Spacer(minLength: HiveSpacing.sm)
-
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .frame(width: 12)
-                }
-                .frame(maxWidth: .infinity, minHeight: 42)
-                .contentShape(Rectangle())
+                Text("\(project.workspaces.count) workspaces")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(displayName.plain)
 
-            Button(action: onAddWorkspace) {
-                Group {
-                    if isCreatingWorkspace {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "plus")
-                            .font(.caption.weight(.semibold))
-                    }
-                }
-                .frame(width: 28, height: 28)
-                .background(WhisperColor.toolIconBg, in: Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(isCreatingWorkspace)
-            .accessibilityLabel("Add workspace to \(displayName.plain)")
+            Spacer(minLength: HiveSpacing.sm)
         }
+        .frame(maxWidth: .infinity, minHeight: 42)
+        .contentShape(Rectangle())
         .padding(.vertical, 2)
+        .accessibilityLabel(displayName.plain)
     }
 
     @ViewBuilder
@@ -139,6 +97,31 @@ struct HubProjectRow: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
         }
+    }
+}
+
+struct HubAddWorkspaceButton: View {
+    let projectName: String
+    let isCreatingWorkspace: Bool
+    let onAddWorkspace: () -> Void
+
+    var body: some View {
+        Button(action: onAddWorkspace) {
+            Group {
+                if isCreatingWorkspace {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "plus")
+                        .font(.caption.weight(.semibold))
+                }
+            }
+            .frame(width: 28, height: 28)
+            .background(WhisperColor.toolIconBg, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isCreatingWorkspace)
+        .accessibilityLabel("Add workspace to \(projectName)")
     }
 }
 

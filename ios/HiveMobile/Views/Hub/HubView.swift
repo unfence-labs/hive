@@ -195,80 +195,104 @@ struct HubView: View {
     private func sectionView(_ section: HubSection) -> some View {
         let expanded = isSectionExpanded(section)
 
-        return VStack(alignment: .leading, spacing: expanded ? HiveSpacing.sm : 0) {
+        return DisclosureGroup(isExpanded: sectionExpansionBinding(for: section)) {
+            VStack(alignment: .leading, spacing: HiveSpacing.xs) {
+                ForEach(section.projects) { node in
+                    projectView(node.project)
+                }
+            }
+            .padding(.leading, HubLayout.projectIndent)
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(WhisperColor.hubStructure)
+                    .frame(width: 1)
+                    .padding(.leading, HubLayout.hierarchyLineInset)
+            }
+        } label: {
             HubFolderHeader(
                 title: section.title,
                 projectCount: section.projectCount,
                 workspaceCount: section.workspaceCount,
                 isExpanded: expanded,
-                activity: activitySummary(for: section),
-                onToggle: { setSection(section, expanded: !expanded) }
+                activity: activitySummary(for: section)
             )
-
-            HubCollapsibleContent(isExpanded: expanded) {
-                VStack(alignment: .leading, spacing: HiveSpacing.xs) {
-                    ForEach(section.projects) { node in
-                        projectView(node.project)
-                    }
-                }
-                .padding(.leading, HubLayout.projectIndent)
-                .overlay(alignment: .leading) {
-                    Rectangle()
-                        .fill(WhisperColor.hubStructure)
-                        .frame(width: 1)
-                        .padding(.leading, HubLayout.hierarchyLineInset)
-                }
-            }
         }
+        .buttonStyle(.plain)
+        .tint(.secondary)
     }
 
     private func projectView(_ project: Project) -> some View {
         let expanded = isProjectExpanded(project)
 
-        return VStack(alignment: .leading, spacing: expanded ? HiveSpacing.xs : 0) {
+        return DisclosureGroup(isExpanded: projectExpansionBinding(for: project)) {
+            projectWorkspaceContent(project)
+        } label: {
             HubProjectRow(
                 project: project,
-                isExpanded: expanded,
-                activity: activitySummary(for: project),
+                activity: activitySummary(for: project)
+            )
+            .padding(.trailing, 36)
+        }
+        .overlay(alignment: .topTrailing) {
+            HubAddWorkspaceButton(
+                projectName: HubProjectDisplay.name(for: project).plain,
                 isCreatingWorkspace: store.creatingWorkspaceProjectIds.contains(project.id),
-                onToggle: { setProject(project.id, expanded: !expanded) },
                 onAddWorkspace: { handleCreateWorkspace(for: project.id) }
             )
+            .padding(.top, 9)
+        }
+        .buttonStyle(.plain)
+        .tint(.secondary)
+        .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+    }
 
-            HubCollapsibleContent(isExpanded: expanded) {
-                if project.workspaces.isEmpty {
-                    Text("No active workspaces")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .padding(.leading, HubLayout.workspaceIndent)
-                        .padding(.vertical, HiveSpacing.xs)
-                } else {
-                    VStack(spacing: HiveSpacing.xs) {
-                        ForEach(sortedWorkspaces(project.workspaces)) { workspace in
-                            NavigationLink(value: workspace) {
-                                HubWorkspaceRow(
-                                    workspace: workspace,
-                                    isStreaming: store.statusMonitor.isStreaming(workspace.id),
-                                    turnCompleted: store.statusMonitor.isCompleted(workspace.id),
-                                    diffStats: store.statusMonitor.diffStats(for: workspace.id),
-                                    prStatus: store.statusMonitor.prStatus(for: workspace.id)
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                let streaming = store.statusMonitor.isStreaming(workspace.id)
-                                Button("Archive", systemImage: "archivebox", role: .destructive) {
-                                    workspaceToArchive = workspace
-                                }
-                                .tint(streaming ? nil : .red)
-                                .disabled(streaming)
-                            }
-                        }
+    @ViewBuilder
+    private func projectWorkspaceContent(_ project: Project) -> some View {
+        if project.workspaces.isEmpty {
+            Text("No active workspaces")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .padding(.leading, HubLayout.workspaceIndent)
+                .padding(.vertical, HiveSpacing.xs)
+        } else {
+            VStack(spacing: HiveSpacing.xs) {
+                ForEach(sortedWorkspaces(project.workspaces)) { workspace in
+                    NavigationLink(value: workspace) {
+                        HubWorkspaceRow(
+                            workspace: workspace,
+                            isStreaming: store.statusMonitor.isStreaming(workspace.id),
+                            turnCompleted: store.statusMonitor.isCompleted(workspace.id),
+                            diffStats: store.statusMonitor.diffStats(for: workspace.id),
+                            prStatus: store.statusMonitor.prStatus(for: workspace.id)
+                        )
                     }
-                    .padding(.leading, HubLayout.workspaceIndent)
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        let streaming = store.statusMonitor.isStreaming(workspace.id)
+                        Button("Archive", systemImage: "archivebox", role: .destructive) {
+                            workspaceToArchive = workspace
+                        }
+                        .tint(streaming ? nil : .red)
+                        .disabled(streaming)
+                    }
                 }
             }
+            .padding(.leading, HubLayout.workspaceIndent)
         }
+    }
+
+    private func sectionExpansionBinding(for section: HubSection) -> Binding<Bool> {
+        Binding(
+            get: { isSectionExpanded(section) },
+            set: { setSection(section, expanded: $0) }
+        )
+    }
+
+    private func projectExpansionBinding(for project: Project) -> Binding<Bool> {
+        Binding(
+            get: { isProjectExpanded(project) },
+            set: { setProject(project.id, expanded: $0) }
+        )
     }
 
     private func sortedWorkspaces(_ workspaces: [Workspace]) -> [Workspace] {
@@ -367,16 +391,12 @@ struct HubView: View {
     }
 
     private func setSection(_ section: HubSection, expanded: Bool) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            sectionExpansionOverrides[section.id] = expanded
-        }
+        sectionExpansionOverrides[section.id] = expanded
         saveExpansionOverrides(sectionExpansionOverrides, key: Self.sectionExpansionKey)
     }
 
     private func setProject(_ projectId: String, expanded: Bool) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            projectExpansionOverrides[projectId] = expanded
-        }
+        projectExpansionOverrides[projectId] = expanded
         saveExpansionOverrides(projectExpansionOverrides, key: Self.projectExpansionKey)
     }
 
@@ -411,53 +431,6 @@ struct HubView: View {
         }
         .transition(.move(edge: .bottom))
         .animation(.default, value: store.errorMessage)
-    }
-}
-
-private struct HubCollapsibleContent<Content: View>: View {
-    let isExpanded: Bool
-    private let content: () -> Content
-    @State private var contentHeight: CGFloat = 0
-
-    init(isExpanded: Bool, @ViewBuilder content: @escaping () -> Content) {
-        self.isExpanded = isExpanded
-        self.content = content
-    }
-
-    private var targetHeight: CGFloat? {
-        if isExpanded {
-            return contentHeight > 0 ? contentHeight : nil
-        }
-        return 0
-    }
-
-    var body: some View {
-        content()
-            .fixedSize(horizontal: false, vertical: true)
-            .background {
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: HubCollapsibleHeightPreferenceKey.self,
-                        value: proxy.size.height
-                    )
-                }
-            }
-            .onPreferenceChange(HubCollapsibleHeightPreferenceKey.self) { height in
-                contentHeight = height
-            }
-            .frame(height: targetHeight, alignment: .top)
-            .opacity(isExpanded ? 1 : 0)
-            .clipped()
-            .allowsHitTesting(isExpanded)
-            .accessibilityHidden(!isExpanded)
-    }
-}
-
-private struct HubCollapsibleHeightPreferenceKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
     }
 }
 
