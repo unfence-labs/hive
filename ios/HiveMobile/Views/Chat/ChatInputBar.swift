@@ -339,7 +339,7 @@ private struct AttachmentChip: View {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 16))
                     .foregroundStyle(.white)
-                    .background(Color.black.opacity(0.6), in: Circle())
+                    .background(WhisperColor.imageControlBg, in: Circle())
             }
             .offset(x: 4, y: -4)
         }

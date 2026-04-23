@@ -208,7 +208,7 @@ struct HubView: View {
                 .padding(.leading, HiveSpacing.md)
                 .overlay(alignment: .leading) {
                     Rectangle()
-                        .fill(.white.opacity(0.08))
+                        .fill(WhisperColor.border)
                         .frame(width: 1)
                         .padding(.leading, 3)
                 }

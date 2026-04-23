@@ -58,8 +58,8 @@ struct HubFolderHeader: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(.white.opacity(0.06))
-                    .stroke(.white.opacity(0.08), lineWidth: 0.5)
+                    .fill(WhisperColor.surface)
+                    .stroke(WhisperColor.border, lineWidth: 0.5)
             )
         }
         .buttonStyle(.plain)
@@ -118,7 +118,7 @@ struct HubProjectRow: View {
                     }
                 }
                 .frame(width: 28, height: 28)
-                .background(.white.opacity(0.08), in: Circle())
+                .background(WhisperColor.toolIconBg, in: Circle())
             }
             .buttonStyle(.plain)
             .disabled(isCreatingWorkspace)
@@ -194,7 +194,7 @@ struct HubWorkspaceRow: View {
         .contentShape(Rectangle())
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(.white.opacity(0.05))
+                .fill(WhisperColor.separator)
                 .frame(height: 0.5)
         }
     }

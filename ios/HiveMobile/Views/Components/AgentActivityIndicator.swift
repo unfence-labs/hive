@@ -30,7 +30,7 @@ struct AgentActivityIndicator: View {
                             height: dotSize * scale
                         )
                         let path = Path(roundedRect: rect, cornerRadius: 1)
-                        context.fill(path, with: .color(.white.opacity(val)))
+                        context.fill(path, with: .color(WhisperColor.activityDot.opacity(val)))
                     }
                 }
             }
@@ -38,7 +38,7 @@ struct AgentActivityIndicator: View {
                 width: dotSize * 3 + spacing * 2,
                 height: dotSize * 3 + spacing * 2
             )
-            .shadow(color: .white.opacity(0.25), radius: dotSize * 2)
+            .shadow(color: WhisperColor.activityDot.opacity(0.25), radius: dotSize * 2)
         }
     }
 }

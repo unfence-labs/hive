@@ -5,6 +5,7 @@ struct SettingsView: View {
     @AppStorage("serverPort") private var port = "3000"
     @AppStorage("authToken") private var token = ""
     @AppStorage("hiveAccent") private var accentId = "violet"
+    @AppStorage("hiveThemeMode") private var themeModeId = HiveThemeMode.system.rawValue
 
     @FocusState private var focusedField: Field?
     @State private var healthStatus: HealthStatus = .unknown
@@ -14,9 +15,13 @@ struct SettingsView: View {
         case host, port, token
     }
 
+    private var selectedAccent: Color {
+        AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
+    }
+
     var body: some View {
         Form {
-            accentSection
+            appearanceSection
             connectionSection
             healthSection
         }
@@ -31,11 +36,50 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Accent Color Picker
+    // MARK: - Appearance
 
-    private var accentSection: some View {
+    private var appearanceSection: some View {
         Section("Appearance") {
             VStack(alignment: .leading, spacing: HiveSpacing.md) {
+                Text("Theme")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: HiveSpacing.sm) {
+                    ForEach(HiveThemeMode.allCases) { mode in
+                        let isSelected = mode.rawValue == themeModeId
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                themeModeId = mode.rawValue
+                            }
+                        } label: {
+                            VStack(spacing: HiveSpacing.xs) {
+                                Image(systemName: mode.systemImage)
+                                    .font(.system(size: 18, weight: .medium))
+                                Text(mode.label)
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                            }
+                            .foregroundStyle(isSelected ? selectedAccent : .secondary)
+                            .frame(maxWidth: .infinity, minHeight: 62)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(isSelected ? selectedAccent.opacity(0.12) : WhisperColor.surfaceSubtle)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(isSelected ? selectedAccent.opacity(0.4) : WhisperColor.borderSubtle, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Theme: \(mode.label)")
+                        .accessibilityValue(isSelected ? "Selected" : "")
+                    }
+                }
+
+                Divider()
+                    .padding(.vertical, HiveSpacing.xs)
+
                 Text("Accent Color")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)

@@ -951,7 +951,7 @@ private struct ToolRowLabel: View {
                 .foregroundStyle(WhisperColor.textMuted)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
-                .background(Color.white.opacity(0.08), in: Capsule())
+                .background(WhisperColor.toolIconBg, in: Capsule())
             }
 
             if let detail {
@@ -961,7 +961,7 @@ private struct ToolRowLabel: View {
                     .lineLimit(1)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 4))
+                    .background(WhisperColor.surfaceRaised, in: RoundedRectangle(cornerRadius: 4))
             }
 
             if let stats {
@@ -1007,14 +1007,13 @@ private struct ToolContentPanel<Content: View>: View {
         content
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            .background(WhisperColor.surface, in: RoundedRectangle(cornerRadius: 8))
             .padding(.top, 2)
     }
 }
 
 // MARK: - Whisper Chat Markdown Theme
 
-private let whisperCodeColor = Color(red: 0.78, green: 0.82, blue: 0.90)
 private let whisperLinkColor = Color(red: 0.231, green: 0.510, blue: 0.965)
 
 private extension Theme {
@@ -1028,8 +1027,8 @@ private extension Theme {
         .code {
             FontFamilyVariant(.monospaced)
             FontSize(12)
-            ForegroundColor(whisperCodeColor)
-            BackgroundColor(Color.white.opacity(0.10))
+            ForegroundColor(WhisperColor.codeText)
+            BackgroundColor(WhisperColor.codeBg)
         }
         .strong {
             FontWeight(.semibold)
@@ -1108,17 +1107,17 @@ private extension Theme {
             .markdownTextStyle {
                 FontFamilyVariant(.monospaced)
                 FontSize(12)
-                ForegroundColor(whisperCodeColor)
+                ForegroundColor(WhisperColor.codeText)
             }
             .padding(12)
-            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            .background(WhisperColor.codeBlockBg, in: RoundedRectangle(cornerRadius: 8))
             .markdownMargin(top: .em(0.4), bottom: .em(0.4))
         }
         // ── Blockquotes ──
         .blockquote { configuration in
             HStack(spacing: 0) {
                 RoundedRectangle(cornerRadius: 1)
-                    .fill(Color.white.opacity(0.15))
+                    .fill(WhisperColor.border)
                     .frame(width: 3)
                 configuration.label
                     .markdownTextStyle {
@@ -1131,7 +1130,7 @@ private extension Theme {
         // ── Thematic break ──
         .thematicBreak {
             Divider()
-                .overlay(Color.white.opacity(0.10))
+                .overlay(WhisperColor.separator)
                 .markdownMargin(top: .em(0.8), bottom: .em(0.8))
         }
 }

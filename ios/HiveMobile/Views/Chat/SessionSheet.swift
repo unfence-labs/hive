@@ -58,7 +58,7 @@ private struct SessionRow: View {
         HStack(spacing: HiveSpacing.md) {
             if isActive {
                 Circle()
-                    .fill(.white)
+                    .fill(Color.accentColor)
                     .frame(width: 8, height: 8)
             }
 
