@@ -1,5 +1,11 @@
 import SwiftUI
 
+private enum HubLayout {
+    static let projectIndent: CGFloat = 16
+    static let workspaceIndent: CGFloat = 24
+    static let hierarchyLineInset: CGFloat = 5
+}
+
 struct HubView: View {
     @Environment(ProjectStore.self) private var store
     @State private var showAddProject = false
@@ -205,12 +211,12 @@ struct HubView: View {
                         projectView(node.project)
                     }
                 }
-                .padding(.leading, HiveSpacing.md)
+                .padding(.leading, HubLayout.projectIndent)
                 .overlay(alignment: .leading) {
                     Rectangle()
                         .fill(WhisperColor.hubStructure)
                         .frame(width: 1)
-                        .padding(.leading, 3)
+                        .padding(.leading, HubLayout.hierarchyLineInset)
                 }
             }
         }
@@ -234,7 +240,7 @@ struct HubView: View {
                     Text("No active workspaces")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
-                        .padding(.leading, 20)
+                        .padding(.leading, HubLayout.workspaceIndent)
                         .padding(.vertical, HiveSpacing.xs)
                 } else {
                     VStack(spacing: HiveSpacing.xs) {
@@ -259,7 +265,7 @@ struct HubView: View {
                             }
                         }
                     }
-                    .padding(.leading, HiveSpacing.lg)
+                    .padding(.leading, HubLayout.workspaceIndent)
                 }
             }
         }

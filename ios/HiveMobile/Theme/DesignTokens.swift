@@ -82,7 +82,7 @@ enum WhisperColor {
     static let separator     = dynamic(light: UIColor(white: 0.86, alpha: 1), dark: UIColor(white: 1, alpha: 0.05))
     static let hubCardFill   = dynamic(light: UIColor(white: 0.965, alpha: 0.94), dark: UIColor(white: 1, alpha: 0.06))
     static let hubCardBorder = dynamic(light: UIColor(white: 0, alpha: 0), dark: UIColor(white: 1, alpha: 0.08))
-    static let hubStructure  = dynamic(light: UIColor(white: 0, alpha: 0), dark: UIColor(white: 1, alpha: 0.08))
+    static let hubStructure  = dynamic(light: UIColor(white: 0.86, alpha: 1), dark: UIColor(white: 1, alpha: 0.08))
     static let hubSeparator  = dynamic(light: UIColor(white: 0, alpha: 0), dark: UIColor(white: 1, alpha: 0.05))
     static let text          = dynamic(light: UIColor(red: 0.09, green: 0.10, blue: 0.13, alpha: 1), dark: UIColor(red: 0.91, green: 0.91, blue: 0.94, alpha: 1))
     static let textSecondary = dynamic(light: UIColor(red: 0.34, green: 0.36, blue: 0.42, alpha: 1), dark: UIColor(red: 0.545, green: 0.545, blue: 0.62, alpha: 1))
