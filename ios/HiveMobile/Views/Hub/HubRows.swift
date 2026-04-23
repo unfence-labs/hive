@@ -154,9 +154,10 @@ struct HubWorkspaceRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: HiveSpacing.sm) {
+        HStack(alignment: .top, spacing: HiveSpacing.sm) {
             workspaceStatus
                 .frame(width: 14, height: 14)
+                .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: HiveSpacing.sm) {
