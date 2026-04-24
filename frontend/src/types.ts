@@ -318,7 +318,21 @@ export type WsOutgoing =
   | { type: "branch_info"; info: BranchInfo }
   | { type: "diff_stats"; stats: DiffStatResponse }
   | { type: "script_status"; scriptType: ScriptType; state: ScriptState; exitCode?: number }
+  | { type: "browser_status"; status: BrowserStatusPayload }
   | { type: "plan_mode_changed"; sessionId: string; active: boolean };
+
+export type BrowserSessionState = "registered" | "active" | "closed" | "error";
+
+export interface BrowserStatusPayload {
+  sessionId: string;
+  state: BrowserSessionState;
+  streamPath?: string;
+  url?: string;
+  title?: string;
+  updatedAt: number;
+  lastActiveAt?: number;
+  error?: string;
+}
 
 // ── Automation types ─────────────────────────────────────────────────
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
-import { ChevronDownIcon, TerminalIcon } from "lucide-react";
+import { ChevronDownIcon, MonitorIcon, TerminalIcon, XIcon } from "lucide-react";
 import { VscodeIcon, Iterm2Icon } from "@/components/icons/software-icons";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
@@ -24,6 +24,7 @@ import { BranchLabel } from "@/components/BranchLabel";
 import { InlineDiffViewer, type InlineDiffViewerHandle } from "@/components/diff/InlineDiffViewer";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { PrStatusSection } from "@/components/PrStatusSection";
+import { BrowserPanel } from "@/components/BrowserPanel";
 import ScriptPanel from "@/components/ScriptPanel";
 import TaskTracker from "@/components/TaskTracker";
 import { useTasks } from "@/hooks/useTasks";
@@ -293,6 +294,7 @@ export default function WorkspaceView() {
 
   // ── Resizable panels ──
   const rightPanelRef = usePanelRef();
+  const [rightPanelMode, setRightPanelMode] = useState<"workspace" | "browser">("workspace");
   const { defaultLayout: wsLayout, onLayoutChanged: onWsLayoutChanged } = useDefaultLayout({
     id: "hive-workspace",
     storage: localStorage,
@@ -319,6 +321,29 @@ export default function WorkspaceView() {
       rightPanelRef.current?.expand();
     }
   }, [isLg, rightPanelRef]);
+
+  const currentBrowserStatus = useMemo(() => {
+    if (!wsId || !sessionId) return undefined;
+    const status = liveData[wsId]?.browserSessions?.[sessionId];
+    if (!status || status.state === "registered" || status.state === "closed") return undefined;
+    return status;
+  }, [wsId, sessionId, liveData]);
+
+  useEffect(() => {
+    if (!currentBrowserStatus && rightPanelMode === "browser") {
+      setRightPanelMode("workspace");
+    }
+  }, [currentBrowserStatus, rightPanelMode]);
+
+  const handleToggleBrowserPanel = useCallback(() => {
+    setRightPanelMode((mode) => {
+      const next = mode === "browser" ? "workspace" : "browser";
+      if (next === "browser") {
+        rightPanelRef.current?.expand();
+      }
+      return next;
+    });
+  }, [rightPanelRef]);
 
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();
@@ -485,6 +510,26 @@ export default function WorkspaceView() {
               <span className="truncate text-xs text-muted-foreground/60">{"> origin/"}{workspace.defaultBranch}</span>
             )}
             <div className="ml-auto" />
+            {currentBrowserStatus && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant={rightPanelMode === "browser" ? "secondary" : "ghost"}
+                      size="icon-xs"
+                      className="relative text-muted-foreground hover:text-foreground"
+                      onClick={handleToggleBrowserPanel}
+                      aria-label="Toggle browser panel"
+                    >
+                      <MonitorIcon className="size-3.5" />
+                      <span className="absolute right-1 top-1 size-1.5 rounded-full bg-emerald-400 ring-1 ring-background" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Browser</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
             {terminalApps.length > 0 ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -673,89 +718,121 @@ export default function WorkspaceView() {
         >
           <div className="flex h-full flex-col">
             <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4" data-tauri-drag-region>
-              <button
-                type="button"
-                className={cn(
-                  "text-xs uppercase tracking-wide transition-colors",
-                  sidebarTab === "all"
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                onClick={() => setSidebarTab("all")}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
-                  sidebarTab === "modified"
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                onClick={() => setSidebarTab("modified")}
-              >
-                Modified
-                {diffTotalCount > 0 && (
-                  <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-                    {diffTotalCount}
+              {rightPanelMode === "browser" && currentBrowserStatus ? (
+                <>
+                  <MonitorIcon className="size-3.5 text-muted-foreground" />
+                  <span className="text-xs font-medium uppercase tracking-wide text-foreground">Browser</span>
+                  <Badge
+                    variant={currentBrowserStatus.state === "error" ? "destructive" : "secondary"}
+                    className="px-1.5 py-0 text-[10px]"
+                  >
+                    {currentBrowserStatus.state === "error" ? "Error" : "Live"}
                   </Badge>
-                )}
-              </button>
+                  <div className="ml-auto" />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => setRightPanelMode("workspace")}
+                    aria-label="Close browser panel"
+                  >
+                    <XIcon className="size-3" />
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className={cn(
+                      "text-xs uppercase tracking-wide transition-colors",
+                      sidebarTab === "all"
+                        ? "text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                    onClick={() => setSidebarTab("all")}
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
+                      sidebarTab === "modified"
+                        ? "text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                    onClick={() => setSidebarTab("modified")}
+                  >
+                    Modified
+                    {diffTotalCount > 0 && (
+                      <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                        {diffTotalCount}
+                      </Badge>
+                    )}
+                  </button>
+                </>
+              )}
             </div>
-            <Group
-              orientation="vertical"
-              defaultLayout={splitLayout}
-              onLayoutChanged={onSplitLayoutChanged}
-              style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
-            >
-              <Panel id="file-tree" defaultSize="50%" minSize="15%" maxSize="85%">
-                <div className="h-full overflow-auto p-3">
-                  {sidebarTab === "modified" && (
-                    <ModifiedFileList
-                      committed={diffCommitted}
-                      uncommitted={diffUncommitted}
-                      onFileClick={handleModifiedFileClick}
-                      activeFile={isFileTabActive && fileViewMode === "diff" ? openFile ?? undefined : undefined}
-                    />
-                  )}
-                  {sidebarTab === "all" && fileTreeError && (
-                    <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
-                      {fileTreeError}
-                    </div>
-                  )}
-                  {sidebarTab === "all" && !fileTreeError && (
-                    <FileTree
-                      expanded={expandedPaths}
-                      onExpandedChange={setExpandedPaths}
-                      onPathSelect={handleFileTreeSelect}
-                      selectedPath={selectedPath}
-                    >
-                      {fileTree.length ? (
-                        renderFileTreeNodes(fileTree)
-                      ) : (
-                        <div className="px-2 py-1 text-xs text-muted-foreground">No files found.</div>
+            {rightPanelMode === "browser" && currentBrowserStatus ? (
+              <BrowserPanel status={currentBrowserStatus} />
+            ) : (
+              <>
+                <Group
+                  orientation="vertical"
+                  defaultLayout={splitLayout}
+                  onLayoutChanged={onSplitLayoutChanged}
+                  style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
+                >
+                  <Panel id="file-tree" defaultSize="50%" minSize="15%" maxSize="85%">
+                    <div className="h-full overflow-auto p-3">
+                      {sidebarTab === "modified" && (
+                        <ModifiedFileList
+                          committed={diffCommitted}
+                          uncommitted={diffUncommitted}
+                          onFileClick={handleModifiedFileClick}
+                          activeFile={isFileTabActive && fileViewMode === "diff" ? openFile ?? undefined : undefined}
+                        />
                       )}
-                    </FileTree>
-                  )}
-                </div>
-              </Panel>
-              <ResizeHandle orientation="horizontal" />
-              <Panel id="scripts" minSize="15%">
-                <ScriptPanel
-                  key={wsId}
-                  config={scriptsConfig}
-                  status={scriptsStatus}
-                  onStart={startScript}
-                  onStop={stopScript}
-                  onStartTerminal={startTerminal}
-                  onStopTerminal={stopTerminal}
-                  onConnectOutput={connectScriptOutput}
-                  onDisconnectOutput={disconnectScriptOutput}
-                />
-              </Panel>
-            </Group>
-            <PrStatusSection wsId={wsId} />
+                      {sidebarTab === "all" && fileTreeError && (
+                        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                          {fileTreeError}
+                        </div>
+                      )}
+                      {sidebarTab === "all" && !fileTreeError && (
+                        <FileTree
+                          expanded={expandedPaths}
+                          onExpandedChange={setExpandedPaths}
+                          onPathSelect={handleFileTreeSelect}
+                          selectedPath={selectedPath}
+                        >
+                          {fileTree.length ? (
+                            renderFileTreeNodes(fileTree)
+                          ) : (
+                            <div className="px-2 py-1 text-xs text-muted-foreground">No files found.</div>
+                          )}
+                        </FileTree>
+                      )}
+                    </div>
+                  </Panel>
+                  <ResizeHandle orientation="horizontal" />
+                  <Panel id="scripts" minSize="15%">
+                    <ScriptPanel
+                      key={wsId}
+                      config={scriptsConfig}
+                      status={scriptsStatus}
+                      onStart={startScript}
+                      onStop={stopScript}
+                      onStartTerminal={startTerminal}
+                      onStopTerminal={stopTerminal}
+                      onConnectOutput={connectScriptOutput}
+                      onDisconnectOutput={disconnectScriptOutput}
+                    />
+                  </Panel>
+                </Group>
+                <PrStatusSection wsId={wsId} />
+              </>
+            )}
           </div>
         </Panel>
       </Group>

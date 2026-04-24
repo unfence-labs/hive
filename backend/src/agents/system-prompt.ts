@@ -117,6 +117,16 @@ export function formatGitContextBlock(
   return gitLines.join("\n");
 }
 
+export function formatBrowserContextBlock(): string {
+  return [
+    "# Browser Context",
+    "",
+    "Hive provides a read-only live browser panel when you use the `agent-browser` CLI.",
+    "For frontend or UI verification, use `agent-browser` to inspect the running app instead of relying only on static reasoning.",
+    "Use the existing `AGENT_BROWSER_STREAM_PORT` environment variable for the stream; do not start a separate browser dashboard or streaming server.",
+  ].join("\n");
+}
+
 /** Replace prompt placeholders with concrete workspace/project values. */
 export function interpolatePromptVariables(
   prompt: string,
@@ -154,6 +164,7 @@ export async function buildSystemPrompt(opts: SystemPromptOptions): Promise<stri
 
   const sections: string[] = [basePrompt];
   sections.push(formatGitContextBlock(ctx, { projectName, workspaceName }));
+  sections.push(formatBrowserContextBlock());
 
   return sections.join("\n\n");
 }

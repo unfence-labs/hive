@@ -17,6 +17,7 @@ import { getScriptStatus } from "../services/script-runner.js";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { workspacesDir } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
+import { browserSessionManager } from "../services/browser-session-manager.js";
 import { join, resolve, sep } from "node:path";
 
 interface GitSyncSnapshotProvider {
@@ -121,6 +122,15 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     authToken,
     gitSyncSnapshotProvider,
   } = opts;
+
+  const onBrowserStatus = (workspaceId: string, status: Extract<WsOutgoing, { type: "browser_status" }>["status"]) => {
+    broadcastToWorkspace(workspaceId, { type: "browser_status", status });
+  };
+  browserSessionManager.on("status", onBrowserStatus);
+  app.addHook("onClose", (_instance, done) => {
+    browserSessionManager.removeListener("status", onBrowserStatus);
+    done();
+  });
 
   // ── Channel helpers ───────────────────────────────────────────────
 
@@ -237,6 +247,9 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       if (msg.type === "tool_input_required") {
         channel.pendingToolRequests.set(msg.requestId, session.sessionId);
       }
+      if (msg.type === "tool_use") {
+        browserSessionManager.maybeMarkToolActivity(workspaceId, session.sessionId, msg.name, msg.input);
+      }
       broadcastToChannel(channel, workspaceId, msg);
     };
     const onError = (err: Error) => {
@@ -344,6 +357,10 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           ...(info.exitCode !== undefined ? { exitCode: info.exitCode } : {}),
         });
       }
+    }
+
+    for (const status of browserSessionManager.getVisibleStatuses(wsId)) {
+      sendToHub(hub, wsId, { type: "browser_status", status });
     }
   };
 

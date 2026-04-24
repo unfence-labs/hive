@@ -20,6 +20,7 @@ import { agentSettingsRoutes } from "./api/agents-settings.js";
 import { accountRoutes } from "./api/account.js";
 import { scriptRoutes } from "./api/scripts.js";
 import { scriptWsRoutes } from "./ws/script.js";
+import { browserWsRoutes } from "./ws/browser.js";
 import { automationRoutes } from "./api/automations.js";
 import { promptTemplateRoutes } from "./api/prompt-templates.js";
 import { basePromptRoutes } from "./api/base-prompt.js";
@@ -315,6 +316,9 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register((instance: FastifyInstance) => scriptRoutes(instance));
   await app.register((instance: FastifyInstance) =>
     scriptWsRoutes(instance, { authToken }),
+  );
+  await app.register((instance: FastifyInstance) =>
+    browserWsRoutes(instance, { authToken }),
   );
   await app.register((instance: FastifyInstance) =>
     automationRoutes(instance, { scheduler: opts.scheduler }),

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { wsTransport } from "@/lib/ws-transport";
-import type { BranchInfo, DiffStatResponse, ScriptState } from "@/types";
+import type { BranchInfo, BrowserStatusPayload, DiffStatResponse, ScriptState } from "@/types";
 
 export interface WorkspaceLiveData {
   status?: "idle" | "busy";
@@ -11,6 +11,7 @@ export interface WorkspaceLiveData {
   diffStats?: DiffStatResponse;
   scriptRunning?: boolean;
   scriptStates?: Record<string, ScriptState>;
+  browserSessions?: Record<string, BrowserStatusPayload>;
   unreadSessions?: Record<string, boolean>;
 }
 
@@ -122,6 +123,23 @@ export function useWorkspaceLiveData(
               return prev;
             }
             return { ...prev, [wsId]: { ...current, scriptRunning, scriptStates: prevScripts } };
+          });
+        } else if (msg.type === "browser_status") {
+          setLiveData((prev) => {
+            const current = prev[wsId] ?? {};
+            const prevSessions = { ...(current.browserSessions ?? {}) };
+            if (msg.status.state === "closed") {
+              delete prevSessions[msg.status.sessionId];
+            } else {
+              prevSessions[msg.status.sessionId] = msg.status;
+            }
+            return {
+              ...prev,
+              [wsId]: {
+                ...current,
+                browserSessions: Object.keys(prevSessions).length > 0 ? prevSessions : undefined,
+              },
+            };
           });
         }
       }),

@@ -12,6 +12,7 @@ import type { ChatMessage, SessionMetadata } from "../types.js";
 import { Notifier } from "../notifications/notifier.js";
 import { TelegramChannel } from "../notifications/telegram.js";
 import { ApnsChannel } from "../notifications/apns.js";
+import { browserSessionManager } from "../services/browser-session-manager.js";
 import type { AppConfig } from "../state/config.js";
 import { loadConfig, saveConfig } from "../state/config.js";
 
@@ -381,6 +382,7 @@ export async function endSession(
         session.stop("park");
       }
     }
+    browserSessionManager.closeWorkspace(wsId);
 
     const result = await getWorkspace(wsId, dataDir);
     if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
@@ -487,6 +489,16 @@ function attachNotificationListener(
   });
 }
 
+async function attachBrowserEnv(
+  session: ConversationSession,
+  workspaceId: string,
+  options?: SessionOptions,
+): Promise<void> {
+  if (options?.command) return;
+  await browserSessionManager.ensureSession(workspaceId, session.sessionId);
+  session.setBrowserEnv(browserSessionManager.getEnv(workspaceId, session.sessionId));
+}
+
 async function createSession(
   ctx: Awaited<ReturnType<typeof resolveWorkspaceContext>>,
   dataDir: string,
@@ -508,6 +520,7 @@ async function createSession(
     systemPrompt,
     skipPermissions: options?.skipPermissions,
   });
+  await attachBrowserEnv(session, ctx.workspace.id, options);
   await session.persistMetadata();
   attachNotificationListener(session, ctx);
 
@@ -571,6 +584,7 @@ async function loadSessionFromDisk(
     systemPrompt,
     skipPermissions: options?.skipPermissions,
   });
+  await attachBrowserEnv(session, ctx.workspace.id, options);
   attachNotificationListener(session, ctx);
   rememberLoadedSession(ctx.workspace.id, session);
   return session;
@@ -676,6 +690,7 @@ export async function hardDeleteSession(
     const ctx = await resolveWorkspaceContext(wsId, dataDir);
     const loaded = getLoadedSessionById(wsId, sessionId);
     const wasActive = activeSessionIds.get(wsId) === sessionId;
+    browserSessionManager.closeSession(wsId, sessionId);
 
     if (loaded) {
       removeLoadedSession(wsId, sessionId);
