@@ -85,6 +85,15 @@ describe("BrowserPanel", () => {
     });
   });
 
+  it("renders an idle header without opening a stream", () => {
+    render(<BrowserPanel />);
+
+    expect(screen.getByText("Browser")).toBeInTheDocument();
+    expect(screen.getByText("Idle")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Expand browser panel" })).not.toBeInTheDocument();
+    expect(MockWebSocket.instances).toHaveLength(0);
+  });
+
   it("renders stream frames as a full panel viewport", async () => {
     render(<BrowserPanel status={status} />);
 

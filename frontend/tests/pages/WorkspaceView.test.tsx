@@ -116,20 +116,28 @@ vi.mock("@/components/ScriptPanel", () => ({
 
 vi.mock("@/components/BrowserPanel", () => ({
   BrowserPanel: ({
+    status,
     collapsed,
     onToggleCollapsed,
   }: {
+    status?: unknown;
     collapsed?: boolean;
     onToggleCollapsed?: () => void;
   }) => (
-    <div data-testid="browser-panel" data-collapsed={collapsed ? "true" : "false"}>
-      <button
-        type="button"
-        aria-label={collapsed ? "Expand browser panel" : "Collapse browser panel"}
-        onClick={onToggleCollapsed}
-      >
-        browser-toggle
-      </button>
+    <div
+      data-testid="browser-panel"
+      data-active={status ? "true" : "false"}
+      data-collapsed={collapsed ? "true" : "false"}
+    >
+      {onToggleCollapsed && (
+        <button
+          type="button"
+          aria-label={collapsed ? "Expand browser panel" : "Collapse browser panel"}
+          onClick={onToggleCollapsed}
+        >
+          browser-toggle
+        </button>
+      )}
     </div>
   ),
 }));
@@ -580,6 +588,8 @@ describe("WorkspaceView behavior", () => {
 
     // Should render the simple "VS Code" button, not a dropdown
     expect(screen.getByRole("button", { name: "VS Code" })).toBeInTheDocument();
+    expect(screen.getByTestId("browser-panel")).toHaveAttribute("data-active", "false");
+    expect(screen.getByTestId("browser-panel")).toHaveAttribute("data-collapsed", "true");
   });
 
   it("automatically shows the browser panel for active browser sessions and keeps local manual collapse", async () => {

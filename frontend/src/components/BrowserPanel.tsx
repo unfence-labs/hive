@@ -6,9 +6,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import {
   buildBrowserStreamUrl,
   parseBrowserStreamMessage,
-  type BrowserStreamConnectionStatus,
 } from "@/lib/browser-stream";
-import { cn } from "@/lib/utils";
 import type { BrowserStatusPayload } from "@/types";
 
 const VIEWPORT_RESIZE_DEBOUNCE_MS = 250;
@@ -16,22 +14,9 @@ const MIN_VIEWPORT_WIDTH = 160;
 const MIN_VIEWPORT_HEIGHT = 120;
 
 interface BrowserPanelProps {
-  status: BrowserStatusPayload;
+  status?: BrowserStatusPayload;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
-}
-
-function connectionLabel(status: BrowserStreamConnectionStatus): string {
-  switch (status) {
-    case "connecting":
-      return "Connecting";
-    case "connected":
-      return "Live";
-    case "error":
-      return "Error";
-    case "disconnected":
-      return "Disconnected";
-  }
 }
 
 export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: BrowserPanelProps) {
@@ -43,25 +28,21 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
   const lastSentViewportRef = useRef<{ width: number; height: number } | null>(null);
 
   const [frameSrc, setFrameSrc] = useState<string | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<BrowserStreamConnectionStatus>("connecting");
+  const [connectionError, setConnectionError] = useState(false);
   const [paused, setPaused] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
-  const [url, setUrl] = useState(status.url);
-  const [title, setTitle] = useState(status.title);
-  const [error, setError] = useState(status.error);
+  const [error, setError] = useState(status?.error);
 
   pausedRef.current = paused;
 
   const streamUrl = useMemo(
-    () => !collapsed && status.streamPath ? buildBrowserStreamUrl(status.streamPath) : null,
-    [collapsed, status.streamPath],
+    () => !collapsed && status?.streamPath ? buildBrowserStreamUrl(status.streamPath) : null,
+    [collapsed, status?.streamPath],
   );
 
   useEffect(() => {
-    setUrl(status.url);
-    setTitle(status.title);
-    setError(status.error);
-  }, [status.url, status.title, status.error]);
+    setError(status?.error);
+  }, [status?.error]);
 
   const sendViewportResize = useCallback(() => {
     const element = containerRef.current;
@@ -80,9 +61,13 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
   }, []);
 
   useEffect(() => {
-    if (!streamUrl) return undefined;
+    if (!streamUrl) {
+      setConnectionError(false);
+      setFrameSrc(null);
+      return undefined;
+    }
     lastSentViewportRef.current = null;
-    setConnectionStatus("connecting");
+    setConnectionError(false);
     setError(undefined);
 
     const ws = new WebSocket(streamUrl);
@@ -90,7 +75,6 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
     ws.binaryType = "blob";
 
     ws.onopen = () => {
-      setConnectionStatus("connected");
       sendViewportResize();
     };
 
@@ -110,22 +94,16 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
 
       if ("error" in parsed && parsed.error) {
         setError(parsed.error);
-        setConnectionStatus("error");
+        setConnectionError(true);
       }
-      if ("url" in parsed && parsed.url) setUrl(parsed.url);
-      if ("title" in parsed && parsed.title) setTitle(parsed.title);
       if ("src" in parsed && parsed.src && !pausedRef.current) {
         setFrameSrc(parsed.src);
       }
     };
 
     ws.onerror = () => {
-      setConnectionStatus("error");
+      setConnectionError(true);
       setError("Browser stream unavailable");
-    };
-
-    ws.onclose = () => {
-      setConnectionStatus((current) => current === "error" ? current : "disconnected");
     };
 
     return () => {
@@ -184,9 +162,9 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
     void containerRef.current?.requestFullscreen?.();
   }, []);
 
-  const displayUrl = url ?? title ?? "Browser";
-  const isLive = connectionStatus === "connected" && !paused;
-  const statusBadge = status.state === "error" ? "Error" : "Live";
+  const isActive = Boolean(status);
+  const isError = isActive && (status?.state === "error" || connectionError);
+  const statusBadge = !isActive ? "Idle" : isError ? "Error" : "Live";
 
   return (
     <TooltipProvider>
@@ -195,28 +173,15 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
           <MonitorIcon className="size-3.5 text-muted-foreground" />
           <span className="text-xs font-medium uppercase tracking-wide text-foreground">Browser</span>
           <Badge
-            variant={status.state === "error" ? "destructive" : "secondary"}
+            variant={isError ? "destructive" : "secondary"}
             className="px-1.5 py-0 text-[10px]"
           >
             {statusBadge}
           </Badge>
 
-          {!collapsed && (
-            <div className="flex min-w-0 items-center gap-2 text-xs">
-              <span
-                className={cn(
-                  "size-1.5 shrink-0 rounded-full",
-                  isLive ? "bg-emerald-400" : connectionStatus === "error" ? "bg-red-400" : "bg-muted-foreground/60",
-                )}
-              />
-              <span className="shrink-0 text-muted-foreground">{connectionLabel(connectionStatus)}</span>
-              <span className="truncate text-muted-foreground">{displayUrl}</span>
-            </div>
-          )}
-
           <div className="ml-auto" />
 
-          {!collapsed && (
+          {isActive && !collapsed && (
             <div className="flex items-center gap-1">
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -266,7 +231,7 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
             </div>
           )}
 
-          {onToggleCollapsed && (
+          {isActive && onToggleCollapsed && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -285,7 +250,7 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
           )}
         </div>
 
-        {!collapsed && (
+        {isActive && !collapsed && (
           <div ref={containerRef} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black">
             {frameSrc ? (
               <img
@@ -296,7 +261,7 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
               />
             ) : (
               <div className="px-4 text-center text-xs text-zinc-400">
-                {error ?? (status.state === "error" ? "Browser stream unavailable" : "Waiting for browser stream")}
+                {error ?? (status?.state === "error" ? "Browser stream unavailable" : "Waiting for browser stream")}
               </div>
             )}
           </div>
