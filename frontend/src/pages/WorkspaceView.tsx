@@ -294,13 +294,13 @@ export default function WorkspaceView() {
 
   // ── Resizable panels ──
   const rightPanelRef = usePanelRef();
-  const [rightPanelMode, setRightPanelMode] = useState<"workspace" | "browser">("workspace");
+  const [browserPanelOpen, setBrowserPanelOpen] = useState(false);
   const { defaultLayout: wsLayout, onLayoutChanged: onWsLayoutChanged } = useDefaultLayout({
     id: "hive-workspace",
     storage: localStorage,
   });
   const { defaultLayout: splitLayout, onLayoutChanged: onSplitLayoutChanged } = useDefaultLayout({
-    id: "hive-right-split",
+    id: "hive-right-split-v2",
     storage: localStorage,
   });
 
@@ -330,15 +330,15 @@ export default function WorkspaceView() {
   }, [wsId, sessionId, liveData]);
 
   useEffect(() => {
-    if (!currentBrowserStatus && rightPanelMode === "browser") {
-      setRightPanelMode("workspace");
+    if (!currentBrowserStatus && browserPanelOpen) {
+      setBrowserPanelOpen(false);
     }
-  }, [currentBrowserStatus, rightPanelMode]);
+  }, [currentBrowserStatus, browserPanelOpen]);
 
   const handleToggleBrowserPanel = useCallback(() => {
-    setRightPanelMode((mode) => {
-      const next = mode === "browser" ? "workspace" : "browser";
-      if (next === "browser") {
+    setBrowserPanelOpen((open) => {
+      const next = !open;
+      if (next) {
         rightPanelRef.current?.expand();
       }
       return next;
@@ -516,7 +516,7 @@ export default function WorkspaceView() {
                   <TooltipTrigger asChild>
                     <Button
                       type="button"
-                      variant={rightPanelMode === "browser" ? "secondary" : "ghost"}
+                      variant={browserPanelOpen ? "secondary" : "ghost"}
                       size="icon-xs"
                       className="relative text-muted-foreground hover:text-foreground"
                       onClick={handleToggleBrowserPanel}
@@ -718,121 +718,122 @@ export default function WorkspaceView() {
         >
           <div className="flex h-full flex-col">
             <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4" data-tauri-drag-region>
-              {rightPanelMode === "browser" && currentBrowserStatus ? (
-                <>
-                  <MonitorIcon className="size-3.5 text-muted-foreground" />
-                  <span className="text-xs font-medium uppercase tracking-wide text-foreground">Browser</span>
-                  <Badge
-                    variant={currentBrowserStatus.state === "error" ? "destructive" : "secondary"}
-                    className="px-1.5 py-0 text-[10px]"
-                  >
-                    {currentBrowserStatus.state === "error" ? "Error" : "Live"}
+              <button
+                type="button"
+                className={cn(
+                  "text-xs uppercase tracking-wide transition-colors",
+                  sidebarTab === "all"
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setSidebarTab("all")}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
+                  sidebarTab === "modified"
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setSidebarTab("modified")}
+              >
+                Modified
+                {diffTotalCount > 0 && (
+                  <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                    {diffTotalCount}
                   </Badge>
-                  <div className="ml-auto" />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    className="text-muted-foreground hover:text-foreground"
-                    onClick={() => setRightPanelMode("workspace")}
-                    aria-label="Close browser panel"
-                  >
-                    <XIcon className="size-3" />
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className={cn(
-                      "text-xs uppercase tracking-wide transition-colors",
-                      sidebarTab === "all"
-                        ? "text-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                    onClick={() => setSidebarTab("all")}
-                  >
-                    All
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
-                      sidebarTab === "modified"
-                        ? "text-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                    onClick={() => setSidebarTab("modified")}
-                  >
-                    Modified
-                    {diffTotalCount > 0 && (
-                      <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-                        {diffTotalCount}
-                      </Badge>
-                    )}
-                  </button>
-                </>
-              )}
+                )}
+              </button>
             </div>
-            {rightPanelMode === "browser" && currentBrowserStatus ? (
-              <BrowserPanel status={currentBrowserStatus} />
-            ) : (
-              <>
-                <Group
-                  orientation="vertical"
-                  defaultLayout={splitLayout}
-                  onLayoutChanged={onSplitLayoutChanged}
-                  style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
-                >
-                  <Panel id="file-tree" defaultSize="50%" minSize="15%" maxSize="85%">
-                    <div className="h-full overflow-auto p-3">
-                      {sidebarTab === "modified" && (
-                        <ModifiedFileList
-                          committed={diffCommitted}
-                          uncommitted={diffUncommitted}
-                          onFileClick={handleModifiedFileClick}
-                          activeFile={isFileTabActive && fileViewMode === "diff" ? openFile ?? undefined : undefined}
-                        />
+            <Group
+              orientation="vertical"
+              defaultLayout={splitLayout}
+              onLayoutChanged={onSplitLayoutChanged}
+              style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
+            >
+              <Panel id="file-tree" defaultSize={browserPanelOpen ? "42%" : "50%"} minSize="15%" maxSize="85%">
+                <div className="h-full overflow-auto p-3">
+                  {sidebarTab === "modified" && (
+                    <ModifiedFileList
+                      committed={diffCommitted}
+                      uncommitted={diffUncommitted}
+                      onFileClick={handleModifiedFileClick}
+                      activeFile={isFileTabActive && fileViewMode === "diff" ? openFile ?? undefined : undefined}
+                    />
+                  )}
+                  {sidebarTab === "all" && fileTreeError && (
+                    <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                      {fileTreeError}
+                    </div>
+                  )}
+                  {sidebarTab === "all" && !fileTreeError && (
+                    <FileTree
+                      expanded={expandedPaths}
+                      onExpandedChange={setExpandedPaths}
+                      onPathSelect={handleFileTreeSelect}
+                      selectedPath={selectedPath}
+                    >
+                      {fileTree.length ? (
+                        renderFileTreeNodes(fileTree)
+                      ) : (
+                        <div className="px-2 py-1 text-xs text-muted-foreground">No files found.</div>
                       )}
-                      {sidebarTab === "all" && fileTreeError && (
-                        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
-                          {fileTreeError}
-                        </div>
-                      )}
-                      {sidebarTab === "all" && !fileTreeError && (
-                        <FileTree
-                          expanded={expandedPaths}
-                          onExpandedChange={setExpandedPaths}
-                          onPathSelect={handleFileTreeSelect}
-                          selectedPath={selectedPath}
+                    </FileTree>
+                  )}
+                </div>
+              </Panel>
+              <ResizeHandle orientation="horizontal" />
+              <Panel id="scripts" defaultSize={browserPanelOpen ? "30%" : undefined} minSize="15%">
+                <ScriptPanel
+                  key={wsId}
+                  config={scriptsConfig}
+                  status={scriptsStatus}
+                  onStart={startScript}
+                  onStop={stopScript}
+                  onStartTerminal={startTerminal}
+                  onStopTerminal={stopTerminal}
+                  onConnectOutput={connectScriptOutput}
+                  onDisconnectOutput={disconnectScriptOutput}
+                />
+              </Panel>
+              {browserPanelOpen && currentBrowserStatus && (
+                <>
+                  <ResizeHandle orientation="horizontal" />
+                  <Panel id="browser" defaultSize="28%" minSize="18%" maxSize="48%">
+                    <div className="flex h-full min-h-0 flex-col border-t border-border/40 bg-background">
+                      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/50 px-3">
+                        <MonitorIcon className="size-3.5 text-muted-foreground" />
+                        <span className="text-xs font-medium uppercase tracking-wide text-foreground">Browser</span>
+                        <Badge
+                          variant={currentBrowserStatus.state === "error" ? "destructive" : "secondary"}
+                          className="px-1.5 py-0 text-[10px]"
                         >
-                          {fileTree.length ? (
-                            renderFileTreeNodes(fileTree)
-                          ) : (
-                            <div className="px-2 py-1 text-xs text-muted-foreground">No files found.</div>
-                          )}
-                        </FileTree>
-                      )}
+                          {currentBrowserStatus.state === "error" ? "Error" : "Live"}
+                        </Badge>
+                        <div className="ml-auto" />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          className="text-muted-foreground hover:text-foreground"
+                          onClick={() => setBrowserPanelOpen(false)}
+                          aria-label="Close browser panel"
+                        >
+                          <XIcon className="size-3" />
+                        </Button>
+                      </div>
+                      <div className="min-h-0 flex-1">
+                        <BrowserPanel status={currentBrowserStatus} />
+                      </div>
                     </div>
                   </Panel>
-                  <ResizeHandle orientation="horizontal" />
-                  <Panel id="scripts" minSize="15%">
-                    <ScriptPanel
-                      key={wsId}
-                      config={scriptsConfig}
-                      status={scriptsStatus}
-                      onStart={startScript}
-                      onStop={stopScript}
-                      onStartTerminal={startTerminal}
-                      onStopTerminal={stopTerminal}
-                      onConnectOutput={connectScriptOutput}
-                      onDisconnectOutput={disconnectScriptOutput}
-                    />
-                  </Panel>
-                </Group>
-                <PrStatusSection wsId={wsId} />
-              </>
-            )}
+                </>
+              )}
+            </Group>
+            <PrStatusSection wsId={wsId} />
           </div>
         </Panel>
       </Group>

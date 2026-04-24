@@ -6,6 +6,7 @@ import type { BrowserSessionState, BrowserStatusPayload } from "../types.js";
 export interface BrowserSessionRecord {
   workspaceId: string;
   sessionId: string;
+  agentBrowserSession: string;
   port: number;
   state: BrowserSessionState;
   createdAt: number;
@@ -29,6 +30,18 @@ function keyFor(workspaceId: string, sessionId: string): string {
 
 function buildStreamPath(workspaceId: string, sessionId: string): string {
   return `/ws/browser/${encodeURIComponent(workspaceId)}/${encodeURIComponent(sessionId)}`;
+}
+
+function sanitizeAgentBrowserSessionPart(value: string): string {
+  const sanitized = value
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return sanitized.slice(0, 48) || "session";
+}
+
+function buildAgentBrowserSession(workspaceId: string, sessionId: string): string {
+  return `hive-${sanitizeAgentBrowserSessionPart(workspaceId)}-${sanitizeAgentBrowserSessionPart(sessionId)}`.slice(0, 120);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -89,6 +102,7 @@ export class BrowserSessionManager extends EventEmitter<BrowserSessionManagerEve
     const created: BrowserSessionRecord = {
       workspaceId,
       sessionId,
+      agentBrowserSession: buildAgentBrowserSession(workspaceId, sessionId),
       port: await allocateLoopbackPort(),
       state: "registered",
       createdAt: now,
@@ -109,6 +123,7 @@ export class BrowserSessionManager extends EventEmitter<BrowserSessionManagerEve
     if (!session) return undefined;
     return {
       AGENT_BROWSER_STREAM_PORT: String(session.port),
+      AGENT_BROWSER_SESSION: session.agentBrowserSession,
       AGENT_BROWSER_HIVE_WORKSPACE_ID: workspaceId,
       AGENT_BROWSER_HIVE_SESSION_ID: sessionId,
     };
@@ -224,6 +239,7 @@ export class BrowserSessionManager extends EventEmitter<BrowserSessionManagerEve
     const session: BrowserSessionRecord = {
       workspaceId,
       sessionId,
+      agentBrowserSession: buildAgentBrowserSession(workspaceId, sessionId),
       port,
       state,
       createdAt: now,

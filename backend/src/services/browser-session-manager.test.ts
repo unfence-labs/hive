@@ -16,6 +16,7 @@ describe("BrowserSessionManager", () => {
     expect(second.port).toBe(first.port);
     expect(env).toMatchObject({
       AGENT_BROWSER_STREAM_PORT: String(first.port),
+      AGENT_BROWSER_SESSION: "hive-ws-1-session-1",
       AGENT_BROWSER_HIVE_WORKSPACE_ID: "ws-1",
       AGENT_BROWSER_HIVE_SESSION_ID: "session-1",
     });

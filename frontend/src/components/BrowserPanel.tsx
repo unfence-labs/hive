@@ -10,6 +10,10 @@ import {
 import { cn } from "@/lib/utils";
 import type { BrowserStatusPayload } from "@/types";
 
+const VIEWPORT_RESIZE_DEBOUNCE_MS = 250;
+const MIN_VIEWPORT_WIDTH = 160;
+const MIN_VIEWPORT_HEIGHT = 120;
+
 interface BrowserPanelProps {
   status: BrowserStatusPayload;
 }
@@ -31,6 +35,9 @@ export function BrowserPanel({ status }: BrowserPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const objectUrlRef = useRef<string | null>(null);
   const pausedRef = useRef(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const resizeTimerRef = useRef<number | null>(null);
+  const lastSentViewportRef = useRef<{ width: number; height: number } | null>(null);
 
   const [frameSrc, setFrameSrc] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<BrowserStreamConnectionStatus>("connecting");
@@ -53,16 +60,35 @@ export function BrowserPanel({ status }: BrowserPanelProps) {
     setError(status.error);
   }, [status.url, status.title, status.error]);
 
+  const sendViewportResize = useCallback(() => {
+    const element = containerRef.current;
+    const ws = wsRef.current;
+    if (!element || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+    const rect = element.getBoundingClientRect();
+    const width = Math.round(rect.width);
+    const height = Math.round(rect.height);
+    if (width < MIN_VIEWPORT_WIDTH || height < MIN_VIEWPORT_HEIGHT) return;
+
+    const last = lastSentViewportRef.current;
+    if (last?.width === width && last.height === height) return;
+    lastSentViewportRef.current = { width, height };
+    ws.send(JSON.stringify({ type: "viewport_resize", width, height }));
+  }, []);
+
   useEffect(() => {
     if (!streamUrl) return undefined;
+    lastSentViewportRef.current = null;
     setConnectionStatus("connecting");
     setError(undefined);
 
     const ws = new WebSocket(streamUrl);
+    wsRef.current = ws;
     ws.binaryType = "blob";
 
     ws.onopen = () => {
       setConnectionStatus("connected");
+      sendViewportResize();
     };
 
     ws.onmessage = (event) => {
@@ -100,9 +126,47 @@ export function BrowserPanel({ status }: BrowserPanelProps) {
     };
 
     return () => {
+      if (wsRef.current === ws) wsRef.current = null;
       ws.close();
     };
-  }, [streamUrl, retryNonce]);
+  }, [streamUrl, retryNonce, sendViewportResize]);
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return undefined;
+
+    const scheduleResize = () => {
+      if (resizeTimerRef.current !== null) {
+        window.clearTimeout(resizeTimerRef.current);
+      }
+      resizeTimerRef.current = window.setTimeout(() => {
+        resizeTimerRef.current = null;
+        sendViewportResize();
+      }, VIEWPORT_RESIZE_DEBOUNCE_MS);
+    };
+
+    if (typeof ResizeObserver === "undefined") {
+      scheduleResize();
+      return () => {
+        if (resizeTimerRef.current !== null) {
+          window.clearTimeout(resizeTimerRef.current);
+          resizeTimerRef.current = null;
+        }
+      };
+    }
+
+    const observer = new ResizeObserver(scheduleResize);
+    observer.observe(element);
+    scheduleResize();
+
+    return () => {
+      observer.disconnect();
+      if (resizeTimerRef.current !== null) {
+        window.clearTimeout(resizeTimerRef.current);
+        resizeTimerRef.current = null;
+      }
+    };
+  }, [sendViewportResize, streamUrl, retryNonce]);
 
   useEffect(() => {
     return () => {
@@ -128,7 +192,7 @@ export function BrowserPanel({ status }: BrowserPanelProps) {
             <img
               src={frameSrc}
               alt="Agent browser"
-              className="h-full w-full object-contain"
+              className="h-full w-full object-fill"
               draggable={false}
             />
           ) : (

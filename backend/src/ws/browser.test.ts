@@ -1,18 +1,20 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
 import WebSocket, { WebSocketServer } from "ws";
 import { browserSessionManager } from "../services/browser-session-manager.js";
-import { browserWsRoutes } from "./browser.js";
+import { browserWsRoutes, type BrowserViewportSetter } from "./browser.js";
 
 let app: FastifyInstance;
 let upstream: WebSocketServer | undefined;
+let setViewport: Mock<BrowserViewportSetter>;
 
 beforeEach(async () => {
   browserSessionManager._clearForTests();
+  setViewport = vi.fn<BrowserViewportSetter>().mockResolvedValue(undefined);
   app = Fastify();
   await app.register(websocket, { options: { maxPayload: 10 * 1024 * 1024 } });
-  await app.register((instance: FastifyInstance) => browserWsRoutes(instance, { authToken: "secret" }));
+  await app.register((instance: FastifyInstance) => browserWsRoutes(instance, { authToken: "secret", setViewport }));
   await app.ready();
 });
 
@@ -104,6 +106,20 @@ describe("browser WS route", () => {
     await waitForCondition(() => jsonMessages.length > 0);
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(jsonMessages[0]).toEqual({ type: "url", url: "http://localhost:5173" });
+    expect(upstreamInfo.messages).toHaveLength(0);
+    ws.terminate();
+  });
+
+  it("handles viewport resize messages without forwarding them upstream", async () => {
+    const upstreamInfo = await startUpstream();
+    browserSessionManager._registerForTests("ws-1", "session-1", upstreamInfo.port, "active");
+
+    const { ws } = await connectBrowserWs("/ws/browser/ws-1/session-1?token=secret");
+    await waitForCondition(() => (upstream?.clients.size ?? 0) === 1);
+    ws.send(JSON.stringify({ type: "viewport_resize", width: 420.4, height: 260.2 }));
+
+    await waitForCondition(() => setViewport.mock.calls.length === 1);
+    expect(setViewport).toHaveBeenCalledWith("ws-1", "session-1", { width: 420, height: 260 });
     expect(upstreamInfo.messages).toHaveLength(0);
     ws.terminate();
   });
