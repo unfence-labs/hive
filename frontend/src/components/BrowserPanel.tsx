@@ -240,8 +240,10 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
   const [paused, setPaused] = useState(false);
 
   const streamUrl = useMemo(
-    () => status?.streamPath ? buildBrowserStreamUrl(status.streamPath) : null,
-    [status?.streamPath],
+    () => status?.streamPath && status.streaming !== false
+      ? buildBrowserStreamUrl(status.streamPath)
+      : null,
+    [status?.streamPath, status?.streaming],
   );
 
   useEffect(() => {

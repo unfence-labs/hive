@@ -116,15 +116,12 @@ describe("BrowserPanel", () => {
     expect(frame).toHaveClass("h-full", "w-full", "object-contain");
   });
 
-  it("keeps the streaming label active when frames arrive before hub status updates", async () => {
+  it("does not open a stream socket while the browser status is stopped", () => {
     render(<BrowserPanel status={{ ...status, streaming: false }} />);
 
-    await waitFor(() => expect(MockWebSocket.instances[0]?.readyState).toBe(MockWebSocket.OPEN));
-    act(() => MockWebSocket.instances[0].onmessage?.({
-      data: JSON.stringify({ type: "frame", data: "abc123" }),
-    }));
-
-    expect(await screen.findByText("streaming")).toBeInTheDocument();
+    expect(screen.getByText("not streaming")).toBeInTheDocument();
+    expect(screen.getByText("Waiting for browser stream")).toBeInTheDocument();
+    expect(MockWebSocket.instances).toHaveLength(0);
   });
 
   it("stops showing streaming and clears the last frame when a stop status arrives", async () => {
@@ -159,12 +156,13 @@ describe("BrowserPanel", () => {
   });
 
   it("reconnects automatically when streaming restarts on the same browser session", async () => {
-    const { rerender } = render(<BrowserPanel status={{ ...status, streaming: false }} />);
+    const { rerender } = render(<BrowserPanel status={status} />);
 
     await waitFor(() => expect(MockWebSocket.instances[0]?.readyState).toBe(MockWebSocket.OPEN));
     act(() => MockWebSocket.instances[0].close());
     await waitFor(() => expect(screen.getByText("not streaming")).toBeInTheDocument());
 
+    rerender(<BrowserPanel status={{ ...status, streaming: false, updatedAt: 2 }} />);
     rerender(<BrowserPanel status={{ ...status, streaming: true, updatedAt: 2 }} />);
 
     await waitFor(() => expect(MockWebSocket.instances).toHaveLength(2));
