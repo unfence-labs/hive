@@ -118,15 +118,17 @@ describe("CodexProvider", () => {
     expect(args).toContain("model_reasoning_effort=low");
   });
 
-  it("puts content as last positional arg on first message", () => {
+  it("uses stdin marker as prompt arg on first message", () => {
     const args = provider.buildArgs("Do something", {}, baseSession({ isFirstMessage: true }));
-    expect(args[args.length - 1]).toBe("Do something");
+    expect(args[args.length - 1]).toBe("-");
+    expect(args).not.toContain("Do something");
   });
 
-  it("puts session ID and content as last args on resume", () => {
+  it("puts session ID and stdin marker as last args on resume", () => {
     const args = provider.buildArgs("Do something", {}, baseSession({ isFirstMessage: false, sessionId: "thread-xyz" }));
     expect(args[args.length - 2]).toBe("thread-xyz");
-    expect(args[args.length - 1]).toBe("Do something");
+    expect(args[args.length - 1]).toBe("-");
+    expect(args).not.toContain("Do something");
   });
 
   it("does NOT use -p flag for content", () => {
