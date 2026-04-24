@@ -225,7 +225,7 @@ describe("getModelCatalog", () => {
 
     const newModels = catalog.models.filter((m) => m.isNew);
     expect(newModels.length).toBeGreaterThan(0);
-    expect(newModels[0].id).toBe("codex:gpt-5.4");
+    expect(newModels[0].id).toBe("codex:gpt-5.5");
   });
 });
 
@@ -312,7 +312,7 @@ describe("contextWindow in catalog", () => {
     expect(haiku?.contextWindow).toBe(200_000);
   });
 
-  it("omits contextWindow for Codex models (cumulative turn usage not reliable for context ring)", () => {
+  it("omits contextWindow for Codex models even when the provider knows the raw window size", () => {
     markProviderAvailable("codex");
     const catalog = getModelCatalog();
     const codexModels = catalog.models.filter((m) => m.provider === "codex");

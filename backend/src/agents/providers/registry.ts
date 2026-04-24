@@ -123,7 +123,11 @@ export function getModelCatalog(): ModelCatalogResponse {
         isDefault: model.isDefault,
         isNew: model.isNew,
         capabilities: provider.capabilities,
-        contextWindow: model.contextWindow,
+        // This is keyed off provider.id ("codex"), not model.id. Catalog IDs are compound
+        // values like "codex:gpt-5.5". We still hide Codex context windows here because
+        // the CLI only exposes turn-level usage via turn.completed today, which can be
+        // cumulative across sub-calls and would make the context ring misleading.
+        contextWindow: provider.id === "codex" ? undefined : model.contextWindow,
       });
       if (provider.id === "claude" && model.isDefault) {
         defaultModelId = compoundId;

@@ -24,8 +24,8 @@ const CLAUDE_MODELS: ModelCatalogEntry[] = [
 
 const CODEX_MODELS: ModelCatalogEntry[] = [
   {
-    id: "codex:gpt-5.3-codex",
-    label: "GPT-5.3-Codex",
+    id: "codex:gpt-5.5",
+    label: "GPT-5.5",
     provider: "codex",
     providerLabel: "Codex",
     isDefault: true,
@@ -93,7 +93,7 @@ describe("ModelSelector", () => {
 
     // Model labels
     expect(screen.getByText("Sonnet 4.6")).toBeInTheDocument();
-    expect(screen.getByText("GPT-5.3-Codex")).toBeInTheDocument();
+    expect(screen.getByText("GPT-5.5")).toBeInTheDocument();
     expect(screen.getByText("Gemini 3.1 Pro")).toBeInTheDocument();
   });
 
@@ -150,7 +150,7 @@ describe("ModelSelector", () => {
     await user.click(screen.getByRole("button", { name: /Model: Opus 4.7/i }));
 
     // Codex models should be visually disabled (opacity-30, cursor-not-allowed)
-    const codexModelElement = screen.getByText("GPT-5.3-Codex");
+    const codexModelElement = screen.getByText("GPT-5.5");
     const container = codexModelElement.closest("div");
     expect(container?.className).toContain("opacity-30");
     expect(container?.className).toContain("cursor-not-allowed");
@@ -173,11 +173,11 @@ describe("ModelSelector", () => {
 
     // The codex model is rendered as a plain div (not a DropdownMenuItem),
     // so clicking it should NOT trigger onSelect
-    const codexModelElement = screen.getByText("GPT-5.3-Codex");
+    const codexModelElement = screen.getByText("GPT-5.5");
     await user.click(codexModelElement);
 
     // Should not have been called with the codex model
-    expect(onSelect).not.toHaveBeenCalledWith("codex:gpt-5.3-codex");
+    expect(onSelect).not.toHaveBeenCalledWith("codex:gpt-5.5");
   });
 
   it("allows clicking same-provider models when provider is locked", async () => {
@@ -212,9 +212,9 @@ describe("ModelSelector", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /Model: Opus 4.7/i }));
-    await user.click(screen.getByText("GPT-5.3-Codex"));
+    await user.click(screen.getByText("GPT-5.5"));
 
-    expect(onSelect).toHaveBeenCalledWith("codex:gpt-5.3-codex");
+    expect(onSelect).toHaveBeenCalledWith("codex:gpt-5.5");
   });
 
   it("has correct aria-label on trigger button", () => {

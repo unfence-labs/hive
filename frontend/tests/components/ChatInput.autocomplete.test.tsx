@@ -206,7 +206,7 @@ describe("ChatInput autocomplete", () => {
     vi.mocked(useModels).mockReturnValue({
       models: [],
       defaultModelId: "",
-      selectedModelId: "codex:gpt-5.3-codex",
+      selectedModelId: "codex:gpt-5.5",
       selectedModel: undefined,
       capabilities: { thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"], planMode: false, blockingTools: false, completions: false },
       setSelectedModelId: vi.fn(),

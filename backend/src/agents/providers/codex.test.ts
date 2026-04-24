@@ -36,9 +36,19 @@ describe("CodexProvider", () => {
     expect(defaults).toHaveLength(1);
   });
 
-  it("includes gpt-5.4 as default", () => {
+  it("includes gpt-5.5 as default", () => {
     const defaultModel = provider.models.find((m) => m.isDefault);
-    expect(defaultModel?.id).toBe("gpt-5.4");
+    expect(defaultModel?.id).toBe("gpt-5.5");
+  });
+
+  it("tracks the verified 400K context window for gpt-5.5", () => {
+    const defaultModel = provider.models.find((m) => m.isDefault);
+    expect(defaultModel?.contextWindow).toBe(400_000);
+  });
+
+  it("tracks the verified 400K context window for gpt-5.3-codex", () => {
+    const legacyModel = provider.models.find((m) => m.id === "gpt-5.3-codex");
+    expect(legacyModel?.contextWindow).toBe(400_000);
   });
 
   // ── Capabilities ───────────────────────────────────────────────────
