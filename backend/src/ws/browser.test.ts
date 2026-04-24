@@ -4,6 +4,7 @@ import websocket from "@fastify/websocket";
 import WebSocket, { WebSocketServer } from "ws";
 import { browserSessionManager } from "../services/browser-session-manager.js";
 import { browserWsRoutes, type BrowserViewportSetter } from "./browser.js";
+import type { BrowserStatusPayload } from "../types.js";
 
 let app: FastifyInstance;
 let upstream: WebSocketServer | undefined;
@@ -121,6 +122,26 @@ describe("browser WS route", () => {
     await waitForCondition(() => setViewport.mock.calls.length === 1);
     expect(setViewport).toHaveBeenCalledWith("ws-1", "session-1", { width: 420, height: 260 });
     expect(upstreamInfo.messages).toHaveLength(0);
+    ws.terminate();
+  });
+
+  it("marks the browser stream as stopped when the upstream stream closes", async () => {
+    const upstreamInfo = await startUpstream();
+    browserSessionManager._registerForTests("ws-1", "session-1", upstreamInfo.port, "active");
+    browserSessionManager.markStreaming("ws-1", "session-1", true);
+    const statuses: BrowserStatusPayload[] = [];
+    browserSessionManager.on("status", (_workspaceId, status) => statuses.push(status));
+
+    const { ws } = await connectBrowserWs("/ws/browser/ws-1/session-1?token=secret");
+    await waitForCondition(() => (upstream?.clients.size ?? 0) === 1);
+    Array.from(upstream!.clients)[0].close();
+
+    await waitForCondition(() => statuses.some((status) => status.streaming === false));
+    expect(statuses.at(-1)).toMatchObject({
+      sessionId: "session-1",
+      state: "active",
+      streaming: false,
+    });
     ws.terminate();
   });
 });

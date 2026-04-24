@@ -106,10 +106,12 @@ export async function browserWsRoutes(
 
       const upstream = new WebSocket(`ws://127.0.0.1:${session.port}`);
       let upstreamOpen = false;
+      let closingFromClient = false;
       let lastViewport: BrowserViewportSize | null = null;
 
       const closeBoth = (code = 1000, reason?: string) => {
         if (upstream.readyState === upstream.OPEN || upstream.readyState === upstream.CONNECTING) {
+          closingFromClient = true;
           upstream.close();
         }
         if (client.readyState === client.OPEN || client.readyState === client.CONNECTING) {
@@ -140,7 +142,7 @@ export async function browserWsRoutes(
 
       upstream.on("error", () => {
         if (!upstreamOpen) {
-          browserSessionManager.markError(wsId, sessionId, "Browser stream is not ready");
+          browserSessionManager.markStreaming(wsId, sessionId, false);
           if (client.readyState === client.OPEN) {
             client.send(JSON.stringify({ type: "error", message: "Browser stream is not ready" }));
           }
@@ -149,6 +151,9 @@ export async function browserWsRoutes(
 
       upstream.on("close", () => {
         clearInterval(pingTimer);
+        if (!closingFromClient) {
+          browserSessionManager.markStreaming(wsId, sessionId, false);
+        }
         if (client.readyState === client.OPEN || client.readyState === client.CONNECTING) {
           client.close(1000, "Browser stream closed");
         }
@@ -170,6 +175,7 @@ export async function browserWsRoutes(
       client.on("close", () => {
         clearInterval(pingTimer);
         if (upstream.readyState === upstream.OPEN || upstream.readyState === upstream.CONNECTING) {
+          closingFromClient = true;
           upstream.close();
         }
       });

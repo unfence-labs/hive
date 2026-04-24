@@ -41,6 +41,7 @@ class MockWebSocket {
 const status: BrowserStatusPayload = {
   sessionId: "session-1",
   state: "active",
+  streaming: true,
   streamPath: "/ws/browser/ws-1/session-1",
   updatedAt: 1,
 };
@@ -89,9 +90,15 @@ describe("BrowserPanel", () => {
     render(<BrowserPanel />);
 
     expect(screen.getByText("Browser")).toBeInTheDocument();
-    expect(screen.getByText("Idle")).toBeInTheDocument();
+    expect(screen.getByText("not streaming")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Expand browser panel" })).not.toBeInTheDocument();
     expect(MockWebSocket.instances).toHaveLength(0);
+  });
+
+  it("uses a small streaming label when the stream is active", () => {
+    render(<BrowserPanel status={status} />);
+
+    expect(screen.getByText("streaming")).toBeInTheDocument();
   });
 
   it("renders stream frames as a full panel viewport", async () => {

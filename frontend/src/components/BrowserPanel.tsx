@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon, ChevronUpIcon, Maximize2Icon, MonitorIcon, PauseIcon, PlayIcon, RotateCcwIcon } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -163,8 +162,8 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
   }, []);
 
   const isActive = Boolean(status);
-  const isError = isActive && (status?.state === "error" || connectionError);
-  const statusBadge = !isActive ? "Idle" : isError ? "Error" : "Live";
+  const isStreaming = Boolean(status?.streaming) && !connectionError;
+  const statusLabel = isStreaming ? "streaming" : "not streaming";
 
   return (
     <TooltipProvider>
@@ -172,12 +171,10 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
         <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/50 px-3">
           <MonitorIcon className="size-3.5 text-muted-foreground" />
           <span className="text-xs font-medium uppercase tracking-wide text-foreground">Browser</span>
-          <Badge
-            variant={isError ? "destructive" : "secondary"}
-            className="px-1.5 py-0 text-[10px]"
-          >
-            {statusBadge}
-          </Badge>
+          <span className="flex items-center gap-1 rounded-full bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            <span className={isStreaming ? "size-1.5 rounded-full bg-emerald-400" : "size-1.5 rounded-full bg-muted-foreground/50"} />
+            {statusLabel}
+          </span>
 
           <div className="ml-auto" />
 

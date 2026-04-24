@@ -326,6 +326,7 @@ export type BrowserSessionState = "registered" | "active" | "closed" | "error";
 export interface BrowserStatusPayload {
   sessionId: string;
   state: BrowserSessionState;
+  streaming?: boolean;
   streamPath?: string;
   url?: string;
   title?: string;

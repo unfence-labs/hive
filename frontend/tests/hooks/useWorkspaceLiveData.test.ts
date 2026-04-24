@@ -375,6 +375,7 @@ describe("useWorkspaceLiveData", () => {
         status: {
           sessionId: "sess-a",
           state: "active",
+          streaming: true,
           streamPath: "/ws/browser/ws-1/sess-a",
           updatedAt: 1,
         },
@@ -385,6 +386,7 @@ describe("useWorkspaceLiveData", () => {
       "sess-a": {
         sessionId: "sess-a",
         state: "active",
+        streaming: true,
         streamPath: "/ws/browser/ws-1/sess-a",
         updatedAt: 1,
       },

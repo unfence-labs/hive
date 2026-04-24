@@ -295,6 +295,7 @@ export default function WorkspaceView() {
   // ── Resizable panels ──
   const rightPanelRef = usePanelRef();
   const [browserPanelCollapsed, setBrowserPanelCollapsed] = useState(false);
+  const [browserPanelManualOpen, setBrowserPanelManualOpen] = useState(false);
   const { defaultLayout: wsLayout, onLayoutChanged: onWsLayoutChanged } = useDefaultLayout({
     id: "hive-workspace",
     storage: localStorage,
@@ -330,18 +331,30 @@ export default function WorkspaceView() {
   }, [wsId, sessionId, liveData]);
 
   const browserPanelActive = Boolean(currentBrowserStatus);
-  const browserPanelExpanded = browserPanelActive && !browserPanelCollapsed;
+  const browserPanelStreaming = Boolean(currentBrowserStatus?.streaming);
+  const browserPanelExpanded = browserPanelActive && (
+    browserPanelManualOpen || (browserPanelStreaming && !browserPanelCollapsed)
+  );
 
   const handleToggleBrowserPanel = useCallback(() => {
-    setBrowserPanelCollapsed((collapsed) => !collapsed);
-  }, []);
+    if (browserPanelExpanded) {
+      setBrowserPanelManualOpen(false);
+      setBrowserPanelCollapsed(true);
+      return;
+    }
+    setBrowserPanelCollapsed(false);
+    setBrowserPanelManualOpen(true);
+  }, [browserPanelExpanded]);
 
   useEffect(() => {
     if (!currentBrowserStatus) {
       setBrowserPanelCollapsed(false);
+      setBrowserPanelManualOpen(false);
       return;
     }
-    rightPanelRef.current?.expand();
+    if (currentBrowserStatus.streaming) {
+      rightPanelRef.current?.expand();
+    }
   }, [currentBrowserStatus, rightPanelRef]);
 
   const handleCreateSession = useCallback(async () => {

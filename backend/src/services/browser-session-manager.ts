@@ -9,6 +9,7 @@ export interface BrowserSessionRecord {
   agentBrowserSession: string;
   port: number;
   state: BrowserSessionState;
+  streaming: boolean;
   createdAt: number;
   updatedAt: number;
   lastActiveAt?: number;
@@ -23,6 +24,7 @@ export type BrowserSessionManagerEvent = {
 
 const AGENT_BROWSER_COMMAND_PATTERN = /(^|[\s"'`;&|()])(?:npx\s+|pnpm\s+dlx\s+|bunx\s+)?agent-browser(?=$|[\s"'`;&|()])/i;
 const AGENT_BROWSER_ENV_PATTERN = /\bAGENT_BROWSER_STREAM_PORT\b/;
+const AGENT_BROWSER_STOP_PATTERN = /\bagent-browser\b(?:\s+--?[^\s]+(?:\s+\S+)?)*\s+(?:close|stream\s+disable)\b/i;
 
 function keyFor(workspaceId: string, sessionId: string): string {
   return `${workspaceId}:${sessionId}`;
@@ -105,6 +107,7 @@ export class BrowserSessionManager extends EventEmitter<BrowserSessionManagerEve
       agentBrowserSession: buildAgentBrowserSession(workspaceId, sessionId),
       port: await allocateLoopbackPort(),
       state: "registered",
+      streaming: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -145,6 +148,9 @@ export class BrowserSessionManager extends EventEmitter<BrowserSessionManagerEve
       AGENT_BROWSER_ENV_PATTERN.test(commandText);
 
     if (!isBrowserTool) return null;
+    if (AGENT_BROWSER_STOP_PATTERN.test(commandText)) {
+      return this.markStreaming(workspaceId, sessionId, false);
+    }
     return this.markActive(workspaceId, sessionId);
   }
 
@@ -153,6 +159,7 @@ export class BrowserSessionManager extends EventEmitter<BrowserSessionManagerEve
     if (!session) return null;
     const now = Date.now();
     session.state = "active";
+    if (session.streaming === undefined) session.streaming = false;
     session.lastActiveAt = now;
     session.updatedAt = now;
     session.error = undefined;
@@ -165,6 +172,7 @@ export class BrowserSessionManager extends EventEmitter<BrowserSessionManagerEve
     const session = this.getSession(workspaceId, sessionId);
     if (!session) return null;
     session.state = "error";
+    session.streaming = false;
     session.error = error;
     session.updatedAt = Date.now();
     const payload = this.toPayload(session);
@@ -186,8 +194,10 @@ export class BrowserSessionManager extends EventEmitter<BrowserSessionManagerEve
 
     const beforeUrl = session.url;
     const beforeTitle = session.title;
+    const beforeStreaming = session.streaming;
     let nextUrl: string | undefined;
     let nextTitle: string | undefined;
+    let nextStreaming: boolean | undefined;
 
     if (parsed.type === "url") {
       nextUrl = extractString(parsed.url) ?? extractString(parsed.value);
@@ -199,26 +209,54 @@ export class BrowserSessionManager extends EventEmitter<BrowserSessionManagerEve
     } else if (isObject(parsed.tab)) {
       nextUrl = extractString(parsed.tab.url);
       nextTitle = extractString(parsed.tab.title);
+    } else if (parsed.type === "status") {
+      const connected = typeof parsed.connected === "boolean" ? parsed.connected : undefined;
+      const screencasting = typeof parsed.screencasting === "boolean" ? parsed.screencasting : undefined;
+      if (connected !== undefined || screencasting !== undefined) {
+        nextStreaming = Boolean(connected && screencasting);
+      }
+    } else if (parsed.type === "frame") {
+      nextStreaming = true;
     }
 
     if (nextUrl) session.url = nextUrl;
     if (nextTitle) session.title = nextTitle;
+    if (nextStreaming !== undefined) session.streaming = nextStreaming;
 
     if (session.state !== "active") {
       this.markActive(workspaceId, sessionId);
       return;
     }
 
-    if (beforeUrl !== session.url || beforeTitle !== session.title) {
+    if (beforeUrl !== session.url || beforeTitle !== session.title || beforeStreaming !== session.streaming) {
       session.updatedAt = Date.now();
       this.emit("status", workspaceId, this.toPayload(session));
     }
+  }
+
+  markStreaming(workspaceId: string, sessionId: string, streaming: boolean): BrowserStatusPayload | null {
+    const session = this.getSession(workspaceId, sessionId);
+    if (!session) return null;
+    const now = Date.now();
+    const changed = session.streaming !== streaming || session.state !== "active" || Boolean(session.error);
+    session.state = "active";
+    session.streaming = streaming;
+    session.updatedAt = now;
+    if (streaming) {
+      session.lastActiveAt = now;
+      session.error = undefined;
+    }
+    if (!changed) return this.toPayload(session);
+    const payload = this.toPayload(session);
+    this.emit("status", workspaceId, payload);
+    return payload;
   }
 
   closeSession(workspaceId: string, sessionId: string): BrowserStatusPayload | null {
     const session = this.sessions.get(keyFor(workspaceId, sessionId));
     if (!session || session.state === "closed") return null;
     session.state = "closed";
+    session.streaming = false;
     session.updatedAt = Date.now();
     const payload = this.toPayload(session);
     this.emit("status", workspaceId, payload);
@@ -242,6 +280,7 @@ export class BrowserSessionManager extends EventEmitter<BrowserSessionManagerEve
       agentBrowserSession: buildAgentBrowserSession(workspaceId, sessionId),
       port,
       state,
+      streaming: false,
       createdAt: now,
       updatedAt: now,
       ...(state === "active" ? { lastActiveAt: now } : {}),
@@ -259,6 +298,7 @@ export class BrowserSessionManager extends EventEmitter<BrowserSessionManagerEve
     return {
       sessionId: session.sessionId,
       state: session.state,
+      streaming: session.streaming,
       streamPath: buildStreamPath(session.workspaceId, session.sessionId),
       updatedAt: session.updatedAt,
       ...(session.lastActiveAt ? { lastActiveAt: session.lastActiveAt } : {}),

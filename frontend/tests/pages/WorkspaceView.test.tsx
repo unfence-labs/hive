@@ -603,6 +603,7 @@ describe("WorkspaceView behavior", () => {
             "sess-active": {
               sessionId: "sess-active",
               state: "active",
+              streaming: true,
               streamPath: "/ws/browser/ws-1/sess-active",
               updatedAt: 1,
             },
