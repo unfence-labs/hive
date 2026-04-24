@@ -96,4 +96,12 @@ describe("BrowserPanel", () => {
     const frame = await screen.findByAltText("Agent browser");
     expect(frame).toHaveClass("h-full", "w-full", "object-fill");
   });
+
+  it("keeps the viewport closed when collapsed", () => {
+    render(<BrowserPanel status={status} collapsed onToggleCollapsed={() => {}} />);
+
+    expect(screen.queryByAltText("Agent browser")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Expand browser panel" })).toBeInTheDocument();
+    expect(MockWebSocket.instances).toHaveLength(0);
+  });
 });

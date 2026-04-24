@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
-import { ChevronDownIcon, MonitorIcon, TerminalIcon, XIcon } from "lucide-react";
+import { ChevronDownIcon, TerminalIcon } from "lucide-react";
 import { VscodeIcon, Iterm2Icon } from "@/components/icons/software-icons";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
@@ -294,7 +294,7 @@ export default function WorkspaceView() {
 
   // ── Resizable panels ──
   const rightPanelRef = usePanelRef();
-  const [browserPanelOpen, setBrowserPanelOpen] = useState(false);
+  const [browserPanelCollapsed, setBrowserPanelCollapsed] = useState(false);
   const { defaultLayout: wsLayout, onLayoutChanged: onWsLayoutChanged } = useDefaultLayout({
     id: "hive-workspace",
     storage: localStorage,
@@ -329,21 +329,20 @@ export default function WorkspaceView() {
     return status;
   }, [wsId, sessionId, liveData]);
 
-  useEffect(() => {
-    if (!currentBrowserStatus && browserPanelOpen) {
-      setBrowserPanelOpen(false);
-    }
-  }, [currentBrowserStatus, browserPanelOpen]);
+  const browserPanelVisible = Boolean(currentBrowserStatus);
+  const browserPanelExpanded = browserPanelVisible && !browserPanelCollapsed;
 
   const handleToggleBrowserPanel = useCallback(() => {
-    setBrowserPanelOpen((open) => {
-      const next = !open;
-      if (next) {
-        rightPanelRef.current?.expand();
-      }
-      return next;
-    });
-  }, [rightPanelRef]);
+    setBrowserPanelCollapsed((collapsed) => !collapsed);
+  }, []);
+
+  useEffect(() => {
+    if (!currentBrowserStatus) {
+      setBrowserPanelCollapsed(false);
+      return;
+    }
+    rightPanelRef.current?.expand();
+  }, [currentBrowserStatus, rightPanelRef]);
 
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();
@@ -510,26 +509,6 @@ export default function WorkspaceView() {
               <span className="truncate text-xs text-muted-foreground/60">{"> origin/"}{workspace.defaultBranch}</span>
             )}
             <div className="ml-auto" />
-            {currentBrowserStatus && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant={browserPanelOpen ? "secondary" : "ghost"}
-                      size="icon-xs"
-                      className="relative text-muted-foreground hover:text-foreground"
-                      onClick={handleToggleBrowserPanel}
-                      aria-label="Toggle browser panel"
-                    >
-                      <MonitorIcon className="size-3.5" />
-                      <span className="absolute right-1 top-1 size-1.5 rounded-full bg-emerald-400 ring-1 ring-background" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Browser</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
             {terminalApps.length > 0 ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -754,7 +733,7 @@ export default function WorkspaceView() {
               onLayoutChanged={onSplitLayoutChanged}
               style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
             >
-              <Panel id="file-tree" defaultSize={browserPanelOpen ? "42%" : "50%"} minSize="15%" maxSize="85%">
+              <Panel id="file-tree" defaultSize={browserPanelVisible ? "42%" : "50%"} minSize="15%" maxSize="85%">
                 <div className="h-full overflow-auto p-3">
                   {sidebarTab === "modified" && (
                     <ModifiedFileList
@@ -786,7 +765,7 @@ export default function WorkspaceView() {
                 </div>
               </Panel>
               <ResizeHandle orientation="horizontal" />
-              <Panel id="scripts" defaultSize={browserPanelOpen ? "30%" : undefined} minSize="15%">
+              <Panel id="scripts" defaultSize={browserPanelVisible ? "30%" : undefined} minSize="15%">
                 <ScriptPanel
                   key={wsId}
                   config={scriptsConfig}
@@ -799,35 +778,21 @@ export default function WorkspaceView() {
                   onDisconnectOutput={disconnectScriptOutput}
                 />
               </Panel>
-              {browserPanelOpen && currentBrowserStatus && (
+              {browserPanelVisible && currentBrowserStatus && (
                 <>
                   <ResizeHandle orientation="horizontal" />
-                  <Panel id="browser" defaultSize="28%" minSize="18%" maxSize="48%">
+                  <Panel
+                    id="browser"
+                    defaultSize={browserPanelExpanded ? "28%" : "9%"}
+                    minSize={browserPanelExpanded ? "18%" : "7%"}
+                    maxSize={browserPanelExpanded ? "48%" : "12%"}
+                  >
                     <div className="flex h-full min-h-0 flex-col border-t border-border/40 bg-background">
-                      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/50 px-3">
-                        <MonitorIcon className="size-3.5 text-muted-foreground" />
-                        <span className="text-xs font-medium uppercase tracking-wide text-foreground">Browser</span>
-                        <Badge
-                          variant={currentBrowserStatus.state === "error" ? "destructive" : "secondary"}
-                          className="px-1.5 py-0 text-[10px]"
-                        >
-                          {currentBrowserStatus.state === "error" ? "Error" : "Live"}
-                        </Badge>
-                        <div className="ml-auto" />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-xs"
-                          className="text-muted-foreground hover:text-foreground"
-                          onClick={() => setBrowserPanelOpen(false)}
-                          aria-label="Close browser panel"
-                        >
-                          <XIcon className="size-3" />
-                        </Button>
-                      </div>
-                      <div className="min-h-0 flex-1">
-                        <BrowserPanel status={currentBrowserStatus} />
-                      </div>
+                      <BrowserPanel
+                        status={currentBrowserStatus}
+                        collapsed={browserPanelCollapsed}
+                        onToggleCollapsed={handleToggleBrowserPanel}
+                      />
                     </div>
                   </Panel>
                 </>
