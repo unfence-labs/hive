@@ -294,14 +294,13 @@ export default function WorkspaceView() {
 
   // ── Resizable panels ──
   const rightPanelRef = usePanelRef();
-  const browserPanelRef = usePanelRef();
   const [browserPanelCollapsed, setBrowserPanelCollapsed] = useState(false);
   const { defaultLayout: wsLayout, onLayoutChanged: onWsLayoutChanged } = useDefaultLayout({
     id: "hive-workspace",
     storage: localStorage,
   });
   const { defaultLayout: splitLayout, onLayoutChanged: onSplitLayoutChanged } = useDefaultLayout({
-    id: "hive-right-split-v3",
+    id: "hive-right-split-v4",
     storage: localStorage,
   });
 
@@ -344,10 +343,6 @@ export default function WorkspaceView() {
     }
     rightPanelRef.current?.expand();
   }, [currentBrowserStatus, rightPanelRef]);
-
-  useEffect(() => {
-    browserPanelRef.current?.resize(browserPanelExpanded ? 28 : 7);
-  }, [browserPanelExpanded, browserPanelRef]);
 
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();
@@ -783,23 +778,29 @@ export default function WorkspaceView() {
                   onDisconnectOutput={disconnectScriptOutput}
                 />
               </Panel>
-              <ResizeHandle orientation="horizontal" />
-              <Panel
-                id="browser"
-                panelRef={browserPanelRef}
-                defaultSize={browserPanelExpanded ? "28%" : "7%"}
-                minSize={browserPanelExpanded ? "18%" : "7%"}
-                maxSize={browserPanelExpanded ? "48%" : "7%"}
-              >
-                <div className="flex h-full min-h-0 flex-col border-t border-border/40 bg-background">
-                  <BrowserPanel
-                    status={currentBrowserStatus}
-                    collapsed={!browserPanelExpanded}
-                    onToggleCollapsed={browserPanelActive ? handleToggleBrowserPanel : undefined}
-                  />
-                </div>
-              </Panel>
+              {browserPanelExpanded && (
+                <>
+                  <ResizeHandle orientation="horizontal" />
+                  <Panel id="browser" defaultSize="28%" minSize="18%" maxSize="48%">
+                    <div className="flex h-full min-h-0 flex-col border-t border-border/40 bg-background">
+                      <BrowserPanel
+                        status={currentBrowserStatus}
+                        onToggleCollapsed={handleToggleBrowserPanel}
+                      />
+                    </div>
+                  </Panel>
+                </>
+              )}
             </Group>
+            {!browserPanelExpanded && (
+              <div className="border-t border-border/40 bg-background">
+                <BrowserPanel
+                  status={currentBrowserStatus}
+                  collapsed
+                  onToggleCollapsed={browserPanelActive ? handleToggleBrowserPanel : undefined}
+                />
+              </div>
+            )}
             <PrStatusSection wsId={wsId} />
           </div>
         </Panel>
