@@ -34,6 +34,28 @@ const GEMINI_STDERR_NOISE = [
   "GaxiosError",
 ];
 
+/** Codex CLI writes non-fatal operational diagnostics to stderr. */
+const CODEX_STDERR_NOISE = [
+  "Reading additional input from stdin",
+];
+
+const CODEX_STDERR_NOISE_PATTERNS = [
+  /\bERROR\s+codex_core::tools::router:\s+error=resources\/(?:templates\/)?list failed: unknown MCP server '[^']+'/,
+];
+
+function isKnownStderrNoise(providerId: string | undefined, text: string): boolean {
+  if (providerId === "gemini") {
+    return GEMINI_STDERR_NOISE.some((n) => text.includes(n));
+  }
+
+  if (providerId === "codex") {
+    return CODEX_STDERR_NOISE.some((n) => text.includes(n))
+      || CODEX_STDERR_NOISE_PATTERNS.some((pattern) => pattern.test(text));
+  }
+
+  return false;
+}
+
 /** Map Anthropic server_tool_use names to their Claude Code display names. */
 const serverToolNameMap: Record<string, string> = {
   web_search: "WebSearch",
@@ -356,6 +378,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let command: string;
     let args: string[];
     let env: Record<string, string> | undefined;
+    let stdinContent: string | undefined;
 
     if (this.testCommand) {
       // Test mode: use raw command (e.g. "bash") — no provider
@@ -378,6 +401,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         systemPrompt: this.systemPrompt,
         skipPermissions: this.skipPermissions,
       });
+      if (provider!.id === "codex") {
+        stdinContent = cliContent;
+      }
       env = provider!.buildEnv({ ...msgOptions, model: modelId });
     }
 
@@ -569,7 +595,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       ...(this.testCommand ? {} : { env: buildWorkspaceEnv(env) }),
     });
 
-    this.process.stdin?.end();
+    this.process.stdin?.end(stdinContent);
 
     this.process.stdout?.on("data", (chunk: Buffer) => {
       this.parser?.write(chunk.toString("utf-8"));
@@ -578,8 +604,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.process.stderr?.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf-8").trim();
       if (!text) return;
-      // Skip known informational stderr noise from Gemini CLI
-      if (GEMINI_STDERR_NOISE.some((n) => text.includes(n))) return;
+      if (isKnownStderrNoise(provider?.id, text)) return;
       const stderrLine = `stderr: ${sanitizeErrorDetail(text)}`;
       lastStderr = stderrLine;
       this.emit("message", { type: "error", message: stderrLine, sessionId: this.sessionId } as WsOutgoing);

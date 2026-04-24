@@ -605,6 +605,49 @@ describe("ConversationSession", () => {
     }
   });
 
+  it("sends Codex prompt through stdin", () => {
+    const session = createSession({ sessionId: "codex-stdin" });
+
+    session.sendMessage("Hi Codex", { model: "codex:gpt-5.5" });
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      "codex",
+      expect.arrayContaining(["exec", "--json", "-"]),
+      expect.any(Object),
+    );
+    expect(mockProc._stdinEnd).toHaveBeenCalledWith("Hi Codex");
+  });
+
+  it("suppresses known Codex stderr diagnostics", () => {
+    const session = createSession({ sessionId: "codex-stderr-noise" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi", { model: "codex:gpt-5.5" });
+    mockProc._stderr.push("Reading additional input from stdin...");
+    mockProc._stderr.push("2026-04-24T08:34:25.714940Z ERROR codex_core::tools::router: error=resources/templates/list failed: unknown MCP server 'openaiDeveloperDocs'");
+    mockProc._stderr.push("2026-04-24T08:34:25.714946Z ERROR codex_core::tools::router: error=resources/list failed: unknown MCP server 'openaiDeveloperDocs'");
+
+    const errors = messages.filter((m) => m.type === "error");
+    expect(errors).toHaveLength(0);
+  });
+
+  it("still emits Codex stderr errors when message is not known noise", () => {
+    const session = createSession({ sessionId: "codex-stderr-real" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi", { model: "codex:gpt-5.5" });
+    mockProc._stderr.push("permission denied");
+
+    const errors = messages.filter((m) => m.type === "error");
+    expect(errors).toHaveLength(1);
+    if (errors[0].type === "error") {
+      expect(errors[0].message).toContain("stderr:");
+      expect(errors[0].message).toContain("permission denied");
+    }
+  });
+
   it("defaults command to claude", () => {
     const session = createSession();
     session.sendMessage("Hi");
