@@ -10,8 +10,8 @@ import type {
 } from "./types.js";
 
 const CODEX_MODELS: ModelDefinition[] = [
-  { id: "gpt-5.4", label: "GPT-5.4", cliValue: "gpt-5.4", isDefault: true, isNew: true },
-  { id: "gpt-5.3-codex", label: "GPT-5.3-Codex", cliValue: "gpt-5.3-codex" },
+  { id: "gpt-5.5", label: "GPT-5.5", cliValue: "gpt-5.5", isDefault: true, isNew: true, contextWindow: 400_000 },
+  { id: "gpt-5.3-codex", label: "GPT-5.3-Codex", cliValue: "gpt-5.3-codex", contextWindow: 400_000 },
 ];
 
 const CODEX_CAPABILITIES: ProviderCapabilities = {

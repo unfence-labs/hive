@@ -31,8 +31,8 @@ const MOCK_CATALOG: ModelCatalogResponse = {
       capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true },
     },
     {
-      id: "codex:gpt-5.3-codex",
-      label: "GPT-5.3-Codex",
+      id: "codex:gpt-5.5",
+      label: "GPT-5.5",
       provider: "codex",
       providerLabel: "Codex",
       isDefault: true,
@@ -125,7 +125,7 @@ describe("useModels", () => {
     });
 
     act(() => {
-      result.current.setSelectedModelId("codex:gpt-5.3-codex");
+      result.current.setSelectedModelId("codex:gpt-5.5");
     });
 
     expect(result.current.capabilities).toEqual({
@@ -193,7 +193,7 @@ describe("useModels", () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(result.current.selectedModelId).toBe("codex:gpt-5.3-codex");
+    expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
     expect(result.current.selectedModel?.provider).toBe("codex");
   });
 
