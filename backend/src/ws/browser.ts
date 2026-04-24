@@ -7,6 +7,8 @@ import { isAuthorized } from "../utils/auth.js";
 import { buildWorkspaceEnv } from "../utils/env.js";
 
 const PING_INTERVAL_MS = 30_000;
+const UPSTREAM_RETRY_INTERVAL_MS = 250;
+const UPSTREAM_CONNECT_TIMEOUT_MS = 12_000;
 const MIN_VIEWPORT_WIDTH = 160;
 const MIN_VIEWPORT_HEIGHT = 120;
 const MAX_VIEWPORT_WIDTH = 4096;
@@ -54,6 +56,22 @@ function parseViewportResizeMessage(data: WebSocket.RawData, isBinary: boolean):
   const height = parseViewportDimension(message.height, MIN_VIEWPORT_HEIGHT, MAX_VIEWPORT_HEIGHT);
   if (!width || !height) return null;
   return { width, height };
+}
+
+function isRetryableUpstreamMessage(raw: string): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    return false;
+  }
+
+  if (typeof parsed !== "object" || parsed === null) return false;
+  const message = parsed as Record<string, unknown>;
+  if (message.type !== "error" || typeof message.message !== "string") return false;
+
+  const text = message.message.toLowerCase();
+  return text.includes("browser not launched") || text.includes("screencast");
 }
 
 async function setAgentBrowserViewport(
@@ -104,13 +122,18 @@ export async function browserWsRoutes(
         return;
       }
 
-      const upstream = new WebSocket(`ws://127.0.0.1:${session.port}`);
-      let upstreamOpen = false;
+      let upstream: WebSocket | null = null;
       let closingFromClient = false;
       let lastViewport: BrowserViewportSize | null = null;
+      let upstreamRetryTimer: NodeJS.Timeout | null = null;
+      const upstreamConnectDeadline = Date.now() + UPSTREAM_CONNECT_TIMEOUT_MS;
 
       const closeBoth = (code = 1000, reason?: string) => {
-        if (upstream.readyState === upstream.OPEN || upstream.readyState === upstream.CONNECTING) {
+        if (upstreamRetryTimer) {
+          clearTimeout(upstreamRetryTimer);
+          upstreamRetryTimer = null;
+        }
+        if (upstream && (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING)) {
           closingFromClient = true;
           upstream.close();
         }
@@ -121,43 +144,83 @@ export async function browserWsRoutes(
 
       const pingTimer = setInterval(() => {
         if (client.readyState === client.OPEN) client.ping();
-        if (upstream.readyState === upstream.OPEN) upstream.ping();
+        if (upstream?.readyState === WebSocket.OPEN) upstream.ping();
       }, PING_INTERVAL_MS);
 
-      upstream.on("open", () => {
-        upstreamOpen = true;
-        browserSessionManager.markActive(wsId, sessionId);
-      });
+      const markUpstreamUnavailable = () => {
+        browserSessionManager.markStreaming(wsId, sessionId, false);
+        if (client.readyState === client.OPEN) {
+          client.send(JSON.stringify({ type: "error", message: "Browser stream is not ready" }));
+        }
+      };
 
-      upstream.on("message", (data, isBinary) => {
-        if (client.readyState !== client.OPEN) return;
-        if (!isBinary) {
-          const text = data.toString();
-          browserSessionManager.ingestStreamMessage(wsId, sessionId, text);
-          client.send(text);
+      const scheduleUpstreamConnect = () => {
+        if (closingFromClient || client.readyState !== client.OPEN) return;
+        if (upstreamRetryTimer) return;
+        if (Date.now() >= upstreamConnectDeadline) {
+          markUpstreamUnavailable();
+          closeBoth(1000, "Browser stream unavailable");
           return;
         }
-        client.send(data, { binary: true });
-      });
+        upstreamRetryTimer = setTimeout(() => {
+          upstreamRetryTimer = null;
+          connectUpstream();
+        }, UPSTREAM_RETRY_INTERVAL_MS);
+      };
 
-      upstream.on("error", () => {
-        if (!upstreamOpen) {
-          browserSessionManager.markStreaming(wsId, sessionId, false);
-          if (client.readyState === client.OPEN) {
-            client.send(JSON.stringify({ type: "error", message: "Browser stream is not ready" }));
+      const connectUpstream = () => {
+        if (closingFromClient || client.readyState !== client.OPEN) return;
+        if (upstream && (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING)) return;
+
+        let opened = false;
+        let retryingUpstream = false;
+        const ws = new WebSocket(`ws://127.0.0.1:${session.port}`);
+        upstream = ws;
+
+        ws.on("open", () => {
+          opened = true;
+          browserSessionManager.markActive(wsId, sessionId);
+        });
+
+        ws.on("message", (data, isBinary) => {
+          if (client.readyState !== client.OPEN) return;
+          if (!isBinary) {
+            const text = data.toString();
+            if (isRetryableUpstreamMessage(text)) {
+              retryingUpstream = true;
+              ws.close();
+              return;
+            }
+            browserSessionManager.ingestStreamMessage(wsId, sessionId, text);
+            client.send(text);
+            return;
           }
-        }
-      });
+          client.send(data, { binary: true });
+        });
 
-      upstream.on("close", () => {
-        clearInterval(pingTimer);
-        if (!closingFromClient) {
-          browserSessionManager.markStreaming(wsId, sessionId, false);
-        }
-        if (client.readyState === client.OPEN || client.readyState === client.CONNECTING) {
-          client.close(1000, "Browser stream closed");
-        }
-      });
+        ws.on("error", () => {
+          if (!opened) {
+            scheduleUpstreamConnect();
+          }
+        });
+
+        ws.on("close", () => {
+          if (upstream === ws) upstream = null;
+          if ((!opened || retryingUpstream) && !closingFromClient) {
+            scheduleUpstreamConnect();
+            return;
+          }
+          clearInterval(pingTimer);
+          if (!closingFromClient) {
+            browserSessionManager.markStreaming(wsId, sessionId, false);
+          }
+          if (client.readyState === client.OPEN || client.readyState === client.CONNECTING) {
+            client.close(1000, "Browser stream closed");
+          }
+        });
+      };
+
+      connectUpstream();
 
       // The Hive browser panel is intentionally read-only for page input.
       // Only viewport resize messages are handled locally by Hive and are not
@@ -174,7 +237,11 @@ export async function browserWsRoutes(
 
       client.on("close", () => {
         clearInterval(pingTimer);
-        if (upstream.readyState === upstream.OPEN || upstream.readyState === upstream.CONNECTING) {
+        if (upstreamRetryTimer) {
+          clearTimeout(upstreamRetryTimer);
+          upstreamRetryTimer = null;
+        }
+        if (upstream && (upstream.readyState === WebSocket.OPEN || upstream.readyState === WebSocket.CONNECTING)) {
           closingFromClient = true;
           upstream.close();
         }

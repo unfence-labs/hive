@@ -22,7 +22,7 @@ describe("BrowserSessionManager", () => {
     });
   });
 
-  it("marks sessions active when an agent-browser command is observed", async () => {
+  it("marks sessions streaming when an agent-browser command is observed", async () => {
     await manager.ensureSession("ws-1", "session-1");
     const payload = manager.maybeMarkToolActivity(
       "ws-1",
@@ -34,7 +34,7 @@ describe("BrowserSessionManager", () => {
     expect(payload).toMatchObject({
       sessionId: "session-1",
       state: "active",
-      streaming: false,
+      streaming: true,
       streamPath: "/ws/browser/ws-1/session-1",
     });
     expect(manager.getVisibleStatuses("ws-1")).toHaveLength(1);
@@ -109,5 +109,24 @@ describe("BrowserSessionManager", () => {
     expect(statuses).toHaveLength(2);
     expect(statuses[0]).toMatchObject({ state: "active", streaming: true });
     expect(statuses[1]).toMatchObject({ state: "active", streaming: false });
+  });
+
+  it("keeps streaming true during the upstream screencast startup status", async () => {
+    const statuses: unknown[] = [];
+    await manager.ensureSession("ws-1", "session-1");
+    manager.markStreaming("ws-1", "session-1", true);
+    manager.on("status", (_workspaceId, status) => statuses.push(status));
+
+    manager.ingestStreamMessage("ws-1", "session-1", JSON.stringify({
+      type: "status",
+      connected: true,
+      screencasting: false,
+    }));
+
+    expect(manager.getVisibleStatuses("ws-1")[0]).toMatchObject({
+      state: "active",
+      streaming: true,
+    });
+    expect(statuses).toHaveLength(0);
   });
 });

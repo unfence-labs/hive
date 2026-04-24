@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
+import { createServer } from "node:net";
 import WebSocket, { WebSocketServer } from "ws";
 import { browserSessionManager } from "../services/browser-session-manager.js";
 import { browserWsRoutes, type BrowserViewportSetter } from "./browser.js";
@@ -41,9 +42,24 @@ function waitForCondition(predicate: () => boolean, timeoutMs = 3000): Promise<v
   });
 }
 
-async function startUpstream(): Promise<{ port: number; messages: string[] }> {
+async function allocatePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  await new Promise<void>((resolve, reject) => {
+    server.close((err) => err ? reject(err) : resolve());
+  });
+  if (!port) throw new Error("Failed to allocate port");
+  return port;
+}
+
+async function startUpstream(port = 0): Promise<{ port: number; messages: string[] }> {
   const messages: string[] = [];
-  upstream = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  upstream = new WebSocketServer({ host: "127.0.0.1", port });
   await new Promise<void>((resolve) => upstream?.once("listening", resolve));
   upstream.on("connection", (socket) => {
     socket.on("message", (data) => {
@@ -142,6 +158,65 @@ describe("browser WS route", () => {
       state: "active",
       streaming: false,
     });
+    ws.terminate();
+  });
+
+  it("waits for the agent-browser upstream to become ready before marking the stream stopped", async () => {
+    const port = await allocatePort();
+    browserSessionManager._registerForTests("ws-1", "session-1", port, "active");
+    browserSessionManager.markStreaming("ws-1", "session-1", true);
+    const statuses: BrowserStatusPayload[] = [];
+    browserSessionManager.on("status", (_workspaceId, status) => statuses.push(status));
+
+    const { ws, jsonMessages } = await connectBrowserWs("/ws/browser/ws-1/session-1?token=secret");
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    expect(statuses.some((status) => status.streaming === false)).toBe(false);
+
+    await startUpstream(port);
+    await waitForCondition(() => (upstream?.clients.size ?? 0) === 1);
+    const upstreamClient = Array.from(upstream!.clients)[0];
+    upstreamClient.send(JSON.stringify({
+      type: "status",
+      connected: true,
+      screencasting: false,
+    }));
+    upstreamClient.send(JSON.stringify({
+      type: "frame",
+      data: "abc123",
+    }));
+
+    await waitForCondition(() => jsonMessages.some((message) => message.type === "frame"));
+    expect(statuses.some((status) => status.streaming === false)).toBe(false);
+    expect(statuses.at(-1)).toMatchObject({
+      sessionId: "session-1",
+      state: "active",
+      streaming: true,
+    });
+    ws.terminate();
+  });
+
+  it("reconnects when upstream accepts before the browser has launched", async () => {
+    const upstreamInfo = await startUpstream();
+    browserSessionManager._registerForTests("ws-1", "session-1", upstreamInfo.port, "active");
+    browserSessionManager.markStreaming("ws-1", "session-1", true);
+    const statuses: BrowserStatusPayload[] = [];
+    browserSessionManager.on("status", (_workspaceId, status) => statuses.push(status));
+    let connectionCount = 0;
+    upstream!.on("connection", (socket) => {
+      connectionCount += 1;
+      if (connectionCount === 1) {
+        socket.send(JSON.stringify({ type: "error", message: "Browser not launched" }));
+        return;
+      }
+      socket.send(JSON.stringify({ type: "frame", data: "ready" }));
+    });
+
+    const { ws, jsonMessages } = await connectBrowserWs("/ws/browser/ws-1/session-1?token=secret");
+
+    await waitForCondition(() => jsonMessages.some((message) => message.type === "frame"));
+    expect(connectionCount).toBeGreaterThanOrEqual(2);
+    expect(jsonMessages.some((message) => message.type === "error")).toBe(false);
+    expect(statuses.some((status) => status.streaming === false)).toBe(false);
     ws.terminate();
   });
 });

@@ -151,7 +151,7 @@ export class BrowserSessionManager extends EventEmitter<BrowserSessionManagerEve
     if (AGENT_BROWSER_STOP_PATTERN.test(commandText)) {
       return this.markStreaming(workspaceId, sessionId, false);
     }
-    return this.markActive(workspaceId, sessionId);
+    return this.markStreaming(workspaceId, sessionId, true);
   }
 
   markActive(workspaceId: string, sessionId: string): BrowserStatusPayload | null {
@@ -212,8 +212,10 @@ export class BrowserSessionManager extends EventEmitter<BrowserSessionManagerEve
     } else if (parsed.type === "status") {
       const connected = typeof parsed.connected === "boolean" ? parsed.connected : undefined;
       const screencasting = typeof parsed.screencasting === "boolean" ? parsed.screencasting : undefined;
-      if (connected !== undefined || screencasting !== undefined) {
-        nextStreaming = Boolean(connected && screencasting);
+      if (connected === false) {
+        nextStreaming = false;
+      } else if (connected === true && screencasting === true) {
+        nextStreaming = true;
       }
     } else if (parsed.type === "frame") {
       nextStreaming = true;

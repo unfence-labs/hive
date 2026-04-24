@@ -353,9 +353,12 @@ export default function WorkspaceView() {
       return;
     }
     if (currentBrowserStatus.streaming) {
+      if (!browserPanelCollapsed) {
+        setBrowserPanelManualOpen(true);
+      }
       rightPanelRef.current?.expand();
     }
-  }, [currentBrowserStatus, rightPanelRef]);
+  }, [browserPanelCollapsed, currentBrowserStatus, rightPanelRef]);
 
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();

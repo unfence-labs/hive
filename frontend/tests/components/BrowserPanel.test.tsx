@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BrowserPanel } from "@/components/BrowserPanel";
+import { BrowserPanel, __clearBrowserStreamConnectionsForTests } from "@/components/BrowserPanel";
 import type { BrowserStatusPayload } from "@/types";
 
 class MockWebSocket {
@@ -23,8 +23,10 @@ class MockWebSocket {
     this.url = url;
     MockWebSocket.instances.push(this);
     queueMicrotask(() => {
-      this.readyState = MockWebSocket.OPEN;
-      this.onopen?.();
+      act(() => {
+        this.readyState = MockWebSocket.OPEN;
+        this.onopen?.();
+      });
     });
   }
 
@@ -66,6 +68,7 @@ describe("BrowserPanel", () => {
   });
 
   afterEach(() => {
+    act(() => __clearBrowserStreamConnectionsForTests());
     vi.restoreAllMocks();
     Object.defineProperty(globalThis, "WebSocket", {
       configurable: true,
@@ -74,14 +77,14 @@ describe("BrowserPanel", () => {
     });
   });
 
-  it("sends the panel dimensions as a viewport resize when the stream opens", async () => {
+  it("sends a fixed desktop viewport resize when the stream opens", async () => {
     render(<BrowserPanel status={status} />);
 
     await waitFor(() => {
       expect(MockWebSocket.instances[0]?.sent).toContain(JSON.stringify({
         type: "viewport_resize",
-        width: 640,
-        height: 360,
+        width: 1280,
+        height: 720,
       }));
     });
   });
@@ -95,13 +98,13 @@ describe("BrowserPanel", () => {
     expect(MockWebSocket.instances).toHaveLength(0);
   });
 
-  it("uses a small streaming label when the stream is active", () => {
+  it("uses a small streaming label when the stream is active", async () => {
     render(<BrowserPanel status={status} />);
 
-    expect(screen.getByText("streaming")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("streaming")).toBeInTheDocument());
   });
 
-  it("renders stream frames as a full panel viewport", async () => {
+  it("renders stream frames without distorting the desktop viewport", async () => {
     render(<BrowserPanel status={status} />);
 
     await waitFor(() => expect(MockWebSocket.instances[0]?.readyState).toBe(MockWebSocket.OPEN));
@@ -110,7 +113,62 @@ describe("BrowserPanel", () => {
     }));
 
     const frame = await screen.findByAltText("Agent browser");
-    expect(frame).toHaveClass("h-full", "w-full", "object-fill");
+    expect(frame).toHaveClass("h-full", "w-full", "object-contain");
+  });
+
+  it("keeps the streaming label active when frames arrive before hub status updates", async () => {
+    render(<BrowserPanel status={{ ...status, streaming: false }} />);
+
+    await waitFor(() => expect(MockWebSocket.instances[0]?.readyState).toBe(MockWebSocket.OPEN));
+    act(() => MockWebSocket.instances[0].onmessage?.({
+      data: JSON.stringify({ type: "frame", data: "abc123" }),
+    }));
+
+    expect(await screen.findByText("streaming")).toBeInTheDocument();
+  });
+
+  it("stops showing streaming and clears the last frame when a stop status arrives", async () => {
+    const { rerender } = render(<BrowserPanel status={status} />);
+
+    await waitFor(() => expect(MockWebSocket.instances[0]?.readyState).toBe(MockWebSocket.OPEN));
+    act(() => MockWebSocket.instances[0].onmessage?.({
+      data: JSON.stringify({ type: "frame", data: "abc123" }),
+    }));
+    expect(await screen.findByAltText("Agent browser")).toBeInTheDocument();
+    expect(screen.getByText("streaming")).toBeInTheDocument();
+
+    rerender(<BrowserPanel status={{ ...status, streaming: false, updatedAt: 2 }} />);
+
+    await waitFor(() => expect(screen.getByText("not streaming")).toBeInTheDocument());
+    expect(screen.queryByAltText("Agent browser")).not.toBeInTheDocument();
+  });
+
+  it("stops showing streaming and clears the frame when the stream socket closes", async () => {
+    render(<BrowserPanel status={status} />);
+
+    await waitFor(() => expect(MockWebSocket.instances[0]?.readyState).toBe(MockWebSocket.OPEN));
+    act(() => MockWebSocket.instances[0].onmessage?.({
+      data: JSON.stringify({ type: "frame", data: "abc123" }),
+    }));
+    expect(await screen.findByAltText("Agent browser")).toBeInTheDocument();
+
+    act(() => MockWebSocket.instances[0].close());
+
+    await waitFor(() => expect(screen.getByText("not streaming")).toBeInTheDocument());
+    expect(screen.queryByAltText("Agent browser")).not.toBeInTheDocument();
+  });
+
+  it("reconnects automatically when streaming restarts on the same browser session", async () => {
+    const { rerender } = render(<BrowserPanel status={{ ...status, streaming: false }} />);
+
+    await waitFor(() => expect(MockWebSocket.instances[0]?.readyState).toBe(MockWebSocket.OPEN));
+    act(() => MockWebSocket.instances[0].close());
+    await waitFor(() => expect(screen.getByText("not streaming")).toBeInTheDocument());
+
+    rerender(<BrowserPanel status={{ ...status, streaming: true, updatedAt: 2 }} />);
+
+    await waitFor(() => expect(MockWebSocket.instances).toHaveLength(2));
+    await waitFor(() => expect(MockWebSocket.instances[1]?.readyState).toBe(MockWebSocket.OPEN));
   });
 
   it("keeps the viewport closed when collapsed", () => {
@@ -118,6 +176,16 @@ describe("BrowserPanel", () => {
 
     expect(screen.queryByAltText("Agent browser")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Expand browser panel" })).toBeInTheDocument();
-    expect(MockWebSocket.instances).toHaveLength(0);
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it("keeps the browser stream connection alive across panel remounts", async () => {
+    const first = render(<BrowserPanel status={status} />);
+    await waitFor(() => expect(MockWebSocket.instances[0]?.readyState).toBe(MockWebSocket.OPEN));
+
+    first.unmount();
+    render(<BrowserPanel status={status} collapsed onToggleCollapsed={() => {}} />);
+
+    expect(MockWebSocket.instances).toHaveLength(1);
   });
 });
