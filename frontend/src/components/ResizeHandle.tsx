@@ -5,14 +5,26 @@ interface ResizeHandleProps {
   orientation?: "horizontal" | "vertical";
   className?: string;
   disabled?: boolean;
+  separator?: "before" | "after";
 }
 
 export function ResizeHandle({
   orientation = "vertical",
   className,
   disabled,
+  separator,
 }: ResizeHandleProps) {
   const isVertical = orientation === "vertical";
+  const separatorClassName =
+    separator === "before"
+      ? isVertical
+        ? "border-l border-sidebar-border/60"
+        : "border-t border-sidebar-border/60"
+      : separator === "after"
+        ? isVertical
+          ? "border-r border-sidebar-border/60"
+          : "border-b border-sidebar-border/60"
+        : undefined;
 
   return (
     <Separator
@@ -21,6 +33,7 @@ export function ResizeHandle({
       className={cn(
         "group relative flex shrink-0 items-center justify-center bg-transparent",
         isVertical ? "w-1.5" : "h-1.5",
+        separatorClassName,
         className,
       )}
     >
