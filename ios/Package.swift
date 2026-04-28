@@ -34,7 +34,8 @@ let package = Package(
                 "Models/Models.swift",
                 "Models/WebSocketTypes.swift",
                 "Stores/ChatDraftStore.swift",
-                "Stores/HubOrganization.swift"
+                "Stores/HubOrganization.swift",
+                "Stores/TaskDerivation.swift"
             ]
         ),
         .testTarget(

@@ -19,6 +19,12 @@ describe("pickCityName", () => {
     expect(() => pickCityName([...CITIES])).toThrow("All city names exhausted");
   });
 
+  it("only exposes ASCII-safe filesystem slugs", () => {
+    for (const city of CITIES) {
+      expect(city).toMatch(/^[a-z0-9-]+$/);
+    }
+  });
+
   it("returns different names across multiple calls", () => {
     const names = new Set<string>();
     for (let i = 0; i < 20; i++) {

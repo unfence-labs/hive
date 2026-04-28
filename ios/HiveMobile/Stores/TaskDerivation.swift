@@ -6,6 +6,7 @@ import Foundation
 // Direct port of frontend/src/hooks/useTasks.ts.
 
 private let validStatuses: Set<String> = ["pending", "in_progress", "completed"]
+private let taskToolNames: Set<String> = ["TaskCreate", "TaskUpdate", "TodoList"]
 
 /// Parse a task ID from a TaskCreate tool output string.
 /// Tries JSON `{ "task": { "id": "42" } }` first, then regex `Task #1 created...`.
@@ -37,6 +38,20 @@ private func parseInput(_ tool: ToolCall) -> [String: Any] {
     return obj
 }
 
+private func parseTodoList(_ tool: ToolCall) -> [(text: String, completed: Bool)] {
+    let source = tool.output ?? tool.input
+    guard let data = source.data(using: .utf8),
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let items = obj["items"] as? [[String: Any]] else {
+        return []
+    }
+
+    return items.compactMap { item in
+        guard let text = item["text"] as? String, !text.isEmpty else { return nil }
+        return (text: text, completed: (item["completed"] as? Bool) ?? false)
+    }
+}
+
 /// Derive task tracking state from conversation messages and active (streaming) tool calls.
 /// Mirrors the logic in `frontend/src/hooks/useTasks.ts` exactly.
 func deriveTasks(from messages: [ChatMessage], activeToolCalls: [ToolCall]) -> TasksState {
@@ -50,7 +65,7 @@ func deriveTasks(from messages: [ChatMessage], activeToolCalls: [ToolCall]) -> T
     allTools.append(contentsOf: activeToolCalls)
 
     // Quick bail: no task tools at all
-    let hasTaskTools = allTools.contains { $0.name == "TaskCreate" || $0.name == "TaskUpdate" }
+    let hasTaskTools = allTools.contains { taskToolNames.contains($0.name) }
     guard hasTaskTools else { return .empty }
 
     // Ordered storage: array of (key, task) pairs + index lookup
@@ -111,6 +126,23 @@ func deriveTasks(from messages: [ChatMessage], activeToolCalls: [ToolCall]) -> T
             if let s = statusStr, validStatuses.contains(s),
                let status = TaskStatus(rawValue: s) {
                 tasks[idx].value.status = status
+            }
+        } else if tool.name == "TodoList" {
+            for (index, item) in parseTodoList(tool).enumerated() {
+                let id = "codex-todo-\(index + 1)"
+                let task = TrackedTask(
+                    id: id,
+                    subject: item.text,
+                    status: item.completed ? .completed : .pending,
+                    isCreating: false
+                )
+
+                if let existingIndex = taskIndex[id] {
+                    tasks[existingIndex].value = task
+                } else {
+                    taskIndex[id] = tasks.count
+                    tasks.append((key: id, value: task))
+                }
             }
         }
     }

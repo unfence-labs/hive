@@ -25,6 +25,7 @@ export interface TasksState {
 }
 
 const VALID_STATUSES = new Set(["pending", "in_progress", "completed"]);
+const TASK_TOOL_NAMES = new Set(["TaskCreate", "TaskUpdate", "TodoList"]);
 
 /**
  * Try to extract the numeric task ID from a TaskCreate result string.
@@ -51,6 +52,25 @@ function parseInput(tool: ToolCall): Record<string, unknown> {
   }
 }
 
+function parseTodoList(tool: ToolCall): Array<{ text: string; completed: boolean }> {
+  const source = tool.output ?? tool.input;
+  try {
+    const json = JSON.parse(source);
+    const items = Array.isArray(json?.items) ? json.items : [];
+    return items
+      .map((item: unknown) => {
+        if (!item || typeof item !== "object") return null;
+        const record = item as Record<string, unknown>;
+        const text = typeof record.text === "string" ? record.text : "";
+        if (!text) return null;
+        return { text, completed: Boolean(record.completed) };
+      })
+      .filter((item: { text: string; completed: boolean } | null): item is { text: string; completed: boolean } => item != null);
+  } catch {
+    return [];
+  }
+}
+
 const EMPTY: TasksState = {
   tasks: [],
   currentTask: undefined,
@@ -72,9 +92,7 @@ export function useTasks(
     for (const tc of activeToolCalls) allTools.push(tc);
 
     // Quick bail: if no task tools at all, return empty
-    const hasTaskTools = allTools.some(
-      (t) => t.name === "TaskCreate" || t.name === "TaskUpdate",
-    );
+    const hasTaskTools = allTools.some((t) => TASK_TOOL_NAMES.has(t.name));
     if (!hasTaskTools) return EMPTY;
 
     const tasks = new Map<string, TrackedTask>();
@@ -128,6 +146,16 @@ export function useTasks(
         if (typeof input.status === "string" && VALID_STATUSES.has(input.status)) {
           task.status = input.status as TrackedTask["status"];
         }
+      } else if (tool.name === "TodoList") {
+        const todoItems = parseTodoList(tool);
+        todoItems.forEach((item, index) => {
+          const id = `codex-todo-${index + 1}`;
+          tasks.set(id, {
+            id,
+            subject: item.text,
+            status: item.completed ? "completed" : "pending",
+          });
+        });
       }
     }
 

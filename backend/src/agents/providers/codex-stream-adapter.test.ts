@@ -155,6 +155,29 @@ describe("CodexStreamAdapter", () => {
     });
   });
 
+  it("uses official aggregated_output for command_execution results", () => {
+    const userMsgs: StreamParserEvent["user"][] = [];
+    adapter.on("user", (...args) => userMsgs.push(args));
+
+    adapter.write(line({
+      type: "item.completed",
+      item: {
+        id: "cmd-official",
+        type: "command_execution",
+        command: "printf hi",
+        aggregated_output: "hi",
+        exit_code: 0,
+        status: "completed",
+      },
+    }));
+
+    expect(userMsgs[0][0].message.content[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "cmd-official",
+      content: "hi",
+    });
+  });
+
   it("uses exit code as fallback when command output is empty", () => {
     const userMsgs: StreamParserEvent["user"][] = [];
     adapter.on("user", (...args) => userMsgs.push(args));
@@ -206,6 +229,76 @@ describe("CodexStreamAdapter", () => {
     });
   });
 
+  it("formats official file_change changes when no diff is present", () => {
+    const assistantMsgs: StreamParserEvent["assistant"][] = [];
+    const userMsgs: StreamParserEvent["user"][] = [];
+    adapter.on("assistant", (...args) => assistantMsgs.push(args));
+    adapter.on("user", (...args) => userMsgs.push(args));
+
+    adapter.write(line({
+      type: "item.completed",
+      item: {
+        id: "fc-official",
+        type: "file_change",
+        changes: [{ path: "src/app.ts", kind: "update" }],
+        status: "completed",
+      },
+    }));
+
+    const toolUse = assistantMsgs[0][0].message.content[0];
+    expect(toolUse).toMatchObject({ type: "tool_use", name: "Edit" });
+    expect(toolUse.type).toBe("tool_use");
+    if (toolUse.type !== "tool_use") throw new Error("Expected tool_use block");
+    expect(JSON.parse(String(toolUse.input))).toMatchObject({
+      filename: "src/app.ts",
+      changes: [{ path: "src/app.ts", kind: "update" }],
+    });
+    expect(userMsgs[0][0].message.content[0]).toMatchObject({
+      content: "update: src/app.ts",
+    });
+  });
+
+  it("waits for file_change details before emitting Edit tool input", () => {
+    const assistantMsgs: StreamParserEvent["assistant"][] = [];
+    const userMsgs: StreamParserEvent["user"][] = [];
+    adapter.on("assistant", (...args) => assistantMsgs.push(args));
+    adapter.on("user", (...args) => userMsgs.push(args));
+
+    adapter.write(line({
+      type: "item.started",
+      item: {
+        id: "fc-delayed",
+        type: "file_change",
+        status: "in_progress",
+      },
+    }));
+
+    expect(assistantMsgs).toHaveLength(0);
+
+    adapter.write(line({
+      type: "item.completed",
+      item: {
+        id: "fc-delayed",
+        type: "file_change",
+        changes: [{ path: "src/app.ts", kind: "update" }],
+        status: "completed",
+      },
+    }));
+
+    expect(assistantMsgs).toHaveLength(1);
+    const toolUse = assistantMsgs[0][0].message.content[0];
+    expect(toolUse).toMatchObject({ type: "tool_use", name: "Edit" });
+    expect(toolUse.type).toBe("tool_use");
+    if (toolUse.type !== "tool_use") throw new Error("Expected tool_use block");
+    expect(JSON.parse(String(toolUse.input))).toMatchObject({
+      filename: "src/app.ts",
+      changes: [{ path: "src/app.ts", kind: "update" }],
+    });
+    expect(userMsgs[0][0].message.content[0]).toMatchObject({
+      content: "update: src/app.ts",
+    });
+  });
+
   // ── Tool use: web_search ───────────────────────────────────────────
 
   it("emits WebSearch tool for web_search items", () => {
@@ -235,6 +328,108 @@ describe("CodexStreamAdapter", () => {
 
     expect(assistantMsgs[0][0].message.content[0]).toMatchObject({
       name: "mcp_tool_call",
+    });
+  });
+
+  it("emits a result for failed mcp tool call items", () => {
+    const userMsgs: StreamParserEvent["user"][] = [];
+    adapter.on("user", (...args) => userMsgs.push(args));
+
+    adapter.write(line({
+      type: "item.completed",
+      item: {
+        id: "mcp-failed",
+        type: "mcp_tool_call",
+        server: "docs",
+        tool: "search",
+        error: { message: "server unavailable" },
+        status: "failed",
+      },
+    }));
+
+    expect(userMsgs[0][0].message.content[0]).toMatchObject({
+      tool_use_id: "mcp-failed",
+      content: JSON.stringify({ message: "server unavailable" }, null, 2),
+    });
+  });
+
+  // ── Codex native todo list ─────────────────────────────────────────
+
+  it("emits TodoList tool updates for todo_list items", () => {
+    const assistantMsgs: StreamParserEvent["assistant"][] = [];
+    const userMsgs: StreamParserEvent["user"][] = [];
+    adapter.on("assistant", (...args) => assistantMsgs.push(args));
+    adapter.on("user", (...args) => userMsgs.push(args));
+
+    const items = [
+      { text: "Inspect logs", completed: true },
+      { text: "Patch adapter", completed: false },
+    ];
+
+    adapter.write(line({
+      type: "item.updated",
+      item: { id: "todos-1", type: "todo_list", items },
+    }));
+
+    expect(assistantMsgs[0][0].message.content[0]).toMatchObject({
+      type: "tool_use",
+      id: "todos-1",
+      name: "TodoList",
+      input: JSON.stringify({ items }),
+    });
+    expect(userMsgs[0][0].message.content[0]).toMatchObject({
+      tool_use_id: "todos-1",
+      content: JSON.stringify({ items }),
+    });
+  });
+
+  it("does not re-emit TodoList tool_use for repeated todo_list updates", () => {
+    const assistantMsgs: StreamParserEvent["assistant"][] = [];
+    const userMsgs: StreamParserEvent["user"][] = [];
+    adapter.on("assistant", (...args) => assistantMsgs.push(args));
+    adapter.on("user", (...args) => userMsgs.push(args));
+
+    adapter.write(line({
+      type: "item.started",
+      item: { id: "todos-1", type: "todo_list", items: [{ text: "A", completed: false }] },
+    }));
+    adapter.write(line({
+      type: "item.updated",
+      item: { id: "todos-1", type: "todo_list", items: [{ text: "A", completed: true }] },
+    }));
+
+    expect(assistantMsgs).toHaveLength(1);
+    expect(userMsgs).toHaveLength(2);
+    expect(userMsgs[1][0].message.content[0]).toMatchObject({
+      content: JSON.stringify({ items: [{ text: "A", completed: true }] }),
+    });
+  });
+
+  // ── Item-level diagnostics ─────────────────────────────────────────
+
+  it("emits item-level error as a non-fatal diagnostic tool", () => {
+    const assistantMsgs: StreamParserEvent["assistant"][] = [];
+    const userMsgs: StreamParserEvent["user"][] = [];
+    const errors: Error[] = [];
+    adapter.on("assistant", (...args) => assistantMsgs.push(args));
+    adapter.on("user", (...args) => userMsgs.push(args));
+    adapter.on("error", (err) => errors.push(err));
+
+    adapter.write(line({
+      type: "item.completed",
+      item: { id: "err-1", type: "error", message: "Non-fatal tool issue" },
+    }));
+
+    expect(errors).toHaveLength(0);
+    expect(assistantMsgs[0][0].message.content[0]).toMatchObject({
+      type: "tool_use",
+      id: "err-1",
+      name: "CodexDiagnostic",
+      input: JSON.stringify({ message: "Non-fatal tool issue" }),
+    });
+    expect(userMsgs[0][0].message.content[0]).toMatchObject({
+      tool_use_id: "err-1",
+      content: "Non-fatal tool issue",
     });
   });
 
@@ -268,7 +463,7 @@ describe("CodexStreamAdapter", () => {
     expect(results).toHaveLength(1);
     const [data] = results[0];
     expect(data.session_id).toBe("thread-xyz");
-    expect(data.usage).toEqual({ input_tokens: 100, output_tokens: 50 });
+    expect(data.usage).toEqual({ input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 10 });
   });
 
   it("emits result without usage when not provided", () => {
@@ -298,6 +493,23 @@ describe("CodexStreamAdapter", () => {
     expect(results).toHaveLength(1);
   });
 
+  it("flushes pending thinking before turn.completed result", () => {
+    const messages: StreamParserEvent["assistant"][] = [];
+    const results: StreamParserEvent["result"][] = [];
+    adapter.on("assistant", (...args) => messages.push(args));
+    adapter.on("result", (...args) => results.push(args));
+
+    adapter.write(line({
+      type: "item.started",
+      item: { id: "think-1", type: "reasoning", text: "Buffered thinking" },
+    }));
+    adapter.write(line({ type: "turn.completed" }));
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0][0].message.content).toEqual([{ type: "thinking", thinking: "Buffered thinking" }]);
+    expect(results).toHaveLength(1);
+  });
+
   // ── Turn failure ───────────────────────────────────────────────────
 
   it("emits error on turn.failed", () => {
@@ -308,6 +520,15 @@ describe("CodexStreamAdapter", () => {
 
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toBe("Rate limit exceeded");
+  });
+
+  it("reads official turn.failed error.message", () => {
+    const errors: Error[] = [];
+    adapter.on("error", (err) => errors.push(err));
+
+    adapter.write(line({ type: "turn.failed", error: { message: "Usage limit reached" } }));
+
+    expect(errors[0].message).toBe("Usage limit reached");
   });
 
   it("uses default message when turn.failed has no error", () => {
@@ -365,7 +586,7 @@ describe("CodexStreamAdapter", () => {
   it("does not crash on unknown event types", () => {
     const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
     adapter.write(line({ type: "unknown.event" }));
-    expect(spy).toHaveBeenCalledWith(expect.stringContaining("[codex-adapter]"), "unknown.event");
+    expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 
@@ -375,7 +596,7 @@ describe("CodexStreamAdapter", () => {
       type: "item.completed",
       item: { id: "x", type: "unknown_item_type" },
     }));
-    expect(spy).toHaveBeenCalledWith(expect.stringContaining("[codex-adapter]"), "unknown_item_type");
+    expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 
@@ -437,6 +658,20 @@ describe("CodexStreamAdapter", () => {
     adapter.flush();
     expect(messages).toHaveLength(1);
     expect(messages[0][0].message.content).toEqual([{ type: "text", text: "Pending" }]);
+  });
+
+  it("flushes pending thinking parts on flush()", () => {
+    const messages: StreamParserEvent["assistant"][] = [];
+    adapter.on("assistant", (...args) => messages.push(args));
+
+    adapter.write(line({
+      type: "item.started",
+      item: { id: "think-1", type: "reasoning", text: "Pending thinking" },
+    }));
+
+    adapter.flush();
+    expect(messages).toHaveLength(1);
+    expect(messages[0][0].message.content).toEqual([{ type: "thinking", thinking: "Pending thinking" }]);
   });
 
   // ── Text flushing before tool use ──────────────────────────────────

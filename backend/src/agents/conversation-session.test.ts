@@ -632,6 +632,37 @@ describe("ConversationSession", () => {
     expect(errors).toHaveLength(0);
   });
 
+  it("surfaces Codex websocket metadata stderr as inline diagnostics", () => {
+    const session = createSession({ sessionId: "codex-stderr-diagnostic" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi", { model: "codex:gpt-5.5" });
+    mockProc._stderr.push("2026-04-28T11:10:15.042636Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata' with value: \"{\\\"session_id\\\":\\\"019dd3b3\\\"}\"");
+    mockProc._stderr.push("Reconnecting... 5/5 (stream disconnected before completion: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata' with value: \"{\\\"session_id\\\":\\\"019dd3b3\\\"}\")");
+
+    const errors = messages.filter((m) => m.type === "error");
+    const diagnostics = messages.filter(
+      (m): m is Extract<WsOutgoing, { type: "tool_use" }> =>
+        m.type === "tool_use" && m.name === "CodexDiagnostic",
+    );
+    const diagnosticResults = messages.filter(
+      (m): m is Extract<WsOutgoing, { type: "tool_result" }> => m.type === "tool_result",
+    );
+
+    expect(errors).toHaveLength(0);
+    expect(diagnostics).toHaveLength(2);
+    expect(diagnosticResults).toHaveLength(2);
+    expect(JSON.parse(diagnostics[0]!.input)).toMatchObject({
+      source: "stderr",
+      severity: "warning",
+    });
+    expect(diagnosticResults[0]).toMatchObject({
+      type: "tool_result",
+      toolUseId: diagnostics[0]!.id,
+    });
+  });
+
   it("still emits Codex stderr errors when message is not known noise", () => {
     const session = createSession({ sessionId: "codex-stderr-real" });
     const messages: WsOutgoing[] = [];
