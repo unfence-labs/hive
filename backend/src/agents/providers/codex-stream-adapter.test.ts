@@ -258,6 +258,47 @@ describe("CodexStreamAdapter", () => {
     });
   });
 
+  it("waits for file_change details before emitting Edit tool input", () => {
+    const assistantMsgs: StreamParserEvent["assistant"][] = [];
+    const userMsgs: StreamParserEvent["user"][] = [];
+    adapter.on("assistant", (...args) => assistantMsgs.push(args));
+    adapter.on("user", (...args) => userMsgs.push(args));
+
+    adapter.write(line({
+      type: "item.started",
+      item: {
+        id: "fc-delayed",
+        type: "file_change",
+        status: "in_progress",
+      },
+    }));
+
+    expect(assistantMsgs).toHaveLength(0);
+
+    adapter.write(line({
+      type: "item.completed",
+      item: {
+        id: "fc-delayed",
+        type: "file_change",
+        changes: [{ path: "src/app.ts", kind: "update" }],
+        status: "completed",
+      },
+    }));
+
+    expect(assistantMsgs).toHaveLength(1);
+    const toolUse = assistantMsgs[0][0].message.content[0];
+    expect(toolUse).toMatchObject({ type: "tool_use", name: "Edit" });
+    expect(toolUse.type).toBe("tool_use");
+    if (toolUse.type !== "tool_use") throw new Error("Expected tool_use block");
+    expect(JSON.parse(String(toolUse.input))).toMatchObject({
+      filename: "src/app.ts",
+      changes: [{ path: "src/app.ts", kind: "update" }],
+    });
+    expect(userMsgs[0][0].message.content[0]).toMatchObject({
+      content: "update: src/app.ts",
+    });
+  });
+
   // ── Tool use: web_search ───────────────────────────────────────────
 
   it("emits WebSearch tool for web_search items", () => {

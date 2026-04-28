@@ -215,7 +215,9 @@ export class CodexStreamAdapter extends EventEmitter<StreamParserEvent> implemen
         const input = this.buildToolInput(item);
 
         if (event.type === "item.started" || event.type === "item.updated") {
-          this.emitToolUse(this.itemId(item), toolName, input);
+          if (itemType !== "file_change" || hasFileChangeDetails(item)) {
+            this.emitToolUse(this.itemId(item), toolName, input);
+          }
         }
 
         if (event.type === "item.completed") {
@@ -402,6 +404,10 @@ function extractFirstChangedPath(value: unknown): string | undefined {
     if (typeof path === "string" && path) return path;
   }
   return undefined;
+}
+
+function hasFileChangeDetails(item: CodexItem): boolean {
+  return Boolean(item.filename || item.diff || extractFirstChangedPath(item.changes));
 }
 
 function formatFileChanges(value: unknown): string | undefined {
