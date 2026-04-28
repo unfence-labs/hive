@@ -76,6 +76,7 @@ It manages:
 - macOS traffic light positioning, drag regions, and App Transport Security exceptions for Tailscale HTTP.
 - Sidebar collapse toggle (Cmd/Ctrl+B) with CSS transition and fullscreen detection.
 - VS Code remote SSH workspace opening via `vscode://vscode-remote/ssh-remote+` URIs.
+- Workspace header action for copying the current worktree path.
 
 **iOS**
 - Native SwiftUI app with chat, model selection, session switching (max 4), and push notifications (APNs).

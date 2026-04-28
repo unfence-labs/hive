@@ -193,7 +193,8 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/lib/clipboard.ts`: `copyToClipboard()` with `execCommand` fallback for HTTP contexts
 - `frontend/src/lib/terminal.ts`: SSH command builder + terminal app detection (Tauri)
 - `frontend/src/lib/open-external.ts`: VS Code remote SSH URI builder + external app launcher
-- `frontend/src/components/Sidebar.tsx`: project/workspace nav + org/repo two-tone headers + build/automation tabs + sidebar collapse + bulk PR status + unread badges + dashed active border
+- `frontend/src/components/Sidebar.tsx`: project/workspace nav + org/repo two-tone headers + resizable workspace/automation panels + sidebar collapse + bulk PR status + unread badges + dashed active border
+- `frontend/src/components/WorkspacePathCopyButton.tsx`: workspace header path-copy action with tooltip and transient copied state
 - `frontend/src/components/ChatInput.tsx`: message input with provider-adaptive controls, `#` file autocomplete with `MentionHighlightOverlay`, Commit & Push quick action, context ring, message queue display, `appendText` ref for paste-from-diff
 - `frontend/src/components/ChatConversation.tsx`: conversation display with hydration flash fix (visibility:hidden + double-rAF settle)
 - `frontend/src/components/PrStatusSection.tsx`: enriched PR display (13 states)
@@ -209,6 +210,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/components/chat/PlanActionBar.tsx`: floating action bar above chat input with Copy / Hand-off / Approve buttons
 - `frontend/src/components/chat/SubAgentNode.tsx`: Task tool rendering with type-specific icons, expand/collapse, nested child tool tree, result footer
 - `frontend/src/components/chat/ContextRing.tsx`: SVG ring showing context window usage (green/yellow/red thresholds) with tooltip
+- `frontend/src/hooks/useClipboardCopy.ts`: shared clipboard copy state/timer hook used by copy affordances
 - `frontend/src/components/chat/FileAutocompletePopup.tsx`: dropdown for `#` file mention autocomplete
 - `frontend/src/components/chat/MentionHighlightOverlay.tsx`: overlay highlighting `#file` and `@agent` mentions in chat input
 - `frontend/src/components/chat/QuestionPanel.tsx`: AskUserQuestion card with numbered options, inline text input, multi-question support, CANCELLED badge
