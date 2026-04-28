@@ -318,7 +318,7 @@ private func toolIcon(for name: String) -> String {
     case "Bash": return "terminal"
     case "Grep", "Glob": return "magnifyingglass"
     case "Task", "Agent": return "arrow.triangle.branch"
-    case "TaskCreate", "TaskUpdate", "TaskList", "TaskGet": return "checklist"
+    case "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TodoList": return "checklist"
     case "WebSearch", "WebFetch": return "globe"
     case "AskUserQuestion": return "bubble.left"
     default: return "wrench"
@@ -495,6 +495,15 @@ private func getToolDisplay(_ tool: ToolCall, isPending: Bool = false, isDismiss
         let taskId = input["taskId"] as? String
         return ToolDisplay(icon: "checklist", label: "TaskGet", detail: taskId.map { "#\($0)" })
 
+    case "TodoList":
+        let items = input["items"] as? [[String: Any]] ?? []
+        let completed = items.filter { ($0["completed"] as? Bool) == true }.count
+        return ToolDisplay(icon: "checklist", label: "TodoList", detail: "\(completed)/\(items.count) complete")
+
+    case "CodexDiagnostic":
+        let message = input["message"] as? String
+        return ToolDisplay(icon: "exclamationmark.triangle", label: "CodexDiagnostic", detail: message)
+
     default:
         return ToolDisplay(icon: toolIcon(for: tool.name), label: tool.name)
     }
@@ -552,7 +561,7 @@ private struct WhisperToolCallsBlock: View {
     var dismissedToolCallIds: Set<String> = []
     @State private var groupExpanded = false
 
-    private static let hiddenTaskTools: Set<String> = ["TaskUpdate"]
+    private static let hiddenTaskTools: Set<String> = ["TaskUpdate", "TodoList"]
 
     private var visibleTools: [ToolCall] {
         toolCalls.filter { !Self.hiddenTaskTools.contains($0.name) }
