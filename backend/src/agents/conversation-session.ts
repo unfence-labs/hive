@@ -41,21 +41,29 @@ const CODEX_STDERR_NOISE = [
 
 const CODEX_STDERR_NOISE_PATTERNS = [
   /\bERROR\s+codex_core::tools::router:\s+error=resources\/(?:templates\/)?list failed: unknown MCP server '[^']+'/,
+];
+
+const CODEX_STDERR_DIAGNOSTIC_PATTERNS = [
   /failed to connect to websocket: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata'/,
   /stream disconnected before completion: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata'/,
 ];
 
-function isKnownStderrNoise(providerId: string | undefined, text: string): boolean {
+function classifyProviderStderr(providerId: string | undefined, text: string): "suppress" | "diagnostic" | "error" {
   if (providerId === "gemini") {
-    return GEMINI_STDERR_NOISE.some((n) => text.includes(n));
+    return GEMINI_STDERR_NOISE.some((n) => text.includes(n)) ? "suppress" : "error";
   }
 
   if (providerId === "codex") {
-    return CODEX_STDERR_NOISE.some((n) => text.includes(n))
-      || CODEX_STDERR_NOISE_PATTERNS.some((pattern) => pattern.test(text));
+    if (CODEX_STDERR_NOISE.some((n) => text.includes(n))
+      || CODEX_STDERR_NOISE_PATTERNS.some((pattern) => pattern.test(text))) {
+      return "suppress";
+    }
+    if (CODEX_STDERR_DIAGNOSTIC_PATTERNS.some((pattern) => pattern.test(text))) {
+      return "diagnostic";
+    }
   }
 
-  return false;
+  return "error";
 }
 
 /** Map Anthropic server_tool_use names to their Claude Code display names. */
@@ -443,6 +451,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let resultInputTokens: number | undefined;
     let resultOutputTokens: number | undefined;
     let lastStderr: string | undefined;
+    const emittedDiagnostics = new Set<string>();
 
     const pendingTaskStack: string[] = [];
     const blockingToolNames = new Set(["AskUserQuestion", "ExitPlanMode"]);
@@ -616,9 +625,25 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.process.stderr?.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf-8").trim();
       if (!text) return;
-      if (isKnownStderrNoise(provider?.id, text)) return;
       const stderrLine = `stderr: ${sanitizeErrorDetail(text)}`;
+      const stderrClassification = classifyProviderStderr(provider?.id, text);
+      if (stderrClassification === "suppress") return;
       lastStderr = stderrLine;
+      if (stderrClassification === "diagnostic") {
+        const diagnosticKey = stderrLine;
+        if (emittedDiagnostics.has(diagnosticKey)) return;
+        emittedDiagnostics.add(diagnosticKey);
+        const id = `codex-diagnostic-${nanoid(8)}`;
+        const input = JSON.stringify({
+          source: "stderr",
+          severity: "warning",
+          message: stderrLine,
+        });
+        this._streamToolCalls.push({ id, name: "CodexDiagnostic", input, output: stderrLine });
+        this.emit("message", { type: "tool_use", sessionId: this.sessionId, id, name: "CodexDiagnostic", input } as WsOutgoing);
+        this.emit("message", { type: "tool_result", sessionId: this.sessionId, toolUseId: id, output: stderrLine } as WsOutgoing);
+        return;
+      }
       this.emit("message", { type: "error", message: stderrLine, sessionId: this.sessionId } as WsOutgoing);
     });
 
