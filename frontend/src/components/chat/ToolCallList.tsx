@@ -129,7 +129,7 @@ export function ToolCallList({
   const planData = hasExitPlanMode ? findPlanContent(toolCalls) : undefined;
   const planContent = planData?.content;
 
-  const HIDDEN_TASK_TOOLS = new Set(["TaskUpdate"]);
+  const HIDDEN_TASK_TOOLS = new Set(["TaskUpdate", "TodoList"]);
 
   const regularTools = toolCalls.filter(
     (t) =>

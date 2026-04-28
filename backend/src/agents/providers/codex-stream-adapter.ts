@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { StreamParserEvent } from "../stream-parser.js";
 import type { StreamAdapter } from "./types.js";
+import { DEBUG_AGENT_LOGS } from "../../utils/env.js";
 
 /**
  * Codex JSONL event shapes (from `codex exec --json`).
@@ -16,31 +17,42 @@ interface CodexTurnStarted {
   type: "turn.started";
 }
 
+type UnknownRecord = Record<string, unknown>;
+
 interface CodexTurnCompleted {
   type: "turn.completed";
-  usage?: { input_tokens: number; cached_input_tokens?: number; output_tokens: number };
+  usage?: {
+    input_tokens?: number;
+    cached_input_tokens?: number;
+    output_tokens?: number;
+    reasoning_output_tokens?: number;
+  };
 }
 
 interface CodexTurnFailed {
   type: "turn.failed";
-  error?: string;
+  error?: string | { message?: string };
 }
+
+type CodexItem = UnknownRecord & {
+  id?: string;
+  type?: string;
+  text?: string;
+  message?: string;
+  command?: string;
+  aggregated_output?: string;
+  output?: string;
+  exit_code?: number;
+  status?: string;
+  filename?: string;
+  diff?: string;
+  changes?: unknown;
+  items?: unknown;
+};
 
 interface CodexItemEvent {
   type: "item.started" | "item.updated" | "item.completed";
-  item: {
-    id: string;
-    type: "agent_message" | "reasoning" | "command_execution" | "file_change" | "mcp_tool_call" | "web_search" | "plan_update";
-    text?: string;
-    command?: string;
-    status?: string;
-    // file_change fields
-    filename?: string;
-    diff?: string;
-    // command_execution fields
-    output?: string;
-    exit_code?: number;
-  };
+  item: CodexItem;
 }
 
 interface CodexError {
@@ -62,7 +74,10 @@ const TOOL_NAME_MAP: Record<string, string> = {
   command_execution: "Bash",
   file_change: "Edit",
   mcp_tool_call: "mcp_tool_call",
+  collab_tool_call: "CodexCollabTool",
   web_search: "WebSearch",
+  todo_list: "TodoList",
+  error: "CodexDiagnostic",
 };
 
 /**
@@ -77,6 +92,7 @@ export class CodexStreamAdapter extends EventEmitter<StreamParserEvent> implemen
   /** Accumulate text fragments across item events for a single assistant message block. */
   private pendingTextParts: string[] = [];
   private pendingThinkingParts: string[] = [];
+  private emittedToolIds = new Set<string>();
 
   get capturedThreadId(): string | undefined {
     return this.threadId;
@@ -98,6 +114,7 @@ export class CodexStreamAdapter extends EventEmitter<StreamParserEvent> implemen
     this.buffer = "";
     if (trimmed) this.parseLine(trimmed);
     this.flushPendingText();
+    this.flushPendingThinking();
   }
 
   private parseLine(line: string): void {
@@ -120,18 +137,24 @@ export class CodexStreamAdapter extends EventEmitter<StreamParserEvent> implemen
 
       case "turn.completed":
         this.flushPendingText();
+        this.flushPendingThinking();
         this.emit("result", {
           type: "result" as const,
           session_id: this.threadId ?? "",
-          usage: parsed.usage
-            ? { input_tokens: parsed.usage.input_tokens, output_tokens: parsed.usage.output_tokens }
+          usage: parsed.usage && parsed.usage.input_tokens != null && parsed.usage.output_tokens != null
+            ? {
+                input_tokens: parsed.usage.input_tokens,
+                output_tokens: parsed.usage.output_tokens,
+                cache_read_input_tokens: parsed.usage.cached_input_tokens,
+              }
             : undefined,
         });
         break;
 
       case "turn.failed":
         this.flushPendingText();
-        this.emit("error", new Error(parsed.error ?? "Codex turn failed"));
+        this.flushPendingThinking();
+        this.emit("error", new Error(formatErrorMessage(parsed.error, "Codex turn failed")));
         break;
 
       case "item.started":
@@ -145,16 +168,21 @@ export class CodexStreamAdapter extends EventEmitter<StreamParserEvent> implemen
         break;
 
       default:
-        // Unknown event type — log but don't crash
-        console.warn("[codex-adapter] unknown event type:", (parsed as { type: string }).type);
+        // Unknown event type: keep the stream alive and only log in debug mode.
+        debugUnknown("event", parsed);
         break;
     }
   }
 
   private handleItem(event: CodexItemEvent): void {
     const { item } = event;
+    const itemType = item.type;
+    if (!itemType) {
+      debugUnknown("item", item);
+      return;
+    }
 
-    switch (item.type) {
+    switch (itemType) {
       case "agent_message":
         if (item.text) {
           this.pendingTextParts.push(item.text);
@@ -177,46 +205,45 @@ export class CodexStreamAdapter extends EventEmitter<StreamParserEvent> implemen
       case "command_execution":
       case "file_change":
       case "mcp_tool_call":
+      case "collab_tool_call":
       case "web_search": {
         // Flush any pending text before emitting tool use
         this.flushPendingText();
         this.flushPendingThinking();
 
-        const toolName = TOOL_NAME_MAP[item.type] ?? item.type;
+        const toolName = TOOL_NAME_MAP[itemType] ?? itemType;
         const input = this.buildToolInput(item);
 
         if (event.type === "item.started" || event.type === "item.updated") {
-          // Emit tool_use (in progress)
-          this.emit("assistant", {
-            type: "assistant" as const,
-            message: {
-              id: item.id,
-              role: "assistant" as const,
-              content: [{ type: "tool_use" as const, id: item.id, name: toolName, input }],
-            },
-          });
+          this.emitToolUse(this.itemId(item), toolName, input);
         }
 
         if (event.type === "item.completed") {
-          // Emit tool_use if not already emitted via item.started
-          this.emit("assistant", {
-            type: "assistant" as const,
-            message: {
-              id: item.id,
-              role: "assistant" as const,
-              content: [{ type: "tool_use" as const, id: item.id, name: toolName, input }],
-            },
-          });
-          // Emit tool_result immediately
+          const id = this.itemId(item);
+          this.emitToolUse(id, toolName, input);
           const output = this.buildToolOutput(item);
-          this.emit("user", {
-            type: "user" as const,
-            message: {
-              role: "user" as const,
-              content: [{ type: "tool_result" as const, tool_use_id: item.id, content: output }],
-            },
-          });
+          this.emitToolResult(id, output);
         }
+        break;
+      }
+
+      case "todo_list": {
+        this.flushPendingText();
+        this.flushPendingThinking();
+        const id = this.itemId(item);
+        const input = this.buildToolInput(item);
+        this.emitToolUse(id, TOOL_NAME_MAP.todo_list, input);
+        this.emitToolResult(id, this.buildToolOutput(item));
+        break;
+      }
+
+      case "error": {
+        this.flushPendingText();
+        this.flushPendingThinking();
+        const id = this.itemId(item);
+        const input = this.buildToolInput(item);
+        this.emitToolUse(id, TOOL_NAME_MAP.error, input);
+        this.emitToolResult(id, this.buildToolOutput(item));
         break;
       }
 
@@ -231,9 +258,36 @@ export class CodexStreamAdapter extends EventEmitter<StreamParserEvent> implemen
         break;
 
       default:
-        console.warn("[codex-adapter] unknown item type:", item.type);
+        debugUnknown("item", item);
         break;
     }
+  }
+
+  private itemId(item: CodexItem): string {
+    return item.id ?? `codex-${item.type ?? "item"}-${Date.now()}`;
+  }
+
+  private emitToolUse(id: string, name: string, input: string): void {
+    if (this.emittedToolIds.has(id)) return;
+    this.emittedToolIds.add(id);
+    this.emit("assistant", {
+      type: "assistant" as const,
+      message: {
+        id,
+        role: "assistant" as const,
+        content: [{ type: "tool_use" as const, id, name, input }],
+      },
+    });
+  }
+
+  private emitToolResult(id: string, output: string): void {
+    this.emit("user", {
+      type: "user" as const,
+      message: {
+        role: "user" as const,
+        content: [{ type: "tool_result" as const, tool_use_id: id, content: output }],
+      },
+    });
   }
 
   private flushPendingText(): void {
@@ -264,25 +318,117 @@ export class CodexStreamAdapter extends EventEmitter<StreamParserEvent> implemen
     });
   }
 
-  private buildToolInput(item: CodexItemEvent["item"]): string {
+  private buildToolInput(item: CodexItem): string {
     switch (item.type) {
       case "command_execution":
         return JSON.stringify({ command: item.command ?? "" });
       case "file_change":
-        return JSON.stringify({ filename: item.filename ?? "", diff: item.diff ?? "" });
+        return JSON.stringify({
+          filename: item.filename ?? extractFirstChangedPath(item.changes) ?? "",
+          diff: item.diff ?? "",
+          changes: item.changes,
+          status: item.status,
+        });
+      case "web_search":
+        return JSON.stringify({ query: item.query ?? "", action: item.action, status: item.status });
+      case "mcp_tool_call":
+        return JSON.stringify({
+          server: item.server,
+          tool: item.tool,
+          arguments: item.arguments,
+          status: item.status,
+        });
+      case "collab_tool_call":
+        return JSON.stringify(item);
+      case "todo_list":
+        return JSON.stringify({ items: normalizeTodoItems(item.items) });
+      case "error":
+        return JSON.stringify({ message: item.message ?? item.text ?? "Codex item error" });
       default:
         return JSON.stringify(item);
     }
   }
 
-  private buildToolOutput(item: CodexItemEvent["item"]): string {
+  private buildToolOutput(item: CodexItem): string {
     switch (item.type) {
       case "command_execution":
-        return item.output ?? (item.exit_code != null ? `Exit code: ${item.exit_code}` : "");
+        return item.aggregated_output ?? item.output ?? (item.exit_code != null ? `Exit code: ${item.exit_code}` : "");
       case "file_change":
-        return item.diff ?? "File changed";
+        return item.diff ?? formatFileChanges(item.changes) ?? "File changed";
+      case "mcp_tool_call":
+        if (item.error) return formatUnknown(item.error);
+        if (item.result) return formatUnknown(item.result);
+        return item.status ?? "";
+      case "collab_tool_call":
+        return formatUnknown({
+          status: item.status,
+          agents_states: item.agents_states,
+          receiver_thread_ids: item.receiver_thread_ids,
+        });
+      case "todo_list":
+        return JSON.stringify({ items: normalizeTodoItems(item.items) });
+      case "error":
+        return item.message ?? item.text ?? "Codex item error";
       default:
         return item.text ?? "";
     }
   }
+}
+
+function formatErrorMessage(error: string | { message?: string } | undefined, fallback: string): string {
+  if (typeof error === "string") return error;
+  if (error?.message) return error.message;
+  return fallback;
+}
+
+function normalizeTodoItems(value: unknown): Array<{ text: string; completed: boolean }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const record = item as UnknownRecord;
+      const text = typeof record.text === "string" ? record.text : "";
+      if (!text) return null;
+      return { text, completed: Boolean(record.completed) };
+    })
+    .filter((item): item is { text: string; completed: boolean } => item != null);
+}
+
+function extractFirstChangedPath(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined;
+  for (const change of value) {
+    if (!change || typeof change !== "object") continue;
+    const path = (change as UnknownRecord).path;
+    if (typeof path === "string" && path) return path;
+  }
+  return undefined;
+}
+
+function formatFileChanges(value: unknown): string | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  return value
+    .map((change) => {
+      if (!change || typeof change !== "object") return null;
+      const record = change as UnknownRecord;
+      const path = typeof record.path === "string" ? record.path : "(unknown)";
+      const kind = typeof record.kind === "string" ? record.kind : "update";
+      return `${kind}: ${path}`;
+    })
+    .filter((line): line is string => line != null)
+    .join("\n");
+}
+
+function formatUnknown(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function debugUnknown(kind: "event" | "item", value: unknown): void {
+  if (!DEBUG_AGENT_LOGS) return;
+  const record = value && typeof value === "object" ? value as UnknownRecord : {};
+  console.log(`[codex-adapter] unknown ${kind} type:`, record.type, formatUnknown(value).slice(0, 500));
 }

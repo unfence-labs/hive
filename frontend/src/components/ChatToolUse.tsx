@@ -73,7 +73,7 @@ export function getToolIcon(toolName: string): ReactNode {
     case "Bash": return icons.terminal;
     case "Grep": case "Glob": return icons.search;
     case "Task": return icons.bot;
-    case "TaskCreate": case "TaskUpdate": case "TaskList": case "TaskGet": return icons.listChecks;
+    case "TaskCreate": case "TaskUpdate": case "TaskList": case "TaskGet": case "TodoList": return icons.listChecks;
     case "WebFetch": case "WebSearch": return icons.globe;
     default: return icons.wrench;
   }
@@ -293,6 +293,29 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
         label: "TaskGet",
         detail: taskId ? `#${taskId}` : undefined,
         expandedContent: taskId ? `Task ID: ${taskId}` : "No task ID specified",
+      };
+    }
+
+    case "TodoList": {
+      const items = Array.isArray(input.items) ? input.items : [];
+      const completed = items.filter((item) =>
+        item && typeof item === "object" && Boolean((item as Record<string, unknown>).completed),
+      ).length;
+      return {
+        icon: icons.listChecks,
+        label: "TodoList",
+        detail: `${completed}/${items.length} complete`,
+        expandedContent: JSON.stringify(input, null, 2),
+      };
+    }
+
+    case "CodexDiagnostic": {
+      const message = input.message as string | undefined;
+      return {
+        icon: icons.wrench,
+        label: "CodexDiagnostic",
+        detail: message,
+        expandedContent: JSON.stringify(input, null, 2),
       };
     }
 
