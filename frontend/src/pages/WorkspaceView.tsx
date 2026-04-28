@@ -24,6 +24,7 @@ import { BranchLabel } from "@/components/BranchLabel";
 import { InlineDiffViewer, type InlineDiffViewerHandle } from "@/components/diff/InlineDiffViewer";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { PrStatusSection } from "@/components/PrStatusSection";
+import { BrowserPanel } from "@/components/BrowserPanel";
 import ScriptPanel from "@/components/ScriptPanel";
 import TaskTracker from "@/components/TaskTracker";
 import { useTasks } from "@/hooks/useTasks";
@@ -293,12 +294,14 @@ export default function WorkspaceView() {
 
   // ── Resizable panels ──
   const rightPanelRef = usePanelRef();
+  const [browserPanelCollapsed, setBrowserPanelCollapsed] = useState(false);
+  const [browserPanelManualOpen, setBrowserPanelManualOpen] = useState(false);
   const { defaultLayout: wsLayout, onLayoutChanged: onWsLayoutChanged } = useDefaultLayout({
     id: "hive-workspace",
     storage: localStorage,
   });
   const { defaultLayout: splitLayout, onLayoutChanged: onSplitLayoutChanged } = useDefaultLayout({
-    id: "hive-right-split",
+    id: "hive-right-split-v4",
     storage: localStorage,
   });
 
@@ -319,6 +322,43 @@ export default function WorkspaceView() {
       rightPanelRef.current?.expand();
     }
   }, [isLg, rightPanelRef]);
+
+  const currentBrowserStatus = useMemo(() => {
+    if (!wsId || !sessionId) return undefined;
+    const status = liveData[wsId]?.browserSessions?.[sessionId];
+    if (!status || status.state === "registered" || status.state === "closed") return undefined;
+    return status;
+  }, [wsId, sessionId, liveData]);
+
+  const browserPanelActive = Boolean(currentBrowserStatus);
+  const browserPanelStreaming = Boolean(currentBrowserStatus?.streaming);
+  const browserPanelExpanded = browserPanelActive && (
+    browserPanelManualOpen || (browserPanelStreaming && !browserPanelCollapsed)
+  );
+
+  const handleToggleBrowserPanel = useCallback(() => {
+    if (browserPanelExpanded) {
+      setBrowserPanelManualOpen(false);
+      setBrowserPanelCollapsed(true);
+      return;
+    }
+    setBrowserPanelCollapsed(false);
+    setBrowserPanelManualOpen(true);
+  }, [browserPanelExpanded]);
+
+  useEffect(() => {
+    if (!currentBrowserStatus) {
+      setBrowserPanelCollapsed(false);
+      setBrowserPanelManualOpen(false);
+      return;
+    }
+    if (currentBrowserStatus.streaming) {
+      if (!browserPanelCollapsed) {
+        setBrowserPanelManualOpen(true);
+      }
+      rightPanelRef.current?.expand();
+    }
+  }, [browserPanelCollapsed, currentBrowserStatus, rightPanelRef]);
 
   const handleCreateSession = useCallback(async () => {
     const meta = await createSession();
@@ -709,7 +749,7 @@ export default function WorkspaceView() {
               onLayoutChanged={onSplitLayoutChanged}
               style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
             >
-              <Panel id="file-tree" defaultSize="50%" minSize="15%" maxSize="85%">
+              <Panel id="file-tree" defaultSize={browserPanelExpanded ? "42%" : "50%"} minSize="15%" maxSize="85%">
                 <div className="h-full overflow-auto p-3">
                   {sidebarTab === "modified" && (
                     <ModifiedFileList
@@ -741,7 +781,7 @@ export default function WorkspaceView() {
                 </div>
               </Panel>
               <ResizeHandle orientation="horizontal" />
-              <Panel id="scripts" minSize="15%">
+              <Panel id="scripts" defaultSize={browserPanelExpanded ? "30%" : undefined} minSize="15%">
                 <ScriptPanel
                   key={wsId}
                   config={scriptsConfig}
@@ -754,7 +794,29 @@ export default function WorkspaceView() {
                   onDisconnectOutput={disconnectScriptOutput}
                 />
               </Panel>
+              {browserPanelExpanded && (
+                <>
+                  <ResizeHandle orientation="horizontal" />
+                  <Panel id="browser" defaultSize="28%" minSize="18%" maxSize="48%">
+                    <div className="flex h-full min-h-0 flex-col bg-sidebar">
+                      <BrowserPanel
+                        status={currentBrowserStatus}
+                        onToggleCollapsed={handleToggleBrowserPanel}
+                      />
+                    </div>
+                  </Panel>
+                </>
+              )}
             </Group>
+            {!browserPanelExpanded && (
+              <div className="bg-sidebar">
+                <BrowserPanel
+                  status={currentBrowserStatus}
+                  collapsed
+                  onToggleCollapsed={browserPanelActive ? handleToggleBrowserPanel : undefined}
+                />
+              </div>
+            )}
             <PrStatusSection wsId={wsId} />
           </div>
         </Panel>

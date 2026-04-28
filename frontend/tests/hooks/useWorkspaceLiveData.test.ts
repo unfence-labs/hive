@@ -365,6 +365,47 @@ describe("useWorkspaceLiveData", () => {
     });
   });
 
+  it("tracks and clears browser session status", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "browser_status",
+        status: {
+          sessionId: "sess-a",
+          state: "active",
+          streaming: true,
+          streamPath: "/ws/browser/ws-1/sess-a",
+          updatedAt: 1,
+        },
+      });
+    });
+
+    expect(result.current.liveData["ws-1"]?.browserSessions).toEqual({
+      "sess-a": {
+        sessionId: "sess-a",
+        state: "active",
+        streaming: true,
+        streamPath: "/ws/browser/ws-1/sess-a",
+        updatedAt: 1,
+      },
+    });
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "browser_status",
+        status: {
+          sessionId: "sess-a",
+          state: "closed",
+          updatedAt: 2,
+        },
+      });
+    });
+
+    expect(result.current.liveData["ws-1"]?.browserSessions).toBeUndefined();
+  });
+
   it("does not re-render when same script_status is emitted twice", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useWorkspaceLiveData(["ws-1"]));

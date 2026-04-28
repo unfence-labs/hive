@@ -124,6 +124,7 @@ export interface ConversationSessionConfig {
   command?: string;
   systemPrompt?: string;
   skipPermissions?: boolean;
+  browserEnv?: Record<string, string>;
 }
 
 export type ConversationSessionEvent = {
@@ -139,6 +140,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private readonly testCommand: string | undefined;
   private readonly systemPrompt: string | undefined;
   private readonly skipPermissions: boolean;
+  private browserEnv: Record<string, string> | undefined;
   private readonly sessionDir: string;
   private readonly workspaceId: string;
   private process: ChildProcess | null = null;
@@ -167,6 +169,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.testCommand = config.command !== undefined && config.command !== "claude" ? config.command : undefined;
     this.systemPrompt = config.systemPrompt;
     this.skipPermissions = config.skipPermissions ?? true;
+    this.browserEnv = config.browserEnv;
     this.workspaceId = config.workspaceId;
     this.sessionDir = join(config.dataDir, "sessions", this.sessionId);
 
@@ -189,6 +192,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
   get metadata(): SessionMetadata {
     return { ...this._metadata };
+  }
+
+  setBrowserEnv(env: Record<string, string> | undefined): void {
+    this.browserEnv = env;
   }
 
   /** Return a snapshot of in-progress streaming content (text, thinking, tool calls).
@@ -404,7 +411,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       if (provider!.id === "codex") {
         stdinContent = cliContent;
       }
-      env = provider!.buildEnv({ ...msgOptions, model: modelId });
+      env = {
+        ...(provider!.buildEnv({ ...msgOptions, model: modelId }) ?? {}),
+        ...(this.browserEnv ?? {}),
+      };
     }
 
     const supportsBlockingTools = provider?.capabilities.blockingTools ?? false;

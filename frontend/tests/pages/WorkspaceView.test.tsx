@@ -114,6 +114,34 @@ vi.mock("@/components/ScriptPanel", () => ({
   },
 }));
 
+vi.mock("@/components/BrowserPanel", () => ({
+  BrowserPanel: ({
+    status,
+    collapsed,
+    onToggleCollapsed,
+  }: {
+    status?: unknown;
+    collapsed?: boolean;
+    onToggleCollapsed?: () => void;
+  }) => (
+    <div
+      data-testid="browser-panel"
+      data-active={status ? "true" : "false"}
+      data-collapsed={collapsed ? "true" : "false"}
+    >
+      {onToggleCollapsed && (
+        <button
+          type="button"
+          aria-label={collapsed ? "Expand browser panel" : "Collapse browser panel"}
+          onClick={onToggleCollapsed}
+        >
+          browser-toggle
+        </button>
+      )}
+    </div>
+  ),
+}));
+
 vi.mock("@/components/ChatConversation", () => ({
   default: ({
     isStreaming,
@@ -560,6 +588,41 @@ describe("WorkspaceView behavior", () => {
 
     // Should render the simple "VS Code" button, not a dropdown
     expect(screen.getByRole("button", { name: "VS Code" })).toBeInTheDocument();
+    expect(screen.getByTestId("browser-panel")).toHaveAttribute("data-active", "false");
+    expect(screen.getByTestId("browser-panel")).toHaveAttribute("data-collapsed", "true");
+  });
+
+  it("automatically shows the browser panel for active browser sessions and keeps local manual collapse", async () => {
+    const user = userEvent.setup();
+    mocks.useConversation.mockReturnValue(buildConversationState({ sessionId: "sess-active" }));
+    mocks.useWorkspaceLiveData.mockReturnValue({
+      clearUnread: vi.fn(),
+      liveData: {
+        "ws-1": {
+          browserSessions: {
+            "sess-active": {
+              sessionId: "sess-active",
+              state: "active",
+              streaming: true,
+              streamPath: "/ws/browser/ws-1/sess-active",
+              updatedAt: 1,
+            },
+          },
+        },
+      },
+    });
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    expect(screen.queryByRole("button", { name: "Toggle browser panel" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("browser-panel")).toHaveAttribute("data-collapsed", "false");
+
+    await user.click(screen.getByRole("button", { name: "Collapse browser panel" }));
+    expect(screen.getByTestId("browser-panel")).toHaveAttribute("data-collapsed", "true");
+
+    await user.click(screen.getByRole("button", { name: "Expand browser panel" }));
+    expect(screen.getByTestId("browser-panel")).toHaveAttribute("data-collapsed", "false");
   });
 
   it("shows QuestionPanel instead of ChatInput when AskUserQuestion is pending", async () => {
