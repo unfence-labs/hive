@@ -57,8 +57,8 @@ describe("ModifiedFileList", () => {
       />,
     );
 
-    expect(screen.getByText("Uncommitted")).toBeInTheDocument();
-    expect(screen.getByText("Committed")).toBeInTheDocument();
+    expect(screen.getByText("Working tree")).toBeInTheDocument();
+    expect(screen.getByText("Branch commits")).toBeInTheDocument();
     expect(screen.getByText("new-file.ts")).toBeInTheDocument();
     expect(screen.getByText("removed-file.ts")).toBeInTheDocument();
     expect(screen.getByText("committed.ts")).toBeInTheDocument();
@@ -66,7 +66,7 @@ describe("ModifiedFileList", () => {
     expect(screen.getAllByText("-2").length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: /new-file\.ts/i }));
-    expect(onFileClick).toHaveBeenCalledWith("src/new-file.ts");
+    expect(onFileClick).toHaveBeenCalledWith("src/new-file.ts", "uncommitted");
   });
 
   it("highlights the active file row", () => {
@@ -79,6 +79,7 @@ describe("ModifiedFileList", () => {
         ]}
         onFileClick={() => {}}
         activeFile="src/a.ts"
+        activeScope="uncommitted"
       />,
     );
 
@@ -86,5 +87,21 @@ describe("ModifiedFileList", () => {
     const bBtn = screen.getByRole("button", { name: /b\.ts/i });
     expect(aBtn.className).toContain("ring");
     expect(bBtn.className).not.toContain("ring");
+  });
+
+  it("only highlights the active scope when a file appears in both sections", () => {
+    render(
+      <ModifiedFileList
+        committed={[stat({ file: "src/a.ts", additions: 3 })]}
+        uncommitted={[stat({ file: "src/a.ts", additions: 1 })]}
+        onFileClick={() => {}}
+        activeFile="src/a.ts"
+        activeScope="committed"
+      />,
+    );
+
+    const rows = screen.getAllByRole("button", { name: /a\.ts/i });
+    expect(rows[0].className).not.toContain("ring");
+    expect(rows[1].className).toContain("ring");
   });
 });

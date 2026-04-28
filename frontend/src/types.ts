@@ -225,6 +225,7 @@ export interface WorkspaceScriptsResponse {
 // ── Diff types ───────────────────────────────────────────────────────
 
 export type DiffFileStatus = "added" | "modified" | "deleted" | "renamed";
+export type DiffScope = "combined" | "committed" | "uncommitted";
 
 export interface DiffFileStat {
   file: string;

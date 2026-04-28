@@ -12,7 +12,7 @@ import { loadProject, loadAllProjects, saveProject, getDataDir, withProjectState
 import { isInitialized, lookupWorkspace } from "../state/workspace-index.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../utils/errors.js";
 import { stopAllForWorkspace } from "../services/script-runner.js";
-import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffStatResponse } from "../types.js";
+import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffScope, DiffStatResponse } from "../types.js";
 
 const IGNORED_DIRS = new Set([
   ".git",
@@ -329,37 +329,16 @@ async function resolveWorkspacePaths(
   return { bare, wsPath, defaultBranch, workspace };
 }
 
-export async function getWorkspaceDiff(
-  wsId: string,
-  dataDir = getDataDir()
-): Promise<string> {
-  const { wsPath, defaultBranch, workspace } =
-    await resolveWorkspacePaths(wsId, dataDir);
-
-  // Find merge-base so we can compute a single combined diff
-  // (committed + uncommitted) without duplicating files that appear in both.
-  const mergeBase = await git(
-    ["merge-base", defaultBranch, workspace.branch],
-    wsPath,
-  ).then((r) => r.stdout.trim()).catch(() => "");
-
-  // Single diff from merge-base to working directory
-  const [combinedDiff, untrackedResult] = await Promise.all([
-    mergeBase
-      ? git(["diff", mergeBase], wsPath).then((r) => r.stdout).catch(() => "")
-      : git(["diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
-    git(["ls-files", "--others", "--exclude-standard"], wsPath)
-      .then((r) => r.stdout)
-      .catch(() => ""),
-  ]);
-
-  // Generate synthetic diffs for untracked files
+async function getUntrackedDiff(wsPath: string): Promise<string> {
+  const untrackedResult = await git(["ls-files", "--others", "--exclude-standard"], wsPath)
+    .then((r) => r.stdout)
+    .catch(() => "");
   const untrackedFiles = untrackedResult.split("\n").filter(Boolean);
   const untrackedPatches: string[] = [];
+
   for (const file of untrackedFiles.slice(0, 100)) {
     try {
       const content = await readFile(join(wsPath, file), "utf-8");
-      // Skip binary files (contains null bytes)
       if (content.includes("\0")) continue;
       const lines = content.endsWith("\n") ? content.slice(0, -1).split("\n") : content.split("\n");
       const lineCount = lines.length;
@@ -371,7 +350,45 @@ export async function getWorkspaceDiff(
       // Skip unreadable files
     }
   }
-  const untrackedDiff = untrackedPatches.join("\n");
+
+  return untrackedPatches.join("\n");
+}
+
+export async function getWorkspaceDiff(
+  wsId: string,
+  dataDir = getDataDir(),
+  scope: DiffScope = "combined",
+): Promise<string> {
+  const { bare, wsPath, defaultBranch, workspace } =
+    await resolveWorkspacePaths(wsId, dataDir);
+
+  // Keep these scopes aligned with the modified-file UX: branch commits,
+  // working tree changes, or a combined review against the default branch.
+  if (scope === "committed") {
+    return git(["diff", "--find-renames", `${defaultBranch}...${workspace.branch}`], bare)
+      .then((r) => r.stdout)
+      .catch(() => "");
+  }
+
+  if (scope === "uncommitted") {
+    const [trackedDiff, untrackedDiff] = await Promise.all([
+      git(["diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
+      getUntrackedDiff(wsPath),
+    ]);
+    return [trackedDiff, untrackedDiff].filter(Boolean).join("\n");
+  }
+
+  const mergeBase = await git(
+    ["merge-base", defaultBranch, workspace.branch],
+    wsPath,
+  ).then((r) => r.stdout.trim()).catch(() => "");
+
+  const [combinedDiff, untrackedDiff] = await Promise.all([
+    mergeBase
+      ? git(["diff", mergeBase], wsPath).then((r) => r.stdout).catch(() => "")
+      : git(["diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
+    getUntrackedDiff(wsPath),
+  ]);
 
   return [combinedDiff, untrackedDiff].filter(Boolean).join("\n");
 }

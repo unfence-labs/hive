@@ -2,12 +2,22 @@ import { Columns2Icon, Rows3Icon, MessageSquarePlusIcon } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { FileViewMode } from "@/hooks/useTabs";
+import type { DiffScope } from "@/types";
+
+const DIFF_SCOPE_LABELS: Record<DiffScope, string> = {
+  uncommitted: "Working tree",
+  committed: "Branch commits",
+  combined: "Combined",
+};
 
 interface FileContentToolbarProps {
   filePath: string;
   mode: FileViewMode;
   onModeChange: (mode: FileViewMode) => void;
   isModified: boolean;
+  diffScope: DiffScope;
+  availableDiffScopes: DiffScope[];
+  onDiffScopeChange: (scope: DiffScope) => void;
   diffStyle: "split" | "unified";
   onDiffStyleChange: (style: "split" | "unified") => void;
   commentCount: number;
@@ -19,6 +29,9 @@ export function FileContentToolbar({
   mode,
   onModeChange,
   isModified,
+  diffScope,
+  availableDiffScopes,
+  onDiffScopeChange,
   diffStyle,
   onDiffStyleChange,
   commentCount,
@@ -58,6 +71,20 @@ export function FileContentToolbar({
                   <MessageSquarePlusIcon className="size-3" />
                   Paste to prompt ({commentCount})
                 </button>
+              )}
+              {availableDiffScopes.length > 1 && (
+                <div className="flex items-center rounded-lg bg-muted p-0.5">
+                  {availableDiffScopes.map((scope) => (
+                    <button
+                      key={scope}
+                      type="button"
+                      onClick={() => onDiffScopeChange(scope)}
+                      className={toggleCls(diffScope === scope)}
+                    >
+                      {DIFF_SCOPE_LABELS[scope]}
+                    </button>
+                  ))}
+                </div>
               )}
               <div className="flex items-center rounded-lg bg-muted p-0.5">
                 <Tooltip>

@@ -54,7 +54,7 @@ import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent }
 import { PlanActionBar } from "@/components/chat/PlanActionBar";
 import { useScripts } from "@/hooks/useScripts";
 import { useTabs } from "@/hooks/useTabs";
-import type { DiffStatResponse, FileMention, ImageAttachment, MessageOptions, QueuedMessage, Workspace, WorkspaceFileTreeNode } from "@/types";
+import type { DiffFileStat, DiffScope, DiffStatResponse, FileMention, ImageAttachment, MessageOptions, QueuedMessage, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 const DEFAULT_EXPANDED = new Set<string>();
 
@@ -78,6 +78,10 @@ function buildInitialExpanded(nodes: WorkspaceFileTreeNode[]): Set<string> {
     expanded.add(firstDirectory.path);
   }
   return expanded;
+}
+
+function matchesDiffStat(filePath: string | null | undefined, stat: DiffFileStat): boolean {
+  return !!filePath && (stat.file === filePath || filePath.endsWith(`/${stat.file}`));
 }
 
 function renderFileTreeNodes(nodes: WorkspaceFileTreeNode[]) {
@@ -235,11 +239,13 @@ export default function WorkspaceView() {
   const {
     openFile,
     fileViewMode,
+    diffScope,
     isFileTabActive,
     activateTab,
     openFileTab,
     openDiffTab,
     setFileViewMode,
+    setDiffScope,
     closeFileTab,
   } = useTabs(sessionId, wsId);
 
@@ -399,9 +405,9 @@ export default function WorkspaceView() {
     openFileTab(path);
   }, [openFileTab]);
 
-  const handleModifiedFileClick = useCallback((filePath: string) => {
+  const handleModifiedFileClick = useCallback((filePath: string, scope: DiffScope) => {
     setSelectedPath(filePath);
-    openDiffTab(filePath);
+    openDiffTab(filePath, scope);
     setSidebarTab("modified");
   }, [openDiffTab]);
 
@@ -469,12 +475,37 @@ export default function WorkspaceView() {
   }, []);
   const [diffCommentCount, setDiffCommentCount] = useState(0);
 
-  const isFileModified = useMemo(() => {
-    if (!openFile) return false;
-    return [...diffCommitted, ...diffUncommitted].some(
-      (s) => s.file === openFile || openFile.endsWith(`/${s.file}`),
-    );
-  }, [openFile, diffCommitted, diffUncommitted]);
+  const fileHasUncommittedChanges = useMemo(
+    () => diffUncommitted.some((stat) => matchesDiffStat(openFile, stat)),
+    [openFile, diffUncommitted],
+  );
+  const fileHasCommittedChanges = useMemo(
+    () => diffCommitted.some((stat) => matchesDiffStat(openFile, stat)),
+    [openFile, diffCommitted],
+  );
+  const isFileModified = fileHasUncommittedChanges || fileHasCommittedChanges;
+  const availableDiffScopes = useMemo<DiffScope[]>(() => {
+    const scopes: DiffScope[] = [];
+    if (fileHasUncommittedChanges) scopes.push("uncommitted");
+    if (fileHasCommittedChanges) scopes.push("committed");
+    if (fileHasUncommittedChanges && fileHasCommittedChanges) scopes.push("combined");
+    return scopes;
+  }, [fileHasCommittedChanges, fileHasUncommittedChanges]);
+  const defaultDiffScope: DiffScope = fileHasUncommittedChanges ? "uncommitted" : "committed";
+
+  useEffect(() => {
+    if (fileViewMode !== "diff" || availableDiffScopes.length === 0) return;
+    if (!availableDiffScopes.includes(diffScope)) {
+      setDiffScope(defaultDiffScope);
+    }
+  }, [availableDiffScopes, defaultDiffScope, diffScope, fileViewMode, setDiffScope]);
+
+  const handleFileViewModeChange = useCallback((mode: "source" | "diff") => {
+    if (mode === "diff" && availableDiffScopes.length > 0 && !availableDiffScopes.includes(diffScope)) {
+      setDiffScope(defaultDiffScope);
+    }
+    setFileViewMode(mode);
+  }, [availableDiffScopes, defaultDiffScope, diffScope, setDiffScope, setFileViewMode]);
 
   const handlePasteToPrompt = useCallback(() => {
     diffViewerRef.current?.pasteToPrompt();
@@ -684,8 +715,11 @@ export default function WorkspaceView() {
               <FileContentToolbar
                 filePath={openFile}
                 mode={fileViewMode}
-                onModeChange={setFileViewMode}
+                onModeChange={handleFileViewModeChange}
                 isModified={isFileModified}
+                diffScope={diffScope}
+                availableDiffScopes={availableDiffScopes}
+                onDiffScopeChange={setDiffScope}
                 diffStyle={diffStyle}
                 onDiffStyleChange={handleDiffStyleChange}
                 commentCount={diffCommentCount}
@@ -698,6 +732,7 @@ export default function WorkspaceView() {
                   ref={diffViewerRef}
                   wsId={wsId}
                   filePath={openFile}
+                  diffScope={diffScope}
                   diffStyle={diffStyle}
                   onCommentCountChange={setDiffCommentCount}
                   onPasteToPrompt={handleDiffPasteText}
@@ -766,6 +801,7 @@ export default function WorkspaceView() {
                       uncommitted={diffUncommitted}
                       onFileClick={handleModifiedFileClick}
                       activeFile={isFileTabActive && fileViewMode === "diff" ? openFile ?? undefined : undefined}
+                      activeScope={isFileTabActive && fileViewMode === "diff" ? diffScope : undefined}
                     />
                   )}
                   {sidebarTab === "all" && fileTreeError && (

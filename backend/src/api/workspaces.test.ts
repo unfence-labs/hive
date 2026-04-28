@@ -194,6 +194,54 @@ describe("GET /api/workspaces/:wsId/diff", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().diff).toContain("api-test.txt");
   });
+
+  it("returns scoped diffs", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await writeFile(join(wsPath, "committed.txt"), "committed\n");
+    await git(["add", "."], wsPath);
+    await git(["config", "user.email", "test@hive.dev"], wsPath);
+    await git(["config", "user.name", "Test"], wsPath);
+    await git(["commit", "-m", "api committed change"], wsPath);
+    await writeFile(join(wsPath, "README.md"), "local only\n");
+
+    const committedRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${ws.id}/diff?scope=committed`,
+    });
+    const uncommittedRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${ws.id}/diff?scope=uncommitted`,
+    });
+
+    expect(committedRes.statusCode).toBe(200);
+    expect(committedRes.json().diff).toContain("committed.txt");
+    expect(committedRes.json().diff).not.toContain("README.md");
+    expect(uncommittedRes.statusCode).toBe(200);
+    expect(uncommittedRes.json().diff).not.toContain("committed.txt");
+    expect(uncommittedRes.json().diff).toContain("README.md");
+  });
+
+  it("rejects invalid diff scopes", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${ws.id}/diff?scope=everything`,
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("Invalid diff scope");
+  });
 });
 
 describe("GET /api/workspaces/:wsId/diff/stat", () => {

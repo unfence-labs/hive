@@ -106,10 +106,11 @@ describe("useTabs", () => {
 
   it("openDiffTab sets mode to diff", () => {
     const { result } = renderHook(() => useTabs("s1", "ws1"));
-    act(() => result.current.openDiffTab("a.ts"));
+    act(() => result.current.openDiffTab("a.ts", "committed"));
     expect(result.current.activeTabId).toBe("file:a.ts");
     expect(result.current.openFile).toBe("a.ts");
     expect(result.current.fileViewMode).toBe("diff");
+    expect(result.current.diffScope).toBe("committed");
     expect(result.current.isFileTabActive).toBe(true);
   });
 
@@ -124,10 +125,19 @@ describe("useTabs", () => {
 
   it("closeFileTab resets fileViewMode to source", () => {
     const { result } = renderHook(() => useTabs("s1", "ws1"));
-    act(() => result.current.openDiffTab("a.ts"));
+    act(() => result.current.openDiffTab("a.ts", "committed"));
     expect(result.current.fileViewMode).toBe("diff");
     act(() => result.current.closeFileTab());
     expect(result.current.fileViewMode).toBe("source");
+    expect(result.current.diffScope).toBe("uncommitted");
+  });
+
+  it("setDiffScope updates the active diff scope", () => {
+    const { result } = renderHook(() => useTabs("s1", "ws1"));
+    act(() => result.current.openDiffTab("a.ts"));
+    expect(result.current.diffScope).toBe("uncommitted");
+    act(() => result.current.setDiffScope("combined"));
+    expect(result.current.diffScope).toBe("combined");
   });
 
   // ---- workspace switch persistence ----
@@ -189,8 +199,9 @@ describe("useTabs", () => {
       ({ sid, ws }) => useTabs(sid, ws),
       { initialProps: { sid: "s1", ws: "ws1" } },
     );
-    act(() => result.current.openDiffTab("a.ts"));
+    act(() => result.current.openDiffTab("a.ts", "committed"));
     expect(result.current.fileViewMode).toBe("diff");
+    expect(result.current.diffScope).toBe("committed");
 
     // Switch to ws2
     rerender({ sid: "s3", ws: "ws2" });
@@ -199,6 +210,7 @@ describe("useTabs", () => {
     // Switch back to ws1
     rerender({ sid: "s1", ws: "ws1" });
     expect(result.current.fileViewMode).toBe("diff");
+    expect(result.current.diffScope).toBe("committed");
     expect(result.current.openFile).toBe("a.ts");
   });
 

@@ -251,7 +251,7 @@ npm test
 | `GET` | `/api/projects/:id/workspaces` | List project workspaces |
 | `GET` | `/api/workspaces/:wsId` | Get workspace details + default branch |
 | `DELETE` | `/api/workspaces/:wsId` | Delete workspace |
-| `GET` | `/api/workspaces/:wsId/diff` | Unified diff (committed + uncommitted + untracked) |
+| `GET` | `/api/workspaces/:wsId/diff?scope=combined\|committed\|uncommitted` | Unified diff; defaults to combined committed + uncommitted + untracked |
 | `GET` | `/api/workspaces/:wsId/diff/stat` | Diff stats (`committed` + `uncommitted`) |
 | `GET` | `/api/workspaces/:wsId/files` | Workspace file tree |
 | `GET` | `/api/workspaces/:wsId/file?path=<file>` | Read workspace file content |
