@@ -41,6 +41,8 @@ const CODEX_STDERR_NOISE = [
 
 const CODEX_STDERR_NOISE_PATTERNS = [
   /\bERROR\s+codex_core::tools::router:\s+error=resources\/(?:templates\/)?list failed: unknown MCP server '[^']+'/,
+  /failed to connect to websocket: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata'/,
+  /stream disconnected before completion: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata'/,
 ];
 
 function isKnownStderrNoise(providerId: string | undefined, text: string): boolean {

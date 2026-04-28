@@ -627,6 +627,8 @@ describe("ConversationSession", () => {
     mockProc._stderr.push("Reading additional input from stdin...");
     mockProc._stderr.push("2026-04-24T08:34:25.714940Z ERROR codex_core::tools::router: error=resources/templates/list failed: unknown MCP server 'openaiDeveloperDocs'");
     mockProc._stderr.push("2026-04-24T08:34:25.714946Z ERROR codex_core::tools::router: error=resources/list failed: unknown MCP server 'openaiDeveloperDocs'");
+    mockProc._stderr.push("2026-04-28T11:10:15.042636Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata' with value: \"{\\\"session_id\\\":\\\"019dd3b3\\\"}\"");
+    mockProc._stderr.push("Reconnecting... 5/5 (stream disconnected before completion: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata' with value: \"{\\\"session_id\\\":\\\"019dd3b3\\\"}\")");
 
     const errors = messages.filter((m) => m.type === "error");
     expect(errors).toHaveLength(0);
