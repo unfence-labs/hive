@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDownIcon, ChevronUpIcon, Maximize2Icon, MonitorIcon, PauseIcon, PlayIcon, RotateCcwIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDownIcon, ChevronUpIcon, MonitorIcon, RotateCcwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -230,14 +230,12 @@ interface BrowserPanelProps {
 }
 
 export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: BrowserPanelProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
   const connectionRef = useRef<BrowserStreamConnection | null>(null);
 
   const [streamSnapshot, setStreamSnapshot] = useState<BrowserStreamSnapshot>(emptySnapshot);
   const [displayFrameSrc, setDisplayFrameSrc] = useState<string | null>(null);
   const [statusStoppedAt, setStatusStoppedAt] = useState(0);
   const [statusStartedAt, setStatusStartedAt] = useState(0);
-  const [paused, setPaused] = useState(false);
 
   const streamUrl = useMemo(
     () => status?.streamPath && status.streaming !== false
@@ -276,10 +274,10 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
       setDisplayFrameSrc(null);
       return;
     }
-    if (!paused && streamSnapshot.frameSrc) {
+    if (streamSnapshot.frameSrc) {
       setDisplayFrameSrc(streamSnapshot.frameSrc);
     }
-  }, [paused, streamSnapshot.closedAt, streamSnapshot.frameSrc, streamUrl]);
+  }, [streamSnapshot.closedAt, streamSnapshot.frameSrc, streamUrl]);
 
   useEffect(() => {
     if (status?.streaming === false) {
@@ -301,10 +299,6 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
     }
   }, [status?.streaming, statusStoppedAt, streamSnapshot.frameReceivedAt]);
 
-  const handleFullscreen = useCallback(() => {
-    void containerRef.current?.requestFullscreen?.();
-  }, []);
-
   const isActive = Boolean(status);
   const localFrameAfterStop = statusStoppedAt > 0 && streamSnapshot.frameReceivedAt > statusStoppedAt;
   const localStreamAllowed = status?.streaming !== false || localFrameAfterStop;
@@ -322,11 +316,13 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
 
   return (
     <TooltipProvider>
-      <div className="flex h-full min-h-0 flex-col bg-background">
-        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/50 px-3">
-          <MonitorIcon className="size-3.5 text-muted-foreground" />
-          <span className="text-xs font-medium uppercase tracking-wide text-foreground">Browser</span>
-          <span className="flex items-center gap-1 rounded-full bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+      <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
+        <div className="flex h-9 shrink-0 items-center gap-3 border-t border-border/50 px-3">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <MonitorIcon className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="text-xs uppercase tracking-wide text-foreground">Browser</span>
+          </div>
+          <span className="flex items-center gap-1 rounded-full bg-sidebar-accent/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
             <span className={isStreaming ? "size-1.5 rounded-full bg-emerald-400" : "size-1.5 rounded-full bg-muted-foreground/50"} />
             {statusLabel}
           </span>
@@ -334,53 +330,21 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
           <div className="ml-auto" />
 
           {isActive && !collapsed && (
-            <div className="flex items-center gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    className="text-muted-foreground hover:text-foreground"
-                    onClick={() => setPaused((value) => !value)}
-                    aria-label={paused ? "Resume browser stream" : "Pause browser stream"}
-                  >
-                    {paused ? <PlayIcon className="size-3" /> : <PauseIcon className="size-3" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{paused ? "Resume" : "Pause"}</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    className="text-muted-foreground hover:text-foreground"
-                    onClick={() => connectionRef.current?.reconnect()}
-                    aria-label="Reconnect browser stream"
-                  >
-                    <RotateCcwIcon className="size-3" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Reconnect</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    className="text-muted-foreground hover:text-foreground"
-                    onClick={handleFullscreen}
-                    aria-label="Fullscreen browser stream"
-                  >
-                    <Maximize2Icon className="size-3" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Fullscreen</TooltipContent>
-              </Tooltip>
-            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={() => connectionRef.current?.reconnect()}
+                  aria-label="Reconnect browser stream"
+                >
+                  <RotateCcwIcon className="size-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Reconnect</TooltipContent>
+            </Tooltip>
           )}
 
           {isActive && onToggleCollapsed && (
@@ -403,7 +367,7 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
         </div>
 
         {isActive && !collapsed && (
-          <div ref={containerRef} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black">
+          <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-sidebar">
             {displayFrameSrc ? (
               <img
                 src={displayFrameSrc}
@@ -412,7 +376,7 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
                 draggable={false}
               />
             ) : (
-              <div className="px-4 text-center text-xs text-zinc-400">
+              <div className="px-4 text-center text-xs text-muted-foreground">
                 {error ?? (status?.state === "error" ? "Browser stream unavailable" : "Waiting for browser stream")}
               </div>
             )}

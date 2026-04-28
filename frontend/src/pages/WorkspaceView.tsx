@@ -798,7 +798,7 @@ export default function WorkspaceView() {
                 <>
                   <ResizeHandle orientation="horizontal" />
                   <Panel id="browser" defaultSize="28%" minSize="18%" maxSize="48%">
-                    <div className="flex h-full min-h-0 flex-col border-t border-border/40 bg-background">
+                    <div className="flex h-full min-h-0 flex-col bg-sidebar">
                       <BrowserPanel
                         status={currentBrowserStatus}
                         onToggleCollapsed={handleToggleBrowserPanel}
@@ -809,7 +809,7 @@ export default function WorkspaceView() {
               )}
             </Group>
             {!browserPanelExpanded && (
-              <div className="border-t border-border/40 bg-background">
+              <div className="bg-sidebar">
                 <BrowserPanel
                   status={currentBrowserStatus}
                   collapsed
