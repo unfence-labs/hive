@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => ({
   openExternal: vi.fn(),
   useTerminalApps: vi.fn().mockReturnValue([]),
   openTerminalSsh: vi.fn(),
+  copyToClipboard: vi.fn(),
   captureConversationTabsProps: vi.fn(),
 }));
 
@@ -90,6 +91,10 @@ vi.mock("@/hooks/useTerminalApps", () => ({
 
 vi.mock("@/lib/terminal", () => ({
   openTerminalSsh: mocks.openTerminalSsh,
+}));
+
+vi.mock("@/lib/clipboard", () => ({
+  copyToClipboard: mocks.copyToClipboard,
 }));
 
 // react-resizable-panels needs real DOM layout (getBoundingClientRect, ResizeObserver)
@@ -375,6 +380,8 @@ beforeEach(() => {
   mocks.useTerminalApps.mockReset();
   mocks.useTerminalApps.mockReturnValue([]);
   mocks.openTerminalSsh.mockReset();
+  mocks.copyToClipboard.mockReset();
+  mocks.copyToClipboard.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -439,6 +446,38 @@ describe("WorkspaceView behavior", () => {
 
     await screen.findByText("tokyo");
     expect(screen.getByRole("button", { name: "VS Code" })).toBeDisabled();
+  });
+
+  it("disables workspace path copy button when workspace path is unavailable", async () => {
+    renderWorkspace();
+
+    await screen.findByText("tokyo");
+    expect(screen.getByRole("button", { name: "Copy workspace path" })).toBeDisabled();
+  });
+
+  it("copies the workspace path from the header", async () => {
+    const user = userEvent.setup();
+
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
+      const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
+      const diffStatsMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
+      if (workspaceMatch) {
+        const workspace = WORKSPACES[workspaceMatch[1]];
+        return workspace ? { ...workspace, worktreePath: "/srv/hive/tokyo" } : null;
+      }
+      if (filesMatch) return FILE_TREE;
+      if (diffStatsMatch) return DIFF_STATS;
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    renderWorkspace();
+
+    await screen.findByText("tokyo");
+    await user.click(screen.getByRole("button", { name: "Copy workspace path" }));
+
+    expect(mocks.copyToClipboard).toHaveBeenCalledWith("/srv/hive/tokyo");
+    expect(screen.getByRole("button", { name: "Workspace path copied" })).toBeInTheDocument();
   });
 
   it("opens VS Code URI with tailscale host and SSH user when configured", async () => {

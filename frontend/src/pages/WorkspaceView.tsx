@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
-import { ChevronDownIcon, TerminalIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, ClipboardIcon, TerminalIcon } from "lucide-react";
 import { VscodeIcon, Iterm2Icon } from "@/components/icons/software-icons";
 import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
@@ -45,6 +45,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTerminalApps } from "@/hooks/useTerminalApps";
 import { openTerminalSsh } from "@/lib/terminal";
+import { copyToClipboard } from "@/lib/clipboard";
 import { useLayoutContext } from "@/components/AppLayout";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { cn } from "@/lib/utils";
@@ -119,6 +120,7 @@ export default function WorkspaceView() {
   });
 
   const workspace = workspaceQuery.data ?? null;
+  const workspacePath = workspace?.worktreePath?.trim() ?? "";
   const fileTree = useMemo(() => filesQuery.data ?? [], [filesQuery.data]);
   const fileTreeError = filesQuery.error?.message ?? null;
   const initialDiffStats = diffStatQuery.data ?? null;
@@ -160,6 +162,26 @@ export default function WorkspaceView() {
       : null;
   const canOpenVscode = vscodeUri !== null;
   const canSsh = !!sshHost && !!workspace?.worktreePath;
+  const canCopyWorkspacePath = workspacePath.length > 0;
+  const copyWorkspacePathDisabledReason = "Workspace path unavailable. Restart backend and reload this workspace.";
+  const [copiedWorkspacePath, setCopiedWorkspacePath] = useState<string | null>(null);
+  const copyWorkspacePathResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const workspacePathCopied = canCopyWorkspacePath && copiedWorkspacePath === workspacePath;
+
+  const handleCopyWorkspacePath = useCallback(async () => {
+    if (!workspacePath) return;
+
+    await copyToClipboard(workspacePath);
+    setCopiedWorkspacePath(workspacePath);
+
+    if (copyWorkspacePathResetRef.current) {
+      clearTimeout(copyWorkspacePathResetRef.current);
+    }
+    copyWorkspacePathResetRef.current = setTimeout(() => {
+      setCopiedWorkspacePath((current) => (current === workspacePath ? null : current));
+      copyWorkspacePathResetRef.current = null;
+    }, 2000);
+  }, [workspacePath]);
 
   // Diff stats from WebSocket polling
   const diffCommitted = useMemo(
@@ -521,9 +543,41 @@ export default function WorkspaceView() {
             {displayBranch && (
               <BranchLabel branch={displayBranch} showIcon={false} className="text-xs text-muted-foreground" />
             )}
-            {workspace?.defaultBranch && (
-              <span className="truncate text-xs text-muted-foreground/60">{"> origin/"}{workspace.defaultBranch}</span>
-            )}
+            <div className="flex min-w-0 items-center gap-1">
+              {workspace?.defaultBranch && (
+                <span className="truncate text-xs text-muted-foreground/60">{"> origin/"}{workspace.defaultBranch}</span>
+              )}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="size-5 text-muted-foreground/70 hover:text-foreground"
+                        onClick={handleCopyWorkspacePath}
+                        disabled={!canCopyWorkspacePath}
+                        aria-label={workspacePathCopied ? "Workspace path copied" : "Copy workspace path"}
+                      >
+                        {workspacePathCopied ? (
+                          <CheckIcon className="size-3 text-green-500" />
+                        ) : (
+                          <ClipboardIcon className="size-3" />
+                        )}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="bottom"
+                    className={workspacePath ? "max-w-[28rem] break-all font-mono text-xs" : undefined}
+                  >
+                    {workspacePathCopied
+                      ? "Path copied"
+                      : workspacePath || copyWorkspacePathDisabledReason}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
             <div className="ml-auto" />
             {terminalApps.length > 0 ? (
               <DropdownMenu>
