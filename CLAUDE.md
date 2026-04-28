@@ -82,7 +82,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/agents/providers/registry.ts`: CLI detection, model ID resolution (`"claude:opus-4-7"`), model catalog builder, npm package version tracking
 - `backend/src/agents/providers/claude.ts`: Claude provider (CLI args, env, `--effort` flag for reasoning effort)
 - `backend/src/agents/providers/codex.ts`: Codex provider (`codex exec` CLI args, thread resume)
-- `backend/src/agents/providers/codex-stream-adapter.ts`: Codex JSONL->StreamParserEvent normalizer
+- `backend/src/agents/providers/codex-stream-adapter.ts`: Codex JSONL->StreamParserEvent normalizer for assistant text/thinking, tool calls, native todo lists, file changes, token usage, and non-fatal diagnostics
 - `backend/src/agents/providers/gemini.ts`: Gemini provider (`gemini -p` CLI args, `-o stream-json`, session resume via `-r`)
 - `backend/src/agents/providers/gemini-stream-adapter.ts`: Gemini NDJSON->StreamParserEvent normalizer with tool name mapping (`run_shell_command`->`Bash`, `read_file`->`Read`, etc.)
 - `backend/src/notifications/types.ts`: `NotificationEvent` discriminated union (5 variants: `agent_turn_complete`, `agent_needs_input`, `agent_proposed_plan`, `agent_failed`, `automation_run_complete`) + `NotificationChannel` interface
@@ -123,6 +123,8 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - APNs channel uses HTTP/2 (`node:http2`) with ES256 JWT signing via `node:crypto`. Auto-prunes stale device tokens on 410 Gone.
 - Script runner spawns PTY processes for `hive.json` setup/run commands, buffers last 200 lines, and broadcasts status via the workspace WS channel. Also supports interactive terminal mode (no command required).
 - Stream parser silences `rate_limit_event` CLI events (logged server-side with structured rate_limit_info diagnostics, not forwarded to clients).
+- Codex stderr is classified before surfacing to clients: known operational noise is suppressed, websocket metadata encoding failures are emitted inline as `CodexDiagnostic` tool calls, and unknown stderr remains an error.
+- Codex native JSONL items are normalized to the shared tool protocol: `todo_list` becomes `TodoList`, item-level `error` becomes `CodexDiagnostic`, file changes become `Edit`, and repeated item updates reuse the same tool id while updating the tool result.
 - Server-side tool blocks (`server_tool_use`, `web_search_tool_result`, `web_fetch_tool_result`, `bash_code_execution_tool_result`, `text_editor_code_execution_tool_result`) are mapped to standard `tool_use`/`tool_result` WS events with display-name normalization (`web_search`->`WebSearch`, `web_fetch`->`WebFetch`, `bash_code_execution`->`Bash`, `text_editor_code_execution`->`Edit`).
 - MCP tool blocks (`mcp_tool_use`, `mcp_tool_result`) and `redacted_thinking` are also handled.
 - Image attachments are resized via sharp (max 1568px, JPEG q80) and stored as files on disk, served via HTTP (`/api/workspaces/:wsId/sessions/:sessionId/attachments/:filename`).
@@ -173,7 +175,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/hooks/useContextUsage.ts`: context window usage calculation from last assistant message tokens
 - `frontend/src/hooks/useBackgroundAgents.ts`: scans tool calls for background `Task` agents, returns running count
 - `frontend/src/hooks/useTabs.ts`: multi-tab state (session + file tabs) with workspace-level snapshot cache, `FileViewMode = "source" | "diff"`
-- `frontend/src/hooks/useTasks.ts`: derives `TrackedTask[]` from `TaskCreate`/`TaskUpdate` tool calls for task tracker display
+- `frontend/src/hooks/useTasks.ts`: derives `TrackedTask[]` from `TaskCreate`/`TaskUpdate` tool calls and Codex `TodoList` events for task tracker display
 - `frontend/src/hooks/useDiff.ts`: diff fetching via `@pierre/diffs` for inline diff viewer
 - `frontend/src/hooks/useSidebarCollapsed.ts`: localStorage-backed sidebar collapsed state, Cmd/Ctrl+B keyboard shortcut
 - `frontend/src/hooks/useSidebarProjectFolders.ts`: sidebar folder organization — TanStack Query fetch + optimistic mutations with 300ms debounced PUT to `/api/ui-preferences`, localStorage cache for first-render bootstrap, one-shot migration from legacy `hive:sidebar-project-folders:v1` key
@@ -252,7 +254,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `HiveMobile/Stores/ProjectStore.swift`: project list state (accepts `ConversationStoreCache` at init)
 - `HiveMobile/Stores/ModelCatalog.swift`: dynamic model catalog from API, grouped by provider
 - `HiveMobile/Stores/HubStatusMonitor.swift`: single multiplexed hub WS + PR status bulk polling + turn-completed tracking + foreground reconnect (2s debounce) + background stream catchup
-- `HiveMobile/Stores/TaskDerivation.swift`: pure function port of `useTasks.ts` — derives `TasksState` from messages and active tool calls
+- `HiveMobile/Stores/TaskDerivation.swift`: pure function port of `useTasks.ts` — derives `TasksState` from messages and active tool calls, including Codex `TodoList` events
 - `HiveMobile/Views/Chat/ChatView.swift`: conversation UI + provider locking + model selection + per-session plan mode
 - `HiveMobile/Views/Chat/ChatInputBar.swift`: input bar with provider-adaptive controls (thinking-level cycler) + context ring
 - `HiveMobile/Views/Chat/MessageBubble.swift`: message + tool call rendering + `#file`/`@agent` mention highlighting + copy-to-clipboard button

@@ -22,7 +22,7 @@ It manages:
 - Inline diff viewer (`@pierre/diffs/react`) with split/unified modes, line selection, diff comments, and paste-to-prompt.
 - Context window usage ring (green/yellow/red thresholds) in chat input footer.
 - Sub-agent tracking: Task tool calls rendered as collapsible nodes with nested child tools, background agents tracked in status bar.
-- Task tracker: collapsible bar showing TaskCreate/TaskUpdate-derived task progress.
+- Task tracker: collapsible bar showing task progress from Claude task tools and Codex native todo lists.
 - Unread badges per-session in sidebar and session tabs.
 - Message queue: type and submit one follow-up while the agent is streaming.
 - `#file` mention autocomplete with fuzzy matching in chat input.
@@ -31,6 +31,7 @@ It manages:
 **Multi-provider support**
 - Provider abstraction layer: `AgentProvider` interface with CLI arg building, env config, and stream adapters.
 - Claude provider (streaming JSON), Codex provider (JSONL with stream adapter), Gemini provider (NDJSON with tool name mapping).
+- Codex stream normalization for native todo lists, file-change summaries, cached token usage, and non-fatal diagnostic events.
 - Model catalog API (`GET /api/models`) for frontend/iOS model discovery, grouped by provider.
 - Model selector UI with provider icons, default badges, and NEW indicators.
 - Provider locked per session after first message — prevents mid-conversation provider switches.
@@ -83,7 +84,7 @@ It manages:
 - Push notifications with foreground suppression and cold-start bridging via `CompletedWorkspacesStore`.
 - Foreground reconnect (2s debounce) with background stream catchup.
 - Context window usage ring matching frontend thresholds.
-- Task tracker with collapsible task list.
+- Task tracker with collapsible task list, including Codex native todo lists.
 - `#file` and `@agent` mention highlighting in messages.
 - Copy-to-clipboard on agent messages.
 - Per-session plan mode state and CANCELLED badge for dismissed questions.
@@ -413,7 +414,7 @@ Frontend key modules:
 - `frontend/src/hooks/useModels.ts` model catalog fetch + selection + provider lock
 - `frontend/src/hooks/usePrStatus.ts` PR status (reads from bulk-seeded cache, no independent timer)
 - `frontend/src/hooks/useTabs.ts` multi-tab state with workspace snapshot cache, source/diff modes
-- `frontend/src/hooks/useTasks.ts` task progress from TaskCreate/TaskUpdate tool calls
+- `frontend/src/hooks/useTasks.ts` task progress from TaskCreate/TaskUpdate tool calls and Codex TodoList events
 - `frontend/src/hooks/useBackgroundAgents.ts` background Task agent tracking
 - `frontend/src/hooks/useContextUsage.ts` context window usage calculation
 - `frontend/src/hooks/useBasePrompt.ts` base prompt CRUD
