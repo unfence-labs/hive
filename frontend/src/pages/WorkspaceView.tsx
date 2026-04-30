@@ -252,10 +252,23 @@ export default function WorkspaceView() {
   const [scrollToBottomTrigger, setScrollToBottomTrigger] = useState(0);
 
   // ── Message queue: lets users type one follow-up while agent is busy ──
-  const [queuedMessage, setQueuedMessage] = useState<QueuedMessage | null>(null);
-
-  // Clear queue on workspace or session switch
-  useEffect(() => { setQueuedMessage(null); }, [wsId, sessionId]);
+  // Stored per (workspace, session) so switching sessions/workspaces preserves
+  // each session's pending message instead of silently dropping it.
+  const [queuedMessages, setQueuedMessages] = useState<Record<string, QueuedMessage>>({});
+  const queueKey = wsId && sessionId ? `${wsId}:${sessionId}` : null;
+  const queuedMessage = queueKey ? queuedMessages[queueKey] ?? null : null;
+  const setQueuedMessage = useCallback((msg: QueuedMessage | null) => {
+    if (!queueKey) return;
+    setQueuedMessages((prev) => {
+      if (msg === null) {
+        if (!(queueKey in prev)) return prev;
+        const next = { ...prev };
+        delete next[queueKey];
+        return next;
+      }
+      return { ...prev, [queueKey]: msg };
+    });
+  }, [queueKey]);
 
   // Auto-dequeue when the agent finishes and workspace is truly idle
   useEffect(() => {
@@ -268,7 +281,7 @@ export default function WorkspaceView() {
     const sent = sendMessage(content, images, options, undefined, fileMentions);
     if (sent) setQueuedMessage(null);
     // If send fails (WS disconnected), keep queue — effect re-fires on reconnect
-  }, [queuedMessage, isStreaming, workspaceStatus, pendingToolInputs, sendMessage]);
+  }, [queuedMessage, isStreaming, workspaceStatus, pendingToolInputs, sendMessage, setQueuedMessage]);
 
   const { tasks, currentTask, counts: taskCounts } = useTasks(messages, activeToolCalls);
   const { agents: backgroundAgents, runningCount: bgRunningCount } = useBackgroundAgents(messages, activeToolCalls);
