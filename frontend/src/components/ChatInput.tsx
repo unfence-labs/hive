@@ -124,7 +124,10 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   const { models, defaultModelId, selectedModelId, selectedModel, setSelectedModelId, capabilities } = useModels(lockedProvider);
   const contextUsage = useContextUsage(messages, selectedModel);
 
-  const thinkingLevels: ThinkingLevel[] = capabilities?.thinkingLevels ?? [];
+  const thinkingLevels = useMemo<ThinkingLevel[]>(
+    () => capabilities?.thinkingLevels ?? [],
+    [capabilities?.thinkingLevels],
+  );
   const supportsThinking = thinkingLevels.length > 0;
   const supportsPlanMode = capabilities?.planMode ?? true;
   const supportsCompletions = capabilities?.completions ?? true;
