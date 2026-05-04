@@ -107,6 +107,7 @@ function renderViewer(
     <InlineDiffViewer
       wsId="ws-1"
       filePath="src/a.ts"
+      diffScope="uncommitted"
       diffStyle="unified"
       onCommentCountChange={onCommentCountChange}
       onPasteToPrompt={onPasteToPrompt}
@@ -201,6 +202,7 @@ describe("InlineDiffViewer", () => {
         ref={ref}
         wsId="ws-1"
         filePath="src/a.ts"
+        diffScope="uncommitted"
         diffStyle="unified"
         onCommentCountChange={onCommentCountChange}
         onPasteToPrompt={onPasteToPrompt}

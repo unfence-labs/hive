@@ -410,6 +410,67 @@ describe("getWorkspaceDiff", () => {
     expect(diff).toContain("brand-new.txt");
   });
 
+  it("returns only committed changes for the committed diff scope", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await writeFile(join(wsPath, "committed.txt"), "committed\n");
+    await git(["add", "."], wsPath);
+    await git(["config", "user.email", "test@hive.dev"], wsPath);
+    await git(["config", "user.name", "Test"], wsPath);
+    await git(["commit", "-m", "committed file"], wsPath);
+
+    await writeFile(join(wsPath, "README.md"), "local only change\n");
+    await writeFile(join(wsPath, "brand-new.txt"), "untracked\n");
+
+    const diff = await getWorkspaceDiff(ws.id, dataDir, "committed");
+
+    expect(diff).toContain("committed.txt");
+    expect(diff).not.toContain("README.md");
+    expect(diff).not.toContain("brand-new.txt");
+  });
+
+  it("returns only working tree changes for the uncommitted diff scope", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await writeFile(join(wsPath, "committed.txt"), "committed\n");
+    await git(["add", "."], wsPath);
+    await git(["config", "user.email", "test@hive.dev"], wsPath);
+    await git(["config", "user.name", "Test"], wsPath);
+    await git(["commit", "-m", "committed file"], wsPath);
+
+    await writeFile(join(wsPath, "README.md"), "local only change\n");
+    await writeFile(join(wsPath, "brand-new.txt"), "untracked\n");
+
+    const diff = await getWorkspaceDiff(ws.id, dataDir, "uncommitted");
+
+    expect(diff).not.toContain("committed.txt");
+    expect(diff).toContain("README.md");
+    expect(diff).toContain("brand-new.txt");
+  });
+
+  it("separates committed and uncommitted hunks for the same file by scope", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await writeFile(join(wsPath, "README.md"), "base\ncommitted change\n");
+    await git(["add", "."], wsPath);
+    await git(["config", "user.email", "test@hive.dev"], wsPath);
+    await git(["config", "user.name", "Test"], wsPath);
+    await git(["commit", "-m", "modify readme"], wsPath);
+
+    await writeFile(join(wsPath, "README.md"), "base\ncommitted change\nuncommitted extra\n");
+
+    const committedDiff = await getWorkspaceDiff(ws.id, dataDir, "committed");
+    const uncommittedDiff = await getWorkspaceDiff(ws.id, dataDir, "uncommitted");
+
+    expect(committedDiff).toContain("+committed change");
+    expect(committedDiff).not.toContain("+uncommitted extra");
+    expect(uncommittedDiff).not.toContain("+committed change");
+    expect(uncommittedDiff).toContain("+uncommitted extra");
+  });
+
   it("does not duplicate a file modified in both committed and uncommitted changes", async () => {
     const ws = await createWorkspace(projectId, dataDir);
     const wsPath = join(dataDir, projectId, "workspaces", ws.name);

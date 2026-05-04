@@ -16,13 +16,23 @@ import { endSession } from "../agents/agent-manager.js";
 import { join } from "node:path";
 import { bareRepoPath, resolveDefaultBranch, workspacesDir } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
-import { errorMessage, errorStatus } from "../utils/errors.js";
+import { BadRequestError, errorMessage, errorStatus } from "../utils/errors.js";
 import { parseGitHubRepo, fetchPrForBranch } from "../utils/github.js";
 import { getBranchName } from "../services/git-sync.js";
 import { readHiveConfig } from "../utils/hive-config.js";
 import { startScript } from "../services/script-runner.js";
 import { broadcastToWorkspace } from "../ws/stream.js";
-import type { BulkPrStatusResponse, PrStatusResponse } from "../types.js";
+import type { BulkPrStatusResponse, DiffScope, PrStatusResponse } from "../types.js";
+
+const DIFF_SCOPES = new Set<DiffScope>(["combined", "committed", "uncommitted"]);
+
+function parseDiffScope(scope: unknown): DiffScope {
+  if (scope === undefined) return "combined";
+  if (typeof scope === "string" && DIFF_SCOPES.has(scope as DiffScope)) {
+    return scope as DiffScope;
+  }
+  throw new BadRequestError("Invalid diff scope");
+}
 
 export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
   app.post<{ Params: { id: string } }>("/api/projects/:id/workspaces", async (req, reply) => {
@@ -101,9 +111,9 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
     }
   });
 
-  app.get<{ Params: { wsId: string } }>("/api/workspaces/:wsId/diff", async (req, reply) => {
+  app.get<{ Params: { wsId: string }; Querystring: { scope?: string } }>("/api/workspaces/:wsId/diff", async (req, reply) => {
     try {
-      const diff = await getWorkspaceDiff(req.params.wsId, dataDir);
+      const diff = await getWorkspaceDiff(req.params.wsId, dataDir, parseDiffScope(req.query.scope));
       return reply.send({ diff });
     } catch (err: unknown) {
       return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });

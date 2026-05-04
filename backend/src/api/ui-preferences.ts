@@ -4,7 +4,6 @@ import {
   loadUiPreferences,
   saveUiPreferences,
   sanitizeUiPreferences,
-  type UiPreferences,
 } from "../state/ui-preferences.js";
 import { getDataDir } from "../state/state.js";
 import { listProjects } from "../projects/project-manager.js";

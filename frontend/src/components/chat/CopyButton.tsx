@@ -1,8 +1,8 @@
-import { memo, useState } from "react";
+import { memo } from "react";
 import { ClipboardIcon, CheckIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { copyToClipboard } from "@/lib/clipboard";
+import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 
 interface CopyButtonProps {
   content: string;
@@ -13,12 +13,11 @@ export const CopyButton = memo(function CopyButton({
   content,
   className,
 }: CopyButtonProps) {
-  const [copied, setCopied] = useState(false);
+  const { copy, isCopied } = useClipboardCopy();
+  const copied = isCopied(content);
 
   const handleCopy = async () => {
-    await copyToClipboard(content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    await copy(content);
   };
 
   return (

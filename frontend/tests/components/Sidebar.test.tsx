@@ -26,6 +26,20 @@ vi.mock("@/hooks/useApi", () => ({
   },
 }));
 
+vi.mock("react-resizable-panels", () => {
+  const React = require("react");
+
+  return {
+    Group: ({ children, style, className }: any) =>
+      React.createElement("div", { style, className, "data-testid": "sidebar-sections-group" }, children),
+    Panel: ({ children, style, className, id }: any) =>
+      React.createElement("div", { style, className, "data-testid": id ? `panel-${id}` : "panel" }, children),
+    Separator: ({ className }: any) =>
+      React.createElement("div", { className, "data-testid": "panel-separator", role: "separator" }),
+    useDefaultLayout: () => ({ defaultLayout: undefined, onLayoutChanged: () => {} }),
+  };
+});
+
 vi.mock("@/lib/ws-transport", () => {
   const messageHandlers = new Map<string, Set<(msg: WsOutgoing) => void>>();
 
@@ -1507,6 +1521,20 @@ describe("Sidebar", () => {
     });
   });
 
+  it("keeps add repository compact in the footer next to settings", async () => {
+    renderSidebar("/workspaces/w1", projects);
+
+    await screen.findByText("workspace/tokyo");
+
+    const addRepository = screen.getByRole("button", { name: "Add repository" });
+    const settings = screen.getByRole("link", { name: "Settings" });
+
+    expect(addRepository.parentElement).toBe(settings.parentElement);
+    expect(addRepository.parentElement).toHaveClass("justify-between");
+    expect(addRepository).toHaveClass("text-xs");
+    expect(addRepository).not.toHaveClass("border");
+  });
+
   it("shows PR loading text while bulk status is in flight", async () => {
     let resolve!: (value: unknown) => void;
     const pending = new Promise((res) => {
@@ -1600,6 +1628,14 @@ describe("Sidebar", () => {
   it("shows 'Automations' section header", async () => {
     renderSidebar("/home", projects);
     expect(await screen.findByText("Automations")).toBeInTheDocument();
+  });
+
+  it("renders workspaces and automations in split panels", async () => {
+    renderSidebar("/home", projects);
+
+    expect(await screen.findByTestId("panel-workspaces")).toBeInTheDocument();
+    expect(screen.getByTestId("panel-automations")).toBeInTheDocument();
+    expect(screen.getByRole("separator")).toBeInTheDocument();
   });
 
   it("shows automation empty state when no automations exist", async () => {

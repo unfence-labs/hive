@@ -94,10 +94,11 @@ export function useProjects() {
         : false,
     refetchIntervalInBackground: true,
   });
+  const { refetch } = query;
 
   const retryProjects = useCallback(
-    () => query.refetch(),
-    [query.refetch],
+    () => refetch(),
+    [refetch],
   );
 
   /** Shared logic: create project → optimistic cache → create workspace → rollback on error. */

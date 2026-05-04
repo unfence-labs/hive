@@ -35,7 +35,7 @@ describe("useDiff", () => {
 
   it("does nothing when enabled is false", async () => {
     const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useDiff("ws-1", false), { wrapper });
+    const { result } = renderHook(() => useDiff("ws-1", "combined", false), { wrapper });
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
@@ -51,13 +51,13 @@ describe("useDiff", () => {
     vi.mocked(parsePatchFiles).mockReturnValueOnce(parsed);
     const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useDiff("ws-1", true), { wrapper });
+    const { result } = renderHook(() => useDiff("ws-1", "uncommitted", true), { wrapper });
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(api.get).toHaveBeenCalledWith("/api/workspaces/ws-1/diff");
+    expect(api.get).toHaveBeenCalledWith("/api/workspaces/ws-1/diff?scope=uncommitted");
     expect(parsePatchFiles).toHaveBeenCalledWith("patch-content");
     expect(result.current.patchFiles).toBe(parsed);
     expect(result.current.error).toBeNull();
@@ -68,7 +68,7 @@ describe("useDiff", () => {
     vi.mocked(api.get).mockResolvedValueOnce({ diff: "" });
     const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useDiff("ws-1", true), { wrapper });
+    const { result } = renderHook(() => useDiff("ws-1", "combined", true), { wrapper });
 
     await waitFor(() => {
       expect(result.current.loading).toBe(false);
@@ -82,7 +82,7 @@ describe("useDiff", () => {
     vi.mocked(api.get).mockRejectedValueOnce(new Error("boom"));
     const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useDiff("ws-1", true), { wrapper });
+    const { result } = renderHook(() => useDiff("ws-1", "combined", true), { wrapper });
 
     await waitFor(() => {
       expect(result.current.error).toBe("boom");
@@ -98,7 +98,7 @@ describe("useDiff", () => {
     });
     const { wrapper } = createWrapper();
 
-    const { result } = renderHook(() => useDiff("ws-1", true), { wrapper });
+    const { result } = renderHook(() => useDiff("ws-1", "combined", true), { wrapper });
 
     await waitFor(() => {
       expect(result.current.error).toBe("invalid patch");

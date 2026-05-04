@@ -1,7 +1,7 @@
-import { memo, useState } from "react";
+import { memo } from "react";
 import { ArrowRightLeftIcon, ClipboardIcon, CheckIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { copyToClipboard } from "@/lib/clipboard";
+import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 
 interface PlanActionBarProps {
   planContent?: string;
@@ -16,13 +16,12 @@ export const PlanActionBar = memo(function PlanActionBar({
   onApprove,
   onHandOff,
 }: PlanActionBarProps) {
-  const [copied, setCopied] = useState(false);
+  const { copy, isCopied } = useClipboardCopy();
+  const copied = planContent ? isCopied(planContent) : false;
 
   const handleCopy = async () => {
     if (!planContent) return;
-    await copyToClipboard(planContent);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    await copy(planContent);
   };
 
   return (

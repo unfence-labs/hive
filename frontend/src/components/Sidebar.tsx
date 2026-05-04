@@ -7,6 +7,7 @@ import {
   Settings,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -36,6 +37,7 @@ import { cn } from "@/lib/utils";
 import { aggregateScriptRunning, aggregateWorkspaceActivity } from "@/lib/workspace-activity";
 import { useAutomations } from "@/hooks/useAutomations";
 import { SidebarShell } from "@/components/SidebarShell";
+import { ResizeHandle } from "@/components/ResizeHandle";
 import { SidebarFolderComposer } from "@/components/sidebar/SidebarFolderComposer";
 import { SidebarFolderItem } from "@/components/sidebar/SidebarFolderItem";
 import {
@@ -62,6 +64,23 @@ type ProjectOrderDropTarget = {
   projectId: string;
   position: "before" | "after";
 };
+
+const sidebarPanelScrollClassName =
+  "[&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full";
+
+function SidebarPanelScroll({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <ScrollArea className={cn(sidebarPanelScrollClassName, className)}>
+      <div className="p-2">{children}</div>
+    </ScrollArea>
+  );
+}
 
 export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps) {
   const {
@@ -95,6 +114,13 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   const [folderOrderDropTarget, setFolderOrderDropTarget] = useState<FolderOrderDropTarget | null>(null);
   const [projectOrderDropTarget, setProjectOrderDropTarget] = useState<ProjectOrderDropTarget | null>(null);
   const liveData = useWorkspaceLiveDataContext();
+  const {
+    defaultLayout: sidebarSectionsLayout,
+    onLayoutChanged: onSidebarSectionsLayoutChanged,
+  } = useDefaultLayout({
+    id: "hive-sidebar-sections-layout",
+    storage: localStorage,
+  });
 
   const activeProjectId = projects.find((project) =>
     (project.workspaces ?? []).some((workspace) => workspace.id === activeWsId),
@@ -418,7 +444,15 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   };
 
   const footerActions = (
-    <div className="flex items-center justify-end px-2 py-1.5">
+    <div className="flex items-center justify-between px-2 py-1.5">
+      <button
+        type="button"
+        className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
+        onClick={onAddProject}
+      >
+        <FolderPlus className="h-3.5 w-3.5 shrink-0" />
+        Add repository
+      </button>
       <Link
         to="/settings"
         state={{ from: pathname }}
@@ -430,185 +464,195 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
       </Link>
     </div>
   );
+
+  const workspacePanelContent = loading ? (
+    <div className="space-y-2 px-2">
+      <Skeleton className="h-6 w-full" />
+      <Skeleton className="h-6 w-3/4" />
+      <Skeleton className="h-6 w-full" />
+    </div>
+  ) : (
+    <>
+      {(projectsUnavailable || projectsAppearIncomplete) && (
+        <div
+          className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3"
+          role="alert"
+        >
+          <div className="flex items-start gap-2.5">
+            {projectsRecovering ? (
+              <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-amber-500" />
+            ) : (
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-sidebar-foreground">
+                {projectsAppearIncomplete
+                  ? "Repository list looks incomplete"
+                  : "Unable to load repositories"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {projectsAppearIncomplete
+                  ? "Folders were restored, but the repository list is empty. Hive is retrying automatically."
+                  : `${projectsErrorMessage ?? "The repository list is unavailable."} Hive will keep retrying automatically.`}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                className="mt-3"
+                onClick={() => { void retryProjects(); }}
+                disabled={projectsRecovering}
+              >
+                {projectsRecovering && <Loader2 className="h-3 w-3 animate-spin" />}
+                {projectsRecovering ? "Retrying..." : "Retry now"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <SidebarSectionHeader
+        label="Workspaces"
+        className="mb-1"
+        onAdd={() => {
+          if (!hasInitialHydration) return;
+          setIsCreatingFolder(true);
+          setNewFolderName("");
+        }}
+        addLabel="New folder"
+        addDisabled={!hasInitialHydration}
+        addIcon={<FolderPlus className="h-4 w-4" />}
+        addButtonClassName="rounded p-0.5 hover:bg-sidebar-accent/50"
+      />
+
+      <SidebarFolderComposer
+        isOpen={isCreatingFolder}
+        name={newFolderName}
+        onNameChange={setNewFolderName}
+        onSubmit={handleCreateFolder}
+        onCancel={resetFolderComposer}
+      />
+
+      {folders.length > 0 && (
+        <div className="space-y-px">
+          {folders.map((folder) => {
+            const expanded = isFolderExpanded(folder.id);
+            const isActiveDropTarget =
+              dropTarget?.type === "folder" && dropTarget.folderId === folder.id;
+            const containsActiveProject = folder.projects.some((project) => project.id === activeProjectId);
+            const isDraggedFolder = draggingFolderId === folder.id;
+            const folderInsertIndicator = folderOrderDropTarget?.folderId === folder.id
+              ? folderOrderDropTarget.position
+              : null;
+
+            const isRenaming = renamingFolderId === folder.id;
+            const isEmptyFolder = folder.projects.length === 0;
+            const folderWorkspaceIds = folder.projects.flatMap((project) =>
+              (project.workspaces ?? []).map((ws) => ws.id),
+            );
+            const folderActivity = aggregateWorkspaceActivity(folderWorkspaceIds, liveData);
+            const folderScriptRunning = aggregateScriptRunning(folderWorkspaceIds, liveData);
+
+            return (
+              <SidebarFolderItem
+                key={folder.id}
+                folder={folder}
+                expanded={expanded}
+                canInteract={hasInitialHydration}
+                isActiveDropTarget={isActiveDropTarget}
+                containsActiveProject={containsActiveProject}
+                isDraggedFolder={isDraggedFolder}
+                isRenaming={isRenaming}
+                isEmptyFolder={isEmptyFolder}
+                draggingFolderId={draggingFolderId}
+                folderInsertIndicator={folderInsertIndicator}
+                activityState={folderActivity}
+                scriptRunning={folderScriptRunning}
+                renameDraft={renameDraft}
+                onOpenChange={(open) => setFolderExpanded(folder.id, open)}
+                onFolderDragOver={handleFolderDragOver}
+                onFolderDrop={handleFolderDrop}
+                onFolderDragStart={handleFolderDragStart}
+                onFolderDragEnd={handleFolderDragEnd}
+                onFolderReorderDragOver={handleFolderReorderDragOver}
+                onFolderReorderDrop={handleFolderReorderDrop}
+                onStartRenaming={startRenamingFolder}
+                onDeleteRequest={(folderId, folderName) =>
+                  setDeleteFolderTarget({ id: folderId, name: folderName })
+                }
+                onRenameDraftChange={setRenameDraft}
+                onCommitRename={commitRenamingFolder}
+                onCancelRename={cancelRenamingFolder}
+                renderProjectItem={renderProjectItem}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {rootProjects.length > 0 && (
+        <div className={cn("space-y-px", folders.length > 0 && "mt-0.5")}>
+          {rootProjects.map((project) => renderProjectItem(project, null))}
+        </div>
+      )}
+    </>
+  );
+
+  const automationPanelContent = (
+    <>
+      <SidebarSectionHeader
+        label="Automations"
+        isLoading={automationsLoading}
+        onAdd={onAddAutomation}
+        addLabel="Add automation"
+      />
+
+      {automationsLoading ? (
+        <div className="mt-2 space-y-1.5">
+          <Skeleton className="h-12 w-full rounded-md" />
+          <Skeleton className="h-12 w-full rounded-md" />
+        </div>
+      ) : sortedAutomations.length === 0 ? (
+        <div className="mt-2 py-1">
+          <p className="text-xs text-muted-foreground/60">no automations</p>
+        </div>
+      ) : (
+        <div className="mt-2 space-y-1.5">
+          {sortedAutomations.map((auto) => (
+            <AutomationRow key={auto.id} auto={auto} pathname={pathname} />
+          ))}
+        </div>
+      )}
+    </>
+  );
   const deleteFolderTargetId = deleteFolderTarget?.id ?? null;
 
   return (
     <SidebarShell footerActions={footerActions}>
-      <ScrollArea className="flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full">
-        <div className="p-2">
-          {loading ? (
-            <div className="space-y-2 px-2">
-              <Skeleton className="h-6 w-full" />
-              <Skeleton className="h-6 w-3/4" />
-              <Skeleton className="h-6 w-full" />
-            </div>
-          ) : (
-            <TooltipProvider delayDuration={400}>
-              {(projectsUnavailable || projectsAppearIncomplete) && (
-                <div
-                  className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3"
-                  role="alert"
-                >
-                  <div className="flex items-start gap-2.5">
-                    {projectsRecovering ? (
-                      <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-amber-500" />
-                    ) : (
-                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-medium text-sidebar-foreground">
-                        {projectsAppearIncomplete
-                          ? "Repository list looks incomplete"
-                          : "Unable to load repositories"}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {projectsAppearIncomplete
-                          ? "Folders were restored, but the repository list is empty. Hive is retrying automatically."
-                          : `${projectsErrorMessage ?? "The repository list is unavailable."} Hive will keep retrying automatically.`}
-                      </p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="xs"
-                        className="mt-3"
-                        onClick={() => { void retryProjects(); }}
-                        disabled={projectsRecovering}
-                      >
-                        {projectsRecovering && <Loader2 className="h-3 w-3 animate-spin" />}
-                        {projectsRecovering ? "Retrying..." : "Retry now"}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <SidebarSectionHeader
-                label="Workspaces"
-                className="mb-1"
-                onAdd={() => {
-                  if (!hasInitialHydration) return;
-                  setIsCreatingFolder(true);
-                  setNewFolderName("");
-                }}
-                addLabel="New folder"
-                addDisabled={!hasInitialHydration}
-                addIcon={<FolderPlus className="h-4 w-4" />}
-                addButtonClassName="rounded p-0.5 hover:bg-sidebar-accent/50"
-              />
-
-              <SidebarFolderComposer
-                isOpen={isCreatingFolder}
-                name={newFolderName}
-                onNameChange={setNewFolderName}
-                onSubmit={handleCreateFolder}
-                onCancel={resetFolderComposer}
-              />
-
-              {folders.length > 0 && (
-                <div className="space-y-px">
-                  {folders.map((folder) => {
-                    const expanded = isFolderExpanded(folder.id);
-                    const isActiveDropTarget =
-                      dropTarget?.type === "folder" && dropTarget.folderId === folder.id;
-                    const containsActiveProject = folder.projects.some((project) => project.id === activeProjectId);
-                    const isDraggedFolder = draggingFolderId === folder.id;
-                    const folderInsertIndicator = folderOrderDropTarget?.folderId === folder.id
-                      ? folderOrderDropTarget.position
-                      : null;
-
-                    const isRenaming = renamingFolderId === folder.id;
-                    const isEmptyFolder = folder.projects.length === 0;
-                    const folderWorkspaceIds = folder.projects.flatMap((project) =>
-                      (project.workspaces ?? []).map((ws) => ws.id),
-                    );
-                    const folderActivity = aggregateWorkspaceActivity(folderWorkspaceIds, liveData);
-                    const folderScriptRunning = aggregateScriptRunning(folderWorkspaceIds, liveData);
-
-                    return (
-                      <SidebarFolderItem
-                        key={folder.id}
-                        folder={folder}
-                        expanded={expanded}
-                        canInteract={hasInitialHydration}
-                        isActiveDropTarget={isActiveDropTarget}
-                        containsActiveProject={containsActiveProject}
-                        isDraggedFolder={isDraggedFolder}
-                        isRenaming={isRenaming}
-                        isEmptyFolder={isEmptyFolder}
-                        draggingFolderId={draggingFolderId}
-                        folderInsertIndicator={folderInsertIndicator}
-                        activityState={folderActivity}
-                        scriptRunning={folderScriptRunning}
-                        renameDraft={renameDraft}
-                        onOpenChange={(open) => setFolderExpanded(folder.id, open)}
-                        onFolderDragOver={handleFolderDragOver}
-                        onFolderDrop={handleFolderDrop}
-                        onFolderDragStart={handleFolderDragStart}
-                        onFolderDragEnd={handleFolderDragEnd}
-                        onFolderReorderDragOver={handleFolderReorderDragOver}
-                        onFolderReorderDrop={handleFolderReorderDrop}
-                        onStartRenaming={startRenamingFolder}
-                        onDeleteRequest={(folderId, folderName) =>
-                          setDeleteFolderTarget({ id: folderId, name: folderName })
-                        }
-                        onRenameDraftChange={setRenameDraft}
-                        onCommitRename={commitRenamingFolder}
-                        onCancelRename={cancelRenamingFolder}
-                        renderProjectItem={renderProjectItem}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-
-              {rootProjects.length > 0 && (
-                <div className={cn("space-y-px", folders.length > 0 && "mt-0.5")}>
-                  {rootProjects.map((project) => renderProjectItem(project, null))}
-                </div>
-              )}
-
-              <div className="mt-4">
-                <div className="mb-3 border-t border-white/10" />
-                <SidebarSectionHeader
-                  label="Automations"
-                  isLoading={automationsLoading}
-                  onAdd={onAddAutomation}
-                  addLabel="Add automation"
-                />
-
-                {automationsLoading ? (
-                  <div className="mt-2 space-y-1.5">
-                    <Skeleton className="h-12 w-full rounded-md" />
-                    <Skeleton className="h-12 w-full rounded-md" />
-                  </div>
-                ) : sortedAutomations.length === 0 ? (
-                  <div className="mt-2 py-1">
-                    <p className="text-xs text-muted-foreground/60">no automations</p>
-                  </div>
-                ) : (
-                  <div className="mt-2 space-y-1.5">
-                    {sortedAutomations.map((auto) => (
-                      <AutomationRow key={auto.id} auto={auto} pathname={pathname} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </TooltipProvider>
-          )}
-        </div>
-      </ScrollArea>
-
-      {/* ── Bottom action ─────────────────────────────────────────── */}
-      <div className="shrink-0 px-2 pb-1.5">
-        <button
-          type="button"
-          className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-primary/40 px-2 py-2 text-sm text-primary transition-colors hover:border-primary hover:bg-primary/10"
-          onClick={onAddProject}
+      <TooltipProvider delayDuration={400}>
+        <Group
+          orientation="vertical"
+          defaultLayout={sidebarSectionsLayout}
+          onLayoutChanged={onSidebarSectionsLayoutChanged}
+          style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
         >
-          <FolderPlus className="h-4 w-4 shrink-0" />
-          Add repository
-        </button>
-      </div>
+          <Panel id="workspaces" defaultSize="70%" minSize="25%" className="min-h-0 overflow-hidden">
+            <div className="flex h-full min-h-0 flex-col">
+              <SidebarPanelScroll className="min-h-0 flex-1">
+                {workspacePanelContent}
+              </SidebarPanelScroll>
+            </div>
+          </Panel>
+
+          <ResizeHandle orientation="horizontal" separator="after" />
+
+          <Panel id="automations" defaultSize="30%" minSize="15%" className="min-h-0 overflow-hidden">
+            <SidebarPanelScroll className="h-full">
+              {automationPanelContent}
+            </SidebarPanelScroll>
+          </Panel>
+        </Group>
+      </TooltipProvider>
 
       <AlertDialog
         open={deleteFolderTarget !== null}

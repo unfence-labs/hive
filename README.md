@@ -76,6 +76,7 @@ It manages:
 - macOS traffic light positioning, drag regions, and App Transport Security exceptions for Tailscale HTTP.
 - Sidebar collapse toggle (Cmd/Ctrl+B) with CSS transition and fullscreen detection.
 - VS Code remote SSH workspace opening via `vscode://vscode-remote/ssh-remote+` URIs.
+- Workspace header action for copying the current worktree path.
 
 **iOS**
 - Native SwiftUI app with chat, model selection, session switching (max 4), and push notifications (APNs).
@@ -250,7 +251,7 @@ npm test
 | `GET` | `/api/projects/:id/workspaces` | List project workspaces |
 | `GET` | `/api/workspaces/:wsId` | Get workspace details + default branch |
 | `DELETE` | `/api/workspaces/:wsId` | Delete workspace |
-| `GET` | `/api/workspaces/:wsId/diff` | Unified diff (committed + uncommitted + untracked) |
+| `GET` | `/api/workspaces/:wsId/diff?scope=combined\|committed\|uncommitted` | Unified diff; defaults to combined committed + uncommitted + untracked |
 | `GET` | `/api/workspaces/:wsId/diff/stat` | Diff stats (`committed` + `uncommitted`) |
 | `GET` | `/api/workspaces/:wsId/files` | Workspace file tree |
 | `GET` | `/api/workspaces/:wsId/file?path=<file>` | Read workspace file content |

@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { nanoid } from "nanoid";
 import { useThemeType } from "@/hooks/useThemeType";
 import { useDiff } from "@/hooks/useDiff";
+import type { DiffScope } from "@/types";
 
 // ---------- Types ----------
 
@@ -263,6 +264,7 @@ export interface InlineDiffViewerHandle {
 interface InlineDiffViewerProps {
   wsId: string;
   filePath: string;
+  diffScope: DiffScope;
   diffStyle: "split" | "unified";
   onCommentCountChange: (count: number) => void;
   onPasteToPrompt: (formattedText: string) => void;
@@ -272,17 +274,25 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
   function InlineDiffViewer({
     wsId,
     filePath,
+    diffScope,
     diffStyle,
     onCommentCountChange,
     onPasteToPrompt,
   }, ref) {
-  const { patchFiles, loading: isLoading, error } = useDiff(wsId, true);
+  const { patchFiles, loading: isLoading, error } = useDiff(wsId, diffScope, true);
   const themeType = useThemeType();
 
   const [comments, setComments] = useState<DiffComment[]>([]);
   const [selectedRange, setSelectedRange] = useState<SelectedLineRange | null>(null);
   const [activeFileName, setActiveFileName] = useState<string | null>(null);
   const [showCommentInput, setShowCommentInput] = useState(false);
+
+  useEffect(() => {
+    setComments([]);
+    setSelectedRange(null);
+    setActiveFileName(null);
+    setShowCommentInput(false);
+  }, [filePath, diffScope]);
 
   // Bubble comment count up to toolbar
   useEffect(() => {

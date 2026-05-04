@@ -6,6 +6,7 @@ import { FileContentToolbar } from "@/components/FileContentToolbar";
 
 function renderToolbar(overrides?: Partial<ComponentProps<typeof FileContentToolbar>>) {
   const onModeChange = overrides?.onModeChange ?? vi.fn();
+  const onDiffScopeChange = overrides?.onDiffScopeChange ?? vi.fn();
   const onDiffStyleChange = overrides?.onDiffStyleChange ?? vi.fn();
   const onPasteToPrompt = overrides?.onPasteToPrompt ?? vi.fn();
 
@@ -15,6 +16,9 @@ function renderToolbar(overrides?: Partial<ComponentProps<typeof FileContentTool
       mode="source"
       onModeChange={onModeChange}
       isModified
+      diffScope="uncommitted"
+      availableDiffScopes={["uncommitted"]}
+      onDiffScopeChange={onDiffScopeChange}
       diffStyle="unified"
       onDiffStyleChange={onDiffStyleChange}
       commentCount={0}
@@ -23,7 +27,7 @@ function renderToolbar(overrides?: Partial<ComponentProps<typeof FileContentTool
     />,
   );
 
-  return { onModeChange, onDiffStyleChange, onPasteToPrompt };
+  return { onModeChange, onDiffScopeChange, onDiffStyleChange, onPasteToPrompt };
 }
 
 describe("FileContentToolbar", () => {
@@ -69,6 +73,21 @@ describe("FileContentToolbar", () => {
     expect(onDiffStyleChange).toHaveBeenNthCalledWith(1, "split");
     expect(onDiffStyleChange).toHaveBeenNthCalledWith(2, "unified");
     expect(screen.queryByRole("button", { name: /Paste to prompt/i })).not.toBeInTheDocument();
+  });
+
+  it("shows scope controls when more than one diff scope is available", async () => {
+    const user = userEvent.setup();
+    const { onDiffScopeChange } = renderToolbar({
+      mode: "diff",
+      diffScope: "uncommitted",
+      availableDiffScopes: ["uncommitted", "committed", "combined"],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Branch commits" }));
+    await user.click(screen.getByRole("button", { name: "Combined" }));
+
+    expect(onDiffScopeChange).toHaveBeenNthCalledWith(1, "committed");
+    expect(onDiffScopeChange).toHaveBeenNthCalledWith(2, "combined");
   });
 
   it("shows paste button when comments exist and triggers callback", async () => {

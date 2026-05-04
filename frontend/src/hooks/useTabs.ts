@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { parseTabId, tabId, type TabId } from "../types";
+import { parseTabId, tabId, type DiffScope, type TabId } from "../types";
 
 export type FileViewMode = "source" | "diff";
 
@@ -7,11 +7,13 @@ export interface UseTabsReturn {
   activeTabId: TabId | null;
   openFile: string | null;
   fileViewMode: FileViewMode;
+  diffScope: DiffScope;
   isFileTabActive: boolean;
   activateTab: (id: TabId) => void;
   openFileTab: (path: string) => void;
-  openDiffTab: (path: string) => void;
+  openDiffTab: (path: string, scope?: DiffScope) => void;
   setFileViewMode: (mode: FileViewMode) => void;
+  setDiffScope: (scope: DiffScope) => void;
   closeFileTab: () => void;
 }
 
@@ -19,6 +21,7 @@ interface TabSnapshot {
   activeTabId: TabId | null;
   openFile: string | null;
   fileViewMode: FileViewMode;
+  diffScope: DiffScope;
 }
 
 /** Module-level cache: survives component remounts, lost on page refresh. */
@@ -34,7 +37,7 @@ export function useTabs(
   wsId: string | undefined,
 ): UseTabsReturn {
   const prevWsId = useRef(wsId);
-  const latestSnapshot = useRef<TabSnapshot>({ activeTabId: null, openFile: null, fileViewMode: "source" });
+  const latestSnapshot = useRef<TabSnapshot>({ activeTabId: null, openFile: null, fileViewMode: "source", diffScope: "uncommitted" });
   const latestWsId = useRef<string | undefined>(wsId);
 
   // Resolve initial state: restore from cache if available, else default.
@@ -51,6 +54,10 @@ export function useTabs(
     const cached = wsId ? snapshotByWorkspace.get(wsId) : undefined;
     return cached?.fileViewMode ?? "source";
   });
+  const [diffScope, setDiffScope] = useState<DiffScope>(() => {
+    const cached = wsId ? snapshotByWorkspace.get(wsId) : undefined;
+    return cached?.diffScope ?? "uncommitted";
+  });
 
   // On workspace switch: save outgoing state, restore incoming state.
   useEffect(() => {
@@ -58,7 +65,7 @@ export function useTabs(
 
     // Save outgoing workspace state.
     if (prevWsId.current) {
-      snapshotByWorkspace.set(prevWsId.current, { activeTabId, openFile, fileViewMode });
+      snapshotByWorkspace.set(prevWsId.current, { activeTabId, openFile, fileViewMode, diffScope });
     }
     prevWsId.current = wsId;
 
@@ -68,10 +75,12 @@ export function useTabs(
       setActiveTabId(cached.activeTabId);
       setOpenFile(cached.openFile);
       setFileViewMode(cached.fileViewMode);
+      setDiffScope(cached.diffScope ?? "uncommitted");
     } else {
       setActiveTabId(null);
       setOpenFile(null);
       setFileViewMode("source");
+      setDiffScope("uncommitted");
     }
   }, [wsId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -97,22 +106,24 @@ export function useTabs(
     setActiveTabId(tabId({ type: "file", path }));
   }, []);
 
-  const openDiffTab = useCallback((path: string) => {
+  const openDiffTab = useCallback((path: string, scope: DiffScope = "uncommitted") => {
     setOpenFile(path);
     setFileViewMode("diff");
+    setDiffScope(scope);
     setActiveTabId(tabId({ type: "file", path }));
   }, []);
 
   const closeFileTab = useCallback(() => {
     setOpenFile(null);
     setFileViewMode("source");
+    setDiffScope("uncommitted");
     setActiveTabId(currentSessionId ? tabId({ type: "session", sessionId: currentSessionId }) : null);
   }, [currentSessionId]);
 
   useEffect(() => {
-    latestSnapshot.current = { activeTabId, openFile, fileViewMode };
+    latestSnapshot.current = { activeTabId, openFile, fileViewMode, diffScope };
     latestWsId.current = wsId;
-  }, [activeTabId, openFile, fileViewMode, wsId]);
+  }, [activeTabId, openFile, fileViewMode, diffScope, wsId]);
 
   // Preserve current workspace tab state across unmount/remount cycles.
   useEffect(() => {
@@ -128,11 +139,13 @@ export function useTabs(
     activeTabId,
     openFile,
     fileViewMode,
+    diffScope,
     isFileTabActive,
     activateTab,
     openFileTab,
     openDiffTab,
     setFileViewMode,
+    setDiffScope,
     closeFileTab,
   };
 }

@@ -5,7 +5,7 @@ import { SettingsHeader } from "@/components/AppLayout";
 import { cn } from "@/lib/utils";
 import { api } from "@/hooks/useApi";
 import { openExternal } from "@/lib/open-external";
-import { copyToClipboard } from "@/lib/clipboard";
+import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 
 interface GitHubUser {
   login: string;
@@ -45,7 +45,7 @@ export default function AccountSettings() {
   const queryClient = useQueryClient();
   const [state, setState] = useState<PageState>({ kind: "loading" });
   const [disconnecting, setDisconnecting] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const { copy, isCopied } = useClipboardCopy();
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollInterval = useRef(5);
 
@@ -150,9 +150,7 @@ export default function AccountSettings() {
   };
 
   const handleCopyCode = async (code: string) => {
-    await copyToClipboard(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    await copy(code);
   };
 
   const handleRetry = () => {
@@ -231,14 +229,14 @@ export default function AccountSettings() {
                 <button
                   type="button"
                   onClick={() => void handleCopyCode(state.userCode)}
-                  aria-label={copied ? "Code copied" : "Copy code to clipboard"}
+                  aria-label={isCopied(state.userCode) ? "Code copied" : "Copy code to clipboard"}
                   className="mt-4 group inline-flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-muted/50 px-5 py-2.5 transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
                   <code className="font-mono text-lg font-bold tracking-widest">
                     {state.userCode}
                   </code>
                   <span className="text-muted-foreground transition-colors group-hover:text-foreground">
-                    {copied
+                    {isCopied(state.userCode)
                       ? <Check className="h-4 w-4 text-emerald-500" />
                       : <Copy className="h-4 w-4" />}
                   </span>

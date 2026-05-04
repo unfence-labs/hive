@@ -1,20 +1,23 @@
 import { cn } from "@/lib/utils";
-import type { DiffFileStat } from "@/types";
+import type { DiffFileStat, DiffScope } from "@/types";
 
 interface ModifiedFileListProps {
   committed: DiffFileStat[];
   uncommitted: DiffFileStat[];
-  onFileClick: (filePath: string) => void;
+  onFileClick: (filePath: string, scope: DiffScope) => void;
   activeFile?: string;
+  activeScope?: DiffScope;
 }
 
 function FileRow({
   stat,
+  scope,
   onFileClick,
   isActive,
 }: {
   stat: DiffFileStat;
-  onFileClick: (filePath: string) => void;
+  scope: DiffScope;
+  onFileClick: (filePath: string, scope: DiffScope) => void;
   isActive: boolean;
 }) {
   return (
@@ -25,7 +28,7 @@ function FileRow({
         "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs font-mono hover:bg-muted/50",
         isActive && "bg-primary/10 ring-1 ring-primary/20",
       )}
-      onClick={() => onFileClick(stat.file)}
+      onClick={() => onFileClick(stat.file, scope)}
     >
       <span className="min-w-0 flex-1 truncate text-muted-foreground">
         {stat.file.includes("/") && stat.file.slice(0, stat.file.lastIndexOf("/") + 1)}
@@ -67,6 +70,7 @@ export function ModifiedFileList({
   uncommitted,
   onFileClick,
   activeFile,
+  activeScope,
 }: ModifiedFileListProps) {
   if (committed.length === 0 && uncommitted.length === 0) {
     return (
@@ -80,20 +84,32 @@ export function ModifiedFileList({
     <div>
       {uncommitted.length > 0 && (
         <div>
-          <SectionHeader label="Uncommitted" stats={uncommitted} />
+          <SectionHeader label="Working tree" stats={uncommitted} />
           <div className="space-y-0.5">
             {uncommitted.map((stat) => (
-              <FileRow key={stat.file} stat={stat} onFileClick={onFileClick} isActive={stat.file === activeFile} />
+              <FileRow
+                key={stat.file}
+                stat={stat}
+                scope="uncommitted"
+                onFileClick={onFileClick}
+                isActive={stat.file === activeFile && activeScope === "uncommitted"}
+              />
             ))}
           </div>
         </div>
       )}
       {committed.length > 0 && (
         <div className={uncommitted.length > 0 ? "mt-3" : ""}>
-          <SectionHeader label="Committed" stats={committed} />
+          <SectionHeader label="Branch commits" stats={committed} />
           <div className="space-y-0.5">
             {committed.map((stat) => (
-              <FileRow key={stat.file} stat={stat} onFileClick={onFileClick} isActive={stat.file === activeFile} />
+              <FileRow
+                key={stat.file}
+                stat={stat}
+                scope="committed"
+                onFileClick={onFileClick}
+                isActive={stat.file === activeFile && activeScope === "committed"}
+              />
             ))}
           </div>
         </div>
