@@ -242,6 +242,9 @@ npm test
 | `GET` | `/api/projects/:id` | Get project |
 | `DELETE` | `/api/projects/:id` | Delete project (must have zero active workspaces) |
 | `POST` | `/api/projects/:id/fetch` | Fetch remote updates |
+| `GET` | `/api/projects/:id/env` | Get project-managed `.env` |
+| `PUT` | `/api/projects/:id/env` | Save project-managed `.env` |
+| `DELETE` | `/api/projects/:id/env` | Delete project-managed `.env` |
 
 ### Workspaces
 
@@ -464,6 +467,8 @@ $DATA_DIR/
 │       └── workspace/
 └── proj-<id>/
     ├── state.json
+    ├── env/
+    │   └── .env
     ├── repo.git/
     ├── workspaces/
     │   └── <workspace-name>/

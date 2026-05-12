@@ -85,6 +85,13 @@ export interface ProjectState {
   workspaces: Workspace[];
 }
 
+export interface ProjectEnvData {
+  exists: boolean;
+  content: string;
+  sizeBytes?: number;
+  updatedAt?: string;
+}
+
 export type CreateProjectRequest =
   | { mode?: "clone"; url: string }
   | { mode: "create"; name: string; visibility?: "public" | "private" };
