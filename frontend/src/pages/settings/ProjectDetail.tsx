@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Trash2, ExternalLink, Save, Pencil, Plus, X } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
@@ -16,6 +16,7 @@ import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { useProjects } from "@/hooks/useProjects";
 import { useProjectEnv, useUpdateProjectEnv, useDeleteProjectEnv } from "@/hooks/useProjectEnv";
 import { cn } from "@/lib/utils";
+import type { Project } from "@/types";
 
 export default function ProjectDetail() {
   const { projects, deleteProject } = useProjects();
@@ -25,18 +26,7 @@ export default function ProjectDetail() {
 
   const project = projects.find((p) => p.id === projectId);
   const envQuery = useProjectEnv(project?.id);
-  const updateEnv = useUpdateProjectEnv(project?.id);
-  const deleteEnv = useDeleteProjectEnv(project?.id);
-  const [envDraft, setEnvDraft] = useState("");
-  const [envEditorOpen, setEnvEditorOpen] = useState(false);
-
-  useEffect(() => {
-    setEnvDraft(envQuery.data?.content ?? "");
-  }, [envQuery.data?.content, project?.id]);
-
-  useEffect(() => {
-    setEnvEditorOpen(false);
-  }, [project?.id]);
+  const [editingEnvProjectId, setEditingEnvProjectId] = useState<string | null>(null);
 
   if (!project) {
     return (
@@ -48,31 +38,14 @@ export default function ProjectDetail() {
 
   const hasWorkspaces = (project.workspaces ?? []).length > 0;
   const workspaceCount = (project.workspaces ?? []).length;
+  const envEditorOpen = editingEnvProjectId === project.id;
   const envContent = envQuery.data?.content ?? "";
   const envConfigured = envQuery.data?.exists ?? false;
   const envPath = envQuery.data?.path;
-  const envDirty = envDraft !== envContent;
-  const envEntryCount = countEnvEntries(envContent);
 
   const handleDelete = async () => {
     await deleteProject(project.id);
     navigate("/settings/appearance");
-  };
-
-  const handleSaveEnv = async () => {
-    await updateEnv.mutateAsync(envDraft);
-    setEnvEditorOpen(false);
-  };
-
-  const handleDeleteEnv = async () => {
-    await deleteEnv.mutateAsync();
-    setEnvDraft("");
-    setEnvEditorOpen(false);
-  };
-
-  const openEnvEditor = () => {
-    setEnvDraft(envContent);
-    setEnvEditorOpen(true);
   };
 
   return (
@@ -126,112 +99,15 @@ export default function ProjectDetail() {
           </div>
         </section>
 
-        <section className="rounded-lg border border-border/50 bg-card/50 p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-medium text-foreground">Environment</h2>
-                <span
-                  className={cn(
-                    "rounded-md px-2 py-0.5 text-[11px] font-medium",
-                    envConfigured
-                      ? "bg-primary/10 text-primary"
-                      : "bg-muted text-muted-foreground",
-                  )}
-                >
-                  {envConfigured ? "Configured" : "Not configured"}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {envConfigured
-                  ? `${envEntryCount} entr${envEntryCount === 1 ? "y" : "ies"} stored locally for new workspaces.`
-                  : "Add project-level variables that will be copied into new workspaces."}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {envConfigured && (
-                <button
-                  type="button"
-                  disabled={deleteEnv.isPending}
-                  onClick={() => void handleDeleteEnv()}
-                  className={cn(
-                    "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-destructive/40 px-2.5 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10",
-                    deleteEnv.isPending && "cursor-not-allowed opacity-50",
-                  )}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Delete
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => envEditorOpen ? setEnvEditorOpen(false) : openEnvEditor()}
-                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-              >
-                {envEditorOpen ? (
-                  <>
-                    <X className="h-3.5 w-3.5" />
-                    Close
-                  </>
-                ) : envConfigured ? (
-                  <>
-                    <Pencil className="h-3.5 w-3.5" />
-                    Edit
-                  </>
-                ) : (
-                  <>
-                    <Plus className="h-3.5 w-3.5" />
-                    Configure
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-          {envEditorOpen && (
-            <div className="mt-4 border-t border-border/50 pt-4">
-              <textarea
-                value={envDraft}
-                onChange={(event) => setEnvDraft(event.target.value)}
-                disabled={envQuery.isLoading}
-                spellCheck={false}
-                className="min-h-32 w-full resize-y rounded-lg border border-border/50 bg-background/70 p-3 font-mono text-xs leading-5 text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-ring"
-                placeholder={"DATABASE_URL=...\nAPI_KEY=..."}
-              />
-
-              <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-muted-foreground">
-                  Saved values are copied into workspaces created after this point.
-                </p>
-                <div className="flex shrink-0 items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={!envDirty || updateEnv.isPending}
-                    onClick={() => setEnvDraft(envContent)}
-                    className={cn(
-                      "rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
-                      (!envDirty || updateEnv.isPending) && "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-muted-foreground",
-                    )}
-                  >
-                    Discard
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!envDirty || updateEnv.isPending}
-                    onClick={() => void handleSaveEnv()}
-                    className={cn(
-                      "inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90",
-                      (!envDirty || updateEnv.isPending) && "cursor-not-allowed opacity-50 hover:opacity-50",
-                    )}
-                  >
-                    <Save className="h-3.5 w-3.5" />
-                    Save
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
+        <ProjectEnvSection
+          project={project}
+          envConfigured={envConfigured}
+          envContent={envContent}
+          envLoading={envQuery.isLoading}
+          editorOpen={envEditorOpen}
+          onOpenEditor={() => setEditingEnvProjectId(project.id)}
+          onCloseEditor={() => setEditingEnvProjectId(null)}
+        />
 
         <section className="rounded-lg border border-destructive/20 bg-destructive/5 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -281,11 +157,176 @@ export default function ProjectDetail() {
   );
 }
 
+function ProjectEnvSection({
+  project,
+  envConfigured,
+  envContent,
+  envLoading,
+  editorOpen,
+  onOpenEditor,
+  onCloseEditor,
+}: {
+  project: Project;
+  envConfigured: boolean;
+  envContent: string;
+  envLoading: boolean;
+  editorOpen: boolean;
+  onOpenEditor: () => void;
+  onCloseEditor: () => void;
+}) {
+  const updateEnv = useUpdateProjectEnv(project.id);
+  const deleteEnv = useDeleteProjectEnv(project.id);
+  const envEntryCount = countEnvEntries(envContent);
+
+  const handleDeleteEnv = async () => {
+    await deleteEnv.mutateAsync();
+    onCloseEditor();
+  };
+
+  const handleSaveEnv = async (content: string) => {
+    await updateEnv.mutateAsync(content);
+    onCloseEditor();
+  };
+
+  return (
+    <section className="rounded-lg border border-border/50 bg-card/50 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-medium text-foreground">Environment</h2>
+            <span
+              className={cn(
+                "rounded-md px-2 py-0.5 text-[11px] font-medium",
+                envConfigured
+                  ? "bg-primary/10 text-primary"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              {envConfigured ? "Configured" : "Not configured"}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {envConfigured
+              ? `${envEntryCount} entr${envEntryCount === 1 ? "y" : "ies"} stored locally for new workspaces.`
+              : "Add project-level variables that will be copied into new workspaces."}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {envConfigured && (
+            <button
+              type="button"
+              disabled={deleteEnv.isPending}
+              onClick={() => void handleDeleteEnv()}
+              className={cn(
+                "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-destructive/40 px-2.5 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10",
+                deleteEnv.isPending && "cursor-not-allowed opacity-50",
+              )}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={editorOpen ? onCloseEditor : onOpenEditor}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+          >
+            {editorOpen ? (
+              <>
+                <X className="h-3.5 w-3.5" />
+                Close
+              </>
+            ) : envConfigured ? (
+              <>
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
+              </>
+            ) : (
+              <>
+                <Plus className="h-3.5 w-3.5" />
+                Configure
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {editorOpen && (
+        <ProjectEnvEditor
+          initialContent={envContent}
+          loading={envLoading}
+          saving={updateEnv.isPending}
+          onSave={(content) => void handleSaveEnv(content)}
+        />
+      )}
+    </section>
+  );
+}
+
+function ProjectEnvEditor({
+  initialContent,
+  loading,
+  saving,
+  onSave,
+}: {
+  initialContent: string;
+  loading: boolean;
+  saving: boolean;
+  onSave: (content: string) => void;
+}) {
+  const [draft, setDraft] = useState(initialContent);
+  const dirty = draft !== initialContent;
+
+  return (
+    <div className="mt-4 border-t border-border/50 pt-4">
+      <textarea
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        disabled={loading}
+        spellCheck={false}
+        className="min-h-32 w-full resize-y rounded-lg border border-border/50 bg-background/70 p-3 font-mono text-xs leading-5 text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-ring"
+        placeholder={"DATABASE_URL=...\nAPI_KEY=..."}
+      />
+
+      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs text-muted-foreground">
+          Saved values are copied into workspaces created after this point.
+        </p>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            disabled={!dirty || saving}
+            onClick={() => setDraft(initialContent)}
+            className={cn(
+              "rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
+              (!dirty || saving) && "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-muted-foreground",
+            )}
+          >
+            Discard
+          </button>
+          <button
+            type="button"
+            disabled={!dirty || saving}
+            onClick={() => onSave(draft)}
+            className={cn(
+              "inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90",
+              (!dirty || saving) && "cursor-not-allowed opacity-50 hover:opacity-50",
+            )}
+          >
+            <Save className="h-3.5 w-3.5" />
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InfoRow({ label, mono, children }: { label: string; mono?: boolean; children: ReactNode }) {
   return (
     <div className="grid grid-cols-[112px_minmax(0,1fr)] items-baseline gap-3">
       <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-      <dd className={cn("min-w-0 text-sm text-foreground", mono && "font-mono text-xs")}>{children}</dd>
+      <dd className={cn("min-w-0 text-sm text-foreground", mono && "break-all font-mono text-xs")}>{children}</dd>
     </div>
   );
 }

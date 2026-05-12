@@ -1,4 +1,4 @@
-import { access, chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { getDataDir } from "./state.js";
@@ -75,14 +75,14 @@ export async function copyProjectEnvToWorkspace(
   dataDir = getDataDir(),
 ): Promise<boolean> {
   const source = projectEnvPath(dataDir, projectId);
+  let content: string;
   try {
-    await access(source);
+    content = await readFile(source, "utf-8");
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw err;
   }
 
-  const content = await readFile(source, "utf-8");
   const target = join(workspacePath, ".env");
   await writeFile(target, content, { encoding: "utf-8", mode: 0o600 });
   await chmod(target, 0o600).catch(() => {});
