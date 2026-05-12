@@ -14,6 +14,7 @@ export interface Project {
 export interface ProjectEnvData {
   exists: boolean;
   content: string;
+  path?: string;
   sizeBytes?: number;
   updatedAt?: string;
 }

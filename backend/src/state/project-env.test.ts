@@ -37,6 +37,7 @@ describe("project environment storage", () => {
 
     expect(saved.exists).toBe(true);
     expect(saved.content).toBe("API_KEY=secret\n");
+    expect(saved.path).toBe(projectEnvPath(dataDir, "proj-1"));
     expect(saved.sizeBytes).toBe(Buffer.byteLength("API_KEY=secret\n"));
     expect(saved.updatedAt).toBeTruthy();
     expect(await readFile(projectEnvPath(dataDir, "proj-1"), "utf-8")).toBe("API_KEY=secret\n");

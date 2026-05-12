@@ -70,8 +70,8 @@ describe("ProjectDetail", () => {
 
     const heading = await screen.findByRole("heading", { name: "Alpha" });
     expect(heading.closest("[data-tauri-drag-region]")).toBeInTheDocument();
-    expect(screen.getByText("Bare repo path")).toBeInTheDocument();
-    expect(screen.getByText("Workspaces path")).toBeInTheDocument();
+    expect(screen.getByText("Bare repo")).toBeInTheDocument();
+    expect(screen.getByText("Workspaces")).toBeInTheDocument();
     expect(screen.getAllByText("\u2014")).toHaveLength(2);
   });
 
@@ -130,6 +130,10 @@ describe("ProjectDetail", () => {
 
     renderProjectDetail("/settings/repositories/p1", projects);
 
+    expect(await screen.findByRole("button", { name: "Configure" })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Configure" }));
     const editor = await screen.findByRole("textbox");
     await waitFor(() => {
       expect(editor).not.toBeDisabled();
@@ -162,6 +166,8 @@ describe("ProjectDetail", () => {
       content: "API_KEY=secret\n",
     });
 
+    expect(await screen.findByText("1 entry stored locally for new workspaces.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
     const editor = await screen.findByRole("textbox");
     await waitFor(() => {
       expect(editor).toHaveValue("API_KEY=secret\n");
@@ -172,6 +178,28 @@ describe("ProjectDetail", () => {
       expect(api.delete).toHaveBeenCalledWith("/api/projects/p1/env");
     });
     expect(screen.getByText("Not configured")).toBeInTheDocument();
+  });
+
+  it("does not count project environment comments or blank lines as entries", async () => {
+    const projects: Project[] = [
+      {
+        id: "p1",
+        name: "Alpha",
+        url: "https://github.com/acme/alpha.git",
+        createdAt: "2026-02-11T00:00:00.000Z",
+        workspaces: [],
+      },
+    ];
+
+    renderProjectDetail("/settings/repositories/p1", projects, {
+      exists: true,
+      content: "# API credentials\n\nAPI_KEY=secret\n   # ignored\nDATABASE_URL=postgres://local\n",
+      path: "/hive-data/proj-1/env/.env",
+    });
+
+    expect(await screen.findByText("Env file")).toBeInTheDocument();
+    expect(screen.getByText("/hive-data/proj-1/env/.env")).toBeInTheDocument();
+    expect(await screen.findByText("2 entries stored locally for new workspaces.")).toBeInTheDocument();
   });
 
   it("deletes project after confirmation and returns to appearance settings", async () => {

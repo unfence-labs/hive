@@ -54,11 +54,13 @@ describe("project environment routes", () => {
     expect(put.json()).toMatchObject({
       exists: true,
       content: "API_KEY=secret\n",
+      path: join(dataDir, "proj-1", "env", ".env"),
       sizeBytes: Buffer.byteLength("API_KEY=secret\n"),
     });
 
     const get = await app.inject({ method: "GET", url: "/api/projects/proj-1/env" });
     expect(get.json().content).toBe("API_KEY=secret\n");
+    expect(get.json().path).toBe(join(dataDir, "proj-1", "env", ".env"));
   });
 
   it("deletes project environment content", async () => {

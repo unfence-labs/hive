@@ -88,6 +88,7 @@ export interface ProjectState {
 export interface ProjectEnvData {
   exists: boolean;
   content: string;
+  path?: string;
   sizeBytes?: number;
   updatedAt?: string;
 }

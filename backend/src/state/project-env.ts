@@ -31,6 +31,7 @@ export async function loadProjectEnv(
     return {
       exists: true,
       content,
+      path,
       sizeBytes: info.size,
       updatedAt: info.mtime.toISOString(),
     };
