@@ -11,6 +11,14 @@ export interface Project {
   warning?: string;
 }
 
+export interface ProjectEnvData {
+  exists: boolean;
+  content: string;
+  path?: string;
+  sizeBytes?: number;
+  updatedAt?: string;
+}
+
 export interface Workspace {
   id: string;
   name: string;

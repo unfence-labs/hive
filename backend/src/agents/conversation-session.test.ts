@@ -79,6 +79,20 @@ function resultLine(sessionId = "sess-123", costUsd = 0.01): string {
   return JSON.stringify({ type: "result", session_id: sessionId, cost_usd: costUsd }) + "\n";
 }
 
+async function waitForMessages(
+  messages: WsOutgoing[],
+  type: WsOutgoing["type"],
+  count = 1,
+): Promise<WsOutgoing[]> {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    const matches = messages.filter((msg) => msg.type === type);
+    if (matches.length >= count) return matches;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return messages.filter((msg) => msg.type === type);
+}
+
 function geminiInitLine(sessionId: string, model = "gemini-3.1-pro-preview"): string {
   return JSON.stringify({ type: "init", session_id: sessionId, model }) + "\n";
 }
@@ -970,7 +984,7 @@ describe("ConversationSession", () => {
     expect(mockProc.kill).toHaveBeenCalledWith("SIGKILL");
 
     mockProc._emitClose(137);
-    await new Promise((r) => setTimeout(r, 50));
+    await waitForMessages(messages, "tool_input_required");
 
     const doneEvents = messages.filter((m) => m.type === "done");
     const cancelledEvents = messages.filter((m) => m.type === "cancelled");
@@ -1782,10 +1796,8 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
-
-    const doneMsgs = messages.filter((m) => m.type === "done");
-    expect(doneMsgs[0]).toMatchObject({
+    const [doneMsg] = await waitForMessages(messages, "done");
+    expect(doneMsg).toMatchObject({
       inputTokens: 1800, // 1000 + 500 + 300
       outputTokens: 100,
     });
@@ -1888,10 +1900,8 @@ describe("ConversationSession", () => {
     );
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
-
-    const doneMsgs = messages.filter((m) => m.type === "done");
-    expect(doneMsgs[0]).toMatchObject({
+    const [doneMsg] = await waitForMessages(messages, "done");
+    expect(doneMsg).toMatchObject({
       inputTokens: 800, // 500 + 200 + 100 from assistant event
       outputTokens: 80,
     });
@@ -1948,11 +1958,9 @@ describe("ConversationSession", () => {
     );
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
-
-    const doneMsgs = messages.filter((m) => m.type === "done");
+    const [doneMsg] = await waitForMessages(messages, "done");
     // Should use the LAST assistant event (140K), not the cumulative result (260K)
-    expect(doneMsgs[0]).toMatchObject({
+    expect(doneMsg).toMatchObject({
       inputTokens: 140_000,
       outputTokens: 200,
     });
@@ -2121,10 +2129,8 @@ describe("ConversationSession", () => {
     );
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
-
-    const doneMsgs = messages.filter((m) => m.type === "done");
-    expect(doneMsgs[0]).toMatchObject({
+    const [doneMsg] = await waitForMessages(messages, "done");
+    expect(doneMsg).toMatchObject({
       inputTokens: 5000, // from assistant, not result
       outputTokens: 100,
       durationMs: 3500, // from result — always captured

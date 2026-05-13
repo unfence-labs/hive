@@ -69,7 +69,7 @@ It manages:
 - Notification settings (Telegram + APNs, instant-apply toggles, test message).
 - Agent settings (installed providers, versions, update availability).
 - Prompt settings (base prompt editor, template library, prompt flow explainer).
-- Per-repository detail view with deletion controls.
+- Per-repository detail view with deletion controls and CodeMirror-powered project `.env` editing.
 
 **Desktop**
 - Tauri v2 desktop app (macOS `.dmg`, Windows `.exe`) with native titlebar integration.
@@ -242,6 +242,9 @@ npm test
 | `GET` | `/api/projects/:id` | Get project |
 | `DELETE` | `/api/projects/:id` | Delete project (must have zero active workspaces) |
 | `POST` | `/api/projects/:id/fetch` | Fetch remote updates |
+| `GET` | `/api/projects/:id/env` | Get project-managed `.env` |
+| `PUT` | `/api/projects/:id/env` | Save project-managed `.env` |
+| `DELETE` | `/api/projects/:id/env` | Delete project-managed `.env` |
 
 ### Workspaces
 
@@ -464,6 +467,8 @@ $DATA_DIR/
 │       └── workspace/
 └── proj-<id>/
     ├── state.json
+    ├── env/
+    │   └── .env
     ├── repo.git/
     ├── workspaces/
     │   └── <workspace-name>/

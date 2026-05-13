@@ -10,6 +10,7 @@ import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/path
 import { pickCityName } from "../utils/city-names.js";
 import { loadProject, loadAllProjects, saveProject, getDataDir, withProjectStateLock } from "../state/state.js";
 import { isInitialized, lookupWorkspace } from "../state/workspace-index.js";
+import { copyProjectEnvToWorkspace } from "../state/project-env.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../utils/errors.js";
 import { stopAllForWorkspace } from "../services/script-runner.js";
 import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffScope, DiffStatResponse } from "../types.js";
@@ -156,6 +157,7 @@ export async function createWorkspace(
 
       // Create worktree from the default branch
       await addWorktreeWithNewBranch(bare, wsPath, branch, defaultBranch);
+      await copyProjectEnvToWorkspace(projectId, wsPath, dataDir);
 
       const workspace: Workspace = {
         id: `ws-${nanoid(8)}`,

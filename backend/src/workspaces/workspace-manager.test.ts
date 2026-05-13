@@ -17,6 +17,7 @@ import {
 import { git } from "../utils/git.js";
 import { loadProject, saveProject } from "../state/state.js";
 import * as stateStore from "../state/state.js";
+import { saveProjectEnv } from "../state/project-env.js";
 import { initWorkspaceIndex, _clearForTests as clearWorkspaceIndexForTests } from "../state/workspace-index.js";
 
 let tempDir: string;
@@ -56,6 +57,22 @@ describe("createWorkspace", () => {
     const wsPath = join(dataDir, projectId, "workspaces", ws.name);
     expect(existsSync(wsPath)).toBe(true);
     expect(existsSync(join(wsPath, "README.md"))).toBe(true);
+  });
+
+  it("does not create a .env when the project environment is not configured", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    expect(existsSync(join(wsPath, ".env"))).toBe(false);
+  });
+
+  it("copies the project environment into a new workspace", async () => {
+    await saveProjectEnv(projectId, "API_KEY=secret\n", dataDir);
+
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    expect(await readFile(join(wsPath, ".env"), "utf-8")).toBe("API_KEY=secret\n");
   });
 
   it("creates multiple workspaces with unique names", async () => {
