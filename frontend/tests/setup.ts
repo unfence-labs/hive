@@ -62,3 +62,25 @@ if (typeof window !== "undefined" && !window.matchMedia) {
 if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = vi.fn();
 }
+
+// CodeMirror measures DOM ranges for cursor and selection rendering. jsdom does
+// not provide these layout APIs, so expose deterministic zero-sized rectangles.
+if (typeof Range !== "undefined") {
+  Range.prototype.getClientRects ??= vi.fn(() => ({
+    length: 0,
+    item: () => null,
+    [Symbol.iterator]: function* () {},
+  }) as DOMRectList);
+
+  Range.prototype.getBoundingClientRect ??= vi.fn(() => ({
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    toJSON: () => ({}),
+  }) as DOMRect);
+}

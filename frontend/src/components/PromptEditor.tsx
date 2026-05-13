@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useMemo } from "react";
 import {
   EditorView,
   ViewPlugin,
@@ -6,14 +6,12 @@ import {
   Decoration,
   type DecorationSet,
   type ViewUpdate,
-  placeholder as cmPlaceholder,
 } from "@codemirror/view";
-import { EditorState, Compartment } from "@codemirror/state";
-import { minimalSetup } from "codemirror";
 import { markdown } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { oneDarkHighlightStyle } from "@codemirror/theme-one-dark";
 import { syntaxHighlighting } from "@codemirror/language";
+import { CodeEditor } from "@/components/CodeEditor";
 
 // ── Template variable highlighting ─────────────────────────────────────
 
@@ -39,48 +37,15 @@ const templateVarPlugin = ViewPlugin.fromClass(
   { decorations: (instance) => instance.decorations },
 );
 
-// ── Theme overrides to match app palette ───────────────────────────────
-
-const appTheme = EditorView.theme(
-  {
-    "&": {
-      fontSize: "13px",
-      background: "transparent",
-      border: "none",
-      borderRadius: "0.5rem",
-      overflow: "hidden",
-      height: "100%",
-    },
-    "&.cm-focused": {
-      outline: "2px solid hsl(var(--ring))",
-      outlineOffset: "0px",
-    },
-    ".cm-scroller": {
-      fontFamily: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
-      lineHeight: "1.6",
-      background: "transparent",
-    },
-    ".cm-gutters": {
-      display: "none",
-    },
-    ".cm-content": {
-      padding: "0.75rem",
-    },
-    ".cm-template-var": {
-      color: "var(--primary)",
-      background: "hsl(from var(--primary) h s l / 0.15)",
-      borderRadius: "3px",
-      padding: "0 2px",
-      fontWeight: "600",
-    },
+const templateVarTheme = EditorView.theme({
+  ".cm-template-var": {
+    color: "var(--primary)",
+    background: "hsl(from var(--primary) h s l / 0.15)",
+    borderRadius: "3px",
+    padding: "0 2px",
+    fontWeight: "600",
   },
-  { dark: true },
-);
-
-// ── Compartments for dynamic reconfiguration ───────────────────────────
-
-const readOnlyComp = new Compartment();
-const editableComp = new Compartment();
+});
 
 // ── Component ──────────────────────────────────────────────────────────
 
@@ -99,75 +64,24 @@ export function PromptEditor({
   maxHeight = "24rem",
   placeholder,
 }: PromptEditorProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const viewRef = useRef<EditorView | null>(null);
-  // Keep onChange stable across renders without recreating the view
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
-
-  // Mount editor once
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    const extensions = [
-      minimalSetup,
+  const extensions = useMemo(
+    () => [
       markdown({ codeLanguages: languages }),
       syntaxHighlighting(oneDarkHighlightStyle),
-      appTheme,
       templateVarPlugin,
-      EditorView.lineWrapping,
-      readOnlyComp.of(EditorState.readOnly.of(readOnly)),
-      editableComp.of(EditorView.editable.of(!readOnly)),
-      EditorView.updateListener.of((update) => {
-        if (update.docChanged && onChangeRef.current) {
-          onChangeRef.current(update.state.doc.toString());
-        }
-      }),
-    ];
-
-    if (placeholder) {
-      extensions.push(cmPlaceholder(placeholder));
-    }
-
-    const view = new EditorView({
-      state: EditorState.create({ doc: value, extensions }),
-      parent: containerRef.current,
-    });
-
-    viewRef.current = view;
-    return () => {
-      view.destroy();
-      viewRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Sync external value → editor (skip if editor already matches)
-  useEffect(() => {
-    const view = viewRef.current;
-    if (!view) return;
-    const current = view.state.doc.toString();
-    if (current === value) return;
-    view.dispatch({ changes: { from: 0, to: current.length, insert: value } });
-  }, [value]);
-
-  // Sync readOnly prop
-  useEffect(() => {
-    const view = viewRef.current;
-    if (!view) return;
-    view.dispatch({
-      effects: [
-        readOnlyComp.reconfigure(EditorState.readOnly.of(readOnly)),
-        editableComp.reconfigure(EditorView.editable.of(!readOnly)),
-      ],
-    });
-  }, [readOnly]);
+      templateVarTheme,
+    ],
+    [],
+  );
 
   return (
-    <div
-      ref={containerRef}
-      className="rounded-lg border border-border/50 bg-card/50"
-      style={{ height: maxHeight, minHeight: "6rem", resize: "vertical", overflow: "hidden" }}
+    <CodeEditor
+      value={value}
+      onChange={onChange}
+      readOnly={readOnly}
+      maxHeight={maxHeight}
+      placeholder={placeholder}
+      extensions={extensions}
     />
   );
 }

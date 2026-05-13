@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Trash2, ExternalLink, Save, Pencil, Plus, X } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
+import { EnvEditor } from "@/components/EnvEditor";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -279,13 +280,11 @@ function ProjectEnvEditor({
 
   return (
     <div className="mt-4 border-t border-border/50 pt-4">
-      <textarea
+      <EnvEditor
         value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        disabled={loading}
-        spellCheck={false}
-        className="min-h-32 w-full resize-y rounded-lg border border-border/50 bg-background/70 p-3 font-mono text-xs leading-5 text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-ring"
-        placeholder={"DATABASE_URL=...\nAPI_KEY=..."}
+        onChange={setDraft}
+        readOnly={loading}
+        className="bg-background/70"
       />
 
       <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

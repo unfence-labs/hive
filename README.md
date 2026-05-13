@@ -69,7 +69,7 @@ It manages:
 - Notification settings (Telegram + APNs, instant-apply toggles, test message).
 - Agent settings (installed providers, versions, update availability).
 - Prompt settings (base prompt editor, template library, prompt flow explainer).
-- Per-repository detail view with deletion controls.
+- Per-repository detail view with deletion controls and CodeMirror-powered project `.env` editing.
 
 **Desktop**
 - Tauri v2 desktop app (macOS `.dmg`, Windows `.exe`) with native titlebar integration.
