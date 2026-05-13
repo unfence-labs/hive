@@ -108,7 +108,8 @@ describe("ProjectDetail", () => {
     renderProjectDetail("/settings/repositories/p1", projects);
 
     expect(await screen.findByText("Environment")).toBeInTheDocument();
-    expect(screen.getByText("Not configured")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Loading" })).toBeDisabled();
+    expect(await screen.findByText("Not configured")).toBeInTheDocument();
     expect(screen.queryByDisplayValue(/API_KEY/)).not.toBeInTheDocument();
   });
 

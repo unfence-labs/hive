@@ -17,7 +17,7 @@ import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { useProjects } from "@/hooks/useProjects";
 import { useProjectEnv, useUpdateProjectEnv, useDeleteProjectEnv } from "@/hooks/useProjectEnv";
 import { cn } from "@/lib/utils";
-import type { Project } from "@/types";
+import type { Project, ProjectEnvData } from "@/types";
 
 export default function ProjectDetail() {
   const { projects, deleteProject } = useProjects();
@@ -43,6 +43,7 @@ export default function ProjectDetail() {
   const envContent = envQuery.data?.content ?? "";
   const envConfigured = envQuery.data?.exists ?? false;
   const envPath = envQuery.data?.path;
+  const envRevision = getEnvRevision(envQuery.data);
 
   const handleDelete = async () => {
     await deleteProject(project.id);
@@ -104,6 +105,7 @@ export default function ProjectDetail() {
           project={project}
           envConfigured={envConfigured}
           envContent={envContent}
+          envRevision={envRevision}
           envLoading={envQuery.isLoading}
           editorOpen={envEditorOpen}
           onOpenEditor={() => setEditingEnvProjectId(project.id)}
@@ -162,6 +164,7 @@ function ProjectEnvSection({
   project,
   envConfigured,
   envContent,
+  envRevision,
   envLoading,
   editorOpen,
   onOpenEditor,
@@ -170,6 +173,7 @@ function ProjectEnvSection({
   project: Project;
   envConfigured: boolean;
   envContent: string;
+  envRevision: string;
   envLoading: boolean;
   editorOpen: boolean;
   onOpenEditor: () => void;
@@ -178,6 +182,9 @@ function ProjectEnvSection({
   const updateEnv = useUpdateProjectEnv(project.id);
   const deleteEnv = useDeleteProjectEnv(project.id);
   const envEntryCount = countEnvEntries(envContent);
+  const envStatusLabel = getEnvStatusLabel(envLoading, envConfigured);
+  const envButtonLabel = getEnvButtonLabel(envLoading, editorOpen, envConfigured);
+  const envDescription = getEnvDescription(envLoading, envConfigured, envEntryCount);
 
   const handleDeleteEnv = async () => {
     await deleteEnv.mutateAsync();
@@ -198,18 +205,16 @@ function ProjectEnvSection({
             <span
               className={cn(
                 "rounded-md px-2 py-0.5 text-[11px] font-medium",
-                envConfigured
+                envConfigured && !envLoading
                   ? "bg-primary/10 text-primary"
                   : "bg-muted text-muted-foreground",
               )}
             >
-              {envConfigured ? "Configured" : "Not configured"}
+              {envStatusLabel}
             </span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            {envConfigured
-              ? `${envEntryCount} entr${envEntryCount === 1 ? "y" : "ies"} stored locally for new workspaces.`
-              : "Add project-level variables that will be copied into new workspaces."}
+            {envDescription}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -229,23 +234,29 @@ function ProjectEnvSection({
           )}
           <button
             type="button"
+            disabled={envLoading}
             onClick={editorOpen ? onCloseEditor : onOpenEditor}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+            className={cn(
+              "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
+              envLoading && "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-muted-foreground",
+            )}
           >
-            {editorOpen ? (
+            {envLoading ? (
+              envButtonLabel
+            ) : editorOpen ? (
               <>
                 <X className="h-3.5 w-3.5" />
-                Close
+                {envButtonLabel}
               </>
             ) : envConfigured ? (
               <>
                 <Pencil className="h-3.5 w-3.5" />
-                Edit
+                {envButtonLabel}
               </>
             ) : (
               <>
                 <Plus className="h-3.5 w-3.5" />
-                Configure
+                {envButtonLabel}
               </>
             )}
           </button>
@@ -254,6 +265,7 @@ function ProjectEnvSection({
 
       {editorOpen && (
         <ProjectEnvEditor
+          key={`${project.id}:${envRevision}`}
           initialContent={envContent}
           loading={envLoading}
           saving={updateEnv.isPending}
@@ -277,6 +289,7 @@ function ProjectEnvEditor({
 }) {
   const [draft, setDraft] = useState(initialContent);
   const dirty = draft !== initialContent;
+  const actionsDisabled = loading || saving || !dirty;
 
   return (
     <div className="mt-4 border-t border-border/50 pt-4">
@@ -294,22 +307,22 @@ function ProjectEnvEditor({
         <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
-            disabled={!dirty || saving}
+            disabled={actionsDisabled}
             onClick={() => setDraft(initialContent)}
             className={cn(
               "rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
-              (!dirty || saving) && "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-muted-foreground",
+              actionsDisabled && "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-muted-foreground",
             )}
           >
             Discard
           </button>
           <button
             type="button"
-            disabled={!dirty || saving}
+            disabled={actionsDisabled}
             onClick={() => onSave(draft)}
             className={cn(
               "inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90",
-              (!dirty || saving) && "cursor-not-allowed opacity-50 hover:opacity-50",
+              actionsDisabled && "cursor-not-allowed opacity-50 hover:opacity-50",
             )}
           >
             <Save className="h-3.5 w-3.5" />
@@ -319,6 +332,37 @@ function ProjectEnvEditor({
       </div>
     </div>
   );
+}
+
+function getEnvStatusLabel(envLoading: boolean, envConfigured: boolean): string {
+  if (envLoading) return "Loading";
+  return envConfigured ? "Configured" : "Not configured";
+}
+
+function getEnvButtonLabel(
+  envLoading: boolean,
+  editorOpen: boolean,
+  envConfigured: boolean,
+): string {
+  if (envLoading) return "Loading";
+  if (editorOpen) return "Close";
+  return envConfigured ? "Edit" : "Configure";
+}
+
+function getEnvDescription(
+  envLoading: boolean,
+  envConfigured: boolean,
+  envEntryCount: number,
+): string {
+  if (envLoading) return "Loading project-level variables.";
+  if (!envConfigured) return "Add project-level variables that will be copied into new workspaces.";
+  return `${envEntryCount} entr${envEntryCount === 1 ? "y" : "ies"} stored locally for new workspaces.`;
+}
+
+function getEnvRevision(data: ProjectEnvData | undefined): string {
+  if (!data) return "loading";
+  if (!data.exists) return "missing";
+  return data.updatedAt ?? `${data.sizeBytes ?? data.content.length}:${data.content}`;
 }
 
 function InfoRow({ label, mono, children }: { label: string; mono?: boolean; children: ReactNode }) {
