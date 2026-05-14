@@ -35,7 +35,7 @@ export function ServerMetrics() {
   if (!metrics) return null;
 
   const tooltip = [
-    `CPU ${metrics.cpuPercent}%`,
+    `CPU ${metrics.cpuPercent}% avg 15s`,
     `Memory ${metrics.memPercent}%`,
     `Disk ${metrics.diskPercent}%`,
   ].join(" · ");

@@ -196,18 +196,30 @@ function snapshotCpuTimes() {
   return { idle, total };
 }
 
+const CPU_SAMPLE_INTERVAL_MS = 5_000;
+const CPU_ROLLING_SAMPLE_COUNT = 3;
+
+function rollingAveragePercent(samples: number[], next: number): number {
+  samples.push(next);
+  if (samples.length > CPU_ROLLING_SAMPLE_COUNT) samples.shift();
+  return Math.round(samples.reduce((sum, value) => sum + value, 0) / samples.length);
+}
+
 let prevCpu = snapshotCpuTimes();
 let hostCpuPercentCache = -1; // -1 = no sample yet
+const hostCpuPercentSamples: number[] = [];
 const cgroupReader = detectCgroupReader();
 let prevCgroupUsageMicros: number | null = null;
 let prevCgroupSampleTime = process.hrtime.bigint();
 let cgroupCpuPercentCache: number | null = null;
+const cgroupCpuPercentSamples: number[] = [];
 
 setInterval(() => {
   const curr = snapshotCpuTimes();
   const idleDelta = curr.idle - prevCpu.idle;
   const totalDelta = curr.total - prevCpu.total;
-  hostCpuPercentCache = totalDelta > 0 ? Math.round((1 - idleDelta / totalDelta) * 100) : 0;
+  const rawHostPercent = totalDelta > 0 ? Math.round((1 - idleDelta / totalDelta) * 100) : 0;
+  hostCpuPercentCache = rollingAveragePercent(hostCpuPercentSamples, rawHostPercent);
   prevCpu = curr;
 
   if (!cgroupReader) return;
@@ -216,6 +228,7 @@ setInterval(() => {
   const now = process.hrtime.bigint();
   if (!cgroupSample) {
     cgroupCpuPercentCache = null;
+    cgroupCpuPercentSamples.length = 0;
     prevCgroupUsageMicros = null;
     prevCgroupSampleTime = now;
     return;
@@ -231,15 +244,17 @@ setInterval(() => {
     const usageDelta = cgroupSample.usageMicros - prevCgroupUsageMicros;
     if (usageDelta >= 0) {
       const rawPercent = (usageDelta / (elapsedMicros * cgroupSample.quotaCores)) * 100;
-      cgroupCpuPercentCache = Math.max(0, Math.min(100, Math.round(rawPercent)));
+      const boundedPercent = Math.max(0, Math.min(100, Math.round(rawPercent)));
+      cgroupCpuPercentCache = rollingAveragePercent(cgroupCpuPercentSamples, boundedPercent);
     }
   } else {
     cgroupCpuPercentCache = null;
+    cgroupCpuPercentSamples.length = 0;
   }
 
   prevCgroupUsageMicros = cgroupSample.usageMicros;
   prevCgroupSampleTime = now;
-}, 5_000).unref();
+}, CPU_SAMPLE_INTERVAL_MS).unref();
 
 function getCpuPercent(): number {
   if (cgroupCpuPercentCache !== null) return cgroupCpuPercentCache;

@@ -24,8 +24,8 @@ export function useServerMetrics() {
   const query = useQuery({
     queryKey: ["server-metrics"],
     queryFn: fetchMetrics,
-    refetchInterval: 15_000,
-    staleTime: 10_000,
+    refetchInterval: 5_000,
+    staleTime: 4_000,
     retry: 0,
   });
 
