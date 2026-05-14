@@ -11,13 +11,11 @@ export interface Project {
   warning?: string;
 }
 
-export interface ProjectEnvData {
-  exists: boolean;
-  content: string;
-  path?: string;
-  sizeBytes?: number;
-  updatedAt?: string;
-}
+export type {
+  ProjectEnvConfig,
+  ProjectEnvData,
+  ProjectEnvVariable,
+} from "@hive/shared/project-env";
 
 export interface Workspace {
   id: string;

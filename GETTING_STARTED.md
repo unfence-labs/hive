@@ -165,6 +165,7 @@ Once connected, you can configure additional integrations from the app:
 
 - **Settings > Account** — Connect your GitHub account via OAuth device flow. This authenticates the `gh` CLI on the VPS and configures git credentials, enabling PR status detection and authenticated cloning.
 - **Settings > Notifications** — Enable Telegram notifications to receive alerts when an agent turn completes. Enter your bot token and chat ID, then hit "Test" to verify.
+- **Settings > Projects > Environment** — Configure project-level environment variables. Hive stores structured variables locally and generates a workspace `.env` only when a project has variables.
 
 ## Environment Variables Reference
 

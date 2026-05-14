@@ -1,0 +1,202 @@
+import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import { Eye, EyeOff, Plus, Trash2 } from "lucide-react";
+import { nanoid } from "nanoid";
+import {
+  isValidProjectEnvKey,
+  type ProjectEnvConfig,
+  type ProjectEnvVariable,
+} from "@hive/shared/project-env";
+import { CopyButton } from "@/components/chat/CopyButton";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+
+interface ProjectEnvStructuredEditorProps {
+  value: ProjectEnvConfig;
+  onChange: (value: ProjectEnvConfig) => void;
+  readOnly?: boolean;
+}
+
+export function ProjectEnvStructuredEditor({
+  value,
+  onChange,
+  readOnly = false,
+}: ProjectEnvStructuredEditorProps) {
+  const keyCounts = useMemo(() => countKeys(value.variables), [value.variables]);
+
+  const updateVariable = (id: string, next: ProjectEnvVariable) => {
+    onChange({
+      variables: value.variables.map((variable) => (variable.id === id ? next : variable)),
+    });
+  };
+
+  const deleteVariable = (id: string) => {
+    onChange({ variables: value.variables.filter((variable) => variable.id !== id) });
+  };
+
+  const addVariable = () => {
+    onChange({
+      variables: [
+        ...value.variables,
+        { id: nanoid(), key: "", value: "", comment: "" },
+      ],
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          disabled={readOnly}
+          onClick={addVariable}
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Variable
+        </button>
+      </div>
+
+      {value.variables.length === 0 ? (
+        <div className="rounded-md border border-dashed border-border/60 bg-background/50 p-5 text-center">
+          <p className="text-sm font-medium text-foreground">No variables configured</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Add a variable when this project needs a generated workspace .env file.
+          </p>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-md border border-border/50 bg-background/40">
+          <div className="grid grid-cols-[minmax(8rem,0.85fr)_minmax(10rem,1fr)_minmax(8rem,1fr)_2rem] gap-3 border-b border-border/50 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <span>Key</span>
+            <span>Value</span>
+            <span>Comment</span>
+            <span className="sr-only">Actions</span>
+          </div>
+          {value.variables.map((variable) => (
+            <VariableRow
+              key={variable.id}
+              variable={variable}
+              duplicate={keyCounts.get(variable.key.trim()) !== undefined && (keyCounts.get(variable.key.trim()) ?? 0) > 1}
+              readOnly={readOnly}
+              onChange={(next) => updateVariable(variable.id, next)}
+              onDelete={() => deleteVariable(variable.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VariableRow({
+  variable,
+  duplicate,
+  readOnly,
+  onChange,
+  onDelete,
+}: {
+  variable: ProjectEnvVariable;
+  duplicate: boolean;
+  readOnly: boolean;
+  onChange: (variable: ProjectEnvVariable) => void;
+  onDelete: () => void;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const key = variable.key.trim();
+  const invalidKey = key !== "" && !isValidProjectEnvKey(key);
+
+  return (
+    <div className={cn(
+      "grid gap-3 border-b border-border/40 px-3 py-2 last:border-b-0",
+      "sm:grid-cols-[minmax(8rem,0.85fr)_minmax(10rem,1fr)_minmax(8rem,1fr)_2rem]",
+    )}>
+      <div>
+        <Input
+          value={variable.key}
+          disabled={readOnly}
+          onChange={(event) => onChange({ ...variable, key: event.target.value })}
+          placeholder="API_KEY"
+          aria-label="Environment variable key"
+          aria-invalid={invalidKey || duplicate || undefined}
+          className="h-8 font-mono text-xs"
+        />
+        {duplicate && <p className="mt-1 text-[11px] text-destructive">Duplicate key</p>}
+      </div>
+
+      <div className="relative">
+        <Input
+          value={variable.value}
+          disabled={readOnly}
+          type={revealed ? "text" : "password"}
+          onChange={(event) => onChange({ ...variable, value: event.target.value })}
+          placeholder="value"
+          aria-label="Environment variable value"
+          className="h-8 pr-16 font-mono text-xs"
+        />
+        <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1">
+          <IconButton label={revealed ? "Hide value" : "Reveal value"} onClick={() => setRevealed(!revealed)}>
+            {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          </IconButton>
+          <CopyButton
+            content={variable.value}
+            disabled={!variable.value}
+            ariaLabel="Copy value"
+            copiedAriaLabel="Value copied"
+            iconClassName="h-3.5 w-3.5"
+            className="h-7 w-7 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          />
+        </div>
+      </div>
+
+      <Input
+        value={variable.comment ?? ""}
+        disabled={readOnly}
+        onChange={(event) => onChange({ ...variable, comment: event.target.value })}
+        placeholder="Comment"
+        aria-label="Environment variable comment"
+        className="h-8 text-xs"
+      />
+
+      <div className="flex items-center justify-end">
+        <IconButton label="Delete variable" disabled={readOnly} onClick={onDelete}>
+          <Trash2 className="h-3.5 w-3.5" />
+        </IconButton>
+      </div>
+    </div>
+  );
+}
+
+function IconButton({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {children}
+    </button>
+  );
+}
+
+function countKeys(variables: ProjectEnvVariable[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const variable of variables) {
+    const key = variable.key.trim();
+    if (!key) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}

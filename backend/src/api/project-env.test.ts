@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createTempDir } from "../utils/test-helpers.js";
 import { saveProject } from "../state/state.js";
 import { projectEnvRoutes } from "./project-env.js";
-import type { ProjectState } from "../types.js";
+import type { ProjectEnvConfig, ProjectState } from "../types.js";
 
 let tempDir: string;
 let dataDir: string;
@@ -40,41 +40,41 @@ describe("project environment routes", () => {
     const res = await app.inject({ method: "GET", url: "/api/projects/proj-1/env" });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ exists: false, content: "" });
+    expect(res.json()).toEqual({ exists: false, config: { variables: [] } });
   });
 
-  it("saves and returns project environment content", async () => {
+  it("saves and returns project environment config", async () => {
+    const config = envConfig("API_KEY", "secret");
     const put = await app.inject({
       method: "PUT",
       url: "/api/projects/proj-1/env",
-      payload: { content: "API_KEY=secret\n" },
+      payload: { config },
     });
 
     expect(put.statusCode).toBe(200);
     expect(put.json()).toMatchObject({
       exists: true,
-      content: "API_KEY=secret\n",
-      path: join(dataDir, "proj-1", "env", ".env"),
-      sizeBytes: Buffer.byteLength("API_KEY=secret\n"),
+      config,
+      path: join(dataDir, "proj-1", "env", "env.json"),
     });
 
     const get = await app.inject({ method: "GET", url: "/api/projects/proj-1/env" });
-    expect(get.json().content).toBe("API_KEY=secret\n");
-    expect(get.json().path).toBe(join(dataDir, "proj-1", "env", ".env"));
+    expect(get.json().config).toEqual(config);
+    expect(get.json().path).toBe(join(dataDir, "proj-1", "env", "env.json"));
   });
 
-  it("deletes project environment content", async () => {
+  it("deletes project environment config", async () => {
     await app.inject({
       method: "PUT",
       url: "/api/projects/proj-1/env",
-      payload: { content: "API_KEY=secret\n" },
+      payload: { config: envConfig("API_KEY", "secret") },
     });
 
     const del = await app.inject({ method: "DELETE", url: "/api/projects/proj-1/env" });
     expect(del.statusCode).toBe(204);
 
     const get = await app.inject({ method: "GET", url: "/api/projects/proj-1/env" });
-    expect(get.json()).toEqual({ exists: false, content: "" });
+    expect(get.json()).toEqual({ exists: false, config: { variables: [] } });
   });
 
   it("returns 404 for unknown projects", async () => {
@@ -84,14 +84,31 @@ describe("project environment routes", () => {
     expect(res.json()).toEqual({ error: "Project not found" });
   });
 
-  it("validates request content", async () => {
+  it("validates request config", async () => {
     const res = await app.inject({
       method: "PUT",
       url: "/api/projects/proj-1/env",
-      payload: { content: 123 },
+      payload: { config: 123 },
     });
 
     expect(res.statusCode).toBe(400);
-    expect(res.json()).toEqual({ error: "Content is required" });
+    expect(res.json()).toEqual({ error: "Config is required" });
+  });
+
+  it("rejects invalid variable keys", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/projects/proj-1/env",
+      payload: { config: envConfig("API KEY", "secret") },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("not a valid environment variable key");
   });
 });
+
+function envConfig(key: string, value: string): ProjectEnvConfig {
+  return {
+    variables: [{ id: "var-1", key, value }],
+  };
+}

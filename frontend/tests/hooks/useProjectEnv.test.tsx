@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { api } from "@/hooks/useApi";
 import { useDeleteProjectEnv, useProjectEnv, useUpdateProjectEnv } from "@/hooks/useProjectEnv";
 import { createWrapper } from "../test-utils";
+import type { ProjectEnvConfig } from "@hive/shared/project-env";
 
 vi.mock("@/hooks/useApi", () => ({
   api: {
@@ -17,10 +18,11 @@ describe("useProjectEnv", () => {
     vi.clearAllMocks();
   });
 
-  it("loads project environment content", async () => {
+  it("loads project environment config", async () => {
+    const config = envConfig("API_KEY", "secret");
     vi.mocked(api.get).mockResolvedValueOnce({
       exists: true,
-      content: "API_KEY=secret\n",
+      config,
     });
 
     const { wrapper } = createWrapper();
@@ -29,28 +31,29 @@ describe("useProjectEnv", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(api.get).toHaveBeenCalledWith("/api/projects/proj-1/env");
-    expect(result.current.data?.content).toBe("API_KEY=secret\n");
+    expect(result.current.data?.config).toEqual(config);
   });
 
-  it("saves project environment content into the query cache", async () => {
+  it("saves project environment config into the query cache", async () => {
+    const config = envConfig("API_KEY", "updated");
     vi.mocked(api.put).mockResolvedValueOnce({
       exists: true,
-      content: "API_KEY=updated\n",
+      config,
     });
 
     const { queryClient, wrapper } = createWrapper();
     const { result } = renderHook(() => useUpdateProjectEnv("proj-1"), { wrapper });
 
     await act(async () => {
-      await result.current.mutateAsync("API_KEY=updated\n");
+      await result.current.mutateAsync(config);
     });
 
     expect(api.put).toHaveBeenCalledWith("/api/projects/proj-1/env", {
-      content: "API_KEY=updated\n",
+      config,
     });
     expect(queryClient.getQueryData(["project-env", "proj-1"])).toEqual({
       exists: true,
-      content: "API_KEY=updated\n",
+      config,
     });
   });
 
@@ -60,7 +63,7 @@ describe("useProjectEnv", () => {
     const { queryClient, wrapper } = createWrapper();
     queryClient.setQueryData(["project-env", "proj-1"], {
       exists: true,
-      content: "API_KEY=secret\n",
+      config: envConfig("API_KEY", "secret"),
     });
     const { result } = renderHook(() => useDeleteProjectEnv("proj-1"), { wrapper });
 
@@ -71,7 +74,13 @@ describe("useProjectEnv", () => {
     expect(api.delete).toHaveBeenCalledWith("/api/projects/proj-1/env");
     expect(queryClient.getQueryData(["project-env", "proj-1"])).toEqual({
       exists: false,
-      content: "",
+      config: { variables: [] },
     });
   });
 });
+
+function envConfig(key: string, value: string): ProjectEnvConfig {
+  return {
+    variables: [{ id: "var-1", key, value }],
+  };
+}

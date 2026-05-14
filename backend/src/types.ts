@@ -85,13 +85,11 @@ export interface ProjectState {
   workspaces: Workspace[];
 }
 
-export interface ProjectEnvData {
-  exists: boolean;
-  content: string;
-  path?: string;
-  sizeBytes?: number;
-  updatedAt?: string;
-}
+export type {
+  ProjectEnvConfig,
+  ProjectEnvData,
+  ProjectEnvVariable,
+} from "@hive/shared/project-env";
 
 export type CreateProjectRequest =
   | { mode?: "clone"; url: string }

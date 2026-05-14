@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Trash2, ExternalLink, Save, Pencil, Plus, X } from "lucide-react";
+import { Trash2, ExternalLink, Save, Pencil, Plus, X, Eye } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
 import { EnvEditor } from "@/components/EnvEditor";
+import { ProjectEnvStructuredEditor } from "@/components/ProjectEnvStructuredEditor";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,11 +14,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { useProjects } from "@/hooks/useProjects";
 import { useProjectEnv, useUpdateProjectEnv, useDeleteProjectEnv } from "@/hooks/useProjectEnv";
 import { cn } from "@/lib/utils";
-import type { Project, ProjectEnvData } from "@/types";
+import type { Project, ProjectEnvConfig, ProjectEnvData } from "@/types";
+import {
+  countProjectEnvVariables,
+  EMPTY_PROJECT_ENV_CONFIG,
+  generateProjectEnvContent,
+  normalizeProjectEnvConfig,
+  validateProjectEnvConfig,
+} from "@hive/shared/project-env";
 
 export default function ProjectDetail() {
   const { projects, deleteProject } = useProjects();
@@ -40,7 +55,7 @@ export default function ProjectDetail() {
   const hasWorkspaces = (project.workspaces ?? []).length > 0;
   const workspaceCount = (project.workspaces ?? []).length;
   const envEditorOpen = editingEnvProjectId === project.id;
-  const envContent = envQuery.data?.content ?? "";
+  const envConfig = envQuery.data?.config ?? EMPTY_PROJECT_ENV_CONFIG;
   const envConfigured = envQuery.data?.exists ?? false;
   const envPath = envQuery.data?.path;
   const envRevision = getEnvRevision(envQuery.data);
@@ -94,7 +109,7 @@ export default function ProjectDetail() {
               {project.workspacesPath ?? "\u2014"}
             </InfoRow>
             {envConfigured && envPath && (
-              <InfoRow label="Env file" mono>
+              <InfoRow label="Env config" mono>
                 {envPath}
               </InfoRow>
             )}
@@ -104,7 +119,7 @@ export default function ProjectDetail() {
         <ProjectEnvSection
           project={project}
           envConfigured={envConfigured}
-          envContent={envContent}
+          envConfig={envConfig}
           envRevision={envRevision}
           envLoading={envQuery.isLoading}
           editorOpen={envEditorOpen}
@@ -163,7 +178,7 @@ export default function ProjectDetail() {
 function ProjectEnvSection({
   project,
   envConfigured,
-  envContent,
+  envConfig,
   envRevision,
   envLoading,
   editorOpen,
@@ -172,7 +187,7 @@ function ProjectEnvSection({
 }: {
   project: Project;
   envConfigured: boolean;
-  envContent: string;
+  envConfig: ProjectEnvConfig;
   envRevision: string;
   envLoading: boolean;
   editorOpen: boolean;
@@ -181,9 +196,9 @@ function ProjectEnvSection({
 }) {
   const updateEnv = useUpdateProjectEnv(project.id);
   const deleteEnv = useDeleteProjectEnv(project.id);
-  const envEntryCount = countEnvEntries(envContent);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const envEntryCount = countProjectEnvVariables(envConfig);
   const envStatusLabel = getEnvStatusLabel(envLoading, envConfigured);
-  const envButtonLabel = getEnvButtonLabel(envLoading, editorOpen, envConfigured);
   const envDescription = getEnvDescription(envLoading, envConfigured, envEntryCount);
 
   const handleDeleteEnv = async () => {
@@ -191,8 +206,8 @@ function ProjectEnvSection({
     onCloseEditor();
   };
 
-  const handleSaveEnv = async (content: string) => {
-    await updateEnv.mutateAsync(content);
+  const handleSaveEnv = async (config: ProjectEnvConfig) => {
+    await updateEnv.mutateAsync(config);
     onCloseEditor();
   };
 
@@ -202,16 +217,21 @@ function ProjectEnvSection({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-medium text-foreground">Environment</h2>
-            <span
-              className={cn(
-                "rounded-md px-2 py-0.5 text-[11px] font-medium",
-                envConfigured && !envLoading
-                  ? "bg-primary/10 text-primary"
-                  : "bg-muted text-muted-foreground",
-              )}
-            >
-              {envStatusLabel}
-            </span>
+            {envConfigured && !envLoading ? (
+              <button
+                type="button"
+                onClick={() => setViewerOpen(true)}
+                className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/15"
+                title="View generated .env"
+              >
+                {envStatusLabel}
+                <Eye className="h-3 w-3" aria-hidden="true" />
+              </button>
+            ) : (
+              <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                {envStatusLabel}
+              </span>
+            )}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             {envDescription}
@@ -236,28 +256,21 @@ function ProjectEnvSection({
             type="button"
             disabled={envLoading}
             onClick={editorOpen ? onCloseEditor : onOpenEditor}
+            title={getEnvToggleTitle(envLoading, editorOpen, envConfigured)}
+            aria-label={getEnvToggleTitle(envLoading, editorOpen, envConfigured)}
             className={cn(
-              "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
+              "inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-border/50 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
               envLoading && "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-muted-foreground",
             )}
           >
             {envLoading ? (
-              envButtonLabel
+              <span className="h-3.5 w-3.5" />
             ) : editorOpen ? (
-              <>
-                <X className="h-3.5 w-3.5" />
-                {envButtonLabel}
-              </>
+              <X className="h-3.5 w-3.5" />
             ) : envConfigured ? (
-              <>
-                <Pencil className="h-3.5 w-3.5" />
-                {envButtonLabel}
-              </>
+              <Pencil className="h-3.5 w-3.5" />
             ) : (
-              <>
-                <Plus className="h-3.5 w-3.5" />
-                {envButtonLabel}
-              </>
+              <Plus className="h-3.5 w-3.5" />
             )}
           </button>
         </div>
@@ -266,49 +279,93 @@ function ProjectEnvSection({
       {editorOpen && (
         <ProjectEnvEditor
           key={`${project.id}:${envRevision}`}
-          initialContent={envContent}
+          initialConfig={envConfig}
           loading={envLoading}
           saving={updateEnv.isPending}
-          onSave={(content) => void handleSaveEnv(content)}
+          onSave={(config) => void handleSaveEnv(config)}
         />
       )}
+
+      <ProjectEnvViewer
+        open={viewerOpen}
+        onOpenChange={setViewerOpen}
+        config={envConfig}
+      />
     </section>
   );
 }
 
+function ProjectEnvViewer({
+  open,
+  onOpenChange,
+  config,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  config: ProjectEnvConfig;
+}) {
+  const content = generateProjectEnvContent(config);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Generated .env</DialogTitle>
+          <DialogDescription>
+            Read-only view of the file generated for new workspaces.
+          </DialogDescription>
+        </DialogHeader>
+        {content ? (
+          <EnvEditor
+            value={content}
+            readOnly
+            maxHeight="22rem"
+            ariaLabel="Generated environment file"
+            className="bg-background/70"
+          />
+        ) : (
+          <div className="rounded-md border border-border/50 bg-background/60 px-3 py-2 text-xs text-muted-foreground">
+            No variables configured.
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ProjectEnvEditor({
-  initialContent,
+  initialConfig,
   loading,
   saving,
   onSave,
 }: {
-  initialContent: string;
+  initialConfig: ProjectEnvConfig;
   loading: boolean;
   saving: boolean;
-  onSave: (content: string) => void;
+  onSave: (config: ProjectEnvConfig) => void;
 }) {
-  const [draft, setDraft] = useState(initialContent);
-  const dirty = draft !== initialContent;
+  const [draft, setDraft] = useState(initialConfig);
+  const normalizedInitial = normalizeProjectEnvConfig(initialConfig);
+  const normalizedDraft = normalizeProjectEnvConfig(draft);
+  const validation = validateProjectEnvConfig(normalizedDraft);
+  const dirty = JSON.stringify(normalizedDraft) !== JSON.stringify(normalizedInitial);
   const actionsDisabled = loading || saving || !dirty;
+  const saveDisabled = actionsDisabled || !validation.valid;
 
   return (
     <div className="mt-4 border-t border-border/50 pt-4">
-      <EnvEditor
+      <ProjectEnvStructuredEditor
         value={draft}
         onChange={setDraft}
         readOnly={loading}
-        className="bg-background/70"
       />
 
-      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-muted-foreground">
-          Saved values are copied into workspaces created after this point.
-        </p>
+      <div className="mt-3 flex justify-end">
         <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
             disabled={actionsDisabled}
-            onClick={() => setDraft(initialContent)}
+            onClick={() => setDraft(initialConfig)}
             className={cn(
               "rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
               actionsDisabled && "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-muted-foreground",
@@ -318,11 +375,11 @@ function ProjectEnvEditor({
           </button>
           <button
             type="button"
-            disabled={actionsDisabled}
+            disabled={saveDisabled}
             onClick={() => onSave(draft)}
             className={cn(
               "inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90",
-              actionsDisabled && "cursor-not-allowed opacity-50 hover:opacity-50",
+              saveDisabled && "cursor-not-allowed opacity-50 hover:opacity-50",
             )}
           >
             <Save className="h-3.5 w-3.5" />
@@ -339,30 +396,30 @@ function getEnvStatusLabel(envLoading: boolean, envConfigured: boolean): string 
   return envConfigured ? "Configured" : "Not configured";
 }
 
-function getEnvButtonLabel(
+function getEnvToggleTitle(
   envLoading: boolean,
   editorOpen: boolean,
   envConfigured: boolean,
 ): string {
   if (envLoading) return "Loading";
   if (editorOpen) return "Close";
-  return envConfigured ? "Edit" : "Configure";
+  return envConfigured ? "Edit environment" : "Configure environment";
 }
 
 function getEnvDescription(
   envLoading: boolean,
   envConfigured: boolean,
-  envEntryCount: number,
+  envVariableCount: number,
 ): string {
   if (envLoading) return "Loading project-level variables.";
-  if (!envConfigured) return "Add project-level variables that will be copied into new workspaces.";
-  return `${envEntryCount} entr${envEntryCount === 1 ? "y" : "ies"} stored locally for new workspaces.`;
+  if (!envConfigured) return "Add project-level variables for generated workspace .env files.";
+  return `${envVariableCount} variable${envVariableCount === 1 ? "" : "s"} stored locally for new workspaces.`;
 }
 
 function getEnvRevision(data: ProjectEnvData | undefined): string {
   if (!data) return "loading";
   if (!data.exists) return "missing";
-  return data.updatedAt ?? `${data.sizeBytes ?? data.content.length}:${data.content}`;
+  return data.updatedAt ?? `${data.sizeBytes ?? 0}:${JSON.stringify(data.config)}`;
 }
 
 function InfoRow({ label, mono, children }: { label: string; mono?: boolean; children: ReactNode }) {
@@ -372,13 +429,4 @@ function InfoRow({ label, mono, children }: { label: string; mono?: boolean; chi
       <dd className={cn("min-w-0 text-sm text-foreground", mono && "break-all font-mono text-xs")}>{children}</dd>
     </div>
   );
-}
-
-function countEnvEntries(content: string): number {
-  return content
-    .split(/\r?\n/)
-    .filter((line) => {
-      const trimmed = line.trim();
-      return trimmed !== "" && !trimmed.startsWith("#");
-    }).length;
 }
