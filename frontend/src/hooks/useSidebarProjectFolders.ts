@@ -30,12 +30,21 @@ export interface SidebarProjectFolderView extends SidebarProjectFolder {
 
 const FLUSH_DEBOUNCE_MS = 300;
 
+interface UseSidebarProjectFoldersOptions {
+  persist?: boolean;
+}
+
 function createId(): string {
   return self.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
 }
 
-export function useSidebarProjectFolders(projects: Project[], projectsReady = true) {
+export function useSidebarProjectFolders(
+  projects: Project[],
+  projectsReady = true,
+  options: UseSidebarProjectFoldersOptions = {},
+) {
   const queryClient = useQueryClient();
+  const persist = options.persist ?? true;
 
   const initialLocalSeedRef = useRef(readSidebarPreferencesLocalSeed());
   const bootstrappedRef = useRef(false);
@@ -129,6 +138,8 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
 
   // Persist local cache immediately + schedule a debounced PUT to the backend.
   useEffect(() => {
+    if (!persist) return;
+
     const canWriteLocalCache =
       bootstrappedRef.current
       && (hydratedRef.current || initialLocalSeedRef.current.source !== "legacy");
@@ -206,7 +217,7 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
         flushTimerRef.current = null;
       }
     };
-  }, [queryClient, refetchPreferences, state]);
+  }, [persist, queryClient, refetchPreferences, state]);
 
   const folders = useMemo<SidebarProjectFolderView[]>(
     () => mapSidebarFolderProjects(state.folders, projects),
@@ -340,5 +351,22 @@ export function useSidebarProjectFolders(projects: Project[], projectsReady = tr
     isFolderExpanded,
     setFolderExpanded,
     getFolderIdForProject,
+  };
+}
+
+export function useReadonlySidebarProjectFolders(
+  projects: Project[],
+  projectsReady = true,
+) {
+  const {
+    folders,
+    rootProjects,
+    hasInitialHydration,
+  } = useSidebarProjectFolders(projects, projectsReady, { persist: false });
+
+  return {
+    folders,
+    rootProjects,
+    hasInitialHydration,
   };
 }
