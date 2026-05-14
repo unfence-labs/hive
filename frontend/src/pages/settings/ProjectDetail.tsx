@@ -76,7 +76,7 @@ export default function ProjectDetail() {
         </div>
       </SettingsHeader>
 
-      <div className="max-w-2xl space-y-4 px-4 py-5">
+      <div className="max-w-4xl space-y-4 px-4 py-5">
         <section className="rounded-lg border border-border/50 bg-card/50 p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="text-sm font-medium text-foreground">Overview</h2>
