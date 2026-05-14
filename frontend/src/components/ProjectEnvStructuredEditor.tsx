@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Eye, EyeOff, Plus, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Plus, X } from "lucide-react";
 import { nanoid } from "nanoid";
 import {
   hasProjectEnvValueLineBreaks,
@@ -10,6 +10,7 @@ import {
 } from "@hive/shared/project-env";
 import { CopyButton } from "@/components/chat/CopyButton";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 interface ProjectEnvStructuredEditorProps {
@@ -47,15 +48,17 @@ export function ProjectEnvStructuredEditor({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="xs"
           disabled={readOnly}
           onClick={addVariable}
-          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          className="border-border/50 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
         >
           <Plus className="h-3.5 w-3.5" />
           Variable
-        </button>
+        </Button>
       </div>
 
       {value.variables.length === 0 ? (
@@ -162,8 +165,8 @@ function VariableRow({
       />
 
       <div className="flex items-center justify-end">
-        <IconButton label="Delete variable" disabled={readOnly} onClick={onDelete}>
-          <Trash2 className="h-3.5 w-3.5" />
+        <IconButton label="Remove variable" disabled={readOnly} onClick={onDelete}>
+          <X className="h-3.5 w-3.5" />
         </IconButton>
       </div>
     </div>
@@ -182,16 +185,18 @@ function IconButton({
   children: ReactNode;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="icon-xs"
       aria-label={label}
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+      className="text-muted-foreground hover:bg-muted/50 hover:text-foreground"
     >
       {children}
-    </button>
+    </Button>
   );
 }
 

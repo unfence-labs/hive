@@ -23,7 +23,9 @@ import {
 } from "@/components/ui/dialog";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { useProjects } from "@/hooks/useProjects";
-import { useProjectEnv, useUpdateProjectEnv, useDeleteProjectEnv } from "@/hooks/useProjectEnv";
+import { useProjectEnv, useUpdateProjectEnv } from "@/hooks/useProjectEnv";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { Project, ProjectEnvConfig, ProjectEnvData } from "@/types";
 import {
@@ -75,7 +77,7 @@ export default function ProjectDetail() {
       </SettingsHeader>
 
       <div className="max-w-2xl space-y-4 px-4 py-5">
-        <section className="rounded-lg border border-border/50 bg-card/50 p-4">
+        <section className="rounded-lg border border-border/50 bg-card/50 p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="text-sm font-medium text-foreground">Overview</h2>
             <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium tabular-nums text-primary">
@@ -127,7 +129,7 @@ export default function ProjectDetail() {
           onCloseEditor={() => setEditingEnvProjectId(null)}
         />
 
-        <section className="rounded-lg border border-destructive/20 bg-destructive/5 p-4">
+        <section className="rounded-lg border border-destructive/20 bg-destructive/5 p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-sm font-medium text-destructive">Danger zone</h2>
@@ -195,16 +197,10 @@ function ProjectEnvSection({
   onCloseEditor: () => void;
 }) {
   const updateEnv = useUpdateProjectEnv(project.id);
-  const deleteEnv = useDeleteProjectEnv(project.id);
   const [viewerOpen, setViewerOpen] = useState(false);
   const envEntryCount = countProjectEnvVariables(envConfig);
   const envStatusLabel = getEnvStatusLabel(envLoading, envConfigured);
   const envDescription = getEnvDescription(envLoading, envConfigured, envEntryCount);
-
-  const handleDeleteEnv = async () => {
-    await deleteEnv.mutateAsync();
-    onCloseEditor();
-  };
 
   const handleSaveEnv = async (config: ProjectEnvConfig) => {
     await updateEnv.mutateAsync(config);
@@ -212,25 +208,28 @@ function ProjectEnvSection({
   };
 
   return (
-    <section className="rounded-lg border border-border/50 bg-card/50 p-4">
+    <section className="rounded-lg border border-border/50 bg-card/50 p-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-medium text-foreground">Environment</h2>
             {envConfigured && !envLoading ? (
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="xs"
                 onClick={() => setViewerOpen(true)}
-                className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/15"
+                className="h-6 border border-primary/20 bg-primary/10 px-2 text-[11px] text-primary hover:bg-primary/15 hover:text-primary"
+                aria-label="View generated .env"
                 title="View generated .env"
               >
                 {envStatusLabel}
                 <Eye className="h-3 w-3" aria-hidden="true" />
-              </button>
+              </Button>
             ) : (
-              <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              <Badge variant="secondary" className="h-6 rounded-md px-2 text-[11px] text-muted-foreground">
                 {envStatusLabel}
-              </span>
+              </Badge>
             )}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -238,30 +237,15 @@ function ProjectEnvSection({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {envConfigured && (
-            <button
-              type="button"
-              disabled={deleteEnv.isPending}
-              onClick={() => void handleDeleteEnv()}
-              className={cn(
-                "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-destructive/40 px-2.5 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10",
-                deleteEnv.isPending && "cursor-not-allowed opacity-50",
-              )}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete
-            </button>
-          )}
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="icon-sm"
             disabled={envLoading}
             onClick={editorOpen ? onCloseEditor : onOpenEditor}
             title={getEnvToggleTitle(envLoading, editorOpen, envConfigured)}
             aria-label={getEnvToggleTitle(envLoading, editorOpen, envConfigured)}
-            className={cn(
-              "inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-border/50 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
-              envLoading && "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-muted-foreground",
-            )}
+            className="border-border/50 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
           >
             {envLoading ? (
               <span className="h-3.5 w-3.5" />
@@ -272,7 +256,7 @@ function ProjectEnvSection({
             ) : (
               <Plus className="h-3.5 w-3.5" />
             )}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -362,29 +346,28 @@ function ProjectEnvEditor({
 
       <div className="mt-3 flex justify-end">
         <div className="flex shrink-0 items-center gap-2">
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="xs"
             disabled={actionsDisabled}
             onClick={() => setDraft(initialConfig)}
             className={cn(
-              "rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
+              "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
               actionsDisabled && "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-muted-foreground",
             )}
           >
             Discard
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="xs"
             disabled={saveDisabled}
             onClick={() => onSave(draft)}
-            className={cn(
-              "inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90",
-              saveDisabled && "cursor-not-allowed opacity-50 hover:opacity-50",
-            )}
           >
             <Save className="h-3.5 w-3.5" />
             Save
-          </button>
+          </Button>
         </div>
       </div>
     </div>

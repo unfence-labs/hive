@@ -181,9 +181,8 @@ describe("ProjectDetail", () => {
     expect(api.put).not.toHaveBeenCalled();
   });
 
-  it("deletes configured project environment", async () => {
+  it("does not expose a delete action for configured project environment", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.delete).mockResolvedValueOnce(undefined);
     const projects: Project[] = [
       {
         id: "p1",
@@ -202,12 +201,7 @@ describe("ProjectDetail", () => {
     expect(await screen.findByText("1 variable stored locally for new workspaces.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Edit environment" }));
     expect(await screen.findByDisplayValue("API_KEY")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-
-    await waitFor(() => {
-      expect(api.delete).toHaveBeenCalledWith("/api/projects/p1/env");
-    });
-    expect(screen.getByText("Not configured")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 
   it("shows configured project environment variable count", async () => {
@@ -268,7 +262,7 @@ describe("ProjectDetail", () => {
     expect(screen.getByDisplayValue("Token for API calls")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Generated environment file" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Configured" }));
+    await user.click(screen.getByRole("button", { name: "View generated .env" }));
     const editor = await screen.findByRole("textbox", { name: "Generated environment file" });
     const codeMirror = editor.closest(".cm-editor");
 

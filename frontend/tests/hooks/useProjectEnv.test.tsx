@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { api } from "@/hooks/useApi";
-import { useDeleteProjectEnv, useProjectEnv, useUpdateProjectEnv } from "@/hooks/useProjectEnv";
+import { useProjectEnv, useUpdateProjectEnv } from "@/hooks/useProjectEnv";
 import { createWrapper } from "../test-utils";
 import type { ProjectEnvConfig } from "@hive/shared/project-env";
 
@@ -57,26 +57,6 @@ describe("useProjectEnv", () => {
     });
   });
 
-  it("clears project environment content from the query cache", async () => {
-    vi.mocked(api.delete).mockResolvedValueOnce(undefined);
-
-    const { queryClient, wrapper } = createWrapper();
-    queryClient.setQueryData(["project-env", "proj-1"], {
-      exists: true,
-      config: envConfig("API_KEY", "secret"),
-    });
-    const { result } = renderHook(() => useDeleteProjectEnv("proj-1"), { wrapper });
-
-    await act(async () => {
-      await result.current.mutateAsync();
-    });
-
-    expect(api.delete).toHaveBeenCalledWith("/api/projects/proj-1/env");
-    expect(queryClient.getQueryData(["project-env", "proj-1"])).toEqual({
-      exists: false,
-      config: { variables: [] },
-    });
-  });
 });
 
 function envConfig(key: string, value: string): ProjectEnvConfig {

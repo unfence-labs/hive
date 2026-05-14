@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { getProject } from "../projects/project-manager.js";
-import { loadProjectEnv, saveProjectEnv, deleteProjectEnv } from "../state/project-env.js";
+import { loadProjectEnv, saveProjectEnv } from "../state/project-env.js";
 import { getDataDir } from "../state/state.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
 import { parseProjectEnvConfig } from "@hive/shared/project-env";
@@ -41,16 +41,4 @@ export async function projectEnvRoutes(app: FastifyInstance, dataDir?: string) {
       }
     },
   );
-
-  app.delete<{ Params: { id: string } }>("/api/projects/:id/env", async (req, reply) => {
-    try {
-      if (!(await ensureProject(req.params.id, dir))) {
-        return reply.status(404).send({ error: "Project not found" });
-      }
-      await deleteProjectEnv(req.params.id, dir);
-      return reply.status(204).send();
-    } catch (err: unknown) {
-      return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed to delete environment") });
-    }
-  });
 }

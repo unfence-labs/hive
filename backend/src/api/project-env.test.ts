@@ -63,20 +63,6 @@ describe("project environment routes", () => {
     expect(get.json().path).toBe(join(dataDir, "proj-1", "env", "env.json"));
   });
 
-  it("deletes project environment config", async () => {
-    await app.inject({
-      method: "PUT",
-      url: "/api/projects/proj-1/env",
-      payload: { config: envConfig("API_KEY", "secret") },
-    });
-
-    const del = await app.inject({ method: "DELETE", url: "/api/projects/proj-1/env" });
-    expect(del.statusCode).toBe(204);
-
-    const get = await app.inject({ method: "GET", url: "/api/projects/proj-1/env" });
-    expect(get.json()).toEqual({ exists: false, config: { variables: [] } });
-  });
-
   it("returns 404 for unknown projects", async () => {
     const res = await app.inject({ method: "GET", url: "/api/projects/missing/env" });
 
