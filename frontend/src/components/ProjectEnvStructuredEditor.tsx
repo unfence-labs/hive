@@ -117,8 +117,8 @@ export function ProjectEnvStructuredEditor({
           </p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-md border border-border/50 bg-background/40">
-          <div className="grid grid-cols-[minmax(8rem,0.85fr)_minmax(10rem,1fr)_minmax(8rem,1fr)_2rem] gap-3 border-b border-border/50 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <div>
+          <div className="grid grid-cols-[minmax(8rem,0.85fr)_minmax(10rem,1fr)_minmax(8rem,1fr)_2rem] gap-3 border-b border-border/50 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             <span>Key</span>
             <span>Value</span>
             <span>Comment</span>
@@ -199,7 +199,7 @@ function VariableRow({
 
   return (
     <div className={cn(
-      "grid gap-3 border-b border-border/40 px-3 py-2 last:border-b-0",
+      "grid items-start gap-3 py-2",
       "sm:grid-cols-[minmax(8rem,0.85fr)_minmax(10rem,1fr)_minmax(8rem,1fr)_2rem]",
     )}>
       <div>
@@ -215,29 +215,31 @@ function VariableRow({
         {keyError && <p className="mt-1 text-[11px] text-destructive">{keyError}</p>}
       </div>
 
-      <div className="relative">
-        <Input
-          value={variable.value}
-          disabled={readOnly}
-          type={revealed ? "text" : "password"}
-          onChange={(event) => onChange({ ...variable, value: event.target.value })}
-          placeholder="value"
-          aria-label="Environment variable value"
-          aria-invalid={Boolean(valueError) || undefined}
-          className="h-8 pr-16 font-mono text-xs"
-        />
-        <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1">
-          <IconButton label={revealed ? "Hide value" : "Reveal value"} onClick={() => setRevealed(!revealed)}>
-            {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-          </IconButton>
-          <CopyButton
-            content={variable.value}
-            disabled={!variable.value}
-            ariaLabel="Copy value"
-            copiedAriaLabel="Value copied"
-            iconClassName="h-3.5 w-3.5"
-            className="h-7 w-7 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+      <div>
+        <div className="relative">
+          <Input
+            value={variable.value}
+            disabled={readOnly}
+            type={revealed ? "text" : "password"}
+            onChange={(event) => onChange({ ...variable, value: event.target.value })}
+            placeholder="value"
+            aria-label="Environment variable value"
+            aria-invalid={Boolean(valueError) || undefined}
+            className="h-8 pr-16 font-mono text-xs"
           />
+          <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1">
+            <IconButton label={revealed ? "Hide value" : "Reveal value"} onClick={() => setRevealed(!revealed)}>
+              {revealed ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            </IconButton>
+            <CopyButton
+              content={variable.value}
+              disabled={!variable.value}
+              ariaLabel="Copy value"
+              copiedAriaLabel="Value copied"
+              iconClassName="h-3.5 w-3.5"
+              className="h-7 w-7 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            />
+          </div>
         </div>
         {valueError && <p className="mt-1 text-[11px] text-destructive">{valueError}</p>}
       </div>
@@ -251,7 +253,7 @@ function VariableRow({
         className="h-8 text-xs"
       />
 
-      <div className="flex items-center justify-end">
+      <div className="flex h-8 items-center justify-end">
         <IconButton label="Remove variable" disabled={readOnly} onClick={onDelete}>
           <X className="h-3.5 w-3.5" />
         </IconButton>
