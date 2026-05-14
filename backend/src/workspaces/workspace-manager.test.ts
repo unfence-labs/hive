@@ -3,7 +3,8 @@ import { rm, writeFile, mkdir, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
-import { createProject } from "../projects/project-manager.js";
+import { createProject, initProject } from "../projects/project-manager.js";
+import { bareRepoPath } from "../utils/paths.js";
 import {
   createWorkspace,
   listWorkspaces,
@@ -56,6 +57,20 @@ describe("createWorkspace", () => {
     // Verify worktree directory exists
     const wsPath = join(dataDir, projectId, "workspaces", ws.name);
     expect(existsSync(wsPath)).toBe(true);
+    expect(existsSync(join(wsPath, "README.md"))).toBe(true);
+  });
+
+  it("creates a workspace from the main branch for newly initialized projects", async () => {
+    const { state } = await initProject("brand-new-repo", {}, dataDir);
+    const bare = bareRepoPath(dataDir, state.id);
+
+    const { stdout: headRef } = await git(["symbolic-ref", "HEAD"], bare);
+    expect(headRef).toBe("refs/heads/main");
+
+    const ws = await createWorkspace(state.id, dataDir);
+    const wsPath = join(dataDir, state.id, "workspaces", ws.name);
+
+    expect(ws.branch).toBe(`workspace/${ws.name}`);
     expect(existsSync(join(wsPath, "README.md"))).toBe(true);
   });
 
