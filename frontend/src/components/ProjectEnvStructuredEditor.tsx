@@ -1,16 +1,27 @@
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Eye, EyeOff, Plus, X } from "lucide-react";
+import { Eye, EyeOff, FileUp, Plus, X } from "lucide-react";
 import { nanoid } from "nanoid";
 import {
   hasProjectEnvValueLineBreaks,
   isValidProjectEnvKey,
+  parseProjectEnvContent,
   type ProjectEnvConfig,
   type ProjectEnvVariable,
 } from "@hive/shared/project-env";
 import { CopyButton } from "@/components/chat/CopyButton";
+import { EnvEditor } from "@/components/EnvEditor";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 interface ProjectEnvStructuredEditorProps {
@@ -24,7 +35,10 @@ export function ProjectEnvStructuredEditor({
   onChange,
   readOnly = false,
 }: ProjectEnvStructuredEditorProps) {
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
   const keyCounts = useMemo(() => countKeys(value.variables), [value.variables]);
+  const importedEntries = useMemo(() => parseProjectEnvContent(importText), [importText]);
 
   const updateVariable = (id: string, next: ProjectEnvVariable) => {
     onChange({
@@ -45,9 +59,32 @@ export function ProjectEnvStructuredEditor({
     });
   };
 
+  const openImportDialog = () => {
+    setImportText("");
+    setImportOpen(true);
+  };
+
+  const handleImport = () => {
+    if (importedEntries.length === 0) return;
+
+    onChange({
+      variables: [
+        ...value.variables,
+        ...importedEntries.map((entry) => ({
+          id: nanoid(),
+          key: entry.key,
+          value: entry.value,
+          comment: "",
+        })),
+      ],
+    });
+    setImportText("");
+    setImportOpen(false);
+  };
+
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
         <Button
           type="button"
           variant="outline"
@@ -58,6 +95,17 @@ export function ProjectEnvStructuredEditor({
         >
           <Plus className="h-3.5 w-3.5" />
           Variable
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          disabled={readOnly}
+          onClick={openImportDialog}
+          className="border-border/50 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+        >
+          <FileUp className="h-3.5 w-3.5" />
+          Import .env
         </Button>
       </div>
 
@@ -88,6 +136,45 @@ export function ProjectEnvStructuredEditor({
           ))}
         </div>
       )}
+
+      <Dialog
+        open={importOpen}
+        onOpenChange={(open) => {
+          setImportOpen(open);
+          if (!open) setImportText("");
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Import .env</DialogTitle>
+            <DialogDescription>
+              Paste raw .env content. Comments are ignored and each key-value pair is added as a variable.
+            </DialogDescription>
+          </DialogHeader>
+          <EnvEditor
+            value={importText}
+            onChange={setImportText}
+            maxHeight="18rem"
+            ariaLabel="Raw environment file"
+            className="bg-background/70"
+          />
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="ghost">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              type="button"
+              disabled={importedEntries.length === 0}
+              onClick={handleImport}
+            >
+              <FileUp className="h-3.5 w-3.5" />
+              Import variables
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

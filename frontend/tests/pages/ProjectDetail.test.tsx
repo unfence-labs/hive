@@ -181,6 +181,45 @@ describe("ProjectDetail", () => {
     expect(api.put).not.toHaveBeenCalled();
   });
 
+  it("imports raw project environment variables without comments", async () => {
+    const user = userEvent.setup();
+    const projects: Project[] = [
+      {
+        id: "p1",
+        name: "Repo",
+        repoPath: "/repos/repo",
+        workspaces: [],
+      },
+    ];
+
+    renderProjectDetail("/settings/repositories/p1", projects);
+
+    await user.click(await screen.findByRole("button", { name: "Configure environment" }));
+    await user.click(await screen.findByRole("button", { name: "Import .env" }));
+    const editor = await screen.findByRole("textbox", { name: "Raw environment file" });
+
+    await user.click(editor);
+    await user.paste([
+      "# Local settings",
+      "API_KEY=secret",
+      "DATABASE_URL=postgres://local # main database",
+      "EMPTY_VALUE=",
+    ].join("\n"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Import variables" })).toBeEnabled();
+    });
+    await user.click(screen.getByRole("button", { name: "Import variables" }));
+
+    expect(await screen.findByDisplayValue("API_KEY")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("DATABASE_URL")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("EMPTY_VALUE")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("secret")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("postgres://local")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Local settings")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("main database")).not.toBeInTheDocument();
+  });
+
   it("does not expose a delete action for configured project environment", async () => {
     const user = userEvent.setup();
     const projects: Project[] = [

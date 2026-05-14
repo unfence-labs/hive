@@ -22,10 +22,16 @@ export interface ProjectEnvValidationResult {
   errors: string[];
 }
 
+export interface ParsedProjectEnvEntry {
+  key: string;
+  value: string;
+}
+
 export const EMPTY_PROJECT_ENV_CONFIG: ProjectEnvConfig = { variables: [] };
 
 const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const LINE_BREAK_PATTERN = /\r|\n/;
+const VALUE_NEEDS_QUOTES_PATTERN = /[\s#"\\]/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -116,10 +122,96 @@ export function parseProjectEnvConfig(raw: unknown): ProjectEnvConfig | null {
   return normalizeProjectEnvConfig({ variables });
 }
 
+export function parseProjectEnvContent(raw: string): ParsedProjectEnvEntry[] {
+  const entries: ParsedProjectEnvEntry[] = [];
+
+  for (const rawLine of raw.split(/\r?\n/)) {
+    const trimmedLine = rawLine.trim();
+    if (!trimmedLine || trimmedLine.startsWith("#")) continue;
+
+    const line = trimmedLine.startsWith("export ")
+      ? trimmedLine.slice("export ".length).trimStart()
+      : trimmedLine;
+    const equalsIndex = line.indexOf("=");
+    if (equalsIndex <= 0) continue;
+
+    const key = line.slice(0, equalsIndex).trim();
+    if (!key) continue;
+
+    entries.push({
+      key,
+      value: parseProjectEnvValue(line.slice(equalsIndex + 1)),
+    });
+  }
+
+  return entries;
+}
+
+function parseProjectEnvValue(rawValue: string): string {
+  const value = rawValue.trim();
+  const quote = value[0];
+  if (quote === "\"") {
+    const endIndex = findClosingQuote(value, quote);
+    if (endIndex > 0) return unescapeDoubleQuotedValue(value.slice(1, endIndex));
+  }
+  if (quote === "'") {
+    const endIndex = findClosingQuote(value, quote);
+    if (endIndex > 0) return value.slice(1, endIndex);
+  }
+
+  return stripInlineComment(value).trimEnd();
+}
+
+function unescapeDoubleQuotedValue(value: string): string {
+  let parsed = "";
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== "\\" || index + 1 >= value.length) {
+      parsed += value[index];
+      continue;
+    }
+
+    const next = value[index + 1];
+    if (next === "\\" || next === "\"") {
+      parsed += next;
+    } else {
+      parsed += `\\${next}`;
+    }
+    index += 1;
+  }
+
+  return parsed;
+}
+
+function findClosingQuote(value: string, quote: string): number {
+  for (let index = 1; index < value.length; index += 1) {
+    if (quote === "\"" && value[index] === "\\" && index + 1 < value.length) {
+      index += 1;
+      continue;
+    }
+    if (value[index] === quote) return index;
+  }
+
+  return -1;
+}
+
+function stripInlineComment(value: string): string {
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] !== "#") continue;
+    if (index === 0 || /\s/.test(value[index - 1])) return value.slice(0, index);
+  }
+
+  return value;
+}
+
 function commentLines(text: string): string[] {
   return text
     .split(/\r?\n/)
     .map((line) => `# ${line.trim()}`.trimEnd());
+}
+
+function formatProjectEnvValue(value: string): string {
+  if (!value || !VALUE_NEEDS_QUOTES_PATTERN.test(value)) return value;
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
 }
 
 export function generateProjectEnvContent(config: ProjectEnvConfig): string {
@@ -130,7 +222,7 @@ export function generateProjectEnvContent(config: ProjectEnvConfig): string {
       if (lines.length > 0 && lines[lines.length - 1] !== "") lines.push("");
       lines.push(...commentLines(variable.comment));
     }
-    lines.push(`${variable.key}=${variable.value}`);
+    lines.push(`${variable.key}=${formatProjectEnvValue(variable.value)}`);
   }
 
   const content = lines.join("\n").trim();
