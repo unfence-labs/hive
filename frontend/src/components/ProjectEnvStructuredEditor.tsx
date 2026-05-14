@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Eye, EyeOff, Plus, Trash2 } from "lucide-react";
 import { nanoid } from "nanoid";
 import {
+  hasProjectEnvValueLineBreaks,
   isValidProjectEnvKey,
   type ProjectEnvConfig,
   type ProjectEnvVariable,
@@ -103,7 +104,8 @@ function VariableRow({
 }) {
   const [revealed, setRevealed] = useState(false);
   const key = variable.key.trim();
-  const invalidKey = key !== "" && !isValidProjectEnvKey(key);
+  const keyError = getKeyError(key, duplicate);
+  const valueError = hasProjectEnvValueLineBreaks(variable.value) ? "Value cannot contain line breaks" : null;
 
   return (
     <div className={cn(
@@ -117,10 +119,10 @@ function VariableRow({
           onChange={(event) => onChange({ ...variable, key: event.target.value })}
           placeholder="API_KEY"
           aria-label="Environment variable key"
-          aria-invalid={invalidKey || duplicate || undefined}
+          aria-invalid={Boolean(keyError) || undefined}
           className="h-8 font-mono text-xs"
         />
-        {duplicate && <p className="mt-1 text-[11px] text-destructive">Duplicate key</p>}
+        {keyError && <p className="mt-1 text-[11px] text-destructive">{keyError}</p>}
       </div>
 
       <div className="relative">
@@ -131,6 +133,7 @@ function VariableRow({
           onChange={(event) => onChange({ ...variable, value: event.target.value })}
           placeholder="value"
           aria-label="Environment variable value"
+          aria-invalid={Boolean(valueError) || undefined}
           className="h-8 pr-16 font-mono text-xs"
         />
         <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1">
@@ -146,6 +149,7 @@ function VariableRow({
             className="h-7 w-7 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
           />
         </div>
+        {valueError && <p className="mt-1 text-[11px] text-destructive">{valueError}</p>}
       </div>
 
       <Input
@@ -199,4 +203,11 @@ function countKeys(variables: ProjectEnvVariable[]): Map<string, number> {
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   return counts;
+}
+
+function getKeyError(key: string, duplicate: boolean): string | null {
+  if (!key) return "Key is required";
+  if (!isValidProjectEnvKey(key)) return "Use letters, numbers, and underscores only";
+  if (duplicate) return "Duplicate key";
+  return null;
 }

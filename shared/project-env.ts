@@ -25,6 +25,7 @@ export interface ProjectEnvValidationResult {
 export const EMPTY_PROJECT_ENV_CONFIG: ProjectEnvConfig = { variables: [] };
 
 const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const LINE_BREAK_PATTERN = /\r|\n/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -62,6 +63,10 @@ export function isValidProjectEnvKey(key: string): boolean {
   return ENV_KEY_PATTERN.test(key);
 }
 
+export function hasProjectEnvValueLineBreaks(value: string): boolean {
+  return LINE_BREAK_PATTERN.test(value);
+}
+
 export function validateProjectEnvConfig(config: ProjectEnvConfig): ProjectEnvValidationResult {
   const errors: string[] = [];
   const keys = new Map<string, number>();
@@ -73,6 +78,9 @@ export function validateProjectEnvConfig(config: ProjectEnvConfig): ProjectEnvVa
     }
     if (!isValidProjectEnvKey(variable.key)) {
       errors.push(`${variable.key} is not a valid environment variable key.`);
+    }
+    if (hasProjectEnvValueLineBreaks(variable.value)) {
+      errors.push(`${variable.key || "Variable"} value cannot contain line breaks.`);
     }
 
     keys.set(variable.key, (keys.get(variable.key) ?? 0) + 1);

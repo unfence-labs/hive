@@ -105,6 +105,17 @@ describe("project environment routes", () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("not a valid environment variable key");
   });
+
+  it("rejects variable values with line breaks", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/projects/proj-1/env",
+      payload: { config: envConfig("API_KEY", "one\ntwo") },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("value cannot contain line breaks");
+  });
 });
 
 function envConfig(key: string, value: string): ProjectEnvConfig {

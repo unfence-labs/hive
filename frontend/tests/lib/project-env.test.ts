@@ -41,6 +41,7 @@ describe("project env config helpers", () => {
         { id: "var-2", key: "API KEY", value: "" },
         { id: "var-3", key: "TOKEN", value: "" },
         { id: "var-4", key: "TOKEN", value: "" },
+        { id: "var-5", key: "MULTILINE", value: "one\ntwo" },
       ],
     });
 
@@ -48,6 +49,7 @@ describe("project env config helpers", () => {
     expect(result.errors).toContain("Variable keys cannot be empty.");
     expect(result.errors).toContain("API KEY is not a valid environment variable key.");
     expect(result.errors).toContain("TOKEN is duplicated.");
+    expect(result.errors).toContain("MULTILINE value cannot contain line breaks.");
   });
 
   it("normalizes parsed config and counts variables", () => {

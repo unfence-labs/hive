@@ -155,6 +155,32 @@ describe("ProjectDetail", () => {
     });
   });
 
+  it("explains invalid project environment keys before saving", async () => {
+    const user = userEvent.setup();
+    const projects: Project[] = [
+      {
+        id: "p1",
+        name: "Repo",
+        repoPath: "/repos/repo",
+        workspaces: [],
+      },
+    ];
+
+    renderProjectDetail("/settings/repositories/p1", projects);
+
+    await user.click(await screen.findByRole("button", { name: "Configure environment" }));
+    await user.click(await screen.findByRole("button", { name: "Variable" }));
+
+    expect(screen.getByText("Key is required")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await user.type(screen.getByRole("textbox", { name: "Environment variable key" }), "API KEY");
+
+    expect(screen.getByText("Use letters, numbers, and underscores only")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(api.put).not.toHaveBeenCalled();
+  });
+
   it("deletes configured project environment", async () => {
     const user = userEvent.setup();
     vi.mocked(api.delete).mockResolvedValueOnce(undefined);

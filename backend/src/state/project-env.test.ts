@@ -55,6 +55,11 @@ describe("project environment storage", () => {
       .rejects.toThrow("256KB or smaller");
   });
 
+  it("rejects values that would inject additional .env lines", async () => {
+    await expect(saveProjectEnv("proj-1", envConfig("API_KEY", "secret\nINJECTED=1"), dataDir))
+      .rejects.toThrow("value cannot contain line breaks");
+  });
+
   it("deletes storage when saving an empty config", async () => {
     await saveProjectEnv("proj-1", envConfig("API_KEY", "secret"), dataDir);
 
