@@ -21,6 +21,24 @@ function hasHeader(headers: Record<string, string>, name: string): boolean {
   return Object.keys(headers).some((k) => k.toLowerCase() === target);
 }
 
+function errorMessageFromResponseBody(body: string, fallback: string): string {
+  if (!body.trim()) return fallback;
+
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    if (typeof parsed === "string" && parsed.trim()) return parsed;
+    if (typeof parsed === "object" && parsed !== null) {
+      const { error, message } = parsed as { error?: unknown; message?: unknown };
+      if (typeof error === "string" && error.trim()) return error;
+      if (typeof message === "string" && message.trim()) return message;
+    }
+  } catch {
+    // Plain text error responses are already display-ready.
+  }
+
+  return body;
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const headers = headerRecord(options?.headers);
   const authToken = import.meta.env.VITE_HIVE_AUTH_TOKEN?.trim();
@@ -36,7 +54,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${base}${url}`, { ...options, headers });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new ApiError(res.status, body || res.statusText);
+    throw new ApiError(res.status, errorMessageFromResponseBody(body, res.statusText));
   }
   if (res.status === 204) return undefined as T;
   return res.json();

@@ -137,6 +137,7 @@ export async function initProject(
     await git(["add", "."], tempWork);
     await git(["commit", "-m", "Initial commit"], tempWork);
     await git(["push", "origin", "main"], tempWork);
+    await git(["symbolic-ref", "HEAD", "refs/heads/main"], bare);
 
     // 3. Clean up the temp working tree and create workspace/log dirs
     await rm(tempWork, { recursive: true, force: true });

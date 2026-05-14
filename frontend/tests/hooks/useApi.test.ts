@@ -81,6 +81,17 @@ describe("api", () => {
     await expect(api.get("/api/fail")).rejects.toEqual(new ApiError(400, "bad request"));
   });
 
+  it("throws ApiError with parsed error from JSON error responses", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse({ error: "Failed to create workspace" }, 500),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.get("/api/fail")).rejects.toEqual(
+      new ApiError(500, "Failed to create workspace"),
+    );
+  });
+
   it("throws ApiError with statusText when response body is empty", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(
       new Response("", { status: 500, statusText: "Internal Server Error" }),
