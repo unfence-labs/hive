@@ -5,7 +5,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ProjectDetail from "@/pages/settings/ProjectDetail";
 import { api } from "@/hooks/useApi";
-import type { Project } from "@/types";
+import type { Project, ProjectEnvConfig } from "@/types";
 
 vi.mock("@/hooks/useApi", () => ({
   api: {
@@ -19,7 +19,7 @@ vi.mock("@/hooks/useApi", () => ({
 function renderProjectDetail(
   path: string,
   projects: Project[],
-  env = { exists: false, content: "" },
+  env = { exists: false, config: { variables: [] } },
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -115,9 +115,10 @@ describe("ProjectDetail", () => {
 
   it("saves project environment changes", async () => {
     const user = userEvent.setup();
+    const savedConfig = envConfig("API_KEY", "secret");
     vi.mocked(api.put).mockResolvedValueOnce({
       exists: true,
-      content: "API_KEY=secret\n",
+      config: savedConfig,
     });
     const projects: Project[] = [
       {
@@ -131,82 +132,99 @@ describe("ProjectDetail", () => {
 
     renderProjectDetail("/settings/repositories/p1", projects);
 
-    expect(await screen.findByRole("button", { name: "Configure" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Configure environment" })).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Configure" }));
-    const editor = await screen.findByRole("textbox", { name: "Environment variables" });
-    expect(editor.closest(".cm-editor")).toBeInTheDocument();
-    await user.click(editor);
-    await user.paste("API_KEY=secret\n");
+    await user.click(screen.getByRole("button", { name: "Configure environment" }));
+    await user.click(await screen.findByRole("button", { name: "Variable" }));
+    await user.type(screen.getByRole("textbox", { name: "Environment variable key" }), "API_KEY");
+    await user.type(screen.getByLabelText("Environment variable value"), "secret");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(api.put).toHaveBeenCalledWith("/api/projects/p1/env", {
-        content: "API_KEY=secret\n",
+        config: {
+          variables: [{
+            id: expect.any(String),
+            key: "API_KEY",
+            value: "secret",
+            comment: "",
+          }],
+        },
       });
     });
   });
 
-  it("deletes configured project environment", async () => {
-    const user = userEvent.setup();
-    vi.mocked(api.delete).mockResolvedValueOnce(undefined);
-    const projects: Project[] = [
-      {
-        id: "p1",
-        name: "Alpha",
-        url: "https://github.com/acme/alpha.git",
-        createdAt: "2026-02-11T00:00:00.000Z",
-        workspaces: [],
-      },
-    ];
-
-    renderProjectDetail("/settings/repositories/p1", projects, {
-      exists: true,
-      content: "API_KEY=secret\n",
-    });
-
-    expect(await screen.findByText("1 entry stored locally for new workspaces.")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Edit" }));
-    const editor = await screen.findByRole("textbox", { name: "Environment variables" });
-    await waitFor(() => {
-      expect(editor).toHaveTextContent("API_KEY=secret");
-    });
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-
-    await waitFor(() => {
-      expect(api.delete).toHaveBeenCalledWith("/api/projects/p1/env");
-    });
-    expect(screen.getByText("Not configured")).toBeInTheDocument();
-  });
-
-  it("does not count project environment comments or blank lines as entries", async () => {
-    const projects: Project[] = [
-      {
-        id: "p1",
-        name: "Alpha",
-        url: "https://github.com/acme/alpha.git",
-        createdAt: "2026-02-11T00:00:00.000Z",
-        workspaces: [],
-      },
-    ];
-
-    renderProjectDetail("/settings/repositories/p1", projects, {
-      exists: true,
-      content: "# API credentials\n\nAPI_KEY=secret\n   # ignored\nDATABASE_URL=postgres://local\n",
-      path: "/hive-data/proj-1/env/.env",
-    });
-
-    expect(await screen.findByText("Env file")).toBeInTheDocument();
-    expect(screen.getByText("/hive-data/proj-1/env/.env")).toBeInTheDocument();
-    expect(await screen.findByText("2 entries stored locally for new workspaces.")).toBeInTheDocument();
-  });
-
-  it("renders project environment content in the shared CodeMirror editor", async () => {
+  it("explains invalid project environment keys before saving", async () => {
     const user = userEvent.setup();
     const projects: Project[] = [
       {
         id: "p1",
+        name: "Repo",
+        repoPath: "/repos/repo",
+        workspaces: [],
+      },
+    ];
+
+    renderProjectDetail("/settings/repositories/p1", projects);
+
+    await user.click(await screen.findByRole("button", { name: "Configure environment" }));
+    await user.click(await screen.findByRole("button", { name: "Variable" }));
+
+    expect(screen.getByText("Key is required")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await user.type(screen.getByRole("textbox", { name: "Environment variable key" }), "API KEY");
+
+    expect(screen.getByText("Use letters, numbers, and underscores only")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(api.put).not.toHaveBeenCalled();
+  });
+
+  it("imports raw project environment variables without comments", async () => {
+    const user = userEvent.setup();
+    const projects: Project[] = [
+      {
+        id: "p1",
+        name: "Repo",
+        repoPath: "/repos/repo",
+        workspaces: [],
+      },
+    ];
+
+    renderProjectDetail("/settings/repositories/p1", projects);
+
+    await user.click(await screen.findByRole("button", { name: "Configure environment" }));
+    await user.click(await screen.findByRole("button", { name: "Import .env" }));
+    const editor = await screen.findByRole("textbox", { name: "Raw environment file" });
+
+    await user.click(editor);
+    await user.paste([
+      "# Local settings",
+      "API_KEY=secret",
+      "DATABASE_URL=postgres://local # main database",
+      "EMPTY_VALUE=",
+    ].join("\n"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Import variables" })).toBeEnabled();
+    });
+    await user.click(screen.getByRole("button", { name: "Import variables" }));
+
+    expect(await screen.findByDisplayValue("API_KEY")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("DATABASE_URL")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("EMPTY_VALUE")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("secret")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("postgres://local")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Local settings")).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("main database")).not.toBeInTheDocument();
+  });
+
+  it("does not expose a delete action for configured project environment", async () => {
+    const user = userEvent.setup();
+    const projects: Project[] = [
+      {
+        id: "p1",
         name: "Alpha",
         url: "https://github.com/acme/alpha.git",
         createdAt: "2026-02-11T00:00:00.000Z",
@@ -216,16 +234,80 @@ describe("ProjectDetail", () => {
 
     renderProjectDetail("/settings/repositories/p1", projects, {
       exists: true,
-      content: "# API credentials\nAPI_KEY=secret\n",
+      config: envConfig("API_KEY", "secret"),
     });
 
-    await user.click(await screen.findByRole("button", { name: "Edit" }));
-    const editor = await screen.findByRole("textbox", { name: "Environment variables" });
+    expect(await screen.findByText("1 variable stored locally for new workspaces.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit environment" }));
+    expect(await screen.findByDisplayValue("API_KEY")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  it("shows configured project environment variable count", async () => {
+    const projects: Project[] = [
+      {
+        id: "p1",
+        name: "Alpha",
+        url: "https://github.com/acme/alpha.git",
+        createdAt: "2026-02-11T00:00:00.000Z",
+        workspaces: [],
+      },
+    ];
+
+    renderProjectDetail("/settings/repositories/p1", projects, {
+      exists: true,
+      config: {
+        variables: [
+          { id: "var-1", key: "API_KEY", value: "secret" },
+          { id: "var-2", key: "DATABASE_URL", value: "postgres://local" },
+        ],
+      },
+      path: "/hive-data/proj-1/env/env.json",
+    });
+
+    expect(await screen.findByText("Env config")).toBeInTheDocument();
+    expect(screen.getByText("/hive-data/proj-1/env/env.json")).toBeInTheDocument();
+    expect(await screen.findByText("2 variables stored locally for new workspaces.")).toBeInTheDocument();
+  });
+
+  it("renders project environment config and opens generated view-only modal", async () => {
+    const user = userEvent.setup();
+    const projects: Project[] = [
+      {
+        id: "p1",
+        name: "Alpha",
+        url: "https://github.com/acme/alpha.git",
+        createdAt: "2026-02-11T00:00:00.000Z",
+        workspaces: [],
+      },
+    ];
+
+    renderProjectDetail("/settings/repositories/p1", projects, {
+      exists: true,
+      config: {
+        variables: [
+          {
+            id: "var-1",
+            key: "API_KEY",
+            value: "secret",
+            comment: "Token for API calls",
+          },
+        ],
+      },
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Edit environment" }));
+    expect(await screen.findByDisplayValue("API_KEY")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Token for API calls")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Generated environment file" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "View generated .env" }));
+    const editor = await screen.findByRole("textbox", { name: "Generated environment file" });
     const codeMirror = editor.closest(".cm-editor");
 
     expect(codeMirror).toBeInTheDocument();
     expect(within(codeMirror as HTMLElement).queryByRole("textbox")).toBe(editor);
-    expect(editor).toHaveTextContent("# API credentials");
+    expect(editor).toHaveTextContent("# Token for API calls");
     expect(editor).toHaveTextContent("API_KEY=secret");
   });
 
@@ -258,3 +340,9 @@ describe("ProjectDetail", () => {
     });
   });
 });
+
+function envConfig(key: string, value: string): ProjectEnvConfig {
+  return {
+    variables: [{ id: "var-1", key, value }],
+  };
+}

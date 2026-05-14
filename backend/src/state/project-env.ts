@@ -3,19 +3,42 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { getDataDir } from "./state.js";
 import { BadRequestError } from "../utils/errors.js";
-import type { ProjectEnvData } from "../types.js";
+import {
+  EMPTY_PROJECT_ENV_CONFIG,
+  generateProjectEnvContent,
+  hasProjectEnvVariables,
+  normalizeProjectEnvConfig,
+  parseProjectEnvConfig,
+  validateProjectEnvConfig,
+  type ProjectEnvConfig,
+  type ProjectEnvData,
+} from "@hive/shared/project-env";
 
 const MAX_PROJECT_ENV_BYTES = 256 * 1024;
 
 export function projectEnvPath(dataDir: string, projectId: string): string {
-  return join(dataDir, projectId, "env", ".env");
+  return join(dataDir, projectId, "env", "env.json");
 }
 
-function assertEnvSize(content: string): void {
-  const size = Buffer.byteLength(content, "utf-8");
+function assertEnvConfig(config: ProjectEnvConfig): ProjectEnvConfig {
+  const normalized = normalizeProjectEnvConfig(config);
+  const validation = validateProjectEnvConfig(normalized);
+  if (!validation.valid) {
+    throw new BadRequestError(validation.errors[0] ?? "Invalid environment config");
+  }
+
+  const generatedContent = generateProjectEnvContent(normalized);
+  const size = Buffer.byteLength(generatedContent, "utf-8");
   if (size > MAX_PROJECT_ENV_BYTES) {
     throw new BadRequestError("Environment file must be 256KB or smaller");
   }
+
+  const jsonSize = Buffer.byteLength(JSON.stringify(normalized), "utf-8");
+  if (jsonSize > MAX_PROJECT_ENV_BYTES) {
+    throw new BadRequestError("Environment config must be 256KB or smaller");
+  }
+
+  return normalized;
 }
 
 export async function loadProjectEnv(
@@ -28,16 +51,21 @@ export async function loadProjectEnv(
       readFile(path, "utf-8"),
       stat(path),
     ]);
+    const config = parseProjectEnvConfig(JSON.parse(content));
+    if (!config) {
+      throw new BadRequestError("Invalid project environment config");
+    }
+
     return {
       exists: true,
-      content,
+      config,
       path,
       sizeBytes: info.size,
       updatedAt: info.mtime.toISOString(),
     };
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return { exists: false, content: "" };
+      return { exists: false, config: EMPTY_PROJECT_ENV_CONFIG };
     }
     throw err;
   }
@@ -45,17 +73,21 @@ export async function loadProjectEnv(
 
 export async function saveProjectEnv(
   projectId: string,
-  content: string,
+  config: ProjectEnvConfig,
   dataDir = getDataDir(),
 ): Promise<ProjectEnvData> {
-  assertEnvSize(content);
+  const normalized = assertEnvConfig(config);
+  if (!hasProjectEnvVariables(normalized)) {
+    await deleteProjectEnv(projectId, dataDir);
+    return { exists: false, config: EMPTY_PROJECT_ENV_CONFIG };
+  }
 
   const dir = join(dataDir, projectId, "env");
   await mkdir(dir, { recursive: true });
 
   const target = projectEnvPath(dataDir, projectId);
-  const tmp = join(dir, `.env.${randomUUID()}.tmp`);
-  await writeFile(tmp, content, { encoding: "utf-8", mode: 0o600 });
+  const tmp = join(dir, `env.${randomUUID()}.json.tmp`);
+  await writeFile(tmp, `${JSON.stringify(normalized, null, 2)}\n`, { encoding: "utf-8", mode: 0o600 });
   await rename(tmp, target);
   await chmod(target, 0o600).catch(() => {});
 
@@ -74,14 +106,11 @@ export async function copyProjectEnvToWorkspace(
   workspacePath: string,
   dataDir = getDataDir(),
 ): Promise<boolean> {
-  const source = projectEnvPath(dataDir, projectId);
-  let content: string;
-  try {
-    content = await readFile(source, "utf-8");
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw err;
-  }
+  const env = await loadProjectEnv(projectId, dataDir);
+  if (!env.exists) return false;
+
+  const content = generateProjectEnvContent(env.config);
+  if (!content) return false;
 
   const target = join(workspacePath, ".env");
   await writeFile(target, content, { encoding: "utf-8", mode: 0o600 });

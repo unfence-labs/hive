@@ -10,6 +10,7 @@ import {
   projectEnvPath,
   saveProjectEnv,
 } from "./project-env.js";
+import type { ProjectEnvConfig } from "@hive/shared/project-env";
 
 let tempDir: string;
 let dataDir: string;
@@ -25,33 +26,48 @@ afterEach(async () => {
 });
 
 describe("project environment storage", () => {
-  it("returns not configured when no project .env exists", async () => {
+  it("returns not configured when no project environment exists", async () => {
     await expect(loadProjectEnv("proj-1", dataDir)).resolves.toEqual({
       exists: false,
-      content: "",
+      config: { variables: [] },
     });
   });
 
-  it("saves, loads, and deletes a project .env", async () => {
-    const saved = await saveProjectEnv("proj-1", "API_KEY=secret\n", dataDir);
+  it("saves, loads, and deletes a project environment config", async () => {
+    const config = envConfig("API_KEY", "secret");
+    const saved = await saveProjectEnv("proj-1", config, dataDir);
 
     expect(saved.exists).toBe(true);
-    expect(saved.content).toBe("API_KEY=secret\n");
+    expect(saved.config).toEqual(config);
     expect(saved.path).toBe(projectEnvPath(dataDir, "proj-1"));
-    expect(saved.sizeBytes).toBe(Buffer.byteLength("API_KEY=secret\n"));
     expect(saved.updatedAt).toBeTruthy();
-    expect(await readFile(projectEnvPath(dataDir, "proj-1"), "utf-8")).toBe("API_KEY=secret\n");
+    expect(JSON.parse(await readFile(projectEnvPath(dataDir, "proj-1"), "utf-8"))).toEqual(config);
 
     await deleteProjectEnv("proj-1", dataDir);
     expect(await loadProjectEnv("proj-1", dataDir)).toEqual({
       exists: false,
-      content: "",
+      config: { variables: [] },
     });
   });
 
-  it("rejects environment files larger than 256KB", async () => {
-    await expect(saveProjectEnv("proj-1", "x".repeat(256 * 1024 + 1), dataDir))
+  it("rejects generated environment files larger than 256KB", async () => {
+    await expect(saveProjectEnv("proj-1", envConfig("API_KEY", "x".repeat(256 * 1024 + 1)), dataDir))
       .rejects.toThrow("256KB or smaller");
+  });
+
+  it("rejects values that would inject additional .env lines", async () => {
+    await expect(saveProjectEnv("proj-1", envConfig("API_KEY", "secret\nINJECTED=1"), dataDir))
+      .rejects.toThrow("value cannot contain line breaks");
+  });
+
+  it("deletes storage when saving an empty config", async () => {
+    await saveProjectEnv("proj-1", envConfig("API_KEY", "secret"), dataDir);
+
+    await expect(saveProjectEnv("proj-1", { variables: [] }, dataDir)).resolves.toEqual({
+      exists: false,
+      config: { variables: [] },
+    });
+    expect(existsSync(projectEnvPath(dataDir, "proj-1"))).toBe(false);
   });
 });
 
@@ -67,20 +83,38 @@ describe("copyProjectEnvToWorkspace", () => {
   it("copies the configured project .env into a workspace", async () => {
     const wsPath = join(tempDir, "workspace");
     await mkdir(wsPath, { recursive: true });
-    await saveProjectEnv("proj-1", "DATABASE_URL=postgres://local\n", dataDir);
+    await saveProjectEnv("proj-1", {
+      variables: [
+        {
+          id: "var-1",
+          key: "DATABASE_URL",
+          value: "postgres://local",
+          comment: "Local database",
+        },
+      ],
+    }, dataDir);
 
     await expect(copyProjectEnvToWorkspace("proj-1", wsPath, dataDir)).resolves.toBe(true);
-    expect(await readFile(join(wsPath, ".env"), "utf-8")).toBe("DATABASE_URL=postgres://local\n");
+    expect(await readFile(join(wsPath, ".env"), "utf-8")).toBe(
+      "# Local database\nDATABASE_URL=postgres://local\n",
+    );
   });
 
   it("overwrites an existing workspace .env when called during workspace creation", async () => {
     const wsPath = join(tempDir, "workspace");
     await mkdir(wsPath, { recursive: true });
-    await saveProjectEnv("proj-1", "API_KEY=managed\n", dataDir);
+    await saveProjectEnv("proj-1", envConfig("API_KEY", "managed"), dataDir);
     await writeFile(join(wsPath, ".env"), "API_KEY=old\n", "utf-8");
 
     await copyProjectEnvToWorkspace("proj-1", wsPath, dataDir);
 
     expect(await readFile(join(wsPath, ".env"), "utf-8")).toBe("API_KEY=managed\n");
   });
+
 });
+
+function envConfig(key: string, value: string): ProjectEnvConfig {
+  return {
+    variables: [{ id: "var-1", key, value }],
+  };
+}

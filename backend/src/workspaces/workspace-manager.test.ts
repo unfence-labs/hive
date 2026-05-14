@@ -67,7 +67,9 @@ describe("createWorkspace", () => {
   });
 
   it("copies the project environment into a new workspace", async () => {
-    await saveProjectEnv(projectId, "API_KEY=secret\n", dataDir);
+    await saveProjectEnv(projectId, {
+      variables: [{ id: "var-1", key: "API_KEY", value: "secret" }],
+    }, dataDir);
 
     const ws = await createWorkspace(projectId, dataDir);
     const wsPath = join(dataDir, projectId, "workspaces", ws.name);

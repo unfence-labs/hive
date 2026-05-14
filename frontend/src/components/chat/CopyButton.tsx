@@ -7,16 +7,25 @@ import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 interface CopyButtonProps {
   content: string;
   className?: string;
+  ariaLabel?: string;
+  copiedAriaLabel?: string;
+  iconClassName?: string;
+  disabled?: boolean;
 }
 
 export const CopyButton = memo(function CopyButton({
   content,
   className,
+  ariaLabel = "Copy message",
+  copiedAriaLabel = "Copied",
+  iconClassName = "size-3",
+  disabled = false,
 }: CopyButtonProps) {
   const { copy, isCopied } = useClipboardCopy();
   const copied = isCopied(content);
 
   const handleCopy = async () => {
+    if (disabled) return;
     await copy(content);
   };
 
@@ -25,16 +34,17 @@ export const CopyButton = memo(function CopyButton({
       variant="ghost"
       size="icon-xs"
       onClick={handleCopy}
+      disabled={disabled}
       className={cn(
         "transition-opacity",
         className,
       )}
-      aria-label={copied ? "Copied" : "Copy message"}
+      aria-label={copied ? copiedAriaLabel : ariaLabel}
     >
       {copied ? (
-        <CheckIcon className="size-3 text-green-500" />
+        <CheckIcon className={cn(iconClassName, "text-green-500")} />
       ) : (
-        <ClipboardIcon className="size-3" />
+        <ClipboardIcon className={iconClassName} />
       )}
     </Button>
   );
