@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir } from "../utils/test-helpers.js";
 import { skillRoutes } from "./skills.js";
@@ -66,6 +66,51 @@ describe("skill settings routes", () => {
     );
   });
 
+  it("creates a new skill", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/settings/skills",
+      payload: {
+        content: "---\nname: reviewer\ndescription: Review code\n---\n# Reviewer\n",
+      },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toEqual(
+      expect.objectContaining({
+        id: "reviewer",
+        syncStatus: "linked",
+      }),
+    );
+    await expect(readFile(join(roots.codex, "reviewer", "SKILL.md"), "utf-8")).resolves.toContain("# Reviewer");
+    const claudeStat = await lstat(join(roots.claude, "reviewer"));
+    expect(claudeStat.isSymbolicLink()).toBe(true);
+  });
+
+  it("rejects creating a duplicate skill", async () => {
+    await writeSkill(roots.codex, "reviewer", "---\nname: reviewer\n---\n# Reviewer\n");
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/settings/skills",
+      payload: { content: "---\nname: reviewer\n---\n# Duplicate\n" },
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: "Skill already exists" });
+  });
+
+  it("rejects creating a skill without a frontmatter name", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/settings/skills",
+      payload: { content: "# Missing name\n" },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "Skill name is required" });
+  });
+
   it("saves and canonicalizes a Claude-only skill", async () => {
     await writeSkill(roots.claude, "reviewer", "---\nname: reviewer\n---\n# Old\n");
 
@@ -78,6 +123,24 @@ describe("skill settings routes", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().syncStatus).toBe("linked");
     await expect(readFile(join(roots.codex, "reviewer", "SKILL.md"), "utf-8")).resolves.toContain("# New");
+  });
+
+  it("deletes a skill from Claude and Codex", async () => {
+    await writeSkill(roots.claude, "reviewer", "---\nname: reviewer\n---\n# Claude\n");
+    await writeSkill(roots.codex, "reviewer", "---\nname: reviewer\n---\n# Codex\n");
+
+    const res = await app.inject({ method: "DELETE", url: "/api/settings/skills/reviewer" });
+
+    expect(res.statusCode).toBe(204);
+    await expect(lstat(join(roots.claude, "reviewer"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(roots.codex, "reviewer"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("returns 404 when deleting an unknown skill", async () => {
+    const res = await app.inject({ method: "DELETE", url: "/api/settings/skills/missing" });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: "Skill not found" });
   });
 
   it("syncs missing skills", async () => {

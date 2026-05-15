@@ -1,6 +1,8 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  useCreateSkill,
+  useDeleteSkill,
   useSkill,
   useSkills,
   useSyncMissingSkills,
@@ -104,6 +106,25 @@ describe("useUpdateSkill", () => {
   });
 });
 
+describe("useCreateSkill", () => {
+  it("posts a new skill and invalidates the skills list", async () => {
+    vi.mocked(api.post).mockResolvedValueOnce(makeDetail());
+
+    const { wrapper, queryClient } = createWrapper();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useCreateSkill(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ content: "# New" });
+    });
+
+    expect(api.post).toHaveBeenCalledWith("/api/settings/skills", { content: "# New" });
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ["settings", "skills"] }),
+    );
+  });
+});
+
 describe("useSyncSkill", () => {
   it("posts to the single-skill sync endpoint", async () => {
     vi.mocked(api.post).mockResolvedValueOnce(makeDetail());
@@ -116,6 +137,25 @@ describe("useSyncSkill", () => {
     });
 
     expect(api.post).toHaveBeenCalledWith("/api/settings/skills/reviewer/sync");
+  });
+});
+
+describe("useDeleteSkill", () => {
+  it("deletes a skill and invalidates the skills list", async () => {
+    vi.mocked(api.delete).mockResolvedValueOnce(undefined);
+
+    const { wrapper, queryClient } = createWrapper();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useDeleteSkill(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync("reviewer");
+    });
+
+    expect(api.delete).toHaveBeenCalledWith("/api/settings/skills/reviewer");
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ["settings", "skills"] }),
+    );
   });
 });
 

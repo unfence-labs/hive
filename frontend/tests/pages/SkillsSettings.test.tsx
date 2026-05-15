@@ -1,8 +1,8 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SkillsSettings from "@/pages/settings/SkillsSettings";
-import { api } from "@/hooks/useApi";
+import { ApiError, api } from "@/hooks/useApi";
 import type { SkillDetail, SkillSummary } from "@/types";
 import { createWrapper } from "../test-utils";
 
@@ -31,6 +31,14 @@ vi.mock("@/components/MarkdownEditor", () => ({
 }));
 
 vi.mock("@/hooks/useApi", () => ({
+  ApiError: class ApiError extends Error {
+    constructor(
+      public status: number,
+      message: string,
+    ) {
+      super(message);
+    }
+  },
   api: {
     get: vi.fn(),
     post: vi.fn(),
@@ -71,6 +79,18 @@ function makeDetail(overrides: Partial<SkillDetail> = {}): SkillDetail {
 beforeEach(() => {
   vi.clearAllMocks();
 });
+
+const DEFAULT_SKILL_TEMPLATE = `---
+name: new-skill
+description: Describe when this skill should be used.
+---
+
+# New Skill
+
+## Instructions
+
+Describe the workflow, rules, and context this skill should provide.
+`;
 
 describe("SkillsSettings", () => {
   it("lists skills with provider badges and opens the first skill", async () => {
@@ -139,6 +159,110 @@ describe("SkillsSettings", () => {
     await user.click(await screen.findByRole("button", { name: /Sync pending/i }));
 
     expect(api.post).toHaveBeenCalledWith("/api/settings/skills/sync-missing");
+  });
+
+  it("deletes an existing skill after confirmation", async () => {
+    const user = userEvent.setup();
+    const tester = makeSkill({
+      id: "tester",
+      name: "tester",
+      folderName: "tester",
+      description: "Run tests",
+    });
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url === "/api/settings/skills") return Promise.resolve({ skills: [makeSkill(), tester] });
+      if (url === "/api/settings/skills/reviewer") return Promise.resolve(makeDetail());
+      if (url === "/api/settings/skills/tester") {
+        return Promise.resolve(
+          makeDetail({
+            ...tester,
+            content: "---\nname: tester\n---\n# Tester\n",
+            contentProvider: "codex",
+            providerContents: {
+              codex: "---\nname: tester\n---\n# Tester\n",
+            },
+          }),
+        );
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    vi.mocked(api.delete).mockResolvedValueOnce(undefined);
+
+    const { wrapper } = createWrapper();
+    render(<SkillsSettings />, { wrapper });
+
+    await screen.findByLabelText("reviewer SKILL.md");
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText(/from Claude and Codex/i)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(api.delete).toHaveBeenCalledWith("/api/settings/skills/reviewer");
+    });
+  });
+
+  it("creates a local draft without saving it to the backend", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url === "/api/settings/skills") return Promise.resolve({ skills: [] });
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+
+    const { wrapper } = createWrapper();
+    render(<SkillsSettings />, { wrapper });
+
+    await user.click(await screen.findByRole("button", { name: "New Skill" }));
+
+    expect(screen.getAllByText("Unsaved").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("New skill SKILL.md")).toHaveValue(DEFAULT_SKILL_TEMPLATE);
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("saves a modified new skill through the create endpoint", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url === "/api/settings/skills") return Promise.resolve({ skills: [] });
+      if (url === "/api/settings/skills/reviewer") return Promise.resolve(makeDetail());
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    vi.mocked(api.post).mockResolvedValueOnce(makeDetail());
+
+    const { wrapper } = createWrapper();
+    render(<SkillsSettings />, { wrapper });
+
+    await user.click(await screen.findByRole("button", { name: "New Skill" }));
+    const editor = screen.getByLabelText("New skill SKILL.md");
+    const content = "---\nname: reviewer\n---\n# Reviewer\n";
+    await user.clear(editor);
+    await user.type(editor, content);
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith("/api/settings/skills", { content });
+    });
+  });
+
+  it("shows a duplicate-name error and disables save after a create conflict", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url === "/api/settings/skills") return Promise.resolve({ skills: [] });
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    vi.mocked(api.post).mockRejectedValueOnce(new ApiError(409, "Skill already exists"));
+
+    const { wrapper } = createWrapper();
+    render(<SkillsSettings />, { wrapper });
+
+    await user.click(await screen.findByRole("button", { name: "New Skill" }));
+    const editor = screen.getByLabelText("New skill SKILL.md");
+    await user.clear(editor);
+    await user.type(editor, "---\nname: reviewer\n---\n# Reviewer\n");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Skill already exists");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
   it("shows a diff for divergent provider copies", async () => {

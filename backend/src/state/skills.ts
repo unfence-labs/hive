@@ -15,6 +15,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { parseSkillManifest, skillFolderName } from "../utils/skill-manifest.js";
+import { BadRequestError, ConflictError } from "../utils/errors.js";
 import type {
   SkillDetail,
   SkillListResponse,
@@ -335,6 +336,16 @@ async function removePath(path: string): Promise<void> {
   }
 }
 
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw err;
+  }
+}
+
 async function ensureClaudeSymlink(linkPath: string, targetDir: string): Promise<void> {
   await mkdir(dirname(linkPath), { recursive: true });
 
@@ -361,6 +372,76 @@ async function ensureClaudeSymlink(linkPath: string, targetDir: string): Promise
     if (backupPath) await rename(backupPath, linkPath).catch(() => {});
     throw err;
   }
+}
+
+/**
+ * Create a brand-new canonical global skill without overwriting existing
+ * Claude or Codex folders. Existing skills use saveGlobalSkill instead.
+ */
+export async function createGlobalSkill(
+  content: string,
+  roots = globalSkillRoots(),
+): Promise<SkillDetail> {
+  if (!content.trim()) throw new BadRequestError("Content is required");
+
+  const manifest = parseSkillManifest(content, "");
+  const folderName = entryId(manifest.name);
+  if (!folderName) throw new BadRequestError("Skill name is required");
+
+  const existing = await loadGlobalSkill(folderName, roots);
+  if (existing) throw new ConflictError("Skill already exists");
+
+  const codexDir = join(roots.codex, folderName);
+  const claudeDir = join(roots.claude, folderName);
+  if (await pathExists(codexDir) || await pathExists(claudeDir)) {
+    throw new ConflictError("Skill already exists");
+  }
+
+  try {
+    await mkdir(dirname(codexDir), { recursive: true });
+    await mkdir(codexDir);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+      throw new ConflictError("Skill already exists");
+    }
+    throw err;
+  }
+
+  try {
+    await writeAtomic(join(codexDir, "SKILL.md"), content);
+    await ensureClaudeSymlink(claudeDir, codexDir);
+  } catch (err) {
+    await removePath(codexDir).catch(() => {});
+    throw err;
+  }
+
+  const created = await loadGlobalSkill(folderName, roots);
+  if (!created) throw new Error("Created skill could not be loaded");
+  return created;
+}
+
+/**
+ * Delete every provider copy for a unified global skill. Symlinks are unlinked
+ * directly so the canonical target is removed only by its own provider path.
+ */
+export async function deleteGlobalSkill(
+  id: string,
+  roots = globalSkillRoots(),
+): Promise<boolean> {
+  const existing = await loadGlobalSkill(id, roots);
+  if (!existing) return false;
+
+  const paths = new Set<string>();
+  for (const provider of ["claude", "codex"] as const) {
+    const state = existing.providers[provider];
+    if (state.present) paths.add(state.path);
+  }
+
+  for (const path of paths) {
+    await removePath(path);
+  }
+
+  return true;
 }
 
 export async function saveGlobalSkill(

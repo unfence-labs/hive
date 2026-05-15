@@ -329,8 +329,10 @@ npm test
 | `POST` | `/api/settings/apns-token` | Register APNs device token |
 | `GET` | `/api/settings/agents` | Provider versions + update availability |
 | `GET` | `/api/settings/skills` | List global Claude/Codex skills and sync status |
+| `POST` | `/api/settings/skills` | Create a new global skill in `.agents/skills` and add the Claude symlink |
 | `GET` | `/api/settings/skills/:id` | Get a global skill detail (`SKILL.md`) |
 | `PUT` | `/api/settings/skills/:id` | Save `SKILL.md`, canonicalize into `.agents/skills`, and sync Claude symlink |
+| `DELETE` | `/api/settings/skills/:id` | Delete a global skill from Claude and Codex |
 | `POST` | `/api/settings/skills/:id/sync` | Sync one skill into canonical storage |
 | `POST` | `/api/settings/skills/sync-missing` | Sync Claude-only, Codex-only, and matching duplicate global skills |
 

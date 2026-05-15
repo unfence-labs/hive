@@ -1,14 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
   FileCode2,
   Link2,
   Loader2,
+  Plus,
   RefreshCw,
   Save,
+  Trash2,
+  X,
   XCircle,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -23,34 +36,116 @@ import { SettingsHeader } from "@/components/AppLayout";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { DiffView } from "@/components/diff/DiffView";
 import {
+  useCreateSkill,
+  useDeleteSkill,
   useSkill,
   useSkills,
   useSyncMissingSkills,
   useSyncSkill,
   useUpdateSkill,
 } from "@/hooks/useSkills";
+import { ApiError } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 import type { SkillDetail, SkillProviderId, SkillSummary, SkillSyncStatus } from "@/types";
 
 const SYNCABLE_STATUSES = new Set<SkillSyncStatus>(["claude_only", "codex_only", "synced"]);
+const DEFAULT_SKILL_TEMPLATE = `---
+name: new-skill
+description: Describe when this skill should be used.
+---
+
+# New Skill
+
+## Instructions
+
+Describe the workflow, rules, and context this skill should provide.
+`;
+const SKILL_EDITOR_PLACEHOLDER = "---\nname: my-skill\ndescription: When to use this skill\n---\n\n# My Skill";
+
+type SkillSelection = { kind: "existing"; id: string } | { kind: "draft" } | null;
+
+interface NewSkillDraft {
+  content: string;
+  initialContent: string;
+  error: string | null;
+  conflictContent: string | null;
+}
 
 export default function SkillsSettings() {
   const { data, isLoading, isError } = useSkills();
   const syncMissingMutation = useSyncMissingSkills();
   const skills = useMemo(() => data?.skills ?? [], [data]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selection, setSelection] = useState<SkillSelection>(null);
+  const [draftSkill, setDraftSkill] = useState<NewSkillDraft | null>(null);
 
   useEffect(() => {
-    if (skills.length === 0) {
-      setSelectedId(null);
-      return;
-    }
-    if (!selectedId || !skills.some((skill) => skill.id === selectedId)) {
-      setSelectedId(skills[0].id);
-    }
-  }, [selectedId, skills]);
+    setSelection((current) => {
+      if (current?.kind === "draft") return draftSkill ? current : null;
+      if (skills.length === 0) return null;
+      if (current?.kind === "existing" && skills.some((skill) => skill.id === current.id)) {
+        return current;
+      }
+      return { kind: "existing", id: skills[0].id };
+    });
+  }, [draftSkill, skills]);
 
   const syncableCount = skills.filter((skill) => SYNCABLE_STATUSES.has(skill.syncStatus)).length;
+  const selectedExistingId = selection?.kind === "existing" ? selection.id : null;
+
+  const handleNewSkill = () => {
+    setDraftSkill((current) =>
+      current ?? {
+        content: DEFAULT_SKILL_TEMPLATE,
+        initialContent: DEFAULT_SKILL_TEMPLATE,
+        error: null,
+        conflictContent: null,
+      },
+    );
+    setSelection({ kind: "draft" });
+  };
+
+  const handleDraftChange = (content: string) => {
+    setDraftSkill((current) => {
+      if (!current) return current;
+      const conflictContent = current.conflictContent === content ? current.conflictContent : null;
+      return {
+        ...current,
+        content,
+        conflictContent,
+        error: conflictContent ? current.error : null,
+      };
+    });
+  };
+
+  const handleDraftError = (message: string, conflict: boolean) => {
+    setDraftSkill((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        error: message,
+        conflictContent: conflict ? current.content : null,
+      };
+    });
+  };
+
+  const handleDraftDiscard = () => {
+    setDraftSkill(null);
+    setSelection(skills[0] ? { kind: "existing", id: skills[0].id } : null);
+  };
+
+  const handleDraftCreated = (id: string) => {
+    setDraftSkill(null);
+    setSelection({ kind: "existing", id });
+  };
+
+  const handleSkillDeleted = (id: string) => {
+    setSelection((current) => {
+      if (current?.kind !== "existing" || current.id !== id) return current;
+      const nextSkill = skills.find((skill) => skill.id !== id);
+      if (nextSkill) return { kind: "existing", id: nextSkill.id };
+      return draftSkill ? { kind: "draft" } : null;
+    });
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -88,12 +183,27 @@ export default function SkillsSettings() {
         <div className="flex flex-1 overflow-hidden">
           <SkillsList
             skills={skills}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
+            draftSkill={draftSkill}
+            selection={selection}
+            onSelect={(id) => setSelection({ kind: "existing", id })}
+            onSelectDraft={() => setSelection({ kind: "draft" })}
+            onNewSkill={handleNewSkill}
           />
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            {selectedId ? (
-              <SkillDetailPanel id={selectedId} onSelectedIdChange={setSelectedId} />
+            {selectedExistingId ? (
+              <SkillDetailPanel
+                id={selectedExistingId}
+                onSelectedIdChange={(id) => setSelection({ kind: "existing", id })}
+                onDeleted={handleSkillDeleted}
+              />
+            ) : selection?.kind === "draft" && draftSkill ? (
+              <NewSkillDetailPanel
+                draft={draftSkill}
+                onChange={handleDraftChange}
+                onCreated={handleDraftCreated}
+                onDiscard={handleDraftDiscard}
+                onError={handleDraftError}
+              />
             ) : (
               <EmptyState />
             )}
@@ -106,18 +216,30 @@ export default function SkillsSettings() {
 
 function SkillsList({
   skills,
-  selectedId,
+  draftSkill,
+  selection,
   onSelect,
+  onSelectDraft,
+  onNewSkill,
 }: {
   skills: SkillSummary[];
-  selectedId: string | null;
+  draftSkill: NewSkillDraft | null;
+  selection: SkillSelection;
   onSelect: (id: string) => void;
+  onSelectDraft: () => void;
+  onNewSkill: () => void;
 }) {
   return (
     <div className="flex w-72 shrink-0 flex-col border-r border-border/50">
       <ScrollArea className="flex-1">
         <div className="p-2">
-          {skills.length === 0 ? (
+          {draftSkill && (
+            <DraftSkillListItem
+              selected={selection?.kind === "draft"}
+              onClick={onSelectDraft}
+            />
+          )}
+          {skills.length === 0 && !draftSkill ? (
             <div className="px-2 py-8 text-center text-xs text-muted-foreground">
               No global skills found.
             </div>
@@ -126,14 +248,59 @@ function SkillsList({
               <SkillListItem
                 key={skill.id}
                 skill={skill}
-                selected={skill.id === selectedId}
+                selected={selection?.kind === "existing" && skill.id === selection.id}
                 onClick={() => onSelect(skill.id)}
               />
             ))
           )}
         </div>
       </ScrollArea>
+      <div className="border-t border-border/30 p-2">
+        <button
+          type="button"
+          onClick={onNewSkill}
+          className={cn(
+            "inline-flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/10",
+            selection?.kind === "draft" && "border-primary bg-primary/10",
+          )}
+        >
+          <Plus className="h-3 w-3" />
+          New Skill
+        </button>
+      </div>
     </div>
+  );
+}
+
+function DraftSkillListItem({
+  selected,
+  onClick,
+}: {
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "mb-1 flex w-full cursor-pointer flex-col gap-1.5 rounded-md px-2 py-2 text-left text-sm transition-colors",
+        selected
+          ? "bg-primary/15 text-foreground"
+          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+      )}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <FileCode2 className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate font-medium">New Skill</span>
+        <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[10px]">
+          Unsaved
+        </Badge>
+      </div>
+      <p className="line-clamp-2 text-xs leading-snug text-muted-foreground">
+        Local draft
+      </p>
+    </button>
   );
 }
 
@@ -178,16 +345,20 @@ function SkillListItem({
 function SkillDetailPanel({
   id,
   onSelectedIdChange,
+  onDeleted,
 }: {
   id: string;
   onSelectedIdChange: (id: string) => void;
+  onDeleted: (id: string) => void;
 }) {
   const { data, isLoading, isError } = useSkill(id);
   const updateMutation = useUpdateSkill();
   const syncMutation = useSyncSkill();
+  const deleteMutation = useDeleteSkill();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showDiff, setShowDiff] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     if (!data) return;
@@ -236,85 +407,277 @@ function SkillDetailPanel({
     }
   };
 
+  const handleDelete = async () => {
+    setError(null);
+    try {
+      await deleteMutation.mutateAsync(data.id);
+      setShowDeleteConfirm(false);
+      onDeleted(data.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete skill");
+    }
+  };
+
   return (
-    <div className="flex h-full flex-col overflow-hidden px-5 pt-5 pb-2">
-      <div className="mb-4 shrink-0">
-        <div className="flex items-center gap-2">
-          <h2 className="min-w-0 truncate text-base font-medium text-foreground">
-            {data.name}
-          </h2>
-          <StatusBadge status={data.syncStatus} />
-        </div>
-        {data.description && (
-          <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
-            {data.description}
-          </p>
-        )}
-        <div className="mt-3 flex flex-wrap gap-2">
-          <ProviderBadge provider="claude" data={data} />
-          <ProviderBadge provider="codex" data={data} />
-        </div>
-      </div>
-
-      <SkillBanner
-        data={data}
-        onViewDiff={() => setShowDiff(true)}
-        onUseProvider={(provider) => {
-          const content = data.providerContents[provider];
-          if (content !== undefined) setDraft(content);
-        }}
-      />
-
-      <div className="mt-3 min-h-0 flex-1">
-        <MarkdownEditor
-          value={draft}
-          onChange={setDraft}
-          maxHeight="100%"
-          placeholder={"---\nname: my-skill\ndescription: When to use this skill\n---\n\n# My Skill"}
-          ariaLabel={`${data.name} SKILL.md`}
-        />
-      </div>
-
-      <div className="mt-4 flex shrink-0 items-center gap-2">
-        <button
-          type="button"
-          onClick={() => void handleSave()}
-          disabled={!isDirty || !draft.trim() || updateMutation.isPending}
-          className={cn(
-            "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
-            (!isDirty || !draft.trim() || updateMutation.isPending) && "pointer-events-none opacity-60",
-          )}
-        >
-          {updateMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-          Save
-        </button>
-        {canSync && (
-          <button
-            type="button"
-            onClick={() => void handleSync()}
-            disabled={syncMutation.isPending}
-            className={cn(
-              "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
-              syncMutation.isPending && "pointer-events-none opacity-60",
+    <>
+      <SkillEditorFrame
+        title={data.name}
+        badge={<StatusBadge status={data.syncStatus} />}
+        description={data.description}
+        providers={
+          <>
+            <ProviderBadge provider="claude" data={data} />
+            <ProviderBadge provider="codex" data={data} />
+          </>
+        }
+        banner={
+          <SkillBanner
+            data={data}
+            onViewDiff={() => setShowDiff(true)}
+            onUseProvider={(provider) => {
+              const content = data.providerContents[provider];
+              if (content !== undefined) setDraft(content);
+            }}
+          />
+        }
+        value={draft}
+        onChange={setDraft}
+        ariaLabel={`${data.name} SKILL.md`}
+        actions={
+          <>
+            <EditorActionButton
+              variant="primary"
+              onClick={() => void handleSave()}
+              disabled={!isDirty || !draft.trim() || updateMutation.isPending}
+              pending={updateMutation.isPending}
+              icon={<Save className="h-3 w-3" />}
+            >
+              Save
+            </EditorActionButton>
+            {canSync && (
+              <EditorActionButton
+                onClick={() => void handleSync()}
+                disabled={syncMutation.isPending}
+                pending={syncMutation.isPending}
+                icon={<RefreshCw className="h-3 w-3" />}
+              >
+                Sync
+              </EditorActionButton>
             )}
-          >
-            {syncMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-            Sync
-          </button>
-        )}
-        {error && (
-          <span role="alert" className="text-xs text-red-400">
-            {error}
-          </span>
-        )}
-      </div>
+            <EditorActionButton
+              variant="danger"
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={deleteMutation.isPending}
+              pending={deleteMutation.isPending}
+              icon={<Trash2 className="h-3 w-3" />}
+            >
+              Delete
+            </EditorActionButton>
+            {error && (
+              <span role="alert" className="text-xs text-red-400">
+                {error}
+              </span>
+            )}
+          </>
+        }
+      />
 
       <SkillDiffDialog
         data={data}
         open={showDiff}
         onOpenChange={setShowDiff}
       />
+
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete skill</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete &ldquo;{data.name}&rdquo; from Claude and Codex? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handleDelete()}
+              className="bg-red-600 text-white hover:bg-red-700"
+            >
+              {deleteMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+function NewSkillDetailPanel({
+  draft,
+  onChange,
+  onCreated,
+  onDiscard,
+  onError,
+}: {
+  draft: NewSkillDraft;
+  onChange: (content: string) => void;
+  onCreated: (id: string) => void;
+  onDiscard: () => void;
+  onError: (message: string, conflict: boolean) => void;
+}) {
+  const createMutation = useCreateSkill();
+  const isDirty = draft.content !== draft.initialContent;
+  const hasConflict = draft.conflictContent === draft.content;
+  const canSave = isDirty && Boolean(draft.content.trim()) && !hasConflict && !createMutation.isPending;
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    try {
+      const created = await createMutation.mutateAsync({ content: draft.content });
+      onCreated(created.id);
+    } catch (err) {
+      const conflict = err instanceof ApiError && err.status === 409;
+      onError(
+        conflict
+          ? "Skill already exists"
+          : err instanceof Error
+            ? err.message
+            : "Failed to create skill",
+        conflict,
+      );
+    }
+  };
+
+  return (
+    <SkillEditorFrame
+      title="New Skill"
+      badge={
+        <Badge variant="secondary" className="text-[10px] bg-primary/10 text-primary">
+          Unsaved
+        </Badge>
+      }
+      description="Local draft"
+      value={draft.content}
+      onChange={onChange}
+      ariaLabel="New skill SKILL.md"
+      actions={
+        <>
+          <EditorActionButton
+            variant="primary"
+            onClick={() => void handleSave()}
+            disabled={!canSave}
+            pending={createMutation.isPending}
+            icon={<Save className="h-3 w-3" />}
+          >
+            Save
+          </EditorActionButton>
+          <EditorActionButton
+            onClick={onDiscard}
+            icon={<X className="h-3 w-3" />}
+          >
+            Discard
+          </EditorActionButton>
+          {draft.error && (
+            <span role="alert" className="text-xs text-red-400">
+              {draft.error}
+            </span>
+          )}
+        </>
+      }
+    />
+  );
+}
+
+function SkillEditorFrame({
+  title,
+  badge,
+  description,
+  providers,
+  banner,
+  value,
+  onChange,
+  ariaLabel,
+  actions,
+}: {
+  title: string;
+  badge: ReactNode;
+  description?: string;
+  providers?: ReactNode;
+  banner?: ReactNode;
+  value: string;
+  onChange: (value: string) => void;
+  ariaLabel: string;
+  actions: ReactNode;
+}) {
+  return (
+    <div className="flex h-full flex-col overflow-hidden px-5 pt-5 pb-2">
+      <div className="mb-4 shrink-0">
+        <div className="flex items-center gap-2">
+          <h2 className="min-w-0 truncate text-base font-medium text-foreground">
+            {title}
+          </h2>
+          {badge}
+        </div>
+        {description && (
+          <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
+            {description}
+          </p>
+        )}
+        {providers && <div className="mt-3 flex flex-wrap gap-2">{providers}</div>}
+      </div>
+
+      {banner}
+
+      <div className="mt-3 min-h-0 flex-1">
+        <MarkdownEditor
+          value={value}
+          onChange={onChange}
+          maxHeight="100%"
+          placeholder={SKILL_EDITOR_PLACEHOLDER}
+          ariaLabel={ariaLabel}
+        />
+      </div>
+
+      <div className="mt-4 flex shrink-0 items-center gap-2">
+        {actions}
+      </div>
     </div>
+  );
+}
+
+function EditorActionButton({
+  variant = "secondary",
+  pending = false,
+  disabled = false,
+  icon,
+  children,
+  onClick,
+}: {
+  variant?: "primary" | "secondary" | "danger";
+  pending?: boolean;
+  disabled?: boolean;
+  icon: ReactNode;
+  children: ReactNode;
+  onClick: () => void;
+}) {
+  const disabledState = disabled || pending;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabledState}
+      className={cn(
+        "inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+        variant === "primary"
+          ? "bg-primary text-primary-foreground hover:bg-primary/90"
+          : "border border-border/50 text-muted-foreground",
+        variant === "secondary" && "hover:text-foreground",
+        variant === "danger" && "hover:text-red-400",
+        disabledState && "pointer-events-none opacity-60",
+      )}
+    >
+      {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : icon}
+      {children}
+    </button>
   );
 }
 
@@ -444,8 +807,8 @@ function Banner({
   children,
 }: {
   tone: "info" | "warning" | "danger";
-  icon: React.ReactNode;
-  children: React.ReactNode;
+  icon: ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div

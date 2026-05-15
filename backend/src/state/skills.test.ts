@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { createTempDir } from "../utils/test-helpers.js";
 import {
   _clearSkillsLockForTests,
+  createGlobalSkill,
+  deleteGlobalSkill,
   listGlobalSkills,
   loadGlobalSkill,
   saveGlobalSkill,
@@ -67,6 +69,54 @@ describe("global skills state", () => {
         }),
       ]),
     );
+  });
+
+  it("creates a new skill in .agents and links it into Claude", async () => {
+    const created = await createGlobalSkill(
+      "---\nname: reviewer\ndescription: Review code\n---\n# Reviewer\n",
+      roots,
+    );
+
+    expect(created.id).toBe("reviewer");
+    expect(created.syncStatus).toBe("linked");
+    await expect(readFile(join(roots.codex, "reviewer", "SKILL.md"), "utf-8")).resolves.toContain("# Reviewer");
+    const claudeStat = await lstat(join(roots.claude, "reviewer"));
+    expect(claudeStat.isSymbolicLink()).toBe(true);
+  });
+
+  it("rejects creating a skill without a frontmatter name", async () => {
+    await expect(createGlobalSkill("# Missing name\n", roots)).rejects.toThrow("Skill name is required");
+  });
+
+  it("rejects creating a skill when the skill already exists", async () => {
+    await writeSkill(roots.codex, "reviewer", "---\nname: reviewer\n---\n# Reviewer\n");
+
+    await expect(
+      createGlobalSkill("---\nname: reviewer\n---\n# Duplicate\n", roots),
+    ).rejects.toThrow("Skill already exists");
+  });
+
+  it("deletes a linked skill from Claude and Codex", async () => {
+    await createGlobalSkill("---\nname: reviewer\n---\n# Reviewer\n", roots);
+
+    await expect(deleteGlobalSkill("reviewer", roots)).resolves.toBe(true);
+
+    await expect(readFile(join(roots.codex, "reviewer", "SKILL.md"), "utf-8")).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(roots.claude, "reviewer"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("deletes diverged provider copies from Claude and Codex", async () => {
+    await writeSkill(roots.claude, "reviewer", "---\nname: reviewer\n---\n# Claude\n");
+    await writeSkill(roots.codex, "reviewer", "---\nname: reviewer\n---\n# Codex\n");
+
+    await expect(deleteGlobalSkill("reviewer", roots)).resolves.toBe(true);
+
+    await expect(lstat(join(roots.claude, "reviewer"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(roots.codex, "reviewer"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("returns false when deleting an unknown skill", async () => {
+    await expect(deleteGlobalSkill("missing", roots)).resolves.toBe(false);
   });
 
   it("migrates a Claude-only skill into .agents and replaces Claude with a symlink on save", async () => {

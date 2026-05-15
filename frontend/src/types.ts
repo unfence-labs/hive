@@ -459,6 +459,14 @@ export interface SkillListResponse {
   skills: SkillSummary[];
 }
 
+export interface CreateSkillRequest {
+  content: string;
+}
+
+export interface UpdateSkillRequest {
+  content: string;
+}
+
 export interface SkillSyncResponse {
   skills: SkillSummary[];
   syncedCount: number;
