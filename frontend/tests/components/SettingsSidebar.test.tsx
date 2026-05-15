@@ -196,6 +196,25 @@ describe("SettingsSidebar", () => {
     });
   });
 
+  it("navigates to custom agents settings", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/settings/appearance"]}>
+        <Routes>
+          <Route path="/settings" element={<SettingsShell />}>
+            <Route path="appearance" element={<div>Appearance settings</div>} />
+            <Route path="custom-agents" element={<div>Custom agents settings</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("link", { name: /Custom Agents/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Custom agents settings")).toBeInTheDocument();
+    });
+  });
+
   it("highlights the agents link when agents route is active", async () => {
     renderWithProviders(
       <MemoryRouter initialEntries={["/settings/agents"]}>
@@ -225,6 +244,7 @@ describe("SettingsSidebar", () => {
     expect(screen.getByRole("heading", { name: "General" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Agents" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /CLI/i })).toHaveAttribute("href", "/settings/agents");
+    expect(screen.getByRole("link", { name: /Custom Agents/i })).toHaveAttribute("href", "/settings/custom-agents");
     expect(screen.getByRole("link", { name: /Instructions/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Prompts/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Skills/i })).toBeInTheDocument();

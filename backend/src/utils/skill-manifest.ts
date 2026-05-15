@@ -1,4 +1,5 @@
 import { parseFrontmatter } from "./frontmatter.js";
+import { normalizeConfigName, safeConfigFileStem } from "./config-names.js";
 
 export interface SkillManifest {
   name: string;
@@ -8,15 +9,11 @@ export interface SkillManifest {
 }
 
 export function normalizeSkillName(name: string): string {
-  return name.trim().replace(/^\//, "").replace(/^\$/, "");
+  return normalizeConfigName(name, ["/", "$"]);
 }
 
 export function skillFolderName(name: string): string {
-  const folderName = normalizeSkillName(name)
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return folderName === "." || folderName === ".." ? "" : folderName;
+  return safeConfigFileStem(normalizeSkillName(name));
 }
 
 export function parseSkillManifest(content: string, fallbackName: string): SkillManifest {

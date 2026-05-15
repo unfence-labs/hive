@@ -1,6 +1,16 @@
 import type { ReactNode } from "react";
+import { StreamLanguage } from "@codemirror/language";
+import { syntaxHighlighting } from "@codemirror/language";
+import { oneDarkHighlightStyle } from "@codemirror/theme-one-dark";
+import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { CodeEditor } from "@/components/CodeEditor";
 import { cn } from "@/lib/utils";
+
+const TOML_EXTENSIONS = [
+  StreamLanguage.define(toml),
+  syntaxHighlighting(oneDarkHighlightStyle),
+];
 
 export function SettingsEditorFrame({
   title,
@@ -12,6 +22,7 @@ export function SettingsEditorFrame({
   onChange,
   placeholder,
   ariaLabel,
+  language = "markdown",
   actions,
 }: {
   title: string;
@@ -23,6 +34,7 @@ export function SettingsEditorFrame({
   onChange: (value: string) => void;
   placeholder: string;
   ariaLabel: string;
+  language?: "markdown" | "toml";
   actions: ReactNode;
 }) {
   return (
@@ -45,13 +57,24 @@ export function SettingsEditorFrame({
       {banner}
 
       <div className={cn("min-h-0 flex-1", banner && "mt-3")}>
-        <MarkdownEditor
-          value={value}
-          onChange={onChange}
-          maxHeight="100%"
-          placeholder={placeholder}
-          ariaLabel={ariaLabel}
-        />
+        {language === "toml" ? (
+          <CodeEditor
+            value={value}
+            onChange={onChange}
+            maxHeight="100%"
+            placeholder={placeholder}
+            ariaLabel={ariaLabel}
+            extensions={TOML_EXTENSIONS}
+          />
+        ) : (
+          <MarkdownEditor
+            value={value}
+            onChange={onChange}
+            maxHeight="100%"
+            placeholder={placeholder}
+            ariaLabel={ariaLabel}
+          />
+        )}
       </div>
 
       <div className="mt-4 flex shrink-0 items-center gap-2">

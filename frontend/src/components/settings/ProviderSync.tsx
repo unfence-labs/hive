@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 
 export type ProviderSyncStatus =
   | "missing"
+  | "both"
   | "linked"
   | "synced"
   | "claude_only"
@@ -129,7 +130,7 @@ export function SyncStatusBadge({ status }: { status: ProviderSyncStatus }) {
 }
 
 export function CompactSyncStatusIcon({ status }: { status: ProviderSyncStatus }) {
-  if (status === "linked" || status === "synced") {
+  if (status === "both" || status === "linked" || status === "synced") {
     return <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-400" />;
   }
   if (status === "invalid") {
@@ -142,6 +143,8 @@ function statusConfig(status: ProviderSyncStatus): { label: string; className: s
   switch (status) {
     case "missing":
       return { label: "Missing", className: "bg-muted text-muted-foreground" };
+    case "both":
+      return { label: "Both", className: "bg-emerald-500/10 text-emerald-400" };
     case "linked":
       return { label: "Linked", className: "bg-emerald-500/10 text-emerald-400" };
     case "synced":

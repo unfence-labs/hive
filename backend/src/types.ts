@@ -531,6 +531,58 @@ export interface UpdateInstructionsRequest {
   content: string;
 }
 
+// ── Global custom agent settings ────────────────────────────────────
+
+export type CustomAgentProviderId = "claude" | "codex";
+export type CustomAgentStatus =
+  | "both"
+  | "claude_only"
+  | "codex_only"
+  | "invalid";
+
+export interface CustomAgentProviderState {
+  present: boolean;
+  path: string;
+  fileName?: string;
+  isSymlink?: boolean;
+  realPath?: string;
+  hash?: string;
+  updatedAt?: string;
+  error?: string;
+}
+
+export interface CustomAgentSummary {
+  id: string;
+  name: string;
+  description?: string;
+  status: CustomAgentStatus;
+  providers: Record<CustomAgentProviderId, CustomAgentProviderState>;
+  invalidReason?: string;
+  updatedAt?: string;
+}
+
+export interface CustomAgentDetail extends CustomAgentSummary {
+  contents: Partial<Record<CustomAgentProviderId, string>>;
+  manifests: Partial<Record<CustomAgentProviderId, {
+    name: string;
+    description?: string;
+    developerInstructions?: string;
+  }>>;
+}
+
+export interface CustomAgentListResponse {
+  agents: CustomAgentSummary[];
+}
+
+export interface CreateCustomAgentRequest {
+  provider: CustomAgentProviderId;
+  content: string;
+}
+
+export interface UpdateCustomAgentRequest {
+  content: string;
+}
+
 // ── Hub WebSocket protocol (multiplexed) ────────────────────────────
 
 /** Client -> Server (hub-level). */

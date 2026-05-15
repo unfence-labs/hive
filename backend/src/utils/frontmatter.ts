@@ -8,8 +8,10 @@ export interface Frontmatter {
   [key: string]: string | boolean | string[];
 }
 
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?/;
+
 export function parseFrontmatter(content: string): Frontmatter {
-  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const match = content.match(FRONTMATTER_RE);
   if (!match) return {};
 
   const result: Frontmatter = {};
@@ -73,4 +75,9 @@ export function parseFrontmatter(content: string): Frontmatter {
   }
 
   return result;
+}
+
+export function stripFrontmatter(content: string): string {
+  const match = content.match(FRONTMATTER_RE);
+  return match ? content.slice(match[0].length) : content;
 }
