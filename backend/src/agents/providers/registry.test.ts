@@ -158,7 +158,8 @@ describe("getModelCatalog", () => {
     }
   });
 
-  it("sets defaultModelId to claude default when available", () => {
+  it("sets defaultModelId to claude default when only claude is available", async () => {
+    await detectAvailableProviders();
     markProviderAvailable("claude");
     const catalog = getModelCatalog();
 
@@ -167,13 +168,22 @@ describe("getModelCatalog", () => {
     expect(defaultModel?.isDefault).toBe(true);
   });
 
-  it("falls back to first model when no claude default", () => {
+  it("prefers the codex default when codex and claude are available", () => {
+    markProviderAvailable("claude");
     markProviderAvailable("codex");
     const catalog = getModelCatalog();
 
-    // No claude available, so defaultModelId should be the first codex model
-    // or the first model overall
+    expect(catalog.defaultModelId).toMatch(/^codex:/);
+    const defaultModel = catalog.models.find((m) => m.id === catalog.defaultModelId);
+    expect(defaultModel?.isDefault).toBe(true);
+  });
+
+  it("falls back to first available priority provider when no codex default exists", () => {
+    markProviderAvailable("codex");
+    const catalog = getModelCatalog();
+
     expect(catalog.defaultModelId).toBeTruthy();
+    expect(catalog.defaultModelId).toMatch(/^codex:/);
   });
 
   it("includes provider labels", () => {

@@ -20,6 +20,8 @@ const NPM_PACKAGES: Record<string, string> = {
   gemini: "@google/gemini-cli",
 };
 
+const DEFAULT_PROVIDER_PRIORITY = ["codex", "claude", "gemini"];
+
 /** All known providers. Availability is checked at runtime via CLI detection. */
 const ALL_PROVIDERS: AgentProvider[] = [
   new ClaudeProvider(),
@@ -107,7 +109,6 @@ export function getProvider(providerId: string): AgentProvider | undefined {
 /** Build the model catalog for the frontend, only including available providers. */
 export function getModelCatalog(): ModelCatalogResponse {
   const models: ModelCatalogEntry[] = [];
-  let defaultModelId = "";
 
   for (const provider of ALL_PROVIDERS) {
     if (!availableProviderIds.has(provider.id)) continue;
@@ -129,9 +130,16 @@ export function getModelCatalog(): ModelCatalogResponse {
         // cumulative across sub-calls and would make the context ring misleading.
         contextWindow: provider.id === "codex" ? undefined : model.contextWindow,
       });
-      if (provider.id === "claude" && model.isDefault) {
-        defaultModelId = compoundId;
-      }
+    }
+  }
+
+  let defaultModelId = "";
+  for (const providerId of DEFAULT_PROVIDER_PRIORITY) {
+    const preferredDefault = models.find((m) => m.provider === providerId && m.isDefault)
+      ?? models.find((m) => m.provider === providerId);
+    if (preferredDefault) {
+      defaultModelId = preferredDefault.id;
+      break;
     }
   }
 
