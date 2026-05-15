@@ -58,7 +58,9 @@ export default function InstructionsSettings() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <SettingsHeader>
-        <h1 className="text-sm font-medium">Instructions</h1>
+        <h1 className="text-sm font-medium">
+          Instructions <span className="text-[11px] font-normal text-muted-foreground">(AGENTS.md / CLAUDE.md)</span>
+        </h1>
       </SettingsHeader>
 
       {isLoading ? (

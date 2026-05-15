@@ -4,6 +4,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 const settingsFocusClass = "outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
+const settingsResourceScrollClassName =
+  "[&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full";
 
 export function SettingsResourceList({
   children,
@@ -22,7 +24,7 @@ export function SettingsResourceList({
 }) {
   return (
     <div className="flex w-64 shrink-0 flex-col border-r border-border/50 max-md:h-56 max-md:w-full max-md:border-r-0 max-md:border-b">
-      <ScrollArea className="flex-1">
+      <ScrollArea className={cn("flex-1", settingsResourceScrollClassName)}>
         <div className="p-2">{showEmpty ? empty : children}</div>
       </ScrollArea>
       <div className="border-t border-border/30 p-2">
