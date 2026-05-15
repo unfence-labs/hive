@@ -121,6 +121,16 @@ function entryId(entry: ProviderAgentEntry): string {
   return customAgentFileStem(entry.manifest?.name ?? entry.fallbackName);
 }
 
+function manifestValidationError(
+  provider: CustomAgentProviderId,
+  manifest: CustomAgentManifest,
+): string | undefined {
+  if (provider === "codex" && !manifest.developerInstructions) {
+    return "developer_instructions is required";
+  }
+  return undefined;
+}
+
 async function walkFiles(dir: string, extension: string, root = dir): Promise<FileEntry[]> {
   let entries;
   try {
@@ -157,6 +167,7 @@ async function readProviderAgent(
     const content = await readFile(file.path, "utf-8");
     const manifest = parseCustomAgentManifest(provider, content, fallbackName);
     const fileStat = await lstat(file.path).catch(() => stat);
+    const error = manifestValidationError(provider, manifest);
 
     return {
       provider,
@@ -170,6 +181,7 @@ async function readProviderAgent(
       manifest,
       fallbackName,
       updatedAt: fileStat.mtime.toISOString(),
+      error,
     };
   } catch (err: unknown) {
     return {
@@ -279,7 +291,10 @@ export async function loadGlobalCustomAgent(
       const content = await readFile(state.path, "utf-8");
       contents[provider] = content;
       try {
-        manifests[provider] = parseCustomAgentManifest(provider, content, normalizedId);
+        const manifest = parseCustomAgentManifest(provider, content, normalizedId);
+        if (!manifestValidationError(provider, manifest)) {
+          manifests[provider] = manifest;
+        }
       } catch {
         // The raw file is still editable even when its manifest is invalid.
       }

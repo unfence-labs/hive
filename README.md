@@ -69,7 +69,7 @@ It manages:
 - Notification settings (Telegram + APNs, instant-apply toggles, test message).
 - Agent settings (installed providers, versions, update availability).
 - Prompt settings (base prompt editor, template library, prompt flow explainer).
-- Global custom agents settings (provider-native Claude Markdown and Codex TOML, explicit counterpart creation).
+- Global custom agents settings (validated provider-native Claude Markdown and Codex TOML, explicit counterpart creation).
 - Global skills settings (single view over Claude/Codex skills, `.agents/skills` canonical storage, Claude symlink sync).
 - Global instructions settings (single editor for Claude/Codex instruction files, `.codex/AGENTS.md` canonical storage, Claude symlink sync, override visibility).
 - Per-repository detail view with deletion controls and CodeMirror-powered project `.env` editing.
@@ -437,6 +437,7 @@ Frontend key modules:
 - `frontend/src/pages/WorkspaceView.tsx` main chat/inline diff/file tree/scripts/PR status UI
 - `frontend/src/pages/AutomationDetail.tsx` automation config + run history + run log
 - `frontend/src/pages/settings/` settings pages (Appearance, Connection, Account, Notifications, CLI Agents, Custom Agents, Prompts, Instructions, Skills, ProjectDetail)
+- `frontend/src/components/settings/` shared settings list/editor/status primitives used by instructions, skills, and custom agents
 - `frontend/src/contexts/WorkspaceLiveDataContext.tsx` WS live data context + unread tracking
 - `frontend/src/hooks/useConversation.ts` reducer-driven conversation state + tool responses + lockedProvider
 - `frontend/src/hooks/useSessions.ts` multi-session operations (max 4)

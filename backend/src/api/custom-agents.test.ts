@@ -154,4 +154,16 @@ describe("custom agent settings routes", () => {
     expect(res.json().status).toBe("both");
     await expect(readFile(join(roots.codex, "reviewer.toml"), "utf-8")).resolves.toContain("developer_instructions");
   });
+
+  it("rejects counterpart creation when the source provider is invalid", async () => {
+    await writeAgent(roots.codex, "reviewer.toml", "name = \"reviewer\"\n");
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/settings/custom-agents/reviewer/providers/claude/counterpart",
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "Source custom agent is invalid" });
+  });
 });

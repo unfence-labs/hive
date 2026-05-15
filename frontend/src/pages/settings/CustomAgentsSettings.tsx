@@ -36,6 +36,10 @@ import {
   SettingsResourceListItem,
 } from "@/components/settings/SettingsResourceList";
 import {
+  resolveSettingsResourceSelection,
+  type SettingsResourceSelection,
+} from "@/components/settings/resource-selection";
+import {
   useCreateCustomAgent,
   useCreateCustomAgentCounterpart,
   useCustomAgent,
@@ -79,7 +83,7 @@ const PLACEHOLDERS: Record<CustomAgentProviderId, string> = {
   codex: "name = \"reviewer\"\ndescription = \"Reviews changes\"\ndeveloper_instructions = \"Review code changes.\"",
 };
 
-type AgentSelection = { kind: "existing"; id: string } | { kind: "draft" } | null;
+type AgentSelection = SettingsResourceSelection;
 
 interface NewAgentDraft {
   provider: CustomAgentProviderId;
@@ -94,7 +98,7 @@ export default function CustomAgentsSettings() {
   const agents = data?.agents ?? [];
   const [selection, setSelection] = useState<AgentSelection>(null);
   const [draftAgent, setDraftAgent] = useState<NewAgentDraft | null>(null);
-  const resolvedSelection = resolveAgentSelection(selection, agents, draftAgent !== null);
+  const resolvedSelection = resolveSettingsResourceSelection(selection, agents, draftAgent !== null);
   const selectedExistingId = resolvedSelection?.kind === "existing" ? resolvedSelection.id : null;
 
   const handleNewAgent = () => {
@@ -227,19 +231,6 @@ export default function CustomAgentsSettings() {
       )}
     </div>
   );
-}
-
-function resolveAgentSelection(
-  selection: AgentSelection,
-  agents: CustomAgentSummary[],
-  hasDraft: boolean,
-): AgentSelection {
-  if (selection?.kind === "draft") return hasDraft ? selection : null;
-  if (selection?.kind === "existing" && agents.some((agent) => agent.id === selection.id)) {
-    return selection;
-  }
-  if (agents[0]) return { kind: "existing", id: agents[0].id };
-  return hasDraft ? { kind: "draft" } : null;
 }
 
 function CustomAgentsList({

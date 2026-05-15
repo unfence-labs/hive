@@ -46,6 +46,10 @@ import {
   SettingsResourceListItem,
 } from "@/components/settings/SettingsResourceList";
 import {
+  resolveSettingsResourceSelection,
+  type SettingsResourceSelection,
+} from "@/components/settings/resource-selection";
+import {
   useCreateSkill,
   useDeleteSkill,
   useSkill,
@@ -72,7 +76,7 @@ Describe the workflow, rules, and context this skill should provide.
 `;
 const SKILL_EDITOR_PLACEHOLDER = "---\nname: my-skill\ndescription: When to use this skill\n---\n\n# My Skill";
 
-type SkillSelection = { kind: "existing"; id: string } | { kind: "draft" } | null;
+type SkillSelection = SettingsResourceSelection;
 
 interface NewSkillDraft {
   content: string;
@@ -87,7 +91,7 @@ export default function SkillsSettings() {
   const skills = data?.skills ?? [];
   const [selection, setSelection] = useState<SkillSelection>(null);
   const [draftSkill, setDraftSkill] = useState<NewSkillDraft | null>(null);
-  const resolvedSelection = resolveSkillSelection(selection, skills, draftSkill !== null);
+  const resolvedSelection = resolveSettingsResourceSelection(selection, skills, draftSkill !== null);
 
   const syncableCount = skills.filter((skill) => SYNCABLE_STATUSES.has(skill.syncStatus)).length;
   const selectedExistingId = resolvedSelection?.kind === "existing" ? resolvedSelection.id : null;
@@ -212,19 +216,6 @@ export default function SkillsSettings() {
       )}
     </div>
   );
-}
-
-function resolveSkillSelection(
-  selection: SkillSelection,
-  skills: SkillSummary[],
-  hasDraft: boolean,
-): SkillSelection {
-  if (selection?.kind === "draft") return hasDraft ? selection : null;
-  if (selection?.kind === "existing" && skills.some((skill) => skill.id === selection.id)) {
-    return selection;
-  }
-  if (skills[0]) return { kind: "existing", id: skills[0].id };
-  return hasDraft ? { kind: "draft" } : null;
 }
 
 function SkillsList({

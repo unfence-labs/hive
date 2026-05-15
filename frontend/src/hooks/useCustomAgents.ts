@@ -5,19 +5,54 @@ import type {
   CustomAgentDetail,
   CustomAgentListResponse,
   CustomAgentProviderId,
+  CustomAgentSummary,
   UpdateCustomAgentRequest,
 } from "@/types";
 
 function upsertCustomAgentInList(
   current: CustomAgentListResponse | undefined,
   agent: CustomAgentDetail,
+  replaced?: { id: string; provider: CustomAgentProviderId },
 ): CustomAgentListResponse | undefined {
   if (!current) return current;
-  const agents = current.agents
+  const candidates = replaced && replaced.id !== agent.id
+    ? current.agents.flatMap((item) => {
+        if (item.id !== replaced.id) return [item];
+        const updated = removeProviderFromSummary(item, replaced.provider);
+        return updated ? [updated] : [];
+      })
+    : current.agents;
+  const agents = candidates
     .filter((item) => item.id !== agent.id)
     .concat(agent)
     .sort((a, b) => a.name.localeCompare(b.name));
   return { ...current, agents };
+}
+
+function removeProviderFromSummary(
+  agent: CustomAgentSummary,
+  provider: CustomAgentProviderId,
+): CustomAgentSummary | null {
+  const otherProvider: CustomAgentProviderId = provider === "claude" ? "codex" : "claude";
+  const otherState = agent.providers[otherProvider];
+  if (!otherState.present) return null;
+
+  return {
+    ...agent,
+    status: otherState.error
+      ? "invalid"
+      : otherProvider === "claude"
+        ? "claude_only"
+        : "codex_only",
+    providers: {
+      ...agent.providers,
+      [provider]: {
+        ...agent.providers[provider],
+        present: false,
+      },
+    },
+    invalidReason: otherState.error,
+  };
 }
 
 function removeProviderFromList(
@@ -29,19 +64,7 @@ function removeProviderFromList(
   const agents = current.agents
     .map((agent) => {
       if (agent.id !== id) return agent;
-      const otherProvider: CustomAgentProviderId = provider === "claude" ? "codex" : "claude";
-      if (!agent.providers[otherProvider].present) return null;
-      return {
-        ...agent,
-        status: otherProvider === "claude" ? "claude_only" as const : "codex_only" as const,
-        providers: {
-          ...agent.providers,
-          [provider]: {
-            ...agent.providers[provider],
-            present: false,
-          },
-        },
-      };
+      return removeProviderFromSummary(agent, provider);
     })
     .filter((agent): agent is NonNullable<typeof agent> => agent !== null);
   return { ...current, agents };
@@ -98,7 +121,10 @@ export function useUpdateCustomAgentProvider() {
     onSuccess: (data, vars) => {
       qc.setQueryData(["settings", "custom-agents", data.id], data);
       qc.setQueryData<CustomAgentListResponse>(["settings", "custom-agents"], (current) =>
-        upsertCustomAgentInList(current, data),
+        upsertCustomAgentInList(current, data, {
+          id: vars.id,
+          provider: vars.provider,
+        }),
       );
       if (data.id !== vars.id) {
         qc.removeQueries({ queryKey: ["settings", "custom-agents", vars.id] });

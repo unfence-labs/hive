@@ -93,6 +93,17 @@ describe("global custom agents state", () => {
     expect(detail?.contents.codex).toBe("name = \"broken\"\n=");
   });
 
+  it("marks Codex agents without developer instructions invalid but editable", async () => {
+    await writeAgent(roots.codex, "reviewer.toml", "name = \"reviewer\"\n");
+
+    const detail = await loadGlobalCustomAgent("reviewer", roots);
+
+    expect(detail?.status).toBe("invalid");
+    expect(detail?.invalidReason).toBe("developer_instructions is required");
+    expect(detail?.contents.codex).toBe("name = \"reviewer\"\n");
+    expect(detail?.manifests.codex).toBeUndefined();
+  });
+
   it("creates a provider-native custom agent", async () => {
     const created = await createGlobalCustomAgent(
       "claude",
@@ -155,5 +166,13 @@ describe("global custom agents state", () => {
     expect(content).toContain("name = \"reviewer\"");
     expect(content).toContain("developer_instructions");
     expect(content).toContain("Review changes carefully");
+  });
+
+  it("rejects counterpart creation from an invalid source provider", async () => {
+    await writeAgent(roots.codex, "reviewer.toml", "name = \"reviewer\"\n");
+
+    await expect(
+      createGlobalCustomAgentCounterpart("reviewer", "claude", roots),
+    ).rejects.toThrow("Source custom agent is invalid");
   });
 });
