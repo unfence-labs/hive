@@ -213,6 +213,11 @@ description: Run smoke checks
 ---
 `,
     );
+    await writeCommand(
+      join(workspaceCwd, ".claude", "commands", "release"),
+      "notes.md",
+      "# Release notes\n",
+    );
 
     const items = await scanCompletions(workspaceCwd);
 
@@ -225,6 +230,12 @@ description: Run smoke checks
           description: "Prepare a release",
           argumentHint: "<version>",
           source: "user_command",
+        }),
+        expect.objectContaining({
+          type: "slash_command",
+          name: "release:notes",
+          label: "/release:notes",
+          source: "project_command",
         }),
         expect.objectContaining({
           type: "slash_command",

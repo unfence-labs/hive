@@ -54,7 +54,7 @@ It manages:
 - Git context injection into automation system prompts for project-linked automations.
 - Cron preview (next 3 runs) and next-run countdown in sidebar and detail view.
 - Workspace setup/run scripts via `hive.json` with PTY execution and live terminal output.
-- Slash-command / agent autocomplete scanning from user and project `.claude` directories.
+- Provider-aware slash-command / agent autocomplete scanning from Claude and Codex user/project directories.
 
 **Integrations**
 - GitHub OAuth device flow for `gh` CLI authentication and git credential setup.
@@ -70,6 +70,7 @@ It manages:
 - Agent settings (installed providers, versions, update availability).
 - Prompt settings (base prompt editor, template library, prompt flow explainer).
 - Global skills settings (single view over Claude/Codex skills, `.agents/skills` canonical storage, Claude symlink sync).
+- Global instructions settings (single editor for Claude/Codex instruction files, `.codex/AGENTS.md` canonical storage, Claude symlink sync, override visibility).
 - Per-repository detail view with deletion controls and CodeMirror-powered project `.env` editing.
 
 **Desktop**
@@ -262,7 +263,7 @@ npm test
 | `GET` | `/api/workspaces/:wsId/file-completions` | File paths for `#` mention autocomplete |
 | `POST` | `/api/workspaces/:wsId/merge` | Merge workspace branch into default branch |
 | `POST` | `/api/workspaces/:wsId/archive` | Archive workspace and remove worktree |
-| `GET` | `/api/workspaces/:wsId/completions` | Completion items for `/` and `@` autocomplete |
+| `GET` | `/api/workspaces/:wsId/completions?provider=claude\|codex` | Provider-aware completion items for `/` and `@` autocomplete |
 | `GET` | `/api/workspaces/:wsId/pr-status` | PR status (state, checks, reviews, mergeable) with 15s cache |
 | `POST` | `/api/workspaces/bulk-pr-status` | Bulk PR status for multiple workspaces |
 | `POST` | `/api/workspaces/:wsId/terminal/start` | Start interactive terminal PTY |
@@ -328,6 +329,10 @@ npm test
 | `POST` | `/api/settings/notifications/test` | Send a test notification |
 | `POST` | `/api/settings/apns-token` | Register APNs device token |
 | `GET` | `/api/settings/agents` | Provider versions + update availability |
+| `GET` | `/api/settings/instructions` | Get global Claude/Codex instructions, sync status, and Codex override state |
+| `PUT` | `/api/settings/instructions` | Save instructions to `.codex/AGENTS.md` and sync the Claude symlink |
+| `DELETE` | `/api/settings/instructions` | Delete global Claude/Codex instructions without touching `AGENTS.override.md` |
+| `POST` | `/api/settings/instructions/sync` | Sync existing global instructions into canonical storage |
 | `GET` | `/api/settings/skills` | List global Claude/Codex skills and sync status |
 | `POST` | `/api/settings/skills` | Create a new global skill in `.agents/skills` and add the Claude symlink |
 | `GET` | `/api/settings/skills/:id` | Get a global skill detail (`SKILL.md`) |
@@ -386,7 +391,7 @@ Backend key modules:
 - `backend/src/api/projects.ts` project CRUD + fetch
 - `backend/src/api/workspaces.ts` workspace CRUD + diff/stat + files + merge + archive + PR status + file-completions + terminal
 - `backend/src/api/agents.ts` session routes (single + multi-session)
-- `backend/src/api/completions.ts` completion scanning endpoint
+- `backend/src/api/completions.ts` provider-aware completion scanning endpoint
 - `backend/src/api/models.ts` model catalog endpoint
 - `backend/src/api/settings.ts` notification config CRUD + APNs token registration
 - `backend/src/api/account.ts` GitHub OAuth device flow + CLI integration
@@ -395,6 +400,7 @@ Backend key modules:
 - `backend/src/api/base-prompt.ts` base system prompt CRUD
 - `backend/src/api/automations.ts` automation CRUD + trigger + run history + run messages
 - `backend/src/api/prompt-templates.ts` prompt template CRUD
+- `backend/src/api/agent-instructions.ts` global instruction settings + Claude/Codex sync
 - `backend/src/api/skills.ts` global skill settings + Claude/Codex sync
 - `backend/src/ws/stream.ts` multiplexed hub WebSocket protocol
 - `backend/src/ws/script.ts` script execution WebSocket
@@ -412,6 +418,7 @@ Backend key modules:
 - `backend/src/state/automations.ts` automation + run persistence
 - `backend/src/state/prompt-templates.ts` template persistence
 - `backend/src/state/base-prompt.ts` base prompt persistence
+- `backend/src/state/agent-instructions.ts` global instruction discovery/canonicalization (`.codex/AGENTS.md`, `.claude/CLAUDE.md`, override visibility)
 - `backend/src/state/skills.ts` global skill discovery/canonicalization (`.agents/skills` + `.claude/skills` symlinks)
 - `backend/src/utils/preflight.ts` startup dependency checks (git, claude, gh; codex/gemini optional)
 - `backend/src/utils/github.ts` GitHub URL parsing, `gh` CLI wrapper, PR status fetching
@@ -420,7 +427,7 @@ Backend key modules:
 Frontend key modules:
 - `frontend/src/pages/WorkspaceView.tsx` main chat/inline diff/file tree/scripts/PR status UI
 - `frontend/src/pages/AutomationDetail.tsx` automation config + run history + run log
-- `frontend/src/pages/settings/` settings pages (Appearance, Connection, Account, Notifications, Agents, Prompts, Skills, ProjectDetail)
+- `frontend/src/pages/settings/` settings pages (Appearance, Connection, Account, Notifications, Agents, Prompts, Instructions, Skills, ProjectDetail)
 - `frontend/src/contexts/WorkspaceLiveDataContext.tsx` WS live data context + unread tracking
 - `frontend/src/hooks/useConversation.ts` reducer-driven conversation state + tool responses + lockedProvider
 - `frontend/src/hooks/useSessions.ts` multi-session operations (max 4)

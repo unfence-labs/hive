@@ -186,4 +186,22 @@ describe("global skills state", () => {
     await expect(readFile(join(roots.codex, "reviewer", "SKILL.md"), "utf-8")).resolves.toContain("# Reviewer");
     await expect(readFile(join(roots.codex, "tester", "SKILL.md"), "utf-8")).resolves.toContain("# Tester");
   });
+
+  it("renames the canonical skill folder when the manifest name changes", async () => {
+    await writeSkill(roots.codex, "reviewer", "---\nname: reviewer\n---\n# Reviewer\n");
+    await mkdir(join(roots.codex, "reviewer", "references"), { recursive: true });
+    await writeFile(join(roots.codex, "reviewer", "references", "notes.md"), "notes", "utf-8");
+
+    const saved = await saveGlobalSkill("reviewer", "---\nname: auditor\n---\n# Auditor\n", roots);
+
+    expect(saved?.id).toBe("auditor");
+    expect(saved?.folderName).toBe("auditor");
+    expect(saved?.syncStatus).toBe("linked");
+    await expect(readFile(join(roots.codex, "auditor", "SKILL.md"), "utf-8")).resolves.toContain("# Auditor");
+    await expect(readFile(join(roots.codex, "auditor", "references", "notes.md"), "utf-8")).resolves.toBe("notes");
+    await expect(lstat(join(roots.codex, "reviewer"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(roots.claude, "reviewer"))).rejects.toMatchObject({ code: "ENOENT" });
+    const claudeStat = await lstat(join(roots.claude, "auditor"));
+    expect(claudeStat.isSymbolicLink()).toBe(true);
+  });
 });

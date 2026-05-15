@@ -376,14 +376,19 @@ export async function saveGlobalSkill(
 
   const codexFolderName = existing.providers.codex.folderName;
   const claudeFolderName = existing.providers.claude.folderName;
-  const canonicalFolderName = codexFolderName ?? claudeFolderName ?? existing.folderName;
-  const manifest = parseSkillManifest(content, canonicalFolderName);
+  const currentCanonicalFolderName = codexFolderName ?? claudeFolderName ?? existing.folderName;
+  const manifest = parseSkillManifest(content, currentCanonicalFolderName);
   const nextId = entryId(manifest.name);
   if (!nextId) throw new BadRequestError("Skill name is required");
+  const isRename = nextId !== existing.id;
+  const canonicalFolderName = isRename ? nextId : currentCanonicalFolderName;
 
-  if (nextId !== existing.id) {
+  if (isRename) {
     const conflict = await loadGlobalSkill(nextId, roots);
     if (conflict) throw new ConflictError("Skill already exists");
+    if (await pathExists(join(roots.codex, nextId)) || await pathExists(join(roots.claude, nextId))) {
+      throw new ConflictError("Skill already exists");
+    }
   }
 
   const codexDir = join(roots.codex, canonicalFolderName);
@@ -391,14 +396,25 @@ export async function saveGlobalSkill(
 
   if (!existing.providers.codex.present && existing.providers.claude.present) {
     await copyDirectoryAtomic(existing.providers.claude.path, codexDir);
+  } else if (isRename && existing.providers.codex.present) {
+    await copyDirectoryAtomic(existing.providers.codex.path, codexDir);
   } else {
     await mkdir(codexDir, { recursive: true });
   }
 
   await writeAtomic(codexSkillPath, content);
 
-  const claudeLinkName = claudeFolderName ?? canonicalFolderName;
+  const claudeLinkName = isRename ? canonicalFolderName : claudeFolderName ?? canonicalFolderName;
   await ensureClaudeSymlink(join(roots.claude, claudeLinkName), codexDir);
+
+  if (isRename) {
+    for (const provider of ["claude", "codex"] as const) {
+      const state = existing.providers[provider];
+      if (!state.present) continue;
+      if (state.path === codexDir || state.path === join(roots.claude, claudeLinkName)) continue;
+      await removePath(state.path);
+    }
+  }
 
   return loadGlobalSkill(nextId, roots);
 }
@@ -406,7 +422,7 @@ export async function saveGlobalSkill(
 export async function syncGlobalSkill(id: string, roots = globalSkillRoots()): Promise<SkillDetail | null> {
   const detail = await loadGlobalSkill(id, roots);
   if (!detail) return null;
-  if (!detail.content.trim()) throw new Error("Content is required");
+  if (!detail.content.trim()) throw new BadRequestError("Content is required");
   return saveGlobalSkill(id, detail.content, roots);
 }
 

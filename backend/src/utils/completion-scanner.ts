@@ -121,7 +121,7 @@ function builtinCommands(
   });
 }
 
-async function walkFiles(dir: string, extension: string): Promise<FileEntry[]> {
+async function walkFiles(dir: string, extension: string, root = dir): Promise<FileEntry[]> {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -133,11 +133,11 @@ async function walkFiles(dir: string, extension: string): Promise<FileEntry[]> {
   for (const entry of entries) {
     const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
-      files.push(...await walkFiles(fullPath, extension));
+      files.push(...await walkFiles(fullPath, extension, root));
       continue;
     }
     if (!entry.isFile() || !entry.name.endsWith(extension)) continue;
-    files.push({ path: fullPath, relativePath: relative(dir, fullPath) });
+    files.push({ path: fullPath, relativePath: relative(root, fullPath) });
   }
   return files;
 }
