@@ -93,7 +93,7 @@ Describe the workflow, rules, and context this skill should provide.
 `;
 
 describe("SkillsSettings", () => {
-  it("lists skills with provider badges and opens the first skill", async () => {
+  it("lists skills and opens the first skill with provider state", async () => {
     vi.mocked(api.get).mockImplementation((url: string) => {
       if (url === "/api/settings/skills") return Promise.resolve({ skills: [makeSkill()] });
       if (url === "/api/settings/skills/reviewer") return Promise.resolve(makeDetail());
@@ -104,11 +104,11 @@ describe("SkillsSettings", () => {
     render(<SkillsSettings />, { wrapper });
 
     expect(await screen.findByText("reviewer")).toBeInTheDocument();
-    expect(screen.getAllByText("Claude").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
     expect(await screen.findByLabelText("reviewer SKILL.md")).toHaveValue(
       "---\nname: reviewer\n---\n# Reviewer\n",
     );
+    expect(screen.getAllByText("Claude").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
   });
 
   it("saves edited SKILL.md content", async () => {

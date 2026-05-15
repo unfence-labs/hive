@@ -463,7 +463,8 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             targetSession.metadata.lockedProvider,
           );
           const shouldResolveCompletionAliases =
-            completionProvider === "codex" && incoming.content.includes("/");
+            (completionProvider === "codex" && incoming.content.includes("/")) ||
+            (completionProvider === "claude" && incoming.content.includes("@"));
           if (incoming.fileMentions?.length || shouldResolveCompletionAliases) {
             const dir = dataDir ?? getDataDir();
             const wsResult = await getWorkspace(wsId, dir);

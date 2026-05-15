@@ -3,6 +3,7 @@ import { basename, join, relative, sep } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { parseFrontmatter } from "./frontmatter.js";
 import { parseSkillManifest } from "./skill-manifest.js";
+import { parseCustomAgentManifest } from "./custom-agent-manifest.js";
 import type { CompletionItem, CompletionSource } from "../types.js";
 
 export type CompletionProvider = "claude" | "codex";
@@ -188,19 +189,14 @@ async function scanMarkdownAgents(
   for (const file of files) {
     try {
       const content = await readFile(file.path, "utf-8");
-      const fm = parseFrontmatter(content);
-      const name =
-        typeof fm.name === "string"
-          ? fm.name
-          : basename(file.relativePath, ".md");
-      const description =
-        typeof fm.description === "string" ? fm.description : undefined;
+      const manifest = parseCustomAgentManifest("claude", content, basename(file.relativePath, ".md"));
 
       items.push({
         type: "agent",
-        name,
-        label: `@${name}`,
-        description,
+        name: manifest.name,
+        label: `@${manifest.name}`,
+        replacementLabel: `@agent-${manifest.name}`,
+        description: manifest.description,
         source,
       });
     } catch {
@@ -209,18 +205,6 @@ async function scanMarkdownAgents(
   }
 
   return items;
-}
-
-function parseTomlString(content: string, key: string): string | undefined {
-  const pattern = new RegExp(`^\\s*${key}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*"|'(?:[^'\\\\]|\\\\.)*'|[^\\r\\n#]+)`, "m");
-  const match = content.match(pattern);
-  if (!match) return undefined;
-  let value = match[1].trim();
-  const quoted =
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"));
-  if (quoted) value = value.slice(1, -1);
-  return value.trim() || undefined;
 }
 
 async function scanTomlAgents(
@@ -233,14 +217,13 @@ async function scanTomlAgents(
   for (const file of files) {
     try {
       const content = await readFile(file.path, "utf-8");
-      const name = parseTomlString(content, "name") ?? basename(file.relativePath, ".toml");
-      const description = parseTomlString(content, "description");
+      const manifest = parseCustomAgentManifest("codex", content, basename(file.relativePath, ".toml"));
 
       items.push({
         type: "agent",
-        name,
-        label: `@${name}`,
-        description,
+        name: manifest.name,
+        label: `@${manifest.name}`,
+        description: manifest.description,
         source,
       });
     } catch {
@@ -418,9 +401,16 @@ export async function replaceCompletionAliases(
   workspaceCwd: string,
   provider: CompletionProvider,
 ): Promise<string> {
-  if (provider !== "codex" || !content.includes("/")) return content;
+  if (
+    (provider === "codex" && !content.includes("/")) ||
+    (provider === "claude" && !content.includes("@"))
+  ) {
+    return content;
+  }
 
-  const items = await scanCodexCompletions(workspaceCwd);
+  const items = provider === "codex"
+    ? await scanCodexCompletions(workspaceCwd)
+    : await scanClaudeCompletions(workspaceCwd);
   let resolved = content;
   for (const item of items) {
     if (!item.replacementLabel) continue;

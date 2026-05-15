@@ -11,10 +11,11 @@ import type {
 function upsertSkillInList(
   current: SkillListResponse | undefined,
   skill: SkillDetail,
+  replacedId?: string,
 ): SkillListResponse | undefined {
   if (!current) return current;
   const skills = current.skills
-    .filter((item) => item.id !== skill.id)
+    .filter((item) => item.id !== skill.id && item.id !== replacedId)
     .concat(skill)
     .sort((a, b) => a.name.localeCompare(b.name));
   return { ...current, skills };
@@ -59,7 +60,7 @@ export function useUpdateSkill() {
     onSuccess: (data, vars) => {
       qc.setQueryData(["settings", "skills", data.id], data);
       qc.setQueryData<SkillListResponse>(["settings", "skills"], (current) =>
-        upsertSkillInList(current, data),
+        upsertSkillInList(current, data, vars.id),
       );
       if (data.id !== vars.id) {
         qc.removeQueries({ queryKey: ["settings", "skills", vars.id] });
@@ -88,10 +89,10 @@ export function useSyncSkill() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.post<SkillDetail>(`/api/settings/skills/${id}/sync`),
-    onSuccess: (data) => {
+    onSuccess: (data, id) => {
       qc.setQueryData(["settings", "skills", data.id], data);
       qc.setQueryData<SkillListResponse>(["settings", "skills"], (current) =>
-        upsertSkillInList(current, data),
+        upsertSkillInList(current, data, id),
       );
       void qc.invalidateQueries({ queryKey: ["settings", "skills"] });
     },

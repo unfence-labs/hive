@@ -69,6 +69,7 @@ It manages:
 - Notification settings (Telegram + APNs, instant-apply toggles, test message).
 - Agent settings (installed providers, versions, update availability).
 - Prompt settings (base prompt editor, template library, prompt flow explainer).
+- Global custom agents settings (validated provider-native Claude Markdown and Codex TOML, explicit counterpart creation).
 - Global skills settings (single view over Claude/Codex skills, `.agents/skills` canonical storage, Claude symlink sync).
 - Global instructions settings (single editor for Claude/Codex instruction files, `.codex/AGENTS.md` canonical storage, Claude symlink sync, override visibility).
 - Per-repository detail view with deletion controls and CodeMirror-powered project `.env` editing.
@@ -340,6 +341,12 @@ npm test
 | `DELETE` | `/api/settings/skills/:id` | Delete a global skill from Claude and Codex |
 | `POST` | `/api/settings/skills/:id/sync` | Sync one skill into canonical storage |
 | `POST` | `/api/settings/skills/sync-missing` | Sync Claude-only, Codex-only, and matching duplicate global skills |
+| `GET` | `/api/settings/custom-agents` | List global Claude/Codex custom agents and provider presence |
+| `POST` | `/api/settings/custom-agents` | Create a provider-native global custom agent |
+| `GET` | `/api/settings/custom-agents/:id` | Get a custom agent detail with provider-native file contents |
+| `PUT` | `/api/settings/custom-agents/:id/providers/:provider` | Save one provider copy (`claude` Markdown or `codex` TOML) |
+| `DELETE` | `/api/settings/custom-agents/:id/providers/:provider` | Delete one provider copy |
+| `POST` | `/api/settings/custom-agents/:id/providers/:provider/counterpart` | Create an explicit provider-native counterpart from the other provider |
 
 ### Account
 
@@ -402,6 +409,7 @@ Backend key modules:
 - `backend/src/api/prompt-templates.ts` prompt template CRUD
 - `backend/src/api/agent-instructions.ts` global instruction settings + Claude/Codex sync
 - `backend/src/api/skills.ts` global skill settings + Claude/Codex sync
+- `backend/src/api/custom-agents.ts` provider-native global custom agent CRUD + explicit counterpart creation
 - `backend/src/ws/stream.ts` multiplexed hub WebSocket protocol
 - `backend/src/ws/script.ts` script execution WebSocket
 - `backend/src/agents/agent-manager.ts` in-memory session registry, persistence, switching
@@ -420,6 +428,7 @@ Backend key modules:
 - `backend/src/state/base-prompt.ts` base prompt persistence
 - `backend/src/state/agent-instructions.ts` global instruction discovery/canonicalization (`.codex/AGENTS.md`, `.claude/CLAUDE.md`, override visibility)
 - `backend/src/state/skills.ts` global skill discovery/canonicalization (`.agents/skills` + `.claude/skills` symlinks)
+- `backend/src/state/custom-agents.ts` global custom agent discovery (`.claude/agents/*.md`, `.codex/agents/*.toml`) without automatic cross-provider sync
 - `backend/src/utils/preflight.ts` startup dependency checks (git, claude, gh; codex/gemini optional)
 - `backend/src/utils/github.ts` GitHub URL parsing, `gh` CLI wrapper, PR status fetching
 - `backend/src/utils/hive-config.ts` `hive.json` parser for workspace scripts
@@ -427,7 +436,8 @@ Backend key modules:
 Frontend key modules:
 - `frontend/src/pages/WorkspaceView.tsx` main chat/inline diff/file tree/scripts/PR status UI
 - `frontend/src/pages/AutomationDetail.tsx` automation config + run history + run log
-- `frontend/src/pages/settings/` settings pages (Appearance, Connection, Account, Notifications, Agents, Prompts, Instructions, Skills, ProjectDetail)
+- `frontend/src/pages/settings/` settings pages (Appearance, Connection, Account, Notifications, CLI Agents, Custom Agents, Prompts, Instructions, Skills, ProjectDetail)
+- `frontend/src/components/settings/` shared settings list/editor/status primitives used by instructions, skills, and custom agents
 - `frontend/src/contexts/WorkspaceLiveDataContext.tsx` WS live data context + unread tracking
 - `frontend/src/hooks/useConversation.ts` reducer-driven conversation state + tool responses + lockedProvider
 - `frontend/src/hooks/useSessions.ts` multi-session operations (max 4)

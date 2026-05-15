@@ -70,6 +70,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/api/prompt-templates.ts`: prompt template CRUD (deletion guard if referenced by automation)
 - `backend/src/api/agent-instructions.ts`: global instruction settings (`GET/PUT/DELETE/POST /api/settings/instructions`) with `.codex/AGENTS.md` canonicalization, Claude symlink sync, and Codex override visibility
 - `backend/src/api/skills.ts`: global skill settings (`GET/POST/PUT/DELETE /api/settings/skills`) with `.agents/skills` canonicalization and Claude symlink sync
+- `backend/src/api/custom-agents.ts`: global custom agent settings (`GET/POST/PUT/DELETE /api/settings/custom-agents`) with provider-native Markdown/TOML editing and explicit counterpart creation
 - `backend/src/ws/stream.ts`: multiplexed hub WebSocket protocol (`/ws/hub`; `sync_workspaces` subscription, `HubOutgoing` envelopes)
 - `backend/src/ws/script.ts`: script execution WebSocket (PTY output streaming)
 - `backend/src/services/git-sync.ts`: branch/diff polling and workspace broadcasts (PR status moved to REST)
@@ -96,6 +97,8 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/state/base-prompt.ts`: base prompt persistence (`~/.hive/prompts/base.md`), atomic write, reset-to-default
 - `backend/src/state/agent-instructions.ts`: global instruction discovery and synchronization (`~/.codex/AGENTS.md` canonical, `~/.claude/CLAUDE.md` symlink, `AGENTS.override.md` read-only visibility)
 - `backend/src/state/skills.ts`: global skill discovery and synchronization (`~/.agents/skills` canonical, `~/.claude/skills` symlinks)
+- `backend/src/state/custom-agents.ts`: global custom agent discovery and provider-native persistence (`~/.claude/agents/*.md`, `~/.codex/agents/*.toml`) without symlink sync
+- `backend/src/utils/custom-agent-manifest.ts`: Claude Markdown frontmatter + Codex TOML manifest parsing and counterpart formatting
 - `backend/src/state/ui-preferences.ts`: UI preferences persistence (`$DATA_DIR/ui-preferences.json`) — atomic write, sanitize helper drops folders/project refs that no longer exist
 - `backend/src/state/state.ts`: JSON persistence + per-project locks
 - `backend/src/state/config.ts`: file-based app config (`$DATA_DIR/config.json`)
@@ -161,6 +164,8 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/pages/settings/PromptTemplatesSettings.tsx`: master-detail split view — base prompt + template list (left) + CodeMirror editor (right) + prompt flow explainer dialog
 - `frontend/src/pages/settings/InstructionsSettings.tsx`: global instructions editor — `.codex/AGENTS.md` canonical storage, Claude symlink sync, Codex override visibility, provider diff view
 - `frontend/src/pages/settings/SkillsSettings.tsx`: master-detail global skills editor — `.agents/skills` canonical storage, Claude symlink sync, provider/status badges
+- `frontend/src/pages/settings/CustomAgentsSettings.tsx`: master-detail global custom agent editor — provider tabs, validated Markdown/TOML editors, provider-specific delete, explicit counterpart creation
+- `frontend/src/components/settings/`: shared settings editor frame, resource list, provider status primitives, and selection helpers
 - `frontend/src/contexts/WorkspaceLiveDataContext.tsx`: React context for `useWorkspaceLiveData` — provides per-session unread tracking, `clearUnread(wsId, sessionId?)`
 - `frontend/src/hooks/useConversation.ts`: reducer-driven WS conversation state + tool responses + `lockedProvider` tracking
 - `frontend/src/hooks/useSessions.ts`: list/create/activate/delete sessions (max 4)
@@ -178,6 +183,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/hooks/useAutomations.ts`: automation CRUD + trigger + run history + run messages hooks (TanStack Query)
 - `frontend/src/hooks/usePromptTemplates.ts`: prompt template CRUD hooks
 - `frontend/src/hooks/useBasePrompt.ts`: base prompt query + update + reset hooks
+- `frontend/src/hooks/useCustomAgents.ts`: custom agent CRUD hooks + completion cache invalidation
 - `frontend/src/hooks/useContextUsage.ts`: context window usage calculation from last assistant message tokens
 - `frontend/src/hooks/useBackgroundAgents.ts`: scans tool calls for background `Task` agents, returns running count
 - `frontend/src/hooks/useTabs.ts`: multi-tab state (session + file tabs) with workspace-level snapshot cache, `FileViewMode = "source" | "diff"`

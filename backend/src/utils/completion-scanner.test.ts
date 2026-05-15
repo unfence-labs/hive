@@ -511,4 +511,24 @@ name: local-fix
 
     expect(result).toBe("please $local-fix and keep /review");
   });
+
+  it("replaces Claude agent aliases with native agent mentions", async () => {
+    await writeAgent(
+      join(homeDir, ".claude", "agents"),
+      "reviewer.md",
+      `---
+name: reviewer
+description: Reviews changes
+---
+`,
+    );
+
+    const result = await replaceCompletionAliases(
+      "ask @reviewer to inspect this",
+      workspaceCwd,
+      "claude",
+    );
+
+    expect(result).toBe("ask @agent-reviewer to inspect this");
+  });
 });

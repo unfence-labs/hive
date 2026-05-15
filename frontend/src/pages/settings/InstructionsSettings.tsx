@@ -58,7 +58,9 @@ export default function InstructionsSettings() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <SettingsHeader>
-        <h1 className="text-sm font-medium">Instructions</h1>
+        <h1 className="text-sm font-medium">
+          Instructions <span className="text-[11px] font-normal text-muted-foreground">(AGENTS.md / CLAUDE.md)</span>
+        </h1>
       </SettingsHeader>
 
       {isLoading ? (
@@ -278,14 +280,14 @@ function InstructionBanners({
             <button
               type="button"
               onClick={onViewDiff}
-              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-amber-200 transition-colors hover:bg-amber-500/15"
+              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-warning-foreground transition-colors hover:bg-warning-muted"
             >
               View diff
             </button>
             <button
               type="button"
               onClick={() => onUseProvider("claude")}
-              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-amber-200 transition-colors hover:bg-amber-500/15"
+              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-warning-foreground transition-colors hover:bg-warning-muted"
             >
               Use Claude copy
             </button>

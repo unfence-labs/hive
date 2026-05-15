@@ -6,6 +6,7 @@ import {
   Bot,
   ChevronRight,
   CircleUser,
+  FileCode2,
   FileText,
   Folder,
   FolderOpen,
@@ -94,6 +95,12 @@ export default function SettingsSidebar() {
               label="CLI"
               icon={<Bot className="h-4 w-4" />}
               active={pathname === "/settings/agents"}
+            />
+            <NavItem
+              to="/settings/custom-agents"
+              label="Custom Agents"
+              icon={<FileCode2 className="h-4 w-4" />}
+              active={pathname === "/settings/custom-agents"}
             />
             <NavItem
               to="/settings/instructions"

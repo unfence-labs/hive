@@ -135,6 +135,10 @@ vi.mock("@/pages/settings/AgentSettings", () => ({
   default: () => <div>agent settings</div>,
 }));
 
+vi.mock("@/pages/settings/CustomAgentsSettings", () => ({
+  default: () => <div>custom agents settings</div>,
+}));
+
 vi.mock("@/pages/settings/ProjectDetail", () => ({
   default: () => <div>project detail</div>,
 }));
@@ -263,6 +267,14 @@ describe("App", () => {
     renderApp();
 
     expect(screen.getByText("agent settings")).toBeInTheDocument();
+  });
+
+  it("renders custom agents settings route", async () => {
+    window.history.pushState({}, "", "/settings/custom-agents");
+
+    renderApp();
+
+    expect(await screen.findByText("custom agents settings")).toBeInTheDocument();
   });
 
   it("redirects /projects/:id to /home", () => {
