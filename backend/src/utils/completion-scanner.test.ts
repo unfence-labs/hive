@@ -2,19 +2,65 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir } from "./test-helpers.js";
-import { scanCompletions } from "./completion-scanner.js";
+import { replaceCompletionAliases, scanCompletions } from "./completion-scanner.js";
 
 const BUILTIN_LABELS = [
+  "/add-dir",
+  "/autofix-pr",
   "/help",
-  "/clear",
   "/compact",
   "/init",
-  "/model",
   "/context",
   "/cost",
   "/status",
-  "/permissions",
+  "/diff",
+  "/review",
+  "/security-review",
+  "/plan",
+  "/goal",
+  "/batch",
+  "/btw",
+  "/background",
+  "/branch",
+  "/claude-api",
+  "/debug",
+  "/effort",
   "/fast",
+  "/fewer-permission-prompts",
+  "/feedback",
+  "/loop",
+  "/memory",
+  "/mcp",
+  "/agents",
+  "/plugin",
+  "/recap",
+  "/reload-plugins",
+  "/rename",
+  "/schedule",
+  "/simplify",
+  "/skills",
+  "/tasks",
+  "/team-onboarding",
+  "/ultraplan",
+  "/ultrareview",
+  "/usage",
+  "/web-setup",
+  "/doctor",
+  "/bug",
+];
+
+const CODEX_BUILTIN_LABELS = [
+  "/help",
+  "/compact",
+  "/init",
+  "/status",
+  "/diff",
+  "/review",
+  "/debug-config",
+  "/goal",
+  "/mcp",
+  "/plan",
+  "/ps",
 ];
 
 let tempDir: string;
@@ -29,6 +75,11 @@ async function writeSkill(dir: string, folder: string, content: string) {
 }
 
 async function writeAgent(dir: string, filename: string, content: string) {
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, filename), content, "utf-8");
+}
+
+async function writeCommand(dir: string, filename: string, content: string) {
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, filename), content, "utf-8");
 }
@@ -70,6 +121,19 @@ describe("scanCompletions", () => {
     expect(items).toHaveLength(BUILTIN_LABELS.length);
     expect(items.map((item) => item.label)).toEqual(BUILTIN_LABELS);
     expect(items.every((item) => item.source === "builtin")).toBe(true);
+  });
+
+  it("does not include blocked slash commands", async () => {
+    const items = await scanCompletions(workspaceCwd);
+    const labels = items.map((item) => item.label);
+
+    expect(labels).not.toEqual(expect.arrayContaining([
+      "/clear",
+      "/model",
+      "/new",
+      "/permissions",
+      "/resume",
+    ]));
   });
 
   it("scans user and project skills with frontmatter fields", async () => {
@@ -125,6 +189,60 @@ description: Run project lint checks
           label: "/lint-local",
           description: "Run project lint checks",
           source: "project_skill",
+        }),
+      ]),
+    );
+  });
+
+  it("scans user and project Claude commands recursively", async () => {
+    await writeCommand(
+      join(homeDir, ".claude", "commands"),
+      "release.md",
+      `---
+description: Prepare a release
+argument-hint: <version>
+---
+`,
+    );
+    await writeCommand(
+      join(workspaceCwd, ".claude", "commands", "qa"),
+      "smoke.md",
+      `---
+name: smoke
+description: Run smoke checks
+---
+`,
+    );
+    await writeCommand(
+      join(workspaceCwd, ".claude", "commands", "release"),
+      "notes.md",
+      "# Release notes\n",
+    );
+
+    const items = await scanCompletions(workspaceCwd);
+
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "slash_command",
+          name: "release",
+          label: "/release",
+          description: "Prepare a release",
+          argumentHint: "<version>",
+          source: "user_command",
+        }),
+        expect.objectContaining({
+          type: "slash_command",
+          name: "release:notes",
+          label: "/release:notes",
+          source: "project_command",
+        }),
+        expect.objectContaining({
+          type: "slash_command",
+          name: "smoke",
+          label: "/smoke",
+          description: "Run smoke checks",
+          source: "project_command",
         }),
       ]),
     );
@@ -257,17 +375,23 @@ description: Reviews pull requests
     );
     await writeAgent(join(homeDir, ".claude", "agents"), "u-agent.md", "# agent");
     await writeAgent(join(workspaceCwd, ".claude", "agents"), "p-agent.md", "# agent");
+    await writeCommand(join(homeDir, ".claude", "commands"), "u-command.md", "# command");
+    await writeCommand(join(workspaceCwd, ".claude", "commands"), "p-command.md", "# command");
 
     const items = await scanCompletions(workspaceCwd);
 
     const firstBuiltinIdx = items.findIndex((item) => item.source === "builtin");
+    const firstUserCommandIdx = items.findIndex((item) => item.source === "user_command");
+    const firstProjectCommandIdx = items.findIndex((item) => item.source === "project_command");
     const firstUserSkillIdx = items.findIndex((item) => item.source === "user_skill");
     const firstProjectSkillIdx = items.findIndex((item) => item.source === "project_skill");
     const firstUserAgentIdx = items.findIndex((item) => item.source === "user_agent");
     const firstProjectAgentIdx = items.findIndex((item) => item.source === "project_agent");
 
     expect(firstBuiltinIdx).toBe(0);
-    expect(firstUserSkillIdx).toBeGreaterThan(firstBuiltinIdx);
+    expect(firstUserCommandIdx).toBeGreaterThan(firstBuiltinIdx);
+    expect(firstProjectCommandIdx).toBeGreaterThan(firstUserCommandIdx);
+    expect(firstUserSkillIdx).toBeGreaterThan(firstProjectCommandIdx);
     expect(firstProjectSkillIdx).toBeGreaterThan(firstUserSkillIdx);
     expect(firstUserAgentIdx).toBeGreaterThan(firstProjectSkillIdx);
     expect(firstProjectAgentIdx).toBeGreaterThan(firstUserAgentIdx);
@@ -297,5 +421,94 @@ name: stable
         }),
       ]),
     );
+  });
+
+  it("scans Codex builtins, skills, and agents from Codex paths", async () => {
+    await writeSkill(
+      join(homeDir, ".agents", "skills"),
+      "triage",
+      `---
+name: triage
+description: Triage issues
+---
+`,
+    );
+    await writeSkill(
+      join(workspaceCwd, ".agents", "skills"),
+      "local-fix",
+      `---
+description: Fix local failures
+---
+`,
+    );
+    await writeAgent(
+      join(homeDir, ".codex", "agents"),
+      "reviewer.toml",
+      `name = "reviewer"
+description = "Reviews changes"
+`,
+    );
+    await writeAgent(
+      join(workspaceCwd, ".codex", "agents"),
+      "planner.toml",
+      `description = "Plans work"
+`,
+    );
+
+    const items = await scanCompletions(workspaceCwd, { provider: "codex" });
+
+    expect(items.map((item) => item.label).slice(0, CODEX_BUILTIN_LABELS.length)).toEqual(CODEX_BUILTIN_LABELS);
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "slash_command",
+          name: "triage",
+          label: "/triage",
+          replacementLabel: "$triage",
+          description: "Triage issues",
+          source: "user_skill",
+        }),
+        expect.objectContaining({
+          type: "slash_command",
+          name: "local-fix",
+          label: "/local-fix",
+          replacementLabel: "$local-fix",
+          source: "project_skill",
+        }),
+        expect.objectContaining({
+          type: "agent",
+          name: "reviewer",
+          label: "@reviewer",
+          description: "Reviews changes",
+          source: "user_agent",
+        }),
+        expect.objectContaining({
+          type: "agent",
+          name: "planner",
+          label: "@planner",
+          description: "Plans work",
+          source: "project_agent",
+        }),
+      ]),
+    );
+  });
+
+  it("replaces Codex skill slash aliases with native skill mentions", async () => {
+    await writeSkill(
+      join(workspaceCwd, ".agents", "skills"),
+      "local-fix",
+      `---
+name: local-fix
+---
+`,
+    );
+
+    const result = await replaceCompletionAliases(
+      "please /local-fix and keep /review",
+      workspaceCwd,
+      "codex",
+    );
+
+    expect(result).toBe("please $local-fix and keep /review");
   });
 });

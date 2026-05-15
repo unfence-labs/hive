@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import {
   ArrowLeft,
   Bell,
+  BookOpen,
   Bot,
   ChevronRight,
   CircleUser,
@@ -10,6 +11,7 @@ import {
   FolderOpen,
   GitFork,
   Paintbrush,
+  Sparkles,
   Wifi,
 } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
@@ -84,17 +86,32 @@ export default function SettingsSidebar() {
               icon={<Bell className="h-4 w-4" />}
               active={pathname === "/settings/notifications"}
             />
+          </SidebarSection>
+
+          <SidebarSection label="Agents">
             <NavItem
               to="/settings/agents"
-              label="Agents"
+              label="CLI"
               icon={<Bot className="h-4 w-4" />}
               active={pathname === "/settings/agents"}
+            />
+            <NavItem
+              to="/settings/instructions"
+              label="Instructions"
+              icon={<BookOpen className="h-4 w-4" />}
+              active={pathname === "/settings/instructions"}
             />
             <NavItem
               to="/settings/prompt-templates"
               label="Prompts"
               icon={<FileText className="h-4 w-4" />}
               active={pathname === "/settings/prompt-templates"}
+            />
+            <NavItem
+              to="/settings/skills"
+              label="Skills"
+              icon={<Sparkles className="h-4 w-4" />}
+              active={pathname === "/settings/skills"}
             />
           </SidebarSection>
 

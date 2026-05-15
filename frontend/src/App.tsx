@@ -22,6 +22,8 @@ import { wsTransport } from "@/lib/ws-transport";
 
 const AutomationDetail = lazy(() => import("@/pages/AutomationDetail"));
 const PromptTemplatesSettings = lazy(() => import("@/pages/settings/PromptTemplatesSettings"));
+const SkillsSettings = lazy(() => import("@/pages/settings/SkillsSettings"));
+const InstructionsSettings = lazy(() => import("@/pages/settings/InstructionsSettings"));
 const CreateAutomationDialog = lazy(() => import("@/components/CreateAutomationDialog"));
 
 function NotificationToastsBridge({ projects }: { projects: Project[] }) {
@@ -126,7 +128,9 @@ export default function App() {
             <Route path="settings/connection" element={<ConnectionSettings onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }} />} />
             <Route path="settings/notifications" element={<NotificationSettings />} />
             <Route path="settings/agents" element={<AgentSettings />} />
+            <Route path="settings/instructions" element={<Suspense fallback={null}><InstructionsSettings /></Suspense>} />
             <Route path="settings/prompt-templates" element={<Suspense fallback={null}><PromptTemplatesSettings /></Suspense>} />
+            <Route path="settings/skills" element={<Suspense fallback={null}><SkillsSettings /></Suspense>} />
             <Route path="settings/repositories/:projectId" element={<ProjectDetail />} />
           </Route>
         </Routes>

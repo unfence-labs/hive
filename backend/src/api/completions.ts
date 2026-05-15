@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { join } from "node:path";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { workspacesDir } from "../utils/paths.js";
-import { scanCompletions } from "../utils/completion-scanner.js";
+import { scanCompletions, type CompletionProvider } from "../utils/completion-scanner.js";
 import { getDataDir } from "../state/state.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
 
@@ -10,10 +10,15 @@ export async function completionRoutes(
   app: FastifyInstance,
   dataDir?: string,
 ) {
-  app.get<{ Params: { wsId: string } }>(
+  app.get<{ Params: { wsId: string }; Querystring: { provider?: string } }>(
     "/api/workspaces/:wsId/completions",
     async (req, reply) => {
       try {
+        const provider = parseCompletionProvider(req.query.provider);
+        if (!provider) {
+          return reply.status(400).send({ error: "Unsupported completion provider" });
+        }
+
         const dir = dataDir ?? getDataDir();
         const result = await getWorkspace(req.params.wsId, dir);
         if (!result) {
@@ -25,7 +30,7 @@ export async function completionRoutes(
           result.workspace.name,
         );
 
-        const items = await scanCompletions(workspaceCwd);
+        const items = await scanCompletions(workspaceCwd, { provider });
         return reply.send({ items });
       } catch (err: unknown) {
         return reply
@@ -34,4 +39,10 @@ export async function completionRoutes(
       }
     },
   );
+}
+
+function parseCompletionProvider(value: string | undefined): CompletionProvider | null {
+  if (value === undefined || value === "" || value === "claude") return "claude";
+  if (value === "codex") return "codex";
+  return null;
 }

@@ -52,8 +52,11 @@ export function parseTabId(id: TabId): Tab {
 export type CompletionItemType = "slash_command" | "agent";
 export type CompletionSource =
   | "builtin"
+  | "user_command"
+  | "project_command"
   | "user_skill"
   | "project_skill"
+  | "admin_skill"
   | "plugin"
   | "user_agent"
   | "project_agent";
@@ -62,6 +65,7 @@ export interface CompletionItem {
   type: CompletionItemType;
   name: string;
   label: string;
+  replacementLabel?: string;
   description?: string;
   argumentHint?: string;
   source: CompletionSource;
@@ -408,6 +412,111 @@ export interface BasePromptData {
   content: string;
   isDefault: boolean;
   defaultContent: string;
+}
+
+// ── Global skills settings ──────────────────────────────────────────
+
+export type SkillProviderId = "claude" | "codex";
+export type SkillSyncStatus =
+  | "linked"
+  | "synced"
+  | "claude_only"
+  | "codex_only"
+  | "diverged"
+  | "invalid";
+
+export interface SkillProviderState {
+  present: boolean;
+  path: string;
+  folderName?: string;
+  isSymlink?: boolean;
+  realPath?: string;
+  hash?: string;
+  updatedAt?: string;
+  error?: string;
+}
+
+export interface SkillSummary {
+  id: string;
+  name: string;
+  folderName: string;
+  description?: string;
+  argumentHint?: string;
+  userInvocable: boolean;
+  syncStatus: SkillSyncStatus;
+  providers: Record<SkillProviderId, SkillProviderState>;
+  invalidReason?: string;
+  updatedAt?: string;
+}
+
+export interface SkillDetail extends SkillSummary {
+  content: string;
+  contentProvider: SkillProviderId;
+  providerContents: Partial<Record<SkillProviderId, string>>;
+}
+
+export interface SkillListResponse {
+  skills: SkillSummary[];
+}
+
+export interface CreateSkillRequest {
+  content: string;
+}
+
+export interface UpdateSkillRequest {
+  content: string;
+}
+
+export interface SkillSyncResponse {
+  skills: SkillSummary[];
+  syncedCount: number;
+}
+
+// ── Global instructions settings ────────────────────────────────────
+
+export type InstructionProviderId = "claude" | "codex";
+export type InstructionSyncStatus =
+  | "missing"
+  | "linked"
+  | "synced"
+  | "claude_only"
+  | "codex_only"
+  | "diverged"
+  | "invalid";
+
+export interface InstructionProviderState {
+  present: boolean;
+  path: string;
+  isSymlink?: boolean;
+  realPath?: string;
+  hash?: string;
+  updatedAt?: string;
+  error?: string;
+}
+
+export interface InstructionOverrideState {
+  present: boolean;
+  active: boolean;
+  path: string;
+  hash?: string;
+  size?: number;
+  updatedAt?: string;
+  error?: string;
+}
+
+export interface InstructionDetail {
+  content: string;
+  contentProvider: InstructionProviderId | null;
+  syncStatus: InstructionSyncStatus;
+  providers: Record<InstructionProviderId, InstructionProviderState>;
+  providerContents: Partial<Record<InstructionProviderId, string>>;
+  invalidReason?: string;
+  updatedAt?: string;
+  override: InstructionOverrideState;
+}
+
+export interface UpdateInstructionsRequest {
+  content: string;
 }
 
 // ── Hub WebSocket protocol (multiplexed) ────────────────────────────

@@ -6,12 +6,18 @@ interface CompletionsResponse {
   items: CompletionItem[];
 }
 
-export function useCompletions(wsId: string | undefined): CompletionItem[] {
+export function useCompletions(
+  wsId: string | undefined,
+  provider: string | undefined,
+  enabled = true,
+): CompletionItem[] {
   const query = useQuery({
-    queryKey: ["completions", wsId],
+    queryKey: ["completions", wsId, provider ?? "claude"],
     queryFn: () =>
-      api.get<CompletionsResponse>(`/api/workspaces/${wsId}/completions`),
-    enabled: !!wsId,
+      api.get<CompletionsResponse>(
+        `/api/workspaces/${wsId}/completions?provider=${encodeURIComponent(provider ?? "claude")}`,
+      ),
+    enabled: Boolean(wsId) && enabled,
     staleTime: 10 * 60 * 1000, // Completions rarely change
     retry: 0, // Optional UX — don't retry
   });

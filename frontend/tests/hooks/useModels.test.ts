@@ -36,10 +36,10 @@ const MOCK_CATALOG: ModelCatalogResponse = {
       provider: "codex",
       providerLabel: "Codex",
       isDefault: true,
-      capabilities: { thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"], planMode: false, blockingTools: false, completions: false },
+      capabilities: { thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"], planMode: false, blockingTools: false, completions: true },
     },
   ],
-  defaultModelId: "claude:opus-4-7",
+  defaultModelId: "codex:gpt-5.5",
 };
 
 beforeEach(() => {
@@ -68,8 +68,8 @@ describe("useModels", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     expect(result.current.models).toHaveLength(3);
-    expect(result.current.defaultModelId).toBe("claude:opus-4-7");
-    expect(result.current.selectedModelId).toBe("claude:opus-4-7");
+    expect(result.current.defaultModelId).toBe("codex:gpt-5.5");
+    expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
   });
 
   it("calls /api/models endpoint", async () => {
@@ -84,7 +84,7 @@ describe("useModels", () => {
     const { result } = renderHook(() => useModels());
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(result.current.selectedModelId).toBe("claude:opus-4-7");
+    expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
   });
 
   it("preserves previously selected model on re-fetch", async () => {
@@ -107,8 +107,8 @@ describe("useModels", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     expect(result.current.selectedModel).toBeDefined();
-    expect(result.current.selectedModel?.id).toBe("claude:opus-4-7");
-    expect(result.current.selectedModel?.label).toBe("Opus 4.7");
+    expect(result.current.selectedModel?.id).toBe("codex:gpt-5.5");
+    expect(result.current.selectedModel?.label).toBe("GPT-5.5");
   });
 
   it("returns capabilities of the selected model", async () => {
@@ -118,9 +118,9 @@ describe("useModels", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     expect(result.current.capabilities).toEqual({
-      thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
-      planMode: true,
-      blockingTools: true,
+      thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"],
+      planMode: false,
+      blockingTools: false,
       completions: true,
     });
 
@@ -132,7 +132,7 @@ describe("useModels", () => {
       thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"],
       planMode: false,
       blockingTools: false,
-      completions: false,
+      completions: true,
     });
   });
 
@@ -203,6 +203,6 @@ describe("useModels", () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(result.current.selectedModelId).toBe("claude:opus-4-7");
+    expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
   });
 });

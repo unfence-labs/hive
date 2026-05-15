@@ -37,7 +37,15 @@ describe("useCompletions", () => {
 
   it("returns empty list and skips fetch when workspace id is missing", () => {
     const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useCompletions(undefined), { wrapper });
+    const { result } = renderHook(() => useCompletions(undefined, "claude"), { wrapper });
+
+    expect(result.current).toEqual([]);
+    expect(api.get).not.toHaveBeenCalled();
+  });
+
+  it("returns empty list and skips fetch when completions are disabled", () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useCompletions("ws-1", "gemini", false), { wrapper });
 
     expect(result.current).toEqual([]);
     expect(api.get).not.toHaveBeenCalled();
@@ -48,13 +56,13 @@ describe("useCompletions", () => {
     vi.mocked(api.get).mockResolvedValueOnce({ items });
 
     const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useCompletions("ws-1"), { wrapper });
+    const { result } = renderHook(() => useCompletions("ws-1", "claude"), { wrapper });
 
     await waitFor(() => {
       expect(result.current).toEqual(items);
     });
 
-    expect(api.get).toHaveBeenCalledWith("/api/workspaces/ws-1/completions");
+    expect(api.get).toHaveBeenCalledWith("/api/workspaces/ws-1/completions?provider=claude");
   });
 
   it("re-fetches when workspace id changes", async () => {
@@ -63,7 +71,7 @@ describe("useCompletions", () => {
       .mockResolvedValueOnce({ items: [makeItem("local", "project_skill")] });
 
     const { wrapper } = createWrapper();
-    const { result, rerender } = renderHook(({ wsId }: { wsId: string | undefined }) => useCompletions(wsId), {
+    const { result, rerender } = renderHook(({ wsId }: { wsId: string | undefined }) => useCompletions(wsId, "claude"), {
       initialProps: { wsId: "ws-1" },
       wrapper,
     });
@@ -78,15 +86,15 @@ describe("useCompletions", () => {
       expect(result.current).toEqual([makeItem("local", "project_skill")]);
     });
 
-    expect(api.get).toHaveBeenNthCalledWith(1, "/api/workspaces/ws-1/completions");
-    expect(api.get).toHaveBeenNthCalledWith(2, "/api/workspaces/ws-2/completions");
+    expect(api.get).toHaveBeenNthCalledWith(1, "/api/workspaces/ws-1/completions?provider=claude");
+    expect(api.get).toHaveBeenNthCalledWith(2, "/api/workspaces/ws-2/completions?provider=claude");
   });
 
   it("resets to empty list when workspace id becomes undefined", async () => {
     vi.mocked(api.get).mockResolvedValueOnce({ items: [makeItem("help", "builtin")] });
 
     const { wrapper } = createWrapper();
-    const { result, rerender } = renderHook(({ wsId }: { wsId: string | undefined }) => useCompletions(wsId), {
+    const { result, rerender } = renderHook(({ wsId }: { wsId: string | undefined }) => useCompletions(wsId, "claude"), {
       initialProps: { wsId: "ws-1" },
       wrapper,
     });
@@ -108,7 +116,7 @@ describe("useCompletions", () => {
       .mockRejectedValueOnce(new Error("network"));
 
     const { wrapper } = createWrapper();
-    const { result, rerender } = renderHook(({ wsId }: { wsId: string | undefined }) => useCompletions(wsId), {
+    const { result, rerender } = renderHook(({ wsId }: { wsId: string | undefined }) => useCompletions(wsId, "claude"), {
       initialProps: { wsId: "ws-1" },
       wrapper,
     });
@@ -136,7 +144,7 @@ describe("useCompletions", () => {
       .mockReturnValueOnce(second.promise);
 
     const { wrapper } = createWrapper();
-    const { result, rerender } = renderHook(({ wsId }: { wsId: string | undefined }) => useCompletions(wsId), {
+    const { result, rerender } = renderHook(({ wsId }: { wsId: string | undefined }) => useCompletions(wsId, "claude"), {
       initialProps: { wsId: "ws-1" },
       wrapper,
     });
@@ -158,5 +166,18 @@ describe("useCompletions", () => {
     await waitFor(() => {
       expect(result.current).toEqual([makeItem("fresh", "project_skill")]);
     });
+  });
+
+  it("fetches provider-specific completions", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({ items: [makeItem("review", "builtin")] });
+
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useCompletions("ws-1", "codex"), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current).toEqual([makeItem("review", "builtin")]);
+    });
+
+    expect(api.get).toHaveBeenCalledWith("/api/workspaces/ws-1/completions?provider=codex");
   });
 });

@@ -7,6 +7,7 @@ interface DiffViewProps {
   newText: string;
   filePath?: string;
   className?: string;
+  scrollClassName?: string;
 }
 
 function linePrefix(part: { added?: boolean; removed?: boolean }): string {
@@ -20,6 +21,7 @@ export const DiffView = memo(function DiffView({
   newText,
   filePath,
   className,
+  scrollClassName,
 }: DiffViewProps) {
   const parts = useMemo(() => diffLines(oldText, newText), [oldText, newText]);
 
@@ -28,7 +30,7 @@ export const DiffView = memo(function DiffView({
       {filePath && (
         <div className="mb-1.5 text-muted-foreground">Path: {filePath}</div>
       )}
-      <div className="max-h-64 overflow-auto rounded border border-border/30">
+      <div className={cn("overflow-auto rounded border border-border/30", scrollClassName ?? "max-h-64")}>
         {parts.map((part, i) => {
           const lines = part.value.replace(/\n$/, "").split("\n");
           return lines.map((line, j) => (

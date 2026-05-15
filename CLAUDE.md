@@ -58,7 +58,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/api/projects.ts`: project CRUD + fetch
 - `backend/src/api/workspaces.ts`: workspace CRUD + diff/stat + files/file + merge + archive + PR status + bulk PR status + file-completions + terminal start/stop
 - `backend/src/api/agents.ts`: session routes (single + multi-session)
-- `backend/src/api/completions.ts`: completion scanning endpoint
+- `backend/src/api/completions.ts`: provider-aware completion scanning endpoint
 - `backend/src/api/models.ts`: model catalog endpoint (`GET /api/models`)
 - `backend/src/api/settings.ts`: notification config CRUD + test message + APNs device token registration
 - `backend/src/api/account.ts`: GitHub OAuth device flow + `gh` CLI integration
@@ -68,6 +68,8 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/api/ui-preferences.ts`: `GET/PUT /api/ui-preferences` — global UI preferences (sidebar folders + folderOpenState), sanitized against known project IDs on read and write
 - `backend/src/api/automations.ts`: automation CRUD + manual trigger + run history + run messages
 - `backend/src/api/prompt-templates.ts`: prompt template CRUD (deletion guard if referenced by automation)
+- `backend/src/api/agent-instructions.ts`: global instruction settings (`GET/PUT/DELETE/POST /api/settings/instructions`) with `.codex/AGENTS.md` canonicalization, Claude symlink sync, and Codex override visibility
+- `backend/src/api/skills.ts`: global skill settings (`GET/POST/PUT/DELETE /api/settings/skills`) with `.agents/skills` canonicalization and Claude symlink sync
 - `backend/src/ws/stream.ts`: multiplexed hub WebSocket protocol (`/ws/hub`; `sync_workspaces` subscription, `HubOutgoing` envelopes)
 - `backend/src/ws/script.ts`: script execution WebSocket (PTY output streaming)
 - `backend/src/services/git-sync.ts`: branch/diff polling and workspace broadcasts (PR status moved to REST)
@@ -92,6 +94,8 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/state/automations.ts`: automation + run persistence (atomic writes, run capping at 50)
 - `backend/src/state/prompt-templates.ts`: template persistence (`.md` files with YAML frontmatter in `~/.hive/prompts/`)
 - `backend/src/state/base-prompt.ts`: base prompt persistence (`~/.hive/prompts/base.md`), atomic write, reset-to-default
+- `backend/src/state/agent-instructions.ts`: global instruction discovery and synchronization (`~/.codex/AGENTS.md` canonical, `~/.claude/CLAUDE.md` symlink, `AGENTS.override.md` read-only visibility)
+- `backend/src/state/skills.ts`: global skill discovery and synchronization (`~/.agents/skills` canonical, `~/.claude/skills` symlinks)
 - `backend/src/state/ui-preferences.ts`: UI preferences persistence (`$DATA_DIR/ui-preferences.json`) — atomic write, sanitize helper drops folders/project refs that no longer exist
 - `backend/src/state/state.ts`: JSON persistence + per-project locks
 - `backend/src/state/config.ts`: file-based app config (`$DATA_DIR/config.json`)
@@ -155,6 +159,8 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/pages/settings/ProjectDetail.tsx`: per-repo info + deletion controls
 - `frontend/src/pages/settings/AgentSettings.tsx`: per-provider version display + npm update check
 - `frontend/src/pages/settings/PromptTemplatesSettings.tsx`: master-detail split view — base prompt + template list (left) + CodeMirror editor (right) + prompt flow explainer dialog
+- `frontend/src/pages/settings/InstructionsSettings.tsx`: global instructions editor — `.codex/AGENTS.md` canonical storage, Claude symlink sync, Codex override visibility, provider diff view
+- `frontend/src/pages/settings/SkillsSettings.tsx`: master-detail global skills editor — `.agents/skills` canonical storage, Claude symlink sync, provider/status badges
 - `frontend/src/contexts/WorkspaceLiveDataContext.tsx`: React context for `useWorkspaceLiveData` — provides per-session unread tracking, `clearUnread(wsId, sessionId?)`
 - `frontend/src/hooks/useConversation.ts`: reducer-driven WS conversation state + tool responses + `lockedProvider` tracking
 - `frontend/src/hooks/useSessions.ts`: list/create/activate/delete sessions (max 4)

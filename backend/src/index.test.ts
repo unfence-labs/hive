@@ -116,6 +116,16 @@ describe("buildApp", () => {
     });
   });
 
+  it("registers skill settings routes", async () => {
+    app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/api/settings/skills" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      skills: expect.any(Array),
+    });
+  });
+
   it("registers session routes", async () => {
     app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/api/workspaces/test-ws/session" });
