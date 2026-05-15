@@ -26,6 +26,7 @@ import { automationRoutes } from "./api/automations.js";
 import { promptTemplateRoutes } from "./api/prompt-templates.js";
 import { basePromptRoutes } from "./api/base-prompt.js";
 import { skillRoutes } from "./api/skills.js";
+import { instructionRoutes } from "./api/agent-instructions.js";
 import { uiPreferencesRoutes } from "./api/ui-preferences.js";
 import { AutomationScheduler } from "./services/automation-scheduler.js";
 import { loadConfig } from "./state/config.js";
@@ -329,6 +330,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   await app.register((instance: FastifyInstance) => promptTemplateRoutes(instance));
   await app.register((instance: FastifyInstance) => basePromptRoutes(instance));
   await app.register((instance: FastifyInstance) => skillRoutes(instance));
+  await app.register((instance: FastifyInstance) => instructionRoutes(instance));
   await app.register((instance: FastifyInstance) => uiPreferencesRoutes(instance));
 
   return app;

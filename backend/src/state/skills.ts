@@ -1,21 +1,16 @@
-import { createHash, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import {
-  cp,
-  lstat,
-  mkdir,
-  readdir,
-  readFile,
-  realpath,
-  rename,
-  rm,
-  symlink,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { lstat, mkdir, readdir, readFile, realpath } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { parseSkillManifest, skillFolderName } from "../utils/skill-manifest.js";
 import { BadRequestError, ConflictError } from "../utils/errors.js";
+import {
+  copyDirectoryAtomic,
+  ensureRelativeSymlink,
+  hashContent,
+  pathExists,
+  removePath,
+  writeAtomic,
+} from "../utils/file-sync.js";
 import type {
   SkillDetail,
   SkillListResponse,
@@ -75,10 +70,6 @@ export async function withSkillsLock<T>(fn: () => Promise<T>): Promise<T> {
 
 export function _clearSkillsLockForTests(): void {
   skillsLock = Promise.resolve();
-}
-
-function hashContent(content: string): string {
-  return createHash("sha256").update(content).digest("hex");
 }
 
 function entryId(name: string): string {
@@ -300,78 +291,8 @@ export async function loadGlobalSkill(id: string, roots = globalSkillRoots()): P
   };
 }
 
-async function writeAtomic(filePath: string, content: string): Promise<void> {
-  await mkdir(dirname(filePath), { recursive: true });
-  const tmp = join(dirname(filePath), `.tmp.${randomUUID()}.md`);
-  await writeFile(tmp, content, "utf-8");
-  await rename(tmp, filePath);
-}
-
-async function copySkillDirectory(sourceDir: string, targetDir: string): Promise<void> {
-  await mkdir(dirname(targetDir), { recursive: true });
-  const tmp = join(dirname(targetDir), `.tmp.${randomUUID()}`);
-  try {
-    await cp(sourceDir, tmp, {
-      recursive: true,
-      errorOnExist: true,
-      force: false,
-    });
-    await rename(tmp, targetDir);
-  } catch (err) {
-    await rm(tmp, { recursive: true, force: true }).catch(() => {});
-    throw err;
-  }
-}
-
-async function removePath(path: string): Promise<void> {
-  try {
-    const stat = await lstat(path);
-    if (stat.isSymbolicLink()) {
-      await unlink(path);
-    } else {
-      await rm(path, { recursive: true, force: true });
-    }
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-  }
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await lstat(path);
-    return true;
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw err;
-  }
-}
-
 async function ensureClaudeSymlink(linkPath: string, targetDir: string): Promise<void> {
-  await mkdir(dirname(linkPath), { recursive: true });
-
-  const existingRealPath = await realpath(linkPath).catch(() => undefined);
-  const targetRealPath = await realpath(targetDir);
-  if (existingRealPath === targetRealPath) return;
-
-  const relativeTarget = relative(dirname(linkPath), targetDir) || targetDir;
-  let backupPath: string | null = null;
-
-  try {
-    await lstat(linkPath);
-    backupPath = join(dirname(linkPath), `.hive-backup.${randomUUID()}`);
-    await rename(linkPath, backupPath);
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-  }
-
-  try {
-    await symlink(relativeTarget, linkPath, "dir");
-    if (backupPath) await removePath(backupPath);
-  } catch (err) {
-    await removePath(linkPath).catch(() => {});
-    if (backupPath) await rename(backupPath, linkPath).catch(() => {});
-    throw err;
-  }
+  await ensureRelativeSymlink(linkPath, targetDir, "dir");
 }
 
 /**
@@ -469,7 +390,7 @@ export async function saveGlobalSkill(
   const codexSkillPath = join(codexDir, "SKILL.md");
 
   if (!existing.providers.codex.present && existing.providers.claude.present) {
-    await copySkillDirectory(existing.providers.claude.path, codexDir);
+    await copyDirectoryAtomic(existing.providers.claude.path, codexDir);
   } else {
     await mkdir(codexDir, { recursive: true });
   }

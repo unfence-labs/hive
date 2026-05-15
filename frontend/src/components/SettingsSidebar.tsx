@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import {
   ArrowLeft,
   Bell,
+  BookOpen,
   Bot,
   ChevronRight,
   CircleUser,
@@ -90,6 +91,12 @@ export default function SettingsSidebar() {
               label="Agents"
               icon={<Bot className="h-4 w-4" />}
               active={pathname === "/settings/agents"}
+            />
+            <NavItem
+              to="/settings/instructions"
+              label="Instructions"
+              icon={<BookOpen className="h-4 w-4" />}
+              active={pathname === "/settings/instructions"}
             />
             <NavItem
               to="/settings/prompt-templates"

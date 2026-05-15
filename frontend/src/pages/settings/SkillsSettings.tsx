@@ -1,7 +1,6 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import {
   AlertTriangle,
-  CheckCircle2,
   FileCode2,
   Link2,
   Loader2,
@@ -33,8 +32,16 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingsHeader } from "@/components/AppLayout";
-import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { DiffView } from "@/components/diff/DiffView";
+import {
+  CompactSyncStatusIcon as CompactStatusIcon,
+  ProviderBadge,
+  ProviderMiniBadge,
+  SettingsActionButton as EditorActionButton,
+  SettingsBanner as Banner,
+  SyncStatusBadge as StatusBadge,
+} from "@/components/settings/ProviderSync";
+import { SettingsEditorFrame } from "@/components/settings/SettingsEditorFrame";
 import {
   useCreateSkill,
   useDeleteSkill,
@@ -437,14 +444,14 @@ function LoadedSkillDetailPanel({
 
   return (
     <>
-      <SkillEditorFrame
+      <SettingsEditorFrame
         title={data.name}
         badge={<StatusBadge status={data.syncStatus} />}
         description={data.description}
         providers={
           <>
-            <ProviderBadge provider="claude" data={data} />
-            <ProviderBadge provider="codex" data={data} />
+            <ProviderBadge label="Claude" state={data.providers.claude} />
+            <ProviderBadge label="Codex" state={data.providers.codex} />
           </>
         }
         banner={
@@ -459,6 +466,7 @@ function LoadedSkillDetailPanel({
         }
         value={draft}
         onChange={setDraft}
+        placeholder={SKILL_EDITOR_PLACEHOLDER}
         ariaLabel={`${data.name} SKILL.md`}
         actions={
           <>
@@ -565,7 +573,7 @@ function NewSkillDetailPanel({
   };
 
   return (
-    <SkillEditorFrame
+    <SettingsEditorFrame
       title="New Skill"
       badge={
         <Badge variant="secondary" className="text-[10px] bg-primary/10 text-primary">
@@ -575,6 +583,7 @@ function NewSkillDetailPanel({
       description="Local draft"
       value={draft.content}
       onChange={onChange}
+      placeholder={SKILL_EDITOR_PLACEHOLDER}
       ariaLabel="New skill SKILL.md"
       actions={
         <>
@@ -601,101 +610,6 @@ function NewSkillDetailPanel({
         </>
       }
     />
-  );
-}
-
-function SkillEditorFrame({
-  title,
-  badge,
-  description,
-  providers,
-  banner,
-  value,
-  onChange,
-  ariaLabel,
-  actions,
-}: {
-  title: string;
-  badge: ReactNode;
-  description?: string;
-  providers?: ReactNode;
-  banner?: ReactNode;
-  value: string;
-  onChange: (value: string) => void;
-  ariaLabel: string;
-  actions: ReactNode;
-}) {
-  return (
-    <div className="flex h-full flex-col overflow-hidden px-5 pt-5 pb-2">
-      <div className="mb-4 shrink-0">
-        <div className="flex items-center gap-2">
-          <h2 className="min-w-0 truncate text-base font-medium text-foreground">
-            {title}
-          </h2>
-          {badge}
-        </div>
-        {description && (
-          <p className="mt-1 max-w-3xl text-xs text-muted-foreground">
-            {description}
-          </p>
-        )}
-        {providers && <div className="mt-3 flex flex-wrap gap-2">{providers}</div>}
-      </div>
-
-      {banner}
-
-      <div className={cn("min-h-0 flex-1", banner && "mt-3")}>
-        <MarkdownEditor
-          value={value}
-          onChange={onChange}
-          maxHeight="100%"
-          placeholder={SKILL_EDITOR_PLACEHOLDER}
-          ariaLabel={ariaLabel}
-        />
-      </div>
-
-      <div className="mt-4 flex shrink-0 items-center gap-2">
-        {actions}
-      </div>
-    </div>
-  );
-}
-
-function EditorActionButton({
-  variant = "secondary",
-  pending = false,
-  disabled = false,
-  icon,
-  children,
-  onClick,
-}: {
-  variant?: "primary" | "secondary" | "danger";
-  pending?: boolean;
-  disabled?: boolean;
-  icon: ReactNode;
-  children: ReactNode;
-  onClick: () => void;
-}) {
-  const disabledState = disabled || pending;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabledState}
-      className={cn(
-        "inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-        variant === "primary"
-          ? "bg-primary text-primary-foreground hover:bg-primary/90"
-          : "text-muted-foreground",
-        variant === "secondary" && "border border-border/50",
-        variant === "secondary" && "hover:text-foreground",
-        variant === "danger" && "hover:text-red-400",
-        disabledState && "pointer-events-none opacity-60",
-      )}
-    >
-      {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : icon}
-      {children}
-    </button>
   );
 }
 
@@ -817,101 +731,6 @@ function SkillDiffDialog({
       </DialogContent>
     </Dialog>
   );
-}
-
-function Banner({
-  tone,
-  icon,
-  children,
-}: {
-  tone: "info" | "warning" | "danger";
-  icon: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-xs",
-        tone === "info" && "border-sky-500/25 bg-sky-500/10 text-sky-300",
-        tone === "warning" && "border-amber-500/25 bg-amber-500/10 text-amber-300",
-        tone === "danger" && "border-red-500/25 bg-red-500/10 text-red-300",
-      )}
-    >
-      {icon}
-      {children}
-    </div>
-  );
-}
-
-function ProviderBadge({ provider, data }: { provider: SkillProviderId; data: SkillSummary }) {
-  const state = data.providers[provider];
-  const label = provider === "claude" ? "Claude" : "Codex";
-  return (
-    <span
-      title={state.path}
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium",
-        state.present
-          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-          : "border-border bg-muted/50 text-muted-foreground",
-      )}
-    >
-      {state.present ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
-      {label}
-      {state.isSymlink && <Link2 className="h-3 w-3" />}
-    </span>
-  );
-}
-
-function ProviderMiniBadge({ label, present }: { label: string; present: boolean }) {
-  return (
-    <span
-      className={cn(
-        "rounded-full border px-1.5 py-0 text-[10px] font-medium",
-        present
-          ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-400"
-          : "border-border bg-muted/40 text-muted-foreground/80",
-      )}
-    >
-      {label}
-    </span>
-  );
-}
-
-function StatusBadge({ status }: { status: SkillSyncStatus }) {
-  const config = statusConfig(status);
-  return (
-    <Badge variant="secondary" className={cn("text-[10px]", config.className)}>
-      {config.label}
-    </Badge>
-  );
-}
-
-function CompactStatusIcon({ status }: { status: SkillSyncStatus }) {
-  if (status === "linked" || status === "synced") {
-    return <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-400" />;
-  }
-  if (status === "invalid") {
-    return <XCircle className="h-3.5 w-3.5 shrink-0 text-red-400" />;
-  }
-  return <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-400" />;
-}
-
-function statusConfig(status: SkillSyncStatus): { label: string; className: string } {
-  switch (status) {
-    case "linked":
-      return { label: "Linked", className: "bg-emerald-500/10 text-emerald-400" };
-    case "synced":
-      return { label: "Synced", className: "bg-sky-500/10 text-sky-400" };
-    case "claude_only":
-      return { label: "Claude only", className: "bg-amber-500/10 text-amber-400" };
-    case "codex_only":
-      return { label: "Codex only", className: "bg-amber-500/10 text-amber-400" };
-    case "diverged":
-      return { label: "Diverged", className: "bg-amber-500/10 text-amber-400" };
-    case "invalid":
-      return { label: "Invalid", className: "bg-red-500/10 text-red-400" };
-  }
 }
 
 function EmptyState() {
