@@ -233,7 +233,7 @@ function SkillsList({
   onNewSkill: () => void;
 }) {
   return (
-    <div className="flex w-72 shrink-0 flex-col border-r border-border/50">
+    <div className="flex w-64 shrink-0 flex-col border-r border-border/50">
       <ScrollArea className="flex-1">
         <div className="p-2">
           {draftSkill && (
@@ -644,7 +644,7 @@ function SkillEditorFrame({
 
       {banner}
 
-      <div className="mt-3 min-h-0 flex-1">
+      <div className={cn("min-h-0 flex-1", banner && "mt-3")}>
         <MarkdownEditor
           value={value}
           onChange={onChange}
@@ -686,7 +686,8 @@ function EditorActionButton({
         "inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
         variant === "primary"
           ? "bg-primary text-primary-foreground hover:bg-primary/90"
-          : "border border-border/50 text-muted-foreground",
+          : "text-muted-foreground",
+        variant === "secondary" && "border border-border/50",
         variant === "secondary" && "hover:text-foreground",
         variant === "danger" && "hover:text-red-400",
         disabledState && "pointer-events-none opacity-60",
