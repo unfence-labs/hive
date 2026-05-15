@@ -36,7 +36,7 @@ const MOCK_CATALOG: ModelCatalogResponse = {
       provider: "codex",
       providerLabel: "Codex",
       isDefault: true,
-      capabilities: { thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"], planMode: false, blockingTools: false, completions: false },
+      capabilities: { thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"], planMode: false, blockingTools: false, completions: true },
     },
   ],
   defaultModelId: "claude:opus-4-7",
@@ -132,7 +132,7 @@ describe("useModels", () => {
       thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"],
       planMode: false,
       blockingTools: false,
-      completions: false,
+      completions: true,
     });
   });
 

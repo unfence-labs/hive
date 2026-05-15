@@ -123,6 +123,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
 
   const { models, defaultModelId, selectedModelId, selectedModel, setSelectedModelId, capabilities } = useModels(lockedProvider);
   const contextUsage = useContextUsage(messages, selectedModel);
+  const completionProvider = lockedProvider ?? (selectedModelId ? selectedModelId.split(":")[0] : undefined);
 
   const thinkingLevels = useMemo<ThinkingLevel[]>(
     () => capabilities?.thinkingLevels ?? [],
@@ -173,7 +174,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
     if (agentPlanMode === false) setPlanMode(false);
   }, [agentPlanMode]);
 
-  const completionItems = useCompletions(wsId);
+  const completionItems = useCompletions(wsId, completionProvider);
   const filePaths = useFileCompletions(wsId);
 
   const filteredItems = useMemo(() => {

@@ -23,8 +23,11 @@ export interface Workspace {
 export type CompletionItemType = "slash_command" | "agent";
 export type CompletionSource =
   | "builtin"
+  | "user_command"
+  | "project_command"
   | "user_skill"
   | "project_skill"
+  | "admin_skill"
   | "plugin"
   | "user_agent"
   | "project_agent";
@@ -33,6 +36,8 @@ export interface CompletionItem {
   type: CompletionItemType;
   name: string;
   label: string;
+  /** Native text sent to the provider when Hive displays a different trigger. */
+  replacementLabel?: string;
   description?: string;
   argumentHint?: string;
   source: CompletionSource;

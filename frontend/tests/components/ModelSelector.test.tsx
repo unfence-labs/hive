@@ -29,7 +29,7 @@ const CODEX_MODELS: ModelCatalogEntry[] = [
     provider: "codex",
     providerLabel: "Codex",
     isDefault: true,
-    capabilities: { thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"], planMode: false, blockingTools: false, completions: false },
+    capabilities: { thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"], planMode: false, blockingTools: false, completions: true },
   },
 ];
 

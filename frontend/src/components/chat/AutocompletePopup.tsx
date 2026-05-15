@@ -4,8 +4,11 @@ import type { CompletionItem, CompletionSource } from "@/types";
 
 const SOURCE_LABELS: Record<CompletionSource, string> = {
   builtin: "Commands",
+  user_command: "Commands",
+  project_command: "Project Commands",
   user_skill: "Skills",
   project_skill: "Project Skills",
+  admin_skill: "Admin Skills",
   plugin: "Plugin Commands",
   user_agent: "Agents",
   project_agent: "Project Agents",
@@ -13,8 +16,11 @@ const SOURCE_LABELS: Record<CompletionSource, string> = {
 
 const SOURCE_ORDER: CompletionSource[] = [
   "builtin",
+  "user_command",
+  "project_command",
   "user_skill",
   "project_skill",
+  "admin_skill",
   "plugin",
   "user_agent",
   "project_agent",

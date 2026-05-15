@@ -29,6 +29,12 @@ async function writeAgent(baseDir: string, filename: string, content: string) {
   await writeFile(join(dir, filename), content, "utf-8");
 }
 
+async function writeCodexSkill(baseDir: string, name: string, content: string) {
+  const dir = join(baseDir, ".agents", "skills", name);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "SKILL.md"), content, "utf-8");
+}
+
 beforeEach(async () => {
   tempDir = await createTempDir("hive-completions-route-");
   homeDir = join(tempDir, "home");
@@ -167,6 +173,54 @@ description: Global code reviewer
         }),
       ]),
     );
+  });
+
+  it("returns provider-specific Codex completions", async () => {
+    const workspaceDir = join(dataDir, projectId, "workspaces", wsName);
+
+    await writeCodexSkill(
+      workspaceDir,
+      "fix-ci",
+      `---
+name: fix-ci
+description: Fix CI failures
+---
+`,
+    );
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/completions?provider=codex`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "slash_command",
+          name: "review",
+          label: "/review",
+          source: "builtin",
+        }),
+        expect.objectContaining({
+          type: "slash_command",
+          name: "fix-ci",
+          label: "/fix-ci",
+          replacementLabel: "$fix-ci",
+          source: "project_skill",
+        }),
+      ]),
+    );
+  });
+
+  it("rejects unsupported completion providers", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/completions?provider=gemini`,
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "Unsupported completion provider" });
   });
 
   it("reads project skills from the requested workspace path only", async () => {

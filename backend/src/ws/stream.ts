@@ -19,6 +19,7 @@ import { workspacesDir } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
 import { browserSessionManager } from "../services/browser-session-manager.js";
 import { join, resolve, sep } from "node:path";
+import { replaceCompletionAliases, type CompletionProvider } from "../utils/completion-scanner.js";
 
 interface GitSyncSnapshotProvider {
   getCachedBranchInfo: (workspaceId: string) => Extract<WsOutgoing, { type: "branch_info" }>["info"] | undefined;
@@ -81,6 +82,14 @@ function replaceFileMentionsWithAbsolutePaths(
   }
 
   return resolved;
+}
+
+function completionProviderForMessage(
+  modelId: string | undefined,
+  lockedProvider: string | undefined,
+): CompletionProvider | null {
+  const provider = lockedProvider ?? modelId?.split(":")[0];
+  return provider === "claude" || provider === "codex" ? provider : null;
 }
 
 // ── Sending helpers ─────────────────────────────────────────────────
@@ -447,14 +456,29 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
           attachSessionListeners(wsId, channel, targetSession);
 
-          // Build cliContent by replacing #displayName with absolute paths
+          // Build cliContent by replacing Hive-only symbols with provider-native text.
           let cliContent: string | undefined;
-          if (incoming.fileMentions?.length) {
+          const completionProvider = completionProviderForMessage(
+            incoming.options?.model,
+            targetSession.metadata.lockedProvider,
+          );
+          const shouldResolveCompletionAliases =
+            completionProvider === "codex" && incoming.content.includes("/");
+          if (incoming.fileMentions?.length || shouldResolveCompletionAliases) {
             const dir = dataDir ?? getDataDir();
             const wsResult = await getWorkspace(wsId, dir);
             if (wsResult) {
               const wsPath = join(workspacesDir(dir, wsResult.projectState.id), wsResult.workspace.name);
-              cliContent = replaceFileMentionsWithAbsolutePaths(incoming.content, incoming.fileMentions, wsPath);
+              let resolvedContent = incoming.content;
+              if (incoming.fileMentions?.length) {
+                resolvedContent = replaceFileMentionsWithAbsolutePaths(resolvedContent, incoming.fileMentions, wsPath);
+              }
+              if (shouldResolveCompletionAliases) {
+                resolvedContent = await replaceCompletionAliases(resolvedContent, wsPath, completionProvider);
+              }
+              if (resolvedContent !== incoming.content) {
+                cliContent = resolvedContent;
+              }
             }
           }
 

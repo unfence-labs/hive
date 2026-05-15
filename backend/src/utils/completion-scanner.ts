@@ -1,25 +1,119 @@
 import { homedir } from "node:os";
-import { join, basename } from "node:path";
+import { basename, join, relative, sep } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { parseFrontmatter } from "./frontmatter.js";
-import type { CompletionItem } from "../types.js";
+import type { CompletionItem, CompletionSource } from "../types.js";
 
-const BUILTIN_COMMANDS: CompletionItem[] = [
-  { type: "slash_command", name: "help", label: "/help", description: "Show available commands", source: "builtin" },
-  { type: "slash_command", name: "clear", label: "/clear", description: "Clear conversation history", source: "builtin" },
-  { type: "slash_command", name: "compact", label: "/compact", description: "Compact conversation context", source: "builtin" },
-  { type: "slash_command", name: "init", label: "/init", description: "Initialize project context", source: "builtin" },
-  { type: "slash_command", name: "model", label: "/model", description: "Switch Claude model", source: "builtin" },
-  { type: "slash_command", name: "context", label: "/context", description: "Manage context files", source: "builtin" },
-  { type: "slash_command", name: "cost", label: "/cost", description: "Show session cost", source: "builtin" },
-  { type: "slash_command", name: "status", label: "/status", description: "Show session status", source: "builtin" },
-  { type: "slash_command", name: "permissions", label: "/permissions", description: "Manage tool permissions", source: "builtin" },
-  { type: "slash_command", name: "fast", label: "/fast", description: "Toggle fast mode", source: "builtin" },
+export type CompletionProvider = "claude" | "codex";
+
+interface ScanOptions {
+  provider?: CompletionProvider;
+}
+
+interface FileEntry {
+  path: string;
+  relativePath: string;
+}
+
+const BLOCKED_SLASH_COMMANDS = new Set([
+  "clear",
+  "exit",
+  "login",
+  "logout",
+  "model",
+  "new",
+  "permissions",
+  "quit",
+  "resume",
+  "update",
+  "upgrade",
+]);
+
+const CLAUDE_BUILTIN_COMMANDS: Array<Omit<CompletionItem, "type" | "label" | "source">> = [
+  { name: "help", description: "Show available commands" },
+  { name: "compact", description: "Compact conversation context" },
+  { name: "init", description: "Initialize project context" },
+  { name: "cost", description: "Show session cost" },
+  { name: "status", description: "Show session status" },
+  { name: "diff", description: "Show code changes" },
+  { name: "review", description: "Review changes" },
+  { name: "security-review", description: "Run a security review" },
+  { name: "pr-comments", description: "View pull request comments" },
+  { name: "memory", description: "Edit memory files" },
+  { name: "mcp", description: "Manage MCP server connections" },
+  { name: "agents", description: "Manage configured agents" },
+  { name: "skills", description: "Browse available skills" },
+  { name: "tasks", description: "Manage background tasks" },
+  { name: "doctor", description: "Check Claude Code installation health" },
+  { name: "bug", description: "Report a bug" },
 ];
+
+const CODEX_BUILTIN_COMMANDS: Array<Omit<CompletionItem, "type" | "label" | "source">> = [
+  { name: "help", description: "Show available commands" },
+  { name: "compact", description: "Compact conversation context" },
+  { name: "init", description: "Create or refresh project instructions" },
+  { name: "status", description: "Show session status" },
+  { name: "diff", description: "Show code changes" },
+  { name: "review", description: "Run a code review" },
+];
+
+function isBlockedSlashCommand(name: string): boolean {
+  return BLOCKED_SLASH_COMMANDS.has(normalizeCommandName(name));
+}
+
+function slashCommand(
+  name: string,
+  source: CompletionSource,
+  fields: Partial<CompletionItem> = {},
+): CompletionItem | null {
+  const normalized = normalizeCommandName(name);
+  if (!normalized || isBlockedSlashCommand(normalized)) return null;
+  return {
+    type: "slash_command",
+    name: normalized,
+    label: `/${normalized}`,
+    source,
+    ...fields,
+  };
+}
+
+function builtinCommands(
+  commands: Array<Omit<CompletionItem, "type" | "label" | "source">>,
+): CompletionItem[] {
+  return commands.flatMap((command) => {
+    const item = slashCommand(command.name, "builtin", {
+      description: command.description,
+      argumentHint: command.argumentHint,
+    });
+    return item ? [item] : [];
+  });
+}
+
+async function walkFiles(dir: string, extension: string): Promise<FileEntry[]> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const files: FileEntry[] = [];
+  for (const entry of entries) {
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await walkFiles(fullPath, extension));
+      continue;
+    }
+    if (!entry.isFile() || !entry.name.endsWith(extension)) continue;
+    files.push({ path: fullPath, relativePath: relative(dir, fullPath) });
+  }
+  return files;
+}
 
 async function scanSkills(
   dir: string,
-  source: "user_skill" | "project_skill",
+  source: "user_skill" | "project_skill" | "admin_skill",
+  provider: CompletionProvider,
 ): Promise<CompletionItem[]> {
   let entries: string[];
   try {
@@ -29,7 +123,6 @@ async function scanSkills(
   }
 
   const items: CompletionItem[] = [];
-
   for (const entry of entries) {
     try {
       const skillPath = join(dir, entry, "SKILL.md");
@@ -46,43 +139,36 @@ async function scanSkills(
           ? fm["argument-hint"]
           : undefined;
 
-      items.push({
-        type: "slash_command",
-        name,
-        label: `/${name}`,
+      const item = slashCommand(name, source, {
         description,
         argumentHint,
-        source,
+        // Codex mentions skills with `$skill`; Hive keeps skills under `/`.
+        replacementLabel: provider === "codex" ? `$${normalizeCommandName(name)}` : undefined,
       });
+      if (item) items.push(item);
     } catch {
-      // Skip unreadable entries
+      // Skip unreadable entries.
     }
   }
 
   return items;
 }
 
-async function scanAgents(
+async function scanMarkdownAgents(
   dir: string,
   source: "user_agent" | "project_agent",
 ): Promise<CompletionItem[]> {
-  let entries: string[];
-  try {
-    entries = await readdir(dir);
-  } catch {
-    return [];
-  }
-
+  const files = await walkFiles(dir, ".md");
   const items: CompletionItem[] = [];
 
-  for (const entry of entries) {
-    if (!entry.endsWith(".md")) continue;
+  for (const file of files) {
     try {
-      const content = await readFile(join(dir, entry), "utf-8");
+      const content = await readFile(file.path, "utf-8");
       const fm = parseFrontmatter(content);
-
       const name =
-        typeof fm.name === "string" ? fm.name : basename(entry, ".md");
+        typeof fm.name === "string"
+          ? fm.name
+          : basename(file.relativePath, ".md");
       const description =
         typeof fm.description === "string" ? fm.description : undefined;
 
@@ -94,7 +180,80 @@ async function scanAgents(
         source,
       });
     } catch {
-      // Skip unreadable entries
+      // Skip unreadable entries.
+    }
+  }
+
+  return items;
+}
+
+function parseTomlString(content: string, key: string): string | undefined {
+  const pattern = new RegExp(`^\\s*${key}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*"|'(?:[^'\\\\]|\\\\.)*'|[^\\r\\n#]+)`, "m");
+  const match = content.match(pattern);
+  if (!match) return undefined;
+  let value = match[1].trim();
+  const quoted =
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"));
+  if (quoted) value = value.slice(1, -1);
+  return value.trim() || undefined;
+}
+
+async function scanTomlAgents(
+  dir: string,
+  source: "user_agent" | "project_agent",
+): Promise<CompletionItem[]> {
+  const files = await walkFiles(dir, ".toml");
+  const items: CompletionItem[] = [];
+
+  for (const file of files) {
+    try {
+      const content = await readFile(file.path, "utf-8");
+      const name = parseTomlString(content, "name") ?? basename(file.relativePath, ".toml");
+      const description = parseTomlString(content, "description");
+
+      items.push({
+        type: "agent",
+        name,
+        label: `@${name}`,
+        description,
+        source,
+      });
+    } catch {
+      // Skip unreadable entries.
+    }
+  }
+
+  return items;
+}
+
+async function scanClaudeCommands(
+  dir: string,
+  source: "user_command" | "project_command",
+): Promise<CompletionItem[]> {
+  const files = await walkFiles(dir, ".md");
+  const items: CompletionItem[] = [];
+
+  for (const file of files) {
+    try {
+      const content = await readFile(file.path, "utf-8");
+      const fm = parseFrontmatter(content);
+      const fallbackName = file.relativePath
+        .slice(0, -".md".length)
+        .split(sep)
+        .filter(Boolean)
+        .join(":");
+      const name = typeof fm.name === "string" ? fm.name : fallbackName;
+      const description =
+        typeof fm.description === "string" ? fm.description : undefined;
+      const argumentHint =
+        typeof fm["argument-hint"] === "string"
+          ? fm["argument-hint"]
+          : undefined;
+      const item = slashCommand(name, source, { description, argumentHint });
+      if (item) items.push(item);
+    } catch {
+      // Skip unreadable entries.
     }
   }
 
@@ -112,10 +271,10 @@ function asString(value: unknown): string | undefined {
 }
 
 function normalizeCommandName(name: string): string {
-  return name.trim().replace(/^\//, "");
+  return name.trim().replace(/^\//, "").replace(/^\$/, "");
 }
 
-async function scanPluginCommands(home: string): Promise<CompletionItem[]> {
+async function scanClaudePluginCommands(home: string): Promise<CompletionItem[]> {
   const pluginsFilePath = join(home, ".claude", "plugins", "installed_plugins.json");
   let content: string;
   try {
@@ -153,18 +312,14 @@ async function scanPluginCommands(home: string): Promise<CompletionItem[]> {
       const name = normalizeCommandName(rawName);
       if (!name || seenNames.has(name)) continue;
 
-      const description = asString(commandRecord.description) ?? pluginDescription;
-      const argumentHint = asString(commandRecord["argument-hint"])
-        ?? asString(commandRecord.argumentHint);
-
-      items.push({
-        type: "slash_command",
-        name,
-        label: `/${name}`,
-        description,
-        argumentHint,
-        source: "plugin",
+      const item = slashCommand(name, "plugin", {
+        description: asString(commandRecord.description) ?? pluginDescription,
+        argumentHint: asString(commandRecord["argument-hint"])
+          ?? asString(commandRecord.argumentHint),
       });
+      if (!item) continue;
+
+      items.push(item);
       seenNames.add(name);
     }
   }
@@ -172,30 +327,80 @@ async function scanPluginCommands(home: string): Promise<CompletionItem[]> {
   return items;
 }
 
-export async function scanCompletions(
-  workspaceCwd: string,
-): Promise<CompletionItem[]> {
+async function scanClaudeCompletions(workspaceCwd: string): Promise<CompletionItem[]> {
   const home = homedir();
-  const userSkillsDir = join(home, ".claude", "skills");
-  const projectSkillsDir = join(workspaceCwd, ".claude", "skills");
-  const userAgentsDir = join(home, ".claude", "agents");
-  const projectAgentsDir = join(workspaceCwd, ".claude", "agents");
-
-  const [userSkills, projectSkills, pluginCommands, userAgents, projectAgents] =
+  const [userCommands, projectCommands, userSkills, projectSkills, pluginCommands, userAgents, projectAgents] =
     await Promise.all([
-      scanSkills(userSkillsDir, "user_skill"),
-      scanSkills(projectSkillsDir, "project_skill"),
-      scanPluginCommands(home),
-      scanAgents(userAgentsDir, "user_agent"),
-      scanAgents(projectAgentsDir, "project_agent"),
+      scanClaudeCommands(join(home, ".claude", "commands"), "user_command"),
+      scanClaudeCommands(join(workspaceCwd, ".claude", "commands"), "project_command"),
+      scanSkills(join(home, ".claude", "skills"), "user_skill", "claude"),
+      scanSkills(join(workspaceCwd, ".claude", "skills"), "project_skill", "claude"),
+      scanClaudePluginCommands(home),
+      scanMarkdownAgents(join(home, ".claude", "agents"), "user_agent"),
+      scanMarkdownAgents(join(workspaceCwd, ".claude", "agents"), "project_agent"),
     ]);
 
   return [
-    ...BUILTIN_COMMANDS,
+    ...builtinCommands(CLAUDE_BUILTIN_COMMANDS),
+    ...userCommands,
+    ...projectCommands,
     ...userSkills,
     ...projectSkills,
     ...pluginCommands,
     ...userAgents,
     ...projectAgents,
   ];
+}
+
+async function scanCodexCompletions(workspaceCwd: string): Promise<CompletionItem[]> {
+  const home = homedir();
+  const [userSkills, projectSkills, adminSkills, userAgents, projectAgents] =
+    await Promise.all([
+      scanSkills(join(home, ".agents", "skills"), "user_skill", "codex"),
+      scanSkills(join(workspaceCwd, ".agents", "skills"), "project_skill", "codex"),
+      scanSkills(join("/etc", "codex", "skills"), "admin_skill", "codex"),
+      scanTomlAgents(join(home, ".codex", "agents"), "user_agent"),
+      scanTomlAgents(join(workspaceCwd, ".codex", "agents"), "project_agent"),
+    ]);
+
+  return [
+    ...builtinCommands(CODEX_BUILTIN_COMMANDS),
+    ...userSkills,
+    ...projectSkills,
+    ...adminSkills,
+    ...userAgents,
+    ...projectAgents,
+  ];
+}
+
+export async function scanCompletions(
+  workspaceCwd: string,
+  options: ScanOptions = {},
+): Promise<CompletionItem[]> {
+  const provider = options.provider ?? "claude";
+  return provider === "codex"
+    ? scanCodexCompletions(workspaceCwd)
+    : scanClaudeCompletions(workspaceCwd);
+}
+
+function replaceStandaloneToken(content: string, label: string, replacement: string): string {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`(^|\\s)${escaped}(?=\\s|$)`, "g");
+  return content.replace(pattern, `$1${replacement}`);
+}
+
+export async function replaceCompletionAliases(
+  content: string,
+  workspaceCwd: string,
+  provider: CompletionProvider,
+): Promise<string> {
+  if (provider !== "codex" || !content.includes("/")) return content;
+
+  const items = await scanCodexCompletions(workspaceCwd);
+  let resolved = content;
+  for (const item of items) {
+    if (!item.replacementLabel) continue;
+    resolved = replaceStandaloneToken(resolved, item.label, item.replacementLabel);
+  }
+  return resolved;
 }

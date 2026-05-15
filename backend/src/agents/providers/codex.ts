@@ -18,7 +18,7 @@ const CODEX_CAPABILITIES: ProviderCapabilities = {
   thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"],
   planMode: false,
   blockingTools: false,
-  completions: false,
+  completions: true,
 };
 
 const DEFAULT_THINKING_LEVEL: ThinkingLevel = "high";
