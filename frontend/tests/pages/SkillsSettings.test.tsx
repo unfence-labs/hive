@@ -140,4 +140,43 @@ describe("SkillsSettings", () => {
 
     expect(api.post).toHaveBeenCalledWith("/api/settings/skills/sync-missing");
   });
+
+  it("shows a diff for divergent provider copies", async () => {
+    const user = userEvent.setup();
+    const divergentSkill = makeSkill({
+      syncStatus: "diverged",
+      providers: {
+        claude: { present: true, path: "/home/me/.claude/skills/reviewer", isSymlink: false },
+        codex: { present: true, path: "/home/me/.agents/skills/reviewer", isSymlink: false },
+      },
+    });
+    vi.mocked(api.get).mockImplementation((url: string) => {
+      if (url === "/api/settings/skills") return Promise.resolve({ skills: [divergentSkill] });
+      if (url === "/api/settings/skills/reviewer") {
+        return Promise.resolve(
+          makeDetail({
+            ...divergentSkill,
+            content: "---\nname: reviewer\n---\n# Codex\n",
+            contentProvider: "codex",
+            providerContents: {
+              claude: "---\nname: reviewer\n---\n# Claude\n",
+              codex: "---\nname: reviewer\n---\n# Codex\n",
+            },
+          }),
+        );
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+
+    const { wrapper } = createWrapper();
+    render(<SkillsSettings />, { wrapper });
+
+    await user.click(await screen.findByRole("button", { name: "View diff" }));
+
+    expect(await screen.findByText("Skill diff")).toBeInTheDocument();
+    expect(screen.getAllByText("Claude").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
+    expect(screen.getByText("# Claude")).toBeInTheDocument();
+    expect(screen.getByText("# Codex")).toBeInTheDocument();
+  });
 });

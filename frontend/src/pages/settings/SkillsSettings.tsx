@@ -10,9 +10,18 @@ import {
   XCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingsHeader } from "@/components/AppLayout";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { DiffView } from "@/components/diff/DiffView";
 import {
   useSkill,
   useSkills,
@@ -178,6 +187,7 @@ function SkillDetailPanel({
   const syncMutation = useSyncSkill();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [showDiff, setShowDiff] = useState(false);
 
   useEffect(() => {
     if (!data) return;
@@ -246,10 +256,14 @@ function SkillDetailPanel({
         </div>
       </div>
 
-      <SkillBanner data={data} onUseProvider={(provider) => {
-        const content = data.providerContents[provider];
-        if (content !== undefined) setDraft(content);
-      }} />
+      <SkillBanner
+        data={data}
+        onViewDiff={() => setShowDiff(true)}
+        onUseProvider={(provider) => {
+          const content = data.providerContents[provider];
+          if (content !== undefined) setDraft(content);
+        }}
+      />
 
       <div className="mt-3 min-h-0 flex-1">
         <MarkdownEditor
@@ -294,15 +308,23 @@ function SkillDetailPanel({
           </span>
         )}
       </div>
+
+      <SkillDiffDialog
+        data={data}
+        open={showDiff}
+        onOpenChange={setShowDiff}
+      />
     </div>
   );
 }
 
 function SkillBanner({
   data,
+  onViewDiff,
   onUseProvider,
 }: {
   data: SkillDetail;
+  onViewDiff: () => void;
   onUseProvider: (provider: SkillProviderId) => void;
 }) {
   if (data.syncStatus === "linked") return null;
@@ -322,13 +344,22 @@ function SkillBanner({
           Claude and Codex copies differ. The editor is using the canonical Codex copy.
         </span>
         {data.providerContents.claude && (
-          <button
-            type="button"
-            onClick={() => onUseProvider("claude")}
-            className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-amber-200 transition-colors hover:bg-amber-500/15"
-          >
-            Use Claude copy
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onViewDiff}
+              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-amber-200 transition-colors hover:bg-amber-500/15"
+            >
+              View diff
+            </button>
+            <button
+              type="button"
+              onClick={() => onUseProvider("claude")}
+              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-amber-200 transition-colors hover:bg-amber-500/15"
+            >
+              Use Claude copy
+            </button>
+          </div>
         )}
       </Banner>
     );
@@ -359,6 +390,52 @@ function SkillBanner({
   }
 
   return null;
+}
+
+function SkillDiffDialog({
+  data,
+  open,
+  onOpenChange,
+}: {
+  data: SkillDetail;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const claudeContent = data.providerContents.claude ?? "";
+  const codexContent = data.providerContents.codex ?? "";
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-5xl">
+        <DialogHeader>
+          <DialogTitle>Skill diff</DialogTitle>
+          <DialogDescription>
+            Claude is shown as removed lines, Codex canonical content as added lines.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0">
+          <div className="mb-2 flex items-center gap-3 text-[11px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-red-400" />
+              Claude
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-green-400" />
+              Codex
+            </span>
+          </div>
+          <DiffView
+            oldText={claudeContent}
+            newText={codexContent}
+            filePath="SKILL.md"
+            className="text-xs"
+            scrollClassName="max-h-[60vh]"
+          />
+        </div>
+        <DialogFooter showCloseButton />
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function Banner({
