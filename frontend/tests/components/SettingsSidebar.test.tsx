@@ -171,7 +171,7 @@ describe("SettingsSidebar", () => {
       </MemoryRouter>,
     );
 
-    await user.click(screen.getByRole("link", { name: /Agents/i }));
+    await user.click(screen.getByRole("link", { name: /CLI/i }));
     await waitFor(() => {
       expect(screen.getByText("Agents settings")).toBeInTheDocument();
     });
@@ -208,7 +208,26 @@ describe("SettingsSidebar", () => {
     );
 
     await screen.findByText("Agents settings");
-    expect(screen.getByRole("link", { name: /Agents/i })).toHaveClass("bg-primary/10");
+    expect(screen.getByRole("link", { name: /CLI/i })).toHaveClass("bg-primary/10");
+  });
+
+  it("groups agent settings in their own section", () => {
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/settings/appearance"]}>
+        <Routes>
+          <Route path="/settings" element={<SettingsShell />}>
+            <Route path="appearance" element={<div>Appearance settings</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("heading", { name: "General" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Agents" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /CLI/i })).toHaveAttribute("href", "/settings/agents");
+    expect(screen.getByRole("link", { name: /Instructions/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Prompts/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Skills/i })).toBeInTheDocument();
   });
 
   it("groups repositories with sidebar folders in settings", async () => {

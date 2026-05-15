@@ -86,9 +86,12 @@ export default function SettingsSidebar() {
               icon={<Bell className="h-4 w-4" />}
               active={pathname === "/settings/notifications"}
             />
+          </SidebarSection>
+
+          <SidebarSection label="Agents">
             <NavItem
               to="/settings/agents"
-              label="Agents"
+              label="CLI"
               icon={<Bot className="h-4 w-4" />}
               active={pathname === "/settings/agents"}
             />
