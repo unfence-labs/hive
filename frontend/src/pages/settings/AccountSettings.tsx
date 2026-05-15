@@ -178,7 +178,7 @@ export default function AccountSettings() {
           {state.kind === "no-gh" && (
             <section className="rounded-lg border border-border/50 bg-card/50 p-5">
               <div className="flex items-start gap-3">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning-foreground" />
                 <div>
                   <h2 className="text-sm font-medium">GitHub CLI not found</h2>
                   <p className="mt-1 text-xs text-muted-foreground">

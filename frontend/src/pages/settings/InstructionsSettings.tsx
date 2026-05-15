@@ -280,14 +280,14 @@ function InstructionBanners({
             <button
               type="button"
               onClick={onViewDiff}
-              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-amber-200 transition-colors hover:bg-amber-500/15"
+              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-warning-foreground transition-colors hover:bg-warning-muted"
             >
               View diff
             </button>
             <button
               type="button"
               onClick={() => onUseProvider("claude")}
-              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-amber-200 transition-colors hover:bg-amber-500/15"
+              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-warning-foreground transition-colors hover:bg-warning-muted"
             >
               Use Claude copy
             </button>

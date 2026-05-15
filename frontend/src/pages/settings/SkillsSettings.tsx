@@ -563,14 +563,14 @@ function SkillBanner({
             <button
               type="button"
               onClick={onViewDiff}
-              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-amber-200 transition-colors outline-none hover:bg-amber-500/15 focus-visible:ring-[3px] focus-visible:ring-amber-300/40"
+              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-warning-foreground transition-colors outline-none hover:bg-warning-muted focus-visible:ring-[3px] focus-visible:ring-warning/40"
             >
               View diff
             </button>
             <button
               type="button"
               onClick={() => onUseProvider("claude")}
-              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-amber-200 transition-colors outline-none hover:bg-amber-500/15 focus-visible:ring-[3px] focus-visible:ring-amber-300/40"
+              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-warning-foreground transition-colors outline-none hover:bg-warning-muted focus-visible:ring-[3px] focus-visible:ring-warning/40"
             >
               Use Claude copy
             </button>

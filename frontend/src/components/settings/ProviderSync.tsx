@@ -77,7 +77,7 @@ export function SettingsBanner({
       className={cn(
         "flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-xs",
         tone === "info" && "border-sky-500/25 bg-sky-500/10 text-sky-300",
-        tone === "warning" && "border-amber-500/25 bg-amber-500/10 text-amber-300",
+        tone === "warning" && "border-warning-border bg-warning-muted text-warning-foreground",
         tone === "danger" && "border-red-500/25 bg-red-500/10 text-red-300",
       )}
     >
@@ -133,7 +133,7 @@ export function CompactSyncStatusIcon({ status }: { status: ProviderSyncStatus }
   if (status === "invalid") {
     return <XCircle aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-red-400" />;
   }
-  return <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-amber-400" />;
+  return <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-warning-foreground" />;
 }
 
 function statusConfig(status: ProviderSyncStatus): { label: string; className: string } {
@@ -147,11 +147,11 @@ function statusConfig(status: ProviderSyncStatus): { label: string; className: s
     case "synced":
       return { label: "Synced", className: "bg-sky-500/10 text-sky-400" };
     case "claude_only":
-      return { label: "Claude only", className: "bg-amber-500/10 text-amber-400" };
+      return { label: "Claude only", className: "bg-warning-muted text-warning-foreground" };
     case "codex_only":
-      return { label: "Codex only", className: "bg-amber-500/10 text-amber-400" };
+      return { label: "Codex only", className: "bg-warning-muted text-warning-foreground" };
     case "diverged":
-      return { label: "Diverged", className: "bg-amber-500/10 text-amber-400" };
+      return { label: "Diverged", className: "bg-warning-muted text-warning-foreground" };
     case "invalid":
       return { label: "Invalid", className: "bg-red-500/10 text-red-400" };
   }

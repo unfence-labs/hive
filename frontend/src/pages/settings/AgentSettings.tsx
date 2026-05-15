@@ -90,7 +90,7 @@ function StatusBadge({ agent }: { agent: AgentStatusEntry }) {
 
   if (agent.updateAvailable) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-400">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-warning-border bg-warning-muted px-2.5 py-0.5 text-[11px] font-medium text-warning-foreground">
         <ArrowUpCircle className="h-3 w-3" />
         Update available{agent.latestVersion && ` (${agent.latestVersion})`}
       </span>

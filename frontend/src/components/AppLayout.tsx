@@ -112,7 +112,7 @@ export default function AppLayout({ onAddProject, onAddAutomation }: AppLayoutPr
   return (
     <div className="flex h-screen flex-col">
       {import.meta.env.DEV && (
-        <div className="shrink-0 bg-amber-500/90 px-3 py-0.5 text-center text-xs font-medium text-black">
+        <div className="shrink-0 bg-warning/90 px-3 py-0.5 text-center text-xs font-medium text-warning-contrast">
           Dev frontend → {backendEnv ? `${backendEnv} backend` : "connecting…"}
         </div>
       )}

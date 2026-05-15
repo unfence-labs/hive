@@ -229,7 +229,7 @@ export default function AddProjectDialog({
                     Connected as <span className="font-medium text-foreground">@{account.user?.login}</span>
                   </span>
                 ) : (
-                  <span className="text-amber-500/80">
+                  <span className="text-warning-foreground">
                     GitHub not connected — will create local only
                   </span>
                 )}
@@ -239,7 +239,7 @@ export default function AddProjectDialog({
 
           {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
           {warning && (
-            <div className="mt-2 rounded-md bg-amber-500/10 px-3 py-2 text-sm text-amber-500">
+            <div className="mt-2 rounded-md bg-warning-muted px-3 py-2 text-sm text-warning-foreground">
               {warning}
             </div>
           )}

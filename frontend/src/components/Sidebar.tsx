@@ -475,14 +475,14 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     <>
       {(projectsUnavailable || projectsAppearIncomplete) && (
         <div
-          className="mb-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3"
+          className="mb-3 rounded-lg border border-warning-border bg-warning-muted p-3"
           role="alert"
         >
           <div className="flex items-start gap-2.5">
             {projectsRecovering ? (
-              <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-amber-500" />
+              <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-warning-foreground" />
             ) : (
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning-foreground" />
             )}
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-sidebar-foreground">
