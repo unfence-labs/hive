@@ -426,6 +426,60 @@ export interface UpdatePromptTemplateRequest {
   content?: string;
 }
 
+// ── Global skills settings ──────────────────────────────────────────
+
+export type SkillProviderId = "claude" | "codex";
+export type SkillSyncStatus =
+  | "linked"
+  | "synced"
+  | "claude_only"
+  | "codex_only"
+  | "diverged"
+  | "invalid";
+
+export interface SkillProviderState {
+  present: boolean;
+  path: string;
+  folderName?: string;
+  isSymlink?: boolean;
+  realPath?: string;
+  hash?: string;
+  updatedAt?: string;
+  error?: string;
+}
+
+export interface SkillSummary {
+  id: string;
+  name: string;
+  folderName: string;
+  description?: string;
+  argumentHint?: string;
+  userInvocable: boolean;
+  syncStatus: SkillSyncStatus;
+  providers: Record<SkillProviderId, SkillProviderState>;
+  invalidReason?: string;
+  updatedAt?: string;
+}
+
+export interface SkillDetail extends SkillSummary {
+  content: string;
+  contentProvider: SkillProviderId;
+  providerContents: Partial<Record<SkillProviderId, string>>;
+}
+
+export interface SkillListResponse {
+  skills: SkillSummary[];
+}
+
+export interface UpdateSkillRequest {
+  content: string;
+}
+
+export interface SkillSyncResponse {
+  skills: SkillSummary[];
+  syncedCount: number;
+}
+
 // ── Hub WebSocket protocol (multiplexed) ────────────────────────────
 
 /** Client -> Server (hub-level). */

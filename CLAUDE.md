@@ -68,6 +68,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/api/ui-preferences.ts`: `GET/PUT /api/ui-preferences` — global UI preferences (sidebar folders + folderOpenState), sanitized against known project IDs on read and write
 - `backend/src/api/automations.ts`: automation CRUD + manual trigger + run history + run messages
 - `backend/src/api/prompt-templates.ts`: prompt template CRUD (deletion guard if referenced by automation)
+- `backend/src/api/skills.ts`: global skill settings (`GET/PUT /api/settings/skills`) with `.agents/skills` canonicalization and Claude symlink sync
 - `backend/src/ws/stream.ts`: multiplexed hub WebSocket protocol (`/ws/hub`; `sync_workspaces` subscription, `HubOutgoing` envelopes)
 - `backend/src/ws/script.ts`: script execution WebSocket (PTY output streaming)
 - `backend/src/services/git-sync.ts`: branch/diff polling and workspace broadcasts (PR status moved to REST)
@@ -92,6 +93,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/state/automations.ts`: automation + run persistence (atomic writes, run capping at 50)
 - `backend/src/state/prompt-templates.ts`: template persistence (`.md` files with YAML frontmatter in `~/.hive/prompts/`)
 - `backend/src/state/base-prompt.ts`: base prompt persistence (`~/.hive/prompts/base.md`), atomic write, reset-to-default
+- `backend/src/state/skills.ts`: global skill discovery and synchronization (`~/.agents/skills` canonical, `~/.claude/skills` symlinks)
 - `backend/src/state/ui-preferences.ts`: UI preferences persistence (`$DATA_DIR/ui-preferences.json`) — atomic write, sanitize helper drops folders/project refs that no longer exist
 - `backend/src/state/state.ts`: JSON persistence + per-project locks
 - `backend/src/state/config.ts`: file-based app config (`$DATA_DIR/config.json`)
@@ -155,6 +157,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/pages/settings/ProjectDetail.tsx`: per-repo info + deletion controls
 - `frontend/src/pages/settings/AgentSettings.tsx`: per-provider version display + npm update check
 - `frontend/src/pages/settings/PromptTemplatesSettings.tsx`: master-detail split view — base prompt + template list (left) + CodeMirror editor (right) + prompt flow explainer dialog
+- `frontend/src/pages/settings/SkillsSettings.tsx`: master-detail global skills editor — `.agents/skills` canonical storage, Claude symlink sync, provider/status badges
 - `frontend/src/contexts/WorkspaceLiveDataContext.tsx`: React context for `useWorkspaceLiveData` — provides per-session unread tracking, `clearUnread(wsId, sessionId?)`
 - `frontend/src/hooks/useConversation.ts`: reducer-driven WS conversation state + tool responses + `lockedProvider` tracking
 - `frontend/src/hooks/useSessions.ts`: list/create/activate/delete sessions (max 4)

@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { basename, join, relative, sep } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 import { parseFrontmatter } from "./frontmatter.js";
+import { parseSkillManifest } from "./skill-manifest.js";
 import type { CompletionItem, CompletionSource } from "../types.js";
 
 export type CompletionProvider = "claude" | "codex";
@@ -158,23 +159,15 @@ async function scanSkills(
     try {
       const skillPath = join(dir, entry, "SKILL.md");
       const content = await readFile(skillPath, "utf-8");
-      const fm = parseFrontmatter(content);
+      const manifest = parseSkillManifest(content, entry);
 
-      if (fm["user-invocable"] === false) continue;
+      if (!manifest.userInvocable) continue;
 
-      const name = typeof fm.name === "string" ? fm.name : entry;
-      const description =
-        typeof fm.description === "string" ? fm.description : undefined;
-      const argumentHint =
-        typeof fm["argument-hint"] === "string"
-          ? fm["argument-hint"]
-          : undefined;
-
-      const item = slashCommand(name, source, {
-        description,
-        argumentHint,
+      const item = slashCommand(manifest.name, source, {
+        description: manifest.description,
+        argumentHint: manifest.argumentHint,
         // Codex mentions skills with `$skill`; Hive keeps skills under `/`.
-        replacementLabel: provider === "codex" ? `$${normalizeCommandName(name)}` : undefined,
+        replacementLabel: provider === "codex" ? `$${normalizeCommandName(manifest.name)}` : undefined,
       });
       if (item) items.push(item);
     } catch {

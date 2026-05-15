@@ -7,11 +7,7 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from "@codemirror/view";
-import { markdown } from "@codemirror/lang-markdown";
-import { languages } from "@codemirror/language-data";
-import { oneDarkHighlightStyle } from "@codemirror/theme-one-dark";
-import { syntaxHighlighting } from "@codemirror/language";
-import { CodeEditor } from "@/components/CodeEditor";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
 
 // ── Template variable highlighting ─────────────────────────────────────
 
@@ -66,8 +62,6 @@ export function PromptEditor({
 }: PromptEditorProps) {
   const extensions = useMemo(
     () => [
-      markdown({ codeLanguages: languages }),
-      syntaxHighlighting(oneDarkHighlightStyle),
       templateVarPlugin,
       templateVarTheme,
     ],
@@ -75,13 +69,13 @@ export function PromptEditor({
   );
 
   return (
-    <CodeEditor
+    <MarkdownEditor
       value={value}
       onChange={onChange}
       readOnly={readOnly}
       maxHeight={maxHeight}
       placeholder={placeholder}
-      extensions={extensions}
+      extraExtensions={extensions}
     />
   );
 }

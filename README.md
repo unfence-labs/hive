@@ -69,6 +69,7 @@ It manages:
 - Notification settings (Telegram + APNs, instant-apply toggles, test message).
 - Agent settings (installed providers, versions, update availability).
 - Prompt settings (base prompt editor, template library, prompt flow explainer).
+- Global skills settings (single view over Claude/Codex skills, `.agents/skills` canonical storage, Claude symlink sync).
 - Per-repository detail view with deletion controls and CodeMirror-powered project `.env` editing.
 
 **Desktop**
@@ -327,6 +328,11 @@ npm test
 | `POST` | `/api/settings/notifications/test` | Send a test notification |
 | `POST` | `/api/settings/apns-token` | Register APNs device token |
 | `GET` | `/api/settings/agents` | Provider versions + update availability |
+| `GET` | `/api/settings/skills` | List global Claude/Codex skills and sync status |
+| `GET` | `/api/settings/skills/:id` | Get a global skill detail (`SKILL.md`) |
+| `PUT` | `/api/settings/skills/:id` | Save `SKILL.md`, canonicalize into `.agents/skills`, and sync Claude symlink |
+| `POST` | `/api/settings/skills/:id/sync` | Sync one skill into canonical storage |
+| `POST` | `/api/settings/skills/sync-missing` | Sync Claude-only, Codex-only, and matching duplicate global skills |
 
 ### Account
 
@@ -387,6 +393,7 @@ Backend key modules:
 - `backend/src/api/base-prompt.ts` base system prompt CRUD
 - `backend/src/api/automations.ts` automation CRUD + trigger + run history + run messages
 - `backend/src/api/prompt-templates.ts` prompt template CRUD
+- `backend/src/api/skills.ts` global skill settings + Claude/Codex sync
 - `backend/src/ws/stream.ts` multiplexed hub WebSocket protocol
 - `backend/src/ws/script.ts` script execution WebSocket
 - `backend/src/agents/agent-manager.ts` in-memory session registry, persistence, switching
@@ -403,6 +410,7 @@ Backend key modules:
 - `backend/src/state/automations.ts` automation + run persistence
 - `backend/src/state/prompt-templates.ts` template persistence
 - `backend/src/state/base-prompt.ts` base prompt persistence
+- `backend/src/state/skills.ts` global skill discovery/canonicalization (`.agents/skills` + `.claude/skills` symlinks)
 - `backend/src/utils/preflight.ts` startup dependency checks (git, claude, gh; codex/gemini optional)
 - `backend/src/utils/github.ts` GitHub URL parsing, `gh` CLI wrapper, PR status fetching
 - `backend/src/utils/hive-config.ts` `hive.json` parser for workspace scripts
@@ -410,7 +418,7 @@ Backend key modules:
 Frontend key modules:
 - `frontend/src/pages/WorkspaceView.tsx` main chat/inline diff/file tree/scripts/PR status UI
 - `frontend/src/pages/AutomationDetail.tsx` automation config + run history + run log
-- `frontend/src/pages/settings/` settings pages (Appearance, Connection, Account, Notifications, Agents, Prompts, ProjectDetail)
+- `frontend/src/pages/settings/` settings pages (Appearance, Connection, Account, Notifications, Agents, Prompts, Skills, ProjectDetail)
 - `frontend/src/contexts/WorkspaceLiveDataContext.tsx` WS live data context + unread tracking
 - `frontend/src/hooks/useConversation.ts` reducer-driven conversation state + tool responses + lockedProvider
 - `frontend/src/hooks/useSessions.ts` multi-session operations (max 4)

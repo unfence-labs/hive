@@ -177,6 +177,25 @@ describe("SettingsSidebar", () => {
     });
   });
 
+  it("navigates to skills settings", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <MemoryRouter initialEntries={["/settings/appearance"]}>
+        <Routes>
+          <Route path="/settings" element={<SettingsShell />}>
+            <Route path="appearance" element={<div>Appearance settings</div>} />
+            <Route path="skills" element={<div>Skills settings</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("link", { name: /Skills/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Skills settings")).toBeInTheDocument();
+    });
+  });
+
   it("highlights the agents link when agents route is active", async () => {
     renderWithProviders(
       <MemoryRouter initialEntries={["/settings/agents"]}>

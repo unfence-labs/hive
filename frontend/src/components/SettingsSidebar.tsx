@@ -10,6 +10,7 @@ import {
   FolderOpen,
   GitFork,
   Paintbrush,
+  Sparkles,
   Wifi,
 } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
@@ -95,6 +96,12 @@ export default function SettingsSidebar() {
               label="Prompts"
               icon={<FileText className="h-4 w-4" />}
               active={pathname === "/settings/prompt-templates"}
+            />
+            <NavItem
+              to="/settings/skills"
+              label="Skills"
+              icon={<Sparkles className="h-4 w-4" />}
+              active={pathname === "/settings/skills"}
             />
           </SidebarSection>
 
