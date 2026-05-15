@@ -4,7 +4,6 @@ import {
   Bot,
   FileCode2,
   Loader2,
-  Plus,
   Save,
   Sparkles,
   Trash2,
@@ -22,17 +21,20 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingsHeader } from "@/components/AppLayout";
 import {
   CompactSyncStatusIcon as CompactStatusIcon,
-  ProviderBadge,
-  ProviderMiniBadge,
   SettingsActionButton as EditorActionButton,
   SettingsBanner as Banner,
   SyncStatusBadge as StatusBadge,
 } from "@/components/settings/ProviderSync";
 import { SettingsEditorFrame } from "@/components/settings/SettingsEditorFrame";
+import {
+  SettingsEmptySelection,
+  SettingsResourceEmptyList,
+  SettingsResourceList,
+  SettingsResourceListItem,
+} from "@/components/settings/SettingsResourceList";
 import {
   useCreateCustomAgent,
   useCreateCustomAgentCounterpart,
@@ -184,15 +186,15 @@ export default function CustomAgentsSettings() {
 
       {isLoading ? (
         <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading custom agents
+          <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+          Loading custom agents…
         </div>
       ) : isError ? (
         <div className="flex flex-1 items-center justify-center text-xs text-red-400">
           Could not load custom agents.
         </div>
       ) : (
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 overflow-hidden max-md:flex-col">
           <CustomAgentsList
             agents={agents}
             draftAgent={draftAgent}
@@ -256,118 +258,41 @@ function CustomAgentsList({
   onNewAgent: () => void;
 }) {
   return (
-    <div className="flex w-64 shrink-0 flex-col border-r border-border/50">
-      <ScrollArea className="flex-1">
-        <div className="p-2">
-          {draftAgent && (
-            <DraftAgentListItem
-              provider={draftAgent.provider}
-              selected={selection?.kind === "draft"}
-              onClick={onSelectDraft}
-            />
-          )}
-          {agents.length === 0 && !draftAgent ? (
-            <div className="px-2 py-8 text-center text-xs text-muted-foreground">
-              No global custom agents found.
-            </div>
-          ) : (
-            agents.map((agent) => (
-              <CustomAgentListItem
-                key={agent.id}
-                agent={agent}
-                selected={selection?.kind === "existing" && agent.id === selection.id}
-                onClick={() => onSelect(agent.id)}
-              />
-            ))
-          )}
-        </div>
-      </ScrollArea>
-      <div className="border-t border-border/30 p-2">
-        <button
-          type="button"
-          onClick={onNewAgent}
-          className={cn(
-            "inline-flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/10",
-            selection?.kind === "draft" && "border-primary bg-primary/10",
-          )}
-        >
-          <Plus className="h-3 w-3" />
-          New Agent
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function DraftAgentListItem({
-  provider,
-  selected,
-  onClick,
-}: {
-  provider: CustomAgentProviderId;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "mb-1 flex w-full cursor-pointer flex-col gap-1.5 rounded-md px-2 py-2 text-left text-sm transition-colors",
-        selected
-          ? "bg-primary/15 text-foreground"
-          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-      )}
+    <SettingsResourceList
+      showEmpty={agents.length === 0 && !draftAgent}
+      empty={<SettingsResourceEmptyList>No global custom agents found.</SettingsResourceEmptyList>}
+      actionLabel="New Agent"
+      actionActive={selection?.kind === "draft"}
+      onAction={onNewAgent}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <Bot className="h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0 flex-1 truncate font-medium">New Agent</span>
-        <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[10px]">
-          Unsaved
-        </Badge>
-      </div>
-      <p className="text-xs leading-snug text-muted-foreground">
-        {PROVIDER_LABELS[provider]} draft
-      </p>
-    </button>
-  );
-}
-
-function CustomAgentListItem({
-  agent,
-  selected,
-  onClick,
-}: {
-  agent: CustomAgentSummary;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "mb-1 flex w-full cursor-pointer flex-col gap-1.5 rounded-md px-2 py-2 text-left text-sm transition-colors",
-        selected
-          ? "bg-primary/15 text-foreground"
-          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+      {draftAgent && (
+        <SettingsResourceListItem
+          icon={<Bot className="h-3.5 w-3.5" />}
+          title="New Agent"
+          description={`${PROVIDER_LABELS[draftAgent.provider]} draft`}
+          ariaLabel={`New ${PROVIDER_LABELS[draftAgent.provider]} agent draft`}
+          trailing={
+            <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[10px]">
+              Unsaved
+            </Badge>
+          }
+          selected={selection?.kind === "draft"}
+          onClick={onSelectDraft}
+        />
       )}
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        <Bot className="h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0 flex-1 truncate font-medium">{agent.name}</span>
-        <CompactStatusIcon status={agent.status} />
-      </div>
-      {agent.description && (
-        <p className="line-clamp-2 text-xs leading-snug text-muted-foreground">
-          {agent.description}
-        </p>
-      )}
-      <div className="flex flex-wrap gap-1">
-        <ProviderMiniBadge label="Claude" present={agent.providers.claude.present} />
-        <ProviderMiniBadge label="Codex" present={agent.providers.codex.present} />
-      </div>
-    </button>
+      {agents.map((agent) => (
+        <SettingsResourceListItem
+          key={agent.id}
+          icon={<Bot className="h-3.5 w-3.5" />}
+          title={agent.name}
+          description={agent.description}
+          ariaLabel={`${agent.name} custom agent`}
+          trailing={<CompactStatusIcon status={agent.status} />}
+          selected={selection?.kind === "existing" && agent.id === selection.id}
+          onClick={() => onSelect(agent.id)}
+        />
+      ))}
+    </SettingsResourceList>
   );
 }
 
@@ -385,8 +310,8 @@ function CustomAgentDetailPanel({
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Loading custom agent
+        <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+        Loading custom agent…
       </div>
     );
   }
@@ -424,14 +349,18 @@ function LoadedCustomAgentDetailPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-1 border-b border-border/30 px-5 pt-4">
+      <div
+        className="flex shrink-0 items-center gap-1 border-b border-border/30 px-5 pt-4"
+        aria-label="Custom agent provider"
+      >
         {PROVIDERS.map((provider) => (
           <button
             key={provider}
             type="button"
+            aria-pressed={activeProvider === provider}
             onClick={() => setActiveProvider(provider)}
             className={cn(
-              "inline-flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors",
+              "inline-flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-medium transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
               activeProvider === provider
                 ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground",
@@ -439,6 +368,7 @@ function LoadedCustomAgentDetailPanel({
           >
             {PROVIDER_LABELS[provider]}
             <span
+              aria-hidden="true"
               className={cn(
                 "h-1.5 w-1.5 rounded-full",
                 data.providers[provider].present ? "bg-emerald-400" : "bg-muted-foreground/40",
@@ -514,12 +444,6 @@ function CustomAgentProviderEditor({
         title={data.name}
         badge={<StatusBadge status={data.status} />}
         description={data.description}
-        providers={
-          <>
-            <ProviderBadge label="Claude" state={data.providers.claude} />
-            <ProviderBadge label="Codex" state={data.providers.codex} />
-          </>
-        }
         banner={<CustomAgentBanner data={data} provider={provider} />}
         value={draft}
         onChange={setDraft}
@@ -569,7 +493,7 @@ function CustomAgentProviderEditor({
               onClick={() => void handleDelete()}
               className="bg-red-600 text-white hover:bg-red-700"
             >
-              {deleteMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Delete"}
+              {deleteMutation.isPending ? <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" /> : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -610,15 +534,11 @@ function MissingProviderPanel({
           <h2 className="text-base font-medium text-foreground">{data.name}</h2>
           <StatusBadge status={data.status} />
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <ProviderBadge label="Claude" state={data.providers.claude} />
-          <ProviderBadge label="Codex" state={data.providers.codex} />
-        </div>
       </div>
 
       <div className="flex flex-1 items-center justify-center">
         <div className="max-w-sm text-center">
-          <FileCode2 className="mx-auto mb-3 h-8 w-8 text-muted-foreground/60" />
+          <FileCode2 aria-hidden="true" className="mx-auto mb-3 h-8 w-8 text-muted-foreground/60" />
           <h3 className="text-sm font-medium text-foreground">
             No {PROVIDER_LABELS[provider]} version
           </h3>
@@ -630,14 +550,14 @@ function MissingProviderPanel({
             onClick={() => void handleCreateCounterpart()}
             disabled={!canCreate || counterpartMutation.isPending}
             className={cn(
-              "mt-4 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
+              "mt-4 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors outline-none hover:bg-primary/90 focus-visible:ring-[3px] focus-visible:ring-ring/50",
               (!canCreate || counterpartMutation.isPending) && "pointer-events-none opacity-60",
             )}
           >
             {counterpartMutation.isPending ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
+              <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
             ) : (
-              <Sparkles className="h-3 w-3" />
+              <Sparkles aria-hidden="true" className="h-3 w-3" />
             )}
             Create {PROVIDER_LABELS[provider]} version
           </button>
@@ -759,9 +679,10 @@ function ProviderSelector({
         <button
           key={provider}
           type="button"
+          aria-pressed={value === provider}
           onClick={() => onChange(provider)}
           className={cn(
-            "cursor-pointer rounded-sm px-2.5 py-1 text-[11px] font-medium transition-colors",
+            "cursor-pointer rounded-sm px-2.5 py-1 text-[11px] font-medium transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
             value === provider
               ? "bg-primary/15 text-primary"
               : "text-muted-foreground hover:text-foreground",
@@ -806,8 +727,6 @@ function CustomAgentBanner({
 
 function EmptyState() {
   return (
-    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      Select a custom agent to edit
-    </div>
+    <SettingsEmptySelection>Select a custom agent to edit</SettingsEmptySelection>
   );
 }

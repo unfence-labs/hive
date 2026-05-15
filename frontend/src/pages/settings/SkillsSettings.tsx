@@ -4,7 +4,6 @@ import {
   FileCode2,
   Link2,
   Loader2,
-  Plus,
   RefreshCw,
   Save,
   Trash2,
@@ -30,18 +29,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingsHeader } from "@/components/AppLayout";
 import { DiffView } from "@/components/diff/DiffView";
 import {
   CompactSyncStatusIcon as CompactStatusIcon,
   ProviderBadge,
-  ProviderMiniBadge,
   SettingsActionButton as EditorActionButton,
   SettingsBanner as Banner,
   SyncStatusBadge as StatusBadge,
 } from "@/components/settings/ProviderSync";
 import { SettingsEditorFrame } from "@/components/settings/SettingsEditorFrame";
+import {
+  SettingsEmptySelection,
+  SettingsResourceEmptyList,
+  SettingsResourceList,
+  SettingsResourceListItem,
+} from "@/components/settings/SettingsResourceList";
 import {
   useCreateSkill,
   useDeleteSkill,
@@ -154,14 +157,14 @@ export default function SkillsSettings() {
           onClick={() => void syncMissingMutation.mutateAsync()}
           disabled={syncableCount === 0 || syncMissingMutation.isPending}
           className={cn(
-            "inline-flex cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
+            "inline-flex cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-xs text-muted-foreground transition-colors outline-none hover:bg-muted/40 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50",
             (syncableCount === 0 || syncMissingMutation.isPending) && "pointer-events-none opacity-50",
           )}
         >
           {syncMissingMutation.isPending ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
+            <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
           ) : (
-            <RefreshCw className="h-3 w-3" />
+            <RefreshCw aria-hidden="true" className="h-3 w-3" />
           )}
           Sync pending{syncableCount > 0 ? ` (${syncableCount})` : ""}
         </button>
@@ -169,15 +172,15 @@ export default function SkillsSettings() {
 
       {isLoading ? (
         <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading skills
+          <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+          Loading skills…
         </div>
       ) : isError ? (
         <div className="flex flex-1 items-center justify-center text-xs text-red-400">
           Could not load skills.
         </div>
       ) : (
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 overflow-hidden max-md:flex-col">
           <SkillsList
             skills={skills}
             draftSkill={draftSkill}
@@ -240,115 +243,41 @@ function SkillsList({
   onNewSkill: () => void;
 }) {
   return (
-    <div className="flex w-64 shrink-0 flex-col border-r border-border/50">
-      <ScrollArea className="flex-1">
-        <div className="p-2">
-          {draftSkill && (
-            <DraftSkillListItem
-              selected={selection?.kind === "draft"}
-              onClick={onSelectDraft}
-            />
-          )}
-          {skills.length === 0 && !draftSkill ? (
-            <div className="px-2 py-8 text-center text-xs text-muted-foreground">
-              No global skills found.
-            </div>
-          ) : (
-            skills.map((skill) => (
-              <SkillListItem
-                key={skill.id}
-                skill={skill}
-                selected={selection?.kind === "existing" && skill.id === selection.id}
-                onClick={() => onSelect(skill.id)}
-              />
-            ))
-          )}
-        </div>
-      </ScrollArea>
-      <div className="border-t border-border/30 p-2">
-        <button
-          type="button"
-          onClick={onNewSkill}
-          className={cn(
-            "inline-flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/10",
-            selection?.kind === "draft" && "border-primary bg-primary/10",
-          )}
-        >
-          <Plus className="h-3 w-3" />
-          New Skill
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function DraftSkillListItem({
-  selected,
-  onClick,
-}: {
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "mb-1 flex w-full cursor-pointer flex-col gap-1.5 rounded-md px-2 py-2 text-left text-sm transition-colors",
-        selected
-          ? "bg-primary/15 text-foreground"
-          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-      )}
+    <SettingsResourceList
+      showEmpty={skills.length === 0 && !draftSkill}
+      empty={<SettingsResourceEmptyList>No global skills found.</SettingsResourceEmptyList>}
+      actionLabel="New Skill"
+      actionActive={selection?.kind === "draft"}
+      onAction={onNewSkill}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <FileCode2 className="h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0 flex-1 truncate font-medium">New Skill</span>
-        <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[10px]">
-          Unsaved
-        </Badge>
-      </div>
-      <p className="line-clamp-2 text-xs leading-snug text-muted-foreground">
-        Local draft
-      </p>
-    </button>
-  );
-}
-
-function SkillListItem({
-  skill,
-  selected,
-  onClick,
-}: {
-  skill: SkillSummary;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "mb-1 flex w-full cursor-pointer flex-col gap-1.5 rounded-md px-2 py-2 text-left text-sm transition-colors",
-        selected
-          ? "bg-primary/15 text-foreground"
-          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+      {draftSkill && (
+        <SettingsResourceListItem
+          icon={<FileCode2 className="h-3.5 w-3.5" />}
+          title="New Skill"
+          description="Local draft"
+          ariaLabel="New Skill draft"
+          trailing={
+            <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[10px]">
+              Unsaved
+            </Badge>
+          }
+          selected={selection?.kind === "draft"}
+          onClick={onSelectDraft}
+        />
       )}
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        <FileCode2 className="h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0 flex-1 truncate font-medium">{skill.name}</span>
-        <CompactStatusIcon status={skill.syncStatus} />
-      </div>
-      {skill.description && (
-        <p className="line-clamp-2 text-xs leading-snug text-muted-foreground">
-          {skill.description}
-        </p>
-      )}
-      <div className="flex flex-wrap gap-1">
-        <ProviderMiniBadge label="Claude" present={skill.providers.claude.present} />
-        <ProviderMiniBadge label="Codex" present={skill.providers.codex.present} />
-      </div>
-    </button>
+      {skills.map((skill) => (
+        <SettingsResourceListItem
+          key={skill.id}
+          icon={<FileCode2 className="h-3.5 w-3.5" />}
+          title={skill.name}
+          description={skill.description}
+          ariaLabel={`${skill.name} skill`}
+          trailing={<CompactStatusIcon status={skill.syncStatus} />}
+          selected={selection?.kind === "existing" && skill.id === selection.id}
+          onClick={() => onSelect(skill.id)}
+        />
+      ))}
+    </SettingsResourceList>
   );
 }
 
@@ -366,8 +295,8 @@ function SkillDetailPanel({
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Loading skill
+        <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+        Loading skill…
       </div>
     );
   }
@@ -527,7 +456,7 @@ function LoadedSkillDetailPanel({
               onClick={() => void handleDelete()}
               className="bg-red-600 text-white hover:bg-red-700"
             >
-              {deleteMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Delete"}
+              {deleteMutation.isPending ? <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" /> : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -643,14 +572,14 @@ function SkillBanner({
             <button
               type="button"
               onClick={onViewDiff}
-              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-amber-200 transition-colors hover:bg-amber-500/15"
+              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-amber-200 transition-colors outline-none hover:bg-amber-500/15 focus-visible:ring-[3px] focus-visible:ring-amber-300/40"
             >
               View diff
             </button>
             <button
               type="button"
               onClick={() => onUseProvider("claude")}
-              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-amber-200 transition-colors hover:bg-amber-500/15"
+              className="cursor-pointer rounded-md px-2 py-0.5 text-[11px] font-medium text-amber-200 transition-colors outline-none hover:bg-amber-500/15 focus-visible:ring-[3px] focus-visible:ring-amber-300/40"
             >
               Use Claude copy
             </button>
@@ -735,8 +664,6 @@ function SkillDiffDialog({
 
 function EmptyState() {
   return (
-    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      Select a skill to edit
-    </div>
+    <SettingsEmptySelection>Select a skill to edit</SettingsEmptySelection>
   );
 }
