@@ -9,6 +9,7 @@ interface CompletionsResponse {
 export function useCompletions(
   wsId: string | undefined,
   provider: string | undefined,
+  enabled = true,
 ): CompletionItem[] {
   const query = useQuery({
     queryKey: ["completions", wsId, provider ?? "claude"],
@@ -16,7 +17,7 @@ export function useCompletions(
       api.get<CompletionsResponse>(
         `/api/workspaces/${wsId}/completions?provider=${encodeURIComponent(provider ?? "claude")}`,
       ),
-    enabled: !!wsId,
+    enabled: Boolean(wsId) && enabled,
     staleTime: 10 * 60 * 1000, // Completions rarely change
     retry: 0, // Optional UX — don't retry
   });

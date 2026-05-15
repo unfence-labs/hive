@@ -125,6 +125,20 @@ describe("skill settings routes", () => {
     await expect(readFile(join(roots.codex, "reviewer", "SKILL.md"), "utf-8")).resolves.toContain("# New");
   });
 
+  it("returns 409 when saving would collide with another skill name", async () => {
+    await writeSkill(roots.codex, "reviewer", "---\nname: reviewer\n---\n# Reviewer\n");
+    await writeSkill(roots.codex, "tester", "---\nname: tester\n---\n# Tester\n");
+
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings/skills/reviewer",
+      payload: { content: "---\nname: tester\n---\n# Renamed\n" },
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: "Skill already exists" });
+  });
+
   it("deletes a skill from Claude and Codex", async () => {
     await writeSkill(roots.claude, "reviewer", "---\nname: reviewer\n---\n# Claude\n");
     await writeSkill(roots.codex, "reviewer", "---\nname: reviewer\n---\n# Codex\n");

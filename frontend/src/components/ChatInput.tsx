@@ -174,7 +174,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
     if (agentPlanMode === false) setPlanMode(false);
   }, [agentPlanMode]);
 
-  const completionItems = useCompletions(wsId, completionProvider);
+  const completionItems = useCompletions(wsId, completionProvider, supportsCompletions);
   const filePaths = useFileCompletions(wsId);
 
   const filteredItems = useMemo(() => {

@@ -6,6 +6,8 @@ import { syntaxHighlighting } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { CodeEditor } from "@/components/CodeEditor";
 
+const EMPTY_EXTENSIONS: Extension[] = [];
+
 interface MarkdownEditorProps {
   value: string;
   onChange?: (value: string) => void;
@@ -25,7 +27,7 @@ export function MarkdownEditor({
   placeholder,
   ariaLabel,
   className,
-  extraExtensions = [],
+  extraExtensions = EMPTY_EXTENSIONS,
 }: MarkdownEditorProps) {
   const extensions = useMemo(
     () => [

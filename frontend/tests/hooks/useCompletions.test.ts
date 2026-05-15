@@ -43,6 +43,14 @@ describe("useCompletions", () => {
     expect(api.get).not.toHaveBeenCalled();
   });
 
+  it("returns empty list and skips fetch when completions are disabled", () => {
+    const { wrapper } = createWrapper();
+    const { result } = renderHook(() => useCompletions("ws-1", "gemini", false), { wrapper });
+
+    expect(result.current).toEqual([]);
+    expect(api.get).not.toHaveBeenCalled();
+  });
+
   it("fetches completions for workspace and exposes items", async () => {
     const items = [makeItem("help", "builtin"), makeItem("deploy", "user_skill")];
     vi.mocked(api.get).mockResolvedValueOnce({ items });

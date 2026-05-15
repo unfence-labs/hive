@@ -88,6 +88,10 @@ describe("global skills state", () => {
     await expect(createGlobalSkill("# Missing name\n", roots)).rejects.toThrow("Skill name is required");
   });
 
+  it("rejects creating a skill with an unsafe folder name", async () => {
+    await expect(createGlobalSkill("---\nname: ..\n---\n# Unsafe\n", roots)).rejects.toThrow("Skill name is required");
+  });
+
   it("rejects creating a skill when the skill already exists", async () => {
     await writeSkill(roots.codex, "reviewer", "---\nname: reviewer\n---\n# Reviewer\n");
 
@@ -169,5 +173,17 @@ describe("global skills state", () => {
     expect(detail?.contentProvider).toBe("codex");
     expect(detail?.content).toContain("# Codex");
     expect(detail?.providerContents.claude).toContain("# Claude");
+  });
+
+  it("rejects saving a skill under another existing skill name", async () => {
+    await writeSkill(roots.codex, "reviewer", "---\nname: reviewer\n---\n# Reviewer\n");
+    await writeSkill(roots.codex, "tester", "---\nname: tester\n---\n# Tester\n");
+
+    await expect(
+      saveGlobalSkill("reviewer", "---\nname: tester\n---\n# Renamed\n", roots),
+    ).rejects.toThrow("Skill already exists");
+
+    await expect(readFile(join(roots.codex, "reviewer", "SKILL.md"), "utf-8")).resolves.toContain("# Reviewer");
+    await expect(readFile(join(roots.codex, "tester", "SKILL.md"), "utf-8")).resolves.toContain("# Tester");
   });
 });

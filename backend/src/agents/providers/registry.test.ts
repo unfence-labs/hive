@@ -22,8 +22,18 @@ import {
 // Cast away the overloaded execFile signature so mockImplementation accepts simpler callbacks.
 const mockExecFile = execFile as unknown as ReturnType<typeof vi.fn>;
 
-beforeEach(() => {
+function mockNoProviderCli(): void {
+  mockExecFile.mockImplementation(
+    (_cmd: string, _args: string[], cb: (...cbArgs: unknown[]) => void) => {
+      cb(new Error("not found"), { stdout: "", stderr: "" });
+    },
+  );
+}
+
+beforeEach(async () => {
   vi.clearAllMocks();
+  mockNoProviderCli();
+  await detectAvailableProviders();
 });
 
 describe("resolveProvider", () => {
@@ -104,8 +114,6 @@ describe("getProvider", () => {
 
 describe("getModelCatalog", () => {
   it("returns empty catalog when no providers are available", async () => {
-    // Clear available providers
-    await detectAvailableProviders();
     const catalog = getModelCatalog();
     expect(catalog.models).toHaveLength(0);
     expect(catalog.defaultModelId).toBe("");
@@ -158,8 +166,7 @@ describe("getModelCatalog", () => {
     }
   });
 
-  it("sets defaultModelId to claude default when only claude is available", async () => {
-    await detectAvailableProviders();
+  it("sets defaultModelId to claude default when only claude is available", () => {
     markProviderAvailable("claude");
     const catalog = getModelCatalog();
 
@@ -244,13 +251,7 @@ describe("detectAvailableProviders", () => {
     markProviderAvailable("claude");
     expect(getModelCatalog().models.length).toBeGreaterThan(0);
 
-    // Mock all CLIs as not found
-    mockExecFile.mockImplementation(
-      (_cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
-        cb(new Error("not found"), { stdout: "", stderr: "" });
-      },
-    );
-
+    mockNoProviderCli();
     await detectAvailableProviders();
     expect(getModelCatalog().models).toHaveLength(0);
   });
@@ -292,12 +293,7 @@ describe("detectAvailableProviders", () => {
 
 describe("markProviderAvailable", () => {
   it("makes provider appear in catalog", async () => {
-    // Reset: mock all CLIs as not found before detecting
-    mockExecFile.mockImplementation(
-      (_cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
-        cb(new Error("not found"), { stdout: "", stderr: "" });
-      },
-    );
+    mockNoProviderCli();
     await detectAvailableProviders();
     expect(getModelCatalog().models).toHaveLength(0);
 
@@ -369,11 +365,7 @@ describe("parseVersionFromOutput", () => {
 
 describe("getAllProviderInfo", () => {
   it("returns all providers even when none are installed", async () => {
-    mockExecFile.mockImplementation(
-      (_cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
-        cb(new Error("not found"), { stdout: "", stderr: "" });
-      },
-    );
+    mockNoProviderCli();
     await detectAvailableProviders();
 
     const info = getAllProviderInfo();
@@ -401,11 +393,7 @@ describe("getAllProviderInfo", () => {
   });
 
   it("includes correct labels and npm packages", async () => {
-    mockExecFile.mockImplementation(
-      (_cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
-        cb(new Error("not found"), { stdout: "", stderr: "" });
-      },
-    );
+    mockNoProviderCli();
     await detectAvailableProviders();
 
     const info = getAllProviderInfo();
@@ -455,11 +443,7 @@ describe("getAllProviderInfo", () => {
     expect(firstRun.installed).toBe(true);
     expect(firstRun.version).toBe("1.2.3");
 
-    mockExecFile.mockImplementation(
-      (_cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
-        cb(new Error("not found"), { stdout: "", stderr: "" });
-      },
-    );
+    mockNoProviderCli();
     await detectAvailableProviders();
 
     const secondRun = getAllProviderInfo().find((p) => p.id === "claude")!;

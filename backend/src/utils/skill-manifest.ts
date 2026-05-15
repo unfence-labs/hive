@@ -12,10 +12,11 @@ export function normalizeSkillName(name: string): string {
 }
 
 export function skillFolderName(name: string): string {
-  return normalizeSkillName(name)
+  const folderName = normalizeSkillName(name)
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "");
+  return folderName === "." || folderName === ".." ? "" : folderName;
 }
 
 export function parseSkillManifest(content: string, fallbackName: string): SkillManifest {

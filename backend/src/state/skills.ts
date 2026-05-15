@@ -451,11 +451,20 @@ export async function saveGlobalSkill(
 ): Promise<SkillDetail | null> {
   const existing = await loadGlobalSkill(id, roots);
   if (!existing) return null;
-  if (!content.trim()) throw new Error("Content is required");
+  if (!content.trim()) throw new BadRequestError("Content is required");
 
   const codexFolderName = existing.providers.codex.folderName;
   const claudeFolderName = existing.providers.claude.folderName;
   const canonicalFolderName = codexFolderName ?? claudeFolderName ?? existing.folderName;
+  const manifest = parseSkillManifest(content, canonicalFolderName);
+  const nextId = entryId(manifest.name);
+  if (!nextId) throw new BadRequestError("Skill name is required");
+
+  if (nextId !== existing.id) {
+    const conflict = await loadGlobalSkill(nextId, roots);
+    if (conflict) throw new ConflictError("Skill already exists");
+  }
+
   const codexDir = join(roots.codex, canonicalFolderName);
   const codexSkillPath = join(codexDir, "SKILL.md");
 
@@ -470,8 +479,7 @@ export async function saveGlobalSkill(
   const claudeLinkName = claudeFolderName ?? canonicalFolderName;
   await ensureClaudeSymlink(join(roots.claude, claudeLinkName), codexDir);
 
-  const manifest = parseSkillManifest(content, canonicalFolderName);
-  return loadGlobalSkill(entryId(manifest.name) || id, roots);
+  return loadGlobalSkill(nextId, roots);
 }
 
 export async function syncGlobalSkill(id: string, roots = globalSkillRoots()): Promise<SkillDetail | null> {

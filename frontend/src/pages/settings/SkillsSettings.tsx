@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -74,23 +74,13 @@ interface NewSkillDraft {
 export default function SkillsSettings() {
   const { data, isLoading, isError } = useSkills();
   const syncMissingMutation = useSyncMissingSkills();
-  const skills = useMemo(() => data?.skills ?? [], [data]);
+  const skills = data?.skills ?? [];
   const [selection, setSelection] = useState<SkillSelection>(null);
   const [draftSkill, setDraftSkill] = useState<NewSkillDraft | null>(null);
-
-  useEffect(() => {
-    setSelection((current) => {
-      if (current?.kind === "draft") return draftSkill ? current : null;
-      if (skills.length === 0) return null;
-      if (current?.kind === "existing" && skills.some((skill) => skill.id === current.id)) {
-        return current;
-      }
-      return { kind: "existing", id: skills[0].id };
-    });
-  }, [draftSkill, skills]);
+  const resolvedSelection = resolveSkillSelection(selection, skills, draftSkill !== null);
 
   const syncableCount = skills.filter((skill) => SYNCABLE_STATUSES.has(skill.syncStatus)).length;
-  const selectedExistingId = selection?.kind === "existing" ? selection.id : null;
+  const selectedExistingId = resolvedSelection?.kind === "existing" ? resolvedSelection.id : null;
 
   const handleNewSkill = () => {
     setDraftSkill((current) =>
@@ -184,7 +174,7 @@ export default function SkillsSettings() {
           <SkillsList
             skills={skills}
             draftSkill={draftSkill}
-            selection={selection}
+            selection={resolvedSelection}
             onSelect={(id) => setSelection({ kind: "existing", id })}
             onSelectDraft={() => setSelection({ kind: "draft" })}
             onNewSkill={handleNewSkill}
@@ -196,7 +186,7 @@ export default function SkillsSettings() {
                 onSelectedIdChange={(id) => setSelection({ kind: "existing", id })}
                 onDeleted={handleSkillDeleted}
               />
-            ) : selection?.kind === "draft" && draftSkill ? (
+            ) : resolvedSelection?.kind === "draft" && draftSkill ? (
               <NewSkillDetailPanel
                 draft={draftSkill}
                 onChange={handleDraftChange}
@@ -212,6 +202,19 @@ export default function SkillsSettings() {
       )}
     </div>
   );
+}
+
+function resolveSkillSelection(
+  selection: SkillSelection,
+  skills: SkillSummary[],
+  hasDraft: boolean,
+): SkillSelection {
+  if (selection?.kind === "draft") return hasDraft ? selection : null;
+  if (selection?.kind === "existing" && skills.some((skill) => skill.id === selection.id)) {
+    return selection;
+  }
+  if (skills[0]) return { kind: "existing", id: skills[0].id };
+  return hasDraft ? { kind: "draft" } : null;
 }
 
 function SkillsList({
@@ -352,19 +355,6 @@ function SkillDetailPanel({
   onDeleted: (id: string) => void;
 }) {
   const { data, isLoading, isError } = useSkill(id);
-  const updateMutation = useUpdateSkill();
-  const syncMutation = useSyncSkill();
-  const deleteMutation = useDeleteSkill();
-  const [draft, setDraft] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [showDiff, setShowDiff] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-
-  useEffect(() => {
-    if (!data) return;
-    setDraft(data.content);
-    setError(null);
-  }, [data?.id, data?.content, data]);
 
   if (isLoading) {
     return (
@@ -382,6 +372,33 @@ function SkillDetailPanel({
       </div>
     );
   }
+
+  return (
+    <LoadedSkillDetailPanel
+      key={data.id}
+      data={data}
+      onSelectedIdChange={onSelectedIdChange}
+      onDeleted={onDeleted}
+    />
+  );
+}
+
+function LoadedSkillDetailPanel({
+  data,
+  onSelectedIdChange,
+  onDeleted,
+}: {
+  data: SkillDetail;
+  onSelectedIdChange: (id: string) => void;
+  onDeleted: (id: string) => void;
+}) {
+  const updateMutation = useUpdateSkill();
+  const syncMutation = useSyncSkill();
+  const deleteMutation = useDeleteSkill();
+  const [draft, setDraft] = useState(data.content);
+  const [error, setError] = useState<string | null>(null);
+  const [showDiff, setShowDiff] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const isDirty = draft !== data.content;
   const canSync = SYNCABLE_STATUSES.has(data.syncStatus);
