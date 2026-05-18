@@ -447,6 +447,98 @@ describe("ConversationSession", () => {
     expect(session.metadata.providerSessionId).toBe("thread-app-1");
   });
 
+  it("surfaces failed Codex app-server turns as errors instead of done", async () => {
+    const session = createSession({ sessionId: "codex-app-failed-turn" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Fail please", { model: "codex:gpt-5.5" });
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, {
+      thread: { id: "thread-app-failed" },
+    }));
+
+    const turnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(turnStart.id, {
+      turn: { id: "turn-failed" },
+    }));
+
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-app-failed",
+      turn: {
+        id: "turn-failed",
+        durationMs: 7,
+        status: "failed",
+        error: {
+          message: "Codex failed",
+          additionalDetails: "backend exploded",
+        },
+      },
+    }));
+
+    const errors = await waitForMessages(messages, "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toEqual({
+      type: "error",
+      sessionId: "codex-app-failed-turn",
+      message: "Codex failed: backend exploded",
+    });
+    expect(messages.some((msg) => msg.type === "done")).toBe(false);
+    expect(messages.some((msg) => msg.type === "cancelled")).toBe(false);
+    expect(session.status).toBe("error");
+  });
+
+  it("treats Codex app-server interrupted turns without a local stop as errors", async () => {
+    const session = createSession({ sessionId: "codex-app-interrupted-without-stop" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Interrupt externally", { model: "codex:gpt-5.5" });
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, {
+      thread: { id: "thread-app-interrupted" },
+    }));
+
+    const turnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(turnStart.id, {
+      turn: { id: "turn-interrupted" },
+    }));
+
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-app-interrupted",
+      turn: { id: "turn-interrupted", durationMs: 8, status: "interrupted" },
+    }));
+
+    const errors = await waitForMessages(messages, "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toEqual({
+      type: "error",
+      sessionId: "codex-app-interrupted-without-stop",
+      message: "Codex app-server turn was interrupted.",
+    });
+    expect(messages.some((msg) => msg.type === "done")).toBe(false);
+    expect(messages.some((msg) => msg.type === "cancelled")).toBe(false);
+    expect(session.status).toBe("error");
+  });
+
   it("reuses Codex app-server without duplicating stream listeners", async () => {
     const session = createSession({ sessionId: "codex-app-reuse" });
     const messages: WsOutgoing[] = [];

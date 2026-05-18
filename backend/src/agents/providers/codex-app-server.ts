@@ -42,6 +42,8 @@ type TurnStartResponse = {
   turn: { id: string };
 };
 
+type TurnStatus = "completed" | "interrupted" | "failed" | "inProgress";
+
 type TokenUsage = {
   total?: TokenBreakdown;
   last?: TokenBreakdown;
@@ -407,11 +409,15 @@ export class CodexAppServerSession extends EventEmitter<StreamParserEvent> {
       case "turn/completed": {
         const turn = asRecord(data?.turn);
         const durationMs = asNumber(turn?.durationMs);
+        const status = asTurnStatus(turn?.status);
+        const error = formatTurnError(turn?.error);
         this.resolvePendingByMethod("turn/interrupt", {});
         this.emit("result", {
           type: "result",
           session_id: this.threadId ?? "",
           duration_ms: durationMs,
+          status,
+          error,
           usage: usageFromTokenUsage(this.lastUsage),
         });
         this.activeTurnId = undefined;
@@ -617,8 +623,24 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
+function asTurnStatus(value: unknown): TurnStatus {
+  if (value === "completed" || value === "interrupted" || value === "failed" || value === "inProgress") {
+    return value;
+  }
+  return "failed";
+}
+
 function asArray(value: unknown): unknown[] | undefined {
   return Array.isArray(value) ? value : undefined;
+}
+
+function formatTurnError(value: unknown): string | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const message = asString(record.message);
+  const additionalDetails = asString(record.additionalDetails);
+  if (message && additionalDetails) return `${message}: ${additionalDetails}`;
+  return message ?? additionalDetails;
 }
 
 function usageFromTokenUsage(value: TokenUsage | undefined): {

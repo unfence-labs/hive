@@ -215,6 +215,10 @@ export type CliJsonLine =
       session_id: string;
       cost_usd?: number;
       duration_ms?: number;
+      /** Provider-specific terminal status for protocol-backed runners. */
+      status?: string;
+      /** Provider-specific terminal error detail for failed turns. */
+      error?: string;
       /** Codex/Gemini adapters may place usage here; Claude puts it on assistant events. */
       usage?: {
         input_tokens: number;

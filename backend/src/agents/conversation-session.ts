@@ -1,4 +1,3 @@
-import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdir, readFile, writeFile, open } from "node:fs/promises";
 import { join } from "node:path";
@@ -6,11 +5,11 @@ import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { StreamParser } from "./stream-parser.js";
 import { resolveProvider } from "./providers/registry.js";
-import { CodexAppServerSession } from "./providers/codex-app-server.js";
-import { CodexStreamAdapter } from "./providers/codex-stream-adapter.js";
-import { GeminiStreamAdapter } from "./providers/gemini-stream-adapter.js";
-import type { AgentProvider, StreamAdapter } from "./providers/types.js";
-import { buildWorkspaceEnv, DEBUG_AGENT_LOGS } from "../utils/env.js";
+import type { AgentProvider } from "./providers/types.js";
+import { CodexAppServerRunner } from "./runners/codex-app-server-runner.js";
+import { ProcessAgentRunner } from "./runners/process-agent-runner.js";
+import type { AgentRunner, StopReason } from "./runners/types.js";
+import { DEBUG_AGENT_LOGS } from "../utils/env.js";
 import type {
   ChatMessage,
   ContentBlock,
@@ -26,46 +25,6 @@ import type {
 
 const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
 const MAX_ERROR_DETAIL_LENGTH = 280;
-
-/** Gemini CLI writes informational/retry messages to stderr; suppress these from error events. */
-const GEMINI_STDERR_NOISE = [
-  "Loaded cached credentials",
-  "YOLO mode is enabled",
-  "Retrying with backoff",
-  "GaxiosError",
-];
-
-/** Codex CLI writes non-fatal operational diagnostics to stderr. */
-const CODEX_STDERR_NOISE = [
-  "Reading additional input from stdin",
-];
-
-const CODEX_STDERR_NOISE_PATTERNS = [
-  /\bERROR\s+codex_core::tools::router:\s+error=resources\/(?:templates\/)?list failed: unknown MCP server '[^']+'/,
-];
-
-const CODEX_STDERR_DIAGNOSTIC_PATTERNS = [
-  /failed to connect to websocket: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata'/,
-  /stream disconnected before completion: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata'/,
-];
-
-function classifyProviderStderr(providerId: string | undefined, text: string): "suppress" | "diagnostic" | "error" {
-  if (providerId === "gemini") {
-    return GEMINI_STDERR_NOISE.some((n) => text.includes(n)) ? "suppress" : "error";
-  }
-
-  if (providerId === "codex") {
-    if (CODEX_STDERR_NOISE.some((n) => text.includes(n))
-      || CODEX_STDERR_NOISE_PATTERNS.some((pattern) => pattern.test(text))) {
-      return "suppress";
-    }
-    if (CODEX_STDERR_DIAGNOSTIC_PATTERNS.some((pattern) => pattern.test(text))) {
-      return "diagnostic";
-    }
-  }
-
-  return "error";
-}
 
 /** Map Anthropic server_tool_use names to their Claude Code display names. */
 const serverToolNameMap: Record<string, string> = {
@@ -125,7 +84,6 @@ function buildCancellationErrorDetail(exitCode: number, lastStderr: string | und
   return sanitizeErrorDetail(`exit code ${exitCode}${suffix}`);
 }
 
-type StopReason = "user" | "park";
 type SessionKind = "chat" | "automation";
 
 export interface ConversationSessionConfig {
@@ -157,10 +115,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private browserEnv: Record<string, string> | undefined;
   private readonly sessionDir: string;
   private readonly workspaceId: string;
-  private process: ChildProcess | null = null;
-  private codexAppServer: CodexAppServerSession | null = null;
-  private codexAppServerInterruptTimer: ReturnType<typeof setTimeout> | null = null;
-  private parser: StreamAdapter | null = null;
+  private runner: AgentRunner | null = null;
+  private codexAppServerRunner: CodexAppServerRunner | null = null;
   private _status: "idle" | "streaming" | "error" = "idle";
   private _streamingStartedAt: number | null = null;
   private messageCount = 0;
@@ -317,7 +273,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           resolved?.provider.id === "codex" &&
           this.sessionKind === "chat";
         this.emitUserMessage(content, urlImages, fileMentions);
-        this.spawnCli(
+        this.startAgentTurn(
           useNativeCodexImages ? promptContent : this.buildPromptWithImages(promptContent, imagePaths),
           msgOptions,
           resolved,
@@ -330,7 +286,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       });
     } else {
       this.emitUserMessage(content, undefined, fileMentions);
-      this.spawnCli(promptContent, msgOptions, resolved);
+      this.startAgentTurn(promptContent, msgOptions, resolved);
     }
   }
 
@@ -397,8 +353,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       : `Please analyze the attached image(s). Use the Read tool to view them:\n${pathList}`;
   }
 
-  /** Spawn a CLI process for a single turn, delegating to the resolved provider. */
-  private spawnCli(
+  /** Start a single agent turn, delegating protocol execution to the selected runner. */
+  private startAgentTurn(
     content: string,
     msgOptions?: MessageOptions,
     preResolved?: { provider: AgentProvider; modelId: string },
@@ -469,7 +425,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     const supportsBlockingTools = provider?.capabilities.blockingTools ?? false;
 
     if (DEBUG_AGENT_LOGS) {
-      console.log(`[session] spawn ${command}`, {
+      console.log(`[session] start runner ${command}`, {
         provider: provider?.id ?? "test",
         model: modelId || undefined,
         msgOptions,
@@ -477,15 +433,20 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       });
     }
 
-    if (useCodexAppServer) {
-      const appServer = this.codexAppServer ??= new CodexAppServerSession();
-      appServer.removeAllListeners();
-      this.parser = appServer;
-    } else {
-      this.parser = this.testCommand
-        ? new StreamParser()
-        : provider!.createStreamAdapter();
-    }
+    const runner: AgentRunner = useCodexAppServer
+      ? (this.codexAppServerRunner ??= new CodexAppServerRunner())
+      : new ProcessAgentRunner({
+          command,
+          args,
+          cwd: this.cwd,
+          env,
+          stdinContent,
+          parser: this.testCommand ? new StreamParser() : provider!.createStreamAdapter(),
+          providerId: provider?.id,
+          useWorkspaceEnv: !this.testCommand,
+        });
+    runner.removeAllListeners();
+    this.runner = runner;
 
     // Reset in-progress streaming accumulators
     this._streamText = "";
@@ -502,7 +463,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     const blockingToolNames = new Set(["AskUserQuestion", "ExitPlanMode"]);
     let killedForBlockingTool = false;
 
-    this.parser.on("assistant", (data) => {
+    runner.on("assistant", (data) => {
       const blockTypes = data.message.content.map((b) => b.type);
       if (DEBUG_AGENT_LOGS) {
         console.log("[session] assistant blocks:", blockTypes, JSON.stringify(data.message.content).slice(0, 500));
@@ -562,10 +523,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             }
 
             // Only intercept blocking tools for providers that support them
-            if (supportsBlockingTools && blockingToolNames.has(block.name) && this.process) {
+            if (supportsBlockingTools && blockingToolNames.has(block.name) && this.runner?.forceKill?.()) {
               killedForBlockingTool = true;
               this._lastBlockingToolUseId = block.id;
-              this.process.kill("SIGKILL");
             }
             break;
           }
@@ -605,7 +565,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       }
     });
 
-    this.parser.on("user", (data) => {
+    runner.on("user", (data) => {
       for (const block of data.message.content) {
         if (block.type === "tool_result") {
           const stackTop = pendingTaskStack[pendingTaskStack.length - 1];
@@ -625,7 +585,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       }
     });
 
-    this.parser.on("result", (data) => {
+    runner.on("result", (data) => {
       // Capture session/thread ID from first result for continuity
       if (data.session_id && !this.cliSessionId) {
         this.setProviderSessionId(data.session_id);
@@ -646,24 +606,30 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       }
     });
 
-    this.parser.on("system", () => {
+    runner.on("system", () => {
       // System messages — no action needed
     });
 
-    this.parser.on("error", (err) => {
+    runner.on("error", (err) => {
+      if (!useCodexAppServer) {
+        this._status = "error";
+        this._streamingStartedAt = null;
+        this.runner = null;
+      }
       this.emit("error", err);
     });
 
     if (useCodexAppServer) {
-      const appServer = this.parser as CodexAppServerSession;
+      const appServer = runner as CodexAppServerRunner;
       let finalized = false;
-      const finish = (exitCode: number) => {
+      const finish = (exitCode: number, failureDetail?: string) => {
         if (finalized) return;
         finalized = true;
         this.finalizeTurn({
           exitCode,
           killedForBlockingTool,
           lastStderr,
+          failureDetail,
           resultDurationMs,
           resultInputTokens,
           resultOutputTokens,
@@ -671,14 +637,28 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         });
       };
 
-      appServer.once("result", () => finish(this.stopReason ? 1 : 0));
+      appServer.once("result", (data) => {
+        const status = data.status ?? "completed";
+        if (status === "completed") {
+          finish(this.stopReason ? 1 : 0);
+          return;
+        }
+        if (status === "interrupted") {
+          const failureDetail = this.stopReason
+            ? undefined
+            : (data.error ?? "Codex app-server turn was interrupted.");
+          finish(1, failureDetail);
+          return;
+        }
+        finish(1, data.error ?? `Codex app-server turn ended with status "${status}".`);
+      });
       appServer.once("error", (err) => {
         lastStderr = sanitizeErrorDetail(err.message);
         finish(1);
       });
 
       const model = provider!.models.find((m) => m.id === modelId);
-      void appServer.startTurn({
+      appServer.startTurn({
         cwd: this.cwd,
         content: stdinContent ?? content,
         imagePaths,
@@ -687,35 +667,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         systemPrompt: this.systemPrompt,
         threadId: this.cliSessionId,
         env,
-      }).catch((err: unknown) => {
-        const error = err instanceof Error ? err : new Error(String(err));
-        this.emit("error", error);
-        lastStderr = sanitizeErrorDetail(error.message);
-        finish(1);
       });
       return;
     }
 
-    this.process = spawn(command, args, {
-      cwd: this.cwd,
-      stdio: ["pipe", "pipe", "pipe"],
-      ...(this.testCommand ? {} : { env: buildWorkspaceEnv(env) }),
-    });
-
-    this.process.stdin?.end(stdinContent);
-
-    this.process.stdout?.on("data", (chunk: Buffer) => {
-      this.parser?.write(chunk.toString("utf-8"));
-    });
-
-    this.process.stderr?.on("data", (chunk: Buffer) => {
-      const text = chunk.toString("utf-8").trim();
-      if (!text) return;
+    runner.on("stderr", ({ text, classification }) => {
       const stderrLine = `stderr: ${sanitizeErrorDetail(text)}`;
-      const stderrClassification = classifyProviderStderr(provider?.id, text);
-      if (stderrClassification === "suppress") return;
       lastStderr = stderrLine;
-      if (stderrClassification === "diagnostic") {
+      if (classification === "diagnostic") {
         const diagnosticKey = stderrLine;
         if (emittedDiagnostics.has(diagnosticKey)) return;
         emittedDiagnostics.add(diagnosticKey);
@@ -733,25 +692,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       this.emit("message", { type: "error", message: stderrLine, sessionId: this.sessionId } as WsOutgoing);
     });
 
-    this.process.on("error", (err) => {
-      this._status = "error";
-      this._streamingStartedAt = null;
-      this.process = null;
-      this.parser = null;
-      this.emit("error", err);
-    });
-
-    this.process.on("close", (code) => {
-      this.parser?.flush();
-
-      // For Codex: capture thread_id from the stream adapter for session continuity
-      if (this.parser instanceof CodexStreamAdapter && this.parser.capturedThreadId) {
-        this.setProviderSessionId(this.parser.capturedThreadId);
-      }
-
-      // For Gemini: capture session_id from the init event for --resume continuity
-      if (this.parser instanceof GeminiStreamAdapter && this.parser.capturedSessionId) {
-        this.setProviderSessionId(this.parser.capturedSessionId);
+    runner.on("exit", (code, providerSessionId) => {
+      if (providerSessionId) {
+        this.setProviderSessionId(providerSessionId);
       }
 
       this.finalizeTurn({
@@ -764,12 +707,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         blockingToolNames,
       });
     });
+    runner.start();
   }
 
   private finalizeTurn({
     exitCode,
     killedForBlockingTool,
     lastStderr,
+    failureDetail,
     resultDurationMs,
     resultInputTokens,
     resultOutputTokens,
@@ -778,12 +723,13 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     exitCode: number;
     killedForBlockingTool: boolean;
     lastStderr?: string;
+    failureDetail?: string;
     resultDurationMs?: number;
     resultInputTokens?: number;
     resultOutputTokens?: number;
     blockingToolNames: Set<string>;
   }): void {
-    const wasCancelled = exitCode !== 0 && this._status === "streaming" && !killedForBlockingTool;
+    const wasCancelled = !failureDetail && exitCode !== 0 && this._status === "streaming" && !killedForBlockingTool;
     const capturedStopReason = this.stopReason;
     const capturedStreamingStart = this._streamingStartedAt;
     const cancelledByPark = wasCancelled && capturedStopReason === "park";
@@ -795,9 +741,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this._status = (exitCode === 0 || killedForBlockingTool) ? "idle" : "error";
     this._streamingStartedAt = null;
     this.stopReason = null;
-    this.clearCodexAppServerInterruptTimer();
-    this.process = null;
-    this.parser = null;
+    this.runner = null;
 
     if (this._streamText || this._streamToolCalls.length > 0 || this._streamThinking || shouldSurfaceCancelled) {
       const assistantMsg: ChatMessage = {
@@ -849,6 +793,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             userInitiated: capturedStopReason === "user",
             durationMs: cancelDurationMs,
           });
+        } else if (failureDetail) {
+          this.emit("message", {
+            type: "error",
+            sessionId: this.sessionId,
+            message: failureDetail,
+          });
         } else if (!cancelledByPark) {
           this.emit("message", {
             type: "done",
@@ -882,67 +832,20 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     })();
   }
 
-  private clearCodexAppServerInterruptTimer(): void {
-    if (!this.codexAppServerInterruptTimer) return;
-    clearTimeout(this.codexAppServerInterruptTimer);
-    this.codexAppServerInterruptTimer = null;
-  }
-
   /** Stop the currently streaming process. */
   stop(reason: StopReason = "user"): void {
-    if (this.codexAppServer && this._status === "streaming") {
-      const appServer = this.codexAppServer;
-      const turnId = appServer.capturedTurnId;
-      this.stopReason = reason;
-      this.clearCodexAppServerInterruptTimer();
-      if (turnId) {
-        appServer.interruptActiveTurn();
-        if (reason === "park") {
-          appServer.close();
-          this.codexAppServer = null;
-        } else {
-          this.codexAppServerInterruptTimer = setTimeout(() => {
-            this.codexAppServerInterruptTimer = null;
-            if (
-              this.codexAppServer === appServer &&
-              this._status === "streaming" &&
-              appServer.capturedTurnId === turnId
-            ) {
-              appServer.close();
-              this.codexAppServer = null;
-            }
-          }, 5000);
-        }
-      } else {
-        appServer.close();
-        this.codexAppServer = null;
-      }
-      return;
+    if (reason === "park" && this.codexAppServerRunner && this.runner !== this.codexAppServerRunner) {
+      this.codexAppServerRunner.close();
+      this.codexAppServerRunner = null;
     }
 
-    if (reason === "park" && this.codexAppServer) {
-      this.clearCodexAppServerInterruptTimer();
-      this.codexAppServer.close();
-      this.codexAppServer = null;
-    }
-
-    if (!this.process) {
+    if (!this.runner) {
       this.emit("exit", 0);
       return;
     }
+
     this.stopReason = reason;
-
-    this.process.kill("SIGTERM");
-
-    const timer = setTimeout(() => {
-      try {
-        this.process?.kill("SIGKILL");
-      } catch {
-        // Already exited
-      }
-    }, 5000);
-
-    this.process.on("close", () => clearTimeout(timer));
+    this.runner.stop(reason);
   }
 
   /** Respond to an interactive tool input (AskUserQuestion, ExitPlanMode).
