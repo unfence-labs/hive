@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Squircle Pillar app icon">
+  <title>Squircle Pillar app icon</title>
+  <defs>
+  <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+    <feDropShadow dx="0" dy="28" stdDeviation="28" flood-color="#000000" flood-opacity="0.22"/>
+  </filter>
+  <filter id="tightShadow" x="-20%" y="-20%" width="140%" height="140%">
+    <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#000000" flood-opacity="0.2"/>
+  </filter></defs>
+
+  <rect width="1024" height="1024" rx="224" fill="#EFEDE6"/>
+  <rect x="250" y="210" width="524" height="604" rx="152" fill="#111111" filter="url(#tightShadow)"/>
+  <rect x="370" y="312" width="88" height="394" rx="44" fill="#EFEDE6"/>
+  <rect x="566" y="312" width="88" height="394" rx="44" fill="#EFEDE6"/>
+  <rect x="414" y="474" width="196" height="76" rx="38" fill="#EFEDE6"/>
+  <rect x="474" y="716" width="76" height="32" rx="16" fill="#FF7048"/>
+</svg>
