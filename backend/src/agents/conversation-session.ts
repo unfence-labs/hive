@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile, open } from "node:fs/promises";
 import { join } from "node:path";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
+import { AgentEventNormalizer } from "./agent-event-normalizer.js";
 import { StreamParser } from "./stream-parser.js";
 import { resolveProvider } from "./providers/registry.js";
 import type { AgentProvider } from "./providers/types.js";
@@ -12,11 +13,9 @@ import type { AgentRunner, StopReason } from "./runners/types.js";
 import { DEBUG_AGENT_LOGS } from "../utils/env.js";
 import type {
   ChatMessage,
-  ContentBlock,
   FileMention,
   ImageAttachment,
   MessageOptions,
-  ServerToolResultType,
   ToolCall,
   ToolInputResult,
   SessionMetadata,
@@ -25,53 +24,6 @@ import type {
 
 const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
 const MAX_ERROR_DETAIL_LENGTH = 280;
-
-/** Map Anthropic server_tool_use names to their Claude Code display names. */
-const serverToolNameMap: Record<string, string> = {
-  web_search: "WebSearch",
-  web_fetch: "WebFetch",
-  bash_code_execution: "Bash",
-  text_editor_code_execution: "Edit",
-};
-
-type ServerResultBlock = Extract<ContentBlock,
-  { type: ServerToolResultType } | { type: "mcp_tool_result" }
->;
-
-/** Format server/MCP tool result content into a readable string. */
-function formatServerToolResult(block: ServerResultBlock): string {
-  const { content } = block;
-  if (typeof content === "string") return content;
-
-  switch (block.type) {
-    case "web_search_tool_result": {
-      if (!Array.isArray(content)) break;
-      const summary = (content as Array<{ type?: string; title?: string; url?: string }>)
-        .filter((r) => r.type === "web_search_result")
-        .map((r) => `${r.title ?? "Result"}\n${r.url ?? ""}`)
-        .join("\n\n");
-      return summary || JSON.stringify(content);
-    }
-    case "bash_code_execution_tool_result": {
-      if (!content || typeof content !== "object") break;
-      const c = content as { stdout?: string; stderr?: string; return_code?: number };
-      const parts: string[] = [];
-      if (c.stdout) parts.push(c.stdout);
-      if (c.stderr) parts.push(`stderr: ${c.stderr}`);
-      if (c.return_code !== undefined && c.return_code !== 0) parts.push(`exit code: ${c.return_code}`);
-      return parts.join("\n") || JSON.stringify(content);
-    }
-    case "mcp_tool_result": {
-      if (!Array.isArray(content)) break;
-      const texts = (content as Array<{ type?: string; text?: string }>)
-        .filter((b) => b.type === "text" && b.text)
-        .map((b) => b.text!);
-      return texts.join("\n\n") || JSON.stringify(content);
-    }
-  }
-
-  return JSON.stringify(content);
-}
 
 function sanitizeErrorDetail(detail: string): string {
   const normalized = detail.replace(/\s+/g, " ").trim();
@@ -459,7 +411,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let lastStderr: string | undefined;
     const emittedDiagnostics = new Set<string>();
 
-    const pendingTaskStack: string[] = [];
+    const normalizer = new AgentEventNormalizer();
     const blockingToolNames = new Set(["AskUserQuestion", "ExitPlanMode"]);
     let killedForBlockingTool = false;
 
@@ -468,120 +420,83 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       if (DEBUG_AGENT_LOGS) {
         console.log("[session] assistant blocks:", blockTypes, JSON.stringify(data.message.content).slice(0, 500));
       }
-      for (const block of data.message.content) {
-        switch (block.type) {
-          case "text":
-            this._streamText += block.text;
-            this.emit("message", { type: "text_delta", sessionId: this.sessionId, text: block.text });
+      for (const event of normalizer.handleAssistant(data)) {
+        switch (event.type) {
+          case "text_delta":
+            this._streamText += event.text;
+            this.emit("message", { type: "text_delta", sessionId: this.sessionId, text: event.text });
             break;
-          case "thinking":
-            this._streamThinking += block.thinking;
-            this.emit("message", { type: "thinking", sessionId: this.sessionId, text: block.thinking });
+          case "thinking_delta":
+            this._streamThinking += event.text;
+            this.emit("message", { type: "thinking", sessionId: this.sessionId, text: event.text });
             break;
-          case "tool_use":
-          case "server_tool_use":
-          case "mcp_tool_use": {
-            // server_tool_use is emitted for Anthropic server-side tools (web_search, web_fetch, etc.).
-            // mcp_tool_use is emitted for MCP server tools.
-            // Map server/mcp tool names to their Claude Code equivalents for the frontend.
-            const displayName = block.type === "server_tool_use"
-              ? (serverToolNameMap[block.name] ?? block.name)
-              : block.name;
-            const inputStr = typeof block.input === "string"
-              ? block.input
-              : JSON.stringify(block.input, null, 2);
-            const parentToolUseId = pendingTaskStack.length > 0
-              ? pendingTaskStack[pendingTaskStack.length - 1]
-              : undefined;
-            const existingTool = this._streamToolCalls.find((t) => t.id === block.id);
-            if (existingTool) {
-              existingTool.input = inputStr;
-            } else {
-              this._streamToolCalls.push({ id: block.id, name: displayName, input: inputStr, parentToolUseId });
-              this.emit("message", {
-                type: "tool_use",
-                sessionId: this.sessionId,
-                id: block.id,
-                name: displayName,
-                input: inputStr,
-                parentToolUseId,
-              });
-            }
+          case "tool_started":
+            this._streamToolCalls.push({
+              id: event.id,
+              name: event.name,
+              input: event.input,
+              parentToolUseId: event.parentToolUseId,
+            });
+            this.emit("message", {
+              type: "tool_use",
+              sessionId: this.sessionId,
+              id: event.id,
+              name: event.name,
+              input: event.input,
+              parentToolUseId: event.parentToolUseId,
+            });
 
-            if (block.name === "Task" || block.name === "Agent") {
-              pendingTaskStack.push(block.id);
-            }
-
-            // Emit plan mode state changes for UI auto-toggle
-            if (block.name === "EnterPlanMode" || block.name === "ExitPlanMode") {
-              this._agentPlanMode = block.name === "EnterPlanMode";
-              this.emit("message", {
-                type: "plan_mode_changed",
-                sessionId: this.sessionId,
-                active: this._agentPlanMode,
-              } as WsOutgoing);
-            }
-
-            // Only intercept blocking tools for providers that support them
-            if (supportsBlockingTools && blockingToolNames.has(block.name) && this.runner?.forceKill?.()) {
+            if (supportsBlockingTools && blockingToolNames.has(event.rawName) && this.runner?.forceKill?.()) {
               killedForBlockingTool = true;
-              this._lastBlockingToolUseId = block.id;
+              this._lastBlockingToolUseId = event.id;
             }
+            break;
+          case "tool_updated": {
+            const tc = this._streamToolCalls.find((t) => t.id === event.id);
+            if (tc) tc.input = event.input;
             break;
           }
-          case "redacted_thinking":
-            // Safety-redacted thinking — opaque encrypted data, just note it happened.
-            this._streamThinking += "[redacted]\n";
-            break;
-          case "web_search_tool_result":
-          case "web_fetch_tool_result":
-          case "bash_code_execution_tool_result":
-          case "text_editor_code_execution_tool_result":
-          case "mcp_tool_result": {
-            // Server-side and MCP tool results arrive as assistant content blocks,
-            // not as user tool_result messages. Forward them as tool_result events.
-            const output = formatServerToolResult(block);
-            const tc = this._streamToolCalls.find((t) => t.id === block.tool_use_id);
-            if (tc) tc.output = output;
+          case "tool_completed": {
+            const tc = this._streamToolCalls.find((t) => t.id === event.id);
+            if (tc) tc.output = event.output;
             this.emit("message", {
               type: "tool_result",
               sessionId: this.sessionId,
-              toolUseId: block.tool_use_id,
-              output,
+              toolUseId: event.id,
+              output: event.output,
             });
             break;
           }
+          case "plan_mode_changed":
+            this._agentPlanMode = event.active;
+            this.emit("message", {
+              type: "plan_mode_changed",
+              sessionId: this.sessionId,
+              active: this._agentPlanMode,
+            } as WsOutgoing);
+            break;
+          case "redacted_thinking":
+            this._streamThinking += event.text;
+            break;
+          case "usage_updated":
+            resultInputTokens = event.inputTokens;
+            resultOutputTokens = event.outputTokens;
+            break;
         }
-      }
-
-      // Capture token usage from assistant message events (deduplicated: last write wins)
-      const usage = data.message.usage;
-      if (usage) {
-        resultInputTokens =
-          usage.input_tokens +
-          (usage.cache_creation_input_tokens ?? 0) +
-          (usage.cache_read_input_tokens ?? 0);
-        resultOutputTokens = usage.output_tokens;
       }
     });
 
     runner.on("user", (data) => {
-      for (const block of data.message.content) {
-        if (block.type === "tool_result") {
-          const stackTop = pendingTaskStack[pendingTaskStack.length - 1];
-          if (stackTop && stackTop === block.tool_use_id) {
-            pendingTaskStack.pop();
-          }
-
-          const tc = this._streamToolCalls.find((t) => t.id === block.tool_use_id);
-          if (tc) tc.output = block.content;
-          this.emit("message", {
-            type: "tool_result",
-            sessionId: this.sessionId,
-            toolUseId: block.tool_use_id,
-            output: block.content,
-          });
-        }
+      for (const event of normalizer.handleUser(data)) {
+        if (event.type !== "tool_completed") continue;
+        const tc = this._streamToolCalls.find((t) => t.id === event.id);
+        if (tc) tc.output = event.output;
+        this.emit("message", {
+          type: "tool_result",
+          sessionId: this.sessionId,
+          toolUseId: event.id,
+          output: event.output,
+        });
       }
     });
 
