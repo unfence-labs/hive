@@ -155,6 +155,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private emittedReasoningText = new Set<string>();
   private emittedDiagnostics = new Set<string>();
   private lastUsage: TokenUsage | undefined;
+  private lastProtocolError: string | undefined;
 
   get capturedThreadId(): string | undefined {
     return this.threadId;
@@ -275,6 +276,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.emittedReasoningText.clear();
     this.emittedDiagnostics.clear();
     this.lastUsage = undefined;
+    this.lastProtocolError = undefined;
   }
 
   private request<T = unknown>(method: string, params?: unknown): Promise<T> {
@@ -465,7 +467,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         const turn = asRecord(data?.turn);
         const durationMs = asNumber(turn?.durationMs);
         const status = asTurnStatus(turn?.status);
-        const error = formatTurnError(turn?.error);
+        const error = formatTurnError(turn?.error) ?? (status === "failed" ? this.lastProtocolError : undefined);
         this.resolvePendingByMethod("turn/interrupt", {});
         this.emit("result", {
           type: "result",
@@ -479,8 +481,17 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       }
       case "error": {
-        const message = asString(data?.message) ?? "Codex app-server error";
-        this.emit("error", new Error(message));
+        const message = formatErrorNotification(data);
+        this.lastProtocolError = message;
+        this.emitDiagnostic({
+          id: diagnosticId("codex-diagnostic", method),
+          severity: "error",
+          title: "Codex error",
+          message,
+          method,
+          details: formatDiagnosticDetails(data),
+          dedupeKey: `diagnostic:${method}:${message}`,
+        });
         break;
       }
       default:
@@ -630,7 +641,19 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         }
         break;
       }
+      case "userMessage":
+      case "hookPrompt":
+        break;
       default:
+        this.emitDiagnostic({
+          id: diagnosticId("codex-item", item.type),
+          severity: "info",
+          title: "Unsupported App Server item",
+          message: `Hive does not render Codex item type "${item.type}" yet.`,
+          method: `item/${item.type}`,
+          details: formatDiagnosticDetails(item),
+          dedupeKey: `item:${item.type}`,
+        });
         break;
     }
   }
@@ -780,6 +803,16 @@ function formatTurnError(value: unknown): string | undefined {
   const additionalDetails = asString(record.additionalDetails);
   if (message && additionalDetails) return `${message}: ${additionalDetails}`;
   return message ?? additionalDetails;
+}
+
+function formatErrorNotification(data: JsonObject | null): string {
+  const error = asRecord(data?.error);
+  return (
+    formatTurnError(error) ??
+    asString(data?.message) ??
+    asString(error?.message) ??
+    "Codex app-server error"
+  );
 }
 
 function usageFromTokenUsage(value: TokenUsage | undefined): {

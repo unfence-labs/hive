@@ -217,8 +217,8 @@ npm test
 
 ## Codex App Server Notes
 
-The Codex App Server integration plan and follow-up checklist live in
-[`doc/codex-todo-plan.md`](doc/codex-todo-plan.md).
+Known Codex App Server limitations and intentionally unsupported protocol paths
+live in [`doc/codex-app-server-limitations.md`](doc/codex-app-server-limitations.md).
 
 ## Environment Variables
 

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { StreamParser } from "../stream-parser.js";
+import { providerSupportsAppServer } from "../providers/registry.js";
 import type { MessageOptions } from "../../types.js";
 import type { AgentProvider } from "../providers/types.js";
 import type { AgentRunner } from "./types.js";
@@ -57,7 +58,11 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
     ? { provider: null as AgentProvider | null, modelId: "" }
     : input.resolved!;
 
-  const useCodexAppServer = !input.testCommand && provider!.id === "codex" && input.sessionKind === "chat";
+  const useCodexAppServer =
+    !input.testCommand &&
+    provider!.id === "codex" &&
+    input.sessionKind === "chat" &&
+    providerSupportsAppServer(provider!.id);
   const supportsBlockingTools = provider?.capabilities.blockingTools ?? false;
 
   if (useCodexAppServer) {

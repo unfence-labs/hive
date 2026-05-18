@@ -220,6 +220,7 @@ describe("ConversationSession", () => {
   beforeEach(() => {
     mockProc = createMockProcess();
     mockSpawn.mockReturnValue(mockProc);
+    providerRegistry.markProviderAvailable("codex", { appServer: true });
   });
 
   function createSession(opts?: { sessionId?: string; command?: string; skipPermissions?: boolean; sessionKind?: "chat" | "automation" }) {
@@ -769,6 +770,22 @@ describe("ConversationSession", () => {
     expect(session.metadata.providerSessionId).toBe("thread-app-1");
   });
 
+  it("falls back to codex exec when Codex app-server is not supported", () => {
+    providerRegistry.markProviderAvailable("codex", { appServer: false });
+    const session = createSession({ sessionId: "codex-no-app-server" });
+
+    session.sendMessage("Hello Codex", { model: "codex:gpt-5.5" });
+
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(mockSpawn.mock.calls[0][0]).toBe("codex");
+    expect(args[0]).toBe("exec");
+    expect(args).toContain("--json");
+    expect(args).not.toContain("app-server");
+
+    session.stop("park");
+    mockProc._emitClose(1);
+  });
+
   it("surfaces failed Codex app-server turns as errors instead of done", async () => {
     const session = createSession({ sessionId: "codex-app-failed-turn" });
     const messages: WsOutgoing[] = [];
@@ -817,6 +834,65 @@ describe("ConversationSession", () => {
     expect(messages.some((msg) => msg.type === "done")).toBe(false);
     expect(messages.some((msg) => msg.type === "cancelled")).toBe(false);
     expect(session.status).toBe("error");
+  });
+
+  it("waits for Codex app-server turn completion after protocol error notifications", async () => {
+    const session = createSession({ sessionId: "codex-app-error-notification" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Fail with notification", { model: "codex:gpt-5.5" });
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, {
+      thread: { id: "thread-app-error-notification" },
+    }));
+
+    const turnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(turnStart.id, {
+      turn: { id: "turn-error-notification" },
+    }));
+
+    mockProc._stdout.push(appServerNotification("error", {
+      threadId: "thread-app-error-notification",
+      turnId: "turn-error-notification",
+      error: {
+        message: "Rate limited",
+        additionalDetails: "try again later",
+      },
+      willRetry: false,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(messages.some((msg) => msg.type === "error")).toBe(false);
+    expect(messages.some((msg) => msg.type === "cancelled")).toBe(false);
+
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-app-error-notification",
+      turn: {
+        id: "turn-error-notification",
+        durationMs: 9,
+        status: "failed",
+        error: null,
+      },
+    }));
+
+    const errors = await waitForMessages(messages, "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toEqual({
+      type: "error",
+      sessionId: "codex-app-error-notification",
+      message: "Rate limited: try again later",
+    });
+    expect(messages.some((msg) => msg.type === "cancelled")).toBe(false);
   });
 
   it("treats Codex app-server interrupted turns without a local stop as errors", async () => {

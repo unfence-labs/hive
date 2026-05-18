@@ -222,6 +222,73 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
+  it("keeps protocol error notifications non-terminal and emits diagnostics", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    const errors: Error[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    session.on("error", (err) => errors.push(err));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "error",
+      params: {
+        error: {
+          message: "Rate limited",
+          additionalDetails: "try again later",
+        },
+        apiKey: "secret-key",
+      },
+    }) + "\n");
+
+    expect(errors).toEqual([]);
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "diagnostic",
+        severity: "error",
+        title: "Codex error",
+        message: "Rate limited: try again later",
+        source: "codex_app_server",
+        method: "error",
+        details: expect.stringContaining("[redacted]"),
+      }),
+    ]);
+  });
+
+  it("emits diagnostics for unsupported item types", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawn_agent",
+          prompt: "inspect this",
+        },
+      },
+    }) + "\n");
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "diagnostic",
+        severity: "info",
+        title: "Unsupported App Server item",
+        message: "Hive does not render Codex item type \"collabAgentToolCall\" yet.",
+        source: "codex_app_server",
+        method: "item/collabAgentToolCall",
+      }),
+    ]);
+  });
+
   it("emits rich command, file, and plan events while preserving turn completion", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

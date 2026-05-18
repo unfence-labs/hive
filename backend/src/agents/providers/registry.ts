@@ -39,6 +39,11 @@ const availableProviderIds = new Set<string>();
 /** Detected installed versions. Key = provider ID, value = version string. */
 const detectedVersions = new Map<string, string>();
 
+/** Provider IDs whose richer optional protocol surface was detected. */
+const appServerProviderIds = new Set<string>();
+
+let providerDetectionCompleted = false;
+
 /**
  * Extract a semver-like version from CLI --version output.
  * Handles formats like "1.0.35", "v1.0.35", "claude v1.0.35", "codex 0.1.2501.1".
@@ -55,6 +60,8 @@ export function parseVersionFromOutput(stdout: string): string | null {
 export async function detectAvailableProviders(): Promise<void> {
   availableProviderIds.clear();
   detectedVersions.clear();
+  appServerProviderIds.clear();
+  providerDetectionCompleted = false;
   for (const provider of ALL_PROVIDERS) {
     try {
       const { stdout } = await execFile(provider.command, ["--version"]);
@@ -63,15 +70,33 @@ export async function detectAvailableProviders(): Promise<void> {
       if (version) {
         detectedVersions.set(provider.id, version);
       }
+      if (provider.id === "codex" && await detectCodexAppServerSupport()) {
+        appServerProviderIds.add(provider.id);
+      }
     } catch {
       // CLI not found — provider won't appear in catalog
     }
   }
+  providerDetectionCompleted = true;
 }
 
 /** Mark a provider as available (used by preflight or tests). */
-export function markProviderAvailable(providerId: string): void {
+export function markProviderAvailable(providerId: string, options?: { appServer?: boolean }): void {
+  providerDetectionCompleted = true;
   availableProviderIds.add(providerId);
+  if (providerId === "codex") {
+    if (options?.appServer === false) {
+      appServerProviderIds.delete(providerId);
+    } else {
+      appServerProviderIds.add(providerId);
+    }
+  }
+}
+
+export function providerSupportsAppServer(providerId: string): boolean {
+  if (providerId !== "codex") return false;
+  if (!providerDetectionCompleted) return true;
+  return appServerProviderIds.has(providerId);
 }
 
 /**
@@ -167,4 +192,13 @@ export function getAllProviderInfo(): AgentProviderInfo[] {
     installed: availableProviderIds.has(p.id),
     version: detectedVersions.get(p.id) ?? null,
   }));
+}
+
+async function detectCodexAppServerSupport(): Promise<boolean> {
+  try {
+    await execFile("codex", ["app-server", "--help"]);
+    return true;
+  } catch {
+    return false;
+  }
 }
