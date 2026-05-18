@@ -72,6 +72,22 @@ describe("FileViewer", () => {
     expect(highlightMock).toHaveBeenCalledWith("const x = 1;", "typescript", expect.any(String));
   });
 
+  it("renders image files as previews instead of fetching text content", async () => {
+    const apiMock = await getApiMock();
+    const highlightMock = await getHighlightMock();
+
+    renderFileViewer({ wsId: "ws-1", filePath: "assets/logo.png" });
+
+    const img = screen.getByRole("img", { name: "logo.png" });
+    expect(img).toHaveAttribute(
+      "src",
+      "/api/workspaces/ws-1/file/raw?path=assets%2Flogo.png",
+    );
+    expect(screen.getByText("Loading preview...")).toBeInTheDocument();
+    expect(apiMock).not.toHaveBeenCalled();
+    expect(highlightMock).not.toHaveBeenCalled();
+  });
+
   it("shows error message when API fails", async () => {
     const apiMock = await getApiMock();
     apiMock.mockRejectedValue(new Error("File too large"));

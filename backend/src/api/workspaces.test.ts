@@ -462,6 +462,30 @@ describe("GET /api/workspaces/:wsId/file", () => {
     expect(res.json().path).toBe("src/app.ts");
   });
 
+  it("streams raw workspace files for image previews", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+    const image = Buffer.from("89504e470d0a1a0a", "hex");
+
+    await mkdir(join(wsPath, "assets"), { recursive: true });
+    await writeFile(join(wsPath, "assets", "logo.png"), image);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${ws.id}/file/raw?path=assets/logo.png`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/png");
+    expect(res.headers["content-disposition"]).toBe('inline; filename="logo.png"');
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    expect(res.rawPayload).toEqual(image);
+  });
+
   it("returns 404 for non-existent file", async () => {
     const createRes = await app.inject({
       method: "POST",
@@ -503,6 +527,20 @@ describe("GET /api/workspaces/:wsId/file", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/workspaces/${ws.id}/file?path=src`,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("returns 400 for raw file directory traversal attempts", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${ws.id}/file/raw?path=../../etc/passwd`,
     });
     expect(res.statusCode).toBe(400);
   });

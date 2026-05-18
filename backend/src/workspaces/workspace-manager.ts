@@ -1,3 +1,4 @@
+import type { Stats } from "node:fs";
 import { readdir, readFile, stat, mkdir, writeFile, rename } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { nanoid } from "nanoid";
@@ -542,17 +543,23 @@ export async function listWorkspaceFiles(
 
 const MAX_FILE_SIZE = 1024 * 1024; // 1 MB
 
-export async function getWorkspaceFileContent(
+export interface WorkspaceFileEntry {
+  absolutePath: string;
+  path: string;
+  stat: Stats;
+}
+
+export async function getWorkspaceFileEntry(
   wsId: string,
   filePath: string,
   dataDir = getDataDir()
-): Promise<{ content: string; path: string }> {
+): Promise<WorkspaceFileEntry> {
   if (!filePath) throw new BadRequestError("Missing file path");
 
   const result = await getWorkspace(wsId, dataDir);
   if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
 
-  const workspacePath = join(
+  const workspacePath = resolve(
     workspacesDir(dataDir, result.projectState.id),
     result.workspace.name,
   );
@@ -573,12 +580,22 @@ export async function getWorkspaceFileContent(
     throw new BadRequestError("Path is not a file");
   }
 
-  if (fileStat.size > MAX_FILE_SIZE) {
-    throw new BadRequestError(`File too large (${Math.round(fileStat.size / 1024)}KB, max 1MB)`);
+  return { absolutePath: resolved, path: filePath, stat: fileStat };
+}
+
+export async function getWorkspaceFileContent(
+  wsId: string,
+  filePath: string,
+  dataDir = getDataDir()
+): Promise<{ content: string; path: string }> {
+  const file = await getWorkspaceFileEntry(wsId, filePath, dataDir);
+
+  if (file.stat.size > MAX_FILE_SIZE) {
+    throw new BadRequestError(`File too large (${Math.round(file.stat.size / 1024)}KB, max 1MB)`);
   }
 
-  const content = await readFile(resolved, "utf-8");
-  return { content, path: filePath };
+  const content = await readFile(file.absolutePath, "utf-8");
+  return { content, path: file.path };
 }
 
 export async function mergeWorkspace(

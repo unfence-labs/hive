@@ -59,6 +59,15 @@ describe("FileContentToolbar", () => {
     expect(onModeChange).toHaveBeenNthCalledWith(2, "source");
   });
 
+  it("allows the source tab label to describe previews", async () => {
+    const user = userEvent.setup();
+    const { onModeChange } = renderToolbar({ sourceLabel: "Preview" });
+
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+
+    expect(onModeChange).toHaveBeenCalledWith("source");
+  });
+
   it("shows diff controls in diff mode and forwards style changes", async () => {
     const user = userEvent.setup();
     const { onDiffStyleChange } = renderToolbar({
@@ -73,6 +82,21 @@ describe("FileContentToolbar", () => {
     expect(onDiffStyleChange).toHaveBeenNthCalledWith(1, "split");
     expect(onDiffStyleChange).toHaveBeenNthCalledWith(2, "unified");
     expect(screen.queryByRole("button", { name: /Paste to prompt/i })).not.toBeInTheDocument();
+  });
+
+  it("hides text diff controls when the file only supports image preview fallback", () => {
+    renderToolbar({
+      mode: "diff",
+      supportsTextDiff: false,
+      availableDiffScopes: ["uncommitted", "committed", "combined"],
+      commentCount: 2,
+    });
+
+    expect(screen.queryByRole("button", { name: "Split" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stacked" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Branch commits" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Paste to prompt/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Diff" })).toBeInTheDocument();
   });
 
   it("shows scope controls when more than one diff scope is available", async () => {

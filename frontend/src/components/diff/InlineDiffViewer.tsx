@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   FileTextIcon,
+  ImageIcon,
   Loader2Icon,
   AlertCircleIcon,
   MessageSquarePlusIcon,
@@ -25,6 +26,8 @@ import { cn } from "@/lib/utils";
 import { nanoid } from "nanoid";
 import { useThemeType } from "@/hooks/useThemeType";
 import { useDiff } from "@/hooks/useDiff";
+import { FileViewer } from "@/components/FileViewer";
+import { isImageFilePath } from "@/lib/file-preview";
 import type { DiffScope } from "@/types";
 
 // ---------- Types ----------
@@ -113,7 +116,8 @@ const MemoizedFileDiffComponent = memo(
             onClick={() =>
               annotation.metadata && onRemoveComment(annotation.metadata.id)
             }
-            className="ml-auto p-0.5 text-muted-foreground hover:text-foreground"
+            className="ml-auto rounded p-0.5 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            aria-label="Remove comment"
           >
             <XIcon className="size-3" />
           </button>
@@ -240,20 +244,45 @@ const CommentInputBar = memo(function CommentInputBar({
         type="button"
         onClick={handleSubmit}
         disabled={!inputValue.trim()}
-        className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground outline-none hover:bg-primary/90 focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
       >
         Add
       </button>
       <button
         type="button"
         onClick={onCancel}
-        className="rounded-md p-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+        className="rounded-md p-1 text-muted-foreground outline-none hover:bg-accent/50 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        aria-label="Cancel comment"
       >
         <XIcon className="size-3.5" />
       </button>
     </div>
   );
 });
+
+interface ImageDiffFallbackProps {
+  wsId: string;
+  filePath: string;
+}
+
+function ImageDiffFallback({ wsId, filePath }: ImageDiffFallbackProps) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div
+        className="flex shrink-0 items-center gap-2 border-b border-border/50 bg-muted/20 px-3 py-2 text-muted-foreground"
+        role="note"
+      >
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-foreground">
+          <ImageIcon className="size-3.5" />
+        </span>
+        <span className="text-xs leading-5">
+          Image files do not have text diffs. Previewing the current file.
+        </span>
+      </div>
+      <FileViewer wsId={wsId} filePath={filePath} />
+    </div>
+  );
+}
 
 // ---------- Main component ----------
 
@@ -279,7 +308,8 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
     onCommentCountChange,
     onPasteToPrompt,
   }, ref) {
-  const { patchFiles, loading: isLoading, error } = useDiff(wsId, diffScope, true);
+  const isImageFile = isImageFilePath(filePath);
+  const { patchFiles, loading: isLoading, error } = useDiff(wsId, diffScope, !isImageFile);
   const themeType = useThemeType();
 
   const [comments, setComments] = useState<DiffComment[]>([]);
@@ -412,6 +442,10 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
       (f) => f.fileName === filePath || f.fileName.endsWith(`/${filePath}`),
     ) ?? null;
   }, [flattenedFiles, filePath]);
+
+  if (isImageFile) {
+    return <ImageDiffFallback wsId={wsId} filePath={filePath} />;
+  }
 
   // Loading
   if (isLoading && !matchedFile) {

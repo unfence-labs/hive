@@ -51,6 +51,7 @@ import { WorkspacePathCopyButton } from "@/components/WorkspacePathCopyButton";
 import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
+import { isImageFilePath } from "@/lib/file-preview";
 import { PlanActionBar } from "@/components/chat/PlanActionBar";
 import { useScripts } from "@/hooks/useScripts";
 import { useTabs } from "@/hooks/useTabs";
@@ -248,6 +249,7 @@ export default function WorkspaceView() {
     setDiffScope,
     closeFileTab,
   } = useTabs(sessionId, wsId);
+  const openFileIsImage = openFile ? isImageFilePath(openFile) : false;
 
   // Clear unread only when the active conversation is actually visible.
   // If the file tab is open, keep unread state so the tab can show a dot.
@@ -737,6 +739,8 @@ export default function WorkspaceView() {
                 onDiffStyleChange={handleDiffStyleChange}
                 commentCount={diffCommentCount}
                 onPasteToPrompt={handlePasteToPrompt}
+                sourceLabel={openFileIsImage ? "Preview" : "Source"}
+                supportsTextDiff={!openFileIsImage}
               />
               {fileViewMode === "source" ? (
                 <FileViewer wsId={wsId} filePath={openFile} />
