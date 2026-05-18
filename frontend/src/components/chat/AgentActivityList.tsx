@@ -1,9 +1,11 @@
 import { memo, useState, type ReactNode } from "react";
 import {
+  AlertTriangleIcon,
   CheckCircle2Icon,
   ChevronRightIcon,
   CircleIcon,
   FilePenLineIcon,
+  InfoIcon,
   ListChecksIcon,
   Loader2Icon,
   TerminalIcon,
@@ -51,6 +53,8 @@ const AgentActivityItem = memo(function AgentActivityItem({
       return <FileChangeActivity activity={activity} />;
     case "plan_update":
       return <PlanUpdateActivity activity={activity} />;
+    case "diagnostic":
+      return <DiagnosticActivity activity={activity} />;
   }
 });
 
@@ -241,6 +245,34 @@ function PlanUpdateActivity({ activity }: { activity: Extract<AgentActivity, { k
   );
 }
 
+function DiagnosticActivity({ activity }: { activity: Extract<AgentActivity, { kind: "diagnostic" }> }) {
+  const detail = activity.method ? (
+    <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+      {activity.method}
+    </code>
+  ) : undefined;
+
+  return (
+    <ActivityShell
+      icon={diagnosticIcon(activity.severity)}
+      title={activity.title}
+      detail={detail}
+      status={activity.severity}
+    >
+      <ContentPanelBody>
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">{activity.message}</p>
+          {activity.details && (
+            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded border border-border/30 bg-muted/30 p-2 font-mono text-xs text-muted-foreground">
+              {activity.details}
+            </pre>
+          )}
+        </div>
+      </ContentPanelBody>
+    </ActivityShell>
+  );
+}
+
 function StatusBadge({ status }: { status: string }) {
   return (
     <Badge variant="outline" className="text-[10px]">
@@ -254,6 +286,12 @@ function planStepIcon(status: string) {
   if (status === "inProgress") return <Loader2Icon className="size-3.5 animate-spin text-primary" />;
   if (status === "failed" || status === "declined") return <XCircleIcon className="size-3.5 text-destructive" />;
   return <CircleIcon className="size-3.5 text-muted-foreground/60" />;
+}
+
+function diagnosticIcon(severity: Extract<AgentActivity, { kind: "diagnostic" }>["severity"]) {
+  if (severity === "error") return <XCircleIcon className="size-3.5 text-destructive" />;
+  if (severity === "warning") return <AlertTriangleIcon className="size-3.5 text-amber-500" />;
+  return <InfoIcon className="size-3.5 text-muted-foreground" />;
 }
 
 function readableStatus(status: string): string {

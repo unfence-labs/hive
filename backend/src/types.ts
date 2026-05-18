@@ -168,6 +168,16 @@ export type AgentActivity =
       id: string;
       kind: "plan_update";
       steps: Array<{ text: string; status: string }>;
+    }
+  | {
+      id: string;
+      kind: "diagnostic";
+      severity: "info" | "warning" | "error";
+      title: string;
+      message: string;
+      source?: string;
+      method?: string;
+      details?: string;
     };
 
 export interface ChatMessage {

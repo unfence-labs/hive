@@ -2,409 +2,169 @@
 
 ## Current Status
 
-This work is intentionally staying in one Git PR, but it is being implemented in clean feature layers.
+This work stays in one Git PR, but the implementation is split into clean feature layers.
 
-Completed so far:
+Completed:
 
-- Codex chat sessions route to `codex app-server`.
-- Codex automations explicitly use `sessionKind: "automation"` and stay on `codex exec --json`.
-- `providerSessionId` is the canonical provider-native session/thread id, with `claudeSessionId` retained for compatibility.
-- `turn/completed.turn.status` is now respected:
+- Codex interactive chat uses `codex app-server`.
+- Codex automations use `sessionKind: "automation"` and stay on `codex exec --json`.
+- `providerSessionId` is the canonical provider-native thread/session id.
+- `claudeSessionId` is still read and written as a compatibility shim.
+- `turn/completed.turn.status` is respected:
   - `completed` emits normal `done`.
-  - `failed` emits a Hive error with `turn.error`.
-  - `interrupted` becomes cancellation only when Hive initiated a stop.
-- CLI process execution moved into `ProcessAgentRunner`.
-- Codex App Server stop/interruption lifecycle moved into `CodexAppServerRunner`.
-- Parser `assistant`/`user` blocks are mapped through `AgentEventNormalizer` before `ConversationSession` updates websocket state.
+  - `failed` emits a Hive error with the App Server error details.
+  - `interrupted` is treated as cancellation only when Hive initiated the stop.
+- CLI process execution is isolated in `ProcessAgentRunner`.
+- Codex App Server turn lifecycle is isolated in `CodexAppServerRunner`.
+- Runner selection is handled by a small factory.
+- `ConversationSession` owns history, metadata, stream accumulation, reconnect snapshots, and websocket mapping.
+- `AgentEventNormalizer` maps provider stream events into Hive-normalized events.
+- Rich `AgentActivity` data exists for:
+  - command execution
+  - file changes
+  - plan updates
+  - diagnostics for unsupported App Server events/requests
+- The backend emits the additive `agent_activity` websocket event.
+- Live stream snapshots replay `agent_activity` events on reconnect.
+- Assistant messages persist `agentActivities`.
+- The frontend renders rich activities through `AgentActivityList`.
+- Unsupported App Server notifications are surfaced as deduplicated diagnostic activities.
+- Unsupported App Server requests are rejected explicitly and surfaced as diagnostic error activities.
+- Existing `tool_use` / `tool_result` compatibility is preserved.
+- Existing chat UI components are reused instead of adding a Codex-only parallel UI.
 
-Current shape:
+Recent validation:
 
-- `ConversationSession` still owns persistence, metadata, stream accumulation, snapshots, and websocket event mapping.
-- Runners own process/protocol lifecycle.
-- A normalized backend event layer exists for text, thinking, tool start/update/completion, plan-mode toggles, and usage.
-- Rich Codex-native command/file/plan UI events are not implemented yet.
+- Backend typecheck and lint pass.
+- Backend targeted tests pass for conversation sessions, App Server provider/runner, and websocket stream replay.
+- Frontend typecheck and lint pass.
+- Frontend targeted tests pass for `useConversation`, `AgentActivityList`, `DiffView`, and `ChatConversation`.
 
-## Chosen Direction
+## Product Direction
 
-This work will stay in one Git PR, but the implementation should still be split into clean feature layers. The goal is not to revert the App Server progress. The goal is to fix the architecture now so the rest of the Codex UX can be added without turning `ConversationSession` into a protocol-specific catch-all.
+Hive should use App Server for interactive Codex chat because it exposes a richer long-lived protocol: threads, turns, items, command execution, file changes, plans, diffs, usage, warnings, and server requests.
 
-## Fix Plan Before More Features
-
-### Phase 1: Stabilize behavior and close correctness gaps: done
-
-Fix the current App Server path before expanding it.
-
-Tasks:
-
-- Inspect `turn/completed.turn.status`.
-- Treat `completed` as success.
-- Treat `failed` as an error and surface `turn.error`.
-- Treat `interrupted` as cancellation or park, depending on Hive stop reason.
-- Add tests for completed, failed, and interrupted turn completion payloads.
-- Keep Codex automations on `codex exec --json`.
-- Keep the current frontend behavior unchanged except for bug fixes.
-
-Acceptance criteria:
-
-- A failed Codex App Server turn cannot emit a successful `done` event.
-- A stopped Codex turn produces the same user-facing semantics as other providers.
-- Existing Claude, Gemini, and Codex automation tests still pass.
-
-### Phase 2: Extract the runner contract: mostly done
-
-Move protocol execution out of `ConversationSession`.
-
-Tasks:
-
-- Add an `AgentRunner` interface.
-- Add a shared runner event contract.
-- Move CLI process execution into `ProcessAgentRunner`.
-- Move Codex App Server execution into `CodexAppServerRunner`.
-- Keep provider selection in one small factory, not inside the session turn body.
-- Keep `ConversationSession` responsible for persistence, metadata, accumulators, snapshots, and websocket mapping.
-
-Acceptance criteria:
-
-- `ConversationSession` no longer imports `CodexAppServerSession`, `CodexStreamAdapter`, `GeminiStreamAdapter`, or `spawn` directly.
-- Adding another provider or protocol does not require editing the core turn orchestration logic.
-- Existing tests can use a fake runner without spawning fake processes.
-
-Remaining:
-
-- Move runner selection into a small factory.
-- Add direct unit tests for `ProcessAgentRunner` and `CodexAppServerRunner`.
-- Introduce a fake-runner test path for `ConversationSession`.
-
-### Phase 3: Normalize events without changing the UI yet: partially done
-
-Introduce the internal stream model while preserving current websocket messages.
-
-Tasks:
-
-Done:
-
-- Added `AgentEventNormalizer`.
-- Added normalized events for:
-  - text deltas
-  - thinking deltas
-  - redacted thinking
-  - tool start
-  - tool update
-  - tool completion
-  - plan-mode toggle
-  - usage update
-- Mapped normalized events to the existing `WsOutgoing` messages.
-- Kept current `ToolCall` persistence compatible.
-- Added direct normalizer tests.
-
-Remaining:
-
-- Add richer normalized events for App Server-native command execution.
-- Add richer normalized events for App Server-native file changes.
-- Add richer normalized events for App Server-native plan updates.
-- Add turn-level `done`, `cancelled`, and `error` normalized events once `ConversationSession` no longer needs to own finalization details.
-
-Acceptance criteria:
-
-- Frontend behavior stays stable.
-- Backend protocol adapters can emit richer events without knowing websocket shapes.
-- `ConversationSession` has one event ingestion path for Claude, Gemini, Codex exec, and Codex App Server.
-
-### Phase 4: Harden App Server lifecycle and server requests
-
-Make the App Server path robust enough to build UX on top of it.
-
-Tasks:
-
-- Handle process crash and pending request rejection deterministically.
-- Handle stop before `turn/started`.
-- Handle stop after `turn/started`.
-- Handle process restart before the next turn.
-- Preserve and resume `providerSessionId`.
-- Explicitly handle or reject:
-  - `item/commandExecution/requestApproval`
-  - `item/fileChange/requestApproval`
-  - `item/permissions/requestApproval`
-  - `item/tool/requestUserInput`
-  - `mcpServer/elicitation/request`
-  - `item/tool/call`
-- Do not silently auto-approve unknown request types.
-
-Acceptance criteria:
-
-- Unknown App Server requests fail loudly with a clear Hive error.
-- Known approval requests are handled according to the no-approval Hive policy.
-- App Server restarts do not corrupt persisted session state.
-
-### Phase 5: Keep metadata compatibility clean
-
-Finish the `providerSessionId` migration without breaking old clients.
-
-Tasks:
-
-- Read `providerSessionId` first.
-- Fall back to `claudeSessionId`.
-- Write `providerSessionId` as canonical.
-- Continue writing `claudeSessionId` temporarily for older clients.
-- Add iOS model compatibility follow-up if the mobile client needs to display provider session IDs.
-
-Acceptance criteria:
-
-- Existing sessions still load.
-- New sessions persist `providerSessionId`.
-- No new code uses `claudeSessionId` except compatibility shims.
-
-### Phase 6: Only then add richer UX events
-
-Once the backend is clean, expand the UI stream.
-
-Tasks:
-
-- Add command activity events and renderer.
-- Add file change activity events and renderer.
-- Add plan update events and renderer.
-- Add warnings/config/deprecation event display.
-- Keep a single activity list rather than a Codex-only parallel UI.
-
-Acceptance criteria:
-
-- Codex App Server has richer UI than `codex exec`.
-- Claude/Gemini UI does not regress.
-- The frontend consumes Hive events, not raw Codex protocol events.
-
-## Sources and Product Direction
-
-OpenAI's App Server direction validates the original split:
-
-- App Server is the rich client protocol for Codex: long-lived JSON-RPC over stdio, with thread, turn, and item primitives.
-- App Server emits UI-ready lifecycle events for messages, reasoning, command execution, file changes, diffs, plans, token usage, and approvals.
-- `codex exec` remains the better fit for one-shot automations and CI-style runs because it is simple, non-interactive, and exits with a clear result.
-
-That means Hive should use App Server for interactive Codex chat, but keep scheduled automations on `codex exec --json`.
+Hive should keep scheduled automations on `codex exec --json` because automations are one-shot, non-interactive, and should exit with a clear result.
 
 References:
 
 - https://openai.com/index/unlocking-the-codex-harness/
 - https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md
 
-## Backend Work Remaining
+## Remaining Work
 
-### 1. Finish runner architecture cleanup
+### 1. Manual Smoke Tests
 
-Create an internal runner contract so `ConversationSession` stops knowing about protocol details.
+Run real Hive smoke tests before expanding the feature further.
 
-Suggested shape:
+Required checks:
 
-- `AgentRunner`
-  - `startTurn(input, options): Promise<void>`
-  - `stop(reason): void`
-  - `respondToToolInput?(...)`
-  - emits normalized runner events
-- `ProcessAgentRunner`
-  - owns Claude CLI, Gemini CLI, and Codex exec process spawning
-  - owns stderr classification and stream adapter wiring
-- `CodexAppServerRunner`
-  - owns App Server process lifecycle
-  - owns JSON-RPC request/response handling
-  - owns Codex protocol mapping
+- Codex chat streams assistant text.
+- Codex chat streams command execution with live output.
+- Codex chat streams file changes with unified diffs.
+- Codex chat streams plan updates.
+- Stop interrupts the active Codex turn and surfaces a clear cancelled state.
+- A message after stop continues on the same Codex thread.
+- Reconnect during a running Codex turn replays the accumulated snapshot.
+- Codex automation still uses `codex exec --json`.
+- Claude and Gemini chat still render existing tool calls correctly.
 
-`ConversationSession` should keep only:
+### 2. Remaining App Server Event Coverage
 
-- history persistence
-- metadata persistence
-- websocket outgoing event emission
-- stream accumulators and reconnect snapshots
-- tool-input continuation orchestration
+The rich UI currently covers the main interactive events: command execution, file changes, and plan updates.
 
-### 2. Expand normalized events
+Unsupported App Server notifications are now visible as diagnostic activities. "Completing App Server coverage" means promoting useful diagnostics into richer first-class Hive activities over time.
 
-Do not let the frontend depend on raw Codex App Server protocol events.
+Candidates:
 
-Use an internal event model like:
-
-- `AgentTextDelta`
-- `AgentThinkingDelta`
-- `AgentToolStarted`
-- `AgentToolUpdated`
-- `AgentToolCompleted`
-- `AgentPlanUpdated`
-- `AgentFileChangeUpdated`
-- `AgentUsageUpdated`
-- `AgentDone`
-- `AgentCancelled`
-- `AgentError`
-
-Then map these to the existing `WsOutgoing` messages plus narrowly scoped new messages where the current protocol cannot represent the UX cleanly.
-
-### 3. Tighten approvals and permissions behavior
-
-Hive currently wants permissive execution without approval UX. That is fine, but it must be explicit and auditable.
-
-Required behavior:
-
-- Send `approvalPolicy: "never"` and full-access sandbox configuration consistently.
-- If App Server still requests approval, either auto-accept only the known command/file approval requests or fail loudly with a configuration error.
-- Handle or explicitly reject newer server requests:
-  - `item/permissions/requestApproval`
-  - `item/tool/requestUserInput`
-  - `mcpServer/elicitation/request`
-  - `item/tool/call`
-
-Auto-accepting everything would be a weak security boundary and a bad future default.
-
-### 4. Improve App Server protocol coverage
-
-Map these App Server notifications into normalized events:
-
-- `item/started`
-- `item/*/delta`
-- `item/completed`
-- `turn/plan/updated`
 - `turn/diff/updated`
-- `thread/tokenUsage/updated`
+  - Could power a turn-level diff summary or workspace change preview.
+- `warning`
+  - Should probably surface as a non-fatal visible warning.
+- `configWarning`
+  - Should probably surface when Codex config/env is wrong.
+- `deprecationNotice`
+  - Could be shown as a low-priority warning.
+- `guardianWarning`
+  - Should likely be visible because it may explain blocked/risky execution.
 - `serverRequest/resolved`
-- `warning`, `configWarning`, `deprecationNotice`
+  - Could update activity state when a request was accepted/rejected/resolved.
+- `thread/compacted`
+  - Could become a compact context activity later.
+- `model/rerouted`
+  - Could be shown if Codex changes model during a turn.
+- `model/verification`
+  - Needs product decision; probably not urgent.
+- `item/fileChange/outputDelta`
+  - May matter if App Server streams patch output separately from patch updates.
+- `item/commandExecution/terminalInteraction`
+  - Needs product decision; likely should become visible if it explains command behavior.
+- `item/mcpToolCall/progress`
+  - Relevant if Hive wants richer MCP progress UI.
 
-Command execution should preserve:
+Do not add all of these blindly. The diagnostic fallback is there so unsupported protocol events are visible while implementation can happen incrementally.
 
-- command
-- cwd
-- status
-- live output deltas
-- exit code
-- duration
+### 3. Server Requests Outside Approvals
 
-File changes should preserve:
+App Server can send JSON-RPC requests to the client. These are different from notifications: Codex expects Hive to answer.
 
-- path
-- unified diff
-- status
-- patch failure details
+Approval requests are already handled according to Hive's current no-approval policy:
 
-### 5. Make App Server lifecycle robust
+- `item/commandExecution/requestApproval` is accepted.
+- `item/fileChange/requestApproval` is accepted.
+- `execCommandApproval` is accepted.
+- `applyPatchApproval` is accepted.
+- unknown approval-like requests are not silently accepted.
 
-Add coverage for:
+There are other request types that are not simple approvals. Unsupported requests are rejected explicitly and shown as diagnostic errors, so product support can be added incrementally without silent hangs.
 
-- App Server process restart after crash
-- resuming stored `providerSessionId`
-- stop during initialization
-- stop before `turn/started`
-- stop after `turn/started`
-- park behavior
-- malformed JSON-RPC lines
-- pending JSON-RPC requests rejected on process exit
-- no duplicate listeners across multiple turns
+Known request types to evaluate:
 
-Keep `providerSessionId` as the canonical metadata field. Continue reading `claudeSessionId` for compatibility and write both until all clients are migrated.
+- `item/permissions/requestApproval`
+  - Codex is asking for additional permissions.
+  - Current direction: reject loudly unless Hive adds an explicit permissions UX.
+- `item/tool/requestUserInput`
+  - A tool wants structured user input during a turn.
+  - Current direction: reject unless Hive adds interactive prompt UI.
+- `mcpServer/elicitation/request`
+  - An MCP server asks the user for form or URL-based input.
+  - Current direction: reject unless Hive supports MCP elicitation UX.
+- `item/tool/call`
+  - Dynamic tool call request.
+  - Needs a deliberate tool execution policy before support.
+- `account/chatgptAuthTokens/refresh`
+  - Codex may ask the client to refresh ChatGPT auth tokens.
+  - Needs investigation depending on how Hive expects users to authenticate Codex.
 
-## Frontend UX Work Remaining
+The rule is: respond explicitly. Do not let requests hang. Do not auto-approve broad capability changes without a product decision.
 
-### 1. Activity timeline
+### 4. Lifecycle Hardening
 
-Evolve `ToolCallList` toward a generic `AgentActivityList`, but keep the existing visual language.
+The App Server path is functional, but more edge-case coverage would reduce risk.
 
-The target UX should show a single timeline with:
+Add or verify tests for:
 
-- assistant text
-- reasoning summaries
-- command execution
-- file changes
-- MCP/tool calls
-- plan updates
-- warnings and errors
+- App Server process crash during a turn.
+- App Server restart before the next turn.
+- malformed JSON-RPC lines.
+- stop during initialization.
+- stop before `turn/started`.
+- stop after `turn/started`.
+- pending JSON-RPC requests rejected on process exit.
+- no duplicate listeners across multiple turns.
 
-Avoid a second parallel Codex-only stream.
+### 5. Cleanup After Smoke Tests
 
-### 2. Command activity
+Only after real smoke tests:
 
-Add a command activity renderer with:
-
-- command and cwd
-- running/completed/failed state
-- live output
-- exit code and duration
-- collapsed output by default when long
-
-The user should be able to scan progress without expanding every command.
-
-### 3. File change activity
-
-Add a native file-change renderer with:
-
-- changed file list
-- patch status
-- inline unified diff preview
-- clear failed/declined states
-
-Use the existing `DiffView` where possible, but do not force Codex unified diffs through Claude-style `old_string`/`new_string` fields.
-
-### 4. Plan activity
-
-Map Codex plan updates into the existing plan/task UI rather than rendering them as fake tool calls long-term.
-
-The best UX is a compact live checklist:
-
-- pending
-- in progress
-- completed
-
-This should update in place during the turn.
-
-### 5. Stop, resume, and reconnect UX
-
-Interactive Codex chat needs reliable user controls:
-
-- stop should interrupt the active turn and surface a clear cancelled state
-- reconnect should replay the current accumulated snapshot
-- after an interrupted turn, the next message should continue on the same Codex thread
-- process crashes should show a recoverable error, not a silent done state
-
-### 6. Later UX opportunities
-
-These should wait until the core stream is stable:
-
-- `turn/steer` support for sending follow-up guidance during a running turn
-- `thread/shellCommand` support for user-triggered `!` commands
-- `model/list` support for Codex-native model discovery
-- thread compaction activity rendering
-- richer MCP elicitation UI if Hive chooses to support interactive tool prompts
-
-## Test Plan
-
-Backend:
-
-- runner selection: Codex chat -> App Server, Codex automation -> exec
-- `ConversationSession` with fake runner events
-- `ProcessAgentRunner` tests for existing CLI behavior
-- `CodexAppServerRunner` tests with fake JSON-RPC process
-- failed/interrupted/completed turn status handling
-- approval request handling
-- metadata compatibility: `claudeSessionId` -> `providerSessionId`
-- automation regression: one-shot exec path only
-
-Frontend:
-
-- reducer handling for new normalized websocket events
-- command activity rendering
-- file change rendering
-- plan update rendering
-- reconnect snapshot rendering
-- no regression for existing Claude/Gemini tool calls
-
-Validation:
-
-- `npm run lint`
-- `npm run typecheck`
-- targeted backend tests
-- targeted frontend tests
-- one manual Codex chat smoke test through Hive
-- one automation run smoke test confirming `codex exec --json`
-
-## Next Implementation Steps
-
-1. Add direct runner tests.
-2. Move runner selection into a factory.
-3. Expand App Server event mapping for command execution, file changes, and plan updates.
-4. Add websocket event shapes only where the current `ToolCall` model cannot represent Codex-native activity cleanly.
-5. Implement frontend renderers using the existing chat/activity components.
-6. Run full backend and frontend validation before manual Hive smoke testing.
+- Search for dead Codex App Server compatibility code.
+- Confirm `CodexStreamAdapter` is still used only for `codex exec --json`.
+- Re-check whether `AgentActivity` should move to a shared package to avoid backend/frontend type drift.
+- Consider normalizing turn finalization (`done`, `cancelled`, `error`) as runner events if it makes `ConversationSession` simpler.
+- Run full validation:
+  - `npm run lint`
+  - `npm run typecheck`
+  - targeted backend tests
+  - targeted frontend tests
+  - one real Codex chat smoke test
+  - one real Codex automation smoke test

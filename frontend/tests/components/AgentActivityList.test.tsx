@@ -79,4 +79,28 @@ describe("AgentActivityList", () => {
     expect(screen.getByText("Inspect")).toBeInTheDocument();
     expect(screen.getByText("Implement")).toBeInTheDocument();
   });
+
+  it("renders diagnostic activities with details", async () => {
+    const user = userEvent.setup();
+    const activities: AgentActivity[] = [{
+      id: "diag-1",
+      kind: "diagnostic",
+      severity: "warning",
+      title: "Unsupported App Server event",
+      message: "Hive does not render this event yet.",
+      source: "codex_app_server",
+      method: "turn/diff/updated",
+      details: "{\"changedFiles\":2}",
+    }];
+
+    render(<AgentActivityList activities={activities} />);
+
+    expect(screen.getByText("Unsupported App Server event")).toBeInTheDocument();
+    expect(screen.getByText("turn/diff/updated")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Unsupported App Server event/ }));
+
+    expect(screen.getByText("Hive does not render this event yet.")).toBeInTheDocument();
+    expect(screen.getByText("{\"changedFiles\":2}")).toBeInTheDocument();
+  });
 });

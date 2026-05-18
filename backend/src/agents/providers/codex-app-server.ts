@@ -127,6 +127,7 @@ const CLIENT_INFO = {
   title: "Hive",
   version: "0.1.0",
 };
+const MAX_DIAGNOSTIC_DETAILS_LENGTH = 4000;
 
 /**
  * Per-chat-session bridge to `codex app-server`.
@@ -152,6 +153,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private fileChanges = new Map<string, FileUpdateChange[]>();
   private emittedAgentText = new Set<string>();
   private emittedReasoningText = new Set<string>();
+  private emittedDiagnostics = new Set<string>();
   private lastUsage: TokenUsage | undefined;
 
   get capturedThreadId(): string | undefined {
@@ -271,6 +273,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.fileChanges.clear();
     this.emittedAgentText.clear();
     this.emittedReasoningText.clear();
+    this.emittedDiagnostics.clear();
     this.lastUsage = undefined;
   }
 
@@ -354,19 +357,19 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         this.respond(request.id, { decision: "approved" });
         break;
       case "item/permissions/requestApproval":
-        this.respondError(request.id, "Permission approval requests are not supported by Hive");
+        this.rejectUnsupportedRequest(request, "Permission approval requests are not supported by Hive");
         break;
       case "item/tool/requestUserInput":
-        this.respondError(request.id, "Tool user-input requests are not supported by Hive");
+        this.rejectUnsupportedRequest(request, "Tool user-input requests are not supported by Hive");
         break;
       case "mcpServer/elicitation/request":
-        this.respondError(request.id, "MCP elicitation requests are not supported by Hive");
+        this.rejectUnsupportedRequest(request, "MCP elicitation requests are not supported by Hive");
         break;
       case "item/tool/call":
-        this.respondError(request.id, "Tool call requests are not supported by Hive");
+        this.rejectUnsupportedRequest(request, "Tool call requests are not supported by Hive");
         break;
       default:
-        this.respondError(request.id, `${request.method} is not supported by Hive`);
+        this.rejectUnsupportedRequest(request, `${request.method} is not supported by Hive`);
         break;
     }
   }
@@ -377,6 +380,19 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
 
   private respondError(id: JsonRpcId, message: string): void {
     this.proc?.stdin.write(`${JSON.stringify({ id, error: { code: -32603, message } })}\n`);
+  }
+
+  private rejectUnsupportedRequest(request: JsonRpcRequest, message: string): void {
+    this.respondError(request.id, message);
+    this.emitDiagnostic({
+      id: diagnosticId("codex-request", request.method),
+      severity: "error",
+      title: "Unsupported App Server request",
+      message,
+      method: request.method,
+      details: formatDiagnosticDetails(request.params),
+      dedupeKey: `request:${request.method}`,
+    });
   }
 
   private handleNotification(method: string, params: unknown): void {
@@ -433,6 +449,18 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       case "turn/plan/updated":
         this.emitPlanUpdate(data);
         break;
+      case "warning":
+        this.emitProtocolDiagnostic(method, data, "Codex warning", "warning");
+        break;
+      case "configWarning":
+        this.emitProtocolDiagnostic(method, data, "Codex configuration warning", "warning");
+        break;
+      case "deprecationNotice":
+        this.emitProtocolDiagnostic(method, data, "Codex deprecation notice", "warning");
+        break;
+      case "guardianWarning":
+        this.emitProtocolDiagnostic(method, data, "Codex guardian warning", "warning");
+        break;
       case "turn/completed": {
         const turn = asRecord(data?.turn);
         const durationMs = asNumber(turn?.durationMs);
@@ -456,8 +484,57 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       }
       default:
+        this.emitDiagnostic({
+          id: diagnosticId("codex-notification", method),
+          severity: "info",
+          title: "Unsupported App Server event",
+          message: `Hive does not render "${method}" yet.`,
+          method,
+          details: formatDiagnosticDetails(params),
+          dedupeKey: `notification:${method}`,
+        });
         break;
     }
+  }
+
+  private emitProtocolDiagnostic(
+    method: string,
+    data: JsonObject | null,
+    title: string,
+    severity: "info" | "warning" | "error",
+  ): void {
+    this.emitDiagnostic({
+      id: diagnosticId("codex-diagnostic", method),
+      severity,
+      title,
+      message: diagnosticMessage(data, title),
+      method,
+      details: formatDiagnosticDetails(data),
+      dedupeKey: `diagnostic:${method}:${diagnosticMessage(data, title)}`,
+    });
+  }
+
+  private emitDiagnostic(event: {
+    id: string;
+    severity: "info" | "warning" | "error";
+    title: string;
+    message: string;
+    method?: string;
+    details?: string;
+    dedupeKey: string;
+  }): void {
+    if (this.emittedDiagnostics.has(event.dedupeKey)) return;
+    this.emittedDiagnostics.add(event.dedupeKey);
+    this.emit("agent_event", {
+      type: "diagnostic",
+      id: event.id,
+      severity: event.severity,
+      title: event.title,
+      message: event.message,
+      source: "codex_app_server",
+      method: event.method,
+      details: event.details,
+    });
   }
 
   private handleItem(item: ThreadItem | null, phase: "started" | "completed"): void {
@@ -737,4 +814,43 @@ function formatUnknown(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function diagnosticId(prefix: string, method: string): string {
+  const safeMethod = method.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-|-$/g, "");
+  return `${prefix}-${safeMethod || "unknown"}`;
+}
+
+function diagnosticMessage(data: JsonObject | null, fallback: string): string {
+  return (
+    asString(data?.message) ??
+    asString(data?.warning) ??
+    asString(data?.text) ??
+    asString(data?.title) ??
+    fallback
+  );
+}
+
+function formatDiagnosticDetails(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  const formatted = formatUnknown(redactSensitiveValues(value));
+  if (formatted.length <= MAX_DIAGNOSTIC_DETAILS_LENGTH) return formatted;
+  return `${formatted.slice(0, MAX_DIAGNOSTIC_DETAILS_LENGTH - 1)}…`;
+}
+
+function redactSensitiveValues(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactSensitiveValues(entry));
+  }
+  const record = asRecord(value);
+  if (!record) return value;
+
+  return Object.fromEntries(
+    Object.entries(record).map(([key, entry]) => {
+      if (/token|secret|password|authorization|api[_-]?key/i.test(key)) {
+        return [key, "[redacted]"];
+      }
+      return [key, redactSensitiveValues(entry)];
+    }),
+  );
 }

@@ -132,6 +132,8 @@ describe("CodexAppServerSession request handling", () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
     const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
     await initializeSession(session, proc);
 
     const unsupported = [
@@ -151,6 +153,16 @@ describe("CodexAppServerSession request handling", () => {
         }),
       });
     }
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "diagnostic",
+          severity: "error",
+          title: "Unsupported App Server request",
+          method: "item/permissions/requestApproval",
+        }),
+      ]),
+    );
   });
 
   it("does not auto-accept unknown request types", async () => {
@@ -171,6 +183,45 @@ describe("CodexAppServerSession request handling", () => {
 });
 
 describe("CodexAppServerSession normalized events", () => {
+  it("emits diagnostics for unsupported notifications and protocol warnings", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "warning",
+      params: { message: "Codex warning", authToken: "secret-token" },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "turn/diff/updated",
+      params: { changedFiles: 2, apiKey: "secret-key" },
+    }) + "\n");
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "diagnostic",
+        severity: "warning",
+        title: "Codex warning",
+        message: "Codex warning",
+        source: "codex_app_server",
+        method: "warning",
+        details: expect.stringContaining("[redacted]"),
+      }),
+      expect.objectContaining({
+        type: "diagnostic",
+        severity: "info",
+        title: "Unsupported App Server event",
+        message: "Hive does not render \"turn/diff/updated\" yet.",
+        source: "codex_app_server",
+        method: "turn/diff/updated",
+        details: expect.stringContaining("[redacted]"),
+      }),
+    ]);
+  });
+
   it("emits rich command, file, and plan events while preserving turn completion", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

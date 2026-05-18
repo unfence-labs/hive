@@ -48,6 +48,8 @@ function cloneAgentActivity(activity: AgentActivity): AgentActivity {
       return { ...activity, files: activity.files.map((file) => ({ ...file })) };
     case "plan_update":
       return { ...activity, steps: activity.steps.map((step) => ({ ...step })) };
+    case "diagnostic":
+      return { ...activity };
   }
 }
 
@@ -607,6 +609,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       case "plan_updated":
         this.handlePlanUpdateEvent(event);
         break;
+      case "diagnostic":
+        this.handleDiagnosticEvent(event);
+        break;
     }
     return undefined;
   }
@@ -736,6 +741,19 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     const payload = JSON.stringify({ steps: event.steps });
     this.upsertToolCall(event.id, "TodoList", payload);
     this.completeToolCall(event.id, payload);
+  }
+
+  private handleDiagnosticEvent(event: Extract<NormalizedAgentEvent, { type: "diagnostic" }>): void {
+    this.upsertAgentActivity({
+      id: event.id,
+      kind: "diagnostic",
+      severity: event.severity,
+      title: event.title,
+      message: event.message,
+      source: event.source,
+      method: event.method,
+      details: event.details,
+    });
   }
 
   private finalizeTurn({

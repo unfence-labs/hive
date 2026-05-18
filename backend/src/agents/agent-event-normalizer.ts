@@ -27,6 +27,16 @@ export type NormalizedAgentEvent =
     }
   | { type: "file_change_updated"; id: string; files?: AgentActivityFile[]; path?: string; diff?: string; status?: string; kind?: string }
   | { type: "plan_updated"; id: string; steps: Array<{ text: string; status: string }> }
+  | {
+      type: "diagnostic";
+      id: string;
+      severity: "info" | "warning" | "error";
+      title: string;
+      message: string;
+      source?: string;
+      method?: string;
+      details?: string;
+    }
   | { type: "plan_mode_changed"; active: boolean }
   | { type: "usage_updated"; inputTokens: number; outputTokens: number };
 
