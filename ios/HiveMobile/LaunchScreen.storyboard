@@ -16,15 +16,15 @@
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
                             <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="LaunchIcon" translatesAutoresizingMaskIntoConstraints="NO" id="launch-icon">
-                                <rect key="frame" x="104.5" y="334" width="184" height="184"/>
+                                <rect key="frame" x="58.5" y="288" width="276" height="276"/>
                                 <constraints>
-                                    <constraint firstAttribute="width" constant="184" id="launch-icon-width"/>
-                                    <constraint firstAttribute="height" constant="184" id="launch-icon-height"/>
+                                    <constraint firstAttribute="width" constant="276" id="launch-icon-width"/>
+                                    <constraint firstAttribute="height" constant="276" id="launch-icon-height"/>
                                 </constraints>
                             </imageView>
                         </subviews>
                         <viewLayoutGuide key="safeArea" id="launch-safe-area"/>
-                        <color key="backgroundColor" red="0.0" green="0.0" blue="0.0" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <color key="backgroundColor" red="0.93725490196078431" green="0.92941176470588238" blue="0.90196078431372551" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <constraints>
                             <constraint firstItem="launch-icon" firstAttribute="centerX" secondItem="launch-view" secondAttribute="centerX" id="launch-icon-center-x"/>
                             <constraint firstItem="launch-icon" firstAttribute="centerY" secondItem="launch-view" secondAttribute="centerY" id="launch-icon-center-y"/>
