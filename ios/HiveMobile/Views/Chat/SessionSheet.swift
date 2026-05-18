@@ -106,15 +106,15 @@ private struct SessionRow: View {
     SessionSheet(
         sessions: [
             SessionMetadata(
-                sessionId: "s1", claudeSessionId: nil, workspaceId: "ws1",
+                sessionId: "s1", providerSessionId: nil, claudeSessionId: nil, workspaceId: "ws1",
                 title: "Fix login bug", createdAt: "", updatedAt: "2026-02-18T10:00:00.000Z", messageCount: 5, lockedProvider: "claude"
             ),
             SessionMetadata(
-                sessionId: "s2", claudeSessionId: nil, workspaceId: "ws1",
+                sessionId: "s2", providerSessionId: nil, claudeSessionId: nil, workspaceId: "ws1",
                 title: "Add dark mode", createdAt: "", updatedAt: "2026-02-18T08:00:00.000Z", messageCount: 12, lockedProvider: "codex"
             ),
             SessionMetadata(
-                sessionId: "s3", claudeSessionId: nil, workspaceId: "ws1",
+                sessionId: "s3", providerSessionId: nil, claudeSessionId: nil, workspaceId: "ws1",
                 title: nil, createdAt: "", updatedAt: "2026-02-17T15:00:00.000Z", messageCount: 0, lockedProvider: nil
             ),
         ],

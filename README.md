@@ -92,6 +92,8 @@ It manages:
 - Foreground reconnect (2s debounce) with background stream catchup.
 - Context window usage ring matching frontend thresholds.
 - Task tracker with collapsible task list, including Codex native todo lists.
+- Codex App Server `AgentActivity` rendering for command execution, file changes, plan updates, diagnostics, and unknown activity fallback.
+- Shared chat diff rendering for Claude/Gemini edit tools and Codex file-change activities.
 - `#file` and `@agent` mention highlighting in messages.
 - Copy-to-clipboard on agent messages.
 - Per-session plan mode state and CANCELLED badge for dismissed questions.

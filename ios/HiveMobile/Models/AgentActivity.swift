@@ -1,0 +1,145 @@
+import Foundation
+
+struct AgentActivityFile: Codable, Equatable, Identifiable {
+    let path: String
+    let diff: String?
+    let kind: String?
+    let status: String?
+
+    var id: String { "\(path):\(kind ?? ""):\(status ?? "")" }
+}
+
+struct AgentActivityPlanStep: Codable, Equatable {
+    let text: String
+    let status: String
+}
+
+enum AgentActivitySeverity: String, Codable, Equatable {
+    case info
+    case warning
+    case error
+}
+
+enum AgentActivity: Codable, Equatable, Identifiable {
+    case commandExecution(CommandExecution)
+    case fileChange(FileChange)
+    case planUpdate(PlanUpdate)
+    case diagnostic(Diagnostic)
+    case unknown(Unknown)
+
+    struct CommandExecution: Codable, Equatable, Identifiable {
+        let id: String
+        let command: String?
+        let cwd: String?
+        let status: String?
+        let output: String?
+        let exitCode: Int?
+        let durationMs: Int?
+    }
+
+    struct FileChange: Codable, Equatable, Identifiable {
+        let id: String
+        let status: String?
+        let files: [AgentActivityFile]
+    }
+
+    struct PlanUpdate: Codable, Equatable, Identifiable {
+        let id: String
+        let steps: [AgentActivityPlanStep]
+    }
+
+    struct Diagnostic: Codable, Equatable, Identifiable {
+        let id: String
+        let severity: AgentActivitySeverity
+        let title: String
+        let message: String
+        let source: String?
+        let method: String?
+        let details: String?
+    }
+
+    struct Unknown: Codable, Equatable, Identifiable {
+        let id: String
+        let kind: String
+    }
+
+    var id: String {
+        switch self {
+        case .commandExecution(let activity): activity.id
+        case .fileChange(let activity): activity.id
+        case .planUpdate(let activity): activity.id
+        case .diagnostic(let activity): activity.id
+        case .unknown(let activity): activity.id
+        }
+    }
+
+    var kind: String {
+        switch self {
+        case .commandExecution: "command_execution"
+        case .fileChange: "file_change"
+        case .planUpdate: "plan_update"
+        case .diagnostic: "diagnostic"
+        case .unknown(let activity): activity.kind
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, kind
+        case command, cwd, status, output, exitCode, durationMs
+        case files
+        case steps
+        case severity, title, message, source, method, details
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(String.self, forKey: .kind)
+
+        switch kind {
+        case "command_execution":
+            self = .commandExecution(try CommandExecution(from: decoder))
+        case "file_change":
+            self = .fileChange(try FileChange(from: decoder))
+        case "plan_update":
+            self = .planUpdate(try PlanUpdate(from: decoder))
+        case "diagnostic":
+            self = .diagnostic(try Diagnostic(from: decoder))
+        default:
+            let id = (try? container.decode(String.self, forKey: .id)) ?? "unknown-\(kind)"
+            self = .unknown(Unknown(id: id, kind: kind))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+
+        switch self {
+        case .commandExecution(let activity):
+            try container.encode(activity.id, forKey: .id)
+            try container.encodeIfPresent(activity.command, forKey: .command)
+            try container.encodeIfPresent(activity.cwd, forKey: .cwd)
+            try container.encodeIfPresent(activity.status, forKey: .status)
+            try container.encodeIfPresent(activity.output, forKey: .output)
+            try container.encodeIfPresent(activity.exitCode, forKey: .exitCode)
+            try container.encodeIfPresent(activity.durationMs, forKey: .durationMs)
+        case .fileChange(let activity):
+            try container.encode(activity.id, forKey: .id)
+            try container.encodeIfPresent(activity.status, forKey: .status)
+            try container.encode(activity.files, forKey: .files)
+        case .planUpdate(let activity):
+            try container.encode(activity.id, forKey: .id)
+            try container.encode(activity.steps, forKey: .steps)
+        case .diagnostic(let activity):
+            try container.encode(activity.id, forKey: .id)
+            try container.encode(activity.severity, forKey: .severity)
+            try container.encode(activity.title, forKey: .title)
+            try container.encode(activity.message, forKey: .message)
+            try container.encodeIfPresent(activity.source, forKey: .source)
+            try container.encodeIfPresent(activity.method, forKey: .method)
+            try container.encodeIfPresent(activity.details, forKey: .details)
+        case .unknown(let activity):
+            try container.encode(activity.id, forKey: .id)
+        }
+    }
+}

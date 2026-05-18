@@ -7,6 +7,7 @@ struct SessionStreamState {
     var currentText = ""
     var currentThinking = ""
     var activeToolCalls: [ToolCall] = []
+    var activeAgentActivities: [AgentActivity] = []
     var isStreaming = false
     var streamingStartedAt: Date?
     var pendingToolInputs: [PendingToolInput] = []
@@ -74,22 +75,25 @@ final class ConversationStore {
     var currentText: String { activeStream?.currentText ?? "" }
     var currentThinking: String { activeStream?.currentThinking ?? "" }
     var activeToolCalls: [ToolCall] { activeStream?.activeToolCalls ?? [] }
+    var activeAgentActivities: [AgentActivity] { activeStream?.activeAgentActivities ?? [] }
     var pendingToolInputs: [PendingToolInput] { activeStream?.pendingToolInputs ?? [] }
 
     /// The in-progress assistant message shown during streaming
     var streamingMessage: ChatMessage? {
         guard let stream = activeStream,
               stream.isStreaming,
-              !stream.currentText.isEmpty || !stream.currentThinking.isEmpty || !stream.activeToolCalls.isEmpty else {
+              !stream.currentText.isEmpty || !stream.currentThinking.isEmpty ||
+                !stream.activeToolCalls.isEmpty || !stream.activeAgentActivities.isEmpty else {
             return nil
         }
         return ChatMessage(
             id: "streaming",
-            sessionId: "",
+            sessionId: sessionId ?? "",
             role: .assistant,
             content: stream.currentText,
             images: nil,
             toolCalls: stream.activeToolCalls.isEmpty ? nil : stream.activeToolCalls,
+            agentActivities: stream.activeAgentActivities.isEmpty ? nil : stream.activeAgentActivities,
             thinkingContent: stream.currentThinking.isEmpty ? nil : stream.currentThinking,
             timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
             cancelled: nil,
@@ -138,6 +142,9 @@ final class ConversationStore {
                 output: output, parentToolUseId: tc.parentToolUseId
             )
 
+        case .agentActivity(let sid, let activity):
+            upsertAgentActivity(activity, for: sid)
+
         case .toolInputRequired(let sid, let requestId, let toolName, let toolUseId, let input):
             ensureStream(for: sid)
             sessionStreams[sid]?.pendingToolInputs.append(PendingToolInput(
@@ -150,8 +157,8 @@ final class ConversationStore {
                             inputTokens: inputTokens, outputTokens: outputTokens)
             onTurnCompleted?(sid)
 
-        case .cancelled(let sid, _, _, _):
-            finalizeMessage(sessionId: sid, durationMs: nil, cancelled: true)
+        case .cancelled(let sid, let errorDetail, _, let durationMs):
+            finalizeMessage(sessionId: sid, durationMs: durationMs, cancelled: true, errorDetail: errorDetail)
             onTurnCompleted?(sid)
 
         case .error(let message, let errorSessionId):
@@ -161,6 +168,7 @@ final class ConversationStore {
             messages.append(ChatMessage(
                 id: UUID().uuidString, sessionId: "", role: .assistant,
                 content: "Error: \(message)", images: nil, toolCalls: nil,
+                agentActivities: nil,
                 thinkingContent: nil, timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
                 cancelled: nil, durationMs: nil
             ))
@@ -184,7 +192,8 @@ final class ConversationStore {
                 } else if var stream = sessionStreams[sid] {
                     // Session stopped streaming. Clean up if no content.
                     if stream.currentText.isEmpty && stream.currentThinking.isEmpty
-                        && stream.activeToolCalls.isEmpty && stream.pendingToolInputs.isEmpty {
+                        && stream.activeToolCalls.isEmpty && stream.activeAgentActivities.isEmpty
+                        && stream.pendingToolInputs.isEmpty {
                         sessionStreams.removeValue(forKey: sid)
                     } else {
                         stream.isStreaming = false
@@ -216,6 +225,7 @@ final class ConversationStore {
             sessionStreams[sid]?.currentText = ""
             sessionStreams[sid]?.currentThinking = ""
             sessionStreams[sid]?.activeToolCalls = []
+            sessionStreams[sid]?.activeAgentActivities = []
             sessionStreams[sid]?.pendingToolInputs = []
 
         case .history(let msgs, let incomingSessionId):
@@ -255,6 +265,9 @@ final class ConversationStore {
         case .planModeChanged(let sid, let active):
             ensureStream(for: sid, streaming: false)
             sessionStreams[sid]?.agentPlanMode = active
+
+        case .unknown:
+            break
         }
     }
 
@@ -324,12 +337,25 @@ final class ConversationStore {
         return Date(timeIntervalSince1970: seconds)
     }
 
+    private func upsertAgentActivity(_ activity: AgentActivity, for sid: String) {
+        ensureStream(for: sid)
+        guard var stream = sessionStreams[sid] else { return }
+        if let index = stream.activeAgentActivities.firstIndex(where: { $0.id == activity.id }) {
+            stream.activeAgentActivities[index] = activity
+        } else {
+            stream.activeAgentActivities.append(activity)
+        }
+        sessionStreams[sid] = stream
+    }
+
     private func finalizeMessage(sessionId sid: String, durationMs: Int?, cancelled: Bool,
+                                 errorDetail: String? = nil,
                                  inputTokens: Int? = nil, outputTokens: Int? = nil) {
         guard let stream = sessionStreams[sid] else { return }
 
         let isActive = sid == sessionId
-        let hasContent = !stream.currentText.isEmpty || !stream.activeToolCalls.isEmpty || !stream.currentThinking.isEmpty
+        let hasContent = !stream.currentText.isEmpty || !stream.activeToolCalls.isEmpty
+            || !stream.activeAgentActivities.isEmpty || !stream.currentThinking.isEmpty
 
         // Remove stream slot FIRST so displayMessages never shows both the
         // finalized message (in `messages`) and the streaming ghost (from
@@ -346,9 +372,11 @@ final class ConversationStore {
                     content: stream.currentText,
                     images: nil,
                     toolCalls: stream.activeToolCalls.isEmpty ? nil : stream.activeToolCalls,
+                    agentActivities: stream.activeAgentActivities.isEmpty ? nil : stream.activeAgentActivities,
                     thinkingContent: stream.currentThinking.isEmpty ? nil : stream.currentThinking,
                     timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
                     cancelled: cancelled ? true : nil,
+                    errorDetail: errorDetail,
                     durationMs: durationMs,
                     inputTokens: inputTokens,
                     outputTokens: outputTokens
@@ -362,7 +390,7 @@ final class ConversationStore {
                     content: "",
                     images: nil, toolCalls: nil, thinkingContent: nil,
                     timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
-                    cancelled: true,
+                    cancelled: true, errorDetail: errorDetail,
                     durationMs: nil
                 )
                 messages.append(msg)

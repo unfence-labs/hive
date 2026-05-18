@@ -13,6 +13,13 @@ struct MessageBubble: View {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
     }
 
+    private var visibleToolCalls: [ToolCall] {
+        guard let tools = message.toolCalls else { return [] }
+        let activityIds = Set((message.agentActivities ?? []).map(\.id))
+        guard !activityIds.isEmpty else { return tools }
+        return tools.filter { !activityIds.contains($0.id) }
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             if message.role == .user { Spacer(minLength: 60) }
@@ -22,11 +29,16 @@ struct MessageBubble: View {
                     WhisperThinkingBlock(content: thinking)
                 }
 
-                if let tools = message.toolCalls, !tools.isEmpty {
-                    WhisperToolCallsBlock(toolCalls: tools, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
+                messageContent
+
+                if message.role == .assistant, let activities = message.agentActivities, !activities.isEmpty {
+                    AgentActivityList(activities: activities, showExecutingState: message.id == "streaming")
                 }
 
-                messageContent
+                let tools = visibleToolCalls
+                if message.role == .assistant, !tools.isEmpty {
+                    WhisperToolCallsBlock(toolCalls: tools, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
+                }
 
                 messageFooter
             }
@@ -52,14 +64,23 @@ struct MessageBubble: View {
         }
 
         if message.role == .assistant, message.cancelled == true {
-            HStack(spacing: 4) {
-                Image(systemName: "stop.circle")
-                    .font(.system(size: 11))
-                Text("Stopped")
-                    .font(.system(size: 13))
-                    .italic()
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 4) {
+                    Image(systemName: "stop.circle")
+                        .font(.system(size: 11))
+                    Text("Stopped")
+                        .font(.system(size: 13))
+                        .italic()
+                }
+                .foregroundStyle(.red.opacity(0.7))
+
+                if let detail = message.errorDetail, !detail.isEmpty {
+                    Text(detail)
+                        .font(WhisperFont.mono(10))
+                        .foregroundStyle(.red.opacity(0.7))
+                        .lineLimit(3)
+                }
             }
-            .foregroundStyle(.red.opacity(0.7))
         } else if !message.content.isEmpty {
             switch message.role {
             case .user:
@@ -209,11 +230,6 @@ struct MessageBubble: View {
         return display.string(from: date)
     }
 
-    private func formatDuration(_ ms: Int) -> String {
-        if ms < 1000 { return "\(ms)ms" }
-        let s = Double(ms) / 1000.0
-        return String(format: "%.1fs", s)
-    }
 }
 
 // MARK: - Image Thumbnail
@@ -332,16 +348,6 @@ private func getFilename(_ path: String) -> String {
 /// Resolve file path across providers (Claude: file_path, Codex: filename, Gemini: path).
 private func resolveFilePath(_ input: [String: Any]) -> String? {
     (input["file_path"] ?? input["filename"] ?? input["path"]) as? String
-}
-
-/// Count +/- lines in a unified diff string (Codex file_change format).
-private func parseDiffStats(_ diff: String) -> (added: Int, removed: Int) {
-    var added = 0, removed = 0
-    for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
-        if line.hasPrefix("+") && !line.hasPrefix("+++") { added += 1 }
-        else if line.hasPrefix("-") && !line.hasPrefix("---") { removed += 1 }
-    }
-    return (added, removed)
 }
 
 /// Compute edit diff stats using prefix/suffix line matching.
@@ -723,21 +729,6 @@ private struct WhisperToolCallRow: View {
 
 // MARK: - Diff Content View (Edit tool expanded)
 
-private struct DiffLine: Identifiable {
-    enum Kind { case context, added, removed }
-    let id: Int
-    let kind: Kind
-    let text: String
-
-    var prefix: String {
-        switch kind {
-        case .context: return " "
-        case .added:   return "+"
-        case .removed: return "-"
-        }
-    }
-}
-
 /// Compute display-ready diff lines from old/new strings (Claude/Gemini format).
 private func computeDiffLines(oldString: String, newString: String) -> [DiffLine] {
     let oldLines = oldString.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
@@ -781,25 +772,6 @@ private func computeDiffLines(oldString: String, newString: String) -> [DiffLine
     return result
 }
 
-/// Parse a unified diff string (Codex format) into display-ready lines.
-private func parseUnifiedDiffLines(_ diff: String) -> [DiffLine] {
-    var result: [DiffLine] = []
-    var idx = 0
-    for raw in diff.split(separator: "\n", omittingEmptySubsequences: false) {
-        let line = String(raw)
-        if line.hasPrefix("+++") || line.hasPrefix("---") || line.hasPrefix("@@") { continue }
-        if line.hasPrefix("+") {
-            result.append(DiffLine(id: idx, kind: .added, text: String(line.dropFirst()))); idx += 1
-        } else if line.hasPrefix("-") {
-            result.append(DiffLine(id: idx, kind: .removed, text: String(line.dropFirst()))); idx += 1
-        } else {
-            let text = line.hasPrefix(" ") ? String(line.dropFirst()) : line
-            result.append(DiffLine(id: idx, kind: .context, text: text)); idx += 1
-        }
-    }
-    return result
-}
-
 private struct DiffContentView: View {
     let tool: ToolCall
 
@@ -827,12 +799,8 @@ private struct DiffContentView: View {
         return (filePath, computeDiffLines(oldString: oldString, newString: newString))
     }
 
-    private static let maxLines = 80
-
     var body: some View {
         let result = parsed
-        let lines = Array(result.lines.prefix(Self.maxLines))
-        let truncated = result.lines.count > Self.maxLines
 
         ToolContentPanel {
             VStack(alignment: .leading, spacing: 0) {
@@ -844,49 +812,10 @@ private struct DiffContentView: View {
                         .padding(.bottom, 6)
                 }
 
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(lines) { line in
-                        HStack(spacing: 0) {
-                            Text(line.prefix)
-                                .frame(width: 14, alignment: .center)
-                                .foregroundStyle(prefixColor(line.kind).opacity(0.6))
-                            Text(line.text.isEmpty ? " " : line.text)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .foregroundStyle(prefixColor(line.kind))
-                        }
-                        .font(WhisperFont.mono(11))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(bgColor(line.kind))
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                if truncated {
-                    Text("… \(result.lines.count - Self.maxLines) more lines")
-                        .font(WhisperFont.mono(10))
-                        .foregroundStyle(WhisperColor.textMuted)
-                        .padding(.top, 4)
-                }
+                DiffLinesView(lines: result.lines)
             }
         }
         .transition(.opacity)
-    }
-
-    private func prefixColor(_ kind: DiffLine.Kind) -> Color {
-        switch kind {
-        case .context: return WhisperColor.textSecondary
-        case .added:   return .green
-        case .removed: return .red
-        }
-    }
-
-    private func bgColor(_ kind: DiffLine.Kind) -> Color {
-        switch kind {
-        case .context: return .clear
-        case .added:   return Color.green.opacity(0.12)
-        case .removed: return Color.red.opacity(0.12)
-        }
     }
 }
 
@@ -1014,18 +943,6 @@ private struct ToolRowLabel: View {
         }
         .padding(.vertical, 3)
         .contentShape(Rectangle())
-    }
-}
-
-private struct ToolContentPanel<Content: View>: View {
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        content
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(WhisperColor.surface, in: RoundedRectangle(cornerRadius: 8))
-            .padding(.top, 2)
     }
 }
 

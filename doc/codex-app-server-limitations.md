@@ -11,6 +11,19 @@ The integration intentionally promotes the main chat activity into first-class H
 
 The remaining items below are known protocol surface area that Hive does not yet render with rich, dedicated UI. Unsupported items should stay visible as diagnostics instead of failing silently.
 
+## Client Rendering Contract
+
+Hive clients consume normalized `agent_activity` WebSocket events rather than the raw Codex App Server protocol. Each activity is persisted on assistant messages as `agentActivities` and has one of these kinds:
+
+- `command_execution`
+- `file_change`
+- `plan_update`
+- `diagnostic`
+
+The web frontend and iOS app both render these activities directly and keep `tool_use` / `tool_result` compatibility events as fallback data. Clients should filter compatibility tool calls whose ids are already represented by an `AgentActivity`, otherwise Codex command/file/plan rows will appear twice.
+
+Unsupported Codex App Server protocol events should continue to become `diagnostic` activities. Unknown client-side activity kinds should not surface as chat errors; render an unsupported/unknown activity row or ignore them safely.
+
 ## Notification Coverage
 
 These notifications are either diagnostic-only today or not yet rendered as richer activity:

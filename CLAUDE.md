@@ -268,6 +268,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 
 - `HiveMobile/HiveApp.swift`: app entry point + `AppDelegate` adapter + `CompletedWorkspacesStore` merge on launch
 - `HiveMobile/Models/Models.swift`: data models (ChatMessage, ToolCall, Workspace, ModelCatalogEntry, etc.)
+- `HiveMobile/Models/AgentActivity.swift`: normalized agent activity models for Codex App Server command execution, file changes, plan updates, diagnostics, and unknown fallback
 - `HiveMobile/Models/WebSocketTypes.swift`: WS protocol types (mirrors `backend/src/types.ts`)
 - `HiveMobile/Services/APIClient.swift`: REST API client (includes `/api/models`, `/api/workspaces/:wsId/pr-status`, bulk PR status, device token registration)
 - `HiveMobile/Services/ImageCache.swift`: image caching
@@ -283,6 +284,10 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `HiveMobile/Views/Chat/ChatView.swift`: conversation UI + provider locking + model selection + per-session plan mode
 - `HiveMobile/Views/Chat/ChatInputBar.swift`: input bar with provider-adaptive controls (thinking-level cycler) + context ring
 - `HiveMobile/Views/Chat/MessageBubble.swift`: message + tool call rendering + `#file`/`@agent` mention highlighting + copy-to-clipboard button
+- `HiveMobile/Views/Chat/AgentActivityList.swift`: SwiftUI renderer for `agent_activity` command execution, file changes, plan updates, diagnostics, and unknown activities
+- `HiveMobile/Views/Chat/DiffRendering.swift`: shared chat diff line parsing/rendering used by tool-call diffs and agent file-change activities
+- `HiveMobile/Views/Chat/ChatActivityChrome.swift`: shared chat activity content panel primitives
+- `HiveMobile/Views/Chat/ChatFormatting.swift`: shared chat formatting helpers
 - `HiveMobile/Views/Chat/ToolInputSheet.swift`: AskUserQuestion + ExitPlanMode interactive sheets
 - `HiveMobile/Views/Chat/SessionSheet.swift`: session switching (max 4 sessions)
 - `HiveMobile/Views/Chat/ContextRingView.swift`: SwiftUI context ring with matching color thresholds
@@ -307,6 +312,9 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - **ChatView receives its store as a parameter** from the cache (via `HiveApp`'s `navigationDestination`). No per-view WS — all sends go through `store.send` closure wired to `WorkspaceConnection`.
 - **Turn-completed badge**: `HubStatusMonitor.completedWorkspaces` tracks workspaces where a `done` event fired. `WorkspaceCard` shows a green `StatusDot`. Cleared when `ChatView` opens (via `clearCompleted`). `viewingWorkspaceId` prevents false positives when user is already in chat.
 - Tool rendering mirrors the frontend: same tool names, same icon mapping, same hierarchical display (parentToolUseId).
+- Codex App Server `agent_activity` events are decoded and stored per streaming session. Activities are upserted by id, persisted into finalized `ChatMessage.agentActivities`, and rendered through `AgentActivityList`.
+- Compatibility `tool_use` / `tool_result` events remain supported on iOS, but `MessageBubble` filters tool calls whose ids are already represented by an `AgentActivity` to avoid duplicate command/file/plan rows.
+- Unknown WS event types decode to `.unknown` instead of visible chat errors. Unknown agent activity kinds render as an unsupported activity row.
 - AskUserQuestion renders as a paginated form sheet with multi-select support. Dismissed questions show "CANCELLED" badge.
 - ExitPlanMode renders as a markdown preview with approve/reject actions.
 - Chat drafts are persisted per-workspace and restored on app relaunch (includes `selectedModelId`, `thinkingLevel`).
