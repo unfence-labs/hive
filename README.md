@@ -31,6 +31,9 @@ It manages:
 **Multi-provider support**
 - Provider abstraction layer: `AgentProvider` interface with CLI arg building, env config, and stream adapters.
 - Claude provider (streaming JSON), Codex provider (JSONL with stream adapter), Gemini provider (NDJSON with tool name mapping).
+- Interactive Codex chat uses `codex app-server` for long-lived thread/turn streaming; Codex automations stay on `codex exec --json`.
+- Codex App Server stream events are normalized into Hive `AgentActivity` records for command execution, file changes, plan updates, and diagnostics.
+- Unsupported Codex App Server notifications/requests are surfaced as diagnostic activities so missing protocol coverage is visible and incremental.
 - Codex stream normalization for native todo lists, file-change summaries, cached token usage, and non-fatal diagnostic events.
 - Model catalog API (`GET /api/models`) for frontend/iOS model discovery, grouped by provider.
 - Model selector UI with provider icons, default badges, and NEW indicators.
@@ -211,6 +214,11 @@ npm run lint
 npm run typecheck
 npm test
 ```
+
+## Codex App Server Notes
+
+The Codex App Server integration plan and follow-up checklist live in
+[`doc/codex-todo-plan.md`](doc/codex-todo-plan.md).
 
 ## Environment Variables
 
