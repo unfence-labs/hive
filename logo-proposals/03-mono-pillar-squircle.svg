@@ -8,9 +8,11 @@
     <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#000000" flood-opacity="0.2"/>
   </filter></defs>
 
-  <rect width="1024" height="1024" fill="#111111"/>
-  <rect x="370" y="312" width="88" height="394" rx="44" fill="#EFEDE6"/>
-  <rect x="566" y="312" width="88" height="394" rx="44" fill="#EFEDE6"/>
-  <rect x="414" y="474" width="196" height="76" rx="38" fill="#EFEDE6"/>
-  <rect x="474" y="716" width="76" height="32" rx="16" fill="#FF7048"/>
+  <rect width="1024" height="1024" rx="224" fill="#111111"/>
+  <g transform="translate(512 530) scale(1.5) translate(-512 -530)">
+    <rect x="370" y="312" width="88" height="394" rx="44" fill="#EFEDE6"/>
+    <rect x="566" y="312" width="88" height="394" rx="44" fill="#EFEDE6"/>
+    <rect x="414" y="474" width="196" height="76" rx="38" fill="#EFEDE6"/>
+    <rect x="474" y="716" width="76" height="32" rx="16" fill="#FF7048"/>
+  </g>
 </svg>
