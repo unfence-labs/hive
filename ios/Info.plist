@@ -10,9 +10,9 @@
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>
-		<string>LaunchBackground</string>
+		<string>HiveLaunchBackground</string>
 		<key>UIImageName</key>
-		<string>LaunchIcon</string>
+		<string>HiveLaunchMark</string>
 		<key>UIImageRespectsSafeAreaInsets</key>
 		<false/>
 	</dict>
