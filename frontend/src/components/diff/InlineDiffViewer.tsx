@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   FileTextIcon,
+  ImageIcon,
   Loader2Icon,
   AlertCircleIcon,
   MessageSquarePlusIcon,
@@ -25,6 +26,8 @@ import { cn } from "@/lib/utils";
 import { nanoid } from "nanoid";
 import { useThemeType } from "@/hooks/useThemeType";
 import { useDiff } from "@/hooks/useDiff";
+import { FileViewer } from "@/components/FileViewer";
+import { isImageFilePath } from "@/lib/file-preview";
 import type { DiffScope } from "@/types";
 
 // ---------- Types ----------
@@ -255,6 +258,25 @@ const CommentInputBar = memo(function CommentInputBar({
   );
 });
 
+interface ImageDiffFallbackProps {
+  wsId: string;
+  filePath: string;
+}
+
+function ImageDiffFallback({ wsId, filePath }: ImageDiffFallbackProps) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border/50 bg-muted/40 px-3 py-2 text-muted-foreground">
+        <ImageIcon className="size-3.5 shrink-0" />
+        <span className="text-xs">
+          Text diff is not available for image files. Showing the current image preview.
+        </span>
+      </div>
+      <FileViewer wsId={wsId} filePath={filePath} />
+    </div>
+  );
+}
+
 // ---------- Main component ----------
 
 export interface InlineDiffViewerHandle {
@@ -279,7 +301,8 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
     onCommentCountChange,
     onPasteToPrompt,
   }, ref) {
-  const { patchFiles, loading: isLoading, error } = useDiff(wsId, diffScope, true);
+  const isImageFile = isImageFilePath(filePath);
+  const { patchFiles, loading: isLoading, error } = useDiff(wsId, diffScope, !isImageFile);
   const themeType = useThemeType();
 
   const [comments, setComments] = useState<DiffComment[]>([]);
@@ -412,6 +435,10 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
       (f) => f.fileName === filePath || f.fileName.endsWith(`/${filePath}`),
     ) ?? null;
   }, [flattenedFiles, filePath]);
+
+  if (isImageFile) {
+    return <ImageDiffFallback wsId={wsId} filePath={filePath} />;
+  }
 
   // Loading
   if (isLoading && !matchedFile) {
