@@ -53,6 +53,28 @@ describe("ChatToolUse", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("renders Codex unified diffs for Edit tools", async () => {
+    const user = userEvent.setup();
+    render(
+      <ChatToolUse
+        tool={tool({
+          name: "Edit",
+          input: JSON.stringify({
+            filename: "src/app.ts",
+            diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@\n-before\n+after",
+          }),
+          output: "--- a/src/app.ts\n+++ b/src/app.ts\n@@\n-before\n+after",
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /edit/i }));
+
+    expect(screen.getByText(/--- a\/src\/app\.ts/)).toBeInTheDocument();
+    expect(screen.getByText(/\+after/)).toBeInTheDocument();
+    expect(screen.queryByText("Output")).not.toBeInTheDocument();
+  });
+
   it("shows executing state and truncates long bash command in the summary", async () => {
     const user = userEvent.setup();
     const longCommand =

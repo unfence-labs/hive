@@ -119,6 +119,9 @@ export interface FileMention {
 
 export interface SessionMetadata {
   sessionId: string;
+  /** Provider-native conversation/thread id used for resume across turns. */
+  providerSessionId?: string;
+  /** @deprecated Use providerSessionId. Kept for old persisted sessions. */
   claudeSessionId?: string;
   workspaceId: string;
   title?: string;

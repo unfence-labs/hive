@@ -148,12 +148,17 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
       const filename = filePath ? getFilename(filePath) : undefined;
       const oldString = input.old_string as string | undefined;
       const newString = input.new_string as string | undefined;
+      const diff = input.diff as string | undefined;
       return {
         icon: icons.pencil,
         label: "Edit",
         detail: filename,
         hideOutput: true,
-        expandedContent: filePath ? (
+        expandedContent: diff ? (
+          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
+            {diff}
+          </pre>
+        ) : filePath ? (
           <DiffView
             filePath={filePath}
             oldText={oldString ?? ""}

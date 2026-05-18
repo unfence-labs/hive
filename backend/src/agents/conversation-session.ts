@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { StreamParser } from "./stream-parser.js";
 import { resolveProvider } from "./providers/registry.js";
+import { CodexAppServerSession } from "./providers/codex-app-server.js";
 import { CodexStreamAdapter } from "./providers/codex-stream-adapter.js";
 import { GeminiStreamAdapter } from "./providers/gemini-stream-adapter.js";
 import type { AgentProvider, StreamAdapter } from "./providers/types.js";
@@ -125,6 +126,7 @@ function buildCancellationErrorDetail(exitCode: number, lastStderr: string | und
 }
 
 type StopReason = "user" | "park";
+type SessionKind = "chat" | "automation";
 
 export interface ConversationSessionConfig {
   cwd: string;
@@ -135,6 +137,7 @@ export interface ConversationSessionConfig {
   systemPrompt?: string;
   skipPermissions?: boolean;
   browserEnv?: Record<string, string>;
+  sessionKind?: SessionKind;
 }
 
 export type ConversationSessionEvent = {
@@ -150,10 +153,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private readonly testCommand: string | undefined;
   private readonly systemPrompt: string | undefined;
   private readonly skipPermissions: boolean;
+  private readonly sessionKind: SessionKind;
   private browserEnv: Record<string, string> | undefined;
   private readonly sessionDir: string;
   private readonly workspaceId: string;
   private process: ChildProcess | null = null;
+  private codexAppServer: CodexAppServerSession | null = null;
   private parser: StreamAdapter | null = null;
   private _status: "idle" | "streaming" | "error" = "idle";
   private _streamingStartedAt: number | null = null;
@@ -179,6 +184,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.testCommand = config.command !== undefined && config.command !== "claude" ? config.command : undefined;
     this.systemPrompt = config.systemPrompt;
     this.skipPermissions = config.skipPermissions ?? true;
+    this.sessionKind = config.sessionKind ?? "chat";
     this.browserEnv = config.browserEnv;
     this.workspaceId = config.workspaceId;
     this.sessionDir = join(config.dataDir, "sessions", this.sessionId);
@@ -202,6 +208,13 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
   get metadata(): SessionMetadata {
     return { ...this._metadata };
+  }
+
+  private setProviderSessionId(sessionId: string): void {
+    this.cliSessionId = sessionId;
+    this._metadata.providerSessionId = sessionId;
+    // Keep writing the old field until persisted-session readers have migrated.
+    this._metadata.claudeSessionId = sessionId;
   }
 
   setBrowserEnv(env: Record<string, string> | undefined): void {
@@ -229,7 +242,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       const raw = await readFile(metaPath, "utf-8");
       const meta = JSON.parse(raw) as SessionMetadata;
       session._metadata = meta;
-      session.cliSessionId = meta.claudeSessionId;
+      session.cliSessionId = meta.providerSessionId ?? meta.claudeSessionId;
       session.messageCount = meta.messageCount;
       // Backfill lockedProvider for sessions created before multi-model support.
       // All pre-existing sessions were Claude-only, so default to "claude".
@@ -297,8 +310,18 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           mediaType: images[i].mediaType,
           dataUrl: `/api/workspaces/${this.workspaceId}/sessions/${this.sessionId}/attachments/${s.filename}`,
         }));
+        const imagePaths = saved.map((s) => s.path);
+        const useNativeCodexImages =
+          !this.testCommand &&
+          resolved?.provider.id === "codex" &&
+          this.sessionKind === "chat";
         this.emitUserMessage(content, urlImages, fileMentions);
-        this.spawnCli(this.buildPromptWithImages(promptContent, saved.map((s) => s.path)), msgOptions, resolved);
+        this.spawnCli(
+          useNativeCodexImages ? promptContent : this.buildPromptWithImages(promptContent, imagePaths),
+          msgOptions,
+          resolved,
+          useNativeCodexImages ? imagePaths : undefined,
+        );
       }).catch((err) => {
         this._status = "error";
         this._streamingStartedAt = null;
@@ -378,6 +401,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     content: string,
     msgOptions?: MessageOptions,
     preResolved?: { provider: AgentProvider; modelId: string },
+    imagePaths?: string[],
   ): void {
     const isFirstMessage = this.messageCount === 1;
 
@@ -386,10 +410,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       ? { provider: null as AgentProvider | null, modelId: "" }
       : (preResolved ?? resolveProvider(msgOptions?.model));
 
+    const useCodexAppServer = !this.testCommand && provider!.id === "codex" && this.sessionKind === "chat";
+
     // Pre-generate a session ID for CLI continuity
-    if (!this.cliSessionId) {
-      this.cliSessionId = crypto.randomUUID();
-      this._metadata.claudeSessionId = this.cliSessionId;
+    if (!useCodexAppServer && !this.cliSessionId) {
+      this.setProviderSessionId(crypto.randomUUID());
     }
 
     let command: string;
@@ -397,7 +422,15 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let env: Record<string, string> | undefined;
     let stdinContent: string | undefined;
 
-    if (this.testCommand) {
+    if (useCodexAppServer) {
+      command = "codex";
+      args = ["app-server", "--listen", "stdio://"];
+      stdinContent = content;
+      env = {
+        ...(provider!.buildEnv({ ...msgOptions, model: modelId }) ?? {}),
+        ...(this.browserEnv ?? {}),
+      };
+    } else if (this.testCommand) {
       // Test mode: use raw command (e.g. "bash") — no provider
       command = this.testCommand;
       args = ["-c", `echo '{"type":"result","session_id":"test","duration_ms":0}'`];
@@ -412,9 +445,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         cliContent = `<context>\n${this.systemPrompt}\n</context>\n\n${content}`;
       }
 
+      const providerSessionId = this.cliSessionId;
+      if (!providerSessionId) {
+        throw new Error("Provider session ID was not initialized");
+      }
+
       args = provider!.buildArgs(cliContent, { ...msgOptions, model: modelId }, {
         isFirstMessage,
-        sessionId: this.cliSessionId,
+        sessionId: providerSessionId,
         systemPrompt: this.systemPrompt,
         skipPermissions: this.skipPermissions,
       });
@@ -438,9 +476,15 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       });
     }
 
-    this.parser = this.testCommand
-      ? new StreamParser()
-      : provider!.createStreamAdapter();
+    if (useCodexAppServer) {
+      const appServer = this.codexAppServer ??= new CodexAppServerSession();
+      appServer.removeAllListeners();
+      this.parser = appServer;
+    } else {
+      this.parser = this.testCommand
+        ? new StreamParser()
+        : provider!.createStreamAdapter();
+    }
 
     // Reset in-progress streaming accumulators
     this._streamText = "";
@@ -583,8 +627,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.parser.on("result", (data) => {
       // Capture session/thread ID from first result for continuity
       if (data.session_id && !this.cliSessionId) {
-        this.cliSessionId = data.session_id;
-        this._metadata.claudeSessionId = data.session_id;
+        this.setProviderSessionId(data.session_id);
       }
       if (data.duration_ms != null) {
         resultDurationMs = data.duration_ms;
@@ -609,6 +652,48 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.parser.on("error", (err) => {
       this.emit("error", err);
     });
+
+    if (useCodexAppServer) {
+      const appServer = this.parser as CodexAppServerSession;
+      let finalized = false;
+      const finish = (exitCode: number) => {
+        if (finalized) return;
+        finalized = true;
+        this.finalizeTurn({
+          exitCode,
+          killedForBlockingTool,
+          lastStderr,
+          resultDurationMs,
+          resultInputTokens,
+          resultOutputTokens,
+          blockingToolNames,
+        });
+      };
+
+      appServer.once("result", () => finish(this.stopReason ? 1 : 0));
+      appServer.once("error", (err) => {
+        lastStderr = sanitizeErrorDetail(err.message);
+        finish(1);
+      });
+
+      const model = provider!.models.find((m) => m.id === modelId);
+      void appServer.startTurn({
+        cwd: this.cwd,
+        content: stdinContent ?? content,
+        imagePaths,
+        model: model?.cliValue ?? modelId,
+        thinkingLevel: msgOptions?.thinkingLevel ?? "high",
+        systemPrompt: this.systemPrompt,
+        threadId: this.cliSessionId,
+        env,
+      }).catch((err: unknown) => {
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.emit("error", error);
+        lastStderr = sanitizeErrorDetail(error.message);
+        finish(1);
+      });
+      return;
+    }
 
     this.process = spawn(command, args, {
       cwd: this.cwd,
@@ -660,119 +745,171 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
       // For Codex: capture thread_id from the stream adapter for session continuity
       if (this.parser instanceof CodexStreamAdapter && this.parser.capturedThreadId) {
-        this.cliSessionId = this.parser.capturedThreadId;
-        this._metadata.claudeSessionId = this.parser.capturedThreadId;
+        this.setProviderSessionId(this.parser.capturedThreadId);
       }
 
       // For Gemini: capture session_id from the init event for --resume continuity
       if (this.parser instanceof GeminiStreamAdapter && this.parser.capturedSessionId) {
-        this.cliSessionId = this.parser.capturedSessionId;
-        this._metadata.claudeSessionId = this.parser.capturedSessionId;
+        this.setProviderSessionId(this.parser.capturedSessionId);
       }
 
-      const exitCode = code ?? 1;
-      const wasCancelled = exitCode !== 0 && this._status === "streaming" && !killedForBlockingTool;
-      const capturedStopReason = this.stopReason;
-      const capturedStreamingStart = this._streamingStartedAt;
-      const cancelledByPark = wasCancelled && capturedStopReason === "park";
-      const shouldSurfaceCancelled = wasCancelled && !cancelledByPark;
-      const cancellationErrorDetail = shouldSurfaceCancelled
-        ? buildCancellationErrorDetail(exitCode, lastStderr)
-        : undefined;
-
-      this._status = (exitCode === 0 || killedForBlockingTool) ? "idle" : "error";
-      this._streamingStartedAt = null;
-      this.stopReason = null;
-      this.process = null;
-      this.parser = null;
-
-      if (this._streamText || this._streamToolCalls.length > 0 || this._streamThinking || shouldSurfaceCancelled) {
-        const assistantMsg: ChatMessage = {
-          id: nanoid(12),
-          sessionId: this.sessionId,
-          role: "assistant",
-          content: this._streamText || (shouldSurfaceCancelled ? CANCELLED_NO_OUTPUT_MESSAGE : ""),
-          toolCalls: this._streamToolCalls.length > 0 ? this._streamToolCalls : undefined,
-          thinkingContent: this._streamThinking || undefined,
-          timestamp: new Date().toISOString(),
-          cancelled: shouldSurfaceCancelled || undefined,
-          errorDetail: cancellationErrorDetail,
-          durationMs: resultDurationMs,
-          inputTokens: resultInputTokens,
-          outputTokens: resultOutputTokens,
-        };
-        void this.enqueuePersist(assistantMsg);
-      }
-
-      this._metadata.messageCount = this.messageCount;
-      this._metadata.updatedAt = new Date().toISOString();
-      this.persistQueue = this.persistQueue
-        .then(() => this.saveMetadata())
-        .catch((err) => console.error("[session] Persist metadata failed:", err));
-
-      const unansweredBlockingTools = killedForBlockingTool
-        ? this._streamToolCalls.filter((tc) => blockingToolNames.has(tc.name))
-        : [];
-
-      // Free accumulated streaming data now that the assistant message has been enqueued for persistence.
-      this._streamText = "";
-      this._streamThinking = "";
-      this._streamToolCalls = [];
-      this._agentPlanMode = false;
-
-      const pendingToolName = unansweredBlockingTools.length > 0
-        ? unansweredBlockingTools[0]!.name
-        : undefined;
-
-      void (async () => {
-        try {
-          await this.persistQueue;
-          if (shouldSurfaceCancelled) {
-            const cancelDurationMs = resultDurationMs
-              ?? (capturedStreamingStart ? Date.now() - capturedStreamingStart : undefined);
-            this.emit("message", {
-              type: "cancelled",
-              sessionId: this.sessionId,
-              errorDetail: cancellationErrorDetail,
-              userInitiated: capturedStopReason === "user",
-              durationMs: cancelDurationMs,
-            });
-          } else if (!cancelledByPark) {
-            this.emit("message", {
-              type: "done",
-              sessionId: this.sessionId,
-              durationMs: resultDurationMs,
-              inputTokens: resultInputTokens,
-              outputTokens: resultOutputTokens,
-              pendingToolName,
-            });
-          }
-
-          for (const tool of unansweredBlockingTools) {
-            let input: unknown;
-            try {
-              input = JSON.parse(tool.input);
-            } catch {
-              input = {};
-            }
-            this.emit("message", {
-              type: "tool_input_required",
-              sessionId: this.sessionId,
-              requestId: nanoid(12),
-              toolName: tool.name,
-              toolUseId: tool.id,
-              input,
-            });
-          }
-        } finally {
-          this.emit("exit", exitCode);
-        }
-      })();
+      this.finalizeTurn({
+        exitCode: code ?? 1,
+        killedForBlockingTool,
+        lastStderr,
+        resultDurationMs,
+        resultInputTokens,
+        resultOutputTokens,
+        blockingToolNames,
+      });
     });
+  }
+
+  private finalizeTurn({
+    exitCode,
+    killedForBlockingTool,
+    lastStderr,
+    resultDurationMs,
+    resultInputTokens,
+    resultOutputTokens,
+    blockingToolNames,
+  }: {
+    exitCode: number;
+    killedForBlockingTool: boolean;
+    lastStderr?: string;
+    resultDurationMs?: number;
+    resultInputTokens?: number;
+    resultOutputTokens?: number;
+    blockingToolNames: Set<string>;
+  }): void {
+    const wasCancelled = exitCode !== 0 && this._status === "streaming" && !killedForBlockingTool;
+    const capturedStopReason = this.stopReason;
+    const capturedStreamingStart = this._streamingStartedAt;
+    const cancelledByPark = wasCancelled && capturedStopReason === "park";
+    const shouldSurfaceCancelled = wasCancelled && !cancelledByPark;
+    const cancellationErrorDetail = shouldSurfaceCancelled
+      ? buildCancellationErrorDetail(exitCode, lastStderr)
+      : undefined;
+
+    this._status = (exitCode === 0 || killedForBlockingTool) ? "idle" : "error";
+    this._streamingStartedAt = null;
+    this.stopReason = null;
+    this.process = null;
+    this.parser = null;
+
+    if (this._streamText || this._streamToolCalls.length > 0 || this._streamThinking || shouldSurfaceCancelled) {
+      const assistantMsg: ChatMessage = {
+        id: nanoid(12),
+        sessionId: this.sessionId,
+        role: "assistant",
+        content: this._streamText || (shouldSurfaceCancelled ? CANCELLED_NO_OUTPUT_MESSAGE : ""),
+        toolCalls: this._streamToolCalls.length > 0 ? this._streamToolCalls : undefined,
+        thinkingContent: this._streamThinking || undefined,
+        timestamp: new Date().toISOString(),
+        cancelled: shouldSurfaceCancelled || undefined,
+        errorDetail: cancellationErrorDetail,
+        durationMs: resultDurationMs,
+        inputTokens: resultInputTokens,
+        outputTokens: resultOutputTokens,
+      };
+      void this.enqueuePersist(assistantMsg);
+    }
+
+    this._metadata.messageCount = this.messageCount;
+    this._metadata.updatedAt = new Date().toISOString();
+    this.persistQueue = this.persistQueue
+      .then(() => this.saveMetadata())
+      .catch((err) => console.error("[session] Persist metadata failed:", err));
+
+    const unansweredBlockingTools = killedForBlockingTool
+      ? this._streamToolCalls.filter((tc) => blockingToolNames.has(tc.name))
+      : [];
+
+    this._streamText = "";
+    this._streamThinking = "";
+    this._streamToolCalls = [];
+    this._agentPlanMode = false;
+
+    const pendingToolName = unansweredBlockingTools.length > 0
+      ? unansweredBlockingTools[0]!.name
+      : undefined;
+
+    void (async () => {
+      try {
+        await this.persistQueue;
+        if (shouldSurfaceCancelled) {
+          const cancelDurationMs = resultDurationMs
+            ?? (capturedStreamingStart ? Date.now() - capturedStreamingStart : undefined);
+          this.emit("message", {
+            type: "cancelled",
+            sessionId: this.sessionId,
+            errorDetail: cancellationErrorDetail,
+            userInitiated: capturedStopReason === "user",
+            durationMs: cancelDurationMs,
+          });
+        } else if (!cancelledByPark) {
+          this.emit("message", {
+            type: "done",
+            sessionId: this.sessionId,
+            durationMs: resultDurationMs,
+            inputTokens: resultInputTokens,
+            outputTokens: resultOutputTokens,
+            pendingToolName,
+          });
+        }
+
+        for (const tool of unansweredBlockingTools) {
+          let input: unknown;
+          try {
+            input = JSON.parse(tool.input);
+          } catch {
+            input = {};
+          }
+          this.emit("message", {
+            type: "tool_input_required",
+            sessionId: this.sessionId,
+            requestId: nanoid(12),
+            toolName: tool.name,
+            toolUseId: tool.id,
+            input,
+          });
+        }
+      } finally {
+        this.emit("exit", exitCode);
+      }
+    })();
   }
 
   /** Stop the currently streaming process. */
   stop(reason: StopReason = "user"): void {
+    if (this.codexAppServer && this._status === "streaming") {
+      const appServer = this.codexAppServer;
+      this.stopReason = reason;
+      if (appServer.capturedTurnId) {
+        appServer.interruptActiveTurn();
+        if (reason === "park") {
+          appServer.close();
+          this.codexAppServer = null;
+        } else {
+          setTimeout(() => {
+            if (this.codexAppServer === appServer && this._status === "streaming") {
+              appServer.close();
+              this.codexAppServer = null;
+            }
+          }, 5000);
+        }
+      } else {
+        appServer.close();
+        this.codexAppServer = null;
+      }
+      return;
+    }
+
+    if (reason === "park" && this.codexAppServer) {
+      this.codexAppServer.close();
+      this.codexAppServer = null;
+    }
+
     if (!this.process) {
       this.emit("exit", 0);
       return;
