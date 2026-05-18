@@ -1,9 +1,13 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ImageIcon, ImageOffIcon } from "lucide-react";
 import { api } from "@/hooks/useApi";
 import { highlightCode } from "@/lib/shiki";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useThemeType } from "@/hooks/useThemeType";
+import { resolveImageSrc } from "@/lib/image-url";
+import { isImageFilePath, workspaceFileRawPath } from "@/lib/file-preview";
+import { cn } from "@/lib/utils";
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: "typescript",
@@ -41,14 +45,58 @@ function getLang(filePath: string): string {
   return EXT_TO_LANG[ext] ?? "text";
 }
 
+function basename(filePath: string): string {
+  return filePath.split("/").pop() ?? filePath;
+}
+
 interface FileViewerProps {
   wsId: string;
   filePath: string;
 }
 
+function ImageFilePreview({ wsId, filePath }: FileViewerProps) {
+  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
+  const src = resolveImageSrc(workspaceFileRawPath(wsId, filePath));
+  const name = basename(filePath);
+
+  useEffect(() => {
+    setStatus("loading");
+  }, [src]);
+
+  return (
+    <div className="file-viewer-image min-h-0 flex-1 overflow-auto bg-muted/20 p-4">
+      <div className="flex min-h-full min-w-full items-center justify-center">
+        {status === "loading" && (
+          <div className="flex w-full max-w-sm flex-col items-center gap-3 rounded-md border border-border/50 bg-background/70 px-5 py-6 text-sm text-muted-foreground">
+            <ImageIcon className="size-5" />
+            <span>Loading image preview...</span>
+          </div>
+        )}
+        {status === "error" && (
+          <div className="flex w-full max-w-sm flex-col items-center gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-5 py-6 text-center text-sm text-destructive">
+            <ImageOffIcon className="size-5" />
+            <span>Preview is not available for this image format.</span>
+          </div>
+        )}
+        <img
+          src={src}
+          alt={name}
+          className={cn(
+            "max-h-full max-w-full rounded-md border border-border/50 bg-background object-contain shadow-sm",
+            status !== "loaded" && "hidden",
+          )}
+          onLoad={() => setStatus("loaded")}
+          onError={() => setStatus("error")}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function FileViewer({ wsId, filePath }: FileViewerProps) {
   const theme = useThemeType();
   const shikiTheme = theme === "dark" ? "github-dark" : "github-light";
+  const isImageFile = isImageFilePath(filePath);
 
   const fileQuery = useQuery({
     queryKey: ["file", wsId, filePath],
@@ -56,12 +104,16 @@ export function FileViewer({ wsId, filePath }: FileViewerProps) {
       api.get<{ content: string; path: string }>(
         `/api/workspaces/${wsId}/file?path=${encodeURIComponent(filePath)}`,
       ),
-    enabled: !!wsId && !!filePath,
+    enabled: !!wsId && !!filePath && !isImageFile,
     staleTime: 2 * 60 * 1000,
   });
 
   const [html, setHtml] = useState("");
   useEffect(() => {
+    if (isImageFile) {
+      setHtml("");
+      return;
+    }
     if (!fileQuery.data) {
       setHtml("");
       return;
@@ -73,7 +125,11 @@ export function FileViewer({ wsId, filePath }: FileViewerProps) {
     return () => {
       cancelled = true;
     };
-  }, [fileQuery.data, filePath, shikiTheme]);
+  }, [fileQuery.data, filePath, isImageFile, shikiTheme]);
+
+  if (isImageFile) {
+    return <ImageFilePreview wsId={wsId} filePath={filePath} />;
+  }
 
   const loading = fileQuery.isLoading || (!!fileQuery.data && !html);
   const error = fileQuery.error?.message ?? null;

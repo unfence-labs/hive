@@ -22,6 +22,7 @@ interface FileContentToolbarProps {
   onDiffStyleChange: (style: "split" | "unified") => void;
   commentCount: number;
   onPasteToPrompt: () => void;
+  sourceLabel?: string;
 }
 
 export function FileContentToolbar({
@@ -36,6 +37,7 @@ export function FileContentToolbar({
   onDiffStyleChange,
   commentCount,
   onPasteToPrompt,
+  sourceLabel = "Source",
 }: FileContentToolbarProps) {
   const parts = filePath.split("/");
   const basename = parts.pop() ?? filePath;
@@ -112,7 +114,7 @@ export function FileContentToolbar({
           {/* Source / Diff toggle */}
           <div className="flex items-center rounded-lg bg-muted p-0.5">
             <button type="button" onClick={() => onModeChange("source")} className={toggleCls(mode === "source")}>
-              Source
+              {sourceLabel}
             </button>
             <Tooltip>
               <TooltipTrigger asChild>

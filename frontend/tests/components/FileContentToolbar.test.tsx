@@ -59,6 +59,15 @@ describe("FileContentToolbar", () => {
     expect(onModeChange).toHaveBeenNthCalledWith(2, "source");
   });
 
+  it("allows the source tab label to describe previews", async () => {
+    const user = userEvent.setup();
+    const { onModeChange } = renderToolbar({ sourceLabel: "Preview" });
+
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+
+    expect(onModeChange).toHaveBeenCalledWith("source");
+  });
+
   it("shows diff controls in diff mode and forwards style changes", async () => {
     const user = userEvent.setup();
     const { onDiffStyleChange } = renderToolbar({
