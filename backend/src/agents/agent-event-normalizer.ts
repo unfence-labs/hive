@@ -14,6 +14,19 @@ export type NormalizedAgentEvent =
   | { type: "tool_started"; id: string; name: string; rawName: string; input: string; parentToolUseId?: string }
   | { type: "tool_updated"; id: string; input: string }
   | { type: "tool_completed"; id: string; output: string }
+  | {
+      type: "command_execution_updated";
+      id: string;
+      command?: string;
+      cwd?: string;
+      status?: string;
+      outputDelta?: string;
+      output?: string;
+      exitCode?: number;
+      durationMs?: number;
+    }
+  | { type: "file_change_updated"; id: string; path?: string; diff?: string; status?: string }
+  | { type: "plan_updated"; id: string; steps: Array<{ text: string; status: string }> }
   | { type: "plan_mode_changed"; active: boolean }
   | { type: "usage_updated"; inputTokens: number; outputTokens: number };
 

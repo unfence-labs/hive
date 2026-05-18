@@ -14,6 +14,8 @@ vi.mock("node:child_process", () => ({
 import { spawn } from "node:child_process";
 import { ConversationSession } from "./conversation-session.js";
 import * as providerRegistry from "./providers/registry.js";
+import type { AgentRunnerFactory } from "./runners/factory.js";
+import type { AgentRunner, AgentRunnerEvent } from "./runners/types.js";
 
 const mockSpawn = vi.mocked(spawn);
 
@@ -231,6 +233,110 @@ describe("ConversationSession", () => {
       sessionKind: opts?.sessionKind,
     });
   }
+
+  it("can orchestrate a turn with an injected fake runner", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("assistant", {
+        type: "assistant",
+        message: {
+          id: "msg-fake",
+          role: "assistant",
+          content: [{ type: "text", text: "fake reply" }],
+        },
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-fake", duration_ms: 9 });
+      fakeRunner.emit("exit", 0, "provider-fake");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "claude",
+      modelId: "opus-4-7",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-fake",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "fake-runner-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hello fake");
+
+    const done = await waitForMessages(messages, "done");
+    expect(done).toHaveLength(1);
+    expect(messages).toContainEqual({
+      type: "text_delta",
+      sessionId: "fake-runner-session",
+      text: "fake reply",
+    });
+    expect(session.metadata.providerSessionId).toBe("provider-fake");
+    expect(mockSpawn).not.toHaveBeenCalled();
+  });
+
+  it("preserves command metadata when output-only updates stream in", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "command_execution_updated",
+        id: "cmd-1",
+        command: "npm test",
+        cwd: "/tmp/test",
+        status: "inProgress",
+      });
+      fakeRunner.emit("agent_event", {
+        type: "command_execution_updated",
+        id: "cmd-1",
+        outputDelta: "ok\n",
+        output: "ok\n",
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-cmd", duration_ms: 4 });
+      fakeRunner.emit("exit", 0, "provider-cmd");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-cmd",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "command-metadata-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Run command");
+
+    await waitForMessages(messages, "done");
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    const commandInput = JSON.parse(assistant?.toolCalls?.[0]?.input ?? "{}") as { command?: string; cwd?: string };
+
+    expect(commandInput).toMatchObject({
+      command: "npm test",
+      cwd: "/tmp/test",
+    });
+    expect(assistant?.toolCalls?.[0]?.output).toBe("ok\n");
+  });
 
   it("creates session with a sessionId", () => {
     const session = createSession();

@@ -3,12 +3,10 @@ import { mkdir, readFile, writeFile, open } from "node:fs/promises";
 import { join } from "node:path";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
-import { AgentEventNormalizer } from "./agent-event-normalizer.js";
-import { StreamParser } from "./stream-parser.js";
+import { AgentEventNormalizer, type NormalizedAgentEvent } from "./agent-event-normalizer.js";
 import { resolveProvider } from "./providers/registry.js";
 import type { AgentProvider } from "./providers/types.js";
-import { CodexAppServerRunner } from "./runners/codex-app-server-runner.js";
-import { ProcessAgentRunner } from "./runners/process-agent-runner.js";
+import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js";
 import type { AgentRunner, StopReason } from "./runners/types.js";
 import { DEBUG_AGENT_LOGS } from "../utils/env.js";
 import type {
@@ -36,6 +34,10 @@ function buildCancellationErrorDetail(exitCode: number, lastStderr: string | und
   return sanitizeErrorDetail(`exit code ${exitCode}${suffix}`);
 }
 
+function formatNormalizedExitCode(exitCode: number | undefined): string {
+  return exitCode === undefined ? "" : `Exit code: ${exitCode}`;
+}
+
 type SessionKind = "chat" | "automation";
 
 export interface ConversationSessionConfig {
@@ -48,6 +50,7 @@ export interface ConversationSessionConfig {
   skipPermissions?: boolean;
   browserEnv?: Record<string, string>;
   sessionKind?: SessionKind;
+  runnerFactory?: AgentRunnerFactory;
 }
 
 export type ConversationSessionEvent = {
@@ -64,11 +67,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private readonly systemPrompt: string | undefined;
   private readonly skipPermissions: boolean;
   private readonly sessionKind: SessionKind;
+  private readonly runnerFactory: AgentRunnerFactory;
   private browserEnv: Record<string, string> | undefined;
   private readonly sessionDir: string;
   private readonly workspaceId: string;
   private runner: AgentRunner | null = null;
-  private codexAppServerRunner: CodexAppServerRunner | null = null;
+  private codexAppServerRunner: AgentRunner | null = null;
   private _status: "idle" | "streaming" | "error" = "idle";
   private _streamingStartedAt: number | null = null;
   private messageCount = 0;
@@ -94,6 +98,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.systemPrompt = config.systemPrompt;
     this.skipPermissions = config.skipPermissions ?? true;
     this.sessionKind = config.sessionKind ?? "chat";
+    this.runnerFactory = config.runnerFactory ?? createAgentRunner;
     this.browserEnv = config.browserEnv;
     this.workspaceId = config.workspaceId;
     this.sessionDir = join(config.dataDir, "sessions", this.sessionId);
@@ -319,84 +324,41 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       ? { provider: null as AgentProvider | null, modelId: "" }
       : (preResolved ?? resolveProvider(msgOptions?.model));
 
-    const useCodexAppServer = !this.testCommand && provider!.id === "codex" && this.sessionKind === "chat";
-
-    // Pre-generate a session ID for CLI continuity
-    if (!useCodexAppServer && !this.cliSessionId) {
-      this.setProviderSessionId(crypto.randomUUID());
+    const runnerSelection = this.runnerFactory({
+      cwd: this.cwd,
+      content,
+      msgOptions,
+      resolved: preResolved ?? (provider ? { provider, modelId } : undefined),
+      testCommand: this.testCommand,
+      isFirstMessage,
+      systemPrompt: this.systemPrompt,
+      skipPermissions: this.skipPermissions,
+      browserEnv: this.browserEnv,
+      sessionKind: this.sessionKind,
+      providerSessionId: this.cliSessionId,
+      imagePaths,
+      existingCodexAppServerRunner: this.codexAppServerRunner,
+    });
+    if (runnerSelection.providerSessionId && !this.cliSessionId) {
+      this.setProviderSessionId(runnerSelection.providerSessionId);
+    }
+    if (runnerSelection.cachedCodexAppServerRunner) {
+      this.codexAppServerRunner = runnerSelection.cachedCodexAppServerRunner;
     }
 
-    let command: string;
-    let args: string[];
-    let env: Record<string, string> | undefined;
-    let stdinContent: string | undefined;
-
-    if (useCodexAppServer) {
-      command = "codex";
-      args = ["app-server", "--listen", "stdio://"];
-      stdinContent = content;
-      env = {
-        ...(provider!.buildEnv({ ...msgOptions, model: modelId }) ?? {}),
-        ...(this.browserEnv ?? {}),
-      };
-    } else if (this.testCommand) {
-      // Test mode: use raw command (e.g. "bash") — no provider
-      command = this.testCommand;
-      args = ["-c", `echo '{"type":"result","session_id":"test","duration_ms":0}'`];
-      env = undefined;
-    } else {
-      command = provider!.command;
-
-      // For providers without a native system-prompt flag (Codex, Gemini),
-      // prepend the system prompt to the first user message content.
-      let cliContent = content;
-      if (isFirstMessage && this.systemPrompt && provider!.id !== "claude") {
-        cliContent = `<context>\n${this.systemPrompt}\n</context>\n\n${content}`;
-      }
-
-      const providerSessionId = this.cliSessionId;
-      if (!providerSessionId) {
-        throw new Error("Provider session ID was not initialized");
-      }
-
-      args = provider!.buildArgs(cliContent, { ...msgOptions, model: modelId }, {
-        isFirstMessage,
-        sessionId: providerSessionId,
-        systemPrompt: this.systemPrompt,
-        skipPermissions: this.skipPermissions,
-      });
-      if (provider!.id === "codex") {
-        stdinContent = cliContent;
-      }
-      env = {
-        ...(provider!.buildEnv({ ...msgOptions, model: modelId }) ?? {}),
-        ...(this.browserEnv ?? {}),
-      };
-    }
-
-    const supportsBlockingTools = provider?.capabilities.blockingTools ?? false;
+    const useCodexAppServer = runnerSelection.protocol === "codex_app_server";
+    const supportsBlockingTools = runnerSelection.supportsBlockingTools;
 
     if (DEBUG_AGENT_LOGS) {
-      console.log(`[session] start runner ${command}`, {
-        provider: provider?.id ?? "test",
-        model: modelId || undefined,
+      console.log(`[session] start runner ${runnerSelection.debug.command}`, {
+        provider: runnerSelection.providerId ?? "test",
+        model: runnerSelection.modelId || undefined,
         msgOptions,
-        args: args.filter((a) => a !== content && !a.includes("You are")),
+        args: runnerSelection.debug.args.filter((a) => a !== content && !a.includes("You are")),
       });
     }
 
-    const runner: AgentRunner = useCodexAppServer
-      ? (this.codexAppServerRunner ??= new CodexAppServerRunner())
-      : new ProcessAgentRunner({
-          command,
-          args,
-          cwd: this.cwd,
-          env,
-          stdinContent,
-          parser: this.testCommand ? new StreamParser() : provider!.createStreamAdapter(),
-          providerId: provider?.id,
-          useWorkspaceEnv: !this.testCommand,
-        });
+    const runner = runnerSelection.runner;
     runner.removeAllListeners();
     this.runner = runner;
 
@@ -421,82 +383,34 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         console.log("[session] assistant blocks:", blockTypes, JSON.stringify(data.message.content).slice(0, 500));
       }
       for (const event of normalizer.handleAssistant(data)) {
-        switch (event.type) {
-          case "text_delta":
-            this._streamText += event.text;
-            this.emit("message", { type: "text_delta", sessionId: this.sessionId, text: event.text });
-            break;
-          case "thinking_delta":
-            this._streamThinking += event.text;
-            this.emit("message", { type: "thinking", sessionId: this.sessionId, text: event.text });
-            break;
-          case "tool_started":
-            this._streamToolCalls.push({
-              id: event.id,
-              name: event.name,
-              input: event.input,
-              parentToolUseId: event.parentToolUseId,
-            });
-            this.emit("message", {
-              type: "tool_use",
-              sessionId: this.sessionId,
-              id: event.id,
-              name: event.name,
-              input: event.input,
-              parentToolUseId: event.parentToolUseId,
-            });
-
-            if (supportsBlockingTools && blockingToolNames.has(event.rawName) && this.runner?.forceKill?.()) {
-              killedForBlockingTool = true;
-              this._lastBlockingToolUseId = event.id;
-            }
-            break;
-          case "tool_updated": {
-            const tc = this._streamToolCalls.find((t) => t.id === event.id);
-            if (tc) tc.input = event.input;
-            break;
-          }
-          case "tool_completed": {
-            const tc = this._streamToolCalls.find((t) => t.id === event.id);
-            if (tc) tc.output = event.output;
-            this.emit("message", {
-              type: "tool_result",
-              sessionId: this.sessionId,
-              toolUseId: event.id,
-              output: event.output,
-            });
-            break;
-          }
-          case "plan_mode_changed":
-            this._agentPlanMode = event.active;
-            this.emit("message", {
-              type: "plan_mode_changed",
-              sessionId: this.sessionId,
-              active: this._agentPlanMode,
-            } as WsOutgoing);
-            break;
-          case "redacted_thinking":
-            this._streamThinking += event.text;
-            break;
-          case "usage_updated":
-            resultInputTokens = event.inputTokens;
-            resultOutputTokens = event.outputTokens;
-            break;
+        const usage = this.handleNormalizedAgentEvent(event, { supportsBlockingTools, blockingToolNames });
+        if (usage) {
+          resultInputTokens = usage.inputTokens;
+          resultOutputTokens = usage.outputTokens;
+        }
+        if (
+          event.type === "tool_started" &&
+          supportsBlockingTools &&
+          blockingToolNames.has(event.rawName) &&
+          this.runner?.forceKill?.()
+        ) {
+          killedForBlockingTool = true;
+          this._lastBlockingToolUseId = event.id;
         }
       }
     });
 
     runner.on("user", (data) => {
       for (const event of normalizer.handleUser(data)) {
-        if (event.type !== "tool_completed") continue;
-        const tc = this._streamToolCalls.find((t) => t.id === event.id);
-        if (tc) tc.output = event.output;
-        this.emit("message", {
-          type: "tool_result",
-          sessionId: this.sessionId,
-          toolUseId: event.id,
-          output: event.output,
-        });
+        this.handleNormalizedAgentEvent(event, { supportsBlockingTools, blockingToolNames });
+      }
+    });
+
+    runner.on("agent_event", (event) => {
+      const usage = this.handleNormalizedAgentEvent(event, { supportsBlockingTools, blockingToolNames });
+      if (usage) {
+        resultInputTokens = usage.inputTokens;
+        resultOutputTokens = usage.outputTokens;
       }
     });
 
@@ -535,7 +449,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     });
 
     if (useCodexAppServer) {
-      const appServer = runner as CodexAppServerRunner;
       let finalized = false;
       const finish = (exitCode: number, failureDetail?: string) => {
         if (finalized) return;
@@ -552,7 +465,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         });
       };
 
-      appServer.once("result", (data) => {
+      runner.once("result", (data) => {
         const status = data.status ?? "completed";
         if (status === "completed") {
           finish(this.stopReason ? 1 : 0);
@@ -567,22 +480,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         }
         finish(1, data.error ?? `Codex app-server turn ended with status "${status}".`);
       });
-      appServer.once("error", (err) => {
+      runner.once("error", (err) => {
         lastStderr = sanitizeErrorDetail(err.message);
         finish(1);
       });
-
-      const model = provider!.models.find((m) => m.id === modelId);
-      appServer.startTurn({
-        cwd: this.cwd,
-        content: stdinContent ?? content,
-        imagePaths,
-        model: model?.cliValue ?? modelId,
-        thinkingLevel: msgOptions?.thinkingLevel ?? "high",
-        systemPrompt: this.systemPrompt,
-        threadId: this.cliSessionId,
-        env,
-      });
+      runnerSelection.start();
       return;
     }
 
@@ -622,7 +524,130 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         blockingToolNames,
       });
     });
-    runner.start();
+    runnerSelection.start();
+  }
+
+  private handleNormalizedAgentEvent(
+    event: NormalizedAgentEvent,
+    _context: { supportsBlockingTools: boolean; blockingToolNames: Set<string> },
+  ): { inputTokens: number; outputTokens: number } | undefined {
+    switch (event.type) {
+      case "text_delta":
+        this._streamText += event.text;
+        this.emit("message", { type: "text_delta", sessionId: this.sessionId, text: event.text });
+        break;
+      case "thinking_delta":
+        this._streamThinking += event.text;
+        this.emit("message", { type: "thinking", sessionId: this.sessionId, text: event.text });
+        break;
+      case "tool_started":
+        this.upsertToolCall(event.id, event.name, event.input, event.parentToolUseId);
+        break;
+      case "tool_updated": {
+        const tc = this._streamToolCalls.find((t) => t.id === event.id);
+        if (tc) tc.input = event.input;
+        break;
+      }
+      case "tool_completed":
+        this.completeToolCall(event.id, event.output);
+        break;
+      case "plan_mode_changed":
+        this._agentPlanMode = event.active;
+        this.emit("message", {
+          type: "plan_mode_changed",
+          sessionId: this.sessionId,
+          active: this._agentPlanMode,
+        } as WsOutgoing);
+        break;
+      case "redacted_thinking":
+        this._streamThinking += event.text;
+        break;
+      case "usage_updated":
+        return { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+      case "command_execution_updated":
+        this.handleCommandExecutionEvent(event);
+        break;
+      case "file_change_updated":
+        this.handleFileChangeEvent(event);
+        break;
+      case "plan_updated":
+        this.handlePlanUpdateEvent(event);
+        break;
+    }
+    return undefined;
+  }
+
+  private upsertToolCall(id: string, name: string, input: string, parentToolUseId?: string): void {
+    const existing = this._streamToolCalls.find((t) => t.id === id);
+    if (existing) {
+      existing.input = input;
+      return;
+    }
+    this._streamToolCalls.push({ id, name, input, parentToolUseId });
+    this.emit("message", {
+      type: "tool_use",
+      sessionId: this.sessionId,
+      id,
+      name,
+      input,
+      parentToolUseId,
+    });
+  }
+
+  private completeToolCall(id: string, output: string): void {
+    const tc = this._streamToolCalls.find((t) => t.id === id);
+    if (tc) tc.output = output;
+    this.emit("message", {
+      type: "tool_result",
+      sessionId: this.sessionId,
+      toolUseId: id,
+      output,
+    });
+  }
+
+  private handleCommandExecutionEvent(event: Extract<NormalizedAgentEvent, { type: "command_execution_updated" }>): void {
+    const existing = this._streamToolCalls.find((t) => t.id === event.id);
+    const hasInputUpdate =
+      event.command !== undefined ||
+      event.cwd !== undefined ||
+      event.status !== undefined ||
+      event.exitCode !== undefined ||
+      event.durationMs !== undefined;
+
+    if (!existing || hasInputUpdate) {
+      const input = JSON.stringify({
+        command: event.command ?? "",
+        cwd: event.cwd,
+        status: event.status,
+        exitCode: event.exitCode,
+        durationMs: event.durationMs,
+      });
+      this.upsertToolCall(event.id, "Bash", input);
+    }
+
+    const tc = this._streamToolCalls.find((t) => t.id === event.id);
+    const nextOutput = event.output ?? `${tc?.output ?? ""}${event.outputDelta ?? ""}`;
+    if (event.outputDelta !== undefined || event.output !== undefined || event.exitCode !== undefined) {
+      this.completeToolCall(event.id, nextOutput || formatNormalizedExitCode(event.exitCode));
+    }
+  }
+
+  private handleFileChangeEvent(event: Extract<NormalizedAgentEvent, { type: "file_change_updated" }>): void {
+    const input = JSON.stringify({
+      filename: event.path ?? "",
+      diff: event.diff ?? "",
+      status: event.status,
+    });
+    this.upsertToolCall(event.id, "Edit", input);
+    if (event.diff || event.status) {
+      this.completeToolCall(event.id, event.diff || event.status || "");
+    }
+  }
+
+  private handlePlanUpdateEvent(event: Extract<NormalizedAgentEvent, { type: "plan_updated" }>): void {
+    const payload = JSON.stringify({ steps: event.steps });
+    this.upsertToolCall(event.id, "TodoList", payload);
+    this.completeToolCall(event.id, payload);
   }
 
   private finalizeTurn({
@@ -750,7 +775,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   /** Stop the currently streaming process. */
   stop(reason: StopReason = "user"): void {
     if (reason === "park" && this.codexAppServerRunner && this.runner !== this.codexAppServerRunner) {
-      this.codexAppServerRunner.close();
+      this.codexAppServerRunner.close?.();
       this.codexAppServerRunner = null;
     }
 

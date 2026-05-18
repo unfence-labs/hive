@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
+import type { NormalizedAgentEvent } from "../agent-event-normalizer.js";
 import type { StreamParserEvent } from "../stream-parser.js";
 import type { ThinkingLevel } from "./types.js";
 import { buildWorkspaceEnv } from "../../utils/env.js";
@@ -25,6 +26,10 @@ interface JsonRpcNotification {
 }
 
 type JsonRpcMessage = JsonRpcResponse | JsonRpcRequest | JsonRpcNotification;
+
+type CodexAppServerEvent = StreamParserEvent & {
+  agent_event: [event: NormalizedAgentEvent];
+};
 
 type UserInput =
   | { type: "text"; text: string; text_elements: unknown[] }
@@ -130,7 +135,7 @@ const CLIENT_INFO = {
  * Codex version, so this bridge keeps a deliberately small typed surface for the
  * protocol fields Hive consumes and leaves unknown fields untouched.
  */
-export class CodexAppServerSession extends EventEmitter<StreamParserEvent> {
+export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private proc: ChildProcessWithoutNullStreams | null = null;
   private initialized: Promise<void> | null = null;
   private buffer = "";
@@ -342,6 +347,24 @@ export class CodexAppServerSession extends EventEmitter<StreamParserEvent> {
       case "item/fileChange/requestApproval":
         this.respond(request.id, { decision: "accept" });
         break;
+      case "execCommandApproval":
+        this.respond(request.id, { decision: "approved" });
+        break;
+      case "applyPatchApproval":
+        this.respond(request.id, { decision: "approved" });
+        break;
+      case "item/permissions/requestApproval":
+        this.respondError(request.id, "Permission approval requests are not supported by Hive");
+        break;
+      case "item/tool/requestUserInput":
+        this.respondError(request.id, "Tool user-input requests are not supported by Hive");
+        break;
+      case "mcpServer/elicitation/request":
+        this.respondError(request.id, "MCP elicitation requests are not supported by Hive");
+        break;
+      case "item/tool/call":
+        this.respondError(request.id, "Tool call requests are not supported by Hive");
+        break;
       default:
         this.respondError(request.id, `${request.method} is not supported by Hive`);
         break;
@@ -389,7 +412,12 @@ export class CodexAppServerSession extends EventEmitter<StreamParserEvent> {
         if (itemId && delta) {
           const next = `${this.commandOutputs.get(itemId) ?? ""}${delta}`;
           this.commandOutputs.set(itemId, next);
-          this.emitToolResult(itemId, next);
+          this.emit("agent_event", {
+            type: "command_execution_updated",
+            id: itemId,
+            outputDelta: delta,
+            output: next,
+          });
         }
         break;
       }
@@ -398,8 +426,7 @@ export class CodexAppServerSession extends EventEmitter<StreamParserEvent> {
         const changes = asArray(data?.changes) as FileUpdateChange[] | undefined;
         if (itemId && changes) {
           this.fileChanges.set(itemId, changes);
-          this.emitToolUse(itemId, "Edit", JSON.stringify(fileChangeInput({ changes })));
-          this.emitToolResult(itemId, formatFileChanges(changes));
+          this.emitFileChangeEvents(itemId, changes);
         }
         break;
       }
@@ -461,16 +488,26 @@ export class CodexAppServerSession extends EventEmitter<StreamParserEvent> {
       }
       case "commandExecution": {
         const commandItem = item as Extract<ThreadItem, { type: "commandExecution" }>;
-        this.emitToolUse(commandItem.id, "Bash", JSON.stringify({
+        this.emit("agent_event", {
+          type: "command_execution_updated",
+          id: commandItem.id,
           command: commandItem.command ?? "",
           cwd: commandItem.cwd,
           status: commandItem.status,
-        }));
+          exitCode: asNullableNumber(commandItem.exitCode),
+          durationMs: asNullableNumber(commandItem.durationMs),
+        });
         if (phase === "completed") {
-          this.emitToolResult(
-            commandItem.id,
-            commandItem.aggregatedOutput ?? this.commandOutputs.get(commandItem.id) ?? formatExitCode(commandItem.exitCode),
-          );
+          this.emit("agent_event", {
+            type: "command_execution_updated",
+            id: commandItem.id,
+            command: commandItem.command ?? "",
+            cwd: commandItem.cwd,
+            status: commandItem.status,
+            output: commandItem.aggregatedOutput ?? this.commandOutputs.get(commandItem.id) ?? formatExitCode(commandItem.exitCode),
+            exitCode: asNullableNumber(commandItem.exitCode),
+            durationMs: asNullableNumber(commandItem.durationMs),
+          });
         }
         break;
       }
@@ -478,8 +515,7 @@ export class CodexAppServerSession extends EventEmitter<StreamParserEvent> {
         const fileItem = item as Extract<ThreadItem, { type: "fileChange" }>;
         const changes = fileItem.changes?.length ? fileItem.changes : this.fileChanges.get(fileItem.id);
         if (changes?.length) {
-          this.emitToolUse(fileItem.id, "Edit", JSON.stringify(fileChangeInput({ ...fileItem, changes })));
-          this.emitToolResult(fileItem.id, formatFileChanges(changes));
+          this.emitFileChangeEvents(fileItem.id, changes, fileItem.status);
         }
         break;
       }
@@ -530,14 +566,27 @@ export class CodexAppServerSession extends EventEmitter<StreamParserEvent> {
       .filter((entry): entry is JsonObject => entry != null)
       .map((entry) => ({
         text: asString(entry.step) ?? "",
-        completed: asString(entry.status) === "completed",
+        status: asString(entry.status) ?? "pending",
       }))
       .filter((entry) => entry.text);
     if (items.length === 0) return;
     const id = `codex-plan-${turnId}`;
-    const payload = JSON.stringify({ items });
-    this.emitToolUse(id, "TodoList", payload);
-    this.emitToolResult(id, payload);
+    this.emit("agent_event", {
+      type: "plan_updated",
+      id,
+      steps: items,
+    });
+  }
+
+  private emitFileChangeEvents(itemId: string, changes: FileUpdateChange[], status?: string): void {
+    const firstChange = changes[0];
+    this.emit("agent_event", {
+      type: "file_change_updated",
+      id: itemId,
+      path: firstChange?.path,
+      diff: changes.map((change) => change.diff).filter(Boolean).join("\n"),
+      status: status ?? (firstChange ? formatChangeKind(firstChange.kind) : undefined),
+    });
   }
 
   private emitTextDelta(itemId: string | undefined, delta: string | undefined): void {
@@ -623,6 +672,10 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
+function asNullableNumber(value: number | null | undefined): number | undefined {
+  return typeof value === "number" ? value : undefined;
+}
+
 function asTurnStatus(value: unknown): TurnStatus {
   if (value === "completed" || value === "interrupted" || value === "failed" || value === "inProgress") {
     return value;
@@ -659,24 +712,6 @@ function usageFromTokenUsage(value: TokenUsage | undefined): {
 
 function formatExitCode(exitCode: number | null | undefined): string {
   return exitCode == null ? "" : `Exit code: ${exitCode}`;
-}
-
-function fileChangeInput(item: { changes?: FileUpdateChange[]; status?: string }): JsonObject {
-  const changes = item.changes ?? [];
-  return {
-    filename: changes[0]?.path ?? "",
-    diff: changes.map((change) => change.diff).filter(Boolean).join("\n"),
-    changes,
-    status: item.status,
-  };
-}
-
-function formatFileChanges(changes: FileUpdateChange[]): string {
-  const diff = changes.map((change) => change.diff).filter(Boolean).join("\n");
-  if (diff) return diff;
-  return changes
-    .map((change) => `${formatChangeKind(change.kind)}: ${change.path ?? "(unknown)"}`)
-    .join("\n");
 }
 
 function formatChangeKind(kind: unknown): string {

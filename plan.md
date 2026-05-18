@@ -1,20 +1,28 @@
 # Codex App Server Integration Plan
 
-## Current PR Assessment
+## Current Status
 
-This branch does not match the original PR 1 scope.
+This work is intentionally staying in one Git PR, but it is being implemented in clean feature layers.
 
-The intended PR 1 was a behavior-preserving refactor: add `sessionKind`, introduce a runner abstraction, keep Codex chat and automations on the existing `codex exec --json` path, and prepare the codebase for App Server without changing runtime behavior.
+Completed so far:
 
-The current branch already does more than that:
+- Codex chat sessions route to `codex app-server`.
+- Codex automations explicitly use `sessionKind: "automation"` and stay on `codex exec --json`.
+- `providerSessionId` is the canonical provider-native session/thread id, with `claudeSessionId` retained for compatibility.
+- `turn/completed.turn.status` is now respected:
+  - `completed` emits normal `done`.
+  - `failed` emits a Hive error with `turn.error`.
+  - `interrupted` becomes cancellation only when Hive initiated a stop.
+- CLI process execution moved into `ProcessAgentRunner`.
+- Codex App Server stop/interruption lifecycle moved into `CodexAppServerRunner`.
+- Parser `assistant`/`user` blocks are mapped through `AgentEventNormalizer` before `ConversationSession` updates websocket state.
 
-- Codex chat sessions now route to `codex app-server`.
-- A substantial `CodexAppServerSession` JSON-RPC bridge has been added.
-- App Server item events are mapped into the existing text/tool/thinking stream.
-- The frontend has a small diff-rendering update for Codex-native edit output.
-- Automations are explicitly kept on `sessionKind: "automation"` and still use `codex exec --json`.
+Current shape:
 
-That is useful progress, but architecturally it mixes PR 1 and PR 2. `ConversationSession` still owns provider selection, process spawning, App Server lifecycle, parser wiring, stream accumulation, stop behavior, persistence, and UI event mapping. The runner abstraction from the original plan has not been created yet.
+- `ConversationSession` still owns persistence, metadata, stream accumulation, snapshots, and websocket event mapping.
+- Runners own process/protocol lifecycle.
+- A normalized backend event layer exists for text, thinking, tool start/update/completion, plan-mode toggles, and usage.
+- Rich Codex-native command/file/plan UI events are not implemented yet.
 
 ## Chosen Direction
 
@@ -22,7 +30,7 @@ This work will stay in one Git PR, but the implementation should still be split 
 
 ## Fix Plan Before More Features
 
-### Phase 1: Stabilize behavior and close correctness gaps
+### Phase 1: Stabilize behavior and close correctness gaps: done
 
 Fix the current App Server path before expanding it.
 
@@ -32,7 +40,7 @@ Tasks:
 - Treat `completed` as success.
 - Treat `failed` as an error and surface `turn.error`.
 - Treat `interrupted` as cancellation or park, depending on Hive stop reason.
-- Add tests for completed, failed, interrupted, and malformed turn completion payloads.
+- Add tests for completed, failed, and interrupted turn completion payloads.
 - Keep Codex automations on `codex exec --json`.
 - Keep the current frontend behavior unchanged except for bug fixes.
 
@@ -42,14 +50,14 @@ Acceptance criteria:
 - A stopped Codex turn produces the same user-facing semantics as other providers.
 - Existing Claude, Gemini, and Codex automation tests still pass.
 
-### Phase 2: Extract the runner contract
+### Phase 2: Extract the runner contract: mostly done
 
 Move protocol execution out of `ConversationSession`.
 
 Tasks:
 
 - Add an `AgentRunner` interface.
-- Add a shared normalized event type for runner output.
+- Add a shared runner event contract.
 - Move CLI process execution into `ProcessAgentRunner`.
 - Move Codex App Server execution into `CodexAppServerRunner`.
 - Keep provider selection in one small factory, not inside the session turn body.
@@ -61,27 +69,40 @@ Acceptance criteria:
 - Adding another provider or protocol does not require editing the core turn orchestration logic.
 - Existing tests can use a fake runner without spawning fake processes.
 
-### Phase 3: Normalize events without changing the UI yet
+Remaining:
+
+- Move runner selection into a small factory.
+- Add direct unit tests for `ProcessAgentRunner` and `CodexAppServerRunner`.
+- Introduce a fake-runner test path for `ConversationSession`.
+
+### Phase 3: Normalize events without changing the UI yet: partially done
 
 Introduce the internal stream model while preserving current websocket messages.
 
 Tasks:
 
-- Add normalized events:
-  - `AgentTextDelta`
-  - `AgentThinkingDelta`
-  - `AgentToolStarted`
-  - `AgentToolUpdated`
-  - `AgentToolCompleted`
-  - `AgentPlanUpdated`
-  - `AgentFileChangeUpdated`
-  - `AgentUsageUpdated`
-  - `AgentDone`
-  - `AgentCancelled`
-  - `AgentError`
-- Map normalized events to the existing `WsOutgoing` messages.
-- Keep current `ToolCall` persistence compatible.
-- Add tests for the mapper separately from process/App Server tests.
+Done:
+
+- Added `AgentEventNormalizer`.
+- Added normalized events for:
+  - text deltas
+  - thinking deltas
+  - redacted thinking
+  - tool start
+  - tool update
+  - tool completion
+  - plan-mode toggle
+  - usage update
+- Mapped normalized events to the existing `WsOutgoing` messages.
+- Kept current `ToolCall` persistence compatible.
+- Added direct normalizer tests.
+
+Remaining:
+
+- Add richer normalized events for App Server-native command execution.
+- Add richer normalized events for App Server-native file changes.
+- Add richer normalized events for App Server-native plan updates.
+- Add turn-level `done`, `cancelled`, and `error` normalized events once `ConversationSession` no longer needs to own finalization details.
 
 Acceptance criteria:
 
@@ -151,18 +172,6 @@ Acceptance criteria:
 - Claude/Gemini UI does not regress.
 - The frontend consumes Hive events, not raw Codex protocol events.
 
-## Recommended Next Decision
-
-Before adding more UI, choose one of these paths:
-
-1. Split back to the planned PR shape.
-   Extract the runner abstraction first, keep App Server disabled or behind a flag, and ship PR 1 as a low-risk foundation.
-
-2. Accept this as a combined PR 1/2.
-   Then harden the App Server path immediately before expanding the frontend. This is faster, but riskier because the new protocol path is already live for Codex chat.
-
-My recommendation is path 1 if the target branch needs low-risk reviewability. If speed matters more, path 2 is acceptable only if we add the hardening items below before shipping.
-
 ## Sources and Product Direction
 
 OpenAI's App Server direction validates the original split:
@@ -180,7 +189,7 @@ References:
 
 ## Backend Work Remaining
 
-### 1. Extract the runner architecture
+### 1. Finish runner architecture cleanup
 
 Create an internal runner contract so `ConversationSession` stops knowing about protocol details.
 
@@ -207,7 +216,7 @@ Suggested shape:
 - stream accumulators and reconnect snapshots
 - tool-input continuation orchestration
 
-### 2. Add normalized runner events
+### 2. Expand normalized events
 
 Do not let the frontend depend on raw Codex App Server protocol events.
 
@@ -227,19 +236,7 @@ Use an internal event model like:
 
 Then map these to the existing `WsOutgoing` messages plus narrowly scoped new messages where the current protocol cannot represent the UX cleanly.
 
-### 3. Harden App Server turn status handling
-
-The current App Server path should inspect `turn/completed.turn.status`.
-
-Required behavior:
-
-- `completed` -> normal done
-- `interrupted` -> cancelled or parked, depending on Hive stop reason
-- `failed` -> error with `turn.error` surfaced and persisted
-
-Do not treat every `turn/completed` notification as success.
-
-### 4. Tighten approvals and permissions behavior
+### 3. Tighten approvals and permissions behavior
 
 Hive currently wants permissive execution without approval UX. That is fine, but it must be explicit and auditable.
 
@@ -255,7 +252,7 @@ Required behavior:
 
 Auto-accepting everything would be a weak security boundary and a bad future default.
 
-### 5. Improve App Server protocol coverage
+### 4. Improve App Server protocol coverage
 
 Map these App Server notifications into normalized events:
 
@@ -284,7 +281,7 @@ File changes should preserve:
 - status
 - patch failure details
 
-### 6. Make App Server lifecycle robust
+### 5. Make App Server lifecycle robust
 
 Add coverage for:
 
@@ -403,35 +400,11 @@ Validation:
 - one manual Codex chat smoke test through Hive
 - one automation run smoke test confirming `codex exec --json`
 
-## Suggested PR Split
+## Next Implementation Steps
 
-PR 1:
-
-- `sessionKind`
-- `providerSessionId`
-- runner interface
-- `ProcessAgentRunner`
-- no App Server behavior change by default
-- fake runner tests
-
-PR 2:
-
-- `CodexAppServerRunner`
-- Codex chat runner selection
-- App Server lifecycle hardening
-- feature flag if needed
-- backend protocol tests
-
-PR 3:
-
-- richer activity events
-- command/file/plan renderers
-- no redesign
-- frontend reducer and DOM tests
-
-PR 4:
-
-- metadata cleanup
-- dead code removal
-- broader regression tests
-- optional model discovery and later UX improvements
+1. Add direct runner tests.
+2. Move runner selection into a factory.
+3. Expand App Server event mapping for command execution, file changes, and plan updates.
+4. Add websocket event shapes only where the current `ToolCall` model cannot represent Codex-native activity cleanly.
+5. Implement frontend renderers using the existing chat/activity components.
+6. Run full backend and frontend validation before manual Hive smoke testing.
