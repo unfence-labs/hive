@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ImageIcon, ImageOffIcon } from "lucide-react";
+import { ImageOffIcon, Loader2Icon } from "lucide-react";
 import { api } from "@/hooks/useApi";
 import { highlightCode } from "@/lib/shiki";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -65,16 +65,23 @@ function ImageFilePreview({ wsId, filePath }: FileViewerProps) {
 
   return (
     <div className="file-viewer-image min-h-0 flex-1 overflow-auto bg-muted/20 p-4">
-      <div className="flex min-h-full min-w-full items-center justify-center">
+      <div className="grid min-h-full min-w-full place-items-center">
         {status === "loading" && (
-          <div className="flex w-full max-w-sm flex-col items-center gap-3 rounded-md border border-border/50 bg-background/70 px-5 py-6 text-sm text-muted-foreground">
-            <ImageIcon className="size-5" />
-            <span>Loading image preview...</span>
+          <div
+            className="flex w-full max-w-sm items-center justify-center gap-2 rounded-md border border-border/50 bg-background/70 px-4 py-3 text-sm text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2Icon className="size-4 motion-safe:animate-spin" />
+            <span>Loading preview...</span>
           </div>
         )}
         {status === "error" && (
-          <div className="flex w-full max-w-sm flex-col items-center gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-5 py-6 text-center text-sm text-destructive">
-            <ImageOffIcon className="size-5" />
+          <div
+            className="flex w-full max-w-sm items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+            role="alert"
+          >
+            <ImageOffIcon className="size-4 shrink-0" />
             <span>Preview is not available for this image format.</span>
           </div>
         )}
@@ -82,7 +89,7 @@ function ImageFilePreview({ wsId, filePath }: FileViewerProps) {
           src={src}
           alt={name}
           className={cn(
-            "max-h-full max-w-full rounded-md border border-border/50 bg-background object-contain shadow-sm",
+            "max-h-full max-w-full rounded-md border border-border/50 bg-background object-contain shadow-sm dark:shadow-none",
             status !== "loaded" && "hidden",
           )}
           onLoad={() => setStatus("loaded")}

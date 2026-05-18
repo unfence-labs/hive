@@ -270,7 +270,7 @@ describe("InlineDiffViewer", () => {
 
     expect(mocks.useDiff).toHaveBeenCalledWith("ws-1", "uncommitted", false);
     expect(
-      screen.getByText("Text diff is not available for image files. Showing the current image preview."),
+      screen.getByText("Image files do not have text diffs. Previewing the current file."),
     ).toBeInTheDocument();
     expect(screen.getByTestId("image-file-preview")).toHaveTextContent("assets/logo.png");
     expect(screen.queryByText("Click on line numbers to select code and add comments")).not.toBeInTheDocument();

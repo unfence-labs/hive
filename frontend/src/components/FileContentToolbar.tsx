@@ -23,6 +23,7 @@ interface FileContentToolbarProps {
   commentCount: number;
   onPasteToPrompt: () => void;
   sourceLabel?: string;
+  supportsTextDiff?: boolean;
 }
 
 export function FileContentToolbar({
@@ -38,6 +39,7 @@ export function FileContentToolbar({
   commentCount,
   onPasteToPrompt,
   sourceLabel = "Source",
+  supportsTextDiff = true,
 }: FileContentToolbarProps) {
   const parts = filePath.split("/");
   const basename = parts.pop() ?? filePath;
@@ -45,7 +47,7 @@ export function FileContentToolbar({
 
   const toggleCls = (active: boolean) =>
     cn(
-      "flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium transition-colors",
+      "flex min-h-7 items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
       active
         ? "bg-background text-foreground shadow-sm"
         : "text-muted-foreground hover:text-foreground",
@@ -62,13 +64,13 @@ export function FileContentToolbar({
 
         <div className="ml-auto flex items-center gap-2">
           {/* Diff-only controls */}
-          {mode === "diff" && (
+          {mode === "diff" && supportsTextDiff && (
             <>
               {commentCount > 0 && (
                 <button
                   type="button"
                   onClick={onPasteToPrompt}
-                  className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                  className="flex min-h-7 items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground transition-colors outline-none hover:bg-primary/90 focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 >
                   <MessageSquarePlusIcon className="size-3" />
                   Paste to prompt ({commentCount})
@@ -113,7 +115,12 @@ export function FileContentToolbar({
 
           {/* Source / Diff toggle */}
           <div className="flex items-center rounded-lg bg-muted p-0.5">
-            <button type="button" onClick={() => onModeChange("source")} className={toggleCls(mode === "source")}>
+            <button
+              type="button"
+              onClick={() => onModeChange("source")}
+              className={toggleCls(mode === "source")}
+              aria-pressed={mode === "source"}
+            >
               {sourceLabel}
             </button>
             <Tooltip>
@@ -123,6 +130,7 @@ export function FileContentToolbar({
                   onClick={() => isModified && onModeChange("diff")}
                   disabled={!isModified}
                   className={cn(toggleCls(mode === "diff"), !isModified && "cursor-not-allowed opacity-40")}
+                  aria-pressed={mode === "diff"}
                 >
                   Diff
                 </button>

@@ -83,7 +83,7 @@ describe("FileViewer", () => {
       "src",
       "/api/workspaces/ws-1/file/raw?path=assets%2Flogo.png",
     );
-    expect(screen.getByText("Loading image preview...")).toBeInTheDocument();
+    expect(screen.getByText("Loading preview...")).toBeInTheDocument();
     expect(apiMock).not.toHaveBeenCalled();
     expect(highlightMock).not.toHaveBeenCalled();
   });

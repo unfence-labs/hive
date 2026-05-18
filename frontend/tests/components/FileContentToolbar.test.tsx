@@ -84,6 +84,21 @@ describe("FileContentToolbar", () => {
     expect(screen.queryByRole("button", { name: /Paste to prompt/i })).not.toBeInTheDocument();
   });
 
+  it("hides text diff controls when the file only supports image preview fallback", () => {
+    renderToolbar({
+      mode: "diff",
+      supportsTextDiff: false,
+      availableDiffScopes: ["uncommitted", "committed", "combined"],
+      commentCount: 2,
+    });
+
+    expect(screen.queryByRole("button", { name: "Split" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stacked" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Branch commits" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Paste to prompt/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Diff" })).toBeInTheDocument();
+  });
+
   it("shows scope controls when more than one diff scope is available", async () => {
     const user = userEvent.setup();
     const { onDiffScopeChange } = renderToolbar({

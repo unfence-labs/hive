@@ -740,6 +740,7 @@ export default function WorkspaceView() {
                 commentCount={diffCommentCount}
                 onPasteToPrompt={handlePasteToPrompt}
                 sourceLabel={openFileIsImage ? "Preview" : "Source"}
+                supportsTextDiff={!openFileIsImage}
               />
               {fileViewMode === "source" ? (
                 <FileViewer wsId={wsId} filePath={openFile} />
