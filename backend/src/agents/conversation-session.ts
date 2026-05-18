@@ -10,6 +10,8 @@ import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js
 import type { AgentRunner, StopReason } from "./runners/types.js";
 import { DEBUG_AGENT_LOGS } from "../utils/env.js";
 import type {
+  AgentActivity,
+  AgentActivityFile,
   ChatMessage,
   FileMention,
   ImageAttachment,
@@ -36,6 +38,35 @@ function buildCancellationErrorDetail(exitCode: number, lastStderr: string | und
 
 function formatNormalizedExitCode(exitCode: number | undefined): string {
   return exitCode === undefined ? "" : `Exit code: ${exitCode}`;
+}
+
+function cloneAgentActivity(activity: AgentActivity): AgentActivity {
+  switch (activity.kind) {
+    case "command_execution":
+      return { ...activity };
+    case "file_change":
+      return { ...activity, files: activity.files.map((file) => ({ ...file })) };
+    case "plan_update":
+      return { ...activity, steps: activity.steps.map((step) => ({ ...step })) };
+  }
+}
+
+function normalizeActivityFiles(
+  event: Extract<NormalizedAgentEvent, { type: "file_change_updated" }>,
+  existingFiles: AgentActivityFile[] | undefined,
+): AgentActivityFile[] {
+  if (event.files?.length) {
+    return event.files.map((file) => ({ ...file }));
+  }
+  if (event.path) {
+    return [{
+      path: event.path,
+      diff: event.diff,
+      kind: event.kind,
+      status: event.status,
+    }];
+  }
+  return existingFiles?.map((file) => ({ ...file })) ?? [];
 }
 
 type SessionKind = "chat" | "automation";
@@ -87,6 +118,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private _streamText = "";
   private _streamThinking = "";
   private _streamToolCalls: ToolCall[] = [];
+  private _streamAgentActivities: AgentActivity[] = [];
   private _agentPlanMode = false;
 
   constructor(config: ConversationSessionConfig) {
@@ -135,15 +167,16 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.browserEnv = env;
   }
 
-  /** Return a snapshot of in-progress streaming content (text, thinking, tool calls).
+  /** Return a snapshot of in-progress streaming content.
    *  Returns null when the session is not streaming. Used by WS bootstrap to replay
    *  accumulated state to late-connecting clients. */
-  getStreamingSnapshot(): { text: string; thinking: string; toolCalls: ToolCall[]; agentPlanMode: boolean } | null {
+  getStreamingSnapshot(): { text: string; thinking: string; toolCalls: ToolCall[]; agentActivities: AgentActivity[]; agentPlanMode: boolean } | null {
     if (this._status !== "streaming") return null;
     return {
       text: this._streamText,
       thinking: this._streamThinking,
       toolCalls: this._streamToolCalls.map(tc => ({ ...tc })),
+      agentActivities: this._streamAgentActivities.map(cloneAgentActivity),
       agentPlanMode: this._agentPlanMode,
     };
   }
@@ -366,6 +399,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this._streamText = "";
     this._streamThinking = "";
     this._streamToolCalls = [];
+    this._streamAgentActivities = [];
     this._agentPlanMode = false;
     let resultDurationMs: number | undefined;
     let resultInputTokens: number | undefined;
@@ -605,7 +639,42 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     });
   }
 
+  private upsertAgentActivity(activity: AgentActivity): void {
+    const index = this._streamAgentActivities.findIndex((item) => item.id === activity.id);
+    const next = cloneAgentActivity(activity);
+    if (index >= 0) {
+      this._streamAgentActivities[index] = next;
+    } else {
+      this._streamAgentActivities.push(next);
+    }
+    this.emit("message", {
+      type: "agent_activity",
+      sessionId: this.sessionId,
+      activity: next,
+    });
+  }
+
   private handleCommandExecutionEvent(event: Extract<NormalizedAgentEvent, { type: "command_execution_updated" }>): void {
+    const existingActivity = this._streamAgentActivities.find(
+      (activity): activity is Extract<AgentActivity, { kind: "command_execution" }> =>
+        activity.id === event.id && activity.kind === "command_execution",
+    );
+    const output = event.output !== undefined
+      ? event.output
+      : event.outputDelta !== undefined
+        ? `${existingActivity?.output ?? ""}${event.outputDelta}`
+        : existingActivity?.output;
+    this.upsertAgentActivity({
+      id: event.id,
+      kind: "command_execution",
+      command: event.command ?? existingActivity?.command,
+      cwd: event.cwd ?? existingActivity?.cwd,
+      status: event.status ?? existingActivity?.status,
+      output,
+      exitCode: event.exitCode ?? existingActivity?.exitCode,
+      durationMs: event.durationMs ?? existingActivity?.durationMs,
+    });
+
     const existing = this._streamToolCalls.find((t) => t.id === event.id);
     const hasInputUpdate =
       event.command !== undefined ||
@@ -633,18 +702,37 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   }
 
   private handleFileChangeEvent(event: Extract<NormalizedAgentEvent, { type: "file_change_updated" }>): void {
+    const existingActivity = this._streamAgentActivities.find(
+      (activity): activity is Extract<AgentActivity, { kind: "file_change" }> =>
+        activity.id === event.id && activity.kind === "file_change",
+    );
+    const files = normalizeActivityFiles(event, existingActivity?.files);
+    this.upsertAgentActivity({
+      id: event.id,
+      kind: "file_change",
+      status: event.status ?? existingActivity?.status,
+      files,
+    });
+
+    const combinedDiff = files.map((file) => file.diff).filter(Boolean).join("\n");
     const input = JSON.stringify({
-      filename: event.path ?? "",
-      diff: event.diff ?? "",
+      filename: files[0]?.path ?? event.path ?? "",
+      diff: combinedDiff || event.diff || "",
       status: event.status,
+      files,
     });
     this.upsertToolCall(event.id, "Edit", input);
-    if (event.diff || event.status) {
-      this.completeToolCall(event.id, event.diff || event.status || "");
+    if (combinedDiff || event.diff || event.status) {
+      this.completeToolCall(event.id, combinedDiff || event.diff || event.status || "");
     }
   }
 
   private handlePlanUpdateEvent(event: Extract<NormalizedAgentEvent, { type: "plan_updated" }>): void {
+    this.upsertAgentActivity({
+      id: event.id,
+      kind: "plan_update",
+      steps: event.steps,
+    });
     const payload = JSON.stringify({ steps: event.steps });
     this.upsertToolCall(event.id, "TodoList", payload);
     this.completeToolCall(event.id, payload);
@@ -683,13 +771,22 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.stopReason = null;
     this.runner = null;
 
-    if (this._streamText || this._streamToolCalls.length > 0 || this._streamThinking || shouldSurfaceCancelled) {
+    if (
+      this._streamText ||
+      this._streamToolCalls.length > 0 ||
+      this._streamAgentActivities.length > 0 ||
+      this._streamThinking ||
+      shouldSurfaceCancelled
+    ) {
       const assistantMsg: ChatMessage = {
         id: nanoid(12),
         sessionId: this.sessionId,
         role: "assistant",
         content: this._streamText || (shouldSurfaceCancelled ? CANCELLED_NO_OUTPUT_MESSAGE : ""),
         toolCalls: this._streamToolCalls.length > 0 ? this._streamToolCalls : undefined,
+        agentActivities: this._streamAgentActivities.length > 0
+          ? this._streamAgentActivities.map(cloneAgentActivity)
+          : undefined,
         thinkingContent: this._streamThinking || undefined,
         timestamp: new Date().toISOString(),
         cancelled: shouldSurfaceCancelled || undefined,
@@ -714,6 +811,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this._streamText = "";
     this._streamThinking = "";
     this._streamToolCalls = [];
+    this._streamAgentActivities = [];
     this._agentPlanMode = false;
 
     const pendingToolName = unansweredBlockingTools.length > 0

@@ -396,6 +396,53 @@ describe("WS /ws/hub", () => {
     await endSession(wsId, dataDir).catch(() => {});
   });
 
+  it("replays streaming agent activities during bootstrap", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-activity-bootstrap.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+    const local = await startWsApp(undefined, slowCmd);
+
+    const { session } = await getOrCreateSession(wsId, dataDir, slowCmd);
+    session.sendMessage("bootstrap activity");
+    const snapshot = session.getStreamingSnapshot();
+    if (!snapshot) throw new Error("Expected a streaming snapshot");
+    vi.spyOn(session, "getStreamingSnapshot").mockReturnValue({
+      ...snapshot,
+      agentActivities: [{
+        id: "cmd-bootstrap",
+        kind: "command_execution",
+        command: "npm test",
+        status: "inProgress",
+        output: "running\n",
+      }],
+    });
+
+    const { wsReady, messages } = connectHub([wsId], { app: local.app });
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.some((m) => m.type === "agent_activity" && m.activity.id === "cmd-bootstrap"),
+    );
+
+    expect(messages).toContainEqual({
+      type: "agent_activity",
+      sessionId: session.sessionId,
+      activity: {
+        id: "cmd-bootstrap",
+        kind: "command_execution",
+        command: "npm test",
+        status: "inProgress",
+        output: "running\n",
+      },
+    });
+
+    ws.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
   it("auto-creates session on user_message", async () => {
     const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;

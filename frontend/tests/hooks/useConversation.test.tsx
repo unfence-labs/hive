@@ -680,6 +680,110 @@ describe("useConversation", () => {
     expect(result.current.agentPlanMode).toBe(true);
   });
 
+  it("tracks live agent activities and persists them into the assistant message on done", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-activity",
+          role: "user",
+          content: "run tests",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", {
+        type: "agent_activity",
+        sessionId: "sess-activity",
+        activity: {
+          id: "cmd-1",
+          kind: "command_execution",
+          command: "npm test",
+          status: "inProgress",
+          output: "running\n",
+        },
+      });
+      __wsMock.emit("ws-1", {
+        type: "agent_activity",
+        sessionId: "sess-activity",
+        activity: {
+          id: "cmd-1",
+          kind: "command_execution",
+          command: "npm test",
+          status: "completed",
+          output: "running\nok\n",
+          exitCode: 0,
+        },
+      });
+    });
+
+    expect(result.current.activeAgentActivities).toEqual([
+      {
+        id: "cmd-1",
+        kind: "command_execution",
+        command: "npm test",
+        status: "completed",
+        output: "running\nok\n",
+        exitCode: 0,
+      },
+    ]);
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "done",
+        sessionId: "sess-activity",
+      });
+    });
+
+    expect(result.current.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      agentActivities: [
+        {
+          id: "cmd-1",
+          kind: "command_execution",
+          output: "running\nok\n",
+        },
+      ],
+    });
+    expect(result.current.activeAgentActivities).toEqual([]);
+  });
+
+  it("keeps persisted agent activities from history", async () => {
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock.mockResolvedValueOnce([
+      {
+        id: "a1",
+        sessionId: "sess-history-activity",
+        role: "assistant",
+        content: "",
+        timestamp: "2026-02-12T00:00:00.000Z",
+        agentActivities: [
+          {
+            id: "plan-1",
+            kind: "plan_update",
+            steps: [{ text: "Inspect", status: "completed" }],
+          },
+        ],
+      },
+    ]);
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(1);
+    });
+    expect(result.current.messages[0]?.agentActivities).toEqual([
+      {
+        id: "plan-1",
+        kind: "plan_update",
+        steps: [{ text: "Inspect", status: "completed" }],
+      },
+    ]);
+  });
+
   it("clears local agentPlanMode after approvePlan", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));

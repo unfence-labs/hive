@@ -28,4 +28,17 @@ describe("DiffView", () => {
     expect(screen.getByText("a")).toBeInTheDocument();
     expect(screen.getByText("b")).toBeInTheDocument();
   });
+
+  it("renders unified diffs", () => {
+    render(
+      <DiffView
+        oldText=""
+        newText=""
+        unifiedDiff={"--- a/file.ts\n+++ b/file.ts\n-old\n+new"}
+      />,
+    );
+
+    expect(screen.getByText("-old")).toHaveClass("text-red-400");
+    expect(screen.getByText("+new")).toHaveClass("text-green-400");
+  });
 });

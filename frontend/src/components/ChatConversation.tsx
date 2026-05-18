@@ -11,12 +11,13 @@ import ChatMessage from "@/components/ChatMessage";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
+import { AgentActivityList } from "@/components/chat/AgentActivityList";
 import { ToolCallList } from "@/components/chat/ToolCallList";
 import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
 import { getFallbackInteractiveAssistantIndex, hasExitPlanModeTool } from "@/lib/plan-state";
 import { Trash2Icon } from "lucide-react";
-import type { ChatMessage as ChatMessageType, QueuedMessage, ToolCall, QuestionAnswer } from "@/types";
+import type { AgentActivity, ChatMessage as ChatMessageType, QueuedMessage, ToolCall, QuestionAnswer } from "@/types";
 import type { PendingToolInput } from "@/hooks/useConversation";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
 
@@ -27,6 +28,7 @@ interface ChatConversationProps {
   currentStreamingText: string;
   currentThinking: string;
   activeToolCalls: ToolCall[];
+  activeAgentActivities: AgentActivity[];
   pendingToolInputs?: PendingToolInput[];
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
@@ -50,6 +52,7 @@ export default function ChatConversation({
   currentStreamingText,
   currentThinking,
   activeToolCalls,
+  activeAgentActivities = [],
   pendingToolInputs = [],
   onQuestionAnswer,
   onFileMentionClick,
@@ -221,7 +224,7 @@ export default function ChatConversation({
         })}
 
         {/* Live streaming content */}
-        {isStreaming && (currentStreamingText || currentThinking || activeToolCalls.length > 0) && (
+        {isStreaming && (currentStreamingText || currentThinking || activeToolCalls.length > 0 || activeAgentActivities.length > 0) && (
           <div className="flex w-full justify-start">
             <div className="max-w-[85%] text-sm leading-relaxed text-foreground">
               {currentThinking && (
@@ -232,8 +235,9 @@ export default function ChatConversation({
                   <MessageResponse isAnimating>{currentStreamingText}</MessageResponse>
                 </div>
               )}
+              <AgentActivityList activities={activeAgentActivities} showExecutingState />
               <ToolCallList
-                toolCalls={activeToolCalls}
+                toolCalls={filterActivityToolCalls(activeToolCalls, activeAgentActivities)}
                 isInteractive
                 showExecutingState
                 onQuestionAnswer={onQuestionAnswer}
@@ -273,4 +277,10 @@ export default function ChatConversation({
       <ConversationScrollTrigger trigger={scrollToBottomTrigger} />
     </Conversation>
   );
+}
+
+function filterActivityToolCalls(toolCalls: ToolCall[], activities: AgentActivity[]): ToolCall[] {
+  if (activities.length === 0) return toolCalls;
+  const activityIds = new Set(activities.map((activity) => activity.id));
+  return toolCalls.filter((tool) => !activityIds.has(tool.id));
 }

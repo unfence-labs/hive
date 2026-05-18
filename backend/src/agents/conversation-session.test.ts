@@ -338,6 +338,222 @@ describe("ConversationSession", () => {
     expect(assistant?.toolCalls?.[0]?.output).toBe("ok\n");
   });
 
+  it("streams and persists command activities while keeping tool compatibility events", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "command_execution_updated",
+        id: "cmd-rich",
+        command: "npm test",
+        cwd: "/tmp/test",
+        status: "inProgress",
+      });
+      fakeRunner.emit("agent_event", {
+        type: "command_execution_updated",
+        id: "cmd-rich",
+        outputDelta: "pass\n",
+      });
+      fakeRunner.emit("agent_event", {
+        type: "command_execution_updated",
+        id: "cmd-rich",
+        status: "completed",
+        exitCode: 0,
+        durationMs: 123,
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-rich", duration_ms: 123 });
+      fakeRunner.emit("exit", 0, "provider-rich");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-rich",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "command-activity-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Run command");
+
+    await waitForMessages(messages, "done");
+
+    const activities = messages.filter((msg) => msg.type === "agent_activity");
+    expect(activities).toHaveLength(3);
+    expect(activities.at(-1)).toEqual({
+      type: "agent_activity",
+      sessionId: "command-activity-session",
+      activity: {
+        id: "cmd-rich",
+        kind: "command_execution",
+        command: "npm test",
+        cwd: "/tmp/test",
+        status: "completed",
+        output: "pass\n",
+        exitCode: 0,
+        durationMs: 123,
+      },
+    });
+    expect(messages.some((msg) => msg.type === "tool_use" && msg.id === "cmd-rich")).toBe(true);
+    expect(messages.some((msg) => msg.type === "tool_result" && msg.toolUseId === "cmd-rich")).toBe(true);
+
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    expect(assistant?.agentActivities).toEqual([
+      {
+        id: "cmd-rich",
+        kind: "command_execution",
+        command: "npm test",
+        cwd: "/tmp/test",
+        status: "completed",
+        output: "pass\n",
+        exitCode: 0,
+        durationMs: 123,
+      },
+    ]);
+  });
+
+  it("preserves multi-file change activity details and persists them across reload", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "file_change_updated",
+        id: "files-rich",
+        status: "completed",
+        files: [
+          { path: "src/a.ts", diff: "--- a/src/a.ts\n+++ b/src/a.ts\n+one", kind: "update", status: "completed" },
+          { path: "src/b.ts", diff: "--- a/src/b.ts\n+++ b/src/b.ts\n-two", kind: "delete", status: "completed" },
+        ],
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-files" });
+      fakeRunner.emit("exit", 0, "provider-files");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-files",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "file-activity-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Edit files");
+
+    await waitForMessages(messages, "done");
+    const activityEvent = messages.find((msg) => msg.type === "agent_activity");
+    expect(activityEvent).toEqual({
+      type: "agent_activity",
+      sessionId: "file-activity-session",
+      activity: {
+        id: "files-rich",
+        kind: "file_change",
+        status: "completed",
+        files: [
+          { path: "src/a.ts", diff: "--- a/src/a.ts\n+++ b/src/a.ts\n+one", kind: "update", status: "completed" },
+          { path: "src/b.ts", diff: "--- a/src/b.ts\n+++ b/src/b.ts\n-two", kind: "delete", status: "completed" },
+        ],
+      },
+    });
+
+    const loaded = await ConversationSession.load({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "file-activity-session",
+    });
+    const assistant = (await loaded.getMessages()).find((msg) => msg.role === "assistant");
+    expect(assistant?.agentActivities?.[0]).toMatchObject({
+      id: "files-rich",
+      kind: "file_change",
+      files: [
+        { path: "src/a.ts", kind: "update" },
+        { path: "src/b.ts", kind: "delete" },
+      ],
+    });
+    const toolInput = JSON.parse(assistant?.toolCalls?.[0]?.input ?? "{}") as { files?: unknown[] };
+    expect(toolInput.files).toHaveLength(2);
+  });
+
+  it("streams and persists plan update activities", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "plan_updated",
+        id: "plan-rich",
+        steps: [
+          { text: "Inspect", status: "completed" },
+          { text: "Implement", status: "inProgress" },
+        ],
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-plan" });
+      fakeRunner.emit("exit", 0, "provider-plan");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-plan",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "plan-activity-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Plan");
+
+    await waitForMessages(messages, "done");
+    expect(messages).toContainEqual({
+      type: "agent_activity",
+      sessionId: "plan-activity-session",
+      activity: {
+        id: "plan-rich",
+        kind: "plan_update",
+        steps: [
+          { text: "Inspect", status: "completed" },
+          { text: "Implement", status: "inProgress" },
+        ],
+      },
+    });
+    const assistant = (await session.getMessages()).find((msg) => msg.role === "assistant");
+    expect(assistant?.agentActivities?.[0]).toMatchObject({ id: "plan-rich", kind: "plan_update" });
+    expect(assistant?.toolCalls?.[0]?.name).toBe("TodoList");
+  });
+
   it("creates session with a sessionId", () => {
     const session = createSession();
     expect(session.sessionId).toBeTruthy();

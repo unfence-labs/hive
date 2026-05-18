@@ -580,11 +580,20 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
 
   private emitFileChangeEvents(itemId: string, changes: FileUpdateChange[], status?: string): void {
     const firstChange = changes[0];
+    const files = changes
+      .map((change) => ({
+        path: change.path ?? "",
+        diff: change.diff,
+        kind: formatChangeKind(change.kind),
+        status,
+      }))
+      .filter((change) => change.path);
     this.emit("agent_event", {
       type: "file_change_updated",
       id: itemId,
       path: firstChange?.path,
       diff: changes.map((change) => change.diff).filter(Boolean).join("\n"),
+      files,
       status: status ?? (firstChange ? formatChangeKind(firstChange.kind) : undefined),
     });
   }

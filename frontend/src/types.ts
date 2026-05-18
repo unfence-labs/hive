@@ -158,6 +158,36 @@ export interface ToolCall {
   parentToolUseId?: string;
 }
 
+export interface AgentActivityFile {
+  path: string;
+  diff?: string;
+  kind?: string;
+  status?: string;
+}
+
+export type AgentActivity =
+  | {
+      id: string;
+      kind: "command_execution";
+      command?: string;
+      cwd?: string;
+      status?: string;
+      output?: string;
+      exitCode?: number;
+      durationMs?: number;
+    }
+  | {
+      id: string;
+      kind: "file_change";
+      status?: string;
+      files: AgentActivityFile[];
+    }
+  | {
+      id: string;
+      kind: "plan_update";
+      steps: Array<{ text: string; status: string }>;
+    };
+
 export interface ChatMessage {
   id: string;
   sessionId: string;
@@ -166,6 +196,7 @@ export interface ChatMessage {
   images?: ImageAttachment[];
   fileMentions?: FileMention[];
   toolCalls?: ToolCall[];
+  agentActivities?: AgentActivity[];
   thinkingContent?: string;
   timestamp: string;
   cancelled?: boolean;
@@ -322,6 +353,7 @@ export type WsOutgoing =
   | { type: "thinking"; sessionId: string; text: string }
   | { type: "tool_use"; sessionId: string; id: string; name: string; input: string; parentToolUseId?: string }
   | { type: "tool_result"; sessionId: string; toolUseId: string; output: string }
+  | { type: "agent_activity"; sessionId: string; activity: AgentActivity }
   | { type: "tool_input_required"; sessionId: string; requestId: string; toolName: string; toolUseId: string; input: unknown }
   | { type: "done"; sessionId: string; durationMs?: number; inputTokens?: number; outputTokens?: number; pendingToolName?: string }
   | { type: "error"; message: string; sessionId?: string }

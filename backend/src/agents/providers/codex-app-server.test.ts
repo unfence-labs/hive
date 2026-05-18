@@ -231,6 +231,7 @@ describe("CodexAppServerSession normalized events", () => {
         id: "file-1",
         path: "src/app.ts",
         diff: "+hello",
+        files: [{ path: "src/app.ts", diff: "+hello", kind: "modify", status: undefined }],
         status: "modify",
       },
       {

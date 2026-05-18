@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useReducer, useRef, useSyncExternalStore } from "react";
-import type { ChatMessage, FileMention, ImageAttachment, MessageOptions, ToolCall, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
+import type { AgentActivity, ChatMessage, FileMention, ImageAttachment, MessageOptions, ToolCall, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
 import { wsTransport } from "@/lib/ws-transport";
 import type { HistoryMessage } from "@/lib/ws-transport";
 import { api } from "@/hooks/useApi";
@@ -15,6 +15,7 @@ interface SessionStreamState {
   currentText: string;
   currentThinking: string;
   activeToolCalls: ToolCall[];
+  activeAgentActivities: AgentActivity[];
   isStreaming: boolean;
   streamingStartedAt: number | null;
   pendingToolInputs: PendingToolInput[];
@@ -25,6 +26,7 @@ const emptyStreamState: SessionStreamState = {
   currentText: "",
   currentThinking: "",
   activeToolCalls: [],
+  activeAgentActivities: [],
   isStreaming: false,
   streamingStartedAt: null,
   pendingToolInputs: [],
@@ -127,6 +129,12 @@ function deleteStream(state: ConversationState, sid: string): Record<string, Ses
   return copy;
 }
 
+function upsertActivity(activities: AgentActivity[], activity: AgentActivity): AgentActivity[] {
+  const index = activities.findIndex((item) => item.id === activity.id);
+  if (index < 0) return [...activities, activity];
+  return activities.map((item, itemIndex) => itemIndex === index ? activity : item);
+}
+
 function reducer(state: ConversationState, action: Action): ConversationState {
   switch (action.type) {
     case "user_message": {
@@ -148,6 +156,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
             currentText: "",
             currentThinking: "",
             activeToolCalls: [],
+            activeAgentActivities: [],
             pendingToolInputs: [],
           },
         },
@@ -193,6 +202,15 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       return updateStream(state, sid, { activeToolCalls: tools });
     }
 
+    case "agent_activity": {
+      const sid = action.sessionId || state.sessionId;
+      if (!sid) return state;
+      const stream = getOrInitStream(state.sessionStreams, sid);
+      return updateStream(state, sid, {
+        activeAgentActivities: upsertActivity(stream.activeAgentActivities, action.activity),
+      });
+    }
+
     case "done": {
       const sid = action.sessionId || state.sessionId;
       if (!sid) return state;
@@ -209,6 +227,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
           role: "assistant",
           content: stream.currentText,
           toolCalls: stream.activeToolCalls.length > 0 ? stream.activeToolCalls : undefined,
+          agentActivities: stream.activeAgentActivities.length > 0 ? stream.activeAgentActivities : undefined,
           thinkingContent: stream.currentThinking || undefined,
           timestamp: new Date().toISOString(),
           durationMs: action.durationMs,
@@ -235,8 +254,9 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       // Ignore stale cancelled events when there's no stream data.
       if (!stream) return state;
       const hasOutput = stream.currentText.length > 0 || stream.activeToolCalls.length > 0;
+      const hasActivity = stream.activeAgentActivities.length > 0;
       const hasThinking = stream.currentThinking.length > 0;
-      if (!stream.isStreaming && !hasOutput && !hasThinking) return state;
+      if (!stream.isStreaming && !hasOutput && !hasActivity && !hasThinking) return state;
 
       const newStreams = deleteStream(state, sid);
 
@@ -247,6 +267,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
           role: "assistant",
           content: hasOutput ? stream.currentText : CANCELLED_NO_OUTPUT_MESSAGE,
           toolCalls: stream.activeToolCalls.length > 0 ? stream.activeToolCalls : undefined,
+          agentActivities: stream.activeAgentActivities.length > 0 ? stream.activeAgentActivities : undefined,
           thinkingContent: stream.currentThinking || undefined,
           timestamp: new Date().toISOString(),
           cancelled: true,
@@ -288,7 +309,13 @@ function reducer(state: ConversationState, action: Action): ConversationState {
           };
         } else if (stream) {
           // Session stopped streaming. If slot has no content, clean up.
-          if (!stream.currentText && !stream.currentThinking && stream.activeToolCalls.length === 0 && stream.pendingToolInputs.length === 0) {
+          if (
+            !stream.currentText &&
+            !stream.currentThinking &&
+            stream.activeToolCalls.length === 0 &&
+            stream.activeAgentActivities.length === 0 &&
+            stream.pendingToolInputs.length === 0
+          ) {
             newStreams = deleteStream(state, sid);
           } else {
             newStreams = {
@@ -715,6 +742,7 @@ export function useConversation(workspaceId: string | undefined) {
     currentStreamingText: activeStream?.currentText ?? "",
     currentThinking: activeStream?.currentThinking ?? "",
     activeToolCalls: activeStream?.activeToolCalls ?? [],
+    activeAgentActivities: activeStream?.activeAgentActivities ?? [],
     pendingToolInputs: activeStream?.pendingToolInputs ?? [],
     connectionStatus,
     error: state.error,

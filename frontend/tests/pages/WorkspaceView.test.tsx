@@ -322,6 +322,7 @@ function buildConversationState(
     currentStreamingText: "",
     currentThinking: "",
     activeToolCalls: [],
+    activeAgentActivities: [],
     pendingToolInputs: [],
     connectionStatus: "connected",
     error: null,
