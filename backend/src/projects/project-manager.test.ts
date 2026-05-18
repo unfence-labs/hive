@@ -133,6 +133,70 @@ describe("initProject", () => {
     expect(loaded?.url).toBeUndefined();
   });
 
+  it("creates a GitHub repo and stores its SSH URL", async () => {
+    const githubModule = await import("../utils/github.js");
+    const gitModule = await import("../utils/git.js");
+    const originalGit = gitModule.git;
+
+    const ghSpy = vi.spyOn(githubModule, "gh").mockImplementation(async (args) => {
+      if (args.join(" ") === "api user --jq .login") {
+        return { stdout: "octocat", stderr: "" };
+      }
+      if (args.join(" ") === "repo create octocat/remote-repo --private") {
+        return { stdout: "", stderr: "" };
+      }
+      if (args.join(" ") === "repo view octocat/remote-repo --json sshUrl --jq .sshUrl") {
+        return { stdout: "git@github.com:octocat/remote-repo.git", stderr: "" };
+      }
+      throw new Error(`Unexpected gh call: ${args.join(" ")}`);
+    });
+
+    const gitSpy = vi.spyOn(gitModule, "git").mockImplementation(async (args, cwd) => {
+      if (args.join(" ") === "push --all origin") {
+        return { stdout: "", stderr: "" };
+      }
+      return originalGit(args, cwd);
+    });
+
+    try {
+      const { state, warning } = await initProject(
+        "remote-repo",
+        { visibility: "private" },
+        dataDir,
+      );
+
+      expect(warning).toBeUndefined();
+      expect(state.url).toBe("git@github.com:octocat/remote-repo.git");
+      expect(ghSpy).toHaveBeenCalledWith(["api", "user", "--jq", ".login"]);
+      expect(ghSpy).toHaveBeenCalledWith([
+        "repo",
+        "create",
+        "octocat/remote-repo",
+        "--private",
+      ]);
+      expect(ghSpy).toHaveBeenCalledWith([
+        "repo",
+        "view",
+        "octocat/remote-repo",
+        "--json",
+        "sshUrl",
+        "--jq",
+        ".sshUrl",
+      ]);
+      expect(gitSpy).toHaveBeenCalledWith([
+        "remote",
+        "add",
+        "origin",
+        "git@github.com:octocat/remote-repo.git",
+      ], expect.any(String));
+
+      const loaded = await getProject(state.id, dataDir);
+      expect(loaded?.url).toBe("git@github.com:octocat/remote-repo.git");
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
   it("rejects empty name", async () => {
     await expect(initProject("", {}, dataDir)).rejects.toThrow("Repository name is required");
   });
