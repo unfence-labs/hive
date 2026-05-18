@@ -159,6 +159,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private readonly workspaceId: string;
   private process: ChildProcess | null = null;
   private codexAppServer: CodexAppServerSession | null = null;
+  private codexAppServerInterruptTimer: ReturnType<typeof setTimeout> | null = null;
   private parser: StreamAdapter | null = null;
   private _status: "idle" | "streaming" | "error" = "idle";
   private _streamingStartedAt: number | null = null;
@@ -794,6 +795,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this._status = (exitCode === 0 || killedForBlockingTool) ? "idle" : "error";
     this._streamingStartedAt = null;
     this.stopReason = null;
+    this.clearCodexAppServerInterruptTimer();
     this.process = null;
     this.parser = null;
 
@@ -880,19 +882,32 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     })();
   }
 
+  private clearCodexAppServerInterruptTimer(): void {
+    if (!this.codexAppServerInterruptTimer) return;
+    clearTimeout(this.codexAppServerInterruptTimer);
+    this.codexAppServerInterruptTimer = null;
+  }
+
   /** Stop the currently streaming process. */
   stop(reason: StopReason = "user"): void {
     if (this.codexAppServer && this._status === "streaming") {
       const appServer = this.codexAppServer;
+      const turnId = appServer.capturedTurnId;
       this.stopReason = reason;
-      if (appServer.capturedTurnId) {
+      this.clearCodexAppServerInterruptTimer();
+      if (turnId) {
         appServer.interruptActiveTurn();
         if (reason === "park") {
           appServer.close();
           this.codexAppServer = null;
         } else {
-          setTimeout(() => {
-            if (this.codexAppServer === appServer && this._status === "streaming") {
+          this.codexAppServerInterruptTimer = setTimeout(() => {
+            this.codexAppServerInterruptTimer = null;
+            if (
+              this.codexAppServer === appServer &&
+              this._status === "streaming" &&
+              appServer.capturedTurnId === turnId
+            ) {
               appServer.close();
               this.codexAppServer = null;
             }
@@ -906,6 +921,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     }
 
     if (reason === "park" && this.codexAppServer) {
+      this.clearCodexAppServerInterruptTimer();
       this.codexAppServer.close();
       this.codexAppServer = null;
     }

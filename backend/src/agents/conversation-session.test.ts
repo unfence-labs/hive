@@ -145,6 +145,30 @@ function countStdinMethod(proc: ReturnType<typeof createMockProcess>, method: st
   }).length;
 }
 
+function getStdinMethod(
+  proc: ReturnType<typeof createMockProcess>,
+  method: string,
+  occurrence = 1,
+): { id: number; method: string; params?: unknown } {
+  let seen = 0;
+  for (const call of proc._stdinWrite.mock.calls) {
+    const raw = String(call[0]).trim();
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw) as { id?: number; method?: string; params?: unknown };
+      if (parsed.method === method && typeof parsed.id === "number") {
+        seen++;
+        if (seen >= occurrence) {
+          return { id: parsed.id, method, params: parsed.params };
+        }
+      }
+    } catch {
+      // Ignore partial or non-JSON writes in tests.
+    }
+  }
+  throw new Error(`Missing ${method}`);
+}
+
 function geminiInitLine(sessionId: string, model = "gemini-3.1-pro-preview"): string {
   return JSON.stringify({ type: "init", session_id: sessionId, model }) + "\n";
 }
@@ -581,6 +605,73 @@ describe("ConversationSession", () => {
       sessionId: "codex-app-stop-restart",
       text: "Restarted",
     });
+  });
+
+  it("does not let a stale Codex app-server interrupt timeout close the next turn", async () => {
+    const session = createSession({ sessionId: "codex-app-stale-stop-timeout" });
+
+    session.sendMessage("Long task", { model: "codex:gpt-5.5" });
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, {
+      thread: { id: "thread-stale-timeout" },
+    }));
+
+    const firstTurnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(firstTurnStart.id, {
+      turn: { id: "turn-stale-1" },
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    vi.useFakeTimers();
+    try {
+      session.stop();
+
+      const interrupt = getStdinMethod(mockProc, "turn/interrupt");
+      expect(interrupt.params).toMatchObject({
+        threadId: "thread-stale-timeout",
+        turnId: "turn-stale-1",
+      });
+      mockProc._stdout.push(appServerNotification("turn/completed", {
+        threadId: "thread-stale-timeout",
+        turn: { id: "turn-stale-1", durationMs: 12, status: "interrupted" },
+      }));
+
+      expect(session.status).toBe("error");
+
+      session.sendMessage("Continue after first stop", { model: "codex:gpt-5.5" });
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+
+      try {
+        const threadResume = getStdinMethod(mockProc, "thread/resume");
+        mockProc._stdout.push(appServerResponse(threadResume.id, {
+          thread: { id: "thread-stale-timeout" },
+        }));
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+      } catch {
+        // The reused app-server already knows the thread when no provider session ID has been persisted yet.
+      }
+
+      const secondTurnStart = getStdinMethod(mockProc, "turn/start", 2);
+      mockProc._stdout.push(appServerResponse(secondTurnStart.id, {
+        turn: { id: "turn-stale-2" },
+      }));
+
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(mockProc.kill).not.toHaveBeenCalled();
+      expect(session.status).toBe("streaming");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps Codex automations on codex exec JSONL", () => {
