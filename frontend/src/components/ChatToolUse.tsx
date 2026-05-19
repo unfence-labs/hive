@@ -1,7 +1,9 @@
 import { useState, memo, type ReactNode } from "react";
 import { diffLines } from "diff";
+import { XCircleIcon } from "lucide-react";
 import type { ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
+import { formatElapsed } from "@/lib/time";
 import { DiffView } from "@/components/diff/DiffView";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ContentPanel, ContentPanelBody, ContentPanelFooter } from "@/components/chat/ContentPanel";
@@ -158,12 +160,14 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
           <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
             {diff}
           </pre>
-        ) : filePath ? (
+        ) : filePath && (oldString !== undefined || newString !== undefined) ? (
           <DiffView
             filePath={filePath}
             oldText={oldString ?? ""}
             newText={newString ?? ""}
           />
+        ) : filePath ? (
+          `Path: ${filePath}\nNo diff available.`
         ) : (
           "No file path specified"
         ),
@@ -193,17 +197,27 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
     case "Bash": {
       const command = input.command as string | undefined;
       const description = input.description as string | undefined;
+      const cwd = input.cwd as string | undefined;
+      const exitCode = input.exitCode as number | undefined;
+      const durationMs = input.durationMs as number | undefined;
       const truncated =
         command && command.length > 50
           ? command.substring(0, 50) + "..."
           : command;
+      const metadata = [
+        cwd ? `cwd: ${cwd}` : undefined,
+        exitCode !== undefined ? `exit ${exitCode}` : undefined,
+        durationMs !== undefined ? formatElapsed(durationMs) : undefined,
+      ].filter(Boolean);
       return {
         icon: icons.terminal,
         label: "Bash",
         detail: truncated,
-        expandedContent: description
-          ? `${description}\n\n$ ${command}`
-          : `$ ${command ?? "(no command)"}`,
+        expandedContent: [
+          description,
+          `$ ${command ?? "(no command)"}`,
+          metadata.length > 0 ? metadata.join("\n") : undefined,
+        ].filter(Boolean).join("\n\n"),
       };
     }
 
@@ -409,12 +423,28 @@ function getOutputSummary(tool: ToolCall): string | undefined {
   return undefined;
 }
 
+function getBashMetadata(tool: ToolCall): { exitCode?: number; durationMs?: number; failed: boolean } | null {
+  if (tool.name !== "Bash") return null;
+
+  try {
+    const input = JSON.parse(tool.input) as Record<string, unknown>;
+    const exitCode = typeof input.exitCode === "number" ? input.exitCode : undefined;
+    const durationMs = typeof input.durationMs === "number" ? input.durationMs : undefined;
+    const status = typeof input.status === "string" ? input.status.toLowerCase() : "";
+    const failed = exitCode !== undefined ? exitCode !== 0 : status === "failed" || status === "error";
+    return { exitCode, durationMs, failed };
+  } catch {
+    return null;
+  }
+}
+
 const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: ChatToolUseProps) {
   const [expanded, setExpanded] = useState(false);
   const display = getToolDisplay(tool);
   const showExpanded = onClick ? false : expanded;
   const stats = !isExecuting ? getToolStats(tool) : null;
   const summary = !isExecuting && !showExpanded && !stats ? getOutputSummary(tool) : undefined;
+  const bashMetadata = !isExecuting ? getBashMetadata(tool) : null;
   const taskOutputText = tool.name === "Task" && tool.output
     ? parseContentBlocks(tool.output)
     : null;
@@ -428,6 +458,7 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
           isExecuting && "animate-shimmer",
         )}
         onClick={onClick ?? (() => setExpanded(!expanded))}
+        aria-expanded={onClick ? undefined : expanded}
       >
         <span className="shrink-0">{display.icon}</span>
         <span>{display.label}</span>
@@ -444,6 +475,29 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
         )}
         {stats?.type === "plain" && (
           <span className="truncate text-xs font-normal text-muted-foreground/60">{stats.label}</span>
+        )}
+        {bashMetadata?.failed && (
+          <XCircleIcon
+            className="size-3.5 shrink-0 text-destructive"
+            aria-label={
+              bashMetadata.exitCode !== undefined
+                ? `Bash failed with exit code ${bashMetadata.exitCode}`
+                : "Bash failed"
+            }
+          />
+        )}
+        {bashMetadata?.exitCode !== undefined && (
+          <span
+            className={cn(
+              "font-mono text-xs",
+              bashMetadata.failed ? "text-destructive" : "text-muted-foreground/60",
+            )}
+          >
+            exit {bashMetadata.exitCode}
+          </span>
+        )}
+        {bashMetadata?.durationMs !== undefined && (
+          <span className="font-mono text-xs text-muted-foreground/60">{formatElapsed(bashMetadata.durationMs)}</span>
         )}
         {isExecuting && (
           <span className="flex items-center gap-1.5">

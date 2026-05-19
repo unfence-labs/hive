@@ -20,22 +20,24 @@ describe("AgentActivityList", () => {
 
     render(<AgentActivityList activities={activities} />);
 
-    expect(screen.getByText("Command")).toBeInTheDocument();
+    expect(screen.queryByText("Command")).not.toBeInTheDocument();
+    expect(screen.getByText("Bash")).toBeInTheDocument();
     expect(screen.getByText("npm test")).toBeInTheDocument();
+    expect(screen.getByText("exit 0")).toBeInTheDocument();
+    expect(screen.getByText("1.2s")).toBeInTheDocument();
 
-    const button = screen.getByRole("button", { name: /Command/ });
+    const button = screen.getByRole("button", { name: /Bash/ });
     expect(button).toHaveAttribute("aria-expanded", "false");
 
     await user.click(button);
 
     expect(button).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("$ npm test")).toBeInTheDocument();
-    expect(screen.getByText("cwd: /tmp/project")).toBeInTheDocument();
+    expect(screen.getByText(/\$ npm test/)).toBeInTheDocument();
+    expect(screen.getByText(/cwd: \/tmp\/project/)).toBeInTheDocument();
     expect(screen.getByText("ok")).toBeInTheDocument();
-    expect(screen.getByText("exit 0")).toBeInTheDocument();
   });
 
-  it("renders file changes with diffs", async () => {
+  it("renders file changes through the shared Edit tool display", async () => {
     const user = userEvent.setup();
     const activities: AgentActivity[] = [{
       id: "files-1",
@@ -50,16 +52,16 @@ describe("AgentActivityList", () => {
 
     render(<AgentActivityList activities={activities} />);
 
-    expect(screen.getByText("File changes")).toBeInTheDocument();
-    expect(screen.getByText("1 file")).toBeInTheDocument();
+    expect(screen.queryByText("File changes")).not.toBeInTheDocument();
+    expect(screen.getByText("Edit")).toBeInTheDocument();
+    expect(screen.getByText("app.ts")).toBeInTheDocument();
     expect(screen.getByText("+1")).toBeInTheDocument();
-    expect(screen.getByText("-1")).toBeInTheDocument();
+    expect(screen.getByText("−1")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /File changes/ }));
+    await user.click(screen.getByRole("button", { name: /Edit/ }));
 
-    expect(screen.getByText("Path: src/app.ts")).toBeInTheDocument();
-    expect(screen.getByText("+new")).toBeInTheDocument();
-    expect(screen.getByText("-old")).toBeInTheDocument();
+    expect(screen.getByText(/\+new/)).toBeInTheDocument();
+    expect(screen.getByText(/-old/)).toBeInTheDocument();
   });
 
   it("renders plan update steps", () => {

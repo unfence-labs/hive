@@ -4,19 +4,16 @@ import {
   CheckCircle2Icon,
   ChevronRightIcon,
   CircleIcon,
-  FilePenLineIcon,
   InfoIcon,
   ListChecksIcon,
   Loader2Icon,
-  TerminalIcon,
   XCircleIcon,
 } from "lucide-react";
-import type { AgentActivity, AgentActivityFile } from "@/types";
+import type { AgentActivity, ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
-import { formatElapsed } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
 import { ContentPanel, ContentPanelBody } from "@/components/chat/ContentPanel";
-import { DiffView } from "@/components/diff/DiffView";
+import ChatToolUse from "@/components/ChatToolUse";
 
 interface AgentActivityListProps {
   activities: AgentActivity[];
@@ -48,9 +45,20 @@ const AgentActivityItem = memo(function AgentActivityItem({
 }) {
   switch (activity.kind) {
     case "command_execution":
-      return <CommandExecutionActivity activity={activity} showExecutingState={showExecutingState} />;
+      return (
+        <ChatToolUse
+          tool={commandActivityToToolCall(activity)}
+          isExecuting={isCommandRunning(activity, showExecutingState)}
+        />
+      );
     case "file_change":
-      return <FileChangeActivity activity={activity} />;
+      return (
+        <>
+          {fileChangeActivityToToolCalls(activity).map((tool) => (
+            <ChatToolUse key={tool.id} tool={tool} />
+          ))}
+        </>
+      );
     case "plan_update":
       return <PlanUpdateActivity activity={activity} />;
     case "diagnostic":
@@ -99,117 +107,6 @@ function ActivityShell({
         {executing && <span className="inline-block size-1.5 animate-pulse rounded-full bg-primary" />}
       </button>
       {open && children && <ContentPanel>{children}</ContentPanel>}
-    </div>
-  );
-}
-
-function CommandExecutionActivity({
-  activity,
-  showExecutingState,
-}: {
-  activity: Extract<AgentActivity, { kind: "command_execution" }>;
-  showExecutingState?: boolean;
-}) {
-  const command = activity.command ?? "(command pending)";
-  const isRunning = showExecutingState && (!activity.status || activity.status === "inProgress");
-  const detail = (
-    <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-      {command}
-    </code>
-  );
-
-  return (
-    <ActivityShell
-      icon={<TerminalIcon className="size-3.5" />}
-      title="Command"
-      detail={detail}
-      status={activity.status}
-      defaultOpen={isRunning}
-      executing={isRunning}
-    >
-      <ContentPanelBody>
-        <div className="space-y-2">
-          <pre className="whitespace-pre-wrap break-all font-mono text-muted-foreground">$ {command}</pre>
-          {activity.cwd && (
-            <div className="font-mono text-[11px] text-muted-foreground/70">cwd: {activity.cwd}</div>
-          )}
-          <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-            {activity.exitCode !== undefined && <span>exit {activity.exitCode}</span>}
-            {activity.durationMs !== undefined && <span>{formatElapsed(activity.durationMs)}</span>}
-          </div>
-          {activity.output !== undefined && (
-            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded border border-border/30 bg-muted/30 p-2 font-mono text-muted-foreground">
-              {activity.output || "(no output)"}
-            </pre>
-          )}
-        </div>
-      </ContentPanelBody>
-    </ActivityShell>
-  );
-}
-
-function FileChangeActivity({ activity }: { activity: Extract<AgentActivity, { kind: "file_change" }> }) {
-  const stats = summarizeFiles(activity.files);
-  const detail = (
-    <span className="flex min-w-0 items-center gap-2">
-      <span className="truncate text-xs font-normal text-muted-foreground/70">
-        {activity.files.length} file{activity.files.length !== 1 ? "s" : ""}
-      </span>
-      {(stats.added > 0 || stats.removed > 0) && (
-        <span className="flex items-center gap-1 font-mono text-xs">
-          {stats.added > 0 && <span className="text-green-500">+{stats.added}</span>}
-          {stats.removed > 0 && <span className="text-red-500">-{stats.removed}</span>}
-        </span>
-      )}
-    </span>
-  );
-
-  return (
-    <ActivityShell
-      icon={<FilePenLineIcon className="size-3.5" />}
-      title="File changes"
-      detail={detail}
-      status={activity.status}
-    >
-      <ContentPanelBody>
-        <div className="space-y-3">
-          {activity.files.map((file) => (
-            <FileChangeFile key={`${file.path}-${file.kind ?? ""}`} file={file} />
-          ))}
-        </div>
-      </ContentPanelBody>
-    </ActivityShell>
-  );
-}
-
-function FileChangeFile({ file }: { file: AgentActivityFile }) {
-  const stats = summarizeDiff(file.diff);
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
-        <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground">
-          {file.path}
-        </code>
-        {file.kind && <Badge variant="outline" className="text-[10px]">{readableStatus(file.kind)}</Badge>}
-        {(stats.added > 0 || stats.removed > 0) && (
-          <span className="flex items-center gap-1 font-mono text-xs">
-            {stats.added > 0 && <span className="text-green-500">+{stats.added}</span>}
-            {stats.removed > 0 && <span className="text-red-500">-{stats.removed}</span>}
-          </span>
-        )}
-      </div>
-      {file.diff ? (
-        <DiffView
-          filePath={file.path}
-          oldText=""
-          newText=""
-          unifiedDiff={file.diff}
-          scrollClassName="max-h-72"
-        />
-      ) : (
-        <div className="text-xs text-muted-foreground">No diff available.</div>
-      )}
     </div>
   );
 }
@@ -300,24 +197,47 @@ function readableStatus(status: string): string {
     .replace(/^./, (char) => char.toUpperCase());
 }
 
-function summarizeFiles(files: AgentActivityFile[]): { added: number; removed: number } {
-  return files.reduce(
-    (total, file) => {
-      const stats = summarizeDiff(file.diff);
-      total.added += stats.added;
-      total.removed += stats.removed;
-      return total;
-    },
-    { added: 0, removed: 0 },
-  );
+function commandActivityToToolCall(activity: Extract<AgentActivity, { kind: "command_execution" }>): ToolCall {
+  return {
+    id: activity.id,
+    name: "Bash",
+    input: JSON.stringify({
+      command: activity.command,
+      cwd: activity.cwd,
+      status: activity.status,
+      exitCode: activity.exitCode,
+      durationMs: activity.durationMs,
+    }),
+    output: activity.output,
+  };
 }
 
-function summarizeDiff(diff: string | undefined): { added: number; removed: number } {
-  let added = 0;
-  let removed = 0;
-  for (const line of (diff ?? "").split("\n")) {
-    if (line.startsWith("+") && !line.startsWith("+++")) added++;
-    else if (line.startsWith("-") && !line.startsWith("---")) removed++;
+function isCommandRunning(
+  activity: Extract<AgentActivity, { kind: "command_execution" }>,
+  showExecutingState: boolean | undefined,
+): boolean {
+  return Boolean(showExecutingState && (!activity.status || activity.status === "inProgress"));
+}
+
+function fileChangeActivityToToolCalls(activity: Extract<AgentActivity, { kind: "file_change" }>): ToolCall[] {
+  if (activity.files.length === 0) {
+    return [{
+      id: activity.id,
+      name: "Edit",
+      input: JSON.stringify({ filename: "", diff: "", status: activity.status }),
+      output: activity.status,
+    }];
   }
-  return { added, removed };
+
+  return activity.files.map((file, index) => ({
+    id: `${activity.id}:${index}:${file.path}`,
+    name: "Edit",
+    input: JSON.stringify({
+      filename: file.path,
+      diff: file.diff ?? "",
+      kind: file.kind,
+      status: file.status ?? activity.status,
+    }),
+    output: file.diff ?? file.status ?? activity.status,
+  }));
 }

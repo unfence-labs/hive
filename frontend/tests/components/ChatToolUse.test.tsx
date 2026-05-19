@@ -103,6 +103,35 @@ describe("ChatToolUse", () => {
     expect(screen.getByText(/Run diagnostics/)).toBeInTheDocument();
   });
 
+  it("renders bash exit metadata and failure indicator", async () => {
+    const user = userEvent.setup();
+    render(
+      <ChatToolUse
+        tool={tool({
+          input: JSON.stringify({
+            command: "npm test",
+            cwd: "/tmp/project",
+            status: "failed",
+            exitCode: 1,
+            durationMs: 2400,
+          }),
+          output: "failed\n",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Bash")).toBeInTheDocument();
+    expect(screen.getByText("npm test")).toBeInTheDocument();
+    expect(screen.getByText("exit 1")).toBeInTheDocument();
+    expect(screen.getByText("2.4s")).toBeInTheDocument();
+    expect(screen.getByLabelText("Bash failed with exit code 1")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /bash/i }));
+
+    expect(screen.getByText(/\$ npm test/)).toBeInTheDocument();
+    expect(screen.getByText(/cwd: \/tmp\/project/)).toBeInTheDocument();
+  });
+
   it("renders object output as JSON instead of crashing", async () => {
     const user = userEvent.setup();
     const objectOutput = { type: "text", text: "agent result" } as unknown as string;
