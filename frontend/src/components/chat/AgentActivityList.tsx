@@ -11,6 +11,7 @@ import type { AgentActivity, ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
 import { ContentPanel, ContentPanelBody } from "@/components/chat/ContentPanel";
 import ChatToolUse, { ToolExpandedContent } from "@/components/ChatToolUse";
+import { ToolCallList } from "@/components/chat/ToolCallList";
 
 interface AgentActivityListProps {
   activities: AgentActivity[];
@@ -19,6 +20,30 @@ interface AgentActivityListProps {
 
 export function AgentActivityList({ activities, showExecutingState }: AgentActivityListProps) {
   if (activities.length === 0) return null;
+
+  if (!showExecutingState) {
+    const toolCalls = activities.flatMap(activityToToolCalls);
+    const otherActivities = activities.filter((activity) => activityToToolCalls(activity).length === 0);
+
+    if (toolCalls.length > 0 && otherActivities.length === 0) {
+      return <ToolCallList toolCalls={toolCalls} />;
+    }
+
+    return (
+      <div className="mt-2">
+        {toolCalls.length > 0 && (
+          <ToolCallList toolCalls={toolCalls} className="mt-0" />
+        )}
+        {otherActivities.map((activity) => (
+          <AgentActivityItem
+            key={activity.id}
+            activity={activity}
+            showExecutingState={showExecutingState}
+          />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="mt-2">
@@ -31,6 +56,18 @@ export function AgentActivityList({ activities, showExecutingState }: AgentActiv
       ))}
     </div>
   );
+}
+
+function activityToToolCalls(activity: AgentActivity): ToolCall[] {
+  switch (activity.kind) {
+    case "command_execution":
+      return [commandActivityToToolCall(activity)];
+    case "file_change":
+      return fileChangeActivityToToolCalls(activity);
+    case "plan_update":
+    case "diagnostic":
+      return [];
+  }
 }
 
 const AgentActivityItem = memo(function AgentActivityItem({

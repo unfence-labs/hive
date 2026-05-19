@@ -106,6 +106,7 @@ interface ToolCallListProps {
   planStatus?: PlanStatus;
   dismissedToolCallIds?: Set<string>;
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
+  className?: string;
 }
 
 export function ToolCallList({
@@ -115,6 +116,7 @@ export function ToolCallList({
   planStatus,
   dismissedToolCallIds,
   onQuestionAnswer: _onQuestionAnswer,
+  className,
 }: ToolCallListProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -161,7 +163,7 @@ export function ToolCallList({
   })();
 
   return (
-    <div className="mt-2">
+    <div className={cn("mt-2", className)}>
       {shouldCollapse && (
         <div className="my-0.5">
           <button

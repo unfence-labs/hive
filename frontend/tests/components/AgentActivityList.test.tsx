@@ -64,6 +64,81 @@ describe("AgentActivityList", () => {
     expect(screen.getByText(/-old/)).toBeInTheDocument();
   });
 
+  it("collapses completed tool-like activities into the shared summary", async () => {
+    const user = userEvent.setup();
+    const activities: AgentActivity[] = [
+      {
+        id: "cmd-1",
+        kind: "command_execution",
+        command: "npm test",
+        status: "completed",
+        output: "ok",
+      },
+      {
+        id: "cmd-2",
+        kind: "command_execution",
+        command: "npm run lint",
+        status: "completed",
+        output: "ok",
+      },
+      {
+        id: "files-1",
+        kind: "file_change",
+        status: "completed",
+        files: [{
+          path: "src/app.ts",
+          kind: "update",
+          diff: "--- a/src/app.ts\n+++ b/src/app.ts\n-old\n+new",
+        }],
+      },
+    ];
+
+    render(<AgentActivityList activities={activities} />);
+
+    expect(screen.getByText("3 tool calls")).toBeInTheDocument();
+    expect(screen.queryByText("Bash")).not.toBeInTheDocument();
+    expect(screen.queryByText("Edit")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("3 tool calls"));
+
+    expect(screen.getAllByText("Bash")).toHaveLength(2);
+    expect(screen.getByText("Edit")).toBeInTheDocument();
+  });
+
+  it("keeps tool-like activities expanded while streaming", () => {
+    const activities: AgentActivity[] = [
+      {
+        id: "cmd-1",
+        kind: "command_execution",
+        command: "npm test",
+        status: "inProgress",
+      },
+      {
+        id: "cmd-2",
+        kind: "command_execution",
+        command: "npm run lint",
+        status: "completed",
+        output: "ok",
+      },
+      {
+        id: "files-1",
+        kind: "file_change",
+        status: "completed",
+        files: [{
+          path: "src/app.ts",
+          kind: "update",
+          diff: "--- a/src/app.ts\n+++ b/src/app.ts\n-old\n+new",
+        }],
+      },
+    ];
+
+    render(<AgentActivityList activities={activities} showExecutingState />);
+
+    expect(screen.queryByText("3 tool calls")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Bash")).toHaveLength(2);
+    expect(screen.getByText("Edit")).toBeInTheDocument();
+  });
+
   it("renders plan update steps", () => {
     const activities: AgentActivity[] = [{
       id: "plan-1",
