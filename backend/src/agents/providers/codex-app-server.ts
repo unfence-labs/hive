@@ -102,6 +102,18 @@ type ThreadItem =
       contentItems?: unknown[] | null;
       success?: boolean | null;
     }
+  | {
+      type: "collabAgentToolCall";
+      id: string;
+      tool?: string;
+      status?: string;
+      senderThreadId?: string;
+      receiverThreadIds?: string[];
+      prompt?: string | null;
+      model?: string | null;
+      reasoningEffort?: string | null;
+      agentsStates?: Record<string, unknown>;
+    }
   | { type: "webSearch"; id: string; query?: string; action?: unknown }
   | { type: string; id?: string; [key: string]: unknown };
 
@@ -633,6 +645,14 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         }
         break;
       }
+      case "collabAgentToolCall": {
+        const collabItem = item as Extract<ThreadItem, { type: "collabAgentToolCall" }>;
+        this.emitToolUse(collabItem.id, "Agent", JSON.stringify(collabAgentToolInput(collabItem)));
+        if (phase === "completed") {
+          this.emitToolResult(collabItem.id, collabAgentToolResult(collabItem));
+        }
+        break;
+      }
       case "webSearch": {
         const webItem = item as Extract<ThreadItem, { type: "webSearch" }>;
         this.emitToolUse(webItem.id, "WebSearch", JSON.stringify({ query: webItem.query ?? "", action: webItem.action }));
@@ -847,6 +867,47 @@ function formatUnknown(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function collabAgentToolInput(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): JsonObject {
+  return {
+    subagent_type: "Agent",
+    description: collabAgentDescription(item),
+    prompt: item.prompt ?? undefined,
+    run_in_background: true,
+    model: item.model ?? undefined,
+    reasoning_effort: item.reasoningEffort ?? undefined,
+    tool: item.tool,
+    status: item.status,
+    sender_thread_id: item.senderThreadId,
+    receiver_thread_ids: item.receiverThreadIds,
+    agents_states: item.agentsStates,
+  };
+}
+
+function collabAgentDescription(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): string {
+  const prompt = item.prompt?.trim().split("\n").find((line) => line.trim());
+  return prompt?.trim() || formatCollabAgentTool(item.tool);
+}
+
+function collabAgentToolResult(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): string {
+  return JSON.stringify([{
+    type: "text",
+    text: formatUnknown({
+      tool: item.tool,
+      status: item.status,
+      receiverThreadIds: item.receiverThreadIds,
+      agentsStates: item.agentsStates,
+    }),
+  }]);
+}
+
+function formatCollabAgentTool(tool: string | undefined): string {
+  if (!tool) return "Agent";
+  return tool
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function diagnosticId(prefix: string, method: string): string {

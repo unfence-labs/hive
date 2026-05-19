@@ -47,12 +47,13 @@ Warnings such as `warning`, `configWarning`, `deprecationNotice`, and `guardianW
 
 These App Server item types currently rely on the unsupported-item diagnostic fallback:
 
-- `collabAgentToolCall`
 - `imageView`
 - `imageGeneration`
 - `enteredReviewMode`
 - `exitedReviewMode`
 - `contextCompaction`
+
+`collabAgentToolCall` is normalized into Hive's existing `Agent` tool-call rendering path so web and iOS can reuse the same sub-agent UI used by other providers.
 
 `userMessage` and `hookPrompt` are intentionally ignored because Hive already owns user-message rendering and hook prompts are internal context.
 

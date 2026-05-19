@@ -269,10 +269,9 @@ describe("CodexAppServerSession normalized events", () => {
       method: "item/started",
       params: {
         item: {
-          type: "collabAgentToolCall",
-          id: "collab-1",
-          tool: "spawn_agent",
-          prompt: "inspect this",
+          type: "imageView",
+          id: "image-1",
+          path: "/tmp/screenshot.png",
         },
       },
     }) + "\n");
@@ -282,9 +281,107 @@ describe("CodexAppServerSession normalized events", () => {
         type: "diagnostic",
         severity: "info",
         title: "Unsupported App Server item",
-        message: "Hive does not render Codex item type \"collabAgentToolCall\" yet.",
+        message: "Hive does not render Codex item type \"imageView\" yet.",
         source: "codex_app_server",
-        method: "item/collabAgentToolCall",
+        method: "item/imageView",
+      }),
+    ]);
+  });
+
+  it("renders collab agent tool calls through the existing Agent tool UI path", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: unknown[] = [];
+    const userEvents: unknown[] = [];
+    const diagnostics: unknown[] = [];
+    session.on("assistant", (event) => assistantEvents.push(event));
+    session.on("user", (event) => userEvents.push(event));
+    session.on("agent_event", (event) => diagnostics.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "inProgress",
+          senderThreadId: "thread-1",
+          receiverThreadIds: ["thread-2"],
+          prompt: "Inspect the auth flow\nReturn findings only.",
+          model: "gpt-5.5",
+          reasoningEffort: "medium",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "completed",
+          senderThreadId: "thread-1",
+          receiverThreadIds: ["thread-2"],
+          prompt: "Inspect the auth flow\nReturn findings only.",
+          agentsStates: {
+            "thread-2": { status: "completed", message: "No findings." },
+          },
+        },
+      },
+    }) + "\n");
+
+    expect(diagnostics).toEqual([]);
+    expect(assistantEvents).toEqual([
+      expect.objectContaining({
+        type: "assistant",
+        message: expect.objectContaining({
+          id: "collab-1",
+          content: [
+            expect.objectContaining({
+              type: "tool_use",
+              id: "collab-1",
+              name: "Agent",
+              input: expect.stringContaining("\"subagent_type\":\"Agent\""),
+            }),
+          ],
+        }),
+      }),
+    ]);
+    expect(assistantEvents[0]).toEqual(expect.objectContaining({
+      message: expect.objectContaining({
+        content: [
+          expect.objectContaining({
+            input: expect.stringContaining("\"description\":\"Inspect the auth flow\""),
+          }),
+        ],
+      }),
+    }));
+    expect(userEvents).toEqual([
+      expect.objectContaining({
+        type: "user",
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({
+              type: "tool_result",
+              tool_use_id: "collab-1",
+              content: expect.any(String),
+            }),
+          ],
+        }),
+      }),
+    ]);
+    const output = ((userEvents[0] as {
+      message: { content: Array<{ content: string }> };
+    }).message.content[0]?.content);
+    const outputBlocks = JSON.parse(output) as Array<{ type: string; text: string }>;
+    expect(outputBlocks).toEqual([
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("\"status\": \"completed\""),
       }),
     ]);
   });
