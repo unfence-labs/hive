@@ -437,6 +437,16 @@ function getBashMetadata(tool: ToolCall): { exitCode?: number; failed: boolean }
   }
 }
 
+export function ToolExpandedContent({ content }: { content: ReactNode }) {
+  return typeof content === "string" ? (
+    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
+      {content}
+    </pre>
+  ) : (
+    content
+  );
+}
+
 const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: ChatToolUseProps) {
   const [expanded, setExpanded] = useState(false);
   const display = getToolDisplay(tool);
@@ -497,13 +507,7 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
       {showExpanded && (
         <ContentPanel>
           <ContentPanelBody>
-            {typeof display.expandedContent === "string" ? (
-              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
-                {display.expandedContent}
-              </pre>
-            ) : (
-              display.expandedContent
-            )}
+            <ToolExpandedContent content={display.expandedContent} />
           </ContentPanelBody>
           {tool.output !== undefined && !display.hideOutput && (
             <ContentPanelFooter>

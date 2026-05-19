@@ -99,10 +99,12 @@ describe("AgentActivityList", () => {
 
     expect(screen.getByText("Unsupported App Server event")).toBeInTheDocument();
     expect(screen.getByText("turn/diff/updated")).toBeInTheDocument();
+    expect(screen.getByLabelText("Diagnostic warning")).toBeInTheDocument();
+    expect(screen.queryByText("Warning")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Unsupported App Server event/ }));
 
-    expect(screen.getByText("Hive does not render this event yet.")).toBeInTheDocument();
-    expect(screen.getByText("{\"changedFiles\":2}")).toBeInTheDocument();
+    expect(screen.getByText(/Hive does not render this event yet/)).toBeInTheDocument();
+    expect(screen.getByText(/{\"changedFiles\":2}/)).toBeInTheDocument();
   });
 });

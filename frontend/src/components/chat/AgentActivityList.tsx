@@ -4,16 +4,13 @@ import {
   CheckCircle2Icon,
   ChevronRightIcon,
   CircleIcon,
-  InfoIcon,
-  ListChecksIcon,
   Loader2Icon,
   XCircleIcon,
 } from "lucide-react";
 import type { AgentActivity, ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import { ContentPanel, ContentPanelBody } from "@/components/chat/ContentPanel";
-import ChatToolUse from "@/components/ChatToolUse";
+import ChatToolUse, { ToolExpandedContent } from "@/components/ChatToolUse";
 
 interface AgentActivityListProps {
   activities: AgentActivity[];
@@ -67,24 +64,22 @@ const AgentActivityItem = memo(function AgentActivityItem({
 });
 
 function ActivityShell({
-  icon,
   title,
   detail,
-  status,
-  children,
+  trailingIcon,
+  expandedContent,
   defaultOpen = false,
   executing,
 }: {
-  icon: ReactNode;
   title: string;
   detail?: ReactNode;
-  status?: string;
-  children?: ReactNode;
+  trailingIcon?: ReactNode;
+  expandedContent?: ReactNode;
   defaultOpen?: boolean;
   executing?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const canOpen = Boolean(children);
+  const canOpen = Boolean(expandedContent);
 
   return (
     <div className="my-0.5">
@@ -100,13 +95,18 @@ function ActivityShell({
         {canOpen && (
           <ChevronRightIcon className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
         )}
-        <span className="shrink-0">{icon}</span>
         <span>{title}</span>
         {detail}
-        {status && <StatusBadge status={status} />}
+        {trailingIcon && <span className="shrink-0">{trailingIcon}</span>}
         {executing && <span className="inline-block size-1.5 animate-pulse rounded-full bg-primary" />}
       </button>
-      {open && children && <ContentPanel>{children}</ContentPanel>}
+      {open && expandedContent && (
+        <ContentPanel>
+          <ContentPanelBody>
+            <ToolExpandedContent content={expandedContent} />
+          </ContentPanelBody>
+        </ContentPanel>
+      )}
     </div>
   );
 }
@@ -121,12 +121,10 @@ function PlanUpdateActivity({ activity }: { activity: Extract<AgentActivity, { k
 
   return (
     <ActivityShell
-      icon={<ListChecksIcon className="size-3.5" />}
       title="Plan"
       detail={detail}
       defaultOpen={activity.steps.some((step) => step.status === "inProgress")}
-    >
-      <ContentPanelBody>
+      expandedContent={
         <div className="space-y-2">
           {activity.steps.map((step, index) => (
             <div key={`${index}-${step.text}`} className="flex min-w-0 items-start gap-2 text-sm">
@@ -137,8 +135,8 @@ function PlanUpdateActivity({ activity }: { activity: Extract<AgentActivity, { k
             </div>
           ))}
         </div>
-      </ContentPanelBody>
-    </ActivityShell>
+      }
+    />
   );
 }
 
@@ -151,30 +149,11 @@ function DiagnosticActivity({ activity }: { activity: Extract<AgentActivity, { k
 
   return (
     <ActivityShell
-      icon={diagnosticIcon(activity.severity)}
       title={activity.title}
       detail={detail}
-      status={activity.severity}
-    >
-      <ContentPanelBody>
-        <div className="space-y-2">
-          <p className="text-sm text-muted-foreground">{activity.message}</p>
-          {activity.details && (
-            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded border border-border/30 bg-muted/30 p-2 font-mono text-xs text-muted-foreground">
-              {activity.details}
-            </pre>
-          )}
-        </div>
-      </ContentPanelBody>
-    </ActivityShell>
-  );
-}
-
-function StatusBadge({ status }: { status: string }) {
-  return (
-    <Badge variant="outline" className="text-[10px]">
-      {readableStatus(status)}
-    </Badge>
+      trailingIcon={diagnosticIcon(activity.severity)}
+      expandedContent={[activity.message, activity.details].filter(Boolean).join("\n\n")}
+    />
   );
 }
 
@@ -186,15 +165,9 @@ function planStepIcon(status: string) {
 }
 
 function diagnosticIcon(severity: Extract<AgentActivity, { kind: "diagnostic" }>["severity"]) {
-  if (severity === "error") return <XCircleIcon className="size-3.5 text-destructive" />;
-  if (severity === "warning") return <AlertTriangleIcon className="size-3.5 text-amber-500" />;
-  return <InfoIcon className="size-3.5 text-muted-foreground" />;
-}
-
-function readableStatus(status: string): string {
-  return status
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/^./, (char) => char.toUpperCase());
+  if (severity === "error") return <XCircleIcon className="size-3.5 text-destructive" aria-label="Diagnostic error" />;
+  if (severity === "warning") return <AlertTriangleIcon className="size-3.5 text-amber-500" aria-label="Diagnostic warning" />;
+  return undefined;
 }
 
 function commandActivityToToolCall(activity: Extract<AgentActivity, { kind: "command_execution" }>): ToolCall {
