@@ -209,7 +209,7 @@ describe("CodexAppServerSession normalized events", () => {
       params: { message: "Codex warning", authToken: "secret-token" },
     }) + "\n");
     proc._stdout.push(JSON.stringify({
-      method: "turn/diff/updated",
+      method: "unknown/notification",
       params: { changedFiles: 2, apiKey: "secret-key" },
     }) + "\n");
 
@@ -227,9 +227,9 @@ describe("CodexAppServerSession normalized events", () => {
         type: "diagnostic",
         severity: "info",
         title: "Unsupported App Server event",
-        message: "Hive does not render \"turn/diff/updated\" yet.",
+        message: "Hive does not render \"unknown/notification\" yet.",
         source: "codex_app_server",
-        method: "turn/diff/updated",
+        method: "unknown/notification",
         details: expect.stringContaining("[redacted]"),
       }),
     ]);
@@ -258,6 +258,10 @@ describe("CodexAppServerSession normalized events", () => {
     proc._stdout.push(JSON.stringify({
       method: "account/rateLimits/updated",
       params: { primary: { remaining: 0, resetAt: "2026-05-19T00:00:00Z" } },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "turn/diff/updated",
+      params: { threadId: "thread-1", turnId: "turn-1", diff: "diff --git a/app.ts b/app.ts" },
     }) + "\n");
 
     expect(events).toEqual([]);

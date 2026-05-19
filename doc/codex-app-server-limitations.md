@@ -31,7 +31,6 @@ After a `done` or `cancelled` event finalizes a stream, clients should ignore la
 
 These notifications are either diagnostic-only today or not yet rendered as richer activity:
 
-- `turn/diff/updated`
 - `serverRequest/resolved`
 - `thread/compacted`
 - `model/rerouted`
@@ -49,6 +48,7 @@ Warnings such as `warning`, `configWarning`, `deprecationNotice`, and `guardianW
 The following notifications are intentionally absorbed instead of being rendered in chat:
 
 - `remoteControl/status/changed` because Hive does not expose Codex remote-control state in chat.
+- `turn/diff/updated` because it is an aggregate turn diff that duplicates item-level file-change rendering.
 - `thread/status/changed` for routine thread states. `systemError` still emits an error diagnostic.
 - `mcpServer/startupStatus/updated` for `starting` and `ready`. `failed` and `cancelled` still emit warning diagnostics.
 - `account/rateLimits/updated` because rate-limit UX should be handled outside the chat activity stream in a future pass.
