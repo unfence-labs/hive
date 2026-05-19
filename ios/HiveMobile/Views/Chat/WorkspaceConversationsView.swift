@@ -12,46 +12,52 @@ struct WorkspaceConversationsView: View {
     @State private var isLoading = true
     @State private var isCreatingSession = false
     @State private var isOpeningConversation = false
+    @State private var selectedSession: SessionMetadata?
+    @State private var isShowingSelectedSession = false
     @State private var errorMessage: String?
 
     private let api = APIClient()
     private var activeSessionId: String? {
         store.sessionId ?? workspace.activeSessionId
     }
-    private var branchName: String {
-        projectStore.statusMonitor.branchInfo(for: workspace.id)?.name ?? workspace.branch
-    }
 
     var body: some View {
         List {
             ForEach(sessions) { session in
-                NavigationLink {
-                    ChatView(workspace: workspace, session: session, store: store)
+                Button {
+                    isOpeningConversation = true
+                    selectedSession = session
+                    isShowingSelectedSession = true
                 } label: {
                     ConversationRow(
                         session: session,
                         isActive: session.sessionId == activeSessionId
                     )
                 }
-                .simultaneousGesture(TapGesture().onEnded {
-                    isOpeningConversation = true
-                })
+                .buttonStyle(.plain)
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .listRowBackground(WhisperColor.surfaceRaised)
+                .listRowSeparatorTint(WhisperColor.separator)
             }
             .onDelete(perform: deleteSessions)
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .hiveScreenBackground()
+        .background(WhisperColor.surfaceRaised.ignoresSafeArea())
         .overlay {
             if isLoading {
                 ProgressView()
             } else if sessions.isEmpty {
-                ContentUnavailableView(
-                    "No Conversations",
-                    systemImage: "bubble.left.and.bubble.right",
-                    description: Text("Create a conversation to start messaging in this workspace.")
-                )
+                VStack(spacing: HiveSpacing.sm) {
+                    Text("No Conversations")
+                        .font(.headline)
+                        .foregroundStyle(WhisperColor.text)
+                    Text("Create a conversation to start messaging in this workspace.")
+                        .font(.subheadline)
+                        .foregroundStyle(WhisperColor.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, HiveSpacing.xl)
             }
         }
         .refreshable {
@@ -59,20 +65,19 @@ struct WorkspaceConversationsView: View {
         }
         .navigationTitle(workspace.name)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
+        .navigationDestination(isPresented: $isShowingSelectedSession) {
+            if let selectedSession {
+                ChatView(workspace: workspace, session: selectedSession, store: store)
+            }
+        }
+        .onChange(of: isShowingSelectedSession) { _, isPresented in
+            if !isPresented {
+                selectedSession = nil
+            }
+        }
+        .toolbarBackground(WhisperColor.surfaceRaised, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                VStack(spacing: 2) {
-                    Text(workspace.projectName ?? workspace.name)
-                        .font(.headline)
-                        .lineLimit(1)
-                    Text("\(workspace.name) · \(branchName)")
-                        .font(.caption2)
-                        .foregroundStyle(WhisperColor.textSecondary)
-                        .lineLimit(1)
-                }
-            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     createSession()
