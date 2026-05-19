@@ -485,7 +485,9 @@ describe("ToolCallList", () => {
     const btn = screen.getByRole("button", { name: /Explore/i });
     const checkmark = btn.querySelector("svg polyline[points='20 6 9 17 4 12']");
     expect(checkmark).toBeTruthy();
-    expect(screen.getByText(/3 tools/)).toBeInTheDocument();
+    const toolCount = screen.getByText(/3 tools/);
+    expect(toolCount).toBeInTheDocument();
+    expect(toolCount).toHaveClass("shrink-0", "whitespace-nowrap");
   });
 
   it("shows singular tool count on SubAgentNode with one child", () => {

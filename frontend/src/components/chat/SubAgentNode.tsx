@@ -107,7 +107,7 @@ export const SubAgentNode = memo(function SubAgentNode({
         <button
           type="button"
           className={cn(
-            "inline-flex w-fit max-w-full items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground",
+            "inline-flex w-fit max-w-full min-w-0 items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground",
             isRunning && "animate-shimmer",
           )}
           onClick={() => setExpanded(!expanded)}
@@ -122,16 +122,16 @@ export const SubAgentNode = memo(function SubAgentNode({
           >
             <AgentIcon type={info.subagentType} />
           </span>
-          <span>
+          <span className="shrink-0">
             {info.subagentType}
           </span>
           {info.description && (
-            <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+            <code className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
               {info.description}
             </code>
           )}
           {isDone && childCount > 0 && (
-            <span className="text-muted-foreground/50">
+            <span className="shrink-0 whitespace-nowrap text-muted-foreground/50">
               · {childCount} tool{childCount !== 1 ? "s" : ""}
             </span>
           )}
