@@ -164,7 +164,7 @@ struct BulkPrStatusResponse: Codable {
 
 // MARK: - Session & Chat
 
-struct SessionMetadata: Codable, Identifiable {
+struct SessionMetadata: Codable, Hashable, Identifiable {
     let sessionId: String
     let providerSessionId: String?
     let claudeSessionId: String?
