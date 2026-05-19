@@ -389,7 +389,7 @@ Client -> server:
 - `{ "type": "tool_input_response", "requestId": "...", "toolName": "AskUserQuestion|ExitPlanMode", "result": ..., "sessionId": "...", "workspaceId": "..." }`
 
 Server -> client (wrapped in `HubOutgoing` envelopes `{ workspaceId, event }`):
-- `status` (includes `lockedProvider`), `history`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `tool_input_required`, `done` (with `durationMs`, `pendingToolName`), `cancelled` (with `errorDetail`, `userInitiated`), `error`, `branch_info`, `diff_stats`, `script_status`, `plan_mode_changed`
+- `status` (includes `lockedProvider`), `history`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `agent_activity`, `tool_input_required`, `done` (with `durationMs`, `pendingToolName`), `cancelled` (with `errorDetail`, `userInitiated`), `error`, `branch_info`, `diff_stats`, `script_status`, `plan_mode_changed`
 
 ### Script stream
 
@@ -424,9 +424,11 @@ Backend key modules:
 - `backend/src/ws/script.ts` script execution WebSocket
 - `backend/src/agents/agent-manager.ts` in-memory session registry, persistence, switching
 - `backend/src/agents/conversation-session.ts` agent process lifecycle per turn (provider-aware)
+- `backend/src/agents/agent-event-normalizer.ts` provider event normalization into Hive stream events and activity updates
+- `backend/src/agents/runners/` process and Codex App Server runner abstraction
 - `backend/src/agents/system-prompt.ts` system prompt construction (base prompt loading, template vars, git context)
 - `backend/src/agents/naming.ts` branch + session auto-naming via dedicated Claude subprocess
-- `backend/src/agents/providers/` provider abstraction (types, registry, claude, codex, codex-stream-adapter, gemini, gemini-stream-adapter)
+- `backend/src/agents/providers/` provider abstraction (types, registry, claude, codex, codex-app-server, codex-stream-adapter, gemini, gemini-stream-adapter)
 - `backend/src/services/git-sync.ts` branch/diff polling and workspace broadcasts
 - `backend/src/services/script-runner.ts` PTY-based script execution + interactive terminal
 - `backend/src/services/automation-scheduler.ts` cron scheduling, ConversationSession execution, git context injection

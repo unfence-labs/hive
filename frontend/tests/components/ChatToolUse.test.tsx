@@ -71,7 +71,9 @@ describe("ChatToolUse", () => {
     await user.click(screen.getByRole("button", { name: /edit/i }));
 
     expect(screen.getByText(/--- a\/src\/app\.ts/)).toBeInTheDocument();
-    expect(screen.getByText(/\+after/)).toBeInTheDocument();
+    expect(screen.getByText("Path: src/app.ts")).toBeInTheDocument();
+    expect(screen.getByText(/\+after/)).toHaveClass("text-green-400");
+    expect(screen.getByText(/-before/)).toHaveClass("text-red-400");
     expect(screen.queryByText("Output")).not.toBeInTheDocument();
   });
 

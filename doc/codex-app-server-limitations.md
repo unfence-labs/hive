@@ -25,6 +25,8 @@ The web frontend and iOS app both render these activities directly and keep `too
 
 Unsupported Codex App Server protocol events should continue to become `diagnostic` activities. Unknown client-side activity kinds should not surface as chat errors; render an unsupported/unknown activity row or ignore them safely.
 
+After a `done` or `cancelled` event finalizes a stream, clients should ignore late live fragments for that terminal assistant message. Late `text_delta`, `thinking`, `tool_use`, `agent_activity`, `tool_input_required`, and `plan_mode_changed` events must not recreate a ghost streaming message or pending input for the completed turn.
+
 ## Notification Coverage
 
 These notifications are either diagnostic-only today or not yet rendered as richer activity:

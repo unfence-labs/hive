@@ -157,9 +157,13 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
         detail: filename,
         hideOutput: true,
         expandedContent: diff ? (
-          <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
-            {diff}
-          </pre>
+          <DiffView
+            filePath={filePath}
+            oldText=""
+            newText=""
+            unifiedDiff={diff}
+            scrollClassName="max-h-96"
+          />
         ) : filePath && (oldString !== undefined || newString !== undefined) ? (
           <DiffView
             filePath={filePath}
