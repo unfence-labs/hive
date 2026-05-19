@@ -2036,6 +2036,73 @@ describe("useConversation", () => {
     expect(assistantMsg!.durationMs).toBe(1234);
   });
 
+  it("ignores late live stream fragments after done", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "hello",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Done" });
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", durationMs: 100 });
+    });
+
+    expect(result.current.isStreaming).toBe(false);
+    expect(result.current.streamingStartedAt).toBeNull();
+    expect(result.current.currentStreamingText).toBe("");
+    expect(result.current.messages.at(-1)?.content).toBe("Done");
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: " late text" });
+      __wsMock.emit("ws-1", { type: "thinking", sessionId: "sess-1", text: "late thinking" });
+      __wsMock.emit("ws-1", {
+        type: "tool_use",
+        sessionId: "sess-1",
+        id: "late-tool",
+        name: "Read",
+        input: "{}",
+      });
+      __wsMock.emit("ws-1", {
+        type: "agent_activity",
+        sessionId: "sess-1",
+        activity: {
+          id: "late-command",
+          kind: "command_execution",
+          command: "npm test",
+          status: "completed",
+        },
+      });
+      __wsMock.emit("ws-1", {
+        type: "tool_input_required",
+        sessionId: "sess-1",
+        requestId: "late-input",
+        toolName: "AskUserQuestion",
+        toolUseId: "late-tool",
+        input: {},
+      });
+      __wsMock.emit("ws-1", { type: "plan_mode_changed", sessionId: "sess-1", active: true });
+    });
+
+    expect(result.current.isStreaming).toBe(false);
+    expect(result.current.streamingStartedAt).toBeNull();
+    expect(result.current.currentStreamingText).toBe("");
+    expect(result.current.currentThinking).toBe("");
+    expect(result.current.activeToolCalls).toEqual([]);
+    expect(result.current.activeAgentActivities).toEqual([]);
+    expect(result.current.pendingToolInputs).toEqual([]);
+    expect(result.current.agentPlanMode).toBeUndefined();
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages.at(-1)?.content).toBe("Done");
+  });
+
   it("status event updates workspace status, streaming flag, and streamingStartedAt", async () => {
     const { __wsMock } = await getWsMock();
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_001_444);

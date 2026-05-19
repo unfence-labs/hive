@@ -103,7 +103,7 @@ function derivePendingToolInputsFromHistory(messages: ChatMessage[]): PendingToo
     }));
 }
 
-/** Return or create the stream slot for a session, defaulting to streaming state. */
+/** Return or create the stream slot for an explicit stream start. */
 function getOrInitStream(streams: Record<string, SessionStreamState>, sid: string): SessionStreamState {
   return streams[sid] ?? { ...emptyStreamState, isStreaming: true, streamingStartedAt: Date.now() };
 }
@@ -113,7 +113,8 @@ function updateStream(
   sid: string,
   patch: Partial<SessionStreamState>,
 ): ConversationState {
-  const stream = state.sessionStreams[sid] ?? { ...emptyStreamState, isStreaming: true, streamingStartedAt: Date.now() };
+  const stream = state.sessionStreams[sid];
+  if (!stream) return state;
   return {
     ...state,
     sessionStreams: {
@@ -127,6 +128,15 @@ function deleteStream(state: ConversationState, sid: string): Record<string, Ses
   const copy = { ...state.sessionStreams };
   delete copy[sid];
   return copy;
+}
+
+function hasTerminalAssistantMessage(state: ConversationState, sid: string): boolean {
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    const message = state.messages[i];
+    if (message.sessionId && message.sessionId !== sid) continue;
+    return message.role === "assistant";
+  }
+  return false;
 }
 
 function upsertActivity(activities: AgentActivity[], activity: AgentActivity): AgentActivity[] {
@@ -168,21 +178,24 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "text_delta": {
       const sid = action.sessionId || state.sessionId;
       if (!sid) return state;
-      const stream = getOrInitStream(state.sessionStreams, sid);
+      const stream = state.sessionStreams[sid];
+      if (!stream) return state;
       return updateStream(state, sid, { currentText: stream.currentText + action.text });
     }
 
     case "thinking": {
       const sid = action.sessionId || state.sessionId;
       if (!sid) return state;
-      const stream = getOrInitStream(state.sessionStreams, sid);
+      const stream = state.sessionStreams[sid];
+      if (!stream) return state;
       return updateStream(state, sid, { currentThinking: stream.currentThinking + action.text });
     }
 
     case "tool_use": {
       const sid = action.sessionId || state.sessionId;
       if (!sid) return state;
-      const stream = getOrInitStream(state.sessionStreams, sid);
+      const stream = state.sessionStreams[sid];
+      if (!stream) return state;
       return updateStream(state, sid, {
         activeToolCalls: [
           ...stream.activeToolCalls,
@@ -205,7 +218,8 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "agent_activity": {
       const sid = action.sessionId || state.sessionId;
       if (!sid) return state;
-      const stream = getOrInitStream(state.sessionStreams, sid);
+      const stream = state.sessionStreams[sid];
+      if (!stream) return state;
       return updateStream(state, sid, {
         activeAgentActivities: upsertActivity(stream.activeAgentActivities, action.activity),
       });
@@ -379,15 +393,24 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "tool_input_required": {
       const sid = action.sessionId || state.sessionId;
       if (!sid) return state;
-      const stream = getOrInitStream(state.sessionStreams, sid);
-      return updateStream(state, sid, {
-        pendingToolInputs: [...stream.pendingToolInputs, {
-          requestId: action.requestId,
-          toolName: action.toolName,
-          toolUseId: action.toolUseId,
-          input: action.input,
-        }],
-      });
+      const stream = state.sessionStreams[sid];
+      if (!stream && hasTerminalAssistantMessage(state, sid)) return state;
+      const nextStream = stream ?? { ...emptyStreamState };
+      return {
+        ...state,
+        sessionStreams: {
+          ...state.sessionStreams,
+          [sid]: {
+            ...nextStream,
+            pendingToolInputs: [...nextStream.pendingToolInputs, {
+              requestId: action.requestId,
+              toolName: action.toolName,
+              toolUseId: action.toolUseId,
+              input: action.input,
+            }],
+          },
+        },
+      };
     }
 
     case "plan_mode_changed": {
