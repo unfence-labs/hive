@@ -42,6 +42,14 @@ struct ChatView: View {
         ContextUsageData.derive(from: store.messages, contextWindow: selectedModel?.contextWindow)
     }
 
+    private var navigationTitle: String {
+        workspace.projectName ?? workspace.name
+    }
+
+    private var navigationSubtitle: String {
+        "\(workspace.name) · \(store.branchInfo?.name ?? workspace.branch)"
+    }
+
     private var pendingToolUseIds: Set<String> {
         Set(store.pendingToolInputs.map(\.toolUseId))
     }
@@ -111,7 +119,7 @@ struct ChatView: View {
 
         }
         .hiveScreenBackground()
-        .safeAreaInset(edge: .bottom) {
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
                 let tasksState = store.tasksState
                 if !tasksState.tasks.isEmpty {
@@ -143,21 +151,14 @@ struct ChatView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 4)
             }
+            .background(.bar)
         }
         .toolbarBackground(WhisperColor.surfaceRaised, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .navigationTitle(navigationTitle)
+        .navigationSubtitle(Text(navigationSubtitle))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                VStack(spacing: 2) {
-                    Text(workspace.projectName ?? workspace.name)
-                        .font(.headline)
-                    Text("\(workspace.name) · \(store.branchInfo?.name ?? workspace.branch)")
-                        .font(.caption2)
-                        .foregroundStyle(WhisperColor.textSecondary)
-                }
-            }
-        }
+        .toolbar(.hidden, for: .tabBar)
         .sheet(isPresented: Binding(
             get: { !store.pendingToolInputs.isEmpty },
             set: { if !$0 { store.clearPendingToolInputs() } }

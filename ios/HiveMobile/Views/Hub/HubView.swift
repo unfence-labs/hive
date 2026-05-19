@@ -76,7 +76,7 @@ struct HubView: View {
                 errorBanner(errorMessage)
             }
         }
-        .overlay(alignment: .top) {
+        .safeAreaInset(edge: .top, spacing: 0) {
             if let repoName = store.cloningRepoName {
                 HStack(spacing: HiveSpacing.sm) {
                     ProgressView()
@@ -88,7 +88,7 @@ struct HubView: View {
                 .padding(.horizontal, HiveSpacing.lg)
                 .padding(.vertical, HiveSpacing.sm)
                 .glassPill()
-                .padding(.top, HiveSpacing.sm)
+                .padding(.vertical, HiveSpacing.sm)
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }

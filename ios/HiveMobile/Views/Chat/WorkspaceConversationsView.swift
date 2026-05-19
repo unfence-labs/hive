@@ -13,7 +13,6 @@ struct WorkspaceConversationsView: View {
     @State private var isCreatingSession = false
     @State private var isOpeningConversation = false
     @State private var selectedSession: SessionMetadata?
-    @State private var isShowingSelectedSession = false
     @State private var errorMessage: String?
 
     private let api = APIClient()
@@ -27,7 +26,6 @@ struct WorkspaceConversationsView: View {
                 Button {
                     isOpeningConversation = true
                     selectedSession = session
-                    isShowingSelectedSession = true
                 } label: {
                     ConversationRow(
                         session: session,
@@ -73,15 +71,8 @@ struct WorkspaceConversationsView: View {
         }
         .navigationTitle(workspace.name)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(isPresented: $isShowingSelectedSession) {
-            if let selectedSession {
-                ChatView(workspace: workspace, session: selectedSession, store: store)
-            }
-        }
-        .onChange(of: isShowingSelectedSession) { _, isPresented in
-            if !isPresented {
-                selectedSession = nil
-            }
+        .navigationDestination(item: $selectedSession) { session in
+            ChatView(workspace: workspace, session: session, store: store)
         }
         .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)

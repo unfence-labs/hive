@@ -39,7 +39,6 @@ struct HiveApp: App {
                                     store: storeCache.getOrCreate(workspace.id)
                                 )
                                 .toolbar(.hidden, for: .tabBar)
-                                .smoothTabBarTransition()
                             }
                     }
                 }
