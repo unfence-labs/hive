@@ -8,15 +8,14 @@ private func rgb(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat, alpha: CGFlo
 // MARK: - Accent Color System
 
 enum AccentOption: String, CaseIterable, Identifiable {
-    case hive, violet, blue, cyan, emerald, amber, rose
+    case violet, blue, cyan, emerald, amber, rose
 
     var id: String { rawValue }
 
-    static let defaultId = Self.hive.rawValue
+    static let defaultId = Self.violet.rawValue
 
     var color: Color {
         switch self {
-        case .hive:    Self.dynamic(light: rgb(184, 67, 36), dark: rgb(255, 154, 122))
         case .violet:  Color(red: 0.388, green: 0.357, blue: 1.000)
         case .blue:    Color(red: 0.231, green: 0.510, blue: 0.965)
         case .cyan:    Color(red: 0.024, green: 0.714, blue: 0.831)
@@ -28,16 +27,9 @@ enum AccentOption: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .hive: "Hive"
         case .violet: "Indigo"
         default: rawValue.capitalized
         }
-    }
-
-    private static func dynamic(light: UIColor, dark: UIColor) -> Color {
-        Color(UIColor { traits in
-            traits.userInterfaceStyle == .dark ? dark : light
-        })
     }
 }
 
@@ -88,7 +80,6 @@ enum HiveSpacing {
 
 enum WhisperColor {
     static let appBackground = dynamic(light: rgb(244, 245, 247), dark: rgb(18, 19, 22))
-    static let brandAccent = dynamic(light: rgb(184, 67, 36), dark: rgb(255, 154, 122))
     static let border        = dynamic(light: rgb(218, 221, 226), dark: rgb(244, 247, 251, alpha: 0.11))
     static let borderSubtle  = dynamic(light: rgb(228, 231, 236), dark: rgb(244, 247, 251, alpha: 0.06))
     static let toolIconBg    = dynamic(light: rgb(235, 237, 241), dark: rgb(244, 247, 251, alpha: 0.07))

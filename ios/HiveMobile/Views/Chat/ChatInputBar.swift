@@ -24,7 +24,7 @@ struct ChatInputBar: View {
     @State private var selectedItems: [PhotosPickerItem] = []
 
     private var hiveAccent: Color {
-        AccentOption(rawValue: accentId)?.color ?? AccentOption.hive.color
+        AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
     }
 
     var body: some View {

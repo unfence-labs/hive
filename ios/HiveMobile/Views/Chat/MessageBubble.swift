@@ -10,7 +10,7 @@ struct MessageBubble: View {
     @State private var copied = false
 
     private var hiveAccent: Color {
-        AccentOption(rawValue: accentId)?.color ?? AccentOption.hive.color
+        AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
     }
 
     var body: some View {
@@ -1031,7 +1031,7 @@ private struct ToolContentPanel<Content: View>: View {
 
 // MARK: - Whisper Chat Markdown Theme
 
-private let whisperLinkColor = WhisperColor.brandAccent
+private let whisperLinkColor = Color.accentColor
 
 private extension Theme {
     static let whisperChat = Theme.gitHub

@@ -20,7 +20,7 @@ struct HiveApp: App {
     }
 
     private var accent: Color {
-        AccentOption(rawValue: accentId)?.color ?? AccentOption.hive.color
+        AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
     }
 
     private var themeMode: HiveThemeMode {

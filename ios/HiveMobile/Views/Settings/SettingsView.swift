@@ -20,7 +20,7 @@ struct SettingsView: View {
     }
 
     private var selectedAccent: Color {
-        AccentOption(rawValue: accentId)?.color ?? AccentOption.hive.color
+        AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
     }
 
     var body: some View {

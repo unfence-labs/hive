@@ -124,7 +124,7 @@ struct HubView: View {
     private var loadingState: some View {
         VStack {
             ProgressView()
-                .tint(WhisperColor.brandAccent)
+                .tint(Color.accentColor)
         }
         .frame(maxWidth: .infinity, minHeight: 420)
         .frame(maxHeight: .infinity)
