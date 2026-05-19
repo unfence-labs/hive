@@ -53,9 +53,10 @@ struct HubView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .searchable(
             text: $searchText,
-            placement: .navigationBarDrawer(displayMode: .always),
+            placement: .toolbar,
             prompt: "Search projects, branches"
         )
+        .searchPresentationToolbarBehavior(.avoidHidingContent)
         .toolbar { toolbarContent }
         .refreshable {
             // Unstructured Task shields refresh from SwiftUI prematurely
