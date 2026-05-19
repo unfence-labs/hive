@@ -490,11 +490,12 @@ private final class HubConnection {
             monitor?.didReceiveStreaming(false, for: workspaceId, sessionId: sessionId)
             monitor?.didReceiveDone(for: workspaceId, sessionId: sessionId, markWorkspaceCompleted: true)
 
-        case .cancelled(let sessionId, _, _, _):
-            // Clear streaming for this session but don't mark as completed —
-            // cancelled turns may require tool input or were user-interrupted.
+        case .cancelled(let sessionId, _, let userInitiated, _):
+            // Clear streaming for this session but only mark failed background turns as unread.
             monitor?.didReceiveStreaming(false, for: workspaceId, sessionId: sessionId)
-            monitor?.didReceiveDone(for: workspaceId, sessionId: sessionId, markWorkspaceCompleted: false)
+            if userInitiated != true {
+                monitor?.didReceiveDone(for: workspaceId, sessionId: sessionId, markWorkspaceCompleted: false)
+            }
 
         default:
             break

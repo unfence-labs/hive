@@ -74,6 +74,10 @@ struct HubView: View {
             // Always safe: existing data stays visible while refresh runs.
             await store.refresh()
         }
+        .onAppear {
+            store.statusMonitor.viewingWorkspaceId = nil
+            store.statusMonitor.viewingSessionId = nil
+        }
         .overlay {
             if let errorMessage = store.errorMessage {
                 errorBanner(errorMessage)

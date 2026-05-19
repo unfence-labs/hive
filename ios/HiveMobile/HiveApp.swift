@@ -36,7 +36,8 @@ struct HiveApp: App {
                             .navigationDestination(for: Workspace.self) { workspace in
                                 WorkspaceConversationsView(
                                     workspace: workspace,
-                                    store: storeCache.getOrCreate(workspace.id)
+                                    store: storeCache.getOrCreate(workspace.id),
+                                    navigationPath: $hubPath
                                 )
                                 .toolbar(.hidden, for: .tabBar)
                             }

@@ -5,14 +5,13 @@ struct WorkspaceConversationsView: View {
 
     let workspace: Workspace
     let store: ConversationStore
+    @Binding var navigationPath: NavigationPath
 
     @Environment(ProjectStore.self) private var projectStore
 
     @State private var sessions: [SessionMetadata] = []
     @State private var isLoading = true
     @State private var isCreatingSession = false
-    @State private var isOpeningConversation = false
-    @State private var selectedSession: SessionMetadata?
     @State private var errorMessage: String?
 
     private let api = APIClient()
@@ -23,10 +22,7 @@ struct WorkspaceConversationsView: View {
     var body: some View {
         List {
             ForEach(sessions) { session in
-                Button {
-                    isOpeningConversation = true
-                    selectedSession = session
-                } label: {
+                NavigationLink(value: session) {
                     ConversationRow(
                         session: session,
                         isActive: session.sessionId == activeSessionId,
@@ -40,7 +36,6 @@ struct WorkspaceConversationsView: View {
                         )
                     )
                 }
-                .buttonStyle(.plain)
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .listRowBackground(WhisperColor.appBackground)
                 .listRowSeparatorTint(WhisperColor.separator)
@@ -71,7 +66,7 @@ struct WorkspaceConversationsView: View {
         }
         .navigationTitle(workspace.name)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(item: $selectedSession) { session in
+        .navigationDestination(for: SessionMetadata.self) { session in
             ChatView(workspace: workspace, session: session, store: store)
         }
         .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
@@ -97,16 +92,9 @@ struct WorkspaceConversationsView: View {
             await loadSessions()
         }
         .onAppear {
-            isOpeningConversation = false
             markWorkspaceVisible()
             if !isLoading {
                 Task { await loadSessions() }
-            }
-        }
-        .onDisappear {
-            if !isOpeningConversation,
-               projectStore.statusMonitor.viewingWorkspaceId == workspace.id {
-                projectStore.statusMonitor.viewingWorkspaceId = nil
             }
         }
         .alert("Conversation Error", isPresented: Binding(
@@ -150,6 +138,7 @@ struct WorkspaceConversationsView: View {
                 let session = try await api.createSession(workspaceId: workspace.id)
                 sessions.insert(session, at: 0)
                 errorMessage = nil
+                navigationPath.append(session)
             } catch is CancellationError {
                 // View disappeared.
             } catch {
@@ -162,6 +151,7 @@ struct WorkspaceConversationsView: View {
         let targets = offsets.compactMap { index -> SessionMetadata? in
             sessions.indices.contains(index) ? sessions[index] : nil
         }
+        let focusedSessionId = activeSessionId
 
         Task {
             var deletedSessionIds = Set<String>()
@@ -178,7 +168,28 @@ struct WorkspaceConversationsView: View {
                     errorMessage = error.localizedDescription
                 }
             }
+
+            guard !deletedSessionIds.isEmpty else { return }
+
             sessions.removeAll { deletedSessionIds.contains($0.sessionId) }
+
+            if let focusedSessionId, deletedSessionIds.contains(focusedSessionId) {
+                let fallbackSessionId = sessions.first?.sessionId
+                if store.sessionId == nil {
+                    store.setFocusedSessionId(focusedSessionId)
+                }
+                store.removeSessionState(focusedSessionId, fallbackSessionId: fallbackSessionId)
+                if let fallbackSessionId {
+                    _ = await store.send?(.switchSession(sessionId: fallbackSessionId))
+                }
+            }
+
+            for deletedSessionId in deletedSessionIds {
+                if let focusedSessionId, deletedSessionId == focusedSessionId {
+                    continue
+                }
+                store.removeSessionState(deletedSessionId, fallbackSessionId: nil)
+            }
         }
     }
 }

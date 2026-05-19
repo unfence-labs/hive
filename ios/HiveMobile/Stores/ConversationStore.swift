@@ -321,6 +321,23 @@ final class ConversationStore {
         // sessionStreams is untouched — background sessions keep accumulating
     }
 
+    func removeSessionState(_ removedSessionId: String, fallbackSessionId: String?) {
+        sessionStreams.removeValue(forKey: removedSessionId)
+        historyTokenBySession.removeValue(forKey: removedSessionId)
+
+        guard sessionId == removedSessionId else { return }
+
+        messages = []
+        lockedProvider = nil
+
+        if let fallbackSessionId, fallbackSessionId != removedSessionId {
+            sessionId = fallbackSessionId
+            bumpHistoryToken(for: fallbackSessionId)
+        } else {
+            sessionId = nil
+        }
+    }
+
     // MARK: - Private
 
     /// Ensure a stream slot exists for the given session, defaulting to streaming state.
