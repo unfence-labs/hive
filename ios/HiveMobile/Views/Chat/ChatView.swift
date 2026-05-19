@@ -120,7 +120,7 @@ struct ChatView: View {
         }
         .hiveScreenBackground()
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 0) {
+            VStack(spacing: HiveSpacing.sm) {
                 let tasksState = store.tasksState
                 if !tasksState.tasks.isEmpty {
                     TaskTrackerView(
@@ -149,11 +149,11 @@ struct ChatView: View {
                     onStop: { Task { _ = await store.send?(.stop(sessionId: session.sessionId)) } }
                 )
                 .padding(.horizontal, 12)
-                .padding(.bottom, 4)
             }
-            .background(.bar)
+            .padding(.top, HiveSpacing.sm)
+            .padding(.bottom, HiveSpacing.sm)
         }
-        .toolbarBackground(WhisperColor.surfaceRaised, for: .navigationBar)
+        .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .navigationTitle(navigationTitle)
         .navigationSubtitle(Text(navigationSubtitle))
