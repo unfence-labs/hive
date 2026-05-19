@@ -1,4 +1,10 @@
-import type { AgentActivityFile, CliJsonLine, ContentBlock, ServerToolResultType } from "../types.js";
+import type {
+  AgentActivityCommandAction,
+  AgentActivityFile,
+  CliJsonLine,
+  ContentBlock,
+  ServerToolResultType,
+} from "../types.js";
 
 type AssistantEvent = Extract<CliJsonLine, { type: "assistant" }>;
 type UserEvent = Extract<CliJsonLine, { type: "user" }>;
@@ -24,6 +30,7 @@ export type NormalizedAgentEvent =
       output?: string;
       exitCode?: number;
       durationMs?: number;
+      commandActions?: AgentActivityCommandAction[];
     }
   | { type: "file_change_updated"; id: string; files?: AgentActivityFile[]; path?: string; diff?: string; status?: string; kind?: string }
   | { type: "plan_updated"; id: string; steps: Array<{ text: string; status: string }> }

@@ -108,6 +108,20 @@ function parseContentBlocks(output: string): string | null {
   }
 }
 
+function formatCommandMetadata(input: Record<string, unknown>): string | undefined {
+  const command = input.command as string | undefined;
+  const cwd = input.cwd as string | undefined;
+  const exitCode = input.exitCode as number | undefined;
+  const durationMs = input.durationMs as number | undefined;
+  const parts = [
+    command ? `$ ${command}` : undefined,
+    cwd ? `cwd: ${cwd}` : undefined,
+    exitCode !== undefined ? `exit ${exitCode}` : undefined,
+    durationMs !== undefined ? formatElapsed(durationMs) : undefined,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join("\n") : undefined;
+}
+
 interface ToolDisplay {
   icon: ReactNode;
   label: string;
@@ -140,7 +154,10 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
         label: lineInfo ? `Read ${lineInfo}` : "Read",
         detail: filename,
         expandedContent: filePath
-          ? `Path: ${filePath}${offset ? `\nOffset: ${offset}` : ""}${limit ? `\nLimit: ${limit}` : ""}`
+          ? [
+              `Path: ${filePath}${offset ? `\nOffset: ${offset}` : ""}${limit ? `\nLimit: ${limit}` : ""}`,
+              formatCommandMetadata(input),
+            ].filter(Boolean).join("\n\n")
           : "No file path specified",
       };
     }
@@ -235,7 +252,10 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
         detail: pattern
           ? `"${pattern}"${path ? ` in ${getFilename(path)}` : ""}`
           : undefined,
-        expandedContent: `Pattern: ${pattern ?? "(none)"}\nPath: ${path ?? "(cwd)"}${glob ? `\nGlob: ${glob}` : ""}`,
+        expandedContent: [
+          `Pattern: ${pattern ?? "(none)"}\nPath: ${path ?? "(cwd)"}${glob ? `\nGlob: ${glob}` : ""}`,
+          formatCommandMetadata(input),
+        ].filter(Boolean).join("\n\n"),
       };
     }
 
@@ -245,8 +265,11 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
       return {
         icon: icons.search,
         label: "Glob",
-        detail: pattern,
-        expandedContent: `Pattern: ${pattern ?? "(none)"}\nPath: ${path ?? "(cwd)"}`,
+        detail: pattern ?? path,
+        expandedContent: [
+          `Pattern: ${pattern ?? "(none)"}\nPath: ${path ?? "(cwd)"}`,
+          formatCommandMetadata(input),
+        ].filter(Boolean).join("\n\n"),
       };
     }
 

@@ -339,6 +339,80 @@ describe("ConversationSession", () => {
     expect(assistant?.toolCalls?.[0]?.output).toBe("ok\n");
   });
 
+  it("classifies Codex command action reads as Read compatibility tools", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "command_execution_updated",
+        id: "cmd-read",
+        command: "cat README.md",
+        cwd: "/tmp/test",
+        status: "inProgress",
+        commandActions: [{
+          type: "read",
+          command: "cat README.md",
+          name: "cat",
+          path: "/tmp/test/README.md",
+        }],
+      });
+      fakeRunner.emit("agent_event", {
+        type: "command_execution_updated",
+        id: "cmd-read",
+        output: "# Demo\n",
+        status: "completed",
+        exitCode: 0,
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-read", duration_ms: 4 });
+      fakeRunner.emit("exit", 0, "provider-read");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-read",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "command-read-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Read file");
+
+    await waitForMessages(messages, "done");
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    const tool = assistant?.toolCalls?.[0];
+    const input = JSON.parse(tool?.input ?? "{}") as { file_path?: string; command?: string };
+
+    expect(tool?.name).toBe("Read");
+    expect(tool?.output).toBe("# Demo\n");
+    expect(input).toMatchObject({
+      file_path: "/tmp/test/README.md",
+      command: "cat README.md",
+    });
+    expect(assistant?.agentActivities?.[0]).toMatchObject({
+      id: "cmd-read",
+      kind: "command_execution",
+      commandActions: [{
+        type: "read",
+        command: "cat README.md",
+        name: "cat",
+        path: "/tmp/test/README.md",
+      }],
+    });
+  });
+
   it("streams and persists command activities while keeping tool compatibility events", async () => {
     const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
     fakeRunner.start = vi.fn(() => {

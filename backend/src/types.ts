@@ -1,5 +1,5 @@
 import type { AgentActivity } from "@hive/shared/agent-activity";
-export type { AgentActivity, AgentActivityFile } from "@hive/shared/agent-activity";
+export type { AgentActivity, AgentActivityCommandAction, AgentActivityFile } from "@hive/shared/agent-activity";
 
 export interface Project {
   id: string;

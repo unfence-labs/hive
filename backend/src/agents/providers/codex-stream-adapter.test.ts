@@ -155,6 +155,35 @@ describe("CodexStreamAdapter", () => {
     });
   });
 
+  it("uses command_actions to classify command_execution read items", () => {
+    const assistantMsgs: StreamParserEvent["assistant"][] = [];
+    adapter.on("assistant", (...args) => assistantMsgs.push(args));
+
+    adapter.write(line({
+      type: "item.started",
+      item: {
+        id: "cmd-read",
+        type: "command_execution",
+        command: "cat README.md",
+        command_actions: [{
+          type: "read",
+          command: "cat README.md",
+          name: "cat",
+          path: "/tmp/project/README.md",
+        }],
+      },
+    }));
+
+    expect(assistantMsgs[0][0].message.content[0]).toMatchObject({
+      type: "tool_use",
+      id: "cmd-read",
+      name: "Read",
+    });
+    expect(assistantMsgs[0][0].message.content[0]).toEqual(expect.objectContaining({
+      input: expect.stringContaining("\"file_path\":\"/tmp/project/README.md\""),
+    }));
+  });
+
   it("uses official aggregated_output for command_execution results", () => {
     const userMsgs: StreamParserEvent["user"][] = [];
     adapter.on("user", (...args) => userMsgs.push(args));

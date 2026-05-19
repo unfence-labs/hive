@@ -46,6 +46,37 @@ describe("AgentActivityList", () => {
     expect(screen.getByText("ok")).toBeInTheDocument();
   });
 
+  it("renders single Codex read command actions as Read tools", async () => {
+    const user = userEvent.setup();
+    const activities: AgentActivity[] = [{
+      id: "cmd-read",
+      kind: "command_execution",
+      command: "cat README.md",
+      cwd: "/tmp/project",
+      status: "completed",
+      output: "# Demo\n",
+      exitCode: 0,
+      commandActions: [{
+        type: "read",
+        command: "cat README.md",
+        name: "cat",
+        path: "/tmp/project/README.md",
+      }],
+    }];
+
+    render(<AgentActivityList activities={activities} />);
+
+    expect(screen.getByText("Read")).toBeInTheDocument();
+    expect(screen.getByText("README.md")).toBeInTheDocument();
+    expect(screen.queryByText("Bash")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Read/ }));
+
+    expect(screen.getByText(/Path: \/tmp\/project\/README\.md/)).toBeInTheDocument();
+    expect(screen.getByText(/\$ cat README\.md/)).toBeInTheDocument();
+    expect(screen.getByText("# Demo")).toBeInTheDocument();
+  });
+
   it("renders file changes through the shared Edit tool display", async () => {
     const user = userEvent.setup();
     const activities: AgentActivity[] = [{

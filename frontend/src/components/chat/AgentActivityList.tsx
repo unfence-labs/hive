@@ -7,6 +7,7 @@ import {
   Loader2Icon,
   XCircleIcon,
 } from "lucide-react";
+import { commandExecutionActivityToToolCall } from "@hive/shared/agent-activity";
 import type { AgentActivity, QuestionAnswer, ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
 import { ContentPanel, ContentPanelBody } from "@/components/chat/ContentPanel";
@@ -249,18 +250,7 @@ function diagnosticIcon(severity: Extract<AgentActivity, { kind: "diagnostic" }>
 }
 
 function commandActivityToToolCall(activity: Extract<AgentActivity, { kind: "command_execution" }>): ToolCall {
-  return {
-    id: activity.id,
-    name: "Bash",
-    input: JSON.stringify({
-      command: activity.command,
-      cwd: activity.cwd,
-      status: activity.status,
-      exitCode: activity.exitCode,
-      durationMs: activity.durationMs,
-    }),
-    output: activity.output,
-  };
+  return commandExecutionActivityToToolCall(activity);
 }
 
 function isCommandRunning(

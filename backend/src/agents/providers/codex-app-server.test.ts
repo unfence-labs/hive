@@ -627,6 +627,181 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
+  it("emits Codex commandActions on command execution activity events", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "commandExecution",
+          id: "cmd-read-1",
+          command: "sed -n '1,40p' package.json",
+          cwd: "/tmp/project",
+          status: "inProgress",
+          commandActions: [{
+            type: "read",
+            command: "sed -n '1,40p' package.json",
+            name: "sed",
+            path: "/tmp/project/package.json",
+          }],
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "commandExecution",
+          id: "cmd-read-1",
+          command: "sed -n '1,40p' package.json",
+          cwd: "/tmp/project",
+          status: "completed",
+          aggregatedOutput: "{ \"name\": \"demo\" }\n",
+          exitCode: 0,
+          commandActions: [{
+            type: "read",
+            command: "sed -n '1,40p' package.json",
+            name: "sed",
+            path: "/tmp/project/package.json",
+          }],
+        },
+      },
+    }) + "\n");
+
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "command_execution_updated",
+        id: "cmd-read-1",
+        status: "inProgress",
+        commandActions: [{
+          type: "read",
+          command: "sed -n '1,40p' package.json",
+          name: "sed",
+          path: "/tmp/project/package.json",
+        }],
+      }),
+      expect.objectContaining({
+        type: "command_execution_updated",
+        id: "cmd-read-1",
+        output: "{ \"name\": \"demo\" }\n",
+        commandActions: [{
+          type: "read",
+          command: "sed -n '1,40p' package.json",
+          name: "sed",
+          path: "/tmp/project/package.json",
+        }],
+      }),
+    ]));
+  });
+
+  it("renders child read commandActions as nested Read tools", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: unknown[] = [];
+    const userEvents: unknown[] = [];
+    session.on("assistant", (event) => assistantEvents.push(event));
+    session.on("user", (event) => userEvents.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "inProgress",
+          receiverThreadIds: ["thread-child"],
+          prompt: "Inspect package metadata",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "commandExecution",
+          id: "child-read-1",
+          command: "cat package.json",
+          status: "inProgress",
+          commandActions: [{
+            type: "read",
+            command: "cat package.json",
+            name: "cat",
+            path: "/tmp/project/package.json",
+          }],
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "commandExecution",
+          id: "child-read-1",
+          command: "cat package.json",
+          status: "completed",
+          aggregatedOutput: "{ \"name\": \"demo\" }\n",
+          exitCode: 0,
+          commandActions: [{
+            type: "read",
+            command: "cat package.json",
+            name: "cat",
+            path: "/tmp/project/package.json",
+          }],
+        },
+      },
+    }) + "\n");
+
+    expect(assistantEvents).toEqual([
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({ type: "tool_use", id: "collab-1", name: "Agent" }),
+          ],
+        }),
+      }),
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({
+              type: "tool_use",
+              id: "child-read-1",
+              name: "Read",
+              parentToolUseId: "collab-1",
+              input: expect.stringContaining("\"file_path\":\"/tmp/project/package.json\""),
+            }),
+          ],
+        }),
+      }),
+    ]);
+    expect(userEvents).toEqual([
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({
+              type: "tool_result",
+              tool_use_id: "child-read-1",
+              content: "{ \"name\": \"demo\" }\n",
+            }),
+          ],
+        }),
+      }),
+    ]);
+  });
+
   it("replays completed receiver-thread tools before completing the Codex turn", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

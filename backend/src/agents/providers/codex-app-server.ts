@@ -1,5 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
+import {
+  commandExecutionActivityToToolCall,
+  normalizeAgentActivityCommandActions,
+  type AgentActivityCommandAction,
+} from "@hive/shared/agent-activity";
 import type { NormalizedAgentEvent } from "../agent-event-normalizer.js";
 import type { StreamParserEvent } from "../stream-parser.js";
 import type { ThinkingLevel } from "./types.js";
@@ -75,6 +80,7 @@ type ThreadItem =
       aggregatedOutput?: string | null;
       exitCode?: number | null;
       durationMs?: number | null;
+      commandActions?: AgentActivityCommandAction[];
     }
   | {
       type: "fileChange";
@@ -620,6 +626,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       }
       case "commandExecution": {
         const commandItem = item as Extract<ThreadItem, { type: "commandExecution" }>;
+        const commandActions = normalizeAgentActivityCommandActions(commandItem.commandActions);
         if (parentToolUseId) {
           this.emitChildCommandTool(commandItem, phase, parentToolUseId);
           break;
@@ -632,6 +639,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
           status: commandItem.status,
           exitCode: asNullableNumber(commandItem.exitCode),
           durationMs: asNullableNumber(commandItem.durationMs),
+          commandActions,
         });
         if (phase === "completed") {
           this.emit("agent_event", {
@@ -643,6 +651,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
             output: commandItem.aggregatedOutput ?? this.commandOutputs.get(commandItem.id) ?? formatExitCode(commandItem.exitCode),
             exitCode: asNullableNumber(commandItem.exitCode),
             durationMs: asNullableNumber(commandItem.durationMs),
+            commandActions,
           });
         }
         break;
@@ -837,13 +846,17 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     phase: "started" | "completed",
     parentToolUseId: string,
   ): void {
-    this.emitToolUse(item.id, "Bash", JSON.stringify({
+    const tool = commandExecutionActivityToToolCall({
+      id: item.id,
       command: item.command ?? "",
       cwd: item.cwd,
       status: item.status,
       exitCode: asNullableNumber(item.exitCode),
       durationMs: asNullableNumber(item.durationMs),
-    }), parentToolUseId);
+      commandActions: normalizeAgentActivityCommandActions(item.commandActions),
+      parentToolUseId,
+    });
+    this.emitToolUse(tool.id, tool.name, tool.input, parentToolUseId);
     if (phase === "completed") {
       this.emitToolResult(item.id, item.aggregatedOutput ?? this.commandOutputs.get(item.id) ?? formatExitCode(item.exitCode));
     }

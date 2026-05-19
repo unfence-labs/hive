@@ -42,6 +42,54 @@ struct AgentActivityDecodingTests {
     }
 
     @Test
+    func convertsCommandActionReadActivitiesToReadToolCalls() throws {
+        let message = try decodeMessage("""
+        {
+          "id": "msg-1",
+          "sessionId": "session-1",
+          "role": "assistant",
+          "content": "",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "agentActivities": [
+            {
+              "id": "cmd-read",
+              "kind": "command_execution",
+              "command": "cat README.md",
+              "cwd": "/repo",
+              "status": "completed",
+              "output": "# Demo\\n",
+              "exitCode": 0,
+              "commandActions": [
+                {
+                  "type": "read",
+                  "command": "cat README.md",
+                  "name": "cat",
+                  "path": "/repo/README.md"
+                }
+              ]
+            }
+          ]
+        }
+        """)
+
+        let activity = try #require(message.agentActivities?.first)
+        guard case .commandExecution(let command) = activity else {
+            Issue.record("Expected command execution activity")
+            return
+        }
+        #expect(command.commandActions?.first?.type == "read")
+
+        let merged = mergeToolCalls([], with: [activity])
+        let tool = try #require(merged.first)
+        let inputData = try #require(tool.input.data(using: .utf8))
+        let input = try #require(JSONSerialization.jsonObject(with: inputData) as? [String: Any])
+        #expect(tool.name == "Read")
+        #expect(tool.output == "# Demo\n")
+        #expect(input["file_path"] as? String == "/repo/README.md")
+        #expect(visibleAgentActivities([activity]).isEmpty)
+    }
+
+    @Test
     func decodesFileChangeActivityInPersistedMessage() throws {
         let message = try decodeMessage("""
         {

@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { mkdir, readFile, writeFile, open } from "node:fs/promises";
 import { join } from "node:path";
+import { commandExecutionActivityToToolCall } from "@hive/shared/agent-activity";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { AgentEventNormalizer, type NormalizedAgentEvent } from "./agent-event-normalizer.js";
@@ -43,7 +44,7 @@ function formatNormalizedExitCode(exitCode: number | undefined): string {
 function cloneAgentActivity(activity: AgentActivity): AgentActivity {
   switch (activity.kind) {
     case "command_execution":
-      return { ...activity };
+      return { ...activity, commandActions: activity.commandActions?.map((action) => ({ ...action })) };
     case "file_change":
       return { ...activity, files: activity.files.map((file) => ({ ...file })) };
     case "plan_update":
@@ -619,7 +620,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private upsertToolCall(id: string, name: string, input: string, parentToolUseId?: string): void {
     const existing = this._streamToolCalls.find((t) => t.id === id);
     if (existing) {
+      existing.name = name;
       existing.input = input;
+      if (parentToolUseId !== undefined) existing.parentToolUseId = parentToolUseId;
       return;
     }
     this._streamToolCalls.push({ id, name, input, parentToolUseId });
@@ -669,7 +672,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       : event.outputDelta !== undefined
         ? `${existingActivity?.output ?? ""}${event.outputDelta}`
         : existingActivity?.output;
-    this.upsertAgentActivity({
+    const commandActions = event.commandActions ?? existingActivity?.commandActions;
+    const activity = {
       id: event.id,
       kind: "command_execution",
       command: event.command ?? existingActivity?.command,
@@ -678,7 +682,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       output,
       exitCode: event.exitCode ?? existingActivity?.exitCode,
       durationMs: event.durationMs ?? existingActivity?.durationMs,
-    });
+      commandActions,
+    } satisfies Extract<AgentActivity, { kind: "command_execution" }>;
+    this.upsertAgentActivity(activity);
 
     const existing = this._streamToolCalls.find((t) => t.id === event.id);
     const hasInputUpdate =
@@ -686,17 +692,15 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       event.cwd !== undefined ||
       event.status !== undefined ||
       event.exitCode !== undefined ||
-      event.durationMs !== undefined;
+      event.durationMs !== undefined ||
+      event.commandActions !== undefined;
 
     if (!existing || hasInputUpdate) {
-      const input = JSON.stringify({
-        command: event.command ?? "",
-        cwd: event.cwd,
-        status: event.status,
-        exitCode: event.exitCode,
-        durationMs: event.durationMs,
+      const tool = commandExecutionActivityToToolCall({
+        ...activity,
+        parentToolUseId: existing?.parentToolUseId,
       });
-      this.upsertToolCall(event.id, "Bash", input);
+      this.upsertToolCall(tool.id, tool.name, tool.input, tool.parentToolUseId);
     }
 
     const tc = this._streamToolCalls.find((t) => t.id === event.id);

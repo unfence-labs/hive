@@ -14,6 +14,14 @@ struct AgentActivityPlanStep: Codable, Equatable {
     let status: String
 }
 
+struct AgentActivityCommandAction: Codable, Equatable {
+    let type: String
+    let command: String?
+    let name: String?
+    let path: String?
+    let query: String?
+}
+
 enum AgentActivitySeverity: String, Codable, Equatable {
     case info
     case warning
@@ -35,6 +43,27 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         let output: String?
         let exitCode: Int?
         let durationMs: Int?
+        let commandActions: [AgentActivityCommandAction]?
+
+        init(
+            id: String,
+            command: String?,
+            cwd: String?,
+            status: String?,
+            output: String?,
+            exitCode: Int?,
+            durationMs: Int?,
+            commandActions: [AgentActivityCommandAction]? = nil
+        ) {
+            self.id = id
+            self.command = command
+            self.cwd = cwd
+            self.status = status
+            self.output = output
+            self.exitCode = exitCode
+            self.durationMs = durationMs
+            self.commandActions = commandActions
+        }
     }
 
     struct FileChange: Codable, Equatable, Identifiable {
@@ -85,7 +114,7 @@ enum AgentActivity: Codable, Equatable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, kind
-        case command, cwd, status, output, exitCode, durationMs
+        case command, cwd, status, output, exitCode, durationMs, commandActions
         case files
         case steps
         case severity, title, message, source, method, details
@@ -123,6 +152,7 @@ enum AgentActivity: Codable, Equatable, Identifiable {
             try container.encodeIfPresent(activity.output, forKey: .output)
             try container.encodeIfPresent(activity.exitCode, forKey: .exitCode)
             try container.encodeIfPresent(activity.durationMs, forKey: .durationMs)
+            try container.encodeIfPresent(activity.commandActions, forKey: .commandActions)
         case .fileChange(let activity):
             try container.encode(activity.id, forKey: .id)
             try container.encodeIfPresent(activity.status, forKey: .status)
@@ -148,21 +178,7 @@ extension AgentActivity {
     var toolCalls: [ToolCall] {
         switch self {
         case .commandExecution(let activity):
-            [
-                ToolCall(
-                    id: activity.id,
-                    name: "Bash",
-                    input: encodeToolInput([
-                        "command": activity.command ?? "",
-                        "cwd": activity.cwd,
-                        "status": activity.status,
-                        "exitCode": activity.exitCode,
-                        "durationMs": activity.durationMs
-                    ]),
-                    output: activity.output,
-                    parentToolUseId: nil
-                )
-            ]
+            [toolCall(for: activity)]
         case .fileChange(let activity):
             if activity.files.isEmpty {
                 return [
@@ -197,6 +213,62 @@ extension AgentActivity {
         case .planUpdate, .diagnostic, .unknown:
             []
         }
+    }
+}
+
+private func toolCall(for activity: AgentActivity.CommandExecution) -> ToolCall {
+    let classified = classifiedCommandAction(for: activity)
+    return ToolCall(
+        id: activity.id,
+        name: classified?.name ?? "Bash",
+        input: encodeToolInput(classified?.input ?? [
+            "command": activity.command ?? "",
+            "cwd": activity.cwd,
+            "status": activity.status,
+            "exitCode": activity.exitCode,
+            "durationMs": activity.durationMs
+        ]),
+        output: activity.output,
+        parentToolUseId: nil
+    )
+}
+
+private func classifiedCommandAction(
+    for activity: AgentActivity.CommandExecution
+) -> (name: String, input: [String: Any?])? {
+    guard let actions = activity.commandActions, actions.count == 1, let action = actions.first else {
+        return nil
+    }
+
+    let command = action.command ?? activity.command
+    let metadata: [String: Any?] = [
+        "command": command,
+        "cwd": activity.cwd,
+        "status": activity.status,
+        "exitCode": activity.exitCode,
+        "durationMs": activity.durationMs
+    ]
+
+    switch action.type {
+    case "read":
+        guard let path = action.path, !path.isEmpty else { return nil }
+        return ("Read", metadata.merging([
+            "file_path": path,
+            "path": path,
+            "name": action.name
+        ]) { current, _ in current })
+    case "search":
+        guard let query = action.query, !query.isEmpty else { return nil }
+        return ("Grep", metadata.merging([
+            "pattern": query,
+            "path": action.path
+        ]) { current, _ in current })
+    case "listFiles":
+        return ("Glob", metadata.merging([
+            "path": action.path
+        ]) { current, _ in current })
+    default:
+        return nil
     }
 }
 
