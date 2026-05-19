@@ -189,6 +189,10 @@ struct ChatView: View {
         .onDisappear {
             saveCurrentDraft()
             store.onTurnCompleted = nil
+            if projectStore.statusMonitor.viewingWorkspaceId == workspace.id,
+               projectStore.statusMonitor.viewingSessionId == session.sessionId {
+                projectStore.statusMonitor.viewingSessionId = nil
+            }
         }
     }
 
@@ -212,7 +216,9 @@ struct ChatView: View {
 
     private func setup() async {
         projectStore.statusMonitor.viewingWorkspaceId = workspace.id
+        projectStore.statusMonitor.viewingSessionId = session.sessionId
         projectStore.statusMonitor.clearCompleted(workspace.id)
+        projectStore.statusMonitor.clearUnread(workspaceId: workspace.id, sessionId: session.sessionId)
         let selectedSessionId = session.sessionId
 
         // Wire post-turn re-sync: after done/cancelled, re-fetch messages from REST

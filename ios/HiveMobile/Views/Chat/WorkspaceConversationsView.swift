@@ -31,7 +31,15 @@ struct WorkspaceConversationsView: View {
                 } label: {
                     ConversationRow(
                         session: session,
-                        isActive: session.sessionId == activeSessionId
+                        isActive: session.sessionId == activeSessionId,
+                        isStreaming: projectStore.statusMonitor.isStreaming(
+                            workspaceId: workspace.id,
+                            sessionId: session.sessionId
+                        ),
+                        isUnread: projectStore.statusMonitor.isUnread(
+                            workspaceId: workspace.id,
+                            sessionId: session.sessionId
+                        )
                     )
                 }
                 .buttonStyle(.plain)
@@ -124,6 +132,7 @@ struct WorkspaceConversationsView: View {
 
     private func markWorkspaceVisible() {
         projectStore.statusMonitor.viewingWorkspaceId = workspace.id
+        projectStore.statusMonitor.viewingSessionId = nil
         projectStore.statusMonitor.clearCompleted(workspace.id)
     }
 
@@ -169,6 +178,7 @@ struct WorkspaceConversationsView: View {
                 do {
                     try await api.deleteSession(workspaceId: workspace.id, sessionId: session.sessionId)
                     ChatDraftStore.shared.remove(workspaceId: workspace.id, sessionId: session.sessionId)
+                    projectStore.statusMonitor.clearUnread(workspaceId: workspace.id, sessionId: session.sessionId)
                     deletedSessionIds.insert(session.sessionId)
                     errorMessage = nil
                 } catch is CancellationError {

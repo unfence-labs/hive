@@ -12,6 +12,9 @@ final class HubStatusMonitor {
     /// Per-workspace, per-session streaming tracking.
     /// Key = workspaceId, Value = set of sessionIds currently streaming.
     private(set) var streamingSessions: [String: Set<String>] = [:]
+    /// Per-workspace, per-session unread tracking.
+    /// Key = workspaceId, Value = set of sessionIds with unread completed turns.
+    private(set) var unreadSessions: [String: Set<String>] = [:]
     private(set) var workspaceDiffStats: [String: DiffStatResponse] = [:]
     private(set) var workspaceBranchInfo: [String: BranchInfo] = [:]
     private(set) var workspacePrStatus: [String: PrStatusResponse] = [:]
@@ -22,6 +25,8 @@ final class HubStatusMonitor {
 
     /// Workspace currently visible in ChatView (suppresses unread badge).
     var viewingWorkspaceId: String?
+    /// Session currently visible in ChatView (suppresses unread badge for that session).
+    var viewingSessionId: String?
 
     let storeCache: ConversationStoreCache
 
@@ -69,6 +74,14 @@ final class HubStatusMonitor {
         !(streamingSessions[workspaceId]?.isEmpty ?? true)
     }
 
+    func isStreaming(workspaceId: String, sessionId: String) -> Bool {
+        streamingSessions[workspaceId]?.contains(sessionId) ?? false
+    }
+
+    func isUnread(workspaceId: String, sessionId: String) -> Bool {
+        unreadSessions[workspaceId]?.contains(sessionId) ?? false
+    }
+
     func diffStats(for workspaceId: String) -> DiffStatResponse? {
         workspaceDiffStats[workspaceId]
     }
@@ -101,6 +114,13 @@ final class HubStatusMonitor {
         completedWorkspaces.remove(workspaceId)
     }
 
+    func clearUnread(workspaceId: String, sessionId: String) {
+        unreadSessions[workspaceId]?.remove(sessionId)
+        if unreadSessions[workspaceId]?.isEmpty == true {
+            unreadSessions.removeValue(forKey: workspaceId)
+        }
+    }
+
     /// Called from HiveApp to merge push-delivered completions on launch.
     func markCompletedFromPush(_ workspaceId: String) {
         completedWorkspaces.insert(workspaceId)
@@ -119,6 +139,7 @@ final class HubStatusMonitor {
         // Clean up removed workspaces
         for id in subscribedWorkspaceIds.subtracting(desired) {
             streamingSessions.removeValue(forKey: id)
+            unreadSessions.removeValue(forKey: id)
             workspaceDiffStats.removeValue(forKey: id)
             workspaceBranchInfo.removeValue(forKey: id)
             workspacePrStatus.removeValue(forKey: id)
@@ -147,6 +168,7 @@ final class HubStatusMonitor {
         hubConnection = nil
         subscribedWorkspaceIds.removeAll()
         streamingSessions.removeAll()
+        unreadSessions.removeAll()
         workspaceDiffStats.removeAll()
         workspaceBranchInfo.removeAll()
         workspaceLastActivityAt.removeAll()
@@ -226,7 +248,7 @@ final class HubStatusMonitor {
     /// Only called from status events (bootstrap), not from done/cancelled.
     fileprivate func checkBackgroundCompletion(for workspaceId: String) {
         if !isStreaming(workspaceId), streamingBeforeBackground.remove(workspaceId) != nil {
-            didReceiveDone(for: workspaceId)
+            didReceiveDone(for: workspaceId, sessionId: nil, markWorkspaceCompleted: true)
         }
     }
 
@@ -238,7 +260,21 @@ final class HubStatusMonitor {
         workspaceBranchInfo[workspaceId] = info
     }
 
-    fileprivate func didReceiveDone(for workspaceId: String) {
+    fileprivate func didReceiveDone(for workspaceId: String, sessionId: String?, markWorkspaceCompleted: Bool) {
+        if let sessionId,
+           workspaceId == viewingWorkspaceId,
+           sessionId == viewingSessionId {
+            clearUnread(workspaceId: workspaceId, sessionId: sessionId)
+            return
+        }
+
+        if let sessionId {
+            var sessions = unreadSessions[workspaceId] ?? []
+            sessions.insert(sessionId)
+            unreadSessions[workspaceId] = sessions
+        }
+
+        guard markWorkspaceCompleted else { return }
         guard workspaceId != viewingWorkspaceId else { return }
         completedWorkspaces.insert(workspaceId)
     }
@@ -448,12 +484,13 @@ private final class HubConnection {
 
         case .done(let sessionId, _, _, _, _):
             monitor?.didReceiveStreaming(false, for: workspaceId, sessionId: sessionId)
-            monitor?.didReceiveDone(for: workspaceId)
+            monitor?.didReceiveDone(for: workspaceId, sessionId: sessionId, markWorkspaceCompleted: true)
 
         case .cancelled(let sessionId, _, _, _):
             // Clear streaming for this session but don't mark as completed —
             // cancelled turns may require tool input or were user-interrupted.
             monitor?.didReceiveStreaming(false, for: workspaceId, sessionId: sessionId)
+            monitor?.didReceiveDone(for: workspaceId, sessionId: sessionId, markWorkspaceCompleted: false)
 
         default:
             break

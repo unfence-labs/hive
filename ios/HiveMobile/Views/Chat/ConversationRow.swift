@@ -3,6 +3,8 @@ import SwiftUI
 struct ConversationRow: View {
     let session: SessionMetadata
     let isActive: Bool
+    let isStreaming: Bool
+    let isUnread: Bool
 
     private var title: String {
         guard let title = session.title?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -49,13 +51,16 @@ struct ConversationRow: View {
         if isActive {
             parts.append("active conversation")
         }
+        if isStreaming {
+            parts.append("streaming")
+        } else if isUnread {
+            parts.append("unread")
+        }
         return parts.joined(separator: ", ")
     }
 
     var body: some View {
-        HStack(spacing: HiveSpacing.md) {
-            ConversationAvatar(title: title, isActive: isActive)
-
+        HStack(alignment: .center, spacing: HiveSpacing.md) {
             VStack(alignment: .leading, spacing: HiveSpacing.xs) {
                 Text(title)
                     .font(.system(size: 16, weight: .semibold))
@@ -70,19 +75,20 @@ struct ConversationRow: View {
 
             Spacer(minLength: HiveSpacing.sm)
 
-            VStack(alignment: .trailing, spacing: HiveSpacing.sm) {
+            VStack(alignment: .trailing, spacing: HiveSpacing.md) {
                 if let timestampText {
                     Text(timestampText)
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(WhisperColor.textMuted)
                         .lineLimit(1)
                 }
+
+                SessionStatusIndicator(isStreaming: isStreaming, isUnread: isUnread)
             }
-            .frame(minHeight: 52, alignment: .topTrailing)
         }
         .padding(.horizontal, HiveSpacing.lg)
-        .padding(.vertical, HiveSpacing.md)
-        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+        .padding(.vertical, HiveSpacing.sm)
+        .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText)
@@ -121,54 +127,26 @@ struct ConversationRow: View {
     }()
 }
 
-private struct ConversationAvatar: View {
-    let title: String
-    let isActive: Bool
+private struct SessionStatusIndicator: View {
+    let isStreaming: Bool
+    let isUnread: Bool
 
-    private static let palette: [Color] = [
-        Color(red: 0.000, green: 0.533, blue: 0.843),
-        Color(red: 0.137, green: 0.627, blue: 0.478),
-        Color(red: 0.667, green: 0.337, blue: 0.678),
-        Color(red: 0.839, green: 0.361, blue: 0.306),
-        Color(red: 0.302, green: 0.459, blue: 0.773),
-        Color(red: 0.808, green: 0.529, blue: 0.216)
-    ]
-
-    private var initials: String {
-        let words = title
-            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
-            .prefix(2)
-            .compactMap(\.first)
-        let value = String(words).uppercased()
-        return value.isEmpty ? "C" : value
-    }
-
-    private var color: Color {
-        let hash = title.unicodeScalars.reduce(0) { (($0 &<< 5) &- $0) &+ Int($1.value) }
-        return Self.palette[abs(hash) % Self.palette.count]
-    }
-
+    @ViewBuilder
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
+        if isStreaming {
+            AgentActivityIndicator(dotSize: 3, spacing: 1.5)
+                .frame(width: 12, height: 12)
+                .accessibilityLabel("Streaming")
+        } else if isUnread {
             Circle()
-                .fill(color)
-                .frame(width: 52, height: 52)
-                .overlay {
-                    Text(initials)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-
-            if isActive {
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 13, height: 13)
-                    .overlay(Circle().stroke(WhisperColor.surfaceRaised, lineWidth: 2))
-                    .offset(x: 1, y: 1)
-            }
+                .fill(Color.accentColor)
+                .frame(width: 8, height: 8)
+                .accessibilityLabel("Unread")
+        } else {
+            Color.clear
+                .frame(width: 12, height: 12)
+                .accessibilityHidden(true)
         }
-        .frame(width: 52, height: 52)
-        .accessibilityHidden(true)
     }
 }
 
@@ -186,7 +164,9 @@ private struct ConversationAvatar: View {
                 messageCount: 5,
                 lockedProvider: "claude"
             ),
-            isActive: true
+            isActive: true,
+            isStreaming: true,
+            isUnread: false
         )
         .listRowBackground(WhisperColor.surfaceRaised)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
