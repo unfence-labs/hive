@@ -250,6 +250,7 @@ describe("GET /api/projects", () => {
     const res = await app.inject({ method: "GET", url: "/api/projects" });
     const [project] = res.json();
     expect(project.hasFavicon).toBe(true);
+    expect(project.faviconVersion).toMatch(/^[0-9a-f]{40}$/);
   });
 });
 

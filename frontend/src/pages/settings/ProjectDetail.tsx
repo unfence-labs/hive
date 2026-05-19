@@ -71,7 +71,12 @@ export default function ProjectDetail() {
     <div className="flex h-full flex-col overflow-auto">
       <SettingsHeader>
         <div className="flex items-center gap-2.5">
-          <ProjectAvatar name={project.name} projectId={project.id} hasFavicon={project.hasFavicon} />
+          <ProjectAvatar
+            name={project.name}
+            projectId={project.id}
+            hasFavicon={project.hasFavicon}
+            faviconVersion={project.faviconVersion}
+          />
           <h1 className="text-sm font-medium">{project.name}</h1>
         </div>
       </SettingsHeader>
