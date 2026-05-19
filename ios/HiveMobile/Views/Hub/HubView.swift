@@ -176,21 +176,14 @@ struct HubView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Button {
+            ToolbarAddButton(
+                isLoading: store.isCreatingProject,
+                accessibilityLabel: "Add project",
+                accessibilityHint: "Opens the add project sheet."
+            ) {
                 showAddProject = true
-            } label: {
-                if store.isCreatingProject {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: "plus")
-                        .font(.title2.weight(.semibold))
-                }
             }
-            .buttonStyle(.plain)
             .disabled(store.isCreatingProject)
-            .accessibilityLabel("Add project")
-            .accessibilityHint("Opens the add project sheet.")
         }
     }
 

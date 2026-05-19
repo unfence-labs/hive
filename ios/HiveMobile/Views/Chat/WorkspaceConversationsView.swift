@@ -76,18 +76,13 @@ struct WorkspaceConversationsView: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
+                ToolbarAddButton(
+                    isLoading: isCreatingSession,
+                    accessibilityLabel: "New conversation"
+                ) {
                     createSession()
-                } label: {
-                    if isCreatingSession {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "plus")
-                    }
                 }
                 .disabled(sessions.count >= maxSessions || isCreatingSession)
-                .accessibilityLabel("New conversation")
             }
         }
         .task {
