@@ -442,6 +442,78 @@ describe("ToolCallList", () => {
     expect(btn).toHaveClass("animate-shimmer");
   });
 
+  it("keeps Codex spawn sub-agents running when receiver state is still running", () => {
+    render(
+      <ToolCallList
+        showExecutingState
+        toolCalls={[
+          tool({
+            id: "codex-agent-running",
+            name: "Agent",
+            input: JSON.stringify({
+              subagent_type: "Agent",
+              description: "Inspect auth",
+              run_in_background: true,
+              tool: "spawnAgent",
+              status: "inProgress",
+            }),
+            output: JSON.stringify([{
+              type: "text",
+              text: JSON.stringify({
+                tool: "spawnAgent",
+                status: "completed",
+                agentsStates: {
+                  "thread-child": { status: "running" },
+                },
+              }),
+            }]),
+          }),
+        ]}
+      />,
+    );
+
+    const btn = screen.getByRole("button", { name: /Agent/i });
+    expect(btn).toHaveClass("animate-shimmer");
+    expect(btn.querySelector("svg polyline[points='20 6 9 17 4 12']")).toBeNull();
+  });
+
+  it("shows failed Codex sub-agent output when expanded", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolCallList
+        showExecutingState
+        toolCalls={[
+          tool({
+            id: "codex-agent-failed",
+            name: "Agent",
+            input: JSON.stringify({
+              subagent_type: "Agent",
+              description: "Inspect auth",
+              run_in_background: true,
+              tool: "spawnAgent",
+              status: "inProgress",
+            }),
+            output: JSON.stringify([{
+              type: "text",
+              text: JSON.stringify({
+                tool: "spawnAgent",
+                status: "completed",
+                agentsStates: {
+                  "thread-child": { status: "errored", message: "Rate limited" },
+                },
+              }),
+            }]),
+          }),
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Agent/i }));
+
+    expect(screen.getByText("Failure")).toBeInTheDocument();
+    expect(screen.getByText(/Rate limited/)).toBeInTheDocument();
+  });
+
   it("does not shimmer SubAgentNode when showExecutingState is false", () => {
     render(
       <ToolCallList
@@ -550,6 +622,26 @@ describe("ToolCallList", () => {
     // Result footer visible
     expect(screen.getByText("Result")).toBeInTheDocument();
     expect(screen.getByText("The answer is 42")).toBeInTheDocument();
+  });
+
+  it("SubAgentNode does not show an empty result footer", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolCallList
+        toolCalls={[
+          tool({
+            id: "task-empty-result",
+            name: "Task",
+            input: JSON.stringify({ subagent_type: "Explore", description: "Search" }),
+            output: "",
+          }),
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByText("Explore"));
+
+    expect(screen.queryByText("Result")).not.toBeInTheDocument();
   });
 
   it("SubAgentNode parses content blocks in output for result footer", async () => {

@@ -135,6 +135,72 @@ describe("useBackgroundAgents", () => {
     expect(result.current.runningCount).toBe(1);
   });
 
+  it("keeps active Codex spawn agents running while receiver status is running", () => {
+    const active: ToolCall[] = [
+      tc({
+        id: "codex-spawn",
+        name: "Agent",
+        input: JSON.stringify({
+          subagent_type: "Agent",
+          description: "Inspect auth",
+          run_in_background: true,
+          tool: "spawnAgent",
+          status: "inProgress",
+        }),
+        output: JSON.stringify([{
+          type: "text",
+          text: JSON.stringify({
+            tool: "spawnAgent",
+            status: "completed",
+            agentsStates: {
+              "thread-child": { status: "running" },
+            },
+          }),
+        }]),
+      }),
+    ];
+
+    const { result } = renderHook(() => useBackgroundAgents([], active));
+
+    expect(result.current.agents).toHaveLength(1);
+    expect(result.current.agents[0]).toMatchObject({ toolId: "codex-spawn", isRunning: true });
+    expect(result.current.runningCount).toBe(1);
+  });
+
+  it("does not keep stale persisted Codex spawn agents running", () => {
+    const messages = [
+      msg([
+        tc({
+          id: "codex-stale",
+          name: "Agent",
+          input: JSON.stringify({
+            subagent_type: "Agent",
+            description: "Inspect auth",
+            run_in_background: true,
+            tool: "spawnAgent",
+            status: "inProgress",
+          }),
+          output: JSON.stringify([{
+            type: "text",
+            text: JSON.stringify({
+              tool: "spawnAgent",
+              status: "completed",
+              agentsStates: {
+                "thread-child": { status: "running" },
+              },
+            }),
+          }]),
+        }),
+      ]),
+    ];
+
+    const { result } = renderHook(() => useBackgroundAgents(messages, []));
+
+    expect(result.current.agents).toHaveLength(1);
+    expect(result.current.agents[0]).toMatchObject({ toolId: "codex-stale", isRunning: false });
+    expect(result.current.runningCount).toBe(0);
+  });
+
   it("counts running and completed agents correctly", () => {
     const messages = [
       msg([

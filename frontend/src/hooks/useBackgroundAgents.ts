@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { ChatMessage, ToolCall } from "@/types";
-import { parseSubAgentInfo } from "@/lib/sub-agent";
+import { buildChildrenMap, parseSubAgentInfo } from "@/lib/sub-agent";
+import { isSubAgentRunning } from "@/lib/sub-agent-status";
 
 export interface BackgroundAgent {
   toolId: string;
@@ -32,6 +33,7 @@ export function useBackgroundAgents(
       }
     }
     for (const tc of activeToolCalls) toolsById.set(tc.id, tc);
+    const childrenMap = buildChildrenMap([...toolsById.values()]);
     const activeToolIds = new Set(activeToolCalls.map((tool) => tool.id));
 
     const agents: BackgroundAgent[] = [];
@@ -47,7 +49,11 @@ export function useBackgroundAgents(
         subagentType: info.subagentType,
         description: info.description,
         model: info.model,
-        isRunning: activeToolIds.has(tool.id) && tool.output === undefined,
+        isRunning: isSubAgentRunning(tool, {
+          showExecutingState: activeToolIds.has(tool.id) || hasActiveChild(tool.id, childrenMap, activeToolIds),
+          children: childrenMap.get(tool.id) ?? [],
+          childrenMap,
+        }),
       });
     }
 
@@ -58,4 +64,13 @@ export function useBackgroundAgents(
       runningCount: agents.filter((a) => a.isRunning).length,
     };
   }, [messages, activeToolCalls]);
+}
+
+function hasActiveChild(
+  toolId: string,
+  childrenMap: Map<string, ToolCall[]>,
+  activeToolIds: Set<string>,
+): boolean {
+  const children = childrenMap.get(toolId) ?? [];
+  return children.some((child) => activeToolIds.has(child.id) || hasActiveChild(child.id, childrenMap, activeToolIds));
 }

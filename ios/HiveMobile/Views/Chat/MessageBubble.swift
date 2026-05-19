@@ -34,7 +34,12 @@ struct MessageBubble: View {
 
                 let tools = mergedToolCalls
                 if message.role == .assistant, !tools.isEmpty {
-                    WhisperToolCallsBlock(toolCalls: tools, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
+                    WhisperToolCallsBlock(
+                        toolCalls: tools,
+                        pendingToolUseIds: pendingToolUseIds,
+                        dismissedToolCallIds: dismissedToolCallIds,
+                        showExecutingState: message.id == "streaming"
+                    )
                 }
 
                 let activities = visibleActivities
@@ -319,6 +324,7 @@ private struct ToolDisplay {
     var badgeIcon: String?
     var overrideSummary: String?
     var stats: ChatActivityStats?
+    var executing = false
 }
 
 private func toolIcon(for name: String) -> String {
@@ -407,7 +413,14 @@ private func computeToolStats(_ tool: ToolCall) -> ChatActivityStats? {
     }
 }
 
-private func getToolDisplay(_ tool: ToolCall, isPending: Bool = false, isDismissed: Bool = false) -> ToolDisplay {
+private func getToolDisplay(
+    _ tool: ToolCall,
+    children: [ToolCall] = [],
+    childrenByParentId: [String: [ToolCall]] = [:],
+    isPending: Bool = false,
+    isDismissed: Bool = false,
+    showExecutingState: Bool = false
+) -> ToolDisplay {
     guard let data = tool.input.data(using: .utf8),
           let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return ToolDisplay(icon: toolIcon(for: tool.name), label: tool.name, detail: String(tool.input.prefix(40)))
@@ -458,7 +471,19 @@ private func getToolDisplay(_ tool: ToolCall, isPending: Bool = false, isDismiss
         let label = tool.name == "Agent"
             ? (subagentType ?? "Agent")
             : (subagentType.map { "Task (\($0))" } ?? "Task")
-        return ToolDisplay(icon: "arrow.triangle.branch", label: label, detail: description)
+        let state = subAgentExecutionState(
+            for: tool,
+            children: children,
+            childrenByParentId: childrenByParentId,
+            showExecutingState: showExecutingState
+        )
+        var display = ToolDisplay(icon: "arrow.triangle.branch", label: label, detail: description)
+        display.executing = state == .running
+        if state == .failed {
+            display.badgeText = "FAILED"
+            display.badgeIcon = "exclamationmark.triangle"
+        }
+        return display
 
     case "WebFetch", "WebSearch":
         let url = input["url"] as? String
@@ -561,6 +586,7 @@ private struct WhisperToolCallsBlock: View {
     let toolCalls: [ToolCall]
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
+    var showExecutingState = false
     @State private var groupExpanded = false
 
     private static let hiddenTaskTools: Set<String> = ["TaskUpdate", "TodoList"]
@@ -577,8 +603,12 @@ private struct WhisperToolCallsBlock: View {
         visibleTools.filter { $0.parentToolUseId == parentId }
     }
 
+    private var childrenByParentId: [String: [ToolCall]] {
+        Dictionary(grouping: visibleTools.filter { $0.parentToolUseId != nil }) { $0.parentToolUseId ?? "" }
+    }
+
     private var shouldCollapse: Bool {
-        rootTools.count >= collapseThreshold
+        !showExecutingState && visibleTools.count >= collapseThreshold
     }
 
     var body: some View {
@@ -598,8 +628,10 @@ private struct WhisperToolCallsBlock: View {
                     WhisperToolCallRow(
                         tool: tool,
                         children: children(for: tool.id),
+                        childrenByParentId: childrenByParentId,
                         isPending: pendingToolUseIds.contains(tool.id),
-                        isDismissed: dismissedToolCallIds.contains(tool.id)
+                        isDismissed: dismissedToolCallIds.contains(tool.id),
+                        showExecutingState: showExecutingState
                     )
                 }
                 .transition(.opacity)
@@ -649,19 +681,28 @@ private struct CollapsedToolSummary: View {
 private struct WhisperToolCallRow: View {
     let tool: ToolCall
     let children: [ToolCall]
+    let childrenByParentId: [String: [ToolCall]]
     var isPending = false
     var isDismissed = false
+    var showExecutingState = false
     @State private var isExpanded = false
 
     var body: some View {
-        let display = getToolDisplay(tool, isPending: isPending, isDismissed: isDismissed)
+        let display = getToolDisplay(
+            tool,
+            children: children,
+            childrenByParentId: childrenByParentId,
+            isPending: isPending,
+            isDismissed: isDismissed,
+            showExecutingState: showExecutingState
+        )
         let summary = !isExpanded && display.stats == nil ? (display.overrideSummary ?? getOutputSummary(tool)) : nil
 
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                ChatActivityRowLabel(icon: display.icon, label: display.label, detail: display.detail, stats: display.stats, summary: summary, badgeText: display.badgeText, badgeIcon: display.badgeIcon)
+                ChatActivityRowLabel(icon: display.icon, label: display.label, detail: display.detail, stats: display.stats, summary: summary, badgeText: display.badgeText, badgeIcon: display.badgeIcon, executing: display.executing)
             }
             .buttonStyle(.plain)
 
@@ -690,7 +731,12 @@ private struct WhisperToolCallRow: View {
                     if !children.isEmpty {
                         VStack(alignment: .leading, spacing: 2) {
                             ForEach(children) { child in
-                                WhisperToolCallRow(tool: child, children: [])
+                                WhisperToolCallRow(
+                                    tool: child,
+                                    children: childrenByParentId[child.id] ?? [],
+                                    childrenByParentId: childrenByParentId,
+                                    showExecutingState: showExecutingState
+                                )
                             }
                         }
                         .padding(.leading, 14)

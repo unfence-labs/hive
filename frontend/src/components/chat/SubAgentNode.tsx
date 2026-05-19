@@ -1,6 +1,7 @@
 import { useState, memo } from "react";
 import type { ToolCall } from "@/types";
 import type { SubAgentInfo } from "@/lib/sub-agent";
+import { getSubAgentExecutionState } from "@/lib/sub-agent-status";
 import { cn } from "@/lib/utils";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ContentPanel, ContentPanelBody, ContentPanelFooter } from "@/components/chat/ContentPanel";
@@ -91,13 +92,20 @@ export const SubAgentNode = memo(function SubAgentNode({
   const [expanded, setExpanded] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
 
-  const isRunning = showExecutingState ? tool.output === undefined : false;
-  const isDone = tool.output !== undefined;
+  const executionState = getSubAgentExecutionState(tool, {
+    showExecutingState,
+    children,
+    childrenMap,
+  });
+  const isRunning = executionState === "running";
+  const isFailed = executionState === "failed";
+  const isDone = executionState === "completed";
+  const hasResult = (isDone || isFailed) && tool.output !== undefined && tool.output.length > 0;
   const childCount = children.length;
 
   // Parse output for result footer
-  const resultText = expanded && isDone && tool.output
-    ? parseContentBlocks(tool.output)
+  const resultText = expanded && hasResult
+    ? parseContentBlocks(tool.output ?? "")
     : null;
 
   return (
@@ -116,8 +124,9 @@ export const SubAgentNode = memo(function SubAgentNode({
             className={cn(
               "shrink-0",
               isRunning && "text-primary",
+              isFailed && "text-destructive",
               isDone && "text-green-500/80",
-              !isRunning && !isDone && "text-muted-foreground",
+              !isRunning && !isDone && !isFailed && "text-muted-foreground",
             )}
           >
             <AgentIcon type={info.subagentType} />
@@ -145,6 +154,13 @@ export const SubAgentNode = memo(function SubAgentNode({
               <polyline points="20 6 9 17 4 12" />
             </svg>
           )}
+          {isFailed && (
+            <svg className="size-3 shrink-0 text-destructive" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="9" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          )}
         </button>
       </div>
 
@@ -154,8 +170,9 @@ export const SubAgentNode = memo(function SubAgentNode({
           className={cn(
             "ml-4 border-l-2 pl-3",
             isRunning && "border-primary/40",
+            isFailed && "border-destructive/30",
             isDone && "border-green-500/30",
-            !isRunning && !isDone && "border-muted-foreground/20",
+            !isRunning && !isDone && !isFailed && "border-muted-foreground/20",
           )}
         >
           {/* Prompt toggle */}
@@ -190,12 +207,12 @@ export const SubAgentNode = memo(function SubAgentNode({
             showExecutingState={showExecutingState}
           />
 
-          {/* Result footer (when expanded and done) */}
-          {isDone && tool.output && (
+          {/* Result footer (when expanded and terminal) */}
+          {hasResult && (
             <ContentPanel className="my-1">
               <ContentPanelFooter>
                 <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
-                  Result
+                  {isFailed ? "Failure" : "Result"}
                 </div>
                 {resultText ? (
                   <div className="prose-sm max-h-96 overflow-auto text-muted-foreground">

@@ -36,6 +36,7 @@ let package = Package(
                 "Stores/ChatDraftStore.swift",
                 "Stores/ConversationStore.swift",
                 "Stores/HubOrganization.swift",
+                "Stores/SubAgentStatus.swift",
                 "Stores/TaskDerivation.swift"
             ]
         ),
