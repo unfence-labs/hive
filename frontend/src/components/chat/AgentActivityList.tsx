@@ -191,8 +191,14 @@ function PlanUpdateActivity({ activity }: { activity: Extract<AgentActivity, { k
         <div className="space-y-2">
           {activity.steps.map((step, index) => (
             <div key={`${index}-${step.text}`} className="flex min-w-0 items-start gap-2 text-sm">
-              <span className="mt-0.5 shrink-0">{planStepIcon(step.status)}</span>
-              <span className={cn(step.status === "completed" && "text-muted-foreground line-through")}>
+              <span className="mt-0.5 shrink-0" aria-hidden="true">{planStepIcon(step.status)}</span>
+              <span className="sr-only">{planStepStatusLabel(step.status)}: </span>
+              <span
+                className={cn(
+                  step.status === "completed" && "text-muted-foreground line-through",
+                  step.status === "pending" && "text-muted-foreground",
+                )}
+              >
                 {step.text}
               </span>
             </div>
@@ -225,6 +231,15 @@ function planStepIcon(status: string) {
   if (status === "inProgress") return <Loader2Icon className="size-3.5 animate-spin text-primary" />;
   if (status === "failed" || status === "declined") return <XCircleIcon className="size-3.5 text-destructive" />;
   return <CircleIcon className="size-3.5 text-muted-foreground/60" />;
+}
+
+function planStepStatusLabel(status: string) {
+  if (status === "completed") return "Completed";
+  if (status === "inProgress") return "In progress";
+  if (status === "pending") return "Pending";
+  if (status === "failed") return "Failed";
+  if (status === "declined") return "Declined";
+  return "Not started";
 }
 
 function diagnosticIcon(severity: Extract<AgentActivity, { kind: "diagnostic" }>["severity"]) {

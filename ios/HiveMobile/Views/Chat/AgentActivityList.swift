@@ -185,7 +185,7 @@ private struct PlanUpdateActivityRow: View {
             icon: "checklist",
             title: "Plan",
             detail: "\(completeCount)/\(activity.steps.count) complete",
-            defaultOpen: activity.steps.contains { $0.status == "inProgress" || $0.status == "in_progress" }
+            defaultOpen: activity.steps.contains { $0.status == "inProgress" }
         ) {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(activity.steps.enumerated()), id: \.offset) { _, step in
@@ -196,9 +196,10 @@ private struct PlanUpdateActivityRow: View {
                             .frame(width: 14, height: 14)
                         Text(step.text)
                             .font(.system(size: 12))
-                            .foregroundStyle(step.status == "completed" ? WhisperColor.textMuted : WhisperColor.textSecondary)
+                            .foregroundStyle(planStepTextColor(step.status))
                             .strikethrough(step.status == "completed")
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityLabel("\(planStepStatusLabel(step.status)): \(step.text)")
                     }
                 }
             }
@@ -208,7 +209,7 @@ private struct PlanUpdateActivityRow: View {
     private func planStepIcon(_ status: String) -> String {
         switch status {
         case "completed": "checkmark.circle.fill"
-        case "inProgress", "in_progress": "arrow.triangle.2.circlepath"
+        case "inProgress": "arrow.triangle.2.circlepath"
         case "failed", "declined": "xmark.circle.fill"
         default: "circle"
         }
@@ -217,9 +218,27 @@ private struct PlanUpdateActivityRow: View {
     private func planStepColor(_ status: String) -> Color {
         switch status {
         case "completed": .green
-        case "inProgress", "in_progress": WhisperColor.textSecondary
+        case "inProgress": WhisperColor.textSecondary
         case "failed", "declined": .red
         default: WhisperColor.textMuted
+        }
+    }
+
+    private func planStepTextColor(_ status: String) -> Color {
+        switch status {
+        case "completed", "pending": WhisperColor.textMuted
+        default: WhisperColor.textSecondary
+        }
+    }
+
+    private func planStepStatusLabel(_ status: String) -> String {
+        switch status {
+        case "completed": "Completed"
+        case "inProgress": "In progress"
+        case "pending": "Pending"
+        case "failed": "Failed"
+        case "declined": "Declined"
+        default: "Not started"
         }
     }
 }
