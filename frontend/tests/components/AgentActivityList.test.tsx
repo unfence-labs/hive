@@ -23,8 +23,8 @@ describe("AgentActivityList", () => {
     expect(screen.queryByText("Command")).not.toBeInTheDocument();
     expect(screen.getByText("Bash")).toBeInTheDocument();
     expect(screen.getByText("npm test")).toBeInTheDocument();
-    expect(screen.getByText("exit 0")).toBeInTheDocument();
-    expect(screen.getByText("1.2s")).toBeInTheDocument();
+    expect(screen.queryByText("exit 0")).not.toBeInTheDocument();
+    expect(screen.queryByText("1.2s")).not.toBeInTheDocument();
 
     const button = screen.getByRole("button", { name: /Bash/ });
     expect(button).toHaveAttribute("aria-expanded", "false");

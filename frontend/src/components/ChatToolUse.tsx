@@ -423,16 +423,15 @@ function getOutputSummary(tool: ToolCall): string | undefined {
   return undefined;
 }
 
-function getBashMetadata(tool: ToolCall): { exitCode?: number; durationMs?: number; failed: boolean } | null {
+function getBashMetadata(tool: ToolCall): { exitCode?: number; failed: boolean } | null {
   if (tool.name !== "Bash") return null;
 
   try {
     const input = JSON.parse(tool.input) as Record<string, unknown>;
     const exitCode = typeof input.exitCode === "number" ? input.exitCode : undefined;
-    const durationMs = typeof input.durationMs === "number" ? input.durationMs : undefined;
     const status = typeof input.status === "string" ? input.status.toLowerCase() : "";
     const failed = exitCode !== undefined ? exitCode !== 0 : status === "failed" || status === "error";
-    return { exitCode, durationMs, failed };
+    return { exitCode, failed };
   } catch {
     return null;
   }
@@ -485,19 +484,6 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
                 : "Bash failed"
             }
           />
-        )}
-        {bashMetadata?.exitCode !== undefined && (
-          <span
-            className={cn(
-              "font-mono text-xs",
-              bashMetadata.failed ? "text-destructive" : "text-muted-foreground/60",
-            )}
-          >
-            exit {bashMetadata.exitCode}
-          </span>
-        )}
-        {bashMetadata?.durationMs !== undefined && (
-          <span className="font-mono text-xs text-muted-foreground/60">{formatElapsed(bashMetadata.durationMs)}</span>
         )}
         {isExecuting && (
           <span className="flex items-center gap-1.5">

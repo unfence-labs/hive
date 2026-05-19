@@ -122,8 +122,8 @@ describe("ChatToolUse", () => {
 
     expect(screen.getByText("Bash")).toBeInTheDocument();
     expect(screen.getByText("npm test")).toBeInTheDocument();
-    expect(screen.getByText("exit 1")).toBeInTheDocument();
-    expect(screen.getByText("2.4s")).toBeInTheDocument();
+    expect(screen.queryByText("exit 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("2.4s")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Bash failed with exit code 1")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /bash/i }));
