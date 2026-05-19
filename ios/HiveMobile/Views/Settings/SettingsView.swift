@@ -241,7 +241,7 @@ private enum HealthStatus {
 
     var color: Color {
         switch self {
-        case .connected: .green
+        case .connected: WhisperColor.success
         case .disconnected: .red
         }
     }

@@ -38,8 +38,8 @@ struct ContextRingView: View {
     private var fraction: Double { usage.usageFraction ?? 0 }
 
     private var ringColor: Color {
-        if fraction < 0.5 { return .green }
-        if fraction < 0.8 { return .yellow }
+        if fraction < 0.5 { return WhisperColor.success }
+        if fraction < 0.8 { return WhisperColor.warning }
         return .red
     }
 

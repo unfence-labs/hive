@@ -99,6 +99,14 @@ enum WhisperColor {
     static let codeBlockBg   = dynamic(light: rgb(247, 248, 250), dark: rgb(25, 27, 32))
     static let activityDot   = dynamic(light: rgb(42, 45, 52), dark: rgb(238, 240, 244))
     static let imageControlBg = dynamic(light: rgb(255, 255, 255, alpha: 0.86), dark: rgb(13, 14, 17, alpha: 0.72))
+    static let warning       = dynamic(light: rgb(254, 154, 0), dark: rgb(254, 154, 0))
+    static let warningForeground = dynamic(light: rgb(151, 60, 0), dark: rgb(255, 210, 48))
+    static let warningMuted  = dynamic(light: rgb(254, 154, 0, alpha: 0.10), dark: rgb(254, 154, 0, alpha: 0.10))
+    static let warningBorder = dynamic(light: rgb(254, 154, 0, alpha: 0.30), dark: rgb(254, 154, 0, alpha: 0.25))
+    static let warningContrast = Color.black
+    static let success       = dynamic(light: rgb(22, 163, 74), dark: rgb(34, 197, 94))
+    static let successMuted  = dynamic(light: rgb(22, 163, 74, alpha: 0.12), dark: rgb(34, 197, 94, alpha: 0.12))
+    static let successBorder = dynamic(light: rgb(22, 163, 74, alpha: 0.30), dark: rgb(34, 197, 94, alpha: 0.28))
 
     private static func dynamic(light: UIColor, dark: UIColor) -> Color {
         Color(UIColor { traits in

@@ -142,7 +142,7 @@ struct AddProjectSheet: View {
                 } else if ghConnected {
                     HStack(spacing: 6) {
                         Circle()
-                            .fill(.green)
+                            .fill(WhisperColor.success)
                             .frame(width: 6, height: 6)
                         Text("Connected as @\(accountStatus?.user?.login ?? "")")
                             .font(.caption)
@@ -151,7 +151,7 @@ struct AddProjectSheet: View {
                 } else if accountStatus != nil {
                     Text("GitHub not connected — will create local only")
                         .font(.caption)
-                        .foregroundStyle(.orange.opacity(0.8))
+                        .foregroundStyle(WhisperColor.warningForeground)
                 }
             }
         }

@@ -278,7 +278,7 @@ private struct ExitPlanModeView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.glassProminent)
-                    .tint(.green)
+                    .tint(WhisperColor.success)
 
                     Button {
                         let msg = rejectMessage.isEmpty ? nil : rejectMessage

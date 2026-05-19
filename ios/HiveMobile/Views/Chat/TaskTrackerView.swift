@@ -110,7 +110,7 @@ struct TaskTrackerView: View {
         case .completed:
             Image(systemName: "checkmark.circle")
                 .font(.system(size: 11))
-                .foregroundStyle(.green)
+                .foregroundStyle(WhisperColor.success)
         case .inProgress:
             Circle()
                 .fill(Color.accentColor)

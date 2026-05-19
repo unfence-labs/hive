@@ -9,15 +9,15 @@ struct StatusDot: View {
     }
 }
 
-/// Turn-completed indicator — green dot with glow and spring entrance.
+/// Turn-completed indicator.
 struct CompletedDot: View {
     @State private var appeared = false
 
     var body: some View {
         Circle()
-            .fill(.green)
+            .fill(WhisperColor.success)
             .frame(width: 8, height: 8)
-            .shadow(color: .green.opacity(appeared ? 0.5 : 0), radius: 6)
+            .shadow(color: WhisperColor.success.opacity(appeared ? 0.5 : 0), radius: 6)
             .scaleEffect(appeared ? 1.0 : 0.3)
             .opacity(appeared ? 1.0 : 0.0)
             .onAppear {

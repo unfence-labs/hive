@@ -249,9 +249,9 @@ private struct HubActivityDot: View {
             .accessibilityLabel("Agent is working")
         case .completed:
             Circle()
-                .fill(.green)
+                .fill(WhisperColor.success)
                 .frame(width: 7, height: 7)
-                .shadow(color: .green.opacity(0.45), radius: 4)
+                .shadow(color: WhisperColor.success.opacity(0.45), radius: 4)
                 .accessibilityLabel("Unread activity")
         case .idle:
             EmptyView()
@@ -267,7 +267,7 @@ private struct HubDiffBadge: View {
         HStack(spacing: 5) {
             if additions > 0 {
                 Text("+\(additions)")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(WhisperColor.success)
             }
             if deletions > 0 {
                 Text("-\(deletions)")
@@ -312,23 +312,23 @@ private struct HubPrDisplay {
         } else if pr.state == .draft {
             self.init(icon: "pencil.circle", label: "Draft", color: .secondary)
         } else if pr.mergeable == false || pr.mergeableState == .conflict {
-            self.init(icon: "exclamationmark.triangle", label: "Conflicts", color: .orange)
+            self.init(icon: "exclamationmark.triangle", label: "Conflicts", color: WhisperColor.warningForeground)
         } else if pr.checksStatus == .failure {
             self.init(icon: "xmark.circle", label: "Failed\(checksCount)", color: .red)
         } else if pr.checksStatus == .cancelled {
-            self.init(icon: "nosign", label: "Cancelled", color: .orange)
+            self.init(icon: "nosign", label: "Cancelled", color: WhisperColor.warningForeground)
         } else if pr.checksStatus == .pending {
-            self.init(icon: "clock", label: "Checks\(checksCount)", color: .yellow)
+            self.init(icon: "clock", label: "Checks\(checksCount)", color: WhisperColor.warningForeground)
         } else if pr.reviewStatus == .changes_requested {
-            self.init(icon: "exclamationmark.triangle", label: "Changes", color: .orange)
+            self.init(icon: "exclamationmark.triangle", label: "Changes", color: WhisperColor.warningForeground)
         } else if pr.mergeableState == .blocked {
-            self.init(icon: "nosign", label: "Blocked", color: .orange)
+            self.init(icon: "nosign", label: "Blocked", color: WhisperColor.warningForeground)
         } else if pr.mergeableState == .unstable {
-            self.init(icon: "exclamationmark.triangle", label: "Unstable", color: .yellow)
+            self.init(icon: "exclamationmark.triangle", label: "Unstable", color: WhisperColor.warningForeground)
         } else if pr.reviewStatus == .review_required {
             self.init(icon: "eye", label: "Review", color: .blue)
         } else if pr.mergeable == true || pr.mergeableState == .clean {
-            self.init(icon: "checkmark.circle", label: "Ready", color: .green)
+            self.init(icon: "checkmark.circle", label: "Ready", color: WhisperColor.success)
         } else {
             self.init(icon: "arrow.triangle.pull", label: "Open", color: .blue)
         }
