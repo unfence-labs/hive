@@ -50,10 +50,6 @@ struct ChatView: View {
         "\(workspace.name) · \(store.branchInfo?.name ?? workspace.branch)"
     }
 
-    private var chatBackground: Color {
-        WhisperColor.surfaceSubtle
-    }
-
     private var pendingToolUseIds: Set<String> {
         Set(store.pendingToolInputs.map(\.toolUseId))
     }
@@ -123,7 +119,7 @@ struct ChatView: View {
 
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(chatBackground.ignoresSafeArea())
+        .hiveScreenBackground()
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: HiveSpacing.sm) {
                 let tasksState = store.tasksState
