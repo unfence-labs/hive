@@ -33,7 +33,13 @@ struct ProjectAvatar: View {
     }
 
     private static let palette: [Color] = [
-        .red, .orange, .yellow, .green, .teal, .blue, .indigo, .purple, .pink,
+        Color(red: 0.722, green: 0.263, blue: 0.141),
+        Color(red: 0.584, green: 0.416, blue: 0.243),
+        Color(red: 0.361, green: 0.502, blue: 0.376),
+        Color(red: 0.239, green: 0.482, blue: 0.522),
+        Color(red: 0.322, green: 0.392, blue: 0.620),
+        Color(red: 0.463, green: 0.349, blue: 0.580),
+        Color(red: 0.584, green: 0.318, blue: 0.416),
     ]
 
     private var fallbackColor: Color {

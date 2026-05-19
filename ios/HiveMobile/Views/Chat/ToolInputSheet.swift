@@ -19,7 +19,10 @@ struct ToolInputSheet: View {
                     Text("Unknown tool input")
                 }
             }
+            .hiveScreenBackground()
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
@@ -54,7 +57,7 @@ private struct AskUserQuestionView: View {
 
                             Text("\(currentIndex + 1)/\(flatQuestions.count)")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(WhisperColor.textSecondary)
 
                             Button {
                                 currentIndex = min(flatQuestions.count - 1, currentIndex + 1)
@@ -110,13 +113,13 @@ private struct AskUserQuestionView: View {
                 } label: {
                     HStack {
                         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(isSelected ? .primary : .secondary)
+                            .foregroundStyle(isSelected ? WhisperColor.text : WhisperColor.textSecondary)
                         VStack(alignment: .leading) {
                             Text(option.label)
                             if let desc = option.description {
                                 Text(desc)
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(WhisperColor.textSecondary)
                             }
                         }
                         Spacer()

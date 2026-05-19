@@ -6,11 +6,11 @@ struct MessageBubble: View {
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
 
-    @AppStorage("hiveAccent") private var accentId = "violet"
+    @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @State private var copied = false
 
     private var hiveAccent: Color {
-        AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
+        AccentOption(rawValue: accentId)?.color ?? AccentOption.hive.color
     }
 
     var body: some View {
@@ -1031,7 +1031,7 @@ private struct ToolContentPanel<Content: View>: View {
 
 // MARK: - Whisper Chat Markdown Theme
 
-private let whisperLinkColor = Color(red: 0.231, green: 0.510, blue: 0.965)
+private let whisperLinkColor = WhisperColor.brandAccent
 
 private extension Theme {
     static let whisperChat = Theme.gitHub

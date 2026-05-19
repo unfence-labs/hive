@@ -60,8 +60,11 @@ struct AddProjectSheet: View {
                     .frame(maxWidth: .infinity)
             }
             .padding()
+            .hiveScreenBackground()
             .navigationTitle(mode == .clone ? "Add Project" : "Create Project")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -83,7 +86,7 @@ struct AddProjectSheet: View {
         VStack(alignment: .leading, spacing: HiveSpacing.md) {
             Text("Enter the Git repository URL to clone into Hive.")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WhisperColor.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             TextField("git@github.com:user/repo.git", text: $url)
@@ -102,13 +105,13 @@ struct AddProjectSheet: View {
         VStack(alignment: .leading, spacing: HiveSpacing.lg) {
             Text("Create a new Git repository and start working.")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WhisperColor.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .leading, spacing: HiveSpacing.xs) {
                 Text("Repository name")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WhisperColor.textSecondary)
                 TextField("my-new-project", text: $name)
                     .textFieldStyle(.roundedBorder)
                     .textInputAutocapitalization(.never)
@@ -121,7 +124,7 @@ struct AddProjectSheet: View {
                 VStack(alignment: .leading, spacing: HiveSpacing.xs) {
                     Text("Visibility")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WhisperColor.textSecondary)
                     Picker("", selection: $visibility) {
                         Text("Private").tag("private")
                         Text("Public").tag("public")
@@ -135,7 +138,7 @@ struct AddProjectSheet: View {
                 if loadingAccount {
                     Text("Checking GitHub connection…")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WhisperColor.textSecondary)
                 } else if ghConnected {
                     HStack(spacing: 6) {
                         Circle()
@@ -143,7 +146,7 @@ struct AddProjectSheet: View {
                             .frame(width: 6, height: 6)
                         Text("Connected as @\(accountStatus?.user?.login ?? "")")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WhisperColor.textSecondary)
                     }
                 } else if accountStatus != nil {
                     Text("GitHub not connected — will create local only")

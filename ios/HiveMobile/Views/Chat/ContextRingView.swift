@@ -58,7 +58,7 @@ struct ContextRingView: View {
         if !usage.isEmpty {
             ZStack {
                 Circle()
-                    .stroke(Color.secondary.opacity(0.2), lineWidth: 2)
+                    .stroke(WhisperColor.textMuted.opacity(0.24), lineWidth: 2)
                 Circle()
                     .trim(from: 0, to: fraction)
                     .stroke(ringColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))

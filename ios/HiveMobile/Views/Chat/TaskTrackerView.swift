@@ -57,7 +57,7 @@ struct TaskTrackerView: View {
         HStack(spacing: HiveSpacing.sm) {
             Image(systemName: "chevron.right")
                 .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(WhisperColor.textMuted)
                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 .frame(width: 14, alignment: .center)
 
@@ -70,14 +70,14 @@ struct TaskTrackerView: View {
                 }
             }
             .font(WhisperFont.mono(12))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(WhisperColor.textSecondary)
             .lineLimit(1)
             .truncationMode(.tail)
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Text("\(counts.completed)/\(counts.total)")
                 .font(WhisperFont.mono(11))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(WhisperColor.textMuted)
         }
         .contentShape(Rectangle())
         .padding(.vertical, 2)
@@ -118,16 +118,16 @@ struct TaskTrackerView: View {
                 .modifier(PulsingDotModifier())
         case .pending:
             Circle()
-                .stroke(.tertiary, lineWidth: 1)
+                .stroke(WhisperColor.textMuted, lineWidth: 1)
                 .frame(width: 9, height: 9)
         }
     }
 
-    private func textStyle(for status: TaskStatus) -> HierarchicalShapeStyle {
+    private func textStyle(for status: TaskStatus) -> Color {
         switch status {
-        case .completed: .tertiary
-        case .inProgress: .primary
-        case .pending: .secondary
+        case .completed: WhisperColor.textMuted
+        case .inProgress: WhisperColor.text
+        case .pending: WhisperColor.textSecondary
         }
     }
 }

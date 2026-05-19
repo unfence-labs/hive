@@ -10,7 +10,7 @@ struct HiveApp: App {
     @State private var selectedTab: AppTab = .hub
     @State private var hubPath = NavigationPath()
     @State private var backgroundedAt: Date?
-    @AppStorage("hiveAccent") private var accentId = "violet"
+    @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @AppStorage("hiveThemeMode") private var themeModeId = HiveThemeMode.system.rawValue
 
     init() {
@@ -20,7 +20,7 @@ struct HiveApp: App {
     }
 
     private var accent: Color {
-        AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
+        AccentOption(rawValue: accentId)?.color ?? AccentOption.hive.color
     }
 
     private var themeMode: HiveThemeMode {
@@ -49,6 +49,7 @@ struct HiveApp: App {
                     }
                 }
             }
+            .hiveScreenBackground()
             .tint(accent)
             .environment(projectStore)
             .environment(storeCache)

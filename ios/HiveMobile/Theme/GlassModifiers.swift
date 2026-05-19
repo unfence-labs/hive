@@ -15,4 +15,8 @@ extension View {
     func glassPill() -> some View {
         self.glassEffect(.regular, in: Capsule())
     }
+
+    func hiveScreenBackground() -> some View {
+        self.background(WhisperColor.appBackground.ignoresSafeArea())
+    }
 }

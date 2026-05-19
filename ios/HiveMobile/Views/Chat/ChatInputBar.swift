@@ -19,12 +19,12 @@ struct ChatInputBar: View {
     let onSend: ([ImageAttachment]) -> Void
     var onStop: (() -> Void)?
 
-    @AppStorage("hiveAccent") private var accentId = "violet"
+    @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @State private var attachedImages: [AttachedImage] = []
     @State private var selectedItems: [PhotosPickerItem] = []
 
     private var hiveAccent: Color {
-        AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
+        AccentOption(rawValue: accentId)?.color ?? AccentOption.hive.color
     }
 
     var body: some View {
@@ -38,7 +38,7 @@ struct ChatInputBar: View {
             }
 
             Divider()
-                .foregroundStyle(.secondary.opacity(0.2))
+                .overlay(WhisperColor.separator)
 
             // MARK: - Compose Area
             composeArea
@@ -107,7 +107,7 @@ struct ChatInputBar: View {
                         .font(.system(size: 8))
                 }
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WhisperColor.textSecondary)
             }
             .frame(minHeight: 44)
 
@@ -159,7 +159,7 @@ struct ChatInputBar: View {
             ) {
                 Image(systemName: "plus")
                     .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WhisperColor.textSecondary)
                     .frame(width: 32, height: 32)
             }
 
@@ -177,7 +177,7 @@ struct ChatInputBar: View {
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 28))
-                    .foregroundStyle(canSend ? .primary : .tertiary)
+                    .foregroundStyle(canSend ? WhisperColor.text : WhisperColor.textMuted)
             }
             .disabled(!canSend)
 
@@ -276,7 +276,7 @@ private struct ModeToggle: View {
                 Text(label)
             }
             .font(.caption)
-            .foregroundStyle(isActive ? highlightColor : .secondary)
+            .foregroundStyle(isActive ? highlightColor : WhisperColor.textSecondary)
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .background(

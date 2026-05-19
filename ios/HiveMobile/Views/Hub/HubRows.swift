@@ -33,19 +33,19 @@ struct HubFolderHeader: View {
 
                 Text(title)
                     .font(.headline)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(WhisperColor.text)
                     .lineLimit(1)
 
                 Spacer(minLength: HiveSpacing.sm)
 
                 Text("\(projectCount)")
                     .font(.caption.monospacedDigit().weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WhisperColor.textSecondary)
                     .frame(minWidth: 18, alignment: .trailing)
 
                 Text("\(workspaceCount) ws")
                     .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(WhisperColor.textMuted)
             }
             .padding(.horizontal, HiveSpacing.md)
             .frame(maxWidth: .infinity, minHeight: 44)
@@ -83,7 +83,7 @@ struct HubProjectRow: View {
 
                         Text("\(project.workspaces.count) workspaces")
                             .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(WhisperColor.textMuted)
                     }
 
                     Spacer(minLength: HiveSpacing.sm)
@@ -117,13 +117,13 @@ struct HubProjectRow: View {
     @ViewBuilder
     private var projectTitle: some View {
         if let owner = displayName.owner {
-            Text("\(Text("\(owner)/").foregroundStyle(.secondary))\(Text(displayName.repo).foregroundStyle(.primary))")
+            Text("\(Text("\(owner)/").foregroundStyle(WhisperColor.textSecondary))\(Text(displayName.repo).foregroundStyle(WhisperColor.text))")
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
         } else {
             Text(displayName.repo)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(WhisperColor.text)
                 .lineLimit(1)
         }
     }
@@ -150,7 +150,7 @@ struct HubWorkspaceRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: HiveSpacing.sm) {
                     Text(workspace.branch)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(WhisperColor.text)
                         .lineLimit(1)
                         .truncationMode(.middle)
 
@@ -159,7 +159,7 @@ struct HubWorkspaceRow: View {
                     Text(workspace.name)
                         .font(.caption2)
                         .lineLimit(1)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(WhisperColor.textMuted)
                 }
 
                 HStack(spacing: HiveSpacing.sm) {
@@ -207,7 +207,7 @@ private struct HubFolderIcon: View {
         ZStack(alignment: .topTrailing) {
             Image(systemName: isExpanded ? "folder.fill" : "folder")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WhisperColor.textSecondary)
                 .frame(width: 20, height: 20)
 
             HubActivityDot(state: activityState)
@@ -292,7 +292,7 @@ private struct HubPrBadge: View {
             .foregroundStyle(display.color)
         } else {
             Text("No PR")
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(WhisperColor.textMuted)
         }
     }
 }

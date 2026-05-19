@@ -113,6 +113,7 @@ struct ChatView: View {
             }
 
         }
+        .hiveScreenBackground()
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 0) {
                 let tasksState = store.tasksState
@@ -156,7 +157,7 @@ struct ChatView: View {
                         .font(.headline)
                     Text("\(workspace.name) · \(store.branchInfo?.name ?? workspace.branch)")
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WhisperColor.textSecondary)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {

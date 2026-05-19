@@ -42,8 +42,11 @@ struct HubView: View {
             }
         }
         .scrollBounceBehavior(.always)
+        .hiveScreenBackground()
         .navigationTitle("Hub")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .searchable(
             text: $searchText,
             placement: .navigationBarDrawer(displayMode: .always),
@@ -76,7 +79,7 @@ struct HubView: View {
                         .controlSize(.small)
                     Text("Cloning \(repoName)...")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WhisperColor.textSecondary)
                 }
                 .padding(.horizontal, HiveSpacing.lg)
                 .padding(.vertical, HiveSpacing.sm)
@@ -247,7 +250,7 @@ struct HubView: View {
         if project.workspaces.isEmpty {
             Text("No active workspaces")
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(WhisperColor.textMuted)
                 .padding(.leading, HubLayout.workspaceIndent)
                 .padding(.vertical, HiveSpacing.xs)
         } else {
