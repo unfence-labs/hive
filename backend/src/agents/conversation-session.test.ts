@@ -552,7 +552,7 @@ describe("ConversationSession", () => {
     });
     const assistant = (await session.getMessages()).find((msg) => msg.role === "assistant");
     expect(assistant?.agentActivities?.[0]).toMatchObject({ id: "plan-rich", kind: "plan_update" });
-    expect(assistant?.toolCalls?.[0]?.name).toBe("TodoList");
+    expect(assistant?.toolCalls).toBeUndefined();
   });
 
   it("creates session with a sessionId", () => {

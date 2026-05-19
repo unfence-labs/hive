@@ -738,9 +738,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       kind: "plan_update",
       steps: event.steps,
     });
-    const payload = JSON.stringify({ steps: event.steps });
-    this.upsertToolCall(event.id, "TodoList", payload);
-    this.completeToolCall(event.id, payload);
   }
 
   private handleDiagnosticEvent(event: Extract<NormalizedAgentEvent, { type: "diagnostic" }>): void {

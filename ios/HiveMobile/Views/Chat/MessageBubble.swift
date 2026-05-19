@@ -455,7 +455,9 @@ private func getToolDisplay(_ tool: ToolCall, isPending: Bool = false, isDismiss
     case "Task", "Agent":
         let subagentType = input["subagent_type"] as? String
         let description = input["description"] as? String
-        let label = subagentType != nil ? "Task (\(subagentType!))" : "Task"
+        let label = tool.name == "Agent"
+            ? (subagentType ?? "Agent")
+            : (subagentType.map { "Task (\($0))" } ?? "Task")
         return ToolDisplay(icon: "arrow.triangle.branch", label: label, detail: description)
 
     case "WebFetch", "WebSearch":

@@ -6,6 +6,7 @@ export interface SubAgentInfo {
   prompt?: string;
   runInBackground: boolean;
   model?: string;
+  tool?: string;
 }
 
 /** Parse sub-agent metadata from a Task/Agent tool's input JSON. */
@@ -19,6 +20,7 @@ export function parseSubAgentInfo(tool: ToolCall): SubAgentInfo | null {
       prompt: input.prompt,
       runInBackground: input.run_in_background === true,
       model: input.model,
+      tool: input.tool,
     };
   } catch {
     return null;

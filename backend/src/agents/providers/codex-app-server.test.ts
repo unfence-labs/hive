@@ -475,6 +475,55 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
+  it("labels Codex collab wait operations without showing Agent Wait", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: unknown[] = [];
+    session.on("assistant", (event) => assistantEvents.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-wait-1",
+          tool: "wait",
+          status: "inProgress",
+          senderThreadId: "thread-1",
+          receiverThreadIds: ["thread-2"],
+        },
+      },
+    }) + "\n");
+
+    expect(assistantEvents).toEqual([
+      expect.objectContaining({
+        type: "assistant",
+        message: expect.objectContaining({
+          id: "collab-wait-1",
+          content: [
+            expect.objectContaining({
+              type: "tool_use",
+              id: "collab-wait-1",
+              name: "Agent",
+              input: expect.stringContaining("\"subagent_type\":\"Wait\""),
+            }),
+          ],
+        }),
+      }),
+    ]);
+    expect(assistantEvents[0]).toEqual(expect.objectContaining({
+      message: expect.objectContaining({
+        content: [
+          expect.objectContaining({
+            input: expect.stringContaining("\"description\":\"\""),
+          }),
+        ],
+      }),
+    }));
+  });
+
   it("parents live receiver-thread tools under Codex collab agent calls", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

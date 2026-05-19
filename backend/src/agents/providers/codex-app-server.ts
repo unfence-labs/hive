@@ -1084,7 +1084,7 @@ function formatUnknown(value: unknown): string {
 
 function collabAgentToolInput(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): JsonObject {
   return {
-    subagent_type: "Agent",
+    subagent_type: collabAgentLabel(item),
     description: collabAgentDescription(item),
     prompt: item.prompt ?? undefined,
     run_in_background: true,
@@ -1108,7 +1108,12 @@ function collabAgentReceiverThreadIds(item: Extract<ThreadItem, { type: "collabA
 
 function collabAgentDescription(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): string {
   const prompt = item.prompt?.trim().split("\n").find((line) => line.trim());
-  return prompt?.trim() || formatCollabAgentTool(item.tool);
+  if (prompt) return prompt.trim();
+  return item.tool === "spawnAgent" ? "Agent" : "";
+}
+
+function collabAgentLabel(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): string {
+  return item.tool === "spawnAgent" ? "Agent" : formatCollabAgentTool(item.tool);
 }
 
 function collabAgentToolResult(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): string {
