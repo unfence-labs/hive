@@ -24,25 +24,33 @@ struct HubView: View {
                 .ignoresSafeArea()
 
             ScrollView {
-                if store.isLoading && store.projects.isEmpty {
-                    loadingState
-                } else if store.projects.isEmpty && !store.isLoading {
-                    ContentUnavailableView(
-                        "No Projects",
-                        systemImage: "folder",
-                        description: Text("Tap + to add your first project, or connect to your Hive server from Settings.")
-                    )
-                    .padding(.top, 40)
-                } else if !normalizedSearch.isEmpty && filteredSections.isEmpty {
-                    ContentUnavailableView(
-                        "No Results",
-                        systemImage: "magnifyingglass",
-                        description: Text("Try a project, workspace, or branch name.")
-                    )
-                    .padding(.top, 40)
-                } else {
-                    denseHubContent
+                VStack(alignment: .leading, spacing: HiveSpacing.md) {
+                    if shouldShowSearchField {
+                        hubSearchField
+                    }
+
+                    if store.isLoading && store.projects.isEmpty {
+                        loadingState
+                    } else if store.projects.isEmpty && !store.isLoading {
+                        ContentUnavailableView(
+                            "No Projects",
+                            systemImage: "folder",
+                            description: Text("Tap + to add your first project, or connect to your Hive server from Settings.")
+                        )
+                        .padding(.top, 40)
+                    } else if !normalizedSearch.isEmpty && filteredSections.isEmpty {
+                        ContentUnavailableView(
+                            "No Results",
+                            systemImage: "magnifyingglass",
+                            description: Text("Try a project, workspace, or branch name.")
+                        )
+                        .padding(.top, 40)
+                    } else {
+                        denseHubContent
+                    }
                 }
+                .padding(.horizontal, HiveSpacing.lg)
+                .padding(.vertical, HiveSpacing.md)
             }
             .scrollBounceBehavior(.always)
             .scrollContentBackground(.hidden)
@@ -51,12 +59,6 @@ struct HubView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .searchable(
-            text: $searchText,
-            placement: .toolbar,
-            prompt: "Search projects, branches"
-        )
-        .searchPresentationToolbarBehavior(.avoidHidingContent)
         .toolbar { toolbarContent }
         .refreshable {
             // Unstructured Task shields refresh from SwiftUI prematurely
@@ -131,6 +133,42 @@ struct HubView: View {
         .frame(maxHeight: .infinity)
     }
 
+    private var shouldShowSearchField: Bool {
+        !store.projects.isEmpty || !normalizedSearch.isEmpty
+    }
+
+    private var hubSearchField: some View {
+        HStack(spacing: HiveSpacing.sm) {
+            Image(systemName: "magnifyingglass")
+                .font(.subheadline)
+                .foregroundStyle(WhisperColor.textMuted)
+
+            TextField("Search projects, branches", text: $searchText)
+                .textFieldStyle(.plain)
+                .submitLabel(.search)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(WhisperColor.textMuted)
+                }
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, HiveSpacing.md)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(WhisperColor.surfaceRaised)
+                .stroke(WhisperColor.borderSubtle, lineWidth: 0.5)
+        )
+    }
+
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
@@ -160,8 +198,6 @@ struct HubView: View {
                 sectionView(section)
             }
         }
-        .padding(.horizontal, HiveSpacing.lg)
-        .padding(.vertical, HiveSpacing.md)
         .task(id: store.projects.flatMap { $0.workspaces.map(\.id) }) {
             let ids = store.projects.flatMap { $0.workspaces.map(\.id) }
             store.statusMonitor.syncPrPolling(visibleWorkspaceIds: ids)
