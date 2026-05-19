@@ -13,11 +13,12 @@ struct MessageBubble: View {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
     }
 
-    private var visibleToolCalls: [ToolCall] {
-        guard let tools = message.toolCalls else { return [] }
-        let activityIds = Set((message.agentActivities ?? []).map(\.id))
-        guard !activityIds.isEmpty else { return tools }
-        return tools.filter { !activityIds.contains($0.id) }
+    private var mergedToolCalls: [ToolCall] {
+        mergeToolCalls(message.toolCalls ?? [], with: message.agentActivities ?? [])
+    }
+
+    private var visibleActivities: [AgentActivity] {
+        visibleAgentActivities(message.agentActivities ?? [])
     }
 
     var body: some View {
@@ -31,13 +32,14 @@ struct MessageBubble: View {
 
                 messageContent
 
-                if message.role == .assistant, let activities = message.agentActivities, !activities.isEmpty {
-                    AgentActivityList(activities: activities, showExecutingState: message.id == "streaming")
-                }
-
-                let tools = visibleToolCalls
+                let tools = mergedToolCalls
                 if message.role == .assistant, !tools.isEmpty {
                     WhisperToolCallsBlock(toolCalls: tools, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
+                }
+
+                let activities = visibleActivities
+                if message.role == .assistant, !activities.isEmpty {
+                    AgentActivityList(activities: activities, showExecutingState: message.id == "streaming")
                 }
 
                 messageFooter

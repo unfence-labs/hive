@@ -143,3 +143,94 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         }
     }
 }
+
+extension AgentActivity {
+    var toolCalls: [ToolCall] {
+        switch self {
+        case .commandExecution(let activity):
+            [
+                ToolCall(
+                    id: activity.id,
+                    name: "Bash",
+                    input: encodeToolInput([
+                        "command": activity.command ?? "",
+                        "cwd": activity.cwd,
+                        "status": activity.status,
+                        "exitCode": activity.exitCode,
+                        "durationMs": activity.durationMs
+                    ]),
+                    output: activity.output,
+                    parentToolUseId: nil
+                )
+            ]
+        case .fileChange(let activity):
+            if activity.files.isEmpty {
+                return [
+                    ToolCall(
+                        id: activity.id,
+                        name: "Edit",
+                        input: encodeToolInput([
+                            "filename": "",
+                            "diff": "",
+                            "status": activity.status
+                        ]),
+                        output: activity.status,
+                        parentToolUseId: nil
+                    )
+                ]
+            }
+
+            return activity.files.enumerated().map { index, file in
+                ToolCall(
+                    id: "\(activity.id):\(index):\(file.path)",
+                    name: "Edit",
+                    input: encodeToolInput([
+                        "filename": file.path,
+                        "diff": file.diff ?? "",
+                        "kind": file.kind,
+                        "status": file.status ?? activity.status
+                    ]),
+                    output: file.diff ?? file.status ?? activity.status,
+                    parentToolUseId: nil
+                )
+            }
+        case .planUpdate, .diagnostic, .unknown:
+            []
+        }
+    }
+}
+
+func mergeToolCalls(_ toolCalls: [ToolCall], with activities: [AgentActivity]) -> [ToolCall] {
+    var merged = toolCalls
+    var existingIds = Set(toolCalls.map(\.id))
+
+    for activity in activities {
+        if existingIds.contains(activity.id) { continue }
+
+        for toolCall in activity.toolCalls where !existingIds.contains(toolCall.id) {
+            merged.append(toolCall)
+            existingIds.insert(toolCall.id)
+        }
+    }
+
+    return merged
+}
+
+func visibleAgentActivities(_ activities: [AgentActivity]) -> [AgentActivity] {
+    activities.filter { $0.toolCalls.isEmpty }
+}
+
+private func encodeToolInput(_ values: [String: Any?]) -> String {
+    let object = values.reduce(into: [String: Any]()) { result, entry in
+        if let value = entry.value {
+            result[entry.key] = value
+        }
+    }
+
+    guard JSONSerialization.isValidJSONObject(object),
+          let data = try? JSONSerialization.data(withJSONObject: object),
+          let text = String(data: data, encoding: .utf8) else {
+        return "{}"
+    }
+    return text
+}

@@ -12,7 +12,6 @@ import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { AgentActivityList } from "@/components/chat/AgentActivityList";
-import { ToolCallList } from "@/components/chat/ToolCallList";
 import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
 import { getFallbackInteractiveAssistantIndex, hasExitPlanModeTool } from "@/lib/plan-state";
@@ -235,9 +234,9 @@ export default function ChatConversation({
                   <MessageResponse isAnimating>{currentStreamingText}</MessageResponse>
                 </div>
               )}
-              <AgentActivityList activities={activeAgentActivities} showExecutingState />
-              <ToolCallList
-                toolCalls={filterActivityToolCalls(activeToolCalls, activeAgentActivities)}
+              <AgentActivityList
+                activities={activeAgentActivities}
+                toolCalls={activeToolCalls}
                 isInteractive
                 showExecutingState
                 onQuestionAnswer={onQuestionAnswer}
@@ -277,10 +276,4 @@ export default function ChatConversation({
       <ConversationScrollTrigger trigger={scrollToBottomTrigger} />
     </Conversation>
   );
-}
-
-function filterActivityToolCalls(toolCalls: ToolCall[], activities: AgentActivity[]): ToolCall[] {
-  if (activities.length === 0) return toolCalls;
-  const activityIds = new Set(activities.map((activity) => activity.id));
-  return toolCalls.filter((tool) => !activityIds.has(tool.id));
 }

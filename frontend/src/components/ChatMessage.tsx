@@ -6,7 +6,6 @@ import { resolveImageSrc } from "@/lib/image-url";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { AgentActivityList } from "@/components/chat/AgentActivityList";
-import { ToolCallList } from "@/components/chat/ToolCallList";
 import { CopyButton } from "@/components/chat/CopyButton";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { FileIcon } from "lucide-react";
@@ -142,12 +141,10 @@ const ChatMessage = memo(function ChatMessage({
             <div className="prose-sm">
               <MessageResponse>{message.content}</MessageResponse>
             </div>
-            {message.agentActivities && (
-              <AgentActivityList activities={message.agentActivities} />
-            )}
-            {message.toolCalls && (
-              <ToolCallList
-                toolCalls={filterActivityToolCalls(message.toolCalls, message.agentActivities)}
+            {Boolean(message.agentActivities?.length || message.toolCalls?.length) && (
+              <AgentActivityList
+                activities={message.agentActivities ?? []}
+                toolCalls={message.toolCalls}
                 isInteractive={isInteractive}
                 planStatus={planStatus}
                 dismissedToolCallIds={dismissedToolCallIds}
@@ -179,12 +176,3 @@ const ChatMessage = memo(function ChatMessage({
 });
 
 export default ChatMessage;
-
-function filterActivityToolCalls(
-  toolCalls: ChatMessageType["toolCalls"],
-  activities: ChatMessageType["agentActivities"],
-) {
-  if (!toolCalls?.length || !activities?.length) return toolCalls ?? [];
-  const activityIds = new Set(activities.map((activity) => activity.id));
-  return toolCalls.filter((tool) => !activityIds.has(tool.id));
-}

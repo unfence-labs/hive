@@ -127,6 +127,59 @@ struct AgentActivityDecodingTests {
     }
 
     @Test
+    func mergesToolCallsWithActivityToolsBeforeDiagnostics() throws {
+        let agentTool = ToolCall(
+            id: "agent-1",
+            name: "Agent",
+            input: #"{"subagent_type":"Agent","description":"Inspect"}"#,
+            output: nil,
+            parentToolUseId: nil
+        )
+        let providedCommand = ToolCall(
+            id: "cmd-1",
+            name: "Bash",
+            input: #"{"command":"swift test"}"#,
+            output: "ok",
+            parentToolUseId: "agent-1"
+        )
+        let activities: [AgentActivity] = [
+            .commandExecution(.init(
+                id: "cmd-1",
+                command: "swift test",
+                cwd: nil,
+                status: "completed",
+                output: "ok",
+                exitCode: 0,
+                durationMs: 120
+            )),
+            .commandExecution(.init(
+                id: "cmd-2",
+                command: "swift lint",
+                cwd: nil,
+                status: "completed",
+                output: "ok",
+                exitCode: 0,
+                durationMs: nil
+            )),
+            .diagnostic(.init(
+                id: "diag-1",
+                severity: .warning,
+                title: "Unsupported App Server event",
+                message: "Hive does not render this yet.",
+                source: "codex_app_server",
+                method: "thread/status/changed",
+                details: nil
+            ))
+        ]
+
+        let merged = mergeToolCalls([agentTool, providedCommand], with: activities)
+
+        #expect(merged.map(\.id) == ["agent-1", "cmd-1", "cmd-2"])
+        #expect(merged.first { $0.id == "cmd-1" }?.parentToolUseId == "agent-1")
+        #expect(visibleAgentActivities(activities).map(\.id) == ["diag-1"])
+    }
+
+    @Test
     func unknownWebSocketEventsDoNotBecomeChatErrors() throws {
         let envelope = try decodeHubEnvelope("""
         {

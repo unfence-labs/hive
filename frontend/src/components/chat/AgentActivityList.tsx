@@ -7,47 +7,64 @@ import {
   Loader2Icon,
   XCircleIcon,
 } from "lucide-react";
-import type { AgentActivity, ToolCall } from "@/types";
+import type { AgentActivity, QuestionAnswer, ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
 import { ContentPanel, ContentPanelBody } from "@/components/chat/ContentPanel";
 import ChatToolUse, { ToolExpandedContent } from "@/components/ChatToolUse";
 import { ToolCallList } from "@/components/chat/ToolCallList";
+import type { PlanStatus } from "@/components/chat/PlanProposal";
 
 interface AgentActivityListProps {
   activities: AgentActivity[];
+  toolCalls?: ToolCall[];
   showExecutingState?: boolean;
+  isInteractive?: boolean;
+  planStatus?: PlanStatus;
+  dismissedToolCallIds?: Set<string>;
+  onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
 }
 
-export function AgentActivityList({ activities, showExecutingState }: AgentActivityListProps) {
-  if (activities.length === 0) return null;
+export function AgentActivityList({
+  activities,
+  toolCalls = [],
+  showExecutingState,
+  isInteractive,
+  planStatus,
+  dismissedToolCallIds,
+  onQuestionAnswer,
+}: AgentActivityListProps) {
+  if (activities.length === 0 && toolCalls.length === 0) return null;
 
-  if (!showExecutingState) {
-    const toolCalls = activities.flatMap(activityToToolCalls);
-    const otherActivities = activities.filter((activity) => activityToToolCalls(activity).length === 0);
+  const mergedToolCalls = mergeToolCalls(toolCalls, activities);
+  const otherActivities = activities.filter((activity) => activityToToolCalls(activity).length === 0);
 
-    if (toolCalls.length > 0 && otherActivities.length === 0) {
-      return <ToolCallList toolCalls={toolCalls} />;
-    }
-
+  if (mergedToolCalls.length > 0 && otherActivities.length === 0) {
     return (
-      <div className="mt-2">
-        {toolCalls.length > 0 && (
-          <ToolCallList toolCalls={toolCalls} className="mt-0" />
-        )}
-        {otherActivities.map((activity) => (
-          <AgentActivityItem
-            key={activity.id}
-            activity={activity}
-            showExecutingState={showExecutingState}
-          />
-        ))}
-      </div>
+      <ToolCallList
+        toolCalls={mergedToolCalls}
+        isInteractive={isInteractive}
+        showExecutingState={showExecutingState}
+        planStatus={planStatus}
+        dismissedToolCallIds={dismissedToolCallIds}
+        onQuestionAnswer={onQuestionAnswer}
+      />
     );
   }
 
   return (
     <div className="mt-2">
-      {activities.map((activity) => (
+      {mergedToolCalls.length > 0 && (
+        <ToolCallList
+          toolCalls={mergedToolCalls}
+          isInteractive={isInteractive}
+          showExecutingState={showExecutingState}
+          planStatus={planStatus}
+          dismissedToolCallIds={dismissedToolCallIds}
+          onQuestionAnswer={onQuestionAnswer}
+          className="mt-0"
+        />
+      )}
+      {otherActivities.map((activity) => (
         <AgentActivityItem
           key={activity.id}
           activity={activity}
@@ -56,6 +73,15 @@ export function AgentActivityList({ activities, showExecutingState }: AgentActiv
       ))}
     </div>
   );
+}
+
+function mergeToolCalls(toolCalls: ToolCall[], activities: AgentActivity[]): ToolCall[] {
+  const toolCallIds = new Set(toolCalls.map((tool) => tool.id));
+  const activityToolCalls = activities.flatMap((activity) => {
+    if (toolCallIds.has(activity.id)) return [];
+    return activityToToolCalls(activity).filter((tool) => !toolCallIds.has(tool.id));
+  });
+  return [...toolCalls, ...activityToolCalls];
 }
 
 function activityToToolCalls(activity: AgentActivity): ToolCall[] {

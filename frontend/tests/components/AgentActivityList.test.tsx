@@ -2,7 +2,16 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AgentActivityList } from "@/components/chat/AgentActivityList";
-import type { AgentActivity } from "@/types";
+import type { AgentActivity, ToolCall } from "@/types";
+
+function tool(overrides: Partial<ToolCall>): ToolCall {
+  return {
+    id: overrides.id ?? Math.random().toString(36).slice(2),
+    name: overrides.name ?? "Read",
+    input: overrides.input ?? "{}",
+    ...overrides,
+  };
+}
 
 describe("AgentActivityList", () => {
   it("renders command activity with streaming output", async () => {
@@ -103,6 +112,80 @@ describe("AgentActivityList", () => {
 
     expect(screen.getAllByText("Bash")).toHaveLength(2);
     expect(screen.getByText("Edit")).toBeInTheDocument();
+  });
+
+  it("keeps provided tool calls and activity tools in one summary before diagnostics", () => {
+    const activities: AgentActivity[] = [
+      {
+        id: "cmd-1",
+        kind: "command_execution",
+        command: "npm test",
+        status: "completed",
+        output: "ok",
+      },
+      {
+        id: "cmd-2",
+        kind: "command_execution",
+        command: "npm run lint",
+        status: "completed",
+        output: "ok",
+      },
+      {
+        id: "diag-1",
+        kind: "diagnostic",
+        severity: "warning",
+        title: "Unsupported App Server event",
+        message: "Hive does not render this event yet.",
+        method: "thread/status/changed",
+      },
+    ];
+
+    render(
+      <AgentActivityList
+        activities={activities}
+        toolCalls={[
+          tool({
+            id: "agent-1",
+            name: "Agent",
+            input: JSON.stringify({ subagent_type: "Agent", description: "Inspect auth" }),
+          }),
+        ]}
+      />,
+    );
+
+    const summary = screen.getByText("2 tool calls, 1 subagent");
+    const diagnostic = screen.getByText("Unsupported App Server event");
+    expect(summary.compareDocumentPosition(diagnostic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText("1 subagent")).not.toBeInTheDocument();
+  });
+
+  it("does not duplicate activity tools that already have provided tool calls", () => {
+    const activities: AgentActivity[] = [
+      {
+        id: "files-1",
+        kind: "file_change",
+        status: "completed",
+        files: [{
+          path: "src/app.ts",
+          kind: "update",
+          diff: "--- a/src/app.ts\n+++ b/src/app.ts\n-old\n+new",
+        }],
+      },
+    ];
+
+    render(
+      <AgentActivityList
+        activities={activities}
+        toolCalls={[
+          tool({ id: "files-1", name: "Edit", input: JSON.stringify({ filename: "src/app.ts", diff: "diff" }) }),
+          tool({ id: "read-1", name: "Read", input: JSON.stringify({ file_path: "src/app.ts" }) }),
+          tool({ id: "grep-1", name: "Grep", input: JSON.stringify({ pattern: "app" }) }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("3 tool calls")).toBeInTheDocument();
+    expect(screen.queryByText("4 tool calls")).not.toBeInTheDocument();
   });
 
   it("keeps tool-like activities expanded while streaming", () => {
