@@ -175,7 +175,7 @@ export type ServerToolResultType =
 
 export type ContentBlock =
   | { type: "text"; text: string }
-  | { type: "tool_use"; id: string; name: string; input: unknown }
+  | { type: "tool_use"; id: string; name: string; input: unknown; parentToolUseId?: string }
   | { type: "server_tool_use"; id: string; name: string; input: unknown }
   | { type: "mcp_tool_use"; id: string; name: string; server_name: string; input: unknown }
   | { type: ServerToolResultType; tool_use_id: string; content: unknown }

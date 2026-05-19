@@ -75,8 +75,21 @@ async function waitForResponse(proc: ReturnType<typeof createMockProcess>, id: n
   throw new Error(`Timed out waiting for response ${id}`);
 }
 
+async function waitForCondition(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("Timed out waiting for condition");
+}
+
 function appServerResponse(id: number, result: unknown): string {
   return JSON.stringify({ id, result }) + "\n";
+}
+
+function appServerError(id: number, message: string): string {
+  return JSON.stringify({ id, error: { message } }) + "\n";
 }
 
 function appServerRequest(id: number, method: string, params: unknown = {}): string {
@@ -383,6 +396,245 @@ describe("CodexAppServerSession normalized events", () => {
         type: "text",
         text: expect.stringContaining("\"status\": \"completed\""),
       }),
+    ]);
+  });
+
+  it("parents live receiver-thread tools under Codex collab agent calls", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: unknown[] = [];
+    const userEvents: unknown[] = [];
+    session.on("assistant", (event) => assistantEvents.push(event));
+    session.on("user", (event) => userEvents.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "inProgress",
+          receiverThreadIds: ["thread-child"],
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-self",
+          tool: "spawnAgent",
+          status: "inProgress",
+          receiverThreadIds: ["thread-child"],
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "commandExecution",
+          id: "child-cmd-1",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "inProgress",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "commandExecution",
+          id: "child-cmd-1",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "completed",
+          aggregatedOutput: "ok",
+          exitCode: 0,
+        },
+      },
+    }) + "\n");
+
+    expect(assistantEvents).toEqual([
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({ type: "tool_use", id: "collab-1", name: "Agent" }),
+          ],
+        }),
+      }),
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({
+              type: "tool_use",
+              id: "child-cmd-1",
+              name: "Bash",
+              parentToolUseId: "collab-1",
+            }),
+          ],
+        }),
+      }),
+    ]);
+    expect(userEvents).toEqual([
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({
+              type: "tool_result",
+              tool_use_id: "child-cmd-1",
+              content: "ok",
+            }),
+          ],
+        }),
+      }),
+    ]);
+  });
+
+  it("replays completed receiver-thread tools before completing the Codex turn", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: unknown[] = [];
+    const resultEvents: unknown[] = [];
+    session.on("assistant", (event) => assistantEvents.push(event));
+    session.on("result", (event) => resultEvents.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "completed",
+          receiverThreadIds: ["thread-child"],
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+
+    const read = await waitForMethod(proc, "thread/read");
+    proc._stdout.push(appServerResponse(read.id, {
+      thread: {
+        id: "thread-child",
+        turns: [{
+          id: "turn-child",
+          items: [{
+            type: "collabAgentToolCall",
+            id: "collab-self",
+            tool: "spawnAgent",
+            status: "completed",
+            receiverThreadIds: ["thread-child"],
+            prompt: "Inspect auth",
+          }, {
+            type: "commandExecution",
+            id: "child-cmd-1",
+            command: "npm test",
+            cwd: "/tmp/project",
+            status: "completed",
+            aggregatedOutput: "ok",
+            exitCode: 0,
+          }],
+        }],
+      },
+    }));
+    proc._stdout.push(JSON.stringify({
+      method: "turn/completed",
+      params: {
+        turn: {
+          id: "turn-1",
+          status: "completed",
+          durationMs: 123,
+        },
+      },
+    }) + "\n");
+
+    await waitForCondition(() => resultEvents.length === 1);
+    expect(assistantEvents).toEqual([
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({ type: "tool_use", id: "collab-1", name: "Agent" }),
+          ],
+        }),
+      }),
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({
+              type: "tool_use",
+              id: "child-cmd-1",
+              name: "Bash",
+              parentToolUseId: "collab-1",
+            }),
+          ],
+        }),
+      }),
+    ]);
+    expect(resultEvents).toEqual([
+      expect.objectContaining({ type: "result", status: "completed", duration_ms: 123 }),
+    ]);
+  });
+
+  it("does not surface unmaterialized receiver-thread replay errors", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const diagnostics: unknown[] = [];
+    const resultEvents: unknown[] = [];
+    session.on("agent_event", (event) => diagnostics.push(event));
+    session.on("result", (event) => resultEvents.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "completed",
+          receiverThreadIds: ["thread-child"],
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+
+    const read = await waitForMethod(proc, "thread/read");
+    proc._stdout.push(appServerError(
+      read.id,
+      "thread thread-child is not materialized yet; includeTurns is unavailable before first user message",
+    ));
+    proc._stdout.push(JSON.stringify({
+      method: "turn/completed",
+      params: {
+        turn: {
+          id: "turn-1",
+          status: "completed",
+          durationMs: 123,
+        },
+      },
+    }) + "\n");
+
+    await waitForCondition(() => resultEvents.length === 1);
+    expect(diagnostics).toEqual([]);
+    expect(resultEvents).toEqual([
+      expect.objectContaining({ type: "result", status: "completed", duration_ms: 123 }),
     ]);
   });
 

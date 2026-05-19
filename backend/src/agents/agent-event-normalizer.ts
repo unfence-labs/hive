@@ -73,9 +73,10 @@ export class AgentEventNormalizer {
           const input = typeof block.input === "string"
             ? block.input
             : JSON.stringify(block.input, null, 2);
-          const parentToolUseId = this.pendingTaskStack.length > 0
+          const explicitParentToolUseId = "parentToolUseId" in block ? block.parentToolUseId : undefined;
+          const parentToolUseId = explicitParentToolUseId ?? (this.pendingTaskStack.length > 0
             ? this.pendingTaskStack[this.pendingTaskStack.length - 1]
-            : undefined;
+            : undefined);
 
           if (this.emittedToolIds.has(block.id)) {
             events.push({ type: "tool_updated", id: block.id, input });

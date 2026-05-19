@@ -86,6 +86,23 @@ describe("AgentEventNormalizer", () => {
     expect(nextEvents[0]).toMatchObject({ type: "tool_started", parentToolUseId: undefined });
   });
 
+  it("preserves explicit tool parentage from provider adapters", () => {
+    const normalizer = new AgentEventNormalizer();
+
+    const events = normalizer.handleAssistant(assistant([
+      { type: "tool_use", id: "child-1", name: "Bash", input: { command: "npm test" }, parentToolUseId: "agent-1" },
+    ]));
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "tool_started",
+        id: "child-1",
+        name: "Bash",
+        parentToolUseId: "agent-1",
+      }),
+    ]);
+  });
+
   it("normalizes server tool results as tool completions", () => {
     const normalizer = new AgentEventNormalizer();
 

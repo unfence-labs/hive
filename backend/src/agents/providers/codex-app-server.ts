@@ -108,6 +108,8 @@ type ThreadItem =
       tool?: string;
       status?: string;
       senderThreadId?: string;
+      receiverThreadId?: string;
+      newThreadId?: string;
       receiverThreadIds?: string[];
       prompt?: string | null;
       model?: string | null;
@@ -140,6 +142,7 @@ const CLIENT_INFO = {
   version: "0.1.0",
 };
 const MAX_DIAGNOSTIC_DETAILS_LENGTH = 4000;
+const COLLAB_THREAD_REPLAY_TIMEOUT_MS = 1500;
 
 /**
  * Per-chat-session bridge to `codex app-server`.
@@ -166,6 +169,10 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private emittedAgentText = new Set<string>();
   private emittedReasoningText = new Set<string>();
   private emittedDiagnostics = new Set<string>();
+  private completedToolIds = new Set<string>();
+  private collabParentByThreadId = new Map<string, string>();
+  private toolParentByItemId = new Map<string, string>();
+  private pendingCollabReplays = new Set<Promise<void>>();
   private lastUsage: TokenUsage | undefined;
   private lastProtocolError: string | undefined;
 
@@ -287,6 +294,10 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.emittedAgentText.clear();
     this.emittedReasoningText.clear();
     this.emittedDiagnostics.clear();
+    this.completedToolIds.clear();
+    this.collabParentByThreadId.clear();
+    this.toolParentByItemId.clear();
+    this.pendingCollabReplays.clear();
     this.lastUsage = undefined;
     this.lastProtocolError = undefined;
   }
@@ -431,17 +442,23 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         this.emitThinkingDelta(asString(data?.itemId), asString(data?.delta));
         break;
       case "item/started":
-        this.handleItem(asRecord(data?.item) as ThreadItem | null, "started");
+        this.handleItem(asRecord(data?.item) as ThreadItem | null, "started", {
+          threadId: asString(data?.threadId),
+        });
         break;
       case "item/completed":
-        this.handleItem(asRecord(data?.item) as ThreadItem | null, "completed");
+        this.handleItem(asRecord(data?.item) as ThreadItem | null, "completed", {
+          threadId: asString(data?.threadId),
+        });
         break;
       case "item/commandExecution/outputDelta": {
         const itemId = asString(data?.itemId);
         const delta = asString(data?.delta);
         if (itemId && delta) {
+          const parentToolUseId = this.parentToolUseIdForThread(asString(data?.threadId)) ?? this.toolParentByItemId.get(itemId);
           const next = `${this.commandOutputs.get(itemId) ?? ""}${delta}`;
           this.commandOutputs.set(itemId, next);
+          if (parentToolUseId) break;
           this.emit("agent_event", {
             type: "command_execution_updated",
             id: itemId,
@@ -455,8 +472,13 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         const itemId = asString(data?.itemId);
         const changes = asArray(data?.changes) as FileUpdateChange[] | undefined;
         if (itemId && changes) {
+          const parentToolUseId = this.parentToolUseIdForThread(asString(data?.threadId)) ?? this.toolParentByItemId.get(itemId);
           this.fileChanges.set(itemId, changes);
-          this.emitFileChangeEvents(itemId, changes);
+          if (parentToolUseId) {
+            this.emitChildFileChangeTools(itemId, changes, undefined, "started", parentToolUseId);
+          } else {
+            this.emitFileChangeEvents(itemId, changes);
+          }
         }
         break;
       }
@@ -476,20 +498,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         this.emitProtocolDiagnostic(method, data, "Codex guardian warning", "warning");
         break;
       case "turn/completed": {
-        const turn = asRecord(data?.turn);
-        const durationMs = asNumber(turn?.durationMs);
-        const status = asTurnStatus(turn?.status);
-        const error = formatTurnError(turn?.error) ?? (status === "failed" ? this.lastProtocolError : undefined);
-        this.resolvePendingByMethod("turn/interrupt", {});
-        this.emit("result", {
-          type: "result",
-          session_id: this.threadId ?? "",
-          duration_ms: durationMs,
-          status,
-          error,
-          usage: usageFromTokenUsage(this.lastUsage),
-        });
-        this.activeTurnId = undefined;
+        void this.emitTurnCompletionAfterCollabReplays(data);
         break;
       }
       case "error": {
@@ -560,11 +569,17 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     });
   }
 
-  private handleItem(item: ThreadItem | null, phase: "started" | "completed"): void {
+  private handleItem(
+    item: ThreadItem | null,
+    phase: "started" | "completed",
+    context: { threadId?: string; parentToolUseId?: string } = {},
+  ): void {
     if (!item?.type || !item.id) return;
+    const parentToolUseId = context.parentToolUseId ?? this.parentToolUseIdForThread(context.threadId);
 
     switch (item.type) {
       case "agentMessage": {
+        if (parentToolUseId) break;
         const agentItem = item as Extract<ThreadItem, { type: "agentMessage" }>;
         if (phase === "completed" && agentItem.text && !this.emittedAgentText.has(agentItem.id)) {
           this.emitTextDelta(agentItem.id, agentItem.text);
@@ -572,6 +587,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       }
       case "reasoning": {
+        if (parentToolUseId) break;
         const reasoningItem = item as Extract<ThreadItem, { type: "reasoning" }>;
         const thinking = [...(reasoningItem.summary ?? []), ...(reasoningItem.content ?? [])].join("\n");
         if (phase === "completed" && thinking && !this.emittedReasoningText.has(reasoningItem.id)) {
@@ -580,6 +596,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       }
       case "plan": {
+        if (parentToolUseId) break;
         const planItem = item as Extract<ThreadItem, { type: "plan" }>;
         if (phase === "completed" && planItem.text) {
           this.emitTextDelta(planItem.id, planItem.text);
@@ -588,6 +605,10 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       }
       case "commandExecution": {
         const commandItem = item as Extract<ThreadItem, { type: "commandExecution" }>;
+        if (parentToolUseId) {
+          this.emitChildCommandTool(commandItem, phase, parentToolUseId);
+          break;
+        }
         this.emit("agent_event", {
           type: "command_execution_updated",
           id: commandItem.id,
@@ -614,6 +635,10 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       case "fileChange": {
         const fileItem = item as Extract<ThreadItem, { type: "fileChange" }>;
         const changes = fileItem.changes?.length ? fileItem.changes : this.fileChanges.get(fileItem.id);
+        if (parentToolUseId) {
+          this.emitChildFileChangeTools(fileItem.id, changes ?? [], fileItem.status, phase, parentToolUseId);
+          break;
+        }
         if (changes?.length) {
           this.emitFileChangeEvents(fileItem.id, changes, fileItem.status);
         }
@@ -626,7 +651,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
           tool: mcpItem.tool,
           arguments: mcpItem.arguments,
           status: mcpItem.status,
-        }));
+        }), parentToolUseId);
         if (phase === "completed") {
           this.emitToolResult(mcpItem.id, formatUnknown(mcpItem.error ?? mcpItem.result ?? mcpItem.status ?? ""));
         }
@@ -639,7 +664,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
           tool: dynamicItem.tool,
           arguments: dynamicItem.arguments,
           status: dynamicItem.status,
-        }));
+        }), parentToolUseId);
         if (phase === "completed") {
           this.emitToolResult(dynamicItem.id, formatUnknown(dynamicItem.contentItems ?? dynamicItem.success ?? ""));
         }
@@ -647,15 +672,20 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       }
       case "collabAgentToolCall": {
         const collabItem = item as Extract<ThreadItem, { type: "collabAgentToolCall" }>;
-        this.emitToolUse(collabItem.id, "Agent", JSON.stringify(collabAgentToolInput(collabItem)));
+        if (parentToolUseId && this.isCollabAgentSelfReference(collabItem, context.threadId)) {
+          break;
+        }
+        this.rememberCollabAgentReceivers(collabItem);
+        this.emitToolUse(collabItem.id, "Agent", JSON.stringify(collabAgentToolInput(collabItem)), parentToolUseId);
         if (phase === "completed") {
           this.emitToolResult(collabItem.id, collabAgentToolResult(collabItem));
+          this.queueCollabAgentReplay(collabItem);
         }
         break;
       }
       case "webSearch": {
         const webItem = item as Extract<ThreadItem, { type: "webSearch" }>;
-        this.emitToolUse(webItem.id, "WebSearch", JSON.stringify({ query: webItem.query ?? "", action: webItem.action }));
+        this.emitToolUse(webItem.id, "WebSearch", JSON.stringify({ query: webItem.query ?? "", action: webItem.action }), parentToolUseId);
         if (phase === "completed") {
           this.emitToolResult(webItem.id, webItem.query ?? "");
         }
@@ -675,6 +705,134 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
           dedupeKey: `item:${item.type}`,
         });
         break;
+    }
+  }
+
+  private isCollabAgentSelfReference(
+    item: Extract<ThreadItem, { type: "collabAgentToolCall" }>,
+    threadId: string | undefined,
+  ): boolean {
+    return Boolean(threadId && collabAgentReceiverThreadIds(item).includes(threadId));
+  }
+
+  private parentToolUseIdForThread(threadId: string | undefined): string | undefined {
+    return threadId ? this.collabParentByThreadId.get(threadId) : undefined;
+  }
+
+  private rememberCollabAgentReceivers(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): void {
+    for (const threadId of collabAgentReceiverThreadIds(item)) {
+      this.collabParentByThreadId.set(threadId, item.id);
+    }
+  }
+
+  private queueCollabAgentReplay(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): void {
+    const threadIds = collabAgentReceiverThreadIds(item);
+    if (threadIds.length === 0) return;
+    const replay = Promise.all(threadIds.map((threadId) => this.replayCollabAgentThread(threadId, item.id)))
+      .then(() => undefined)
+      .catch((err: unknown) => {
+        if (isUnmaterializedThreadReadError(err)) return;
+        this.emitDiagnostic({
+          id: diagnosticId("codex-collab-replay", item.id),
+          severity: "warning",
+          title: "Codex sub-agent replay failed",
+          message: err instanceof Error ? err.message : "Unable to read Codex sub-agent thread.",
+          method: "thread/read",
+          details: formatDiagnosticDetails({ receiverThreadIds: threadIds }),
+          dedupeKey: `collab-replay:${item.id}`,
+        });
+      });
+    this.pendingCollabReplays.add(replay);
+    replay.finally(() => this.pendingCollabReplays.delete(replay));
+  }
+
+  private async replayCollabAgentThread(threadId: string, parentToolUseId: string): Promise<void> {
+    const response = await this.request<{ thread?: { turns?: unknown[] } }>("thread/read", {
+      threadId,
+      includeTurns: true,
+    });
+    const turns = asArray(asRecord(response.thread)?.turns) ?? [];
+    for (const turn of turns) {
+      const items = asArray(asRecord(turn)?.items) ?? [];
+      for (const entry of items) {
+        this.handleItem(asRecord(entry) as ThreadItem | null, "completed", { threadId, parentToolUseId });
+      }
+    }
+  }
+
+  private async emitTurnCompletionAfterCollabReplays(data: JsonObject | null): Promise<void> {
+    await this.waitForCollabReplays();
+    const turn = asRecord(data?.turn);
+    const durationMs = asNumber(turn?.durationMs);
+    const status = asTurnStatus(turn?.status);
+    const error = formatTurnError(turn?.error) ?? (status === "failed" ? this.lastProtocolError : undefined);
+    this.resolvePendingByMethod("turn/interrupt", {});
+    this.emit("result", {
+      type: "result",
+      session_id: this.threadId ?? "",
+      duration_ms: durationMs,
+      status,
+      error,
+      usage: usageFromTokenUsage(this.lastUsage),
+    });
+    this.activeTurnId = undefined;
+  }
+
+  private async waitForCollabReplays(): Promise<void> {
+    const pending = [...this.pendingCollabReplays];
+    if (pending.length === 0) return;
+    try {
+      await withTimeout(Promise.allSettled(pending), COLLAB_THREAD_REPLAY_TIMEOUT_MS);
+    } catch {
+      this.emitDiagnostic({
+        id: diagnosticId("codex-collab-replay", "timeout"),
+        severity: "warning",
+        title: "Codex sub-agent replay timed out",
+        message: "Hive finished the Codex turn before all sub-agent threads could be read.",
+        method: "thread/read",
+        dedupeKey: "collab-replay:timeout",
+      });
+    }
+  }
+
+  private emitChildCommandTool(
+    item: Extract<ThreadItem, { type: "commandExecution" }>,
+    phase: "started" | "completed",
+    parentToolUseId: string,
+  ): void {
+    this.emitToolUse(item.id, "Bash", JSON.stringify({
+      command: item.command ?? "",
+      cwd: item.cwd,
+      status: item.status,
+      exitCode: asNullableNumber(item.exitCode),
+      durationMs: asNullableNumber(item.durationMs),
+    }), parentToolUseId);
+    if (phase === "completed") {
+      this.emitToolResult(item.id, item.aggregatedOutput ?? this.commandOutputs.get(item.id) ?? formatExitCode(item.exitCode));
+    }
+  }
+
+  private emitChildFileChangeTools(
+    itemId: string,
+    changes: FileUpdateChange[],
+    status: string | undefined,
+    phase: "started" | "completed",
+    parentToolUseId: string,
+  ): void {
+    const diff = changes.map((change) => change.diff).filter(Boolean).join("\n");
+    const path = changes[0]?.path ?? "";
+    this.emitToolUse(itemId, "Edit", JSON.stringify({
+      filename: path,
+      diff,
+      status,
+      files: changes.map((change) => ({
+        filename: change.path ?? "",
+        diff: change.diff ?? "",
+        kind: formatChangeKind(change.kind),
+      })),
+    }), parentToolUseId);
+    if (phase === "completed") {
+      this.emitToolResult(itemId, diff || status || "File changed");
     }
   }
 
@@ -744,7 +902,8 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     });
   }
 
-  private emitToolUse(id: string, name: string, input: string): void {
+  private emitToolUse(id: string, name: string, input: string, parentToolUseId?: string): void {
+    if (parentToolUseId) this.toolParentByItemId.set(id, parentToolUseId);
     if (this.emittedToolIds.has(id)) return;
     this.emittedToolIds.add(id);
     this.emit("assistant", {
@@ -752,12 +911,14 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       message: {
         id,
         role: "assistant",
-        content: [{ type: "tool_use", id, name, input }],
+        content: [{ type: "tool_use", id, name, input, ...(parentToolUseId ? { parentToolUseId } : {}) }],
       },
     });
   }
 
   private emitToolResult(id: string, output: string): void {
+    if (this.completedToolIds.has(id)) return;
+    this.completedToolIds.add(id);
     this.emit("user", {
       type: "user",
       message: {
@@ -880,9 +1041,17 @@ function collabAgentToolInput(item: Extract<ThreadItem, { type: "collabAgentTool
     tool: item.tool,
     status: item.status,
     sender_thread_id: item.senderThreadId,
-    receiver_thread_ids: item.receiverThreadIds,
+    receiver_thread_ids: collabAgentReceiverThreadIds(item),
     agents_states: item.agentsStates,
   };
+}
+
+function collabAgentReceiverThreadIds(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): string[] {
+  return [
+    ...(item.receiverThreadIds ?? []),
+    item.receiverThreadId,
+    item.newThreadId,
+  ].filter((threadId): threadId is string => Boolean(threadId));
 }
 
 function collabAgentDescription(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): string {
@@ -896,7 +1065,7 @@ function collabAgentToolResult(item: Extract<ThreadItem, { type: "collabAgentToo
     text: formatUnknown({
       tool: item.tool,
       status: item.status,
-      receiverThreadIds: item.receiverThreadIds,
+      receiverThreadIds: collabAgentReceiverThreadIds(item),
       agentsStates: item.agentsStates,
     }),
   }]);
@@ -908,6 +1077,28 @@ function formatCollabAgentTool(tool: string | undefined): string {
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Timed out")), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timeout);
+        reject(err);
+      },
+    );
+  });
+}
+
+function isUnmaterializedThreadReadError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("not materialized yet") &&
+    message.includes("includeTurns is unavailable before first user message");
 }
 
 function diagnosticId(prefix: string, method: string): string {
