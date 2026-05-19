@@ -308,14 +308,6 @@ private struct ImageThumb: View {
 
 // MARK: - Tool Display Helpers
 
-private struct ToolStats {
-    enum Kind { case diff, plain }
-    let kind: Kind
-    var added: Int = 0
-    var removed: Int = 0
-    var label: String?
-}
-
 private struct ToolDisplay {
     let icon: String
     let label: String
@@ -324,7 +316,7 @@ private struct ToolDisplay {
     var badgeText: String?
     var badgeIcon: String?
     var overrideSummary: String?
-    var stats: ToolStats?
+    var stats: ChatActivityStats?
 }
 
 private func toolIcon(for name: String) -> String {
@@ -370,7 +362,7 @@ private func computeEditDiffStats(oldString: String, newString: String) -> (adde
     return (added, removed)
 }
 
-private func computeToolStats(_ tool: ToolCall) -> ToolStats? {
+private func computeToolStats(_ tool: ToolCall) -> ChatActivityStats? {
     guard let data = tool.input.data(using: .utf8),
           let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return nil
@@ -384,29 +376,29 @@ private func computeToolStats(_ tool: ToolCall) -> ToolStats? {
         if let diff, !diff.isEmpty {
             let stats = parseDiffStats(diff)
             guard stats.added > 0 || stats.removed > 0 else { return nil }
-            return ToolStats(kind: .diff, added: stats.added, removed: stats.removed)
+            return ChatActivityStats(kind: .diff, added: stats.added, removed: stats.removed)
         }
         guard (oldString != nil && !oldString!.isEmpty) || (newString != nil && !newString!.isEmpty) else { return nil }
         let stats = computeEditDiffStats(oldString: oldString ?? "", newString: newString ?? "")
         guard stats.added > 0 || stats.removed > 0 else { return nil }
-        return ToolStats(kind: .diff, added: stats.added, removed: stats.removed)
+        return ChatActivityStats(kind: .diff, added: stats.added, removed: stats.removed)
 
     case "Write":
         guard let content = input["content"] as? String, !content.isEmpty else { return nil }
         let lineCount = content.components(separatedBy: "\n").count
-        return ToolStats(kind: .diff, added: lineCount, removed: 0)
+        return ChatActivityStats(kind: .diff, added: lineCount, removed: 0)
 
     case "Grep":
         guard let output = tool.output, !output.isEmpty else { return nil }
         let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
         guard !lines.isEmpty else { return nil }
-        return ToolStats(kind: .plain, label: "\(lines.count) result\(lines.count != 1 ? "s" : "")")
+        return ChatActivityStats(kind: .plain, label: "\(lines.count) result\(lines.count != 1 ? "s" : "")")
 
     case "Glob":
         guard let output = tool.output, !output.isEmpty else { return nil }
         let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
         guard !lines.isEmpty else { return nil }
-        return ToolStats(kind: .plain, label: "\(lines.count) file\(lines.count != 1 ? "s" : "")")
+        return ChatActivityStats(kind: .plain, label: "\(lines.count) file\(lines.count != 1 ? "s" : "")")
 
     default:
         return nil
@@ -539,7 +531,7 @@ private struct WhisperThinkingBlock: View {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                ToolRowLabel(icon: "brain", label: "Thinking", detail: isExpanded ? nil : preview)
+                ChatActivityRowLabel(icon: "brain", label: "Thinking", detail: isExpanded ? nil : preview)
             }
             .buttonStyle(.plain)
 
@@ -638,26 +630,11 @@ private struct CollapsedToolSummary: View {
 
     var body: some View {
         Button(action: onToggle) {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(WhisperColor.textMuted)
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-
-                Text(summaryLabel)
-                    .font(WhisperFont.mono(12))
-                    .foregroundStyle(WhisperColor.textMuted)
-
-                HStack(spacing: 3) {
-                    ForEach(uniqueIcons, id: \.self) { icon in
-                        Image(systemName: icon)
-                            .font(.system(size: 9))
-                            .foregroundStyle(WhisperColor.textMuted)
-                    }
-                }
-            }
-            .padding(.vertical, 3)
-            .contentShape(Rectangle())
+            ChatActivityRowLabel(
+                label: summaryLabel,
+                isExpanded: isExpanded,
+                accessoryIcons: uniqueIcons
+            )
         }
         .buttonStyle(.plain)
     }
@@ -680,7 +657,7 @@ private struct WhisperToolCallRow: View {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                ToolRowLabel(icon: display.icon, label: display.label, detail: display.detail, stats: display.stats, summary: summary, badgeText: display.badgeText, badgeIcon: display.badgeIcon)
+                ChatActivityRowLabel(icon: display.icon, label: display.label, detail: display.detail, stats: display.stats, summary: summary, badgeText: display.badgeText, badgeIcon: display.badgeIcon)
             }
             .buttonStyle(.plain)
 
@@ -860,89 +837,6 @@ private struct AskUserQuestionContent: View {
             }
         }
         .transition(.opacity)
-    }
-}
-
-// MARK: - Shared Tool Row Components
-
-private struct ToolRowLabel: View {
-    let icon: String
-    let label: String
-    var detail: String?
-    var stats: ToolStats?
-    var summary: String?
-    var badgeText: String?
-    var badgeIcon: String?
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.system(size: 9))
-                .frame(width: 14, height: 14)
-                .foregroundStyle(WhisperColor.textMuted)
-
-            Text(label)
-                .font(WhisperFont.mono(12))
-                .foregroundStyle(WhisperColor.textMuted)
-
-            if let badgeText {
-                HStack(spacing: 3) {
-                    if let badgeIcon {
-                        Image(systemName: badgeIcon)
-                            .font(.system(size: 8, weight: .medium))
-                    }
-                    Text(badgeText)
-                        .font(WhisperFont.mono(10))
-                }
-                .foregroundStyle(WhisperColor.textMuted)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(WhisperColor.toolIconBg, in: Capsule())
-            }
-
-            if let detail {
-                Text(detail)
-                    .font(WhisperFont.mono(11))
-                    .foregroundStyle(WhisperColor.textSecondary)
-                    .lineLimit(1)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(WhisperColor.surfaceRaised, in: RoundedRectangle(cornerRadius: 4))
-            }
-
-            if let stats {
-                switch stats.kind {
-                case .diff:
-                    HStack(spacing: 4) {
-                        if stats.added > 0 {
-                            Text("+\(stats.added)")
-                                .foregroundStyle(.green)
-                        }
-                        if stats.removed > 0 {
-                            Text("-\(stats.removed)")
-                                .foregroundStyle(.red)
-                        }
-                    }
-                    .font(WhisperFont.mono(10))
-                case .plain:
-                    if let label = stats.label {
-                        Text(label)
-                            .font(WhisperFont.mono(10))
-                            .foregroundStyle(WhisperColor.textMuted)
-                            .lineLimit(1)
-                    }
-                }
-            }
-
-            if let summary {
-                Text(summary)
-                    .font(WhisperFont.mono(10))
-                    .foregroundStyle(WhisperColor.textMuted)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.vertical, 3)
-        .contentShape(Rectangle())
     }
 }
 

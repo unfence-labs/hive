@@ -148,7 +148,7 @@ private struct FileChangeFileView: View {
                     .lineLimit(1)
 
                 if let kind = file.kind {
-                    ActivityBadge(text: readableActivityStatus(kind))
+                    ChatActivityBadge(text: readableActivityStatus(kind))
                 }
 
                 if stats.added > 0 {
@@ -313,44 +313,14 @@ private struct ActivityDisclosureRow<Content: View>: View {
                     isExpanded.toggle()
                 }
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(WhisperColor.textMuted)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-
-                    Image(systemName: icon)
-                        .font(.system(size: 10))
-                        .frame(width: 14, height: 14)
-                        .foregroundStyle(WhisperColor.textMuted)
-
-                    Text(title)
-                        .font(WhisperFont.mono(12))
-                        .foregroundStyle(WhisperColor.textMuted)
-                        .lineLimit(1)
-
-                    if let detail, !detail.isEmpty {
-                        Text(detail)
-                            .font(WhisperFont.mono(11))
-                            .foregroundStyle(WhisperColor.textSecondary)
-                            .lineLimit(1)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(WhisperColor.surfaceRaised, in: RoundedRectangle(cornerRadius: 4))
-                    }
-
-                    if let status, !status.isEmpty {
-                        ActivityBadge(text: readableActivityStatus(status))
-                    }
-
-                    if executing {
-                        Circle()
-                            .fill(WhisperColor.textSecondary)
-                            .frame(width: 5, height: 5)
-                    }
-                }
-                .padding(.vertical, 3)
-                .contentShape(Rectangle())
+                ChatActivityRowLabel(
+                    icon: icon,
+                    label: title,
+                    detail: detail,
+                    badgeText: status.flatMap { $0.isEmpty ? nil : readableActivityStatus($0) },
+                    isExpanded: isExpanded,
+                    executing: executing
+                )
             }
             .buttonStyle(.plain)
 
@@ -361,19 +331,5 @@ private struct ActivityDisclosureRow<Content: View>: View {
                 .transition(.opacity)
             }
         }
-    }
-}
-
-private struct ActivityBadge: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(WhisperFont.mono(9))
-            .foregroundStyle(WhisperColor.textMuted)
-            .lineLimit(1)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(WhisperColor.toolIconBg, in: Capsule())
     }
 }
