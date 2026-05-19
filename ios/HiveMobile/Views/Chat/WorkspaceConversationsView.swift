@@ -22,7 +22,9 @@ struct WorkspaceConversationsView: View {
     var body: some View {
         List {
             ForEach(sessions) { session in
-                NavigationLink(value: session) {
+                Button {
+                    navigationPath.append(session)
+                } label: {
                     ConversationRow(
                         session: session,
                         isActive: session.sessionId == activeSessionId,
@@ -36,6 +38,7 @@ struct WorkspaceConversationsView: View {
                         )
                     )
                 }
+                .buttonStyle(.plain)
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .listRowBackground(WhisperColor.appBackground)
                 .listRowSeparatorTint(WhisperColor.separator)

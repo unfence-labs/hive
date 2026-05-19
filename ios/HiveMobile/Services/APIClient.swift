@@ -173,8 +173,7 @@ final class APIClient {
     }
 
     func deleteSession(workspaceId: String, sessionId: String) async throws {
-        struct DeleteResponse: Decodable { let success: Bool }
-        let _: DeleteResponse = try await delete(path: "/api/workspaces/\(workspaceId)/sessions/\(sessionId)")
+        try await requestVoid("DELETE", path: "/api/workspaces/\(workspaceId)/sessions/\(sessionId)")
     }
 
     func archiveWorkspace(workspaceId: String) async throws {
