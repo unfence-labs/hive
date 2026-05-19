@@ -3,13 +3,11 @@ import SwiftUI
 
 struct ChatView: View {
     let workspace: Workspace
+    let session: SessionMetadata
     let store: ConversationStore
 
     @State private var draft = ""
     @State private var isLoading = true
-    @State private var sessions: [SessionMetadata] = []
-    @State private var activeSessionId: String?
-    @State private var showSessionSheet = false
     @State private var planModeEnabled = false
     @State private var thinkingLevel: ThinkingLevel = .high
     @State private var selectedModelId: String = ""
@@ -22,12 +20,11 @@ struct ChatView: View {
     private let draftStore = ChatDraftStore.shared
 
     private var lockedProvider: String? {
-        if let provider = store.lockedProvider ?? sessions.first(where: { $0.sessionId == activeSessionId })?.lockedProvider {
+        if let provider = store.lockedProvider ?? session.lockedProvider {
             return provider
         }
         // Backfill: pre-multi-model sessions have no lockedProvider but were always Claude.
-        let session = sessions.first { $0.sessionId == activeSessionId }
-        if let session, session.messageCount > 0 {
+        if session.messageCount > 0 {
             return "claude"
         }
         return nil
@@ -141,7 +138,7 @@ struct ChatView: View {
                     contextUsage: contextUsage,
                     onDraftAttachmentsChange: { draftAttachments = $0 },
                     onSend: sendMessage,
-                    onStop: { Task { _ = await store.send?(.stop(sessionId: activeSessionId)) } }
+                    onStop: { Task { _ = await store.send?(.stop(sessionId: session.sessionId)) } }
                 )
                 .padding(.horizontal, 12)
                 .padding(.bottom, 4)
@@ -160,30 +157,6 @@ struct ChatView: View {
                         .foregroundStyle(WhisperColor.textSecondary)
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showSessionSheet = true
-                } label: {
-                    if let projectId = workspace.projectId {
-                        ProjectAvatar(
-                            id: projectId,
-                            name: workspace.projectName ?? workspace.name,
-                            hasFavicon: workspace.hasFavicon
-                        )
-                    } else {
-                        Image(systemName: "text.bubble")
-                    }
-                }
-            }
-        }
-        .sheet(isPresented: $showSessionSheet) {
-            SessionSheet(
-                sessions: sessions,
-                activeSessionId: activeSessionId,
-                onSelect: { switchSession($0) },
-                onCreate: { createSession() },
-                onDelete: { deleteSession($0) }
-            )
         }
         .sheet(isPresented: Binding(
             get: { !store.pendingToolInputs.isEmpty },
@@ -216,7 +189,6 @@ struct ChatView: View {
         .onDisappear {
             saveCurrentDraft()
             store.onTurnCompleted = nil
-            projectStore.statusMonitor.viewingWorkspaceId = nil
         }
     }
 
@@ -241,6 +213,7 @@ struct ChatView: View {
     private func setup() async {
         projectStore.statusMonitor.viewingWorkspaceId = workspace.id
         projectStore.statusMonitor.clearCompleted(workspace.id)
+        let selectedSessionId = session.sessionId
 
         // Wire post-turn re-sync: after done/cancelled, re-fetch messages from REST
         // so client-generated UUIDs are replaced with backend-assigned IDs.
@@ -265,14 +238,13 @@ struct ChatView: View {
             }
         }
 
-        await loadSessions()
-        let initialSessionId = resolveInitialSessionId()
-        activeSessionId = initialSessionId
-        store.setFocusedSessionId(initialSessionId)
-
-        if let sessionId = activeSessionId {
-            restoreDraft(for: sessionId)
+        if store.sessionId == selectedSessionId {
+            store.setFocusedSessionId(selectedSessionId)
+        } else {
+            store.prepareSessionSwitch(selectedSessionId)
+            _ = await store.send?(.switchSession(sessionId: selectedSessionId))
         }
+        restoreDraft(for: selectedSessionId)
 
         if selectedModelId.isEmpty {
             selectedModelId = modelCatalog.defaultModelId
@@ -281,40 +253,8 @@ struct ChatView: View {
         await loadMessages()
     }
 
-    private func resolveInitialSessionId() -> String? {
-        let knownSessionIds = Set(sessions.map(\.sessionId))
-
-        // Keep the currently focused store session whenever possible, so leaving
-        // and returning to chat doesn't drop in-progress streaming/thinking state.
-        if let cachedSessionId = store.sessionId {
-            if knownSessionIds.isEmpty || knownSessionIds.contains(cachedSessionId) ||
-                store.sessionStreams[cachedSessionId] != nil {
-                return cachedSessionId
-            }
-        }
-
-        if let workspaceSessionId = workspace.activeSessionId, knownSessionIds.contains(workspaceSessionId) {
-            return workspaceSessionId
-        }
-
-        return sessions.first?.sessionId
-    }
-
-    private func loadSessions() async {
-        do {
-            sessions = try await api.fetchSessions(workspaceId: workspace.id)
-        } catch is CancellationError {
-            // View disappeared
-        } catch {
-            // Non-critical — chat still works without session list
-        }
-    }
-
     private func loadMessages() async {
-        guard let sessionId = activeSessionId else {
-            isLoading = false
-            return
-        }
+        let sessionId = session.sessionId
         store.setFocusedSessionId(sessionId)
         let requestToken = store.beginHistoryRequest(for: sessionId)
         do {
@@ -322,8 +262,8 @@ struct ChatView: View {
                 workspaceId: workspace.id,
                 sessionId: sessionId
             )
-            // If the user switched session while this request was in-flight, ignore it.
-            guard activeSessionId == sessionId else {
+            // If another chat view took focus while this request was in-flight, ignore it.
+            guard store.sessionId == sessionId else {
                 isLoading = false
                 return
             }
@@ -344,47 +284,13 @@ struct ChatView: View {
         isLoading = false
     }
 
-    // MARK: - Sessions
-
-    private func switchSession(_ sessionId: String) {
-        guard sessionId != activeSessionId else { return }
-        saveCurrentDraft()
-        activeSessionId = sessionId
-        restoreDraft(for: sessionId)
-        store.prepareSessionSwitch(sessionId)
-        isLoading = true
-        Task {
-            _ = await store.send?(.switchSession(sessionId: sessionId))
-            await loadMessages()
-        }
-    }
-
-    private func createSession() {
-        Task {
-            guard let session = try? await api.createSession(workspaceId: workspace.id) else { return }
-            sessions.append(session)
-            switchSession(session.sessionId)
-        }
-    }
-
-    private func deleteSession(_ sessionId: String) {
-        Task {
-            guard (try? await api.deleteSession(workspaceId: workspace.id, sessionId: sessionId)) != nil else { return }
-            draftStore.remove(workspaceId: workspace.id, sessionId: sessionId)
-            sessions.removeAll { $0.sessionId == sessionId }
-            if sessionId == activeSessionId, let first = sessions.first {
-                switchSession(first.sessionId)
-            }
-        }
-    }
-
     // MARK: - Send
 
     private func sendMessage(images: [ImageAttachment]) {
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty || !images.isEmpty else { return }
 
-        let targetSessionId = activeSessionId
+        let targetSessionId = session.sessionId
         // Snapshot draft so we can restore on failure
         let savedDraft = draft
         let savedAttachments = draftAttachments
@@ -431,15 +337,13 @@ struct ChatView: View {
                 store.bumpHistoryToken(for: targetSessionId)
             } else {
                 // Persist draft for the originating session, even if the user switched away.
-                if let targetSessionId {
-                    draftStore.save(
-                        workspaceId: workspace.id,
-                        sessionId: targetSessionId,
-                        draft: savedDraftState
-                    )
-                }
+                draftStore.save(
+                    workspaceId: workspace.id,
+                    sessionId: targetSessionId,
+                    draft: savedDraftState
+                )
                 // Restore inline only if the user is still on the same session.
-                guard activeSessionId == targetSessionId else { return }
+                guard store.sessionId == targetSessionId else { return }
                 draft = savedDraft
                 draftAttachments = savedAttachments
                 store.messages.append(ChatMessage(
@@ -470,7 +374,7 @@ struct ChatView: View {
                     planModeEnabled = false
                     store.setAgentPlanMode(false, for: pending.sessionId)
                 }
-            } else if pending.sessionId == activeSessionId {
+            } else if pending.sessionId == session.sessionId {
                 store.messages.append(ChatMessage(
                     id: UUID().uuidString, sessionId: "", role: .assistant,
                     content: "Tool response not sent: disconnected from server.",
@@ -485,10 +389,9 @@ struct ChatView: View {
     // MARK: - Draft Persistence
 
     private func saveCurrentDraft() {
-        guard let sessionId = activeSessionId else { return }
         draftStore.save(
             workspaceId: workspace.id,
-            sessionId: sessionId,
+            sessionId: session.sessionId,
             draft: .init(
                 text: draft,
                 planModeEnabled: planModeEnabled,
@@ -553,6 +456,17 @@ struct ChatView: View {
                 id: "ws-1", name: "san-antonio-v1", branch: "0xlny/ios-app",
                 status: .idle, createdAt: "", activeSessionId: "sess-1",
                 projectName: "hive", defaultBranch: "main"
+            ),
+            session: SessionMetadata(
+                sessionId: "sess-1",
+                providerSessionId: nil,
+                claudeSessionId: nil,
+                workspaceId: "ws-1",
+                title: "Fix iOS navigation",
+                createdAt: "2026-02-18T08:00:00.000Z",
+                updatedAt: "2026-02-18T10:00:00.000Z",
+                messageCount: 5,
+                lockedProvider: "codex"
             ),
             store: ConversationStore()
         )
