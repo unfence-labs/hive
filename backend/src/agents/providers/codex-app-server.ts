@@ -434,6 +434,19 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       case "thread/tokenUsage/updated":
         this.lastUsage = asRecord(data?.tokenUsage) as TokenUsage | undefined;
         break;
+      case "remoteControl/status/changed":
+      case "account/rateLimits/updated":
+        break;
+      case "mcpServer/startupStatus/updated":
+        if (isNotificationStatus(data, "failed", "cancelled")) {
+          this.emitProtocolDiagnostic(method, data, "Codex MCP startup status", "warning");
+        }
+        break;
+      case "thread/status/changed":
+        if (isNotificationStatus(data, "systemError")) {
+          this.emitProtocolDiagnostic(method, data, "Codex thread status", "error");
+        }
+        break;
       case "item/agentMessage/delta":
         this.emitTextDelta(asString(data?.itemId), asString(data?.delta));
         break;
@@ -975,6 +988,20 @@ function asTurnStatus(value: unknown): TurnStatus {
 
 function asArray(value: unknown): unknown[] | undefined {
   return Array.isArray(value) ? value : undefined;
+}
+
+function notificationStatus(data: JsonObject | null): string | undefined {
+  return (
+    asString(data?.status) ??
+    asString(asRecord(data?.thread)?.status) ??
+    asString(asRecord(data?.startupStatus)?.status) ??
+    asString(asRecord(data?.startupStatus)?.state)
+  );
+}
+
+function isNotificationStatus(data: JsonObject | null, ...statuses: string[]): boolean {
+  const status = notificationStatus(data);
+  return status !== undefined && statuses.includes(status);
 }
 
 function formatTurnError(value: unknown): string | undefined {

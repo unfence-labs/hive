@@ -7,9 +7,10 @@ The integration intentionally promotes the main chat activity into first-class H
 - command execution
 - file changes
 - plan updates
-- diagnostics for unsupported notifications, unsupported server requests, and unsupported item types
+- diagnostics for unsupported notifications, unsupported server requests, unsupported item types, and known actionable App Server failures
 
 The remaining items below are known protocol surface area that Hive does not yet render with rich, dedicated UI. Unsupported items should stay visible as diagnostics instead of failing silently.
+Known App Server notifications that are routine runtime state rather than chat activity are handled explicitly and ignored.
 
 ## Client Rendering Contract
 
@@ -42,6 +43,13 @@ These notifications are either diagnostic-only today or not yet rendered as rich
 - `hook/completed`
 
 Warnings such as `warning`, `configWarning`, `deprecationNotice`, and `guardianWarning` are rendered as diagnostic activities.
+
+The following notifications are intentionally absorbed instead of being rendered in chat:
+
+- `remoteControl/status/changed` because Hive does not expose Codex remote-control state in chat.
+- `thread/status/changed` for routine thread states. `systemError` still emits an error diagnostic.
+- `mcpServer/startupStatus/updated` for `starting` and `ready`. `failed` and `cancelled` still emit warning diagnostics.
+- `account/rateLimits/updated` because rate-limit UX should be handled outside the chat activity stream in a future pass.
 
 ## Item Coverage
 

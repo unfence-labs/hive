@@ -235,6 +235,78 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
+  it("ignores known App Server status notifications that do not belong in chat", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "remoteControl/status/changed",
+      params: { status: "connected", serverName: "Codex" },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "thread/status/changed",
+      params: { thread: { id: "thread-1", status: "idle" } },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "mcpServer/startupStatus/updated",
+      params: { serverName: "filesystem", status: "ready" },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "account/rateLimits/updated",
+      params: { primary: { remaining: 0, resetAt: "2026-05-19T00:00:00Z" } },
+    }) + "\n");
+
+    expect(events).toEqual([]);
+  });
+
+  it("emits diagnostics for failed App Server status notifications", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "mcpServer/startupStatus/updated",
+      params: {
+        serverName: "filesystem",
+        startupStatus: { state: "failed" },
+        message: "MCP server failed to start",
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "thread/status/changed",
+      params: {
+        thread: { id: "thread-1", status: "systemError" },
+        message: "Thread entered systemError",
+      },
+    }) + "\n");
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "diagnostic",
+        severity: "warning",
+        title: "Codex MCP startup status",
+        message: "MCP server failed to start",
+        source: "codex_app_server",
+        method: "mcpServer/startupStatus/updated",
+      }),
+      expect.objectContaining({
+        type: "diagnostic",
+        severity: "error",
+        title: "Codex thread status",
+        message: "Thread entered systemError",
+        source: "codex_app_server",
+        method: "thread/status/changed",
+      }),
+    ]);
+  });
+
   it("keeps protocol error notifications non-terminal and emits diagnostics", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
