@@ -21,6 +21,12 @@ vi.mock("@/hooks/useThemeType", () => ({
   useThemeType: () => "light",
 }));
 
+vi.mock("@/components/FileViewer", () => ({
+  FileViewer: ({ filePath }: { filePath: string }) => (
+    <div data-testid="image-file-preview">{filePath}</div>
+  ),
+}));
+
 vi.mock("nanoid", () => ({
   nanoid: () => "comment-id",
 }));
@@ -257,5 +263,16 @@ describe("InlineDiffViewer", () => {
 
     renderViewer();
     expect(screen.getByText("Empty file")).toBeInTheDocument();
+  });
+
+  it("renders an image diff fallback with the current image preview", () => {
+    renderViewer({ filePath: "assets/logo.png" });
+
+    expect(mocks.useDiff).toHaveBeenCalledWith("ws-1", "uncommitted", false);
+    expect(
+      screen.getByText("Image files do not have text diffs. Previewing the current file."),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("image-file-preview")).toHaveTextContent("assets/logo.png");
+    expect(screen.queryByText("Click on line numbers to select code and add comments")).not.toBeInTheDocument();
   });
 });

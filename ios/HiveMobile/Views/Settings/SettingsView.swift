@@ -4,13 +4,16 @@ struct SettingsView: View {
     @AppStorage("serverHost") private var host = "localhost"
     @AppStorage("serverPort") private var port = "3000"
     @AppStorage("authToken") private var token = ""
-    @AppStorage("hiveAccent") private var accentId = "violet"
+    @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @AppStorage("hiveThemeMode") private var themeModeId = HiveThemeMode.system.rawValue
 
     @FocusState private var focusedField: Field?
     @State private var healthStatus: HealthStatus = .disconnected
     @State private var pollingTask: Task<Void, Never>?
     @State private var debouncedCheckTask: Task<Void, Never>?
+    private let accentColumns = [
+        GridItem(.adaptive(minimum: 54), spacing: HiveSpacing.md)
+    ]
 
     private enum Field: Hashable {
         case host, port, token
@@ -25,6 +28,8 @@ struct SettingsView: View {
             appearanceSection
             connectionSection
         }
+        .scrollContentBackground(.hidden)
+        .hiveScreenBackground()
         .scrollDismissesKeyboard(.interactively)
         .onTapGesture { focusedField = nil }
         .onAppear { startConnectionPolling() }
@@ -48,7 +53,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: HiveSpacing.md) {
                 Text("Theme")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WhisperColor.textSecondary)
 
                 HStack(spacing: HiveSpacing.sm) {
                     ForEach(HiveThemeMode.allCases) { mode in
@@ -65,7 +70,7 @@ struct SettingsView: View {
                                     .font(.caption)
                                     .fontWeight(.medium)
                             }
-                            .foregroundStyle(isSelected ? selectedAccent : .secondary)
+                            .foregroundStyle(isSelected ? selectedAccent : WhisperColor.textSecondary)
                             .frame(maxWidth: .infinity, minHeight: 62)
                             .background(
                                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -87,9 +92,9 @@ struct SettingsView: View {
 
                 Text("Accent Color")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WhisperColor.textSecondary)
 
-                HStack(spacing: HiveSpacing.lg) {
+                LazyVGrid(columns: accentColumns, alignment: .leading, spacing: HiveSpacing.md) {
                     ForEach(AccentOption.allCases) { option in
                         Button {
                             withAnimation(.easeInOut(duration: 0.2)) {
@@ -121,7 +126,7 @@ struct SettingsView: View {
 
                                 Text(option.label)
                                     .font(.caption2)
-                                    .foregroundStyle(option.rawValue == accentId ? .primary : .secondary)
+                                    .foregroundStyle(option.rawValue == accentId ? WhisperColor.text : WhisperColor.textSecondary)
                             }
                         }
                         .buttonStyle(.plain)
@@ -130,6 +135,7 @@ struct SettingsView: View {
             }
             .padding(.vertical, HiveSpacing.xs)
         }
+        .listRowBackground(WhisperColor.surfaceRaised)
     }
 
     // MARK: - Connection
@@ -158,6 +164,7 @@ struct SettingsView: View {
         } header: {
             connectionHeader
         }
+        .listRowBackground(WhisperColor.surfaceRaised)
     }
 
     private var connectionHeader: some View {
@@ -234,7 +241,7 @@ private enum HealthStatus {
 
     var color: Color {
         switch self {
-        case .connected: .green
+        case .connected: WhisperColor.success
         case .disconnected: .red
         }
     }

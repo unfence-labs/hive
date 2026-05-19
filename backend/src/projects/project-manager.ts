@@ -74,29 +74,40 @@ async function createGitHubRepo(
     throw new Error("Invalid visibility");
   }
 
-  const { stdout } = await gh([
+  const { stdout: login } = await gh(["api", "user", "--jq", ".login"]);
+  const owner = login.trim();
+  if (!owner) throw new Error("Unable to determine GitHub user");
+
+  const repo = `${owner}/${name}`;
+  await gh([
     "repo",
     "create",
-    name,
+    repo,
     `--${visibility}`,
-    "--json",
-    "sshUrl",
-    "--jq",
-    ".sshUrl",
   ]);
-  const url = stdout.trim();
 
   // Point the bare repo at the new remote and push the initial commit.
-  // If push fails, delete the GitHub repo so we don't leave orphans.
+  // If any post-create step fails, delete the GitHub repo so we don't leave orphans.
   try {
+    const { stdout } = await gh([
+      "repo",
+      "view",
+      repo,
+      "--json",
+      "sshUrl",
+      "--jq",
+      ".sshUrl",
+    ]);
+    const url = stdout.trim();
+    if (!url) throw new Error("Unable to determine GitHub SSH URL");
+
     await git(["remote", "add", "origin", url], bare);
     await git(["push", "--all", "origin"], bare);
+    return url;
   } catch (err) {
-    await gh(["repo", "delete", name, "--yes"]).catch(() => {});
+    await gh(["repo", "delete", repo, "--yes"]).catch(() => {});
     throw err;
   }
-
-  return url;
 }
 
 // ── Init a brand-new project (optionally on GitHub) ─────────────────

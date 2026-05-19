@@ -19,31 +19,38 @@ struct HubView: View {
     @State private var searchText = ""
 
     var body: some View {
-        ScrollView {
-            if store.isLoading && store.projects.isEmpty {
-                ProgressView()
-                    .padding(.top, 80)
-            } else if store.projects.isEmpty && !store.isLoading {
-                ContentUnavailableView(
-                    "No Projects",
-                    systemImage: "folder",
-                    description: Text("Tap + to add your first project, or connect to your Hive server from Settings.")
-                )
-                .padding(.top, 40)
-            } else if !normalizedSearch.isEmpty && filteredSections.isEmpty {
-                ContentUnavailableView(
-                    "No Results",
-                    systemImage: "magnifyingglass",
-                    description: Text("Try a project, workspace, or branch name.")
-                )
-                .padding(.top, 40)
-            } else {
-                denseHubContent
+        ZStack {
+            WhisperColor.appBackground
+                .ignoresSafeArea()
+
+            ScrollView {
+                if store.isLoading && store.projects.isEmpty {
+                    loadingState
+                } else if store.projects.isEmpty && !store.isLoading {
+                    ContentUnavailableView(
+                        "No Projects",
+                        systemImage: "folder",
+                        description: Text("Tap + to add your first project, or connect to your Hive server from Settings.")
+                    )
+                    .padding(.top, 40)
+                } else if !normalizedSearch.isEmpty && filteredSections.isEmpty {
+                    ContentUnavailableView(
+                        "No Results",
+                        systemImage: "magnifyingglass",
+                        description: Text("Try a project, workspace, or branch name.")
+                    )
+                    .padding(.top, 40)
+                } else {
+                    denseHubContent
+                }
             }
+            .scrollBounceBehavior(.always)
+            .scrollContentBackground(.hidden)
         }
-        .scrollBounceBehavior(.always)
         .navigationTitle("Hub")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .searchable(
             text: $searchText,
             placement: .navigationBarDrawer(displayMode: .always),
@@ -76,7 +83,7 @@ struct HubView: View {
                         .controlSize(.small)
                     Text("Cloning \(repoName)...")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WhisperColor.textSecondary)
                 }
                 .padding(.horizontal, HiveSpacing.lg)
                 .padding(.vertical, HiveSpacing.sm)
@@ -112,6 +119,15 @@ struct HubView: View {
         } message: { ws in
             Text("\"\(ws.name)\" will be archived.")
         }
+    }
+
+    private var loadingState: some View {
+        VStack {
+            ProgressView()
+                .tint(Color.accentColor)
+        }
+        .frame(maxWidth: .infinity, minHeight: 420)
+        .frame(maxHeight: .infinity)
     }
 
     @ToolbarContentBuilder
@@ -247,7 +263,7 @@ struct HubView: View {
         if project.workspaces.isEmpty {
             Text("No active workspaces")
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(WhisperColor.textMuted)
                 .padding(.leading, HubLayout.workspaceIndent)
                 .padding(.vertical, HiveSpacing.xs)
         } else {

@@ -6,7 +6,7 @@ struct MessageBubble: View {
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
 
-    @AppStorage("hiveAccent") private var accentId = "violet"
+    @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @State private var copied = false
 
     private var hiveAccent: Color {
@@ -153,7 +153,7 @@ struct MessageBubble: View {
                     } label: {
                         Image(systemName: copied ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 10))
-                            .foregroundStyle(copied ? .green : WhisperColor.textMuted)
+                            .foregroundStyle(copied ? WhisperColor.success : WhisperColor.textMuted)
                             .contentTransition(.symbolEffect(.replace))
                             .frame(width: 14, height: 14)
                     }
@@ -844,7 +844,7 @@ private struct AskUserQuestionContent: View {
 
 // MARK: - Whisper Chat Markdown Theme
 
-private let whisperLinkColor = Color(red: 0.231, green: 0.510, blue: 0.965)
+private let whisperLinkColor = Color.accentColor
 
 private extension Theme {
     static let whisperChat = Theme.gitHub

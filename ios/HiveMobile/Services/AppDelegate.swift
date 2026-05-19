@@ -39,7 +39,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         return []
     }
 
-    /// Handle notification tap — mark workspace as completed so the green dot appears.
+    /// Handle notification tap — mark workspace as completed so the completion dot appears.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse

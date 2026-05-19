@@ -38,8 +38,8 @@ struct ContextRingView: View {
     private var fraction: Double { usage.usageFraction ?? 0 }
 
     private var ringColor: Color {
-        if fraction < 0.5 { return .green }
-        if fraction < 0.8 { return .yellow }
+        if fraction < 0.5 { return WhisperColor.success }
+        if fraction < 0.8 { return WhisperColor.warning }
         return .red
     }
 
@@ -58,7 +58,7 @@ struct ContextRingView: View {
         if !usage.isEmpty {
             ZStack {
                 Circle()
-                    .stroke(Color.secondary.opacity(0.2), lineWidth: 2)
+                    .stroke(WhisperColor.textMuted.opacity(0.24), lineWidth: 2)
                 Circle()
                     .trim(from: 0, to: fraction)
                     .stroke(ringColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))

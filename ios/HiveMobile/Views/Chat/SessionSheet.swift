@@ -23,6 +23,7 @@ struct SessionSheet: View {
                         onSelect(session.sessionId)
                         dismiss()
                     }
+                    .listRowBackground(WhisperColor.surfaceRaised)
                 }
                 .onDelete { indexSet in
                     for idx in indexSet {
@@ -31,8 +32,12 @@ struct SessionSheet: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .hiveScreenBackground()
             .navigationTitle("Sessions")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("New", systemImage: "plus") {
@@ -65,7 +70,7 @@ private struct SessionRow: View {
             VStack(alignment: .leading, spacing: HiveSpacing.xs) {
                 Text(session.title ?? "Untitled Session")
                     .font(.body)
-                    .foregroundStyle(isActive ? .primary : .secondary)
+                    .foregroundStyle(isActive ? WhisperColor.text : WhisperColor.textSecondary)
 
                 HStack(spacing: HiveSpacing.sm) {
                     Text("\(session.messageCount) messages")
@@ -74,7 +79,7 @@ private struct SessionRow: View {
                     }
                 }
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(WhisperColor.textMuted)
             }
 
             Spacer()
@@ -82,7 +87,7 @@ private struct SessionRow: View {
             if isActive {
                 Image(systemName: "checkmark")
                     .font(.caption)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(WhisperColor.text)
             }
         }
         .padding(.vertical, HiveSpacing.xs)
