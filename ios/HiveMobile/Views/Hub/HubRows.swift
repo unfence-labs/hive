@@ -33,19 +33,19 @@ struct HubFolderHeader: View {
 
                 Text(title)
                     .font(.headline)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(WhisperColor.text)
                     .lineLimit(1)
 
                 Spacer(minLength: HiveSpacing.sm)
 
                 Text("\(projectCount)")
                     .font(.caption.monospacedDigit().weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(WhisperColor.textSecondary)
                     .frame(minWidth: 18, alignment: .trailing)
 
                 Text("\(workspaceCount) ws")
                     .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(WhisperColor.textMuted)
             }
             .padding(.horizontal, HiveSpacing.md)
             .frame(maxWidth: .infinity, minHeight: 44)
@@ -83,7 +83,7 @@ struct HubProjectRow: View {
 
                         Text("\(project.workspaces.count) workspaces")
                             .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(WhisperColor.textMuted)
                     }
 
                     Spacer(minLength: HiveSpacing.sm)
@@ -117,13 +117,13 @@ struct HubProjectRow: View {
     @ViewBuilder
     private var projectTitle: some View {
         if let owner = displayName.owner {
-            Text("\(Text("\(owner)/").foregroundStyle(.secondary))\(Text(displayName.repo).foregroundStyle(.primary))")
+            Text("\(Text("\(owner)/").foregroundStyle(WhisperColor.textSecondary))\(Text(displayName.repo).foregroundStyle(WhisperColor.text))")
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
         } else {
             Text(displayName.repo)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
+                .foregroundStyle(WhisperColor.text)
                 .lineLimit(1)
         }
     }
@@ -150,7 +150,7 @@ struct HubWorkspaceRow: View {
                 HStack(alignment: .firstTextBaseline, spacing: HiveSpacing.sm) {
                     Text(workspace.branch)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(WhisperColor.text)
                         .lineLimit(1)
                         .truncationMode(.middle)
 
@@ -159,7 +159,7 @@ struct HubWorkspaceRow: View {
                     Text(workspace.name)
                         .font(.caption2)
                         .lineLimit(1)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(WhisperColor.textMuted)
                 }
 
                 HStack(spacing: HiveSpacing.sm) {
@@ -207,7 +207,7 @@ private struct HubFolderIcon: View {
         ZStack(alignment: .topTrailing) {
             Image(systemName: isExpanded ? "folder.fill" : "folder")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WhisperColor.textSecondary)
                 .frame(width: 20, height: 20)
 
             HubActivityDot(state: activityState)
@@ -249,9 +249,9 @@ private struct HubActivityDot: View {
             .accessibilityLabel("Agent is working")
         case .completed:
             Circle()
-                .fill(.green)
+                .fill(WhisperColor.success)
                 .frame(width: 7, height: 7)
-                .shadow(color: .green.opacity(0.45), radius: 4)
+                .shadow(color: WhisperColor.success.opacity(0.45), radius: 4)
                 .accessibilityLabel("Unread activity")
         case .idle:
             EmptyView()
@@ -267,7 +267,7 @@ private struct HubDiffBadge: View {
         HStack(spacing: 5) {
             if additions > 0 {
                 Text("+\(additions)")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(WhisperColor.success)
             }
             if deletions > 0 {
                 Text("-\(deletions)")
@@ -292,7 +292,7 @@ private struct HubPrBadge: View {
             .foregroundStyle(display.color)
         } else {
             Text("No PR")
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(WhisperColor.textMuted)
         }
     }
 }
@@ -312,23 +312,23 @@ private struct HubPrDisplay {
         } else if pr.state == .draft {
             self.init(icon: "pencil.circle", label: "Draft", color: .secondary)
         } else if pr.mergeable == false || pr.mergeableState == .conflict {
-            self.init(icon: "exclamationmark.triangle", label: "Conflicts", color: .orange)
+            self.init(icon: "exclamationmark.triangle", label: "Conflicts", color: WhisperColor.warningForeground)
         } else if pr.checksStatus == .failure {
             self.init(icon: "xmark.circle", label: "Failed\(checksCount)", color: .red)
         } else if pr.checksStatus == .cancelled {
-            self.init(icon: "nosign", label: "Cancelled", color: .orange)
+            self.init(icon: "nosign", label: "Cancelled", color: WhisperColor.warningForeground)
         } else if pr.checksStatus == .pending {
-            self.init(icon: "clock", label: "Checks\(checksCount)", color: .yellow)
+            self.init(icon: "clock", label: "Checks\(checksCount)", color: WhisperColor.warningForeground)
         } else if pr.reviewStatus == .changes_requested {
-            self.init(icon: "exclamationmark.triangle", label: "Changes", color: .orange)
+            self.init(icon: "exclamationmark.triangle", label: "Changes", color: WhisperColor.warningForeground)
         } else if pr.mergeableState == .blocked {
-            self.init(icon: "nosign", label: "Blocked", color: .orange)
+            self.init(icon: "nosign", label: "Blocked", color: WhisperColor.warningForeground)
         } else if pr.mergeableState == .unstable {
-            self.init(icon: "exclamationmark.triangle", label: "Unstable", color: .yellow)
+            self.init(icon: "exclamationmark.triangle", label: "Unstable", color: WhisperColor.warningForeground)
         } else if pr.reviewStatus == .review_required {
             self.init(icon: "eye", label: "Review", color: .blue)
         } else if pr.mergeable == true || pr.mergeableState == .clean {
-            self.init(icon: "checkmark.circle", label: "Ready", color: .green)
+            self.init(icon: "checkmark.circle", label: "Ready", color: WhisperColor.success)
         } else {
             self.init(icon: "arrow.triangle.pull", label: "Open", color: .blue)
         }

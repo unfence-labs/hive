@@ -5,7 +5,7 @@ import Observation
 ///
 /// When a push notification is tapped (possibly from a killed state), the AppDelegate
 /// inserts the workspace ID here. On next app launch, HiveApp merges these into
-/// HubStatusMonitor.completedWorkspaces so the green dot appears.
+/// HubStatusMonitor.completedWorkspaces so the completion dot appears.
 @MainActor
 @Observable
 final class CompletedWorkspacesStore {

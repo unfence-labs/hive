@@ -1,12 +1,18 @@
 import SwiftUI
 import UIKit
 
+private func rgb(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat, alpha: CGFloat = 1) -> UIColor {
+    UIColor(red: red / 255, green: green / 255, blue: blue / 255, alpha: alpha)
+}
+
 // MARK: - Accent Color System
 
 enum AccentOption: String, CaseIterable, Identifiable {
     case violet, blue, cyan, emerald, amber, rose
 
     var id: String { rawValue }
+
+    static let defaultId = Self.violet.rawValue
 
     var color: Color {
         switch self {
@@ -73,25 +79,34 @@ enum HiveSpacing {
 // MARK: - Whisper Color Tokens
 
 enum WhisperColor {
-    static let border        = dynamic(light: UIColor(white: 0.88, alpha: 1), dark: UIColor(white: 1, alpha: 0.08))
-    static let borderSubtle  = dynamic(light: UIColor(white: 0.92, alpha: 1), dark: UIColor(white: 1, alpha: 0.04))
-    static let toolIconBg    = dynamic(light: UIColor(white: 0.95, alpha: 1), dark: UIColor(white: 1, alpha: 0.05))
-    static let surface       = dynamic(light: UIColor(white: 0.965, alpha: 0.96), dark: UIColor(white: 1, alpha: 0.06))
-    static let surfaceSubtle = dynamic(light: UIColor(white: 0.975, alpha: 0.96), dark: UIColor(white: 1, alpha: 0.03))
-    static let surfaceRaised = dynamic(light: UIColor(white: 1.00, alpha: 1), dark: UIColor(white: 1, alpha: 0.10))
-    static let separator     = dynamic(light: UIColor(white: 0.86, alpha: 1), dark: UIColor(white: 1, alpha: 0.05))
-    static let hubCardFill   = dynamic(light: UIColor(white: 0.965, alpha: 0.94), dark: UIColor(white: 1, alpha: 0.06))
-    static let hubCardBorder = dynamic(light: UIColor(white: 0, alpha: 0), dark: UIColor(white: 1, alpha: 0.08))
-    static let hubStructure  = dynamic(light: UIColor(white: 0.86, alpha: 1), dark: UIColor(white: 1, alpha: 0.08))
-    static let hubSeparator  = dynamic(light: UIColor(white: 0, alpha: 0), dark: UIColor(white: 1, alpha: 0.05))
-    static let text          = dynamic(light: UIColor(red: 0.09, green: 0.10, blue: 0.13, alpha: 1), dark: UIColor(red: 0.91, green: 0.91, blue: 0.94, alpha: 1))
-    static let textSecondary = dynamic(light: UIColor(red: 0.34, green: 0.36, blue: 0.42, alpha: 1), dark: UIColor(red: 0.545, green: 0.545, blue: 0.62, alpha: 1))
-    static let textMuted     = dynamic(light: UIColor(red: 0.55, green: 0.57, blue: 0.63, alpha: 1), dark: UIColor(red: 0.333, green: 0.333, blue: 0.416, alpha: 1))
-    static let codeText      = dynamic(light: UIColor(red: 0.20, green: 0.23, blue: 0.32, alpha: 1), dark: UIColor(red: 0.78, green: 0.82, blue: 0.90, alpha: 1))
-    static let codeBg        = dynamic(light: UIColor(white: 0.94, alpha: 1), dark: UIColor(white: 1, alpha: 0.10))
-    static let codeBlockBg   = dynamic(light: UIColor(white: 0.965, alpha: 1), dark: UIColor(white: 1, alpha: 0.06))
-    static let activityDot   = dynamic(light: UIColor(red: 0.24, green: 0.26, blue: 0.32, alpha: 1), dark: UIColor(white: 1, alpha: 1))
-    static let imageControlBg = dynamic(light: UIColor(white: 1, alpha: 0.86), dark: UIColor(white: 0, alpha: 0.60))
+    static let appBackground = dynamic(light: rgb(244, 245, 247), dark: rgb(18, 19, 22))
+    static let border        = dynamic(light: rgb(218, 221, 226), dark: rgb(244, 247, 251, alpha: 0.11))
+    static let borderSubtle  = dynamic(light: rgb(228, 231, 236), dark: rgb(244, 247, 251, alpha: 0.06))
+    static let toolIconBg    = dynamic(light: rgb(235, 237, 241), dark: rgb(244, 247, 251, alpha: 0.07))
+    static let surface       = dynamic(light: rgb(250, 251, 252, alpha: 0.96), dark: rgb(33, 35, 40, alpha: 0.86))
+    static let surfaceSubtle = dynamic(light: rgb(239, 241, 245, alpha: 0.96), dark: rgb(27, 29, 34, alpha: 0.82))
+    static let surfaceRaised = dynamic(light: rgb(255, 255, 255), dark: rgb(39, 42, 48, alpha: 0.92))
+    static let separator     = dynamic(light: rgb(211, 215, 222), dark: rgb(244, 247, 251, alpha: 0.08))
+    static let hubCardFill   = dynamic(light: rgb(250, 251, 252, alpha: 0.94), dark: rgb(34, 36, 42, alpha: 0.70))
+    static let hubCardBorder = dynamic(light: rgb(219, 223, 230, alpha: 0.90), dark: rgb(244, 247, 251, alpha: 0.09))
+    static let hubStructure  = dynamic(light: rgb(213, 217, 224), dark: rgb(244, 247, 251, alpha: 0.09))
+    static let hubSeparator  = dynamic(light: rgb(226, 229, 234, alpha: 0.85), dark: rgb(244, 247, 251, alpha: 0.07))
+    static let text          = dynamic(light: rgb(24, 25, 28), dark: rgb(238, 240, 244))
+    static let textSecondary = dynamic(light: rgb(83, 88, 98), dark: rgb(174, 180, 190))
+    static let textMuted     = dynamic(light: rgb(134, 140, 151), dark: rgb(118, 125, 138))
+    static let codeText      = dynamic(light: rgb(38, 41, 47), dark: rgb(224, 228, 235))
+    static let codeBg        = dynamic(light: rgb(233, 236, 241), dark: rgb(38, 41, 48))
+    static let codeBlockBg   = dynamic(light: rgb(247, 248, 250), dark: rgb(25, 27, 32))
+    static let activityDot   = dynamic(light: rgb(42, 45, 52), dark: rgb(238, 240, 244))
+    static let imageControlBg = dynamic(light: rgb(255, 255, 255, alpha: 0.86), dark: rgb(13, 14, 17, alpha: 0.72))
+    static let warning       = dynamic(light: rgb(254, 154, 0), dark: rgb(254, 154, 0))
+    static let warningForeground = dynamic(light: rgb(151, 60, 0), dark: rgb(255, 210, 48))
+    static let warningMuted  = dynamic(light: rgb(254, 154, 0, alpha: 0.10), dark: rgb(254, 154, 0, alpha: 0.10))
+    static let warningBorder = dynamic(light: rgb(254, 154, 0, alpha: 0.30), dark: rgb(254, 154, 0, alpha: 0.25))
+    static let warningContrast = Color.black
+    static let success       = dynamic(light: rgb(22, 163, 74), dark: rgb(34, 197, 94))
+    static let successMuted  = dynamic(light: rgb(22, 163, 74, alpha: 0.12), dark: rgb(34, 197, 94, alpha: 0.12))
+    static let successBorder = dynamic(light: rgb(22, 163, 74, alpha: 0.30), dark: rgb(34, 197, 94, alpha: 0.28))
 
     private static func dynamic(light: UIColor, dark: UIColor) -> Color {
         Color(UIColor { traits in

@@ -6,7 +6,7 @@ struct MessageBubble: View {
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
 
-    @AppStorage("hiveAccent") private var accentId = "violet"
+    @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @State private var copied = false
 
     private var hiveAccent: Color {
@@ -130,7 +130,7 @@ struct MessageBubble: View {
                     } label: {
                         Image(systemName: copied ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 10))
-                            .foregroundStyle(copied ? .green : WhisperColor.textMuted)
+                            .foregroundStyle(copied ? WhisperColor.success : WhisperColor.textMuted)
                             .contentTransition(.symbolEffect(.replace))
                             .frame(width: 14, height: 14)
                     }
@@ -876,7 +876,7 @@ private struct DiffContentView: View {
     private func prefixColor(_ kind: DiffLine.Kind) -> Color {
         switch kind {
         case .context: return WhisperColor.textSecondary
-        case .added:   return .green
+        case .added:   return WhisperColor.success
         case .removed: return .red
         }
     }
@@ -884,7 +884,7 @@ private struct DiffContentView: View {
     private func bgColor(_ kind: DiffLine.Kind) -> Color {
         switch kind {
         case .context: return .clear
-        case .added:   return Color.green.opacity(0.12)
+        case .added:   return WhisperColor.successMuted
         case .removed: return Color.red.opacity(0.12)
         }
     }
@@ -987,7 +987,7 @@ private struct ToolRowLabel: View {
                     HStack(spacing: 4) {
                         if stats.added > 0 {
                             Text("+\(stats.added)")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(WhisperColor.success)
                         }
                         if stats.removed > 0 {
                             Text("-\(stats.removed)")
@@ -1031,7 +1031,7 @@ private struct ToolContentPanel<Content: View>: View {
 
 // MARK: - Whisper Chat Markdown Theme
 
-private let whisperLinkColor = Color(red: 0.231, green: 0.510, blue: 0.965)
+private let whisperLinkColor = Color.accentColor
 
 private extension Theme {
     static let whisperChat = Theme.gitHub
