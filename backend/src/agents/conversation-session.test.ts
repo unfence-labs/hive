@@ -1164,6 +1164,70 @@ describe("ConversationSession", () => {
     }
   });
 
+  it("starts a fresh Codex app-server thread after a forced close before provider session persistence", async () => {
+    const session = createSession({ sessionId: "codex-app-forced-close-restart" });
+
+    session.sendMessage("Long task", { model: "codex:gpt-5.5" });
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, {
+      thread: { id: "thread-before-forced-close" },
+    }));
+
+    const firstTurnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(firstTurnStart.id, {
+      turn: { id: "turn-before-forced-close" },
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    vi.useFakeTimers();
+    try {
+      const forcedClose = new Promise<void>((resolve) => {
+        session.on("error", () => resolve());
+      });
+      session.stop();
+      await vi.advanceTimersByTimeAsync(5000);
+      await forcedClose;
+
+      expect(mockProc.kill).toHaveBeenCalledTimes(1);
+      expect(session.metadata.providerSessionId).toBeUndefined();
+      expect(session.status).toBe("error");
+      vi.useRealTimers();
+
+      const restartedProc = createMockProcess();
+      mockSpawn.mockReturnValue(restartedProc);
+
+      session.sendMessage("Continue after forced close", { model: "codex:gpt-5.5" });
+
+      const restartedInit = await waitForStdinMethod(restartedProc, "initialize");
+      restartedProc._stdout.push(appServerResponse(restartedInit.id, {
+        userAgent: "codex-test",
+        codexHome: "/tmp/codex",
+        platformFamily: "unix",
+        platformOs: "linux",
+      }));
+
+      const restartedThreadStart = await waitForStdinMethod(restartedProc, "thread/start");
+      expect(restartedThreadStart.params).toMatchObject({
+        cwd: "/tmp/test",
+        approvalPolicy: "never",
+        sandbox: "danger-full-access",
+        model: "gpt-5.5",
+      });
+      expect(countStdinMethod(restartedProc, "thread/resume")).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps Codex automations on codex exec JSONL", () => {
     const session = createSession({ sessionId: "codex-auto", sessionKind: "automation" });
 

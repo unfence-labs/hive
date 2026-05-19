@@ -119,15 +119,15 @@ final class ConversationStore {
     func handle(_ event: WsOutgoing) {
         switch event {
         case .textDelta(let sid, let text):
-            ensureStream(for: sid)
+            guard sessionStreams[sid] != nil else { return }
             sessionStreams[sid]?.currentText += text
 
         case .thinking(let sid, let text):
-            ensureStream(for: sid)
+            guard sessionStreams[sid] != nil else { return }
             sessionStreams[sid]?.currentThinking += text
 
         case .toolUse(let sid, let id, let name, let input, let parentToolUseId):
-            ensureStream(for: sid)
+            guard sessionStreams[sid] != nil else { return }
             sessionStreams[sid]?.activeToolCalls.append(ToolCall(
                 id: id, name: name, input: input,
                 output: nil, parentToolUseId: parentToolUseId
@@ -146,7 +146,10 @@ final class ConversationStore {
             upsertAgentActivity(activity, for: sid)
 
         case .toolInputRequired(let sid, let requestId, let toolName, let toolUseId, let input):
-            ensureStream(for: sid)
+            if sessionStreams[sid] == nil && hasTerminalAssistantMessage(for: sid) {
+                return
+            }
+            ensureStream(for: sid, streaming: false)
             sessionStreams[sid]?.pendingToolInputs.append(PendingToolInput(
                 sessionId: sid, requestId: requestId,
                 toolName: toolName, toolUseId: toolUseId, input: input
@@ -263,7 +266,7 @@ final class ConversationStore {
             break // Handled by sidebar, not relevant to chat
 
         case .planModeChanged(let sid, let active):
-            ensureStream(for: sid, streaming: false)
+            guard sessionStreams[sid] != nil else { return }
             sessionStreams[sid]?.agentPlanMode = active
 
         case .unknown:
@@ -338,7 +341,6 @@ final class ConversationStore {
     }
 
     private func upsertAgentActivity(_ activity: AgentActivity, for sid: String) {
-        ensureStream(for: sid)
         guard var stream = sessionStreams[sid] else { return }
         if let index = stream.activeAgentActivities.firstIndex(where: { $0.id == activity.id }) {
             stream.activeAgentActivities[index] = activity
@@ -346,6 +348,16 @@ final class ConversationStore {
             stream.activeAgentActivities.append(activity)
         }
         sessionStreams[sid] = stream
+    }
+
+    private func hasTerminalAssistantMessage(for sid: String) -> Bool {
+        for message in messages.reversed() {
+            if !message.sessionId.isEmpty && message.sessionId != sid {
+                continue
+            }
+            return message.role == .assistant
+        }
+        return false
     }
 
     private func finalizeMessage(sessionId sid: String, durationMs: Int?, cancelled: Bool,

@@ -230,6 +230,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.proc = null;
     this.initialized = null;
     this.activeTurnId = undefined;
+    this.threadId = undefined;
     if (hadActiveTurn) {
       queueMicrotask(() => this.emit("error", new Error("Codex app-server closed")));
     }
@@ -511,7 +512,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         this.emitProtocolDiagnostic(method, data, "Codex guardian warning", "warning");
         break;
       case "turn/completed": {
-        void this.emitTurnCompletionAfterCollabReplays(data);
+        this.handleTurnCompleted(data);
         break;
       }
       case "error": {
@@ -773,8 +774,30 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     }
   }
 
-  private async emitTurnCompletionAfterCollabReplays(data: JsonObject | null): Promise<void> {
+  private handleTurnCompleted(data: JsonObject | null): void {
+    const turn = asRecord(data?.turn);
+    const turnId = asString(turn?.id);
+    const activeTurnId = this.activeTurnId;
+    if (turnId && activeTurnId && turnId !== activeTurnId) return;
+
+    if (this.pendingCollabReplays.size === 0) {
+      this.emitTurnCompletion(data, activeTurnId);
+      return;
+    }
+
+    void this.emitTurnCompletionAfterCollabReplays(data, activeTurnId);
+  }
+
+  private async emitTurnCompletionAfterCollabReplays(
+    data: JsonObject | null,
+    activeTurnId: string | undefined,
+  ): Promise<void> {
     await this.waitForCollabReplays();
+    this.emitTurnCompletion(data, activeTurnId);
+  }
+
+  private emitTurnCompletion(data: JsonObject | null, activeTurnId: string | undefined): void {
+    if (activeTurnId && this.activeTurnId !== activeTurnId) return;
     const turn = asRecord(data?.turn);
     const durationMs = asNumber(turn?.durationMs);
     const status = asTurnStatus(turn?.status);
@@ -960,6 +983,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.proc = null;
     this.initialized = null;
     this.activeTurnId = undefined;
+    this.threadId = undefined;
   }
 }
 
