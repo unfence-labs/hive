@@ -178,7 +178,7 @@ extension AgentActivity {
     var toolCalls: [ToolCall] {
         switch self {
         case .commandExecution(let activity):
-            [toolCall(for: activity)]
+            return [toolCall(for: activity)]
         case .fileChange(let activity):
             if activity.files.isEmpty {
                 return [
@@ -211,7 +211,7 @@ extension AgentActivity {
                 )
             }
         case .planUpdate, .diagnostic, .unknown:
-            []
+            return []
         }
     }
 }
