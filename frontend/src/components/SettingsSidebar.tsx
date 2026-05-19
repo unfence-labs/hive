@@ -239,6 +239,7 @@ function RepositoryNavItem({
         name={project.name}
         projectId={project.id}
         hasFavicon={project.hasFavicon}
+        faviconVersion={project.faviconVersion}
       />
       <span className="min-w-0 flex-1 truncate">{project.name}</span>
       {isActive && (

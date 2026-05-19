@@ -17,22 +17,22 @@ import type { CreateProjectRequest, ProjectState } from "../types.js";
 
 const FAVICON_NAMES = new Set(["favicon.ico", "favicon.png", "favicon.svg"]);
 
-/** Find the first favicon path in the repo tree (recursive). */
-async function findFavicon(bare: string): Promise<string | null> {
-  const { stdout: tree } = await git(["ls-tree", "-r", "--name-only", "HEAD"], bare);
-  for (const line of tree.split("\n")) {
-    const basename = line.split("/").pop() ?? "";
-    if (FAVICON_NAMES.has(basename)) return line;
-  }
-  return null;
+interface FaviconMetadata {
+  path: string;
+  version: string;
 }
 
-async function hasFaviconFlag(dir: string, projectId: string): Promise<boolean> {
-  try {
-    return (await findFavicon(bareRepoPath(dir, projectId))) !== null;
-  } catch {
-    return false;
+/** Find the first favicon path in the repo tree (recursive). */
+async function findFavicon(bare: string): Promise<FaviconMetadata | null> {
+  const { stdout: tree } = await git(["ls-tree", "-r", "HEAD"], bare);
+  for (const line of tree.split("\n")) {
+    const match = line.match(/^[0-7]+ \w+ ([0-9a-f]+)\t(.+)$/);
+    if (!match) continue;
+    const [, version, path] = match;
+    const basename = path.split("/").pop() ?? "";
+    if (FAVICON_NAMES.has(basename)) return { path, version };
   }
+  return null;
 }
 
 interface WorkspaceSessionSummary {
@@ -76,15 +76,16 @@ async function summarizeSessionsPerWorkspace(
 }
 
 async function enrichProject(project: ProjectState, dir: string) {
-  const [hasFavicon, sessionSummaries] = await Promise.all([
-    hasFaviconFlag(dir, project.id),
+  const [favicon, sessionSummaries] = await Promise.all([
+    findFavicon(bareRepoPath(dir, project.id)).catch(() => null),
     summarizeSessionsPerWorkspace(dir, project.id),
   ]);
   return {
     ...project,
     repoPath: bareRepoPath(dir, project.id),
     workspacesPath: workspacesDir(dir, project.id),
-    hasFavicon,
+    hasFavicon: favicon !== null,
+    faviconVersion: favicon?.version,
     workspaces: project.workspaces.map((ws) => ({
       ...ws,
       projectName: project.name,
@@ -175,10 +176,10 @@ export async function projectRoutes(app: FastifyInstance, dataDir?: string) {
     const bare = bareRepoPath(dir, project.id);
 
     try {
-      const path = await findFavicon(bare);
-      if (path) {
-        const ext = path.slice(path.lastIndexOf("."));
-        const buf = await gitBuffer(["show", `HEAD:${path}`], bare);
+      const favicon = await findFavicon(bare);
+      if (favicon) {
+        const ext = favicon.path.slice(favicon.path.lastIndexOf("."));
+        const buf = await gitBuffer(["show", `HEAD:${favicon.path}`], bare);
         return reply
           .header("Content-Type", EXT_MIME[ext] ?? "application/octet-stream")
           .header("Cache-Control", "public, max-age=3600")

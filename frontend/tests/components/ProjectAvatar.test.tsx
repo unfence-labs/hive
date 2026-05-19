@@ -25,6 +25,15 @@ describe("ProjectAvatar", () => {
     expect(img.className).toContain("w-5");
   });
 
+  it("adds the favicon version to the image URL", () => {
+    render(<ProjectAvatar name="Alpha" projectId="p1" hasFavicon faviconVersion="abc123" />);
+
+    expect(screen.getByRole("img", { name: "Alpha" })).toHaveAttribute(
+      "src",
+      "http://127.0.0.1:4000/api/projects/p1/favicon?v=abc123",
+    );
+  });
+
   it("falls back to the initial letter when favicon image fails", () => {
     render(<ProjectAvatar name="Alpha" projectId="p1" hasFavicon />);
 

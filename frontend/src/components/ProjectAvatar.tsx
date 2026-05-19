@@ -7,22 +7,26 @@ interface ProjectAvatarProps {
   name: string;
   projectId?: string;
   hasFavicon?: boolean;
+  faviconVersion?: string;
   className?: string;
 }
 
-export function ProjectAvatar({ name, projectId, hasFavicon, className }: ProjectAvatarProps) {
-  const [imgFailed, setImgFailed] = useState(false);
+export function ProjectAvatar({ name, projectId, hasFavicon, faviconVersion, className }: ProjectAvatarProps) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
   const size = "h-5 w-5";
   const sizeClass = className?.includes("h-") ? "" : size;
+  let faviconUrl = hasFavicon && projectId
+    ? `${getServerUrl()}/api/projects/${projectId}/favicon`
+    : undefined;
+  if (faviconUrl && faviconVersion) faviconUrl += `?v=${encodeURIComponent(faviconVersion)}`;
 
-  if (hasFavicon && projectId && !imgFailed) {
-    const faviconUrl = `${getServerUrl()}/api/projects/${projectId}/favicon`;
+  if (faviconUrl && failedUrl !== faviconUrl) {
     return (
       <img
         src={faviconUrl}
         alt={name}
-        onError={() => setImgFailed(true)}
+        onError={() => setFailedUrl(faviconUrl)}
         className={cn(
           "shrink-0 rounded object-cover",
           sizeClass,

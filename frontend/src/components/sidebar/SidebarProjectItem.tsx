@@ -99,6 +99,7 @@ export function SidebarProjectItem({
                 name={project.name}
                 projectId={project.id}
                 hasFavicon={project.hasFavicon}
+                faviconVersion={project.faviconVersion}
                 className="h-[18px] w-[18px]"
               />
               <SidebarActivityDot state={projectActivity} dimmed={isExpanded} />
