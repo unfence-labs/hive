@@ -111,6 +111,7 @@ enum WsOutgoing: Decodable {
     case thinking(sessionId: String, text: String)
     case toolUse(sessionId: String, id: String, name: String, input: String, parentToolUseId: String?)
     case toolResult(sessionId: String, toolUseId: String, output: String)
+    case agentActivity(sessionId: String, activity: AgentActivity)
     case toolInputRequired(sessionId: String, requestId: String, toolName: String, toolUseId: String, input: String)
     case done(sessionId: String, durationMs: Int?, inputTokens: Int?, outputTokens: Int?, pendingToolName: String?)
     case error(message: String, sessionId: String?)
@@ -122,9 +123,11 @@ enum WsOutgoing: Decodable {
     case diffStats(stats: DiffStatResponse)
     case scriptStatus(scriptType: String, state: String, exitCode: Int?)
     case planModeChanged(sessionId: String, active: Bool)
+    case unknown(type: String)
 
     private enum CodingKeys: String, CodingKey {
         case type, sessionId, text, id, name, input, output
+        case activity
         case parentToolUseId, toolUseId, requestId, toolName
         case durationMs, inputTokens, outputTokens, pendingToolName
         case errorDetail, userInitiated
@@ -162,6 +165,11 @@ enum WsOutgoing: Decodable {
                 sessionId: try container.decode(String.self, forKey: .sessionId),
                 toolUseId: try container.decode(String.self, forKey: .toolUseId),
                 output: try container.decode(String.self, forKey: .output)
+            )
+        case "agent_activity":
+            self = .agentActivity(
+                sessionId: try container.decode(String.self, forKey: .sessionId),
+                activity: try container.decode(AgentActivity.self, forKey: .activity)
             )
         case "tool_input_required":
             let sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -260,9 +268,7 @@ enum WsOutgoing: Decodable {
                 active: try container.decode(Bool.self, forKey: .active)
             )
         default:
-            // Silently ignore unknown types instead of throwing — the backend
-            // may add new event types that the iOS client doesn't handle yet.
-            self = .error(message: "Unknown WS event type: \(type)", sessionId: nil)
+            self = .unknown(type: type)
         }
     }
 }

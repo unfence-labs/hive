@@ -31,6 +31,9 @@ It manages:
 **Multi-provider support**
 - Provider abstraction layer: `AgentProvider` interface with CLI arg building, env config, and stream adapters.
 - Claude provider (streaming JSON), Codex provider (JSONL with stream adapter), Gemini provider (NDJSON with tool name mapping).
+- Interactive Codex chat uses `codex app-server` for long-lived thread/turn streaming; Codex automations stay on `codex exec --json`.
+- Codex App Server stream events are normalized into Hive `AgentActivity` records for command execution, file changes, plan updates, and diagnostics.
+- Unsupported Codex App Server notifications/requests are surfaced as diagnostic activities so missing protocol coverage is visible and incremental.
 - Codex stream normalization for native todo lists, file-change summaries, cached token usage, and non-fatal diagnostic events.
 - Model catalog API (`GET /api/models`) for frontend/iOS model discovery, grouped by provider.
 - Model selector UI with provider icons, default badges, and NEW indicators.
@@ -89,6 +92,8 @@ It manages:
 - Foreground reconnect (2s debounce) with background stream catchup.
 - Context window usage ring matching frontend thresholds.
 - Task tracker with collapsible task list, including Codex native todo lists.
+- Codex App Server `AgentActivity` rendering for command execution, file changes, plan updates, diagnostics, and unknown activity fallback.
+- Shared chat diff rendering for Claude/Gemini edit tools and Codex file-change activities.
 - `#file` and `@agent` mention highlighting in messages.
 - Copy-to-clipboard on agent messages.
 - Per-session plan mode state and CANCELLED badge for dismissed questions.
@@ -211,6 +216,11 @@ npm run lint
 npm run typecheck
 npm test
 ```
+
+## Codex App Server Notes
+
+Known Codex App Server limitations and intentionally unsupported protocol paths
+live in [`doc/codex-app-server-limitations.md`](doc/codex-app-server-limitations.md).
 
 ## Environment Variables
 
@@ -379,7 +389,7 @@ Client -> server:
 - `{ "type": "tool_input_response", "requestId": "...", "toolName": "AskUserQuestion|ExitPlanMode", "result": ..., "sessionId": "...", "workspaceId": "..." }`
 
 Server -> client (wrapped in `HubOutgoing` envelopes `{ workspaceId, event }`):
-- `status` (includes `lockedProvider`), `history`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `tool_input_required`, `done` (with `durationMs`, `pendingToolName`), `cancelled` (with `errorDetail`, `userInitiated`), `error`, `branch_info`, `diff_stats`, `script_status`, `plan_mode_changed`
+- `status` (includes `lockedProvider`), `history`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `agent_activity`, `tool_input_required`, `done` (with `durationMs`, `pendingToolName`), `cancelled` (with `errorDetail`, `userInitiated`), `error`, `branch_info`, `diff_stats`, `script_status`, `plan_mode_changed`
 
 ### Script stream
 
@@ -414,9 +424,11 @@ Backend key modules:
 - `backend/src/ws/script.ts` script execution WebSocket
 - `backend/src/agents/agent-manager.ts` in-memory session registry, persistence, switching
 - `backend/src/agents/conversation-session.ts` agent process lifecycle per turn (provider-aware)
+- `backend/src/agents/agent-event-normalizer.ts` provider event normalization into Hive stream events and activity updates
+- `backend/src/agents/runners/` process and Codex App Server runner abstraction
 - `backend/src/agents/system-prompt.ts` system prompt construction (base prompt loading, template vars, git context)
 - `backend/src/agents/naming.ts` branch + session auto-naming via dedicated Claude subprocess
-- `backend/src/agents/providers/` provider abstraction (types, registry, claude, codex, codex-stream-adapter, gemini, gemini-stream-adapter)
+- `backend/src/agents/providers/` provider abstraction (types, registry, claude, codex, codex-app-server, codex-stream-adapter, gemini, gemini-stream-adapter)
 - `backend/src/services/git-sync.ts` branch/diff polling and workspace broadcasts
 - `backend/src/services/script-runner.ts` PTY-based script execution + interactive terminal
 - `backend/src/services/automation-scheduler.ts` cron scheduling, ConversationSession execution, git context injection

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./agent-activity": "./dist/agent-activity.js",
     "./project-env": "./dist/project-env.js",
     "./sidebar-preferences": "./dist/sidebar-preferences.js"
   },

@@ -1,3 +1,6 @@
+import type { AgentActivity } from "@hive/shared/agent-activity";
+export type { AgentActivity, AgentActivityCommandAction, AgentActivityFile } from "@hive/shared/agent-activity";
+
 export interface Project {
   id: string;
   name: string;
@@ -119,6 +122,9 @@ export interface FileMention {
 
 export interface SessionMetadata {
   sessionId: string;
+  /** Provider-native conversation/thread id used for resume across turns. */
+  providerSessionId?: string;
+  /** @deprecated Use providerSessionId. Kept for old persisted sessions. */
   claudeSessionId?: string;
   workspaceId: string;
   title?: string;
@@ -145,6 +151,7 @@ export interface ChatMessage {
   images?: ImageAttachment[];
   fileMentions?: FileMention[];
   toolCalls?: ToolCall[];
+  agentActivities?: AgentActivity[];
   thinkingContent?: string;
   timestamp: string;
   cancelled?: boolean;
@@ -168,7 +175,7 @@ export type ServerToolResultType =
 
 export type ContentBlock =
   | { type: "text"; text: string }
-  | { type: "tool_use"; id: string; name: string; input: unknown }
+  | { type: "tool_use"; id: string; name: string; input: unknown; parentToolUseId?: string }
   | { type: "server_tool_use"; id: string; name: string; input: unknown }
   | { type: "mcp_tool_use"; id: string; name: string; server_name: string; input: unknown }
   | { type: ServerToolResultType; tool_use_id: string; content: unknown }
@@ -212,6 +219,10 @@ export type CliJsonLine =
       session_id: string;
       cost_usd?: number;
       duration_ms?: number;
+      /** Provider-specific terminal status for protocol-backed runners. */
+      status?: string;
+      /** Provider-specific terminal error detail for failed turns. */
+      error?: string;
       /** Codex/Gemini adapters may place usage here; Claude puts it on assistant events. */
       usage?: {
         input_tokens: number;
@@ -324,6 +335,7 @@ export type WsOutgoing =
   | { type: "thinking"; sessionId: string; text: string }
   | { type: "tool_use"; sessionId: string; id: string; name: string; input: string; parentToolUseId?: string }
   | { type: "tool_result"; sessionId: string; toolUseId: string; output: string }
+  | { type: "agent_activity"; sessionId: string; activity: AgentActivity }
   | { type: "tool_input_required"; sessionId: string; requestId: string; toolName: string; toolUseId: string; input: unknown }
   | { type: "done"; sessionId: string; durationMs?: number; inputTokens?: number; outputTokens?: number; pendingToolName?: string }
   | { type: "error"; message: string; sessionId?: string }

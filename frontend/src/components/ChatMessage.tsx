@@ -5,7 +5,7 @@ import { formatElapsed } from "@/lib/time";
 import { resolveImageSrc } from "@/lib/image-url";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
-import { ToolCallList } from "@/components/chat/ToolCallList";
+import { AgentActivityList } from "@/components/chat/AgentActivityList";
 import { CopyButton } from "@/components/chat/CopyButton";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { FileIcon } from "lucide-react";
@@ -141,8 +141,9 @@ const ChatMessage = memo(function ChatMessage({
             <div className="prose-sm">
               <MessageResponse>{message.content}</MessageResponse>
             </div>
-            {message.toolCalls && (
-              <ToolCallList
+            {Boolean(message.agentActivities?.length || message.toolCalls?.length) && (
+              <AgentActivityList
+                activities={message.agentActivities ?? []}
                 toolCalls={message.toolCalls}
                 isInteractive={isInteractive}
                 planStatus={planStatus}

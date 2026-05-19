@@ -79,6 +79,7 @@ const baseConversationProps: ComponentProps<typeof ChatConversation> = {
   currentStreamingText: "",
   currentThinking: "",
   activeToolCalls: [],
+  activeAgentActivities: [],
   switchCounter: 0,
 };
 

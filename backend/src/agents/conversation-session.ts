@@ -1,22 +1,22 @@
-import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdir, readFile, writeFile, open } from "node:fs/promises";
 import { join } from "node:path";
+import { commandExecutionActivityToToolCall } from "@hive/shared/agent-activity";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
-import { StreamParser } from "./stream-parser.js";
+import { AgentEventNormalizer, type NormalizedAgentEvent } from "./agent-event-normalizer.js";
 import { resolveProvider } from "./providers/registry.js";
-import { CodexStreamAdapter } from "./providers/codex-stream-adapter.js";
-import { GeminiStreamAdapter } from "./providers/gemini-stream-adapter.js";
-import type { AgentProvider, StreamAdapter } from "./providers/types.js";
-import { buildWorkspaceEnv, DEBUG_AGENT_LOGS } from "../utils/env.js";
+import type { AgentProvider } from "./providers/types.js";
+import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js";
+import type { AgentRunner, StopReason } from "./runners/types.js";
+import { DEBUG_AGENT_LOGS } from "../utils/env.js";
 import type {
+  AgentActivity,
+  AgentActivityFile,
   ChatMessage,
-  ContentBlock,
   FileMention,
   ImageAttachment,
   MessageOptions,
-  ServerToolResultType,
   ToolCall,
   ToolInputResult,
   SessionMetadata,
@@ -25,93 +25,6 @@ import type {
 
 const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
 const MAX_ERROR_DETAIL_LENGTH = 280;
-
-/** Gemini CLI writes informational/retry messages to stderr; suppress these from error events. */
-const GEMINI_STDERR_NOISE = [
-  "Loaded cached credentials",
-  "YOLO mode is enabled",
-  "Retrying with backoff",
-  "GaxiosError",
-];
-
-/** Codex CLI writes non-fatal operational diagnostics to stderr. */
-const CODEX_STDERR_NOISE = [
-  "Reading additional input from stdin",
-];
-
-const CODEX_STDERR_NOISE_PATTERNS = [
-  /\bERROR\s+codex_core::tools::router:\s+error=resources\/(?:templates\/)?list failed: unknown MCP server '[^']+'/,
-];
-
-const CODEX_STDERR_DIAGNOSTIC_PATTERNS = [
-  /failed to connect to websocket: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata'/,
-  /stream disconnected before completion: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata'/,
-];
-
-function classifyProviderStderr(providerId: string | undefined, text: string): "suppress" | "diagnostic" | "error" {
-  if (providerId === "gemini") {
-    return GEMINI_STDERR_NOISE.some((n) => text.includes(n)) ? "suppress" : "error";
-  }
-
-  if (providerId === "codex") {
-    if (CODEX_STDERR_NOISE.some((n) => text.includes(n))
-      || CODEX_STDERR_NOISE_PATTERNS.some((pattern) => pattern.test(text))) {
-      return "suppress";
-    }
-    if (CODEX_STDERR_DIAGNOSTIC_PATTERNS.some((pattern) => pattern.test(text))) {
-      return "diagnostic";
-    }
-  }
-
-  return "error";
-}
-
-/** Map Anthropic server_tool_use names to their Claude Code display names. */
-const serverToolNameMap: Record<string, string> = {
-  web_search: "WebSearch",
-  web_fetch: "WebFetch",
-  bash_code_execution: "Bash",
-  text_editor_code_execution: "Edit",
-};
-
-type ServerResultBlock = Extract<ContentBlock,
-  { type: ServerToolResultType } | { type: "mcp_tool_result" }
->;
-
-/** Format server/MCP tool result content into a readable string. */
-function formatServerToolResult(block: ServerResultBlock): string {
-  const { content } = block;
-  if (typeof content === "string") return content;
-
-  switch (block.type) {
-    case "web_search_tool_result": {
-      if (!Array.isArray(content)) break;
-      const summary = (content as Array<{ type?: string; title?: string; url?: string }>)
-        .filter((r) => r.type === "web_search_result")
-        .map((r) => `${r.title ?? "Result"}\n${r.url ?? ""}`)
-        .join("\n\n");
-      return summary || JSON.stringify(content);
-    }
-    case "bash_code_execution_tool_result": {
-      if (!content || typeof content !== "object") break;
-      const c = content as { stdout?: string; stderr?: string; return_code?: number };
-      const parts: string[] = [];
-      if (c.stdout) parts.push(c.stdout);
-      if (c.stderr) parts.push(`stderr: ${c.stderr}`);
-      if (c.return_code !== undefined && c.return_code !== 0) parts.push(`exit code: ${c.return_code}`);
-      return parts.join("\n") || JSON.stringify(content);
-    }
-    case "mcp_tool_result": {
-      if (!Array.isArray(content)) break;
-      const texts = (content as Array<{ type?: string; text?: string }>)
-        .filter((b) => b.type === "text" && b.text)
-        .map((b) => b.text!);
-      return texts.join("\n\n") || JSON.stringify(content);
-    }
-  }
-
-  return JSON.stringify(content);
-}
 
 function sanitizeErrorDetail(detail: string): string {
   const normalized = detail.replace(/\s+/g, " ").trim();
@@ -124,7 +37,42 @@ function buildCancellationErrorDetail(exitCode: number, lastStderr: string | und
   return sanitizeErrorDetail(`exit code ${exitCode}${suffix}`);
 }
 
-type StopReason = "user" | "park";
+function formatNormalizedExitCode(exitCode: number | undefined): string {
+  return exitCode === undefined ? "" : `Exit code: ${exitCode}`;
+}
+
+function cloneAgentActivity(activity: AgentActivity): AgentActivity {
+  switch (activity.kind) {
+    case "command_execution":
+      return { ...activity, commandActions: activity.commandActions?.map((action) => ({ ...action })) };
+    case "file_change":
+      return { ...activity, files: activity.files.map((file) => ({ ...file })) };
+    case "plan_update":
+      return { ...activity, steps: activity.steps.map((step) => ({ ...step })) };
+    case "diagnostic":
+      return { ...activity };
+  }
+}
+
+function normalizeActivityFiles(
+  event: Extract<NormalizedAgentEvent, { type: "file_change_updated" }>,
+  existingFiles: AgentActivityFile[] | undefined,
+): AgentActivityFile[] {
+  if (event.files?.length) {
+    return event.files.map((file) => ({ ...file }));
+  }
+  if (event.path) {
+    return [{
+      path: event.path,
+      diff: event.diff,
+      kind: event.kind,
+      status: event.status,
+    }];
+  }
+  return existingFiles?.map((file) => ({ ...file })) ?? [];
+}
+
+type SessionKind = "chat" | "automation";
 
 export interface ConversationSessionConfig {
   cwd: string;
@@ -135,6 +83,8 @@ export interface ConversationSessionConfig {
   systemPrompt?: string;
   skipPermissions?: boolean;
   browserEnv?: Record<string, string>;
+  sessionKind?: SessionKind;
+  runnerFactory?: AgentRunnerFactory;
 }
 
 export type ConversationSessionEvent = {
@@ -150,11 +100,13 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private readonly testCommand: string | undefined;
   private readonly systemPrompt: string | undefined;
   private readonly skipPermissions: boolean;
+  private readonly sessionKind: SessionKind;
+  private readonly runnerFactory: AgentRunnerFactory;
   private browserEnv: Record<string, string> | undefined;
   private readonly sessionDir: string;
   private readonly workspaceId: string;
-  private process: ChildProcess | null = null;
-  private parser: StreamAdapter | null = null;
+  private runner: AgentRunner | null = null;
+  private codexAppServerRunner: AgentRunner | null = null;
   private _status: "idle" | "streaming" | "error" = "idle";
   private _streamingStartedAt: number | null = null;
   private messageCount = 0;
@@ -169,6 +121,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private _streamText = "";
   private _streamThinking = "";
   private _streamToolCalls: ToolCall[] = [];
+  private _streamAgentActivities: AgentActivity[] = [];
   private _agentPlanMode = false;
 
   constructor(config: ConversationSessionConfig) {
@@ -179,6 +132,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.testCommand = config.command !== undefined && config.command !== "claude" ? config.command : undefined;
     this.systemPrompt = config.systemPrompt;
     this.skipPermissions = config.skipPermissions ?? true;
+    this.sessionKind = config.sessionKind ?? "chat";
+    this.runnerFactory = config.runnerFactory ?? createAgentRunner;
     this.browserEnv = config.browserEnv;
     this.workspaceId = config.workspaceId;
     this.sessionDir = join(config.dataDir, "sessions", this.sessionId);
@@ -204,19 +159,27 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     return { ...this._metadata };
   }
 
+  private setProviderSessionId(sessionId: string): void {
+    this.cliSessionId = sessionId;
+    this._metadata.providerSessionId = sessionId;
+    // Keep writing the old field until persisted-session readers have migrated.
+    this._metadata.claudeSessionId = sessionId;
+  }
+
   setBrowserEnv(env: Record<string, string> | undefined): void {
     this.browserEnv = env;
   }
 
-  /** Return a snapshot of in-progress streaming content (text, thinking, tool calls).
+  /** Return a snapshot of in-progress streaming content.
    *  Returns null when the session is not streaming. Used by WS bootstrap to replay
    *  accumulated state to late-connecting clients. */
-  getStreamingSnapshot(): { text: string; thinking: string; toolCalls: ToolCall[]; agentPlanMode: boolean } | null {
+  getStreamingSnapshot(): { text: string; thinking: string; toolCalls: ToolCall[]; agentActivities: AgentActivity[]; agentPlanMode: boolean } | null {
     if (this._status !== "streaming") return null;
     return {
       text: this._streamText,
       thinking: this._streamThinking,
       toolCalls: this._streamToolCalls.map(tc => ({ ...tc })),
+      agentActivities: this._streamAgentActivities.map(cloneAgentActivity),
       agentPlanMode: this._agentPlanMode,
     };
   }
@@ -229,7 +192,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       const raw = await readFile(metaPath, "utf-8");
       const meta = JSON.parse(raw) as SessionMetadata;
       session._metadata = meta;
-      session.cliSessionId = meta.claudeSessionId;
+      session.cliSessionId = meta.providerSessionId ?? meta.claudeSessionId;
       session.messageCount = meta.messageCount;
       // Backfill lockedProvider for sessions created before multi-model support.
       // All pre-existing sessions were Claude-only, so default to "claude".
@@ -297,8 +260,18 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           mediaType: images[i].mediaType,
           dataUrl: `/api/workspaces/${this.workspaceId}/sessions/${this.sessionId}/attachments/${s.filename}`,
         }));
+        const imagePaths = saved.map((s) => s.path);
+        const useNativeCodexImages =
+          !this.testCommand &&
+          resolved?.provider.id === "codex" &&
+          this.sessionKind === "chat";
         this.emitUserMessage(content, urlImages, fileMentions);
-        this.spawnCli(this.buildPromptWithImages(promptContent, saved.map((s) => s.path)), msgOptions, resolved);
+        this.startAgentTurn(
+          useNativeCodexImages ? promptContent : this.buildPromptWithImages(promptContent, imagePaths),
+          msgOptions,
+          resolved,
+          useNativeCodexImages ? imagePaths : undefined,
+        );
       }).catch((err) => {
         this._status = "error";
         this._streamingStartedAt = null;
@@ -306,7 +279,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       });
     } else {
       this.emitUserMessage(content, undefined, fileMentions);
-      this.spawnCli(promptContent, msgOptions, resolved);
+      this.startAgentTurn(promptContent, msgOptions, resolved);
     }
   }
 
@@ -373,11 +346,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       : `Please analyze the attached image(s). Use the Read tool to view them:\n${pathList}`;
   }
 
-  /** Spawn a CLI process for a single turn, delegating to the resolved provider. */
-  private spawnCli(
+  /** Start a single agent turn, delegating protocol execution to the selected runner. */
+  private startAgentTurn(
     content: string,
     msgOptions?: MessageOptions,
     preResolved?: { provider: AgentProvider; modelId: string },
+    imagePaths?: string[],
   ): void {
     const isFirstMessage = this.messageCount === 1;
 
@@ -386,66 +360,49 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       ? { provider: null as AgentProvider | null, modelId: "" }
       : (preResolved ?? resolveProvider(msgOptions?.model));
 
-    // Pre-generate a session ID for CLI continuity
-    if (!this.cliSessionId) {
-      this.cliSessionId = crypto.randomUUID();
-      this._metadata.claudeSessionId = this.cliSessionId;
+    const runnerSelection = this.runnerFactory({
+      cwd: this.cwd,
+      content,
+      msgOptions,
+      resolved: preResolved ?? (provider ? { provider, modelId } : undefined),
+      testCommand: this.testCommand,
+      isFirstMessage,
+      systemPrompt: this.systemPrompt,
+      skipPermissions: this.skipPermissions,
+      browserEnv: this.browserEnv,
+      sessionKind: this.sessionKind,
+      providerSessionId: this.cliSessionId,
+      imagePaths,
+      existingCodexAppServerRunner: this.codexAppServerRunner,
+    });
+    if (runnerSelection.providerSessionId && !this.cliSessionId) {
+      this.setProviderSessionId(runnerSelection.providerSessionId);
+    }
+    if (runnerSelection.cachedCodexAppServerRunner) {
+      this.codexAppServerRunner = runnerSelection.cachedCodexAppServerRunner;
     }
 
-    let command: string;
-    let args: string[];
-    let env: Record<string, string> | undefined;
-    let stdinContent: string | undefined;
-
-    if (this.testCommand) {
-      // Test mode: use raw command (e.g. "bash") — no provider
-      command = this.testCommand;
-      args = ["-c", `echo '{"type":"result","session_id":"test","duration_ms":0}'`];
-      env = undefined;
-    } else {
-      command = provider!.command;
-
-      // For providers without a native system-prompt flag (Codex, Gemini),
-      // prepend the system prompt to the first user message content.
-      let cliContent = content;
-      if (isFirstMessage && this.systemPrompt && provider!.id !== "claude") {
-        cliContent = `<context>\n${this.systemPrompt}\n</context>\n\n${content}`;
-      }
-
-      args = provider!.buildArgs(cliContent, { ...msgOptions, model: modelId }, {
-        isFirstMessage,
-        sessionId: this.cliSessionId,
-        systemPrompt: this.systemPrompt,
-        skipPermissions: this.skipPermissions,
-      });
-      if (provider!.id === "codex") {
-        stdinContent = cliContent;
-      }
-      env = {
-        ...(provider!.buildEnv({ ...msgOptions, model: modelId }) ?? {}),
-        ...(this.browserEnv ?? {}),
-      };
-    }
-
-    const supportsBlockingTools = provider?.capabilities.blockingTools ?? false;
+    const useCodexAppServer = runnerSelection.protocol === "codex_app_server";
+    const supportsBlockingTools = runnerSelection.supportsBlockingTools;
 
     if (DEBUG_AGENT_LOGS) {
-      console.log(`[session] spawn ${command}`, {
-        provider: provider?.id ?? "test",
-        model: modelId || undefined,
+      console.log(`[session] start runner ${runnerSelection.debug.command}`, {
+        provider: runnerSelection.providerId ?? "test",
+        model: runnerSelection.modelId || undefined,
         msgOptions,
-        args: args.filter((a) => a !== content && !a.includes("You are")),
+        args: runnerSelection.debug.args.filter((a) => a !== content && !a.includes("You are")),
       });
     }
 
-    this.parser = this.testCommand
-      ? new StreamParser()
-      : provider!.createStreamAdapter();
+    const runner = runnerSelection.runner;
+    runner.removeAllListeners();
+    this.runner = runner;
 
     // Reset in-progress streaming accumulators
     this._streamText = "";
     this._streamThinking = "";
     this._streamToolCalls = [];
+    this._streamAgentActivities = [];
     this._agentPlanMode = false;
     let resultDurationMs: number | undefined;
     let resultInputTokens: number | undefined;
@@ -453,138 +410,51 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let lastStderr: string | undefined;
     const emittedDiagnostics = new Set<string>();
 
-    const pendingTaskStack: string[] = [];
+    const normalizer = new AgentEventNormalizer();
     const blockingToolNames = new Set(["AskUserQuestion", "ExitPlanMode"]);
     let killedForBlockingTool = false;
 
-    this.parser.on("assistant", (data) => {
+    runner.on("assistant", (data) => {
       const blockTypes = data.message.content.map((b) => b.type);
       if (DEBUG_AGENT_LOGS) {
         console.log("[session] assistant blocks:", blockTypes, JSON.stringify(data.message.content).slice(0, 500));
       }
-      for (const block of data.message.content) {
-        switch (block.type) {
-          case "text":
-            this._streamText += block.text;
-            this.emit("message", { type: "text_delta", sessionId: this.sessionId, text: block.text });
-            break;
-          case "thinking":
-            this._streamThinking += block.thinking;
-            this.emit("message", { type: "thinking", sessionId: this.sessionId, text: block.thinking });
-            break;
-          case "tool_use":
-          case "server_tool_use":
-          case "mcp_tool_use": {
-            // server_tool_use is emitted for Anthropic server-side tools (web_search, web_fetch, etc.).
-            // mcp_tool_use is emitted for MCP server tools.
-            // Map server/mcp tool names to their Claude Code equivalents for the frontend.
-            const displayName = block.type === "server_tool_use"
-              ? (serverToolNameMap[block.name] ?? block.name)
-              : block.name;
-            const inputStr = typeof block.input === "string"
-              ? block.input
-              : JSON.stringify(block.input, null, 2);
-            const parentToolUseId = pendingTaskStack.length > 0
-              ? pendingTaskStack[pendingTaskStack.length - 1]
-              : undefined;
-            const existingTool = this._streamToolCalls.find((t) => t.id === block.id);
-            if (existingTool) {
-              existingTool.input = inputStr;
-            } else {
-              this._streamToolCalls.push({ id: block.id, name: displayName, input: inputStr, parentToolUseId });
-              this.emit("message", {
-                type: "tool_use",
-                sessionId: this.sessionId,
-                id: block.id,
-                name: displayName,
-                input: inputStr,
-                parentToolUseId,
-              });
-            }
-
-            if (block.name === "Task" || block.name === "Agent") {
-              pendingTaskStack.push(block.id);
-            }
-
-            // Emit plan mode state changes for UI auto-toggle
-            if (block.name === "EnterPlanMode" || block.name === "ExitPlanMode") {
-              this._agentPlanMode = block.name === "EnterPlanMode";
-              this.emit("message", {
-                type: "plan_mode_changed",
-                sessionId: this.sessionId,
-                active: this._agentPlanMode,
-              } as WsOutgoing);
-            }
-
-            // Only intercept blocking tools for providers that support them
-            if (supportsBlockingTools && blockingToolNames.has(block.name) && this.process) {
-              killedForBlockingTool = true;
-              this._lastBlockingToolUseId = block.id;
-              this.process.kill("SIGKILL");
-            }
-            break;
-          }
-          case "redacted_thinking":
-            // Safety-redacted thinking — opaque encrypted data, just note it happened.
-            this._streamThinking += "[redacted]\n";
-            break;
-          case "web_search_tool_result":
-          case "web_fetch_tool_result":
-          case "bash_code_execution_tool_result":
-          case "text_editor_code_execution_tool_result":
-          case "mcp_tool_result": {
-            // Server-side and MCP tool results arrive as assistant content blocks,
-            // not as user tool_result messages. Forward them as tool_result events.
-            const output = formatServerToolResult(block);
-            const tc = this._streamToolCalls.find((t) => t.id === block.tool_use_id);
-            if (tc) tc.output = output;
-            this.emit("message", {
-              type: "tool_result",
-              sessionId: this.sessionId,
-              toolUseId: block.tool_use_id,
-              output,
-            });
-            break;
-          }
+      for (const event of normalizer.handleAssistant(data)) {
+        const usage = this.handleNormalizedAgentEvent(event, { supportsBlockingTools, blockingToolNames });
+        if (usage) {
+          resultInputTokens = usage.inputTokens;
+          resultOutputTokens = usage.outputTokens;
+        }
+        if (
+          event.type === "tool_started" &&
+          supportsBlockingTools &&
+          blockingToolNames.has(event.rawName) &&
+          this.runner?.forceKill?.()
+        ) {
+          killedForBlockingTool = true;
+          this._lastBlockingToolUseId = event.id;
         }
       }
+    });
 
-      // Capture token usage from assistant message events (deduplicated: last write wins)
-      const usage = data.message.usage;
+    runner.on("user", (data) => {
+      for (const event of normalizer.handleUser(data)) {
+        this.handleNormalizedAgentEvent(event, { supportsBlockingTools, blockingToolNames });
+      }
+    });
+
+    runner.on("agent_event", (event) => {
+      const usage = this.handleNormalizedAgentEvent(event, { supportsBlockingTools, blockingToolNames });
       if (usage) {
-        resultInputTokens =
-          usage.input_tokens +
-          (usage.cache_creation_input_tokens ?? 0) +
-          (usage.cache_read_input_tokens ?? 0);
-        resultOutputTokens = usage.output_tokens;
+        resultInputTokens = usage.inputTokens;
+        resultOutputTokens = usage.outputTokens;
       }
     });
 
-    this.parser.on("user", (data) => {
-      for (const block of data.message.content) {
-        if (block.type === "tool_result") {
-          const stackTop = pendingTaskStack[pendingTaskStack.length - 1];
-          if (stackTop && stackTop === block.tool_use_id) {
-            pendingTaskStack.pop();
-          }
-
-          const tc = this._streamToolCalls.find((t) => t.id === block.tool_use_id);
-          if (tc) tc.output = block.content;
-          this.emit("message", {
-            type: "tool_result",
-            sessionId: this.sessionId,
-            toolUseId: block.tool_use_id,
-            output: block.content,
-          });
-        }
-      }
-    });
-
-    this.parser.on("result", (data) => {
+    runner.on("result", (data) => {
       // Capture session/thread ID from first result for continuity
       if (data.session_id && !this.cliSessionId) {
-        this.cliSessionId = data.session_id;
-        this._metadata.claudeSessionId = data.session_id;
+        this.setProviderSessionId(data.session_id);
       }
       if (data.duration_ms != null) {
         resultDurationMs = data.duration_ms;
@@ -602,34 +472,63 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       }
     });
 
-    this.parser.on("system", () => {
+    runner.on("system", () => {
       // System messages — no action needed
     });
 
-    this.parser.on("error", (err) => {
+    runner.on("error", (err) => {
+      if (!useCodexAppServer) {
+        this._status = "error";
+        this._streamingStartedAt = null;
+        this.runner = null;
+      }
       this.emit("error", err);
     });
 
-    this.process = spawn(command, args, {
-      cwd: this.cwd,
-      stdio: ["pipe", "pipe", "pipe"],
-      ...(this.testCommand ? {} : { env: buildWorkspaceEnv(env) }),
-    });
+    if (useCodexAppServer) {
+      let finalized = false;
+      const finish = (exitCode: number, failureDetail?: string) => {
+        if (finalized) return;
+        finalized = true;
+        this.finalizeTurn({
+          exitCode,
+          killedForBlockingTool,
+          lastStderr,
+          failureDetail,
+          resultDurationMs,
+          resultInputTokens,
+          resultOutputTokens,
+          blockingToolNames,
+        });
+      };
 
-    this.process.stdin?.end(stdinContent);
+      runner.once("result", (data) => {
+        const status = data.status ?? "completed";
+        if (status === "completed") {
+          finish(this.stopReason ? 1 : 0);
+          return;
+        }
+        if (status === "interrupted") {
+          const failureDetail = this.stopReason
+            ? undefined
+            : (data.error ?? "Codex app-server turn was interrupted.");
+          finish(1, failureDetail);
+          return;
+        }
+        finish(1, data.error ?? `Codex app-server turn ended with status "${status}".`);
+      });
+      runner.once("error", (err) => {
+        lastStderr = sanitizeErrorDetail(err.message);
+        finish(1);
+      });
+      runnerSelection.start();
+      return;
+    }
 
-    this.process.stdout?.on("data", (chunk: Buffer) => {
-      this.parser?.write(chunk.toString("utf-8"));
-    });
-
-    this.process.stderr?.on("data", (chunk: Buffer) => {
-      const text = chunk.toString("utf-8").trim();
-      if (!text) return;
+    runner.on("stderr", ({ text, classification }) => {
       const stderrLine = `stderr: ${sanitizeErrorDetail(text)}`;
-      const stderrClassification = classifyProviderStderr(provider?.id, text);
-      if (stderrClassification === "suppress") return;
       lastStderr = stderrLine;
-      if (stderrClassification === "diagnostic") {
+      if (classification === "diagnostic") {
         const diagnosticKey = stderrLine;
         if (emittedDiagnostics.has(diagnosticKey)) return;
         emittedDiagnostics.add(diagnosticKey);
@@ -647,149 +546,363 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       this.emit("message", { type: "error", message: stderrLine, sessionId: this.sessionId } as WsOutgoing);
     });
 
-    this.process.on("error", (err) => {
-      this._status = "error";
-      this._streamingStartedAt = null;
-      this.process = null;
-      this.parser = null;
-      this.emit("error", err);
+    runner.on("exit", (code, providerSessionId) => {
+      if (providerSessionId) {
+        this.setProviderSessionId(providerSessionId);
+      }
+
+      this.finalizeTurn({
+        exitCode: code ?? 1,
+        killedForBlockingTool,
+        lastStderr,
+        resultDurationMs,
+        resultInputTokens,
+        resultOutputTokens,
+        blockingToolNames,
+      });
     });
+    runnerSelection.start();
+  }
 
-    this.process.on("close", (code) => {
-      this.parser?.flush();
-
-      // For Codex: capture thread_id from the stream adapter for session continuity
-      if (this.parser instanceof CodexStreamAdapter && this.parser.capturedThreadId) {
-        this.cliSessionId = this.parser.capturedThreadId;
-        this._metadata.claudeSessionId = this.parser.capturedThreadId;
+  private handleNormalizedAgentEvent(
+    event: NormalizedAgentEvent,
+    _context: { supportsBlockingTools: boolean; blockingToolNames: Set<string> },
+  ): { inputTokens: number; outputTokens: number } | undefined {
+    switch (event.type) {
+      case "text_delta":
+        this._streamText += event.text;
+        this.emit("message", { type: "text_delta", sessionId: this.sessionId, text: event.text });
+        break;
+      case "thinking_delta":
+        this._streamThinking += event.text;
+        this.emit("message", { type: "thinking", sessionId: this.sessionId, text: event.text });
+        break;
+      case "tool_started":
+        this.upsertToolCall(event.id, event.name, event.input, event.parentToolUseId);
+        break;
+      case "tool_updated": {
+        const tc = this._streamToolCalls.find((t) => t.id === event.id);
+        if (tc) tc.input = event.input;
+        break;
       }
-
-      // For Gemini: capture session_id from the init event for --resume continuity
-      if (this.parser instanceof GeminiStreamAdapter && this.parser.capturedSessionId) {
-        this.cliSessionId = this.parser.capturedSessionId;
-        this._metadata.claudeSessionId = this.parser.capturedSessionId;
-      }
-
-      const exitCode = code ?? 1;
-      const wasCancelled = exitCode !== 0 && this._status === "streaming" && !killedForBlockingTool;
-      const capturedStopReason = this.stopReason;
-      const capturedStreamingStart = this._streamingStartedAt;
-      const cancelledByPark = wasCancelled && capturedStopReason === "park";
-      const shouldSurfaceCancelled = wasCancelled && !cancelledByPark;
-      const cancellationErrorDetail = shouldSurfaceCancelled
-        ? buildCancellationErrorDetail(exitCode, lastStderr)
-        : undefined;
-
-      this._status = (exitCode === 0 || killedForBlockingTool) ? "idle" : "error";
-      this._streamingStartedAt = null;
-      this.stopReason = null;
-      this.process = null;
-      this.parser = null;
-
-      if (this._streamText || this._streamToolCalls.length > 0 || this._streamThinking || shouldSurfaceCancelled) {
-        const assistantMsg: ChatMessage = {
-          id: nanoid(12),
+      case "tool_completed":
+        this.completeToolCall(event.id, event.output);
+        break;
+      case "plan_mode_changed":
+        this._agentPlanMode = event.active;
+        this.emit("message", {
+          type: "plan_mode_changed",
           sessionId: this.sessionId,
-          role: "assistant",
-          content: this._streamText || (shouldSurfaceCancelled ? CANCELLED_NO_OUTPUT_MESSAGE : ""),
-          toolCalls: this._streamToolCalls.length > 0 ? this._streamToolCalls : undefined,
-          thinkingContent: this._streamThinking || undefined,
-          timestamp: new Date().toISOString(),
-          cancelled: shouldSurfaceCancelled || undefined,
-          errorDetail: cancellationErrorDetail,
-          durationMs: resultDurationMs,
-          inputTokens: resultInputTokens,
-          outputTokens: resultOutputTokens,
-        };
-        void this.enqueuePersist(assistantMsg);
-      }
+          active: this._agentPlanMode,
+        } as WsOutgoing);
+        break;
+      case "redacted_thinking":
+        this._streamThinking += event.text;
+        break;
+      case "usage_updated":
+        return { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+      case "command_execution_updated":
+        this.handleCommandExecutionEvent(event);
+        break;
+      case "file_change_updated":
+        this.handleFileChangeEvent(event);
+        break;
+      case "plan_updated":
+        this.handlePlanUpdateEvent(event);
+        break;
+      case "diagnostic":
+        this.handleDiagnosticEvent(event);
+        break;
+    }
+    return undefined;
+  }
 
-      this._metadata.messageCount = this.messageCount;
-      this._metadata.updatedAt = new Date().toISOString();
-      this.persistQueue = this.persistQueue
-        .then(() => this.saveMetadata())
-        .catch((err) => console.error("[session] Persist metadata failed:", err));
-
-      const unansweredBlockingTools = killedForBlockingTool
-        ? this._streamToolCalls.filter((tc) => blockingToolNames.has(tc.name))
-        : [];
-
-      // Free accumulated streaming data now that the assistant message has been enqueued for persistence.
-      this._streamText = "";
-      this._streamThinking = "";
-      this._streamToolCalls = [];
-      this._agentPlanMode = false;
-
-      const pendingToolName = unansweredBlockingTools.length > 0
-        ? unansweredBlockingTools[0]!.name
-        : undefined;
-
-      void (async () => {
-        try {
-          await this.persistQueue;
-          if (shouldSurfaceCancelled) {
-            const cancelDurationMs = resultDurationMs
-              ?? (capturedStreamingStart ? Date.now() - capturedStreamingStart : undefined);
-            this.emit("message", {
-              type: "cancelled",
-              sessionId: this.sessionId,
-              errorDetail: cancellationErrorDetail,
-              userInitiated: capturedStopReason === "user",
-              durationMs: cancelDurationMs,
-            });
-          } else if (!cancelledByPark) {
-            this.emit("message", {
-              type: "done",
-              sessionId: this.sessionId,
-              durationMs: resultDurationMs,
-              inputTokens: resultInputTokens,
-              outputTokens: resultOutputTokens,
-              pendingToolName,
-            });
-          }
-
-          for (const tool of unansweredBlockingTools) {
-            let input: unknown;
-            try {
-              input = JSON.parse(tool.input);
-            } catch {
-              input = {};
-            }
-            this.emit("message", {
-              type: "tool_input_required",
-              sessionId: this.sessionId,
-              requestId: nanoid(12),
-              toolName: tool.name,
-              toolUseId: tool.id,
-              input,
-            });
-          }
-        } finally {
-          this.emit("exit", exitCode);
-        }
-      })();
+  private upsertToolCall(id: string, name: string, input: string, parentToolUseId?: string): void {
+    const existing = this._streamToolCalls.find((t) => t.id === id);
+    if (existing) {
+      existing.name = name;
+      existing.input = input;
+      if (parentToolUseId !== undefined) existing.parentToolUseId = parentToolUseId;
+      return;
+    }
+    this._streamToolCalls.push({ id, name, input, parentToolUseId });
+    this.emit("message", {
+      type: "tool_use",
+      sessionId: this.sessionId,
+      id,
+      name,
+      input,
+      parentToolUseId,
     });
+  }
+
+  private completeToolCall(id: string, output: string): void {
+    const tc = this._streamToolCalls.find((t) => t.id === id);
+    if (tc) tc.output = output;
+    this.emit("message", {
+      type: "tool_result",
+      sessionId: this.sessionId,
+      toolUseId: id,
+      output,
+    });
+  }
+
+  private upsertAgentActivity(activity: AgentActivity): void {
+    const index = this._streamAgentActivities.findIndex((item) => item.id === activity.id);
+    const next = cloneAgentActivity(activity);
+    if (index >= 0) {
+      this._streamAgentActivities[index] = next;
+    } else {
+      this._streamAgentActivities.push(next);
+    }
+    this.emit("message", {
+      type: "agent_activity",
+      sessionId: this.sessionId,
+      activity: next,
+    });
+  }
+
+  private handleCommandExecutionEvent(event: Extract<NormalizedAgentEvent, { type: "command_execution_updated" }>): void {
+    const existingActivity = this._streamAgentActivities.find(
+      (activity): activity is Extract<AgentActivity, { kind: "command_execution" }> =>
+        activity.id === event.id && activity.kind === "command_execution",
+    );
+    const output = event.output !== undefined
+      ? event.output
+      : event.outputDelta !== undefined
+        ? `${existingActivity?.output ?? ""}${event.outputDelta}`
+        : existingActivity?.output;
+    const commandActions = event.commandActions ?? existingActivity?.commandActions;
+    const activity = {
+      id: event.id,
+      kind: "command_execution",
+      command: event.command ?? existingActivity?.command,
+      cwd: event.cwd ?? existingActivity?.cwd,
+      status: event.status ?? existingActivity?.status,
+      output,
+      exitCode: event.exitCode ?? existingActivity?.exitCode,
+      durationMs: event.durationMs ?? existingActivity?.durationMs,
+      commandActions,
+    } satisfies Extract<AgentActivity, { kind: "command_execution" }>;
+    this.upsertAgentActivity(activity);
+
+    const existing = this._streamToolCalls.find((t) => t.id === event.id);
+    const hasInputUpdate =
+      event.command !== undefined ||
+      event.cwd !== undefined ||
+      event.status !== undefined ||
+      event.exitCode !== undefined ||
+      event.durationMs !== undefined ||
+      event.commandActions !== undefined;
+
+    if (!existing || hasInputUpdate) {
+      const tool = commandExecutionActivityToToolCall({
+        ...activity,
+        parentToolUseId: existing?.parentToolUseId,
+      });
+      this.upsertToolCall(tool.id, tool.name, tool.input, tool.parentToolUseId);
+    }
+
+    const tc = this._streamToolCalls.find((t) => t.id === event.id);
+    const nextOutput = event.output ?? `${tc?.output ?? ""}${event.outputDelta ?? ""}`;
+    if (event.outputDelta !== undefined || event.output !== undefined || event.exitCode !== undefined) {
+      this.completeToolCall(event.id, nextOutput || formatNormalizedExitCode(event.exitCode));
+    }
+  }
+
+  private handleFileChangeEvent(event: Extract<NormalizedAgentEvent, { type: "file_change_updated" }>): void {
+    const existingActivity = this._streamAgentActivities.find(
+      (activity): activity is Extract<AgentActivity, { kind: "file_change" }> =>
+        activity.id === event.id && activity.kind === "file_change",
+    );
+    const files = normalizeActivityFiles(event, existingActivity?.files);
+    this.upsertAgentActivity({
+      id: event.id,
+      kind: "file_change",
+      status: event.status ?? existingActivity?.status,
+      files,
+    });
+
+    const combinedDiff = files.map((file) => file.diff).filter(Boolean).join("\n");
+    const input = JSON.stringify({
+      filename: files[0]?.path ?? event.path ?? "",
+      diff: combinedDiff || event.diff || "",
+      status: event.status,
+      files,
+    });
+    this.upsertToolCall(event.id, "Edit", input);
+    if (combinedDiff || event.diff || event.status) {
+      this.completeToolCall(event.id, combinedDiff || event.diff || event.status || "");
+    }
+  }
+
+  private handlePlanUpdateEvent(event: Extract<NormalizedAgentEvent, { type: "plan_updated" }>): void {
+    this.upsertAgentActivity({
+      id: event.id,
+      kind: "plan_update",
+      steps: event.steps,
+    });
+  }
+
+  private handleDiagnosticEvent(event: Extract<NormalizedAgentEvent, { type: "diagnostic" }>): void {
+    this.upsertAgentActivity({
+      id: event.id,
+      kind: "diagnostic",
+      severity: event.severity,
+      title: event.title,
+      message: event.message,
+      source: event.source,
+      method: event.method,
+      details: event.details,
+    });
+  }
+
+  private finalizeTurn({
+    exitCode,
+    killedForBlockingTool,
+    lastStderr,
+    failureDetail,
+    resultDurationMs,
+    resultInputTokens,
+    resultOutputTokens,
+    blockingToolNames,
+  }: {
+    exitCode: number;
+    killedForBlockingTool: boolean;
+    lastStderr?: string;
+    failureDetail?: string;
+    resultDurationMs?: number;
+    resultInputTokens?: number;
+    resultOutputTokens?: number;
+    blockingToolNames: Set<string>;
+  }): void {
+    const wasCancelled = !failureDetail && exitCode !== 0 && this._status === "streaming" && !killedForBlockingTool;
+    const capturedStopReason = this.stopReason;
+    const capturedStreamingStart = this._streamingStartedAt;
+    const cancelledByPark = wasCancelled && capturedStopReason === "park";
+    const shouldSurfaceCancelled = wasCancelled && !cancelledByPark;
+    const cancellationErrorDetail = shouldSurfaceCancelled
+      ? buildCancellationErrorDetail(exitCode, lastStderr)
+      : undefined;
+
+    this._status = (exitCode === 0 || killedForBlockingTool) ? "idle" : "error";
+    this._streamingStartedAt = null;
+    this.stopReason = null;
+    this.runner = null;
+
+    if (
+      this._streamText ||
+      this._streamToolCalls.length > 0 ||
+      this._streamAgentActivities.length > 0 ||
+      this._streamThinking ||
+      shouldSurfaceCancelled
+    ) {
+      const assistantMsg: ChatMessage = {
+        id: nanoid(12),
+        sessionId: this.sessionId,
+        role: "assistant",
+        content: this._streamText || (shouldSurfaceCancelled ? CANCELLED_NO_OUTPUT_MESSAGE : ""),
+        toolCalls: this._streamToolCalls.length > 0 ? this._streamToolCalls : undefined,
+        agentActivities: this._streamAgentActivities.length > 0
+          ? this._streamAgentActivities.map(cloneAgentActivity)
+          : undefined,
+        thinkingContent: this._streamThinking || undefined,
+        timestamp: new Date().toISOString(),
+        cancelled: shouldSurfaceCancelled || undefined,
+        errorDetail: cancellationErrorDetail,
+        durationMs: resultDurationMs,
+        inputTokens: resultInputTokens,
+        outputTokens: resultOutputTokens,
+      };
+      void this.enqueuePersist(assistantMsg);
+    }
+
+    this._metadata.messageCount = this.messageCount;
+    this._metadata.updatedAt = new Date().toISOString();
+    this.persistQueue = this.persistQueue
+      .then(() => this.saveMetadata())
+      .catch((err) => console.error("[session] Persist metadata failed:", err));
+
+    const unansweredBlockingTools = killedForBlockingTool
+      ? this._streamToolCalls.filter((tc) => blockingToolNames.has(tc.name))
+      : [];
+
+    this._streamText = "";
+    this._streamThinking = "";
+    this._streamToolCalls = [];
+    this._streamAgentActivities = [];
+    this._agentPlanMode = false;
+
+    const pendingToolName = unansweredBlockingTools.length > 0
+      ? unansweredBlockingTools[0]!.name
+      : undefined;
+
+    void (async () => {
+      try {
+        await this.persistQueue;
+        if (shouldSurfaceCancelled) {
+          const cancelDurationMs = resultDurationMs
+            ?? (capturedStreamingStart ? Date.now() - capturedStreamingStart : undefined);
+          this.emit("message", {
+            type: "cancelled",
+            sessionId: this.sessionId,
+            errorDetail: cancellationErrorDetail,
+            userInitiated: capturedStopReason === "user",
+            durationMs: cancelDurationMs,
+          });
+        } else if (failureDetail) {
+          this.emit("message", {
+            type: "error",
+            sessionId: this.sessionId,
+            message: failureDetail,
+          });
+        } else if (!cancelledByPark) {
+          this.emit("message", {
+            type: "done",
+            sessionId: this.sessionId,
+            durationMs: resultDurationMs,
+            inputTokens: resultInputTokens,
+            outputTokens: resultOutputTokens,
+            pendingToolName,
+          });
+        }
+
+        for (const tool of unansweredBlockingTools) {
+          let input: unknown;
+          try {
+            input = JSON.parse(tool.input);
+          } catch {
+            input = {};
+          }
+          this.emit("message", {
+            type: "tool_input_required",
+            sessionId: this.sessionId,
+            requestId: nanoid(12),
+            toolName: tool.name,
+            toolUseId: tool.id,
+            input,
+          });
+        }
+      } finally {
+        this.emit("exit", exitCode);
+      }
+    })();
   }
 
   /** Stop the currently streaming process. */
   stop(reason: StopReason = "user"): void {
-    if (!this.process) {
+    if (reason === "park" && this.codexAppServerRunner && this.runner !== this.codexAppServerRunner) {
+      this.codexAppServerRunner.close?.();
+      this.codexAppServerRunner = null;
+    }
+
+    if (!this.runner) {
       this.emit("exit", 0);
       return;
     }
+
     this.stopReason = reason;
-
-    this.process.kill("SIGTERM");
-
-    const timer = setTimeout(() => {
-      try {
-        this.process?.kill("SIGKILL");
-      } catch {
-        // Already exited
-      }
-    }, 5000);
-
-    this.process.on("close", () => clearTimeout(timer));
+    this.runner.stop(reason);
   }
 
   /** Respond to an interactive tool input (AskUserQuestion, ExitPlanMode).

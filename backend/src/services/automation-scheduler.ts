@@ -225,6 +225,7 @@ export class AutomationScheduler {
       sessionId: run.sessionId,
       systemPrompt: systemPrompt ? systemPrompt + SUMMARY_INSTRUCTION : undefined,
       skipPermissions: true,
+      sessionKind: "automation",
     });
 
     this.activeRuns.set(autoId, { run, session });

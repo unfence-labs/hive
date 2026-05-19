@@ -78,6 +78,10 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/services/automation-scheduler.ts`: cron-based automation executor (croner, ConversationSession, summary extraction, git context injection, notifications)
 - `backend/src/agents/conversation-session.ts`: agent process lifecycle per turn (provider-aware)
 - `backend/src/agents/stream-parser.ts`: NDJSON parser for Claude CLI `--output-format stream-json --verbose`
+- `backend/src/agents/agent-event-normalizer.ts`: provider event normalization into Hive stream events and activity updates
+- `backend/src/agents/runners/factory.ts`: runner selection (`codex` chat -> App Server, Codex automation -> process runner)
+- `backend/src/agents/runners/process-agent-runner.ts`: CLI process runner for Claude, Gemini, and Codex exec automations
+- `backend/src/agents/runners/codex-app-server-runner.ts`: Codex App Server turn runner and stop/interruption lifecycle
 - `backend/src/agents/agent-manager.ts`: in-memory session registry, persistence, switching, notification dispatch
 - `backend/src/agents/naming.ts`: branch + session auto-naming via dedicated Claude subprocess
 - `backend/src/agents/system-prompt.ts`: system prompt construction — `DEFAULT_BASE_PROMPT`, `loadBasePrompt()`, `getGitContext()`, `formatGitContextBlock()`, `buildSystemPrompt()` with template variable interpolation (`{PROJECT}`, `{DIR}`, `{DEFAULT_BRANCH}`)
@@ -85,6 +89,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/agents/providers/registry.ts`: CLI detection, model ID resolution (`"claude:opus-4-7"`), model catalog builder, npm package version tracking
 - `backend/src/agents/providers/claude.ts`: Claude provider (CLI args, env, `--effort` flag for reasoning effort)
 - `backend/src/agents/providers/codex.ts`: Codex provider (`codex exec` CLI args, thread resume)
+- `backend/src/agents/providers/codex-app-server.ts`: long-lived JSON-RPC bridge for interactive Codex chat over `codex app-server`
 - `backend/src/agents/providers/codex-stream-adapter.ts`: Codex JSONL->StreamParserEvent normalizer for assistant text/thinking, tool calls, native todo lists, file changes, token usage, and non-fatal diagnostics
 - `backend/src/agents/providers/gemini.ts`: Gemini provider (`gemini -p` CLI args, `-o stream-json`, session resume via `-r`)
 - `backend/src/agents/providers/gemini-stream-adapter.ts`: Gemini NDJSON->StreamParserEvent normalizer with tool name mapping (`run_shell_command`->`Bash`, `read_file`->`Read`, etc.)
@@ -112,8 +117,8 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 ### Important backend behavior
 
 - Conversation turns use the provider abstraction: `conversation-session.ts` resolves the provider from compound model IDs (e.g. `"claude:opus-4-7"`, `"codex:o3-pro"`, `"gemini:gemini-3.1-pro-preview"`) via `resolveProvider()` and delegates CLI arg building, env config, and stream parsing to the matched provider.
-- Claude provider uses `--print --output-format stream-json -p`. Codex provider uses `codex exec --json`. Gemini provider uses `gemini -p -o stream-json`.
-- Session continuity: Claude uses `--session-id` and `--resume`; Codex uses `--thread-id`; Gemini uses `-r <sessionId>`.
+- Claude provider uses `--print --output-format stream-json -p`. Codex interactive chat uses `codex app-server`. Codex automations use `codex exec --json`. Gemini provider uses `gemini -p -o stream-json`.
+- Session continuity: Claude uses `--session-id` and `--resume`; interactive Codex chat persists the App Server thread id as `providerSessionId` and resumes with `thread/resume`; Codex exec automations use `--thread-id`; Gemini uses `-r <sessionId>`.
 - Provider is locked per session after the first message (`lockedProvider`). Subsequent messages validate against it. The lock is broadcast via WS status events.
 - Pre-multi-model sessions (created before provider support) default to `"claude"` when they have messages but no `lockedProvider`.
 - Blocking tools (`AskUserQuestion`, `ExitPlanMode`) are intercepted and surfaced as `tool_input_required`. Only providers with `blockingTools` capability support this.
@@ -132,6 +137,10 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Stream parser silences `rate_limit_event` CLI events (logged server-side with structured rate_limit_info diagnostics, not forwarded to clients).
 - Codex stderr is classified before surfacing to clients: known operational noise is suppressed, websocket metadata encoding failures are emitted inline as `CodexDiagnostic` tool calls, and unknown stderr remains an error.
 - Codex native JSONL items are normalized to the shared tool protocol: `todo_list` becomes `TodoList`, item-level `error` becomes `CodexDiagnostic`, file changes become `Edit`, and repeated item updates reuse the same tool id while updating the tool result.
+- Codex App Server events are normalized into `AgentActivity` records for command execution, file changes, plan updates, and diagnostics. These are emitted through additive `agent_activity` WS events while `tool_use`/`tool_result` compatibility is preserved.
+- Unsupported Codex App Server notifications are surfaced as deduplicated diagnostic activities. Unsupported non-approval App Server requests are answered with explicit JSON-RPC errors and surfaced as diagnostic error activities. Command/file approvals are auto-accepted according to Hive's current no-approval policy.
+- Codex App Server close/reject paths clear transient process state, including unpersisted thread ids. If an App Server process is force-closed before `providerSessionId` is persisted, the next turn starts a fresh thread instead of trying to resume a stale in-memory thread id. Stale `turn/completed` events are ignored when another active turn has already started.
+- `providerSessionId` is the canonical persisted provider thread/session id. `claudeSessionId` remains as a compatibility shim for older session metadata.
 - Server-side tool blocks (`server_tool_use`, `web_search_tool_result`, `web_fetch_tool_result`, `bash_code_execution_tool_result`, `text_editor_code_execution_tool_result`) are mapped to standard `tool_use`/`tool_result` WS events with display-name normalization (`web_search`->`WebSearch`, `web_fetch`->`WebFetch`, `bash_code_execution`->`Bash`, `text_editor_code_execution`->`Edit`).
 - MCP tool blocks (`mcp_tool_use`, `mcp_tool_result`) and `redacted_thinking` are also handled.
 - Image attachments are resized via sharp (max 1568px, JPEG q80) and stored as files on disk, served via HTTP (`/api/workspaces/:wsId/sessions/:sessionId/attachments/:filename`).
@@ -167,7 +176,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/pages/settings/CustomAgentsSettings.tsx`: master-detail global custom agent editor — provider tabs, validated Markdown/TOML editors, provider-specific delete, explicit counterpart creation
 - `frontend/src/components/settings/`: shared settings editor frame, resource list, provider status primitives, and selection helpers
 - `frontend/src/contexts/WorkspaceLiveDataContext.tsx`: React context for `useWorkspaceLiveData` — provides per-session unread tracking, `clearUnread(wsId, sessionId?)`
-- `frontend/src/hooks/useConversation.ts`: reducer-driven WS conversation state + tool responses + `lockedProvider` tracking
+- `frontend/src/hooks/useConversation.ts`: reducer-driven WS conversation state + tool responses + `lockedProvider` tracking + late live-fragment guards
 - `frontend/src/hooks/useSessions.ts`: list/create/activate/delete sessions (max 4)
 - `frontend/src/hooks/useWorkspaceLiveData.ts`: live status/branch/diff/script data from WS + per-session unread tracking (`unreadBySession`)
 - `frontend/src/hooks/useModels.ts`: model catalog fetch, selection, provider-aware locking
@@ -209,6 +218,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/components/WorkspacePathCopyButton.tsx`: workspace header path-copy action with tooltip and transient copied state
 - `frontend/src/components/ChatInput.tsx`: message input with provider-adaptive controls, `#` file autocomplete with `MentionHighlightOverlay`, Commit & Push quick action, context ring, message queue display, `appendText` ref for paste-from-diff
 - `frontend/src/components/ChatConversation.tsx`: conversation display with hydration flash fix (visibility:hidden + double-rAF settle)
+- `frontend/src/components/chat/AgentActivityList.tsx`: rich activity renderer for Codex App Server command execution, file changes, plan updates, and diagnostics
 - `frontend/src/components/PrStatusSection.tsx`: enriched PR display (13 states)
 - `frontend/src/components/TaskTracker.tsx`: collapsible status bar showing active tasks + background agents with shimmer animation
 - `frontend/src/components/AutomationRunLogSheet.tsx`: slide-over sheet for full automation run conversation log with collapsible system prompt banner
@@ -232,12 +242,14 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 
 - The frontend supports a configurable server URL (Settings > Connection) for remote backend connectivity. All API calls (`useApi.ts`) and WebSockets (`ws-transport.ts`) resolve the base URL via `getServerUrl()` from `useServerUrl.ts`.
 - The app maintains a single hub WS connection; `wsTransport.syncWorkspaces` sends `sync_workspaces` with the full workspace ID set to the backend.
-- `useConversation` hydrates from REST history and resolves stale replay races with request tokens. It also tracks `lockedProvider` from WS status events.
+- `useConversation` hydrates from REST history, resolves stale replay races with request tokens, and ignores late live fragments after a terminal assistant message. It also tracks `lockedProvider` from WS status events.
 - Session tabs support create/switch/delete (max 4 sessions) with live message replay, per-session streaming indicators, and per-session unread badges.
 - Chat input dynamically adapts controls based on the selected provider's capabilities: a unified thinking-level cycler reads the supported list from `capabilities.thinkingLevels` (Claude: low/medium/high/xhigh/max via `--effort`; Codex: none/minimal/low/medium/high/xhigh via `model_reasoning_effort`; Gemini: `[]` → hidden), plan mode hidden when unsupported, `/` and `@` autocomplete gated by `completions` capability, `#` file mention autocomplete with fuzzy matching.
 - Chat input supports image attachments (paste/drag-drop/picker), Commit & Push quick action button, and context window usage ring.
 - Message queue: users can type and submit one follow-up while the agent is streaming. Queued message renders with dashed border and "Queued" label, auto-dispatches on turn complete.
 - Plan proposals render inline in chat. `PlanActionBar` floats above the input with Copy, Hand-off (creates new session with plan content), and Approve. Backend emits `plan_mode_changed` WS events on `EnterPlanMode`/`ExitPlanMode` for automatic UI sync.
+- Codex App Server activity rendering uses the generic `AgentActivityList`; it reuses existing chat components (`ContentPanel`, `DiffView`, badges/icons) and filters redundant compatibility tool calls from display.
+- Diagnostic activities make unsupported App Server notifications/requests visible in the chat stream so protocol coverage can be implemented incrementally.
 - Sub-agent Task tool calls render as collapsible `SubAgentNode` cards with type-specific icons, nested child tool trees, and result footers. Background agents tracked separately in `TaskTracker`.
 - Sidebar: org/repo two-tone project headers (lowercase), build/automation tabs, dashed primary border for active workspace, sidebar collapse via toggle or Cmd/Ctrl+B, workspace count/add button toggle on hover.
 - PR status: single polling source — `useBulkPrStatus` polls and seeds per-workspace TanStack Query cache; `usePrStatus` reads from cache only (no independent timer), eliminating drift.
@@ -257,12 +269,13 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 
 - `HiveMobile/HiveApp.swift`: app entry point + `AppDelegate` adapter + `CompletedWorkspacesStore` merge on launch
 - `HiveMobile/Models/Models.swift`: data models (ChatMessage, ToolCall, Workspace, ModelCatalogEntry, etc.)
+- `HiveMobile/Models/AgentActivity.swift`: normalized agent activity models for Codex App Server command execution, file changes, plan updates, diagnostics, and unknown fallback
 - `HiveMobile/Models/WebSocketTypes.swift`: WS protocol types (mirrors `backend/src/types.ts`)
 - `HiveMobile/Services/APIClient.swift`: REST API client (includes `/api/models`, `/api/workspaces/:wsId/pr-status`, bulk PR status, device token registration)
 - `HiveMobile/Services/ImageCache.swift`: image caching
 - `HiveMobile/Services/AppDelegate.swift`: push notification registration (APNs), device token forwarding to backend, notification tap routing
 - `HiveMobile/Services/CompletedWorkspacesStore.swift`: `@Observable` singleton bridging push notification taps to `HubStatusMonitor`, persists pending IDs across kills via UserDefaults
-- `HiveMobile/Stores/ConversationStore.swift`: chat state (mirrors `useConversation.ts`) + `lockedProvider` tracking + per-session plan mode + `send` closure for WS outgoing
+- `HiveMobile/Stores/ConversationStore.swift`: chat state (mirrors `useConversation.ts`) + `lockedProvider` tracking + per-session plan mode + late live-fragment guards + `send` closure for WS outgoing
 - `HiveMobile/Stores/ConversationStoreCache.swift`: app-level cache of ConversationStore instances keyed by workspace ID, survives navigation
 - `HiveMobile/Stores/ChatDraftStore.swift`: draft message persistence (includes `selectedModelId`, `thinkingLevel`)
 - `HiveMobile/Stores/ProjectStore.swift`: project list state (accepts `ConversationStoreCache` at init)
@@ -272,6 +285,10 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `HiveMobile/Views/Chat/ChatView.swift`: conversation UI + provider locking + model selection + per-session plan mode
 - `HiveMobile/Views/Chat/ChatInputBar.swift`: input bar with provider-adaptive controls (thinking-level cycler) + context ring
 - `HiveMobile/Views/Chat/MessageBubble.swift`: message + tool call rendering + `#file`/`@agent` mention highlighting + copy-to-clipboard button
+- `HiveMobile/Views/Chat/AgentActivityList.swift`: SwiftUI renderer for `agent_activity` command execution, file changes, plan updates, diagnostics, and unknown activities
+- `HiveMobile/Views/Chat/DiffRendering.swift`: shared chat diff line parsing/rendering used by tool-call diffs and agent file-change activities
+- `HiveMobile/Views/Chat/ChatActivityChrome.swift`: shared chat activity content panel primitives
+- `HiveMobile/Views/Chat/ChatFormatting.swift`: shared chat formatting helpers
 - `HiveMobile/Views/Chat/ToolInputSheet.swift`: AskUserQuestion + ExitPlanMode interactive sheets
 - `HiveMobile/Views/Chat/SessionSheet.swift`: session switching (max 4 sessions)
 - `HiveMobile/Views/Chat/ContextRingView.swift`: SwiftUI context ring with matching color thresholds
@@ -296,6 +313,10 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - **ChatView receives its store as a parameter** from the cache (via `HiveApp`'s `navigationDestination`). No per-view WS — all sends go through `store.send` closure wired to `WorkspaceConnection`.
 - **Turn-completed badge**: `HubStatusMonitor.completedWorkspaces` tracks workspaces where a `done` event fired. `WorkspaceCard` shows a green `StatusDot`. Cleared when `ChatView` opens (via `clearCompleted`). `viewingWorkspaceId` prevents false positives when user is already in chat.
 - Tool rendering mirrors the frontend: same tool names, same icon mapping, same hierarchical display (parentToolUseId).
+- Codex App Server `agent_activity` events are decoded and stored per streaming session. Activities are upserted by id, persisted into finalized `ChatMessage.agentActivities`, and rendered through `AgentActivityList`.
+- Compatibility `tool_use` / `tool_result` events remain supported on iOS, but `MessageBubble` filters tool calls whose ids are already represented by an `AgentActivity` to avoid duplicate command/file/plan rows.
+- Late live fragments after `done`/`cancelled` must not recreate a ghost stream; `ConversationStore` only accepts live text/thinking/tool/activity/plan events when a stream slot already exists, and ignores late `tool_input_required` after a terminal assistant message.
+- Unknown WS event types decode to `.unknown` instead of visible chat errors. Unknown agent activity kinds render as an unsupported activity row.
 - AskUserQuestion renders as a paginated form sheet with multi-select support. Dismissed questions show "CANCELLED" badge.
 - ExitPlanMode renders as a markdown preview with approve/reject actions.
 - Chat drafts are persisted per-workspace and restored on app relaunch (includes `selectedModelId`, `thinkingLevel`).

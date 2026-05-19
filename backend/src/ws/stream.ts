@@ -215,6 +215,13 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             });
           }
         }
+        for (const activity of snapshot.agentActivities) {
+          sendToHub(hub, workspaceId, {
+            type: "agent_activity",
+            sessionId: sid,
+            activity,
+          });
+        }
         if (snapshot.agentPlanMode) {
           sendToHub(hub, workspaceId, { type: "plan_mode_changed", sessionId: sid, active: true });
         }

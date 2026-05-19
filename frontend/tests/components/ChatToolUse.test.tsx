@@ -53,6 +53,30 @@ describe("ChatToolUse", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("renders Codex unified diffs for Edit tools", async () => {
+    const user = userEvent.setup();
+    render(
+      <ChatToolUse
+        tool={tool({
+          name: "Edit",
+          input: JSON.stringify({
+            filename: "src/app.ts",
+            diff: "--- a/src/app.ts\n+++ b/src/app.ts\n@@\n-before\n+after",
+          }),
+          output: "--- a/src/app.ts\n+++ b/src/app.ts\n@@\n-before\n+after",
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /edit/i }));
+
+    expect(screen.getByText(/--- a\/src\/app\.ts/)).toBeInTheDocument();
+    expect(screen.getByText("Path: src/app.ts")).toBeInTheDocument();
+    expect(screen.getByText(/\+after/)).toHaveClass("text-green-400");
+    expect(screen.getByText(/-before/)).toHaveClass("text-red-400");
+    expect(screen.queryByText("Output")).not.toBeInTheDocument();
+  });
+
   it("shows executing state and truncates long bash command in the summary", async () => {
     const user = userEvent.setup();
     const longCommand =
@@ -79,6 +103,35 @@ describe("ChatToolUse", () => {
     await user.click(screen.getByRole("button", { name: /bash/i }));
     expect(screen.getByText(/\$ echo 123456789012345678901234567890123456789012345678901234/)).toBeInTheDocument();
     expect(screen.getByText(/Run diagnostics/)).toBeInTheDocument();
+  });
+
+  it("renders bash exit metadata and failure indicator", async () => {
+    const user = userEvent.setup();
+    render(
+      <ChatToolUse
+        tool={tool({
+          input: JSON.stringify({
+            command: "npm test",
+            cwd: "/tmp/project",
+            status: "failed",
+            exitCode: 1,
+            durationMs: 2400,
+          }),
+          output: "failed\n",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Bash")).toBeInTheDocument();
+    expect(screen.getByText("npm test")).toBeInTheDocument();
+    expect(screen.queryByText("exit 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("2.4s")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Bash failed with exit code 1")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /bash/i }));
+
+    expect(screen.getByText(/\$ npm test/)).toBeInTheDocument();
+    expect(screen.getByText(/cwd: \/tmp\/project/)).toBeInTheDocument();
   });
 
   it("renders object output as JSON instead of crashing", async () => {

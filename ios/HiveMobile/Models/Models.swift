@@ -166,6 +166,7 @@ struct BulkPrStatusResponse: Codable {
 
 struct SessionMetadata: Codable, Identifiable {
     let sessionId: String
+    let providerSessionId: String?
     let claudeSessionId: String?
     let workspaceId: String
     let title: String?
@@ -233,17 +234,21 @@ struct ChatMessage: Codable, Identifiable {
     let images: [ImageAttachment]?
     let fileMentions: [FileMention]?
     let toolCalls: [ToolCall]?
+    let agentActivities: [AgentActivity]?
     let thinkingContent: String?
     let timestamp: String
     let cancelled: Bool?
+    let errorDetail: String?
     let durationMs: Int?
     let inputTokens: Int?
     let outputTokens: Int?
 
     init(id: String, sessionId: String, role: MessageRole, content: String,
          images: [ImageAttachment]?, fileMentions: [FileMention]? = nil,
-         toolCalls: [ToolCall]?, thinkingContent: String?,
-         timestamp: String, cancelled: Bool?, durationMs: Int?,
+         toolCalls: [ToolCall]?, agentActivities: [AgentActivity]? = nil,
+         thinkingContent: String?,
+         timestamp: String, cancelled: Bool?, errorDetail: String? = nil,
+         durationMs: Int?,
          inputTokens: Int? = nil, outputTokens: Int? = nil) {
         self.id = id
         self.sessionId = sessionId
@@ -252,9 +257,11 @@ struct ChatMessage: Codable, Identifiable {
         self.images = images
         self.fileMentions = fileMentions
         self.toolCalls = toolCalls
+        self.agentActivities = agentActivities
         self.thinkingContent = thinkingContent
         self.timestamp = timestamp
         self.cancelled = cancelled
+        self.errorDetail = errorDetail
         self.durationMs = durationMs
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
@@ -269,9 +276,11 @@ struct ChatMessage: Codable, Identifiable {
         images = try container.decodeIfPresent([ImageAttachment].self, forKey: .images)
         fileMentions = try container.decodeIfPresent([FileMention].self, forKey: .fileMentions)
         toolCalls = try container.decodeIfPresent([ToolCall].self, forKey: .toolCalls)
+        agentActivities = try container.decodeIfPresent([AgentActivity].self, forKey: .agentActivities)
         thinkingContent = try container.decodeIfPresent(String.self, forKey: .thinkingContent)
         timestamp = try container.decode(String.self, forKey: .timestamp)
         cancelled = try container.decodeIfPresent(Bool.self, forKey: .cancelled)
+        errorDetail = try container.decodeIfPresent(String.self, forKey: .errorDetail)
         // durationMs may arrive as Int or Double from the backend
         if let intVal = try? container.decodeIfPresent(Int.self, forKey: .durationMs) {
             durationMs = intVal
@@ -297,8 +306,8 @@ struct ChatMessage: Codable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, sessionId, role, content, images, fileMentions, toolCalls
-        case thinkingContent, timestamp, cancelled, durationMs
+        case id, sessionId, role, content, images, fileMentions, toolCalls, agentActivities
+        case thinkingContent, timestamp, cancelled, errorDetail, durationMs
         case inputTokens, outputTokens
     }
 }

@@ -14,6 +14,8 @@ vi.mock("node:child_process", () => ({
 import { spawn } from "node:child_process";
 import { ConversationSession } from "./conversation-session.js";
 import * as providerRegistry from "./providers/registry.js";
+import type { AgentRunnerFactory } from "./runners/factory.js";
+import type { AgentRunner, AgentRunnerEvent } from "./runners/types.js";
 
 const mockSpawn = vi.mocked(spawn);
 
@@ -33,6 +35,7 @@ function createMockProcess() {
     _stdout: ReturnType<typeof createMockStream>;
     _stderr: ReturnType<typeof createMockStream>;
     _stdinEnd: ReturnType<typeof vi.fn>;
+    _stdinWrite: ReturnType<typeof vi.fn>;
     kill: ReturnType<typeof vi.fn>;
     pid: number;
     _emitClose: (code: number) => void;
@@ -42,7 +45,12 @@ function createMockProcess() {
   proc.stdout = proc._stdout as unknown as ChildProcess["stdout"];
   proc.stderr = proc._stderr as unknown as ChildProcess["stderr"];
   proc._stdinEnd = vi.fn();
-  proc.stdin = { end: proc._stdinEnd } as unknown as ChildProcess["stdin"];
+  proc._stdinWrite = vi.fn();
+  proc.stdin = {
+    end: proc._stdinEnd,
+    write: proc._stdinWrite,
+    writable: true,
+  } as unknown as ChildProcess["stdin"];
   proc.pid = 12345;
   proc.kill = vi.fn(() => true);
   proc._emitClose = (code: number) => proc.emit("close", code);
@@ -91,6 +99,76 @@ async function waitForMessages(
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   return messages.filter((msg) => msg.type === type);
+}
+
+async function waitForStdinMethod(
+  proc: ReturnType<typeof createMockProcess>,
+  method: string,
+  occurrence = 1,
+): Promise<{ id: number; method: string; params?: unknown }> {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    let seen = 0;
+    for (const call of proc._stdinWrite.mock.calls) {
+      const raw = String(call[0]).trim();
+      if (!raw) continue;
+      try {
+        const parsed = JSON.parse(raw) as { id?: number; method?: string; params?: unknown };
+        if (parsed.method === method && typeof parsed.id === "number") {
+          seen++;
+          if (seen >= occurrence) {
+            return { id: parsed.id, method, params: parsed.params };
+          }
+        }
+      } catch {
+        // Ignore partial or non-JSON writes in tests.
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for ${method}`);
+}
+
+function appServerResponse(id: number, result: unknown): string {
+  return JSON.stringify({ id, result }) + "\n";
+}
+
+function appServerNotification(method: string, params: unknown): string {
+  return JSON.stringify({ method, params }) + "\n";
+}
+
+function countStdinMethod(proc: ReturnType<typeof createMockProcess>, method: string): number {
+  return proc._stdinWrite.mock.calls.filter((call) => {
+    try {
+      return (JSON.parse(String(call[0]).trim()) as { method?: string }).method === method;
+    } catch {
+      return false;
+    }
+  }).length;
+}
+
+function getStdinMethod(
+  proc: ReturnType<typeof createMockProcess>,
+  method: string,
+  occurrence = 1,
+): { id: number; method: string; params?: unknown } {
+  let seen = 0;
+  for (const call of proc._stdinWrite.mock.calls) {
+    const raw = String(call[0]).trim();
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw) as { id?: number; method?: string; params?: unknown };
+      if (parsed.method === method && typeof parsed.id === "number") {
+        seen++;
+        if (seen >= occurrence) {
+          return { id: parsed.id, method, params: parsed.params };
+        }
+      }
+    } catch {
+      // Ignore partial or non-JSON writes in tests.
+    }
+  }
+  throw new Error(`Missing ${method}`);
 }
 
 function geminiInitLine(sessionId: string, model = "gemini-3.1-pro-preview"): string {
@@ -142,9 +220,10 @@ describe("ConversationSession", () => {
   beforeEach(() => {
     mockProc = createMockProcess();
     mockSpawn.mockReturnValue(mockProc);
+    providerRegistry.markProviderAvailable("codex", { appServer: true });
   });
 
-  function createSession(opts?: { sessionId?: string; command?: string; skipPermissions?: boolean }) {
+  function createSession(opts?: { sessionId?: string; command?: string; skipPermissions?: boolean; sessionKind?: "chat" | "automation" }) {
     return new ConversationSession({
       cwd: "/tmp/test",
       dataDir: tempDir,
@@ -152,8 +231,403 @@ describe("ConversationSession", () => {
       sessionId: opts?.sessionId,
       command: opts?.command,
       skipPermissions: opts?.skipPermissions,
+      sessionKind: opts?.sessionKind,
     });
   }
+
+  it("can orchestrate a turn with an injected fake runner", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("assistant", {
+        type: "assistant",
+        message: {
+          id: "msg-fake",
+          role: "assistant",
+          content: [{ type: "text", text: "fake reply" }],
+        },
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-fake", duration_ms: 9 });
+      fakeRunner.emit("exit", 0, "provider-fake");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "claude",
+      modelId: "opus-4-7",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-fake",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "fake-runner-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hello fake");
+
+    const done = await waitForMessages(messages, "done");
+    expect(done).toHaveLength(1);
+    expect(messages).toContainEqual({
+      type: "text_delta",
+      sessionId: "fake-runner-session",
+      text: "fake reply",
+    });
+    expect(session.metadata.providerSessionId).toBe("provider-fake");
+    expect(mockSpawn).not.toHaveBeenCalled();
+  });
+
+  it("preserves command metadata when output-only updates stream in", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "command_execution_updated",
+        id: "cmd-1",
+        command: "npm test",
+        cwd: "/tmp/test",
+        status: "inProgress",
+      });
+      fakeRunner.emit("agent_event", {
+        type: "command_execution_updated",
+        id: "cmd-1",
+        outputDelta: "ok\n",
+        output: "ok\n",
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-cmd", duration_ms: 4 });
+      fakeRunner.emit("exit", 0, "provider-cmd");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-cmd",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "command-metadata-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Run command");
+
+    await waitForMessages(messages, "done");
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    const commandInput = JSON.parse(assistant?.toolCalls?.[0]?.input ?? "{}") as { command?: string; cwd?: string };
+
+    expect(commandInput).toMatchObject({
+      command: "npm test",
+      cwd: "/tmp/test",
+    });
+    expect(assistant?.toolCalls?.[0]?.output).toBe("ok\n");
+  });
+
+  it("classifies Codex command action reads as Read compatibility tools", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "command_execution_updated",
+        id: "cmd-read",
+        command: "cat README.md",
+        cwd: "/tmp/test",
+        status: "inProgress",
+        commandActions: [{
+          type: "read",
+          command: "cat README.md",
+          name: "cat",
+          path: "/tmp/test/README.md",
+        }],
+      });
+      fakeRunner.emit("agent_event", {
+        type: "command_execution_updated",
+        id: "cmd-read",
+        output: "# Demo\n",
+        status: "completed",
+        exitCode: 0,
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-read", duration_ms: 4 });
+      fakeRunner.emit("exit", 0, "provider-read");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-read",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "command-read-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Read file");
+
+    await waitForMessages(messages, "done");
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    const tool = assistant?.toolCalls?.[0];
+    const input = JSON.parse(tool?.input ?? "{}") as { file_path?: string; command?: string };
+
+    expect(tool?.name).toBe("Read");
+    expect(tool?.output).toBe("# Demo\n");
+    expect(input).toMatchObject({
+      file_path: "/tmp/test/README.md",
+      command: "cat README.md",
+    });
+    expect(assistant?.agentActivities?.[0]).toMatchObject({
+      id: "cmd-read",
+      kind: "command_execution",
+      commandActions: [{
+        type: "read",
+        command: "cat README.md",
+        name: "cat",
+        path: "/tmp/test/README.md",
+      }],
+    });
+  });
+
+  it("streams and persists command activities while keeping tool compatibility events", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "command_execution_updated",
+        id: "cmd-rich",
+        command: "npm test",
+        cwd: "/tmp/test",
+        status: "inProgress",
+      });
+      fakeRunner.emit("agent_event", {
+        type: "command_execution_updated",
+        id: "cmd-rich",
+        outputDelta: "pass\n",
+      });
+      fakeRunner.emit("agent_event", {
+        type: "command_execution_updated",
+        id: "cmd-rich",
+        status: "completed",
+        exitCode: 0,
+        durationMs: 123,
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-rich", duration_ms: 123 });
+      fakeRunner.emit("exit", 0, "provider-rich");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-rich",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "command-activity-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Run command");
+
+    await waitForMessages(messages, "done");
+
+    const activities = messages.filter((msg) => msg.type === "agent_activity");
+    expect(activities).toHaveLength(3);
+    expect(activities.at(-1)).toEqual({
+      type: "agent_activity",
+      sessionId: "command-activity-session",
+      activity: {
+        id: "cmd-rich",
+        kind: "command_execution",
+        command: "npm test",
+        cwd: "/tmp/test",
+        status: "completed",
+        output: "pass\n",
+        exitCode: 0,
+        durationMs: 123,
+      },
+    });
+    expect(messages.some((msg) => msg.type === "tool_use" && msg.id === "cmd-rich")).toBe(true);
+    expect(messages.some((msg) => msg.type === "tool_result" && msg.toolUseId === "cmd-rich")).toBe(true);
+
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    expect(assistant?.agentActivities).toEqual([
+      {
+        id: "cmd-rich",
+        kind: "command_execution",
+        command: "npm test",
+        cwd: "/tmp/test",
+        status: "completed",
+        output: "pass\n",
+        exitCode: 0,
+        durationMs: 123,
+      },
+    ]);
+  });
+
+  it("preserves multi-file change activity details and persists them across reload", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "file_change_updated",
+        id: "files-rich",
+        status: "completed",
+        files: [
+          { path: "src/a.ts", diff: "--- a/src/a.ts\n+++ b/src/a.ts\n+one", kind: "update", status: "completed" },
+          { path: "src/b.ts", diff: "--- a/src/b.ts\n+++ b/src/b.ts\n-two", kind: "delete", status: "completed" },
+        ],
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-files" });
+      fakeRunner.emit("exit", 0, "provider-files");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-files",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "file-activity-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Edit files");
+
+    await waitForMessages(messages, "done");
+    const activityEvent = messages.find((msg) => msg.type === "agent_activity");
+    expect(activityEvent).toEqual({
+      type: "agent_activity",
+      sessionId: "file-activity-session",
+      activity: {
+        id: "files-rich",
+        kind: "file_change",
+        status: "completed",
+        files: [
+          { path: "src/a.ts", diff: "--- a/src/a.ts\n+++ b/src/a.ts\n+one", kind: "update", status: "completed" },
+          { path: "src/b.ts", diff: "--- a/src/b.ts\n+++ b/src/b.ts\n-two", kind: "delete", status: "completed" },
+        ],
+      },
+    });
+
+    const loaded = await ConversationSession.load({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "file-activity-session",
+    });
+    const assistant = (await loaded.getMessages()).find((msg) => msg.role === "assistant");
+    expect(assistant?.agentActivities?.[0]).toMatchObject({
+      id: "files-rich",
+      kind: "file_change",
+      files: [
+        { path: "src/a.ts", kind: "update" },
+        { path: "src/b.ts", kind: "delete" },
+      ],
+    });
+    const toolInput = JSON.parse(assistant?.toolCalls?.[0]?.input ?? "{}") as { files?: unknown[] };
+    expect(toolInput.files).toHaveLength(2);
+  });
+
+  it("streams and persists plan update activities", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "plan_updated",
+        id: "plan-rich",
+        steps: [
+          { text: "Inspect", status: "completed" },
+          { text: "Implement", status: "inProgress" },
+        ],
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-plan" });
+      fakeRunner.emit("exit", 0, "provider-plan");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-plan",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "plan-activity-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Plan");
+
+    await waitForMessages(messages, "done");
+    expect(messages).toContainEqual({
+      type: "agent_activity",
+      sessionId: "plan-activity-session",
+      activity: {
+        id: "plan-rich",
+        kind: "plan_update",
+        steps: [
+          { text: "Inspect", status: "completed" },
+          { text: "Implement", status: "inProgress" },
+        ],
+      },
+    });
+    const assistant = (await session.getMessages()).find((msg) => msg.role === "assistant");
+    expect(assistant?.agentActivities?.[0]).toMatchObject({ id: "plan-rich", kind: "plan_update" });
+    expect(assistant?.toolCalls).toBeUndefined();
+  });
 
   it("creates session with a sessionId", () => {
     const session = createSession();
@@ -302,6 +776,542 @@ describe("ConversationSession", () => {
     expect(resumeIdx).toBeGreaterThanOrEqual(0);
     expect(secondArgs[resumeIdx + 1]).toBe("gem-sess-123");
     expect(session.metadata.claudeSessionId).toBe("gem-sess-123");
+  });
+
+  it("uses Codex app-server for interactive Codex chat sessions", async () => {
+    const session = createSession({ sessionId: "codex-app-chat" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hello Codex", { model: "codex:gpt-5.5", thinkingLevel: "low" });
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      "codex",
+      ["app-server", "--listen", "stdio://"],
+      expect.objectContaining({ stdio: ["pipe", "pipe", "pipe"] }),
+    );
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    expect(threadStart.params).toMatchObject({
+      cwd: "/tmp/test",
+      approvalPolicy: "never",
+      sandbox: "danger-full-access",
+      model: "gpt-5.5",
+    });
+    mockProc._stdout.push(appServerResponse(threadStart.id, {
+      thread: { id: "thread-app-1" },
+    }));
+
+    const turnStart = await waitForStdinMethod(mockProc, "turn/start");
+    expect(turnStart.params).toMatchObject({
+      threadId: "thread-app-1",
+      cwd: "/tmp/test",
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "dangerFullAccess" },
+      model: "gpt-5.5",
+      effort: "low",
+    });
+    mockProc._stdout.push(appServerResponse(turnStart.id, {
+      turn: { id: "turn-1" },
+    }));
+
+    mockProc._stdout.push(appServerNotification("item/agentMessage/delta", {
+      threadId: "thread-app-1",
+      turnId: "turn-1",
+      itemId: "msg-1",
+      delta: "Hi from app-server",
+    }));
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-app-1",
+      turn: { id: "turn-1", durationMs: 42, status: "completed" },
+    }));
+
+    const done = await waitForMessages(messages, "done");
+    expect(done).toHaveLength(1);
+    expect(messages).toContainEqual({
+      type: "text_delta",
+      sessionId: "codex-app-chat",
+      text: "Hi from app-server",
+    });
+    expect(session.metadata.providerSessionId).toBe("thread-app-1");
+  });
+
+  it("falls back to codex exec when Codex app-server is not supported", () => {
+    providerRegistry.markProviderAvailable("codex", { appServer: false });
+    const session = createSession({ sessionId: "codex-no-app-server" });
+
+    session.sendMessage("Hello Codex", { model: "codex:gpt-5.5" });
+
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(mockSpawn.mock.calls[0][0]).toBe("codex");
+    expect(args[0]).toBe("exec");
+    expect(args).toContain("--json");
+    expect(args).not.toContain("app-server");
+
+    session.stop("park");
+    mockProc._emitClose(1);
+  });
+
+  it("surfaces failed Codex app-server turns as errors instead of done", async () => {
+    const session = createSession({ sessionId: "codex-app-failed-turn" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Fail please", { model: "codex:gpt-5.5" });
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, {
+      thread: { id: "thread-app-failed" },
+    }));
+
+    const turnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(turnStart.id, {
+      turn: { id: "turn-failed" },
+    }));
+
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-app-failed",
+      turn: {
+        id: "turn-failed",
+        durationMs: 7,
+        status: "failed",
+        error: {
+          message: "Codex failed",
+          additionalDetails: "backend exploded",
+        },
+      },
+    }));
+
+    const errors = await waitForMessages(messages, "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toEqual({
+      type: "error",
+      sessionId: "codex-app-failed-turn",
+      message: "Codex failed: backend exploded",
+    });
+    expect(messages.some((msg) => msg.type === "done")).toBe(false);
+    expect(messages.some((msg) => msg.type === "cancelled")).toBe(false);
+    expect(session.status).toBe("error");
+  });
+
+  it("waits for Codex app-server turn completion after protocol error notifications", async () => {
+    const session = createSession({ sessionId: "codex-app-error-notification" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Fail with notification", { model: "codex:gpt-5.5" });
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, {
+      thread: { id: "thread-app-error-notification" },
+    }));
+
+    const turnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(turnStart.id, {
+      turn: { id: "turn-error-notification" },
+    }));
+
+    mockProc._stdout.push(appServerNotification("error", {
+      threadId: "thread-app-error-notification",
+      turnId: "turn-error-notification",
+      error: {
+        message: "Rate limited",
+        additionalDetails: "try again later",
+      },
+      willRetry: false,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(messages.some((msg) => msg.type === "error")).toBe(false);
+    expect(messages.some((msg) => msg.type === "cancelled")).toBe(false);
+
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-app-error-notification",
+      turn: {
+        id: "turn-error-notification",
+        durationMs: 9,
+        status: "failed",
+        error: null,
+      },
+    }));
+
+    const errors = await waitForMessages(messages, "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toEqual({
+      type: "error",
+      sessionId: "codex-app-error-notification",
+      message: "Rate limited: try again later",
+    });
+    expect(messages.some((msg) => msg.type === "cancelled")).toBe(false);
+  });
+
+  it("treats Codex app-server interrupted turns without a local stop as errors", async () => {
+    const session = createSession({ sessionId: "codex-app-interrupted-without-stop" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Interrupt externally", { model: "codex:gpt-5.5" });
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, {
+      thread: { id: "thread-app-interrupted" },
+    }));
+
+    const turnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(turnStart.id, {
+      turn: { id: "turn-interrupted" },
+    }));
+
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-app-interrupted",
+      turn: { id: "turn-interrupted", durationMs: 8, status: "interrupted" },
+    }));
+
+    const errors = await waitForMessages(messages, "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toEqual({
+      type: "error",
+      sessionId: "codex-app-interrupted-without-stop",
+      message: "Codex app-server turn was interrupted.",
+    });
+    expect(messages.some((msg) => msg.type === "done")).toBe(false);
+    expect(messages.some((msg) => msg.type === "cancelled")).toBe(false);
+    expect(session.status).toBe("error");
+  });
+
+  it("reuses Codex app-server without duplicating stream listeners", async () => {
+    const session = createSession({ sessionId: "codex-app-reuse" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("First", { model: "codex:gpt-5.5" });
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, {
+      thread: { id: "thread-app-reuse" },
+    }));
+
+    const firstTurnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(firstTurnStart.id, {
+      turn: { id: "turn-1" },
+    }));
+    mockProc._stdout.push(appServerNotification("item/agentMessage/delta", {
+      threadId: "thread-app-reuse",
+      turnId: "turn-1",
+      itemId: "msg-1",
+      delta: "First answer",
+    }));
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-app-reuse",
+      turn: { id: "turn-1", durationMs: 10, status: "completed" },
+    }));
+
+    await waitForMessages(messages, "done");
+
+    session.sendMessage("Second", { model: "codex:gpt-5.5" });
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    const threadResume = await waitForStdinMethod(mockProc, "thread/resume");
+    expect(threadResume.params).toMatchObject({
+      threadId: "thread-app-reuse",
+      cwd: "/tmp/test",
+      approvalPolicy: "never",
+      sandbox: "danger-full-access",
+      model: "gpt-5.5",
+    });
+    mockProc._stdout.push(appServerResponse(threadResume.id, {
+      thread: { id: "thread-app-reuse" },
+    }));
+    expect(countStdinMethod(mockProc, "thread/resume")).toBe(1);
+
+    const secondTurnStart = await waitForStdinMethod(mockProc, "turn/start", 2);
+    expect(secondTurnStart.params).toMatchObject({
+      threadId: "thread-app-reuse",
+      input: [{ type: "text", text: "Second", text_elements: [] }],
+    });
+    mockProc._stdout.push(appServerResponse(secondTurnStart.id, {
+      turn: { id: "turn-2" },
+    }));
+    mockProc._stdout.push(appServerNotification("item/agentMessage/delta", {
+      threadId: "thread-app-reuse",
+      turnId: "turn-2",
+      itemId: "msg-2",
+      delta: "Second answer",
+    }));
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-app-reuse",
+      turn: { id: "turn-2", durationMs: 11, status: "completed" },
+    }));
+
+    await waitForMessages(messages, "done", 2);
+
+    const textDeltas = messages.filter(
+      (msg): msg is Extract<WsOutgoing, { type: "text_delta" }> => msg.type === "text_delta",
+    );
+    expect(textDeltas.map((msg) => msg.text)).toEqual(["First answer", "Second answer"]);
+  });
+
+  it("starts a new Codex app-server turn after an interrupted stop", async () => {
+    const session = createSession({ sessionId: "codex-app-stop-restart" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Long task", { model: "codex:gpt-5.5" });
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, {
+      thread: { id: "thread-after-stop" },
+    }));
+
+    const firstTurnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(firstTurnStart.id, {
+      turn: { id: "turn-stop-1" },
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    session.stop();
+
+    const interrupt = await waitForStdinMethod(mockProc, "turn/interrupt");
+    expect(interrupt.params).toMatchObject({
+      threadId: "thread-after-stop",
+      turnId: "turn-stop-1",
+    });
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-after-stop",
+      turn: { id: "turn-stop-1", durationMs: 12, status: "interrupted" },
+    }));
+
+    const cancelled = await waitForMessages(messages, "cancelled");
+    expect(cancelled).toHaveLength(1);
+
+    session.sendMessage("Second after stop", { model: "codex:gpt-5.5" });
+
+    const threadResume = await waitForStdinMethod(mockProc, "thread/resume");
+    expect(threadResume.params).toMatchObject({
+      threadId: "thread-after-stop",
+      sandbox: "danger-full-access",
+    });
+    mockProc._stdout.push(appServerResponse(threadResume.id, {
+      thread: { id: "thread-after-stop" },
+    }));
+
+    const secondTurnStart = await waitForStdinMethod(mockProc, "turn/start", 2);
+    expect(secondTurnStart.params).toMatchObject({
+      threadId: "thread-after-stop",
+      input: [{ type: "text", text: "Second after stop", text_elements: [] }],
+    });
+    mockProc._stdout.push(appServerResponse(secondTurnStart.id, {
+      turn: { id: "turn-stop-2" },
+    }));
+    mockProc._stdout.push(appServerNotification("item/agentMessage/delta", {
+      threadId: "thread-after-stop",
+      turnId: "turn-stop-2",
+      itemId: "msg-after-stop",
+      delta: "Restarted",
+    }));
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-after-stop",
+      turn: { id: "turn-stop-2", durationMs: 13, status: "completed" },
+    }));
+
+    const done = await waitForMessages(messages, "done");
+    expect(done).toHaveLength(1);
+    expect(messages).toContainEqual({
+      type: "text_delta",
+      sessionId: "codex-app-stop-restart",
+      text: "Restarted",
+    });
+  });
+
+  it("does not let a stale Codex app-server interrupt timeout close the next turn", async () => {
+    const session = createSession({ sessionId: "codex-app-stale-stop-timeout" });
+
+    session.sendMessage("Long task", { model: "codex:gpt-5.5" });
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, {
+      thread: { id: "thread-stale-timeout" },
+    }));
+
+    const firstTurnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(firstTurnStart.id, {
+      turn: { id: "turn-stale-1" },
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    vi.useFakeTimers();
+    try {
+      session.stop();
+
+      const interrupt = getStdinMethod(mockProc, "turn/interrupt");
+      expect(interrupt.params).toMatchObject({
+        threadId: "thread-stale-timeout",
+        turnId: "turn-stale-1",
+      });
+      mockProc._stdout.push(appServerNotification("turn/completed", {
+        threadId: "thread-stale-timeout",
+        turn: { id: "turn-stale-1", durationMs: 12, status: "interrupted" },
+      }));
+
+      expect(session.status).toBe("error");
+
+      session.sendMessage("Continue after first stop", { model: "codex:gpt-5.5" });
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+
+      try {
+        const threadResume = getStdinMethod(mockProc, "thread/resume");
+        mockProc._stdout.push(appServerResponse(threadResume.id, {
+          thread: { id: "thread-stale-timeout" },
+        }));
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+      } catch {
+        // The reused app-server already knows the thread when no provider session ID has been persisted yet.
+      }
+
+      const secondTurnStart = getStdinMethod(mockProc, "turn/start", 2);
+      mockProc._stdout.push(appServerResponse(secondTurnStart.id, {
+        turn: { id: "turn-stale-2" },
+      }));
+
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(mockProc.kill).not.toHaveBeenCalled();
+      expect(session.status).toBe("streaming");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts a fresh Codex app-server thread after a forced close before provider session persistence", async () => {
+    const session = createSession({ sessionId: "codex-app-forced-close-restart" });
+
+    session.sendMessage("Long task", { model: "codex:gpt-5.5" });
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, {
+      thread: { id: "thread-before-forced-close" },
+    }));
+
+    const firstTurnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(firstTurnStart.id, {
+      turn: { id: "turn-before-forced-close" },
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    vi.useFakeTimers();
+    try {
+      const forcedClose = new Promise<void>((resolve) => {
+        session.on("error", () => resolve());
+      });
+      session.stop();
+      await vi.advanceTimersByTimeAsync(5000);
+      await forcedClose;
+
+      expect(mockProc.kill).toHaveBeenCalledTimes(1);
+      expect(session.metadata.providerSessionId).toBeUndefined();
+      expect(session.status).toBe("error");
+      vi.useRealTimers();
+
+      const restartedProc = createMockProcess();
+      mockSpawn.mockReturnValue(restartedProc);
+
+      session.sendMessage("Continue after forced close", { model: "codex:gpt-5.5" });
+
+      const restartedInit = await waitForStdinMethod(restartedProc, "initialize");
+      restartedProc._stdout.push(appServerResponse(restartedInit.id, {
+        userAgent: "codex-test",
+        codexHome: "/tmp/codex",
+        platformFamily: "unix",
+        platformOs: "linux",
+      }));
+
+      const restartedThreadStart = await waitForStdinMethod(restartedProc, "thread/start");
+      expect(restartedThreadStart.params).toMatchObject({
+        cwd: "/tmp/test",
+        approvalPolicy: "never",
+        sandbox: "danger-full-access",
+        model: "gpt-5.5",
+      });
+      expect(countStdinMethod(restartedProc, "thread/resume")).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps Codex automations on codex exec JSONL", () => {
+    const session = createSession({ sessionId: "codex-auto", sessionKind: "automation" });
+
+    session.sendMessage("Run automation", { model: "codex:gpt-5.5" });
+
+    const args = mockSpawn.mock.calls[0][1] as string[];
+    expect(mockSpawn.mock.calls[0][0]).toBe("codex");
+    expect(args[0]).toBe("exec");
+    expect(args).toContain("--json");
+    expect(args).not.toContain("app-server");
   });
 
   it("emits text_delta for assistant text", () => {
@@ -620,7 +1630,7 @@ describe("ConversationSession", () => {
   });
 
   it("sends Codex prompt through stdin", () => {
-    const session = createSession({ sessionId: "codex-stdin" });
+    const session = createSession({ sessionId: "codex-stdin", sessionKind: "automation" });
 
     session.sendMessage("Hi Codex", { model: "codex:gpt-5.5" });
 
@@ -633,7 +1643,7 @@ describe("ConversationSession", () => {
   });
 
   it("suppresses known Codex stderr diagnostics", () => {
-    const session = createSession({ sessionId: "codex-stderr-noise" });
+    const session = createSession({ sessionId: "codex-stderr-noise", sessionKind: "automation" });
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
@@ -647,7 +1657,7 @@ describe("ConversationSession", () => {
   });
 
   it("surfaces Codex websocket metadata stderr as inline diagnostics", () => {
-    const session = createSession({ sessionId: "codex-stderr-diagnostic" });
+    const session = createSession({ sessionId: "codex-stderr-diagnostic", sessionKind: "automation" });
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
@@ -678,7 +1688,7 @@ describe("ConversationSession", () => {
   });
 
   it("still emits Codex stderr errors when message is not known noise", () => {
-    const session = createSession({ sessionId: "codex-stderr-real" });
+    const session = createSession({ sessionId: "codex-stderr-real", sessionKind: "automation" });
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
@@ -1200,6 +2210,51 @@ describe("ConversationSession", () => {
     expect(promptArg).toContain("image(s)");
     expect(promptArg).toContain("Read tool");
     expect(promptArg).toContain(".jpg");
+  });
+
+  it("sends Codex app-server images as native localImage inputs", async () => {
+    const session = createSession({ sessionId: "codex-img-native" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const images = [
+      { name: "pixel.png", mediaType: "image/png", dataUrl: `data:image/png;base64,${pngBase64}` },
+    ];
+
+    session.sendMessage("Look at this", { model: "codex:gpt-5.5" }, images);
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, {
+      thread: { id: "thread-codex-img" },
+    }));
+
+    const turnStart = await waitForStdinMethod(mockProc, "turn/start");
+    const params = turnStart.params as { input?: Array<Record<string, unknown>> };
+    expect(params.input).toHaveLength(2);
+    expect(params.input?.[0]).toEqual({ type: "text", text: "Look at this", text_elements: [] });
+    expect(params.input?.[0]?.text).not.toContain("Read tool");
+    expect(params.input?.[1]).toMatchObject({
+      type: "localImage",
+      path: expect.stringMatching(/codex-img-native\/attachments\/.+\.jpg$/),
+    });
+
+    mockProc._stdout.push(appServerResponse(turnStart.id, {
+      turn: { id: "turn-codex-img" },
+    }));
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-codex-img",
+      turn: { id: "turn-codex-img", durationMs: 5, status: "completed" },
+    }));
+    await waitForMessages(messages, "done");
   });
 
   it("uses fallback prompt when images are sent without text", async () => {

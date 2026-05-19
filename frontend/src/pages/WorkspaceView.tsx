@@ -219,6 +219,7 @@ export default function WorkspaceView() {
     currentStreamingText,
     currentThinking,
     activeToolCalls,
+    activeAgentActivities,
     pendingToolInputs,
     connectionStatus,
     error,
@@ -665,6 +666,7 @@ export default function WorkspaceView() {
               currentStreamingText={currentStreamingText}
               currentThinking={currentThinking}
               activeToolCalls={activeToolCalls}
+              activeAgentActivities={activeAgentActivities}
               pendingToolInputs={pendingToolInputs}
               onQuestionAnswer={answerQuestion}
               onFileMentionClick={handleFileTreeSelect}

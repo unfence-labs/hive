@@ -1,0 +1,23 @@
+import type { EventEmitter } from "node:events";
+import type { NormalizedAgentEvent } from "../agent-event-normalizer.js";
+import type { StreamParserEvent } from "../stream-parser.js";
+
+export type StopReason = "user" | "park";
+
+export type RunnerStderrEvent = {
+  text: string;
+  classification: "diagnostic" | "error";
+};
+
+export type AgentRunnerEvent = StreamParserEvent & {
+  agent_event: [event: NormalizedAgentEvent];
+  stderr: [event: RunnerStderrEvent];
+  exit: [code: number, providerSessionId?: string];
+};
+
+export type AgentRunner = EventEmitter<AgentRunnerEvent> & {
+  start(): void;
+  stop(reason: StopReason): void;
+  forceKill?(): boolean;
+  close?(): void;
+};

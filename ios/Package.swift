@@ -22,7 +22,6 @@ let package = Package(
                 "HiveApp.swift",
                 "HiveMobile.entitlements",
                 "Services",
-                "Stores/ConversationStore.swift",
                 "Stores/ConversationStoreCache.swift",
                 "Stores/HubStatusMonitor.swift",
                 "Stores/ModelCatalog.swift",
@@ -31,10 +30,13 @@ let package = Package(
                 "Views"
             ],
             sources: [
+                "Models/AgentActivity.swift",
                 "Models/Models.swift",
                 "Models/WebSocketTypes.swift",
                 "Stores/ChatDraftStore.swift",
+                "Stores/ConversationStore.swift",
                 "Stores/HubOrganization.swift",
+                "Stores/SubAgentStatus.swift",
                 "Stores/TaskDerivation.swift"
             ]
         ),

@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 interface DiffViewProps {
   oldText: string;
   newText: string;
+  unifiedDiff?: string;
   filePath?: string;
   className?: string;
   scrollClassName?: string;
@@ -19,11 +20,13 @@ function linePrefix(part: { added?: boolean; removed?: boolean }): string {
 export const DiffView = memo(function DiffView({
   oldText,
   newText,
+  unifiedDiff,
   filePath,
   className,
   scrollClassName,
 }: DiffViewProps) {
   const parts = useMemo(() => diffLines(oldText, newText), [oldText, newText]);
+  const unifiedLines = useMemo(() => unifiedDiff?.replace(/\n$/, "").split("\n") ?? [], [unifiedDiff]);
 
   return (
     <div className={className}>
@@ -31,7 +34,19 @@ export const DiffView = memo(function DiffView({
         <div className="mb-1.5 text-muted-foreground">Path: {filePath}</div>
       )}
       <div className={cn("overflow-auto rounded border border-border/30", scrollClassName ?? "max-h-64")}>
-        {parts.map((part, i) => {
+        {unifiedDiff ? unifiedLines.map((line, i) => (
+          <div
+            key={i}
+            className={cn(
+              "px-2 font-mono",
+              line.startsWith("+") && !line.startsWith("+++") && "bg-green-500/15 text-green-400",
+              line.startsWith("-") && !line.startsWith("---") && "bg-red-500/15 text-red-400",
+              line.startsWith("@@") && "bg-muted/60 text-muted-foreground",
+            )}
+          >
+            {line}
+          </div>
+        )) : parts.map((part, i) => {
           const lines = part.value.replace(/\n$/, "").split("\n");
           return lines.map((line, j) => (
             <div

@@ -1,7 +1,9 @@
 import { useState, memo, type ReactNode } from "react";
 import { diffLines } from "diff";
+import { XCircleIcon } from "lucide-react";
 import type { ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
+import { formatElapsed } from "@/lib/time";
 import { DiffView } from "@/components/diff/DiffView";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ContentPanel, ContentPanelBody, ContentPanelFooter } from "@/components/chat/ContentPanel";
@@ -106,6 +108,20 @@ function parseContentBlocks(output: string): string | null {
   }
 }
 
+function formatCommandMetadata(input: Record<string, unknown>): string | undefined {
+  const command = input.command as string | undefined;
+  const cwd = input.cwd as string | undefined;
+  const exitCode = input.exitCode as number | undefined;
+  const durationMs = input.durationMs as number | undefined;
+  const parts = [
+    command ? `$ ${command}` : undefined,
+    cwd ? `cwd: ${cwd}` : undefined,
+    exitCode !== undefined ? `exit ${exitCode}` : undefined,
+    durationMs !== undefined ? formatElapsed(durationMs) : undefined,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join("\n") : undefined;
+}
+
 interface ToolDisplay {
   icon: ReactNode;
   label: string;
@@ -138,7 +154,10 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
         label: lineInfo ? `Read ${lineInfo}` : "Read",
         detail: filename,
         expandedContent: filePath
-          ? `Path: ${filePath}${offset ? `\nOffset: ${offset}` : ""}${limit ? `\nLimit: ${limit}` : ""}`
+          ? [
+              `Path: ${filePath}${offset ? `\nOffset: ${offset}` : ""}${limit ? `\nLimit: ${limit}` : ""}`,
+              formatCommandMetadata(input),
+            ].filter(Boolean).join("\n\n")
           : "No file path specified",
       };
     }
@@ -148,17 +167,28 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
       const filename = filePath ? getFilename(filePath) : undefined;
       const oldString = input.old_string as string | undefined;
       const newString = input.new_string as string | undefined;
+      const diff = input.diff as string | undefined;
       return {
         icon: icons.pencil,
         label: "Edit",
         detail: filename,
         hideOutput: true,
-        expandedContent: filePath ? (
+        expandedContent: diff ? (
+          <DiffView
+            filePath={filePath}
+            oldText=""
+            newText=""
+            unifiedDiff={diff}
+            scrollClassName="max-h-96"
+          />
+        ) : filePath && (oldString !== undefined || newString !== undefined) ? (
           <DiffView
             filePath={filePath}
             oldText={oldString ?? ""}
             newText={newString ?? ""}
           />
+        ) : filePath ? (
+          `Path: ${filePath}\nNo diff available.`
         ) : (
           "No file path specified"
         ),
@@ -188,17 +218,27 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
     case "Bash": {
       const command = input.command as string | undefined;
       const description = input.description as string | undefined;
+      const cwd = input.cwd as string | undefined;
+      const exitCode = input.exitCode as number | undefined;
+      const durationMs = input.durationMs as number | undefined;
       const truncated =
         command && command.length > 50
           ? command.substring(0, 50) + "..."
           : command;
+      const metadata = [
+        cwd ? `cwd: ${cwd}` : undefined,
+        exitCode !== undefined ? `exit ${exitCode}` : undefined,
+        durationMs !== undefined ? formatElapsed(durationMs) : undefined,
+      ].filter(Boolean);
       return {
         icon: icons.terminal,
         label: "Bash",
         detail: truncated,
-        expandedContent: description
-          ? `${description}\n\n$ ${command}`
-          : `$ ${command ?? "(no command)"}`,
+        expandedContent: [
+          description,
+          `$ ${command ?? "(no command)"}`,
+          metadata.length > 0 ? metadata.join("\n") : undefined,
+        ].filter(Boolean).join("\n\n"),
       };
     }
 
@@ -212,7 +252,10 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
         detail: pattern
           ? `"${pattern}"${path ? ` in ${getFilename(path)}` : ""}`
           : undefined,
-        expandedContent: `Pattern: ${pattern ?? "(none)"}\nPath: ${path ?? "(cwd)"}${glob ? `\nGlob: ${glob}` : ""}`,
+        expandedContent: [
+          `Pattern: ${pattern ?? "(none)"}\nPath: ${path ?? "(cwd)"}${glob ? `\nGlob: ${glob}` : ""}`,
+          formatCommandMetadata(input),
+        ].filter(Boolean).join("\n\n"),
       };
     }
 
@@ -222,8 +265,11 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
       return {
         icon: icons.search,
         label: "Glob",
-        detail: pattern,
-        expandedContent: `Pattern: ${pattern ?? "(none)"}\nPath: ${path ?? "(cwd)"}`,
+        detail: pattern ?? path,
+        expandedContent: [
+          `Pattern: ${pattern ?? "(none)"}\nPath: ${path ?? "(cwd)"}`,
+          formatCommandMetadata(input),
+        ].filter(Boolean).join("\n\n"),
       };
     }
 
@@ -404,12 +450,37 @@ function getOutputSummary(tool: ToolCall): string | undefined {
   return undefined;
 }
 
+function getBashMetadata(tool: ToolCall): { exitCode?: number; failed: boolean } | null {
+  if (tool.name !== "Bash") return null;
+
+  try {
+    const input = JSON.parse(tool.input) as Record<string, unknown>;
+    const exitCode = typeof input.exitCode === "number" ? input.exitCode : undefined;
+    const status = typeof input.status === "string" ? input.status.toLowerCase() : "";
+    const failed = exitCode !== undefined ? exitCode !== 0 : status === "failed" || status === "error";
+    return { exitCode, failed };
+  } catch {
+    return null;
+  }
+}
+
+export function ToolExpandedContent({ content }: { content: ReactNode }) {
+  return typeof content === "string" ? (
+    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
+      {content}
+    </pre>
+  ) : (
+    content
+  );
+}
+
 const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: ChatToolUseProps) {
   const [expanded, setExpanded] = useState(false);
   const display = getToolDisplay(tool);
   const showExpanded = onClick ? false : expanded;
   const stats = !isExecuting ? getToolStats(tool) : null;
   const summary = !isExecuting && !showExpanded && !stats ? getOutputSummary(tool) : undefined;
+  const bashMetadata = !isExecuting ? getBashMetadata(tool) : null;
   const taskOutputText = tool.name === "Task" && tool.output
     ? parseContentBlocks(tool.output)
     : null;
@@ -423,6 +494,7 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
           isExecuting && "animate-shimmer",
         )}
         onClick={onClick ?? (() => setExpanded(!expanded))}
+        aria-expanded={onClick ? undefined : expanded}
       >
         <span className="shrink-0">{display.icon}</span>
         <span>{display.label}</span>
@@ -440,6 +512,16 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
         {stats?.type === "plain" && (
           <span className="truncate text-xs font-normal text-muted-foreground/60">{stats.label}</span>
         )}
+        {bashMetadata?.failed && (
+          <XCircleIcon
+            className="size-3.5 shrink-0 text-destructive"
+            aria-label={
+              bashMetadata.exitCode !== undefined
+                ? `Bash failed with exit code ${bashMetadata.exitCode}`
+                : "Bash failed"
+            }
+          />
+        )}
         {isExecuting && (
           <span className="flex items-center gap-1.5">
             <span className="inline-block size-1.5 animate-pulse rounded-full bg-primary" />
@@ -452,13 +534,7 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
       {showExpanded && (
         <ContentPanel>
           <ContentPanelBody>
-            {typeof display.expandedContent === "string" ? (
-              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
-                {display.expandedContent}
-              </pre>
-            ) : (
-              display.expandedContent
-            )}
+            <ToolExpandedContent content={display.expandedContent} />
           </ContentPanelBody>
           {tool.output !== undefined && !display.hideOutput && (
             <ContentPanelFooter>

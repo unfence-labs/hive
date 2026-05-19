@@ -17,6 +17,7 @@ import {
   markProviderAvailable,
   parseVersionFromOutput,
   getAllProviderInfo,
+  providerSupportsAppServer,
 } from "./registry.js";
 
 // Cast away the overloaded execFile signature so mockImplementation accepts simpler callbacks.
@@ -269,6 +270,50 @@ describe("detectAvailableProviders", () => {
     expect(providers.has("claude")).toBe(true);
     expect(providers.has("codex")).toBe(true);
     expect(providers.has("gemini")).toBe(true);
+    expect(providerSupportsAppServer("codex")).toBe(true);
+  });
+
+  it("keeps Codex available but disables App Server when the subcommand is missing", async () => {
+    mockExecFile.mockImplementation(
+      (cmd: string, args: string[], cb: (...a: unknown[]) => void) => {
+        if (cmd === "codex" && args[0] === "--version") {
+          cb(null, { stdout: "codex 0.2.5\n", stderr: "" });
+          return;
+        }
+        if (cmd === "codex" && args[0] === "app-server") {
+          cb(new Error("unknown command"), { stdout: "", stderr: "" });
+          return;
+        }
+        cb(new Error("not found"), { stdout: "", stderr: "" });
+      },
+    );
+
+    await detectAvailableProviders();
+
+    const catalog = getModelCatalog();
+    const providers = new Set(catalog.models.map((m) => m.provider));
+    expect(providers.has("codex")).toBe(true);
+    expect(providerSupportsAppServer("codex")).toBe(false);
+  });
+
+  it("marks Codex App Server support when the subcommand is available", async () => {
+    mockExecFile.mockImplementation(
+      (cmd: string, args: string[], cb: (...a: unknown[]) => void) => {
+        if (cmd === "codex" && args[0] === "--version") {
+          cb(null, { stdout: "codex 0.130.0\n", stderr: "" });
+          return;
+        }
+        if (cmd === "codex" && args[0] === "app-server") {
+          cb(null, { stdout: "Usage: codex app-server\n", stderr: "" });
+          return;
+        }
+        cb(new Error("not found"), { stdout: "", stderr: "" });
+      },
+    );
+
+    await detectAvailableProviders();
+
+    expect(providerSupportsAppServer("codex")).toBe(true);
   });
 
   it("ignores providers whose CLI is not found", async () => {
@@ -301,6 +346,16 @@ describe("markProviderAvailable", () => {
     const catalog = getModelCatalog();
     expect(catalog.models.length).toBeGreaterThan(0);
     expect(catalog.models.every((m) => m.provider === "claude")).toBe(true);
+  });
+
+  it("can mark Codex as available without App Server support", async () => {
+    mockNoProviderCli();
+    await detectAvailableProviders();
+
+    markProviderAvailable("codex", { appServer: false });
+
+    expect(getModelCatalog().models.some((m) => m.provider === "codex")).toBe(true);
+    expect(providerSupportsAppServer("codex")).toBe(false);
   });
 });
 

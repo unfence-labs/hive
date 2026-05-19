@@ -1,4 +1,8 @@
 import { EventEmitter } from "node:events";
+import {
+  commandExecutionActivityToToolCall,
+  normalizeAgentActivityCommandActions,
+} from "@hive/shared/agent-activity";
 import type { StreamParserEvent } from "../stream-parser.js";
 import type { StreamAdapter } from "./types.js";
 import { DEBUG_AGENT_LOGS } from "../../utils/env.js";
@@ -47,6 +51,7 @@ type CodexItem = UnknownRecord & {
   filename?: string;
   diff?: string;
   changes?: unknown;
+  command_actions?: unknown;
   items?: unknown;
 };
 
@@ -211,8 +216,9 @@ export class CodexStreamAdapter extends EventEmitter<StreamParserEvent> implemen
         this.flushPendingText();
         this.flushPendingThinking();
 
-        const toolName = TOOL_NAME_MAP[itemType] ?? itemType;
-        const input = this.buildToolInput(item);
+        const tool = this.buildTool(item, itemType);
+        const toolName = tool.name;
+        const input = tool.input;
 
         if (event.type === "item.started" || event.type === "item.updated") {
           if (itemType !== "file_change" || hasFileChangeDetails(item)) {
@@ -349,6 +355,24 @@ export class CodexStreamAdapter extends EventEmitter<StreamParserEvent> implemen
       default:
         return JSON.stringify(item);
     }
+  }
+
+  private buildTool(item: CodexItem, itemType: string): { name: string; input: string } {
+    if (itemType === "command_execution") {
+      const tool = commandExecutionActivityToToolCall({
+        id: this.itemId(item),
+        command: item.command ?? "",
+        status: item.status,
+        output: this.buildToolOutput(item),
+        exitCode: item.exit_code,
+        commandActions: normalizeAgentActivityCommandActions(item.command_actions),
+      });
+      return { name: tool.name, input: tool.input };
+    }
+    return {
+      name: TOOL_NAME_MAP[itemType] ?? itemType,
+      input: this.buildToolInput(item),
+    };
   }
 
   private buildToolOutput(item: CodexItem): string {

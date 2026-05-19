@@ -13,6 +13,14 @@ struct MessageBubble: View {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
     }
 
+    private var mergedToolCalls: [ToolCall] {
+        mergeToolCalls(message.toolCalls ?? [], with: message.agentActivities ?? [])
+    }
+
+    private var visibleActivities: [AgentActivity] {
+        visibleAgentActivities(message.agentActivities ?? [])
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             if message.role == .user { Spacer(minLength: 60) }
@@ -22,11 +30,22 @@ struct MessageBubble: View {
                     WhisperThinkingBlock(content: thinking)
                 }
 
-                if let tools = message.toolCalls, !tools.isEmpty {
-                    WhisperToolCallsBlock(toolCalls: tools, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
+                messageContent
+
+                let tools = mergedToolCalls
+                if message.role == .assistant, !tools.isEmpty {
+                    WhisperToolCallsBlock(
+                        toolCalls: tools,
+                        pendingToolUseIds: pendingToolUseIds,
+                        dismissedToolCallIds: dismissedToolCallIds,
+                        showExecutingState: message.id == "streaming"
+                    )
                 }
 
-                messageContent
+                let activities = visibleActivities
+                if message.role == .assistant, !activities.isEmpty {
+                    AgentActivityList(activities: activities, showExecutingState: message.id == "streaming")
+                }
 
                 messageFooter
             }
@@ -52,14 +71,23 @@ struct MessageBubble: View {
         }
 
         if message.role == .assistant, message.cancelled == true {
-            HStack(spacing: 4) {
-                Image(systemName: "stop.circle")
-                    .font(.system(size: 11))
-                Text("Stopped")
-                    .font(.system(size: 13))
-                    .italic()
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 4) {
+                    Image(systemName: "stop.circle")
+                        .font(.system(size: 11))
+                    Text("Stopped")
+                        .font(.system(size: 13))
+                        .italic()
+                }
+                .foregroundStyle(.red.opacity(0.7))
+
+                if let detail = message.errorDetail, !detail.isEmpty {
+                    Text(detail)
+                        .font(WhisperFont.mono(10))
+                        .foregroundStyle(.red.opacity(0.7))
+                        .lineLimit(3)
+                }
             }
-            .foregroundStyle(.red.opacity(0.7))
         } else if !message.content.isEmpty {
             switch message.role {
             case .user:
@@ -209,11 +237,6 @@ struct MessageBubble: View {
         return display.string(from: date)
     }
 
-    private func formatDuration(_ ms: Int) -> String {
-        if ms < 1000 { return "\(ms)ms" }
-        let s = Double(ms) / 1000.0
-        return String(format: "%.1fs", s)
-    }
 }
 
 // MARK: - Image Thumbnail
@@ -292,14 +315,6 @@ private struct ImageThumb: View {
 
 // MARK: - Tool Display Helpers
 
-private struct ToolStats {
-    enum Kind { case diff, plain }
-    let kind: Kind
-    var added: Int = 0
-    var removed: Int = 0
-    var label: String?
-}
-
 private struct ToolDisplay {
     let icon: String
     let label: String
@@ -308,7 +323,8 @@ private struct ToolDisplay {
     var badgeText: String?
     var badgeIcon: String?
     var overrideSummary: String?
-    var stats: ToolStats?
+    var stats: ChatActivityStats?
+    var executing = false
 }
 
 private func toolIcon(for name: String) -> String {
@@ -334,16 +350,6 @@ private func resolveFilePath(_ input: [String: Any]) -> String? {
     (input["file_path"] ?? input["filename"] ?? input["path"]) as? String
 }
 
-/// Count +/- lines in a unified diff string (Codex file_change format).
-private func parseDiffStats(_ diff: String) -> (added: Int, removed: Int) {
-    var added = 0, removed = 0
-    for line in diff.split(separator: "\n", omittingEmptySubsequences: false) {
-        if line.hasPrefix("+") && !line.hasPrefix("+++") { added += 1 }
-        else if line.hasPrefix("-") && !line.hasPrefix("---") { removed += 1 }
-    }
-    return (added, removed)
-}
-
 /// Compute edit diff stats using prefix/suffix line matching.
 private func computeEditDiffStats(oldString: String, newString: String) -> (added: Int, removed: Int) {
     let oldLines = oldString.split(separator: "\n", omittingEmptySubsequences: false)
@@ -364,7 +370,7 @@ private func computeEditDiffStats(oldString: String, newString: String) -> (adde
     return (added, removed)
 }
 
-private func computeToolStats(_ tool: ToolCall) -> ToolStats? {
+private func computeToolStats(_ tool: ToolCall) -> ChatActivityStats? {
     guard let data = tool.input.data(using: .utf8),
           let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return nil
@@ -378,36 +384,43 @@ private func computeToolStats(_ tool: ToolCall) -> ToolStats? {
         if let diff, !diff.isEmpty {
             let stats = parseDiffStats(diff)
             guard stats.added > 0 || stats.removed > 0 else { return nil }
-            return ToolStats(kind: .diff, added: stats.added, removed: stats.removed)
+            return ChatActivityStats(kind: .diff, added: stats.added, removed: stats.removed)
         }
         guard (oldString != nil && !oldString!.isEmpty) || (newString != nil && !newString!.isEmpty) else { return nil }
         let stats = computeEditDiffStats(oldString: oldString ?? "", newString: newString ?? "")
         guard stats.added > 0 || stats.removed > 0 else { return nil }
-        return ToolStats(kind: .diff, added: stats.added, removed: stats.removed)
+        return ChatActivityStats(kind: .diff, added: stats.added, removed: stats.removed)
 
     case "Write":
         guard let content = input["content"] as? String, !content.isEmpty else { return nil }
         let lineCount = content.components(separatedBy: "\n").count
-        return ToolStats(kind: .diff, added: lineCount, removed: 0)
+        return ChatActivityStats(kind: .diff, added: lineCount, removed: 0)
 
     case "Grep":
         guard let output = tool.output, !output.isEmpty else { return nil }
         let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
         guard !lines.isEmpty else { return nil }
-        return ToolStats(kind: .plain, label: "\(lines.count) result\(lines.count != 1 ? "s" : "")")
+        return ChatActivityStats(kind: .plain, label: "\(lines.count) result\(lines.count != 1 ? "s" : "")")
 
     case "Glob":
         guard let output = tool.output, !output.isEmpty else { return nil }
         let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
         guard !lines.isEmpty else { return nil }
-        return ToolStats(kind: .plain, label: "\(lines.count) file\(lines.count != 1 ? "s" : "")")
+        return ChatActivityStats(kind: .plain, label: "\(lines.count) file\(lines.count != 1 ? "s" : "")")
 
     default:
         return nil
     }
 }
 
-private func getToolDisplay(_ tool: ToolCall, isPending: Bool = false, isDismissed: Bool = false) -> ToolDisplay {
+private func getToolDisplay(
+    _ tool: ToolCall,
+    children: [ToolCall] = [],
+    childrenByParentId: [String: [ToolCall]] = [:],
+    isPending: Bool = false,
+    isDismissed: Bool = false,
+    showExecutingState: Bool = false
+) -> ToolDisplay {
     guard let data = tool.input.data(using: .utf8),
           let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
         return ToolDisplay(icon: toolIcon(for: tool.name), label: tool.name, detail: String(tool.input.prefix(40)))
@@ -455,8 +468,22 @@ private func getToolDisplay(_ tool: ToolCall, isPending: Bool = false, isDismiss
     case "Task", "Agent":
         let subagentType = input["subagent_type"] as? String
         let description = input["description"] as? String
-        let label = subagentType != nil ? "Task (\(subagentType!))" : "Task"
-        return ToolDisplay(icon: "arrow.triangle.branch", label: label, detail: description)
+        let label = tool.name == "Agent"
+            ? (subagentType ?? "Agent")
+            : (subagentType.map { "Task (\($0))" } ?? "Task")
+        let state = subAgentExecutionState(
+            for: tool,
+            children: children,
+            childrenByParentId: childrenByParentId,
+            showExecutingState: showExecutingState
+        )
+        var display = ToolDisplay(icon: "arrow.triangle.branch", label: label, detail: description)
+        display.executing = state == .running
+        if state == .failed {
+            display.badgeText = "FAILED"
+            display.badgeIcon = "exclamationmark.triangle"
+        }
+        return display
 
     case "WebFetch", "WebSearch":
         let url = input["url"] as? String
@@ -533,7 +560,7 @@ private struct WhisperThinkingBlock: View {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                ToolRowLabel(icon: "brain", label: "Thinking", detail: isExpanded ? nil : preview)
+                ChatActivityRowLabel(icon: "brain", label: "Thinking", detail: isExpanded ? nil : preview)
             }
             .buttonStyle(.plain)
 
@@ -559,6 +586,7 @@ private struct WhisperToolCallsBlock: View {
     let toolCalls: [ToolCall]
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
+    var showExecutingState = false
     @State private var groupExpanded = false
 
     private static let hiddenTaskTools: Set<String> = ["TaskUpdate", "TodoList"]
@@ -575,8 +603,12 @@ private struct WhisperToolCallsBlock: View {
         visibleTools.filter { $0.parentToolUseId == parentId }
     }
 
+    private var childrenByParentId: [String: [ToolCall]] {
+        Dictionary(grouping: visibleTools.filter { $0.parentToolUseId != nil }) { $0.parentToolUseId ?? "" }
+    }
+
     private var shouldCollapse: Bool {
-        rootTools.count >= collapseThreshold
+        !showExecutingState && visibleTools.count >= collapseThreshold
     }
 
     var body: some View {
@@ -596,8 +628,10 @@ private struct WhisperToolCallsBlock: View {
                     WhisperToolCallRow(
                         tool: tool,
                         children: children(for: tool.id),
+                        childrenByParentId: childrenByParentId,
                         isPending: pendingToolUseIds.contains(tool.id),
-                        isDismissed: dismissedToolCallIds.contains(tool.id)
+                        isDismissed: dismissedToolCallIds.contains(tool.id),
+                        showExecutingState: showExecutingState
                     )
                 }
                 .transition(.opacity)
@@ -632,26 +666,11 @@ private struct CollapsedToolSummary: View {
 
     var body: some View {
         Button(action: onToggle) {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(WhisperColor.textMuted)
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-
-                Text(summaryLabel)
-                    .font(WhisperFont.mono(12))
-                    .foregroundStyle(WhisperColor.textMuted)
-
-                HStack(spacing: 3) {
-                    ForEach(uniqueIcons, id: \.self) { icon in
-                        Image(systemName: icon)
-                            .font(.system(size: 9))
-                            .foregroundStyle(WhisperColor.textMuted)
-                    }
-                }
-            }
-            .padding(.vertical, 3)
-            .contentShape(Rectangle())
+            ChatActivityRowLabel(
+                label: summaryLabel,
+                isExpanded: isExpanded,
+                accessoryIcons: uniqueIcons
+            )
         }
         .buttonStyle(.plain)
     }
@@ -662,19 +681,28 @@ private struct CollapsedToolSummary: View {
 private struct WhisperToolCallRow: View {
     let tool: ToolCall
     let children: [ToolCall]
+    let childrenByParentId: [String: [ToolCall]]
     var isPending = false
     var isDismissed = false
+    var showExecutingState = false
     @State private var isExpanded = false
 
     var body: some View {
-        let display = getToolDisplay(tool, isPending: isPending, isDismissed: isDismissed)
+        let display = getToolDisplay(
+            tool,
+            children: children,
+            childrenByParentId: childrenByParentId,
+            isPending: isPending,
+            isDismissed: isDismissed,
+            showExecutingState: showExecutingState
+        )
         let summary = !isExpanded && display.stats == nil ? (display.overrideSummary ?? getOutputSummary(tool)) : nil
 
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                ToolRowLabel(icon: display.icon, label: display.label, detail: display.detail, stats: display.stats, summary: summary, badgeText: display.badgeText, badgeIcon: display.badgeIcon)
+                ChatActivityRowLabel(icon: display.icon, label: display.label, detail: display.detail, stats: display.stats, summary: summary, badgeText: display.badgeText, badgeIcon: display.badgeIcon, executing: display.executing)
             }
             .buttonStyle(.plain)
 
@@ -703,7 +731,12 @@ private struct WhisperToolCallRow: View {
                     if !children.isEmpty {
                         VStack(alignment: .leading, spacing: 2) {
                             ForEach(children) { child in
-                                WhisperToolCallRow(tool: child, children: [])
+                                WhisperToolCallRow(
+                                    tool: child,
+                                    children: childrenByParentId[child.id] ?? [],
+                                    childrenByParentId: childrenByParentId,
+                                    showExecutingState: showExecutingState
+                                )
                             }
                         }
                         .padding(.leading, 14)
@@ -722,21 +755,6 @@ private struct WhisperToolCallRow: View {
 }
 
 // MARK: - Diff Content View (Edit tool expanded)
-
-private struct DiffLine: Identifiable {
-    enum Kind { case context, added, removed }
-    let id: Int
-    let kind: Kind
-    let text: String
-
-    var prefix: String {
-        switch kind {
-        case .context: return " "
-        case .added:   return "+"
-        case .removed: return "-"
-        }
-    }
-}
 
 /// Compute display-ready diff lines from old/new strings (Claude/Gemini format).
 private func computeDiffLines(oldString: String, newString: String) -> [DiffLine] {
@@ -781,25 +799,6 @@ private func computeDiffLines(oldString: String, newString: String) -> [DiffLine
     return result
 }
 
-/// Parse a unified diff string (Codex format) into display-ready lines.
-private func parseUnifiedDiffLines(_ diff: String) -> [DiffLine] {
-    var result: [DiffLine] = []
-    var idx = 0
-    for raw in diff.split(separator: "\n", omittingEmptySubsequences: false) {
-        let line = String(raw)
-        if line.hasPrefix("+++") || line.hasPrefix("---") || line.hasPrefix("@@") { continue }
-        if line.hasPrefix("+") {
-            result.append(DiffLine(id: idx, kind: .added, text: String(line.dropFirst()))); idx += 1
-        } else if line.hasPrefix("-") {
-            result.append(DiffLine(id: idx, kind: .removed, text: String(line.dropFirst()))); idx += 1
-        } else {
-            let text = line.hasPrefix(" ") ? String(line.dropFirst()) : line
-            result.append(DiffLine(id: idx, kind: .context, text: text)); idx += 1
-        }
-    }
-    return result
-}
-
 private struct DiffContentView: View {
     let tool: ToolCall
 
@@ -827,12 +826,8 @@ private struct DiffContentView: View {
         return (filePath, computeDiffLines(oldString: oldString, newString: newString))
     }
 
-    private static let maxLines = 80
-
     var body: some View {
         let result = parsed
-        let lines = Array(result.lines.prefix(Self.maxLines))
-        let truncated = result.lines.count > Self.maxLines
 
         ToolContentPanel {
             VStack(alignment: .leading, spacing: 0) {
@@ -844,49 +839,10 @@ private struct DiffContentView: View {
                         .padding(.bottom, 6)
                 }
 
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(lines) { line in
-                        HStack(spacing: 0) {
-                            Text(line.prefix)
-                                .frame(width: 14, alignment: .center)
-                                .foregroundStyle(prefixColor(line.kind).opacity(0.6))
-                            Text(line.text.isEmpty ? " " : line.text)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .foregroundStyle(prefixColor(line.kind))
-                        }
-                        .font(WhisperFont.mono(11))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(bgColor(line.kind))
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                if truncated {
-                    Text("… \(result.lines.count - Self.maxLines) more lines")
-                        .font(WhisperFont.mono(10))
-                        .foregroundStyle(WhisperColor.textMuted)
-                        .padding(.top, 4)
-                }
+                DiffLinesView(lines: result.lines)
             }
         }
         .transition(.opacity)
-    }
-
-    private func prefixColor(_ kind: DiffLine.Kind) -> Color {
-        switch kind {
-        case .context: return WhisperColor.textSecondary
-        case .added:   return WhisperColor.success
-        case .removed: return .red
-        }
-    }
-
-    private func bgColor(_ kind: DiffLine.Kind) -> Color {
-        switch kind {
-        case .context: return .clear
-        case .added:   return WhisperColor.successMuted
-        case .removed: return Color.red.opacity(0.12)
-        }
     }
 }
 
@@ -931,101 +887,6 @@ private struct AskUserQuestionContent: View {
             }
         }
         .transition(.opacity)
-    }
-}
-
-// MARK: - Shared Tool Row Components
-
-private struct ToolRowLabel: View {
-    let icon: String
-    let label: String
-    var detail: String?
-    var stats: ToolStats?
-    var summary: String?
-    var badgeText: String?
-    var badgeIcon: String?
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.system(size: 9))
-                .frame(width: 14, height: 14)
-                .foregroundStyle(WhisperColor.textMuted)
-
-            Text(label)
-                .font(WhisperFont.mono(12))
-                .foregroundStyle(WhisperColor.textMuted)
-
-            if let badgeText {
-                HStack(spacing: 3) {
-                    if let badgeIcon {
-                        Image(systemName: badgeIcon)
-                            .font(.system(size: 8, weight: .medium))
-                    }
-                    Text(badgeText)
-                        .font(WhisperFont.mono(10))
-                }
-                .foregroundStyle(WhisperColor.textMuted)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(WhisperColor.toolIconBg, in: Capsule())
-            }
-
-            if let detail {
-                Text(detail)
-                    .font(WhisperFont.mono(11))
-                    .foregroundStyle(WhisperColor.textSecondary)
-                    .lineLimit(1)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(WhisperColor.surfaceRaised, in: RoundedRectangle(cornerRadius: 4))
-            }
-
-            if let stats {
-                switch stats.kind {
-                case .diff:
-                    HStack(spacing: 4) {
-                        if stats.added > 0 {
-                            Text("+\(stats.added)")
-                                .foregroundStyle(WhisperColor.success)
-                        }
-                        if stats.removed > 0 {
-                            Text("-\(stats.removed)")
-                                .foregroundStyle(.red)
-                        }
-                    }
-                    .font(WhisperFont.mono(10))
-                case .plain:
-                    if let label = stats.label {
-                        Text(label)
-                            .font(WhisperFont.mono(10))
-                            .foregroundStyle(WhisperColor.textMuted)
-                            .lineLimit(1)
-                    }
-                }
-            }
-
-            if let summary {
-                Text(summary)
-                    .font(WhisperFont.mono(10))
-                    .foregroundStyle(WhisperColor.textMuted)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.vertical, 3)
-        .contentShape(Rectangle())
-    }
-}
-
-private struct ToolContentPanel<Content: View>: View {
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        content
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(WhisperColor.surface, in: RoundedRectangle(cornerRadius: 8))
-            .padding(.top, 2)
     }
 }
 

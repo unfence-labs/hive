@@ -73,6 +73,49 @@ describe("useBackgroundAgents", () => {
     expect(result.current.runningCount).toBe(0);
   });
 
+  it("does not keep persisted missing-output agents running after the stream is gone", () => {
+    const messages = [
+      msg([
+        tc({
+          id: "stale-bg",
+          name: "Agent",
+          input: JSON.stringify({
+            subagent_type: "Agent",
+            description: "Wait",
+            run_in_background: true,
+            tool: "spawnAgent",
+          }),
+        }),
+      ]),
+    ];
+
+    const { result } = renderHook(() => useBackgroundAgents(messages, []));
+
+    expect(result.current.agents).toHaveLength(1);
+    expect(result.current.agents[0]).toMatchObject({ toolId: "stale-bg", isRunning: false });
+    expect(result.current.runningCount).toBe(0);
+  });
+
+  it("ignores Codex collab wait operations in the background agent summary", () => {
+    const active: ToolCall[] = [
+      tc({
+        id: "codex-wait",
+        name: "Agent",
+        input: JSON.stringify({
+          subagent_type: "Agent",
+          description: "Wait",
+          run_in_background: true,
+          tool: "wait",
+        }),
+      }),
+    ];
+
+    const { result } = renderHook(() => useBackgroundAgents([], active));
+
+    expect(result.current.agents).toEqual([]);
+    expect(result.current.runningCount).toBe(0);
+  });
+
   it("detects running background agents from activeToolCalls", () => {
     const active: ToolCall[] = [
       tc({
@@ -90,6 +133,72 @@ describe("useBackgroundAgents", () => {
     expect(result.current.agents).toHaveLength(1);
     expect(result.current.agents[0].isRunning).toBe(true);
     expect(result.current.runningCount).toBe(1);
+  });
+
+  it("keeps active Codex spawn agents running while receiver status is running", () => {
+    const active: ToolCall[] = [
+      tc({
+        id: "codex-spawn",
+        name: "Agent",
+        input: JSON.stringify({
+          subagent_type: "Agent",
+          description: "Inspect auth",
+          run_in_background: true,
+          tool: "spawnAgent",
+          status: "inProgress",
+        }),
+        output: JSON.stringify([{
+          type: "text",
+          text: JSON.stringify({
+            tool: "spawnAgent",
+            status: "completed",
+            agentsStates: {
+              "thread-child": { status: "running" },
+            },
+          }),
+        }]),
+      }),
+    ];
+
+    const { result } = renderHook(() => useBackgroundAgents([], active));
+
+    expect(result.current.agents).toHaveLength(1);
+    expect(result.current.agents[0]).toMatchObject({ toolId: "codex-spawn", isRunning: true });
+    expect(result.current.runningCount).toBe(1);
+  });
+
+  it("does not keep stale persisted Codex spawn agents running", () => {
+    const messages = [
+      msg([
+        tc({
+          id: "codex-stale",
+          name: "Agent",
+          input: JSON.stringify({
+            subagent_type: "Agent",
+            description: "Inspect auth",
+            run_in_background: true,
+            tool: "spawnAgent",
+            status: "inProgress",
+          }),
+          output: JSON.stringify([{
+            type: "text",
+            text: JSON.stringify({
+              tool: "spawnAgent",
+              status: "completed",
+              agentsStates: {
+                "thread-child": { status: "running" },
+              },
+            }),
+          }]),
+        }),
+      ]),
+    ];
+
+    const { result } = renderHook(() => useBackgroundAgents(messages, []));
+
+    expect(result.current.agents).toHaveLength(1);
+    expect(result.current.agents[0]).toMatchObject({ toolId: "codex-stale", isRunning: false });
+    expect(result.current.runningCount).toBe(0);
   });
 
   it("counts running and completed agents correctly", () => {
@@ -264,15 +373,24 @@ describe("useBackgroundAgents", () => {
   });
 
   it("handles many background agents", () => {
-    const tools = Array.from({ length: 10 }, (_, i) =>
+    const completedTools = Array.from({ length: 5 }, (_, i) =>
       tc({
         id: `bg-${i}`,
         name: "Task",
         input: JSON.stringify({ subagent_type: "Explore", description: `Agent ${i}`, run_in_background: true }),
-        output: i < 5 ? "done" : undefined,
+        output: "done",
       }),
     );
-    const { result } = renderHook(() => useBackgroundAgents([msg(tools)], []));
+    const activeTools = Array.from({ length: 5 }, (_, i) =>
+      tc({
+        id: `bg-${i + 5}`,
+        name: "Task",
+        input: JSON.stringify({ subagent_type: "Explore", description: `Agent ${i + 5}`, run_in_background: true }),
+      }),
+    );
+
+    const { result } = renderHook(() => useBackgroundAgents([msg(completedTools)], activeTools));
+
     expect(result.current.agents).toHaveLength(10);
     expect(result.current.runningCount).toBe(5);
   });

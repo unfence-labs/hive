@@ -1,3 +1,6 @@
+import type { AgentActivity } from "@hive/shared/agent-activity";
+export type { AgentActivity, AgentActivityFile } from "@hive/shared/agent-activity";
+
 export interface Project {
   id: string;
   name: string;
@@ -139,6 +142,9 @@ export interface FileMention {
 
 export interface SessionMetadata {
   sessionId: string;
+  /** Provider-native conversation/thread id used for resume across turns. */
+  providerSessionId?: string;
+  /** @deprecated Use providerSessionId. Kept for old persisted sessions. */
   claudeSessionId?: string;
   workspaceId: string;
   title?: string;
@@ -164,6 +170,7 @@ export interface ChatMessage {
   images?: ImageAttachment[];
   fileMentions?: FileMention[];
   toolCalls?: ToolCall[];
+  agentActivities?: AgentActivity[];
   thinkingContent?: string;
   timestamp: string;
   cancelled?: boolean;
@@ -320,6 +327,7 @@ export type WsOutgoing =
   | { type: "thinking"; sessionId: string; text: string }
   | { type: "tool_use"; sessionId: string; id: string; name: string; input: string; parentToolUseId?: string }
   | { type: "tool_result"; sessionId: string; toolUseId: string; output: string }
+  | { type: "agent_activity"; sessionId: string; activity: AgentActivity }
   | { type: "tool_input_required"; sessionId: string; requestId: string; toolName: string; toolUseId: string; input: unknown }
   | { type: "done"; sessionId: string; durationMs?: number; inputTokens?: number; outputTokens?: number; pendingToolName?: string }
   | { type: "error"; message: string; sessionId?: string }
