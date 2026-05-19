@@ -34,12 +34,12 @@ struct ProjectAvatar: View {
 
     private static let palette: [Color] = [
         Color(red: 0.722, green: 0.263, blue: 0.141),
-        Color(red: 0.584, green: 0.416, blue: 0.243),
-        Color(red: 0.361, green: 0.502, blue: 0.376),
-        Color(red: 0.239, green: 0.482, blue: 0.522),
-        Color(red: 0.322, green: 0.392, blue: 0.620),
-        Color(red: 0.463, green: 0.349, blue: 0.580),
-        Color(red: 0.584, green: 0.318, blue: 0.416),
+        Color(red: 0.333, green: 0.369, blue: 0.439),
+        Color(red: 0.271, green: 0.427, blue: 0.533),
+        Color(red: 0.286, green: 0.478, blue: 0.447),
+        Color(red: 0.408, green: 0.424, blue: 0.631),
+        Color(red: 0.471, green: 0.380, blue: 0.529),
+        Color(red: 0.518, green: 0.345, blue: 0.420),
     ]
 
     private var fallbackColor: Color {
