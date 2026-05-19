@@ -138,9 +138,7 @@ private struct SessionStatusIndicator: View {
                 .frame(width: 12, height: 12)
                 .accessibilityLabel("Streaming")
         } else if isUnread {
-            Circle()
-                .fill(Color.accentColor)
-                .frame(width: 8, height: 8)
+            CompletedDot()
                 .accessibilityLabel("Unread")
         } else {
             Color.clear
@@ -168,11 +166,11 @@ private struct SessionStatusIndicator: View {
             isStreaming: true,
             isUnread: false
         )
-        .listRowBackground(WhisperColor.surfaceRaised)
+        .listRowBackground(WhisperColor.appBackground)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
     }
     .listStyle(.plain)
     .scrollContentBackground(.hidden)
-    .background(WhisperColor.surfaceRaised)
+    .hiveScreenBackground()
     .preferredColorScheme(.dark)
 }

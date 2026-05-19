@@ -82,6 +82,10 @@ final class HubStatusMonitor {
         unreadSessions[workspaceId]?.contains(sessionId) ?? false
     }
 
+    func hasUnreadSessions(_ workspaceId: String) -> Bool {
+        !(unreadSessions[workspaceId]?.isEmpty ?? true)
+    }
+
     func diffStats(for workspaceId: String) -> DiffStatResponse? {
         workspaceDiffStats[workspaceId]
     }

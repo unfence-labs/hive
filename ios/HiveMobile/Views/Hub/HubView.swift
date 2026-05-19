@@ -273,7 +273,8 @@ struct HubView: View {
                         HubWorkspaceRow(
                             workspace: workspace,
                             isStreaming: store.statusMonitor.isStreaming(workspace.id),
-                            turnCompleted: store.statusMonitor.isCompleted(workspace.id),
+                            turnCompleted: store.statusMonitor.isCompleted(workspace.id)
+                                || store.statusMonitor.hasUnreadSessions(workspace.id),
                             diffStats: store.statusMonitor.diffStats(for: workspace.id),
                             prStatus: store.statusMonitor.prStatus(for: workspace.id)
                         )
@@ -314,7 +315,8 @@ struct HubView: View {
 
     private func workspaceRunningRank(_ workspaceId: String) -> Int {
         if store.statusMonitor.isStreaming(workspaceId) { return 0 }
-        return 1
+        if store.statusMonitor.isCompleted(workspaceId) || store.statusMonitor.hasUnreadSessions(workspaceId) { return 1 }
+        return 2
     }
 
     private func handleCreateWorkspace(for projectId: String) {
@@ -356,7 +358,7 @@ struct HubView: View {
             if store.statusMonitor.isStreaming(workspace.id) {
                 next.streaming += 1
             }
-            if store.statusMonitor.isCompleted(workspace.id) {
+            if store.statusMonitor.isCompleted(workspace.id) || store.statusMonitor.hasUnreadSessions(workspace.id) {
                 next.completed += 1
             }
             if workspaceNeedsAttention(workspace.id) {

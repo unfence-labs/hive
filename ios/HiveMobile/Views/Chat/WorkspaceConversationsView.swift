@@ -44,14 +44,14 @@ struct WorkspaceConversationsView: View {
                 }
                 .buttonStyle(.plain)
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                .listRowBackground(WhisperColor.surfaceRaised)
+                .listRowBackground(WhisperColor.appBackground)
                 .listRowSeparatorTint(WhisperColor.separator)
             }
             .onDelete(perform: deleteSessions)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(WhisperColor.surfaceRaised.ignoresSafeArea())
+        .hiveScreenBackground()
         .overlay {
             if isLoading {
                 ProgressView()
@@ -83,7 +83,7 @@ struct WorkspaceConversationsView: View {
                 selectedSession = nil
             }
         }
-        .toolbarBackground(WhisperColor.surfaceRaised, for: .navigationBar)
+        .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
