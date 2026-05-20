@@ -18,7 +18,6 @@ const BUILTIN_LABELS = [
   "/review",
   "/security-review",
   "/plan",
-  "/goal",
   "/batch",
   "/btw",
   "/background",

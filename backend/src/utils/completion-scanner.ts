@@ -45,7 +45,6 @@ const CLAUDE_BUILTIN_COMMANDS: Array<Omit<CompletionItem, "type" | "label" | "so
   { name: "review", description: "Review changes" },
   { name: "security-review", description: "Run a security review" },
   { name: "plan", description: "Enter plan mode with an optional task" },
-  { name: "goal", description: "Keep working until a goal condition is met" },
   { name: "batch", description: "Orchestrate large-scale changes across agents" },
   { name: "btw", description: "Ask a side question without bloating context" },
   { name: "background", description: "Detach the session into a background agent" },
