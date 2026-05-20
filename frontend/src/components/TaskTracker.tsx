@@ -1,8 +1,9 @@
 import { useState, memo } from "react";
-import { ChevronRightIcon, XCircleIcon } from "lucide-react";
+import { ChevronRightIcon, TargetIcon, XCircleIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TrackedTask, TaskCounts } from "@/hooks/useTasks";
 import type { BackgroundAgent } from "@/hooks/useBackgroundAgents";
+import type { GoalState } from "@/hooks/useGoalState";
 
 const svgProps = {
   className: "size-3",
@@ -51,7 +52,71 @@ function AgentStatusIcon({ isRunning }: { isRunning: boolean }) {
   );
 }
 
+function formatGoalStatus(status: string | undefined): string {
+  const normalized = status
+    ?.trim()
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[-_]+/g, " ")
+    .toLowerCase();
+  switch (normalized) {
+    case undefined:
+    case "":
+    case "running":
+    case "in progress":
+      return "active";
+    case "paused":
+      return "paused";
+    case "blocked":
+      return "blocked";
+    case "usage limited":
+      return "usage limited";
+    case "budget limited":
+      return "budget limited";
+    case "complete":
+    case "completed":
+      return "complete";
+    default:
+      return normalized;
+  }
+}
+
+function formatCompactCount(value: number): string {
+  if (value < 1_000) return String(value);
+  if (value < 1_000_000) {
+    const thousands = value / 1_000;
+    const formatted = thousands >= 10
+      ? String(Math.round(thousands))
+      : thousands.toFixed(1).replace(/\.0$/, "");
+    return `${formatted}k`;
+  }
+  const millions = value / 1_000_000;
+  return `${millions.toFixed(1).replace(/\.0$/, "")}m`;
+}
+
+function formatGoalProgress(goal: GoalState): string | null {
+  const tokensUsed = typeof goal.tokensUsed === "number" ? goal.tokensUsed : null;
+  const tokenBudget = typeof goal.tokenBudget === "number" ? goal.tokenBudget : null;
+  if (tokensUsed != null && tokenBudget != null) {
+    return `${formatCompactCount(tokensUsed)}/${formatCompactCount(tokenBudget)}`;
+  }
+  if (tokensUsed != null) return `${formatCompactCount(tokensUsed)} used`;
+  if (tokenBudget != null) return `0/${formatCompactCount(tokenBudget)}`;
+  return null;
+}
+
+function formatGoalElapsed(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  const remainderSeconds = total % 60;
+  if (minutes < 60) return remainderSeconds > 0 ? `${minutes}m ${remainderSeconds}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainderMinutes = minutes % 60;
+  return remainderMinutes > 0 ? `${hours}h ${remainderMinutes}m` : `${hours}h`;
+}
+
 interface TaskTrackerProps {
+  goal?: GoalState | null;
   tasks: TrackedTask[];
   currentTask: TrackedTask | undefined;
   counts: TaskCounts;
@@ -61,6 +126,7 @@ interface TaskTrackerProps {
 }
 
 const TaskTracker = memo(function TaskTracker({
+  goal,
   tasks,
   currentTask,
   counts,
@@ -68,13 +134,15 @@ const TaskTracker = memo(function TaskTracker({
   backgroundAgents = [],
   backgroundRunningCount = 0,
 }: TaskTrackerProps) {
+  const [goalExpanded, setGoalExpanded] = useState(false);
   const [tasksExpanded, setTasksExpanded] = useState(false);
   const [agentsExpanded, setAgentsExpanded] = useState(false);
 
+  const hasGoal = goal != null;
   const hasTasks = tasks.length > 0;
   const hasAgents = backgroundAgents.length > 0;
 
-  if (!hasTasks && !hasAgents) return null;
+  if (!hasGoal && !hasTasks && !hasAgents) return null;
 
   const allDone = counts.completed === counts.total;
   const remaining = counts.total - counts.completed;
@@ -90,9 +158,74 @@ const TaskTracker = memo(function TaskTracker({
   const agentLabel = backgroundRunningCount > 0
     ? `${backgroundRunningCount} background agent${backgroundRunningCount !== 1 ? "s" : ""} running`
     : "All background agents completed";
+  const goalObjective = goal?.objective?.trim() || "Goal running";
+  const goalStatus = goal ? formatGoalStatus(goal.status) : "";
+  const goalProgress = goal ? formatGoalProgress(goal) : null;
+  const goalElapsed = typeof goal?.timeUsedSeconds === "number" ? formatGoalElapsed(goal.timeUsedSeconds) : null;
+  const goalMeta = [goalStatus, goalProgress, goalElapsed].filter(Boolean);
 
   return (
     <div className="border-t border-border/50 bg-background px-4 py-1.5">
+      {/* Goal section */}
+      {hasGoal && (
+        <>
+          <button
+            type="button"
+            className="inline-flex w-full items-center gap-2 rounded-md py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            onClick={() => setGoalExpanded(!goalExpanded)}
+          >
+            <ChevronRightIcon
+              className={cn(
+                "size-3.5 shrink-0 transition-transform",
+                goalExpanded && "rotate-90",
+              )}
+            />
+            <TargetIcon className="size-3 shrink-0 text-primary/80" />
+            <span
+              className={cn(
+                "min-w-0 truncate",
+                isStreaming && goal.status !== "complete" && goal.status !== "completed" && "animate-shimmer",
+              )}
+            >
+              {goalObjective}
+            </span>
+            {goalMeta.length > 0 && (
+              <span className="ml-auto shrink-0 text-[11px] font-normal text-muted-foreground/60">
+                {goalMeta.join(" · ")}
+              </span>
+            )}
+          </button>
+
+          {goalExpanded && (
+            <div className="mt-1 space-y-0.5 pb-0.5 pl-5 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 py-0.5">
+                <span className="shrink-0 font-medium text-muted-foreground/70">Goal</span>
+                <span className="min-w-0 truncate text-foreground">{goalObjective}</span>
+              </div>
+              <div className="flex items-center gap-2 py-0.5 text-[11px] text-muted-foreground/60">
+                <span>{goalStatus}</span>
+                {goalProgress && (
+                  <>
+                    <span>·</span>
+                    <span>{goalProgress}</span>
+                  </>
+                )}
+                {goalElapsed && (
+                  <>
+                    <span>·</span>
+                    <span>{goalElapsed}</span>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {hasGoal && (hasTasks || hasAgents) && (
+        <div className="my-1 border-t border-border/30" />
+      )}
+
       {/* Tasks section */}
       {hasTasks && (
         <>

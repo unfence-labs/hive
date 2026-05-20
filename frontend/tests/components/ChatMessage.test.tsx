@@ -102,6 +102,23 @@ describe("ChatMessage", () => {
     expect(screen.queryByTestId("tool-call-list")).not.toBeInTheDocument();
   });
 
+  it("renders a quiet goal badge for goal command user messages", () => {
+    render(
+      <ChatMessage
+        message={{
+          id: "u-goal",
+          sessionId: "sess-1",
+          role: "user",
+          content: "/goal Ship the feature",
+          goalCommand: true,
+          timestamp: "2026-02-12T00:00:00.000Z",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Sent with goal")).toBeInTheDocument();
+  });
+
   // ── Image attachment tests ──────────────────────────────────────────
 
   it("renders image attachments for user messages", () => {

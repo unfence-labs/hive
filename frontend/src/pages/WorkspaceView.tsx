@@ -29,6 +29,7 @@ import ScriptPanel from "@/components/ScriptPanel";
 import TaskTracker from "@/components/TaskTracker";
 import { useTasks } from "@/hooks/useTasks";
 import { useBackgroundAgents } from "@/hooks/useBackgroundAgents";
+import { useGoalState } from "@/hooks/useGoalState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -298,6 +299,7 @@ export default function WorkspaceView() {
 
   const { tasks, currentTask, counts: taskCounts } = useTasks(messages, activeToolCalls, activeAgentActivities);
   const { agents: backgroundAgents, runningCount: bgRunningCount } = useBackgroundAgents(messages, activeToolCalls);
+  const goal = useGoalState(messages, activeAgentActivities);
 
   const { sessions, createSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
 
@@ -682,8 +684,9 @@ export default function WorkspaceView() {
               onClearQueue={() => setQueuedMessage(null)}
               scrollToBottomTrigger={scrollToBottomTrigger}
             />
-            {(tasks.length > 0 || backgroundAgents.length > 0) && !pendingToolInputs.some((p) => p.toolName === "AskUserQuestion") && (
+            {(goal || tasks.length > 0 || backgroundAgents.length > 0) && !pendingToolInputs.some((p) => p.toolName === "AskUserQuestion") && (
               <TaskTracker
+                goal={goal}
                 tasks={tasks}
                 currentTask={currentTask}
                 counts={taskCounts}

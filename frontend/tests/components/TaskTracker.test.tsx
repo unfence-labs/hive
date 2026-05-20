@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import TaskTracker from "@/components/TaskTracker";
 import type { TrackedTask, TaskCounts } from "@/hooks/useTasks";
 import type { BackgroundAgent } from "@/hooks/useBackgroundAgents";
+import type { GoalState } from "@/hooks/useGoalState";
 
 function task(overrides: Partial<TrackedTask> & { id: string; subject: string }): TrackedTask {
   return { status: "pending", ...overrides };
@@ -20,6 +21,18 @@ function counts(tasks: TrackedTask[]): TaskCounts {
 
 function agent(overrides: Partial<BackgroundAgent> & { toolId: string; subagentType: string }): BackgroundAgent {
   return { description: "", isRunning: true, ...overrides };
+}
+
+function goal(overrides: Partial<GoalState> = {}): GoalState {
+  return {
+    id: "goal-1",
+    kind: "goal_update",
+    active: true,
+    threadId: "thread-1",
+    objective: "Ship the Codex Goals UI",
+    status: "active",
+    ...overrides,
+  };
 }
 
 describe("TaskTracker", () => {
@@ -42,6 +55,77 @@ describe("TaskTracker", () => {
       <TaskTracker tasks={tasks} currentTask={tasks[0]} counts={counts(tasks)} />,
     );
     expect(screen.getByText("Fixing the bug")).toBeInTheDocument();
+  });
+
+  it("renders goal section without tasks or background agents", () => {
+    render(
+      <TaskTracker
+        goal={goal({ tokensUsed: 1_200, tokenBudget: 10_000, timeUsedSeconds: 125 })}
+        tasks={[]}
+        currentTask={undefined}
+        counts={{ total: 0, completed: 0, inProgress: 0, pending: 0 }}
+      />,
+    );
+
+    expect(screen.getByText("Ship the Codex Goals UI")).toBeInTheDocument();
+    expect(screen.getByText(/active/)).toHaveTextContent("1.2k/10k");
+    expect(screen.getByText(/active/)).toHaveTextContent("2m 5s");
+  });
+
+  it("expands goal details", async () => {
+    const user = userEvent.setup();
+    render(
+      <TaskTracker
+        goal={goal({ objective: "Investigate a narrow app-server regression", status: "blocked" })}
+        tasks={[]}
+        currentTask={undefined}
+        counts={{ total: 0, completed: 0, inProgress: 0, pending: 0 }}
+      />,
+    );
+
+    expect(screen.queryByText("Goal")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("Investigate a narrow app-server regression"));
+
+    expect(screen.getByText("Goal")).toBeInTheDocument();
+    expect(screen.getAllByText("blocked")).toHaveLength(2);
+  });
+
+  it.each([
+    ["usageLimited", "usage limited"],
+    ["budgetLimited", "budget limited"],
+  ])("formats camelCase goal status %s", (status, label) => {
+    render(
+      <TaskTracker
+        goal={goal({ status })}
+        tasks={[]}
+        currentTask={undefined}
+        counts={{ total: 0, completed: 0, inProgress: 0, pending: 0 }}
+      />,
+    );
+
+    expect(screen.getByText(label)).toBeInTheDocument();
+  });
+
+  it("orders sections as goal, tasks, then background agents", () => {
+    const tasks = [task({ id: "1", subject: "Implement tracker", status: "in_progress" })];
+    const agents = [
+      agent({ toolId: "a1", subagentType: "Explore", description: "Search", isRunning: true }),
+    ];
+    const { container } = render(
+      <TaskTracker
+        goal={goal({ objective: "Goal first" })}
+        tasks={tasks}
+        currentTask={tasks[0]}
+        counts={counts(tasks)}
+        backgroundAgents={agents}
+        backgroundRunningCount={1}
+      />,
+    );
+
+    const text = container.textContent ?? "";
+    expect(text.indexOf("Goal first")).toBeLessThan(text.indexOf("Implement tracker"));
+    expect(text.indexOf("Implement tracker")).toBeLessThan(text.indexOf("1 background agent running"));
   });
 
   it("falls back to subject when no activeForm", () => {

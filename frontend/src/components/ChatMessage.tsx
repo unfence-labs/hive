@@ -8,7 +8,7 @@ import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { AgentActivityList, getInlineAgentActivities } from "@/components/chat/AgentActivityList";
 import { CopyButton } from "@/components/chat/CopyButton";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { FileIcon } from "lucide-react";
+import { FileIcon, TargetIcon } from "lucide-react";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
 import { AT_MENTION_RE, splitByAllMentions } from "@/lib/file-mentions";
 
@@ -144,6 +144,14 @@ const ChatMessage = memo(function ChatMessage({
               </>
             )}
             {message.content && renderContentWithMentions(message.content, message.fileMentions, onFileMentionClick)}
+            {message.goalCommand && (
+              <div className="mt-1.5 flex justify-end">
+                <span className="inline-flex items-center gap-1 rounded-full border border-primary/15 bg-primary/5 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  <TargetIcon className="size-3" />
+                  Sent with goal
+                </span>
+              </div>
+            )}
           </>
         ) : (
           <>
