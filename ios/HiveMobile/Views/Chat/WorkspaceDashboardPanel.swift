@@ -106,35 +106,15 @@ struct WorkspaceDashboardPanel: View {
 
     private var gitSummaryBlock: some View {
         VStack(alignment: .leading, spacing: HiveSpacing.sm) {
-            DashboardSectionTitle(title: "Workspace")
+            DashboardSectionTitle(title: "Git")
 
-            HStack(alignment: .top, spacing: 0) {
-                DashboardStatColumn(
-                    title: "Files",
-                    value: gitSummary.filesValue,
-                    detail: gitSummary.filesDetail,
-                    valueColor: gitSummary.filesColor
-                )
-
-                DashboardDivider()
-
-                DashboardStatColumn(
-                    title: "Changes",
-                    value: gitSummary.changesValue,
-                    detail: gitSummary.changesDetail,
-                    valueColor: gitSummary.changesColor
-                )
-
-                DashboardDivider()
-
-                DashboardStatColumn(
-                    title: "Pull Request",
-                    value: prSummary.title,
-                    detail: prSummary.detail,
-                    valueColor: prSummary.color
-                )
+            VStack(spacing: 0) {
+                GitScopeRow(title: "Branch commit", scope: gitSummary.branch)
+                DashboardRowDivider()
+                GitScopeRow(title: "Working tree", scope: gitSummary.workingTree)
+                DashboardRowDivider()
+                PullRequestRow(summary: prSummary)
             }
-            .padding(.vertical, HiveSpacing.sm)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(WhisperColor.surfaceSubtle)
@@ -229,43 +209,98 @@ private struct DashboardSectionTitle: View {
     }
 }
 
-private struct DashboardStatColumn: View {
+private struct GitScopeRow: View {
     let title: String
-    let value: String
-    let detail: String
-    let valueColor: Color
+    let scope: GitScopeDashboardSummary
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .firstTextBaseline, spacing: HiveSpacing.md) {
             Text(title)
-                .font(.caption2.monospacedDigit().weight(.semibold))
+                .font(.caption.monospacedDigit().weight(.semibold))
                 .foregroundStyle(WhisperColor.textMuted)
                 .lineLimit(1)
+                .frame(width: 104, alignment: .leading)
 
-            Text(value)
-                .font(WhisperFont.mono(15, weight: .semibold))
-                .foregroundStyle(valueColor)
+            Text(scope.fileText)
+                .font(.caption.monospacedDigit().weight(.medium))
+                .foregroundStyle(scope.fileColor)
                 .lineLimit(1)
-                .minimumScaleFactor(0.82)
 
-            Text(detail)
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(WhisperColor.textSecondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: HiveSpacing.sm)
+
+            if scope.hasLineChanges {
+                ChangePair(additions: scope.additions, deletions: scope.deletions)
+            } else {
+                Text(scope.statusText)
+                    .font(.caption.monospacedDigit().weight(.medium))
+                    .foregroundStyle(scope.statusColor)
+                    .lineLimit(1)
+            }
         }
         .padding(.horizontal, HiveSpacing.md)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 }
 
-private struct DashboardDivider: View {
+private struct PullRequestRow: View {
+    let summary: PullRequestDashboardSummary
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: HiveSpacing.md) {
+            Text("Pull Request")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(WhisperColor.textMuted)
+                .lineLimit(1)
+                .frame(width: 104, alignment: .leading)
+
+            Text(summary.title)
+                .font(.caption.monospacedDigit().weight(.medium))
+                .foregroundStyle(summary.color)
+                .lineLimit(1)
+
+            Spacer(minLength: HiveSpacing.sm)
+
+            Text(summary.detail)
+                .font(.caption.monospacedDigit().weight(.medium))
+                .foregroundStyle(summary.color)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.horizontal, HiveSpacing.md)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct ChangePair: View {
+    let additions: Int
+    let deletions: Int
+
+    var body: some View {
+        HStack(spacing: HiveSpacing.sm) {
+            if additions > 0 {
+                Text("+\(additions)")
+                    .foregroundStyle(WhisperColor.success)
+            }
+            if deletions > 0 {
+                Text("-\(deletions)")
+                    .foregroundStyle(.red)
+            }
+        }
+        .font(.caption.monospacedDigit().weight(.medium))
+        .lineLimit(1)
+    }
+}
+
+private struct DashboardRowDivider: View {
     var body: some View {
         Rectangle()
             .fill(WhisperColor.separator)
-            .frame(width: 0.5, height: 58)
-            .padding(.vertical, 2)
+            .frame(height: 0.5)
+            .padding(.leading, HiveSpacing.md)
     }
 }
 
@@ -357,71 +392,80 @@ private struct DashboardMoreToken: View {
 }
 
 private struct GitDashboardSummary {
-    let isLoaded: Bool
-    let fileCount: Int
-    let workingCount: Int
-    let branchCount: Int
-    let additions: Int
-    let deletions: Int
-
-    var hasChanges: Bool {
-        fileCount > 0
-    }
-
-    var filesValue: String {
-        if !isLoaded { return "Syncing" }
-        if hasChanges { return "\(fileCount)" }
-        return "Clean"
-    }
-
-    var filesDetail: String {
-        if !isLoaded { return "Fetching diff" }
-        if hasChanges { return "\(workingCount) working / \(branchCount) branch" }
-        return "No local diff"
-    }
-
-    var filesColor: Color {
-        if !isLoaded { return WhisperColor.textMuted }
-        return hasChanges ? WhisperColor.text : WhisperColor.success
-    }
-
-    var changesValue: String {
-        if !isLoaded { return "..." }
-        guard hasChanges else { return "0" }
-        let net = additions - deletions
-        if net > 0 { return "+\(net)" }
-        return "\(net)"
-    }
-
-    var changesDetail: String {
-        if !isLoaded { return "Waiting for stats" }
-        guard hasChanges else { return "No additions or deletions" }
-        return "+\(additions) / -\(deletions)"
-    }
-
-    var changesColor: Color {
-        if !isLoaded { return WhisperColor.textMuted }
-        return hasChanges ? WhisperColor.text : WhisperColor.success
-    }
+    let branch: GitScopeDashboardSummary
+    let workingTree: GitScopeDashboardSummary
 
     init(stats: DiffStatResponse?) {
         guard let stats else {
-            isLoaded = false
-            fileCount = 0
-            workingCount = 0
-            branchCount = 0
-            additions = 0
-            deletions = 0
+            branch = GitScopeDashboardSummary.loading()
+            workingTree = GitScopeDashboardSummary.loading()
             return
         }
 
+        branch = GitScopeDashboardSummary(files: stats.committed, cleanText: "no branch diff")
+        workingTree = GitScopeDashboardSummary(files: stats.uncommitted, cleanText: "clean")
+    }
+}
+
+private struct GitScopeDashboardSummary {
+    let isLoaded: Bool
+    let fileCount: Int
+    let additions: Int
+    let deletions: Int
+    let cleanText: String
+
+    var hasChanges: Bool {
+        isLoaded && fileCount > 0
+    }
+
+    var hasLineChanges: Bool {
+        hasChanges && (additions > 0 || deletions > 0)
+    }
+
+    var fileText: String {
+        if !isLoaded { return "syncing" }
+        return "\(fileCount) file\(fileCount == 1 ? "" : "s")"
+    }
+
+    var fileColor: Color {
+        if !isLoaded { return WhisperColor.textMuted }
+        return WhisperColor.text
+    }
+
+    var statusText: String {
+        if hasChanges { return "changed" }
+        isLoaded ? cleanText : "waiting"
+    }
+
+    var statusColor: Color {
+        if !isLoaded { return WhisperColor.textMuted }
+        return cleanText == "clean" ? WhisperColor.success : WhisperColor.textMuted
+    }
+
+    init(files: [DiffFileStat], cleanText: String) {
         isLoaded = true
-        let files = Set((stats.committed + stats.uncommitted).map(\.file))
-        fileCount = files.count
-        workingCount = stats.uncommitted.count
-        branchCount = stats.committed.count
-        additions = (stats.committed + stats.uncommitted).reduce(0) { $0 + $1.additions }
-        deletions = (stats.committed + stats.uncommitted).reduce(0) { $0 + $1.deletions }
+        fileCount = Set(files.map(\.file)).count
+        additions = files.reduce(0) { $0 + $1.additions }
+        deletions = files.reduce(0) { $0 + $1.deletions }
+        self.cleanText = cleanText
+    }
+
+    private init(isLoaded: Bool, fileCount: Int, additions: Int, deletions: Int, cleanText: String) {
+        self.isLoaded = isLoaded
+        self.fileCount = fileCount
+        self.additions = additions
+        self.deletions = deletions
+        self.cleanText = cleanText
+    }
+
+    static func loading() -> GitScopeDashboardSummary {
+        GitScopeDashboardSummary(
+            isLoaded: false,
+            fileCount: 0,
+            additions: 0,
+            deletions: 0,
+            cleanText: "waiting"
+        )
     }
 }
 
