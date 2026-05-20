@@ -33,6 +33,7 @@ It manages:
 - Claude provider (streaming JSON), Codex provider (JSONL with stream adapter), Gemini provider (NDJSON with tool name mapping).
 - Interactive Codex chat uses `codex app-server` for long-lived thread/turn streaming; Codex automations stay on `codex exec --json`.
 - Codex App Server stream events are normalized into Hive `AgentActivity` records for command execution, file changes, plan updates, and diagnostics.
+- Codex App Server token-usage updates feed the existing context ring with provider-reported context-used and context-window values.
 - Unsupported Codex App Server notifications/requests are surfaced as diagnostic activities so missing protocol coverage is visible and incremental.
 - Codex stream normalization for native todo lists, file-change summaries, cached token usage, and non-fatal diagnostic events.
 - Model catalog API (`GET /api/models`) for frontend/iOS model discovery, grouped by provider.
@@ -463,7 +464,7 @@ Frontend key modules:
 - `frontend/src/hooks/useTabs.ts` multi-tab state with workspace snapshot cache, source/diff modes
 - `frontend/src/hooks/useTasks.ts` task progress from TaskCreate/TaskUpdate tool calls, Codex TodoList events, and Codex App Server plan updates
 - `frontend/src/hooks/useBackgroundAgents.ts` background Task agent tracking
-- `frontend/src/hooks/useContextUsage.ts` context window usage calculation
+- `frontend/src/hooks/useContextUsage.ts` context window usage calculation from provider-reported context fields with assistant-token fallback
 - `frontend/src/hooks/useBasePrompt.ts` base prompt CRUD
 - `frontend/src/hooks/useDiff.ts` diff fetching for inline viewer
 - `frontend/src/hooks/useFileCompletions.ts` `#` file mention completions

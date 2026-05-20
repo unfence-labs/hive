@@ -935,6 +935,60 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
+  it("emits context-window usage from token usage updates", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const resultEvents: unknown[] = [];
+    session.on("result", (event) => resultEvents.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "thread/tokenUsage/updated",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        tokenUsage: {
+          last: {
+            totalTokens: 42_000,
+            inputTokens: 36_000,
+            cachedInputTokens: 5_000,
+            outputTokens: 900,
+            reasoningOutputTokens: 100,
+          },
+          total: {
+            totalTokens: 80_000,
+            inputTokens: 70_000,
+            cachedInputTokens: 8_000,
+            outputTokens: 1_800,
+            reasoningOutputTokens: 200,
+          },
+          modelContextWindow: 400_000,
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "turn/completed",
+      params: {
+        turn: {
+          id: "turn-1",
+          status: "completed",
+        },
+      },
+    }) + "\n");
+
+    await waitForCondition(() => resultEvents.length === 1);
+    expect(resultEvents[0]).toMatchObject({
+      usage: {
+        input_tokens: 36_000,
+        cache_read_input_tokens: 5_000,
+        output_tokens: 900,
+        context_used_tokens: 42_000,
+        context_window: 400_000,
+      },
+    });
+  });
+
   it("does not surface unmaterialized receiver-thread replay errors", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

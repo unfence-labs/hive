@@ -15,17 +15,19 @@ struct ContextUsageData {
 
     static func derive(from messages: [ChatMessage], contextWindow: Int?) -> ContextUsageData {
         var lastInputTokens: Int?
+        var lastContextWindow: Int?
 
         for msg in messages.reversed() {
-            if msg.role == .assistant, let tokens = msg.inputTokens, lastInputTokens == nil {
+            if msg.role == .assistant, let tokens = msg.contextUsedTokens ?? msg.inputTokens, lastInputTokens == nil {
                 lastInputTokens = tokens
+                lastContextWindow = msg.contextWindowTokens
                 break
             }
         }
 
         return ContextUsageData(
             inputTokens: lastInputTokens,
-            contextWindow: contextWindow
+            contextWindow: lastContextWindow ?? contextWindow
         )
     }
 }

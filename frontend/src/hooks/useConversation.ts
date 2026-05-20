@@ -247,6 +247,8 @@ function reducer(state: ConversationState, action: Action): ConversationState {
           durationMs: action.durationMs,
           inputTokens: action.inputTokens,
           outputTokens: action.outputTokens,
+          contextUsedTokens: action.contextUsedTokens,
+          contextWindowTokens: action.contextWindowTokens,
         };
         return {
           ...state,
