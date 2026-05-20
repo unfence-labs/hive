@@ -229,7 +229,7 @@ describe("ConversationSession", () => {
   beforeEach(() => {
     mockProc = createMockProcess();
     mockSpawn.mockReturnValue(mockProc);
-    providerRegistry.markProviderAvailable("codex", { appServer: true });
+    providerRegistry.markProviderAvailable("codex", { appServer: true, goals: true });
   });
 
   function createSession(opts?: { sessionId?: string; command?: string; skipPermissions?: boolean; sessionKind?: "chat" | "automation" }) {
@@ -1227,6 +1227,55 @@ describe("ConversationSession", () => {
           kind: "command_execution",
         }),
       ],
+    });
+  });
+
+  it("ignores duplicate Codex app-server completion notifications for a spontaneous turn", async () => {
+    const session = createSession({ sessionId: "codex-goal-duplicate-completion" });
+    session.sendMessage("Start goal", { model: "codex:gpt-5.5" });
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, { thread: { id: "thread-dup-1" } }));
+    const turnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(turnStart.id, { turn: { id: "turn-user-1" } }));
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-dup-1",
+      turn: { id: "turn-user-1", status: "completed", durationMs: 10 },
+    }));
+    await waitForCondition(() => session.status === "idle");
+
+    mockProc._stdout.push(appServerNotification("turn/started", {
+      threadId: "thread-dup-1",
+      turn: { id: "turn-goal-dup" },
+    }));
+    await waitForCondition(() => session.status === "streaming");
+    mockProc._stdout.push(appServerNotification("item/agentMessage/delta", {
+      threadId: "thread-dup-1",
+      turnId: "turn-goal-dup",
+      itemId: "msg-goal-dup",
+      delta: "Continuation once.",
+    }));
+    const completion = appServerNotification("turn/completed", {
+      threadId: "thread-dup-1",
+      turn: { id: "turn-goal-dup", status: "completed", durationMs: 20 },
+    });
+    mockProc._stdout.push(completion);
+    mockProc._stdout.push(completion);
+
+    await waitForCondition(() => session.status === "idle");
+
+    const persisted = await session.getMessages();
+    expect(persisted.filter((message) => message.role === "assistant")).toHaveLength(1);
+    expect(persisted.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "Continuation once.",
     });
   });
 

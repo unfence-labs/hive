@@ -258,6 +258,17 @@ describe("getModelCatalog", () => {
     expect(codexModels.every((model) => !model.capabilities.goals)).toBe(true);
   });
 
+  it("does not infer Codex goals support from App Server availability alone", () => {
+    markProviderAvailable("codex", { appServer: true });
+    const catalog = getModelCatalog();
+
+    expect(providerSupportsAppServerGoals("codex")).toBe(false);
+    expect(catalog.models
+      .filter((model) => model.provider === "codex")
+      .every((model) => !model.capabilities.goals))
+      .toBe(true);
+  });
+
   it("includes isNew flag from model definition", () => {
     markProviderAvailable("codex");
     const catalog = getModelCatalog();

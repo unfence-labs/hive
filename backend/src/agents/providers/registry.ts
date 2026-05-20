@@ -98,10 +98,10 @@ export function markProviderAvailable(providerId: string, options?: { appServer?
       appServerGoalsProviderIds.delete(providerId);
     } else {
       appServerProviderIds.add(providerId);
-      if (options?.goals === false) {
-        appServerGoalsProviderIds.delete(providerId);
-      } else {
+      if (options?.goals === true) {
         appServerGoalsProviderIds.add(providerId);
+      } else {
+        appServerGoalsProviderIds.delete(providerId);
       }
     }
   }
