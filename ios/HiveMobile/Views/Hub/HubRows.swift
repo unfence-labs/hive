@@ -187,7 +187,7 @@ struct HubWorkspaceRow: View {
         if isStreaming {
             AgentActivityIndicator(dotSize: 3, spacing: 1.5)
         } else if turnCompleted {
-            CompletedDot()
+            UnreadDot()
         } else {
             StatusDot()
         }
@@ -243,10 +243,7 @@ private struct HubActivityDot: View {
             }
             .accessibilityLabel("Agent is working")
         case .completed:
-            Circle()
-                .fill(WhisperColor.success)
-                .frame(width: 7, height: 7)
-                .shadow(color: WhisperColor.success.opacity(0.45), radius: 4)
+            UnreadDot(size: 7, shadowRadius: 4)
                 .accessibilityLabel("Unread activity")
         case .idle:
             EmptyView()

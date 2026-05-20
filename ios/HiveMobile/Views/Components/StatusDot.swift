@@ -9,7 +9,35 @@ struct StatusDot: View {
     }
 }
 
-/// Turn-completed indicator.
+/// Unread activity indicator using the user's selected accent color.
+struct UnreadDot: View {
+    let size: CGFloat
+    let shadowRadius: CGFloat
+
+    @State private var appeared = false
+    private let color = Color.accentColor
+
+    init(size: CGFloat = 8, shadowRadius: CGFloat = 6) {
+        self.size = size
+        self.shadowRadius = shadowRadius
+    }
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .shadow(color: color.opacity(appeared ? 0.5 : 0), radius: shadowRadius)
+            .scaleEffect(appeared ? 1.0 : 0.3)
+            .opacity(appeared ? 1.0 : 0.0)
+            .onAppear {
+                withAnimation(.spring(duration: 0.4, bounce: 0.3)) {
+                    appeared = true
+                }
+            }
+    }
+}
+
+/// Turn-completed success indicator.
 struct CompletedDot: View {
     @State private var appeared = false
 
@@ -33,6 +61,10 @@ struct CompletedDot: View {
         VStack {
             StatusDot()
             Text("Idle").font(.caption2)
+        }
+        VStack {
+            UnreadDot()
+            Text("Unread").font(.caption2)
         }
         VStack {
             CompletedDot()

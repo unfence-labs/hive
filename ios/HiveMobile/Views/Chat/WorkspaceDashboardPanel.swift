@@ -252,7 +252,7 @@ private struct DashboardActivityIcon: View {
             if isStreaming {
                 AgentActivityIndicator(dotSize: 3.2, spacing: 1.6)
             } else if hasUnread {
-                CompletedDot()
+                UnreadDot()
             } else {
                 StatusDot()
             }

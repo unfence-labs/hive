@@ -142,7 +142,7 @@ private struct SessionStatusIndicator: View {
                 .frame(width: 12, height: 12)
                 .accessibilityLabel("Streaming")
         } else if isUnread {
-            CompletedDot()
+            UnreadDot()
                 .accessibilityLabel("Unread")
         } else {
             Color.clear
