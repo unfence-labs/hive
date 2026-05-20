@@ -17,9 +17,6 @@ struct WorkspaceConversationsView: View {
     @State private var scriptsLoadFailed = false
 
     private let api = APIClient()
-    private var activeSessionId: String? {
-        store.sessionId ?? workspace.activeSessionId
-    }
 
     var body: some View {
         VStack(spacing: HiveSpacing.md) {
@@ -107,7 +104,6 @@ struct WorkspaceConversationsView: View {
                 } label: {
                     ConversationRow(
                         session: session,
-                        isActive: session.sessionId == activeSessionId,
                         isStreaming: projectStore.statusMonitor.isStreaming(
                             workspaceId: workspace.id,
                             sessionId: session.sessionId

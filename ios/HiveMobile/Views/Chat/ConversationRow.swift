@@ -2,7 +2,6 @@ import SwiftUI
 
 struct ConversationRow: View {
     let session: SessionMetadata
-    let isActive: Bool
     let isStreaming: Bool
     let isUnread: Bool
 
@@ -48,9 +47,6 @@ struct ConversationRow: View {
         if let timestampText {
             parts.append(timestampText)
         }
-        if isActive {
-            parts.append("active conversation")
-        }
         if isStreaming {
             parts.append("streaming")
         } else if isUnread {
@@ -61,29 +57,11 @@ struct ConversationRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: HiveSpacing.md) {
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(isActive ? Color.accentColor : Color.clear)
-                .frame(width: 3, height: 38)
-
             VStack(alignment: .leading, spacing: HiveSpacing.xs) {
-                HStack(spacing: HiveSpacing.sm) {
-                    Text(title)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(WhisperColor.text)
-                        .lineLimit(1)
-
-                    if isActive {
-                        Text("Active")
-                            .font(.caption2.monospacedDigit().weight(.bold))
-                            .foregroundStyle(Color.accentColor)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(
-                                Capsule(style: .continuous)
-                                    .fill(Color.accentColor.opacity(0.10))
-                            )
-                    }
-                }
+                Text(title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(WhisperColor.text)
+                    .lineLimit(1)
 
                 Text(messageCountText)
                     .font(.system(size: 15))
@@ -109,11 +87,11 @@ struct ConversationRow: View {
         .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isActive ? WhisperColor.surfaceRaised : WhisperColor.hubCardFill)
+                .fill(WhisperColor.hubCardFill)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(isActive ? Color.accentColor.opacity(0.28) : WhisperColor.hubCardBorder, lineWidth: 0.5)
+                .stroke(WhisperColor.hubCardBorder, lineWidth: 0.5)
         )
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
@@ -188,7 +166,6 @@ private struct SessionStatusIndicator: View {
                 messageCount: 5,
                 lockedProvider: "claude"
             ),
-            isActive: true,
             isStreaming: true,
             isUnread: false
         )

@@ -15,16 +15,10 @@ struct WorkspaceDashboardPanel: View {
         branchInfo?.name ?? workspace.branch
     }
 
-    private var activityLabel: String {
-        if isStreaming { return "WORKING" }
-        if hasUnread { return "UNREAD" }
-        return "IDLE"
-    }
-
-    private var activityColor: Color {
-        if isStreaming { return Color.accentColor }
-        if hasUnread { return WhisperColor.success }
-        return WhisperColor.textMuted
+    private var activityAccessibilityLabel: String {
+        if isStreaming { return "Working" }
+        if hasUnread { return "Unread" }
+        return "Idle"
     }
 
     private var baseRefText: String {
@@ -102,11 +96,10 @@ struct WorkspaceDashboardPanel: View {
 
             Spacer(minLength: HiveSpacing.sm)
 
-            DashboardStatusBadge(
-                text: activityLabel,
-                color: activityColor,
+            DashboardActivityIcon(
                 isStreaming: isStreaming,
-                hasUnread: hasUnread
+                hasUnread: hasUnread,
+                accessibilityLabel: activityAccessibilityLabel
             )
         }
     }
@@ -206,40 +199,23 @@ struct WorkspaceDashboardPanel: View {
     }
 }
 
-private struct DashboardStatusBadge: View {
-    let text: String
-    let color: Color
+private struct DashboardActivityIcon: View {
     let isStreaming: Bool
     let hasUnread: Bool
+    let accessibilityLabel: String
 
     var body: some View {
-        HStack(spacing: 6) {
+        Group {
             if isStreaming {
-                AgentActivityIndicator(dotSize: 2.7, spacing: 1.4)
-                    .frame(width: 12, height: 12)
+                AgentActivityIndicator(dotSize: 3.2, spacing: 1.6)
             } else if hasUnread {
                 CompletedDot()
-                    .frame(width: 12, height: 12)
             } else {
                 StatusDot()
-                    .frame(width: 12, height: 12)
             }
-
-            Text(text)
-                .font(.caption2.monospacedDigit().weight(.bold))
-                .foregroundStyle(color)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(
-            Capsule(style: .continuous)
-                .fill(color.opacity(0.11))
-        )
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(color.opacity(0.24), lineWidth: 0.5)
-        )
-        .accessibilityElement(children: .combine)
+        .frame(width: 18, height: 18)
+        .accessibilityLabel(accessibilityLabel)
     }
 }
 
