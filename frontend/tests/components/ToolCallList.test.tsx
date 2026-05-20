@@ -283,7 +283,7 @@ describe("ToolCallList", () => {
     expect(screen.getByText("1 tool call, 2 subagents")).toBeInTheDocument();
   });
 
-  it("counts only root tools in collapsed summary when sub-tools are nested under a Task", () => {
+  it("does not collapse when only child tools reach the threshold", () => {
     render(
       <ToolCallList
         toolCalls={[
@@ -308,7 +308,10 @@ describe("ToolCallList", () => {
       />,
     );
 
-    expect(screen.getByText("1 subagent")).toBeInTheDocument();
+    expect(screen.getByText("Explore")).toBeInTheDocument();
+    expect(screen.queryByText("1 subagent")).not.toBeInTheDocument();
+    expect(screen.queryByText("Read")).not.toBeInTheDocument();
+    expect(screen.queryByText("Grep")).not.toBeInTheDocument();
     expect(screen.queryByText("2 tool calls, 1 subagent")).not.toBeInTheDocument();
   });
 
@@ -386,9 +389,7 @@ describe("ToolCallList", () => {
       />,
     );
 
-    await user.click(screen.getByText("1 subagent"));
-
-    // Root card visible with agent type after expanding the streaming summary
+    // Root card visible with agent type
     expect(screen.getByText("Explore")).toBeInTheDocument();
     // Nested card not visible yet
     expect(screen.queryByText("Plan")).not.toBeInTheDocument();
@@ -552,9 +553,6 @@ describe("ToolCallList", () => {
         ]}
       />,
     );
-
-    // 4 regularTools >= 3 triggers collapse; expand summary first
-    await user.click(screen.getByText("1 subagent"));
 
     // Completed state shows checkmark SVG (no "Done" text)
     const btn = screen.getByRole("button", { name: /Explore/i });

@@ -608,7 +608,7 @@ private struct WhisperToolCallsBlock: View {
     }
 
     private var shouldCollapse: Bool {
-        visibleTools.count >= collapseThreshold
+        rootTools.count >= collapseThreshold
     }
 
     var body: some View {

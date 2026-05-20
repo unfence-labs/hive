@@ -144,7 +144,7 @@ export function ToolCallList({
   const childrenMap = buildChildrenMap(regularTools);
   const rootTools = regularTools.filter((t) => !t.parentToolUseId);
 
-  const shouldCollapse = regularTools.length >= COLLAPSE_THRESHOLD;
+  const shouldCollapse = rootTools.length >= COLLAPSE_THRESHOLD;
 
   const uniqueToolNames = shouldCollapse
     ? [...new Set(rootTools.map((t) => t.name))]
