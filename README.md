@@ -87,7 +87,7 @@ It manages:
 **iOS**
 - Native SwiftUI app with workspace conversation lists, chat, model selection, session switching (max 4), and push notifications (APNs).
 - Dynamic model catalog from API with provider-grouped picker and session locking.
-- SwiftUI `NavigationStack`/`NavigationLink` navigation for workspaces and conversations.
+- SwiftUI `NavigationStack` routing for workspaces and conversations.
 - Inline Hub search field is intentionally custom to avoid `.searchable` navigation drawer animation regressions on iOS.
 - PR status bulk polling with shared enriched display mapping for Hub rows and the workspace dashboard.
 - Push notifications with foreground suppression and cold-start bridging via `CompletedWorkspacesStore`.

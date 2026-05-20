@@ -328,7 +328,7 @@ private struct PullRequestRow: View {
                             .font(.caption2.weight(.semibold))
                             .imageScale(.small)
                     }
-                    .foregroundStyle(summary.color)
+                    .foregroundStyle(WhisperColor.textMuted)
                     .lineLimit(1)
                 }
                 .buttonStyle(.plain)
@@ -336,7 +336,7 @@ private struct PullRequestRow: View {
             } else {
                 Text(summary.title)
                     .font(.caption.monospacedDigit().weight(.medium))
-                    .foregroundStyle(summary.color)
+                    .foregroundStyle(WhisperColor.textMuted)
                     .lineLimit(1)
             }
 

@@ -123,7 +123,9 @@ struct WorkspaceConversationsView: View {
     private var conversationsList: some View {
         List {
             ForEach(sessions) { session in
-                NavigationLink(value: session) {
+                Button {
+                    navigationPath.append(session)
+                } label: {
                     ConversationRow(
                         session: session,
                         isStreaming: projectStore.statusMonitor.isStreaming(
@@ -136,6 +138,7 @@ struct WorkspaceConversationsView: View {
                         )
                     )
                 }
+                .buttonStyle(.plain)
                 .listRowInsets(EdgeInsets(top: 5, leading: HiveSpacing.lg, bottom: 5, trailing: HiveSpacing.lg))
                 .listRowBackground(WhisperColor.appBackground)
                 .listRowSeparator(.hidden)
