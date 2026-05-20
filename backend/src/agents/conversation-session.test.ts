@@ -765,6 +765,7 @@ describe("ConversationSession", () => {
   });
 
   it("marks displayed Codex /goal user messages", async () => {
+    providerRegistry.markProviderAvailable("codex", { appServer: true, goals: true });
     const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
     fakeRunner.start = vi.fn(() => {
       fakeRunner.emit("result", { type: "result", session_id: "provider-goal-command" });
@@ -795,10 +796,52 @@ describe("ConversationSession", () => {
     session.sendMessage("  /goal Ship backend support", { model: "codex:gpt-5.5" });
 
     await waitForMessages(messages, "done");
-    const userEvent = messages.find((msg): msg is Extract<WsOutgoing, { type: "user_message" }> => msg.type === "user_message");
+    const userEvent = messages.find(
+      (msg): msg is Extract<WsOutgoing, { type: "user_message" }> => msg.type === "user_message",
+    );
     expect(userEvent?.message.goalCommand).toBe(true);
     const userMessage = (await session.getMessages()).find((msg) => msg.role === "user");
     expect(userMessage?.goalCommand).toBe(true);
+  });
+
+  it("does not mark Codex /goal user messages when goals are unsupported", async () => {
+    providerRegistry.markProviderAvailable("codex", { appServer: true, goals: false });
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("result", { type: "result", session_id: "provider-goal-command-unsupported" });
+      fakeRunner.emit("exit", 0, "provider-goal-command-unsupported");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-goal-command-unsupported",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "unsupported-goal-command-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("/goal Ship backend support", { model: "codex:gpt-5.5" });
+
+    await waitForMessages(messages, "done");
+    const userEvent = messages.find(
+      (msg): msg is Extract<WsOutgoing, { type: "user_message" }> => msg.type === "user_message",
+    );
+    expect(userEvent?.message.goalCommand).toBeUndefined();
+    const userMessage = (await session.getMessages()).find((msg) => msg.role === "user");
+    expect(userMessage?.goalCommand).toBeUndefined();
   });
 
   it("does not mark non-Codex /goal user messages", async () => {

@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import { ClaudeProvider } from "./claude.js";
 import { CodexProvider } from "./codex.js";
 import { GeminiProvider } from "./gemini.js";
-import type { AgentProvider, ModelCatalogEntry, ModelCatalogResponse } from "./types.js";
+import type { AgentProvider, ModelCatalogEntry, ModelCatalogResponse, ProviderCapabilities } from "./types.js";
 
 const execFile = promisify(execFileCb);
 
@@ -119,6 +119,14 @@ export function providerSupportsAppServerGoals(providerId: string): boolean {
   return appServerGoalsProviderIds.has(providerId);
 }
 
+function catalogCapabilitiesForProvider(provider: AgentProvider): ProviderCapabilities {
+  if (provider.id !== "codex") return provider.capabilities;
+  return {
+    ...provider.capabilities,
+    goals: providerSupportsAppServerGoals(provider.id),
+  };
+}
+
 /**
  * Resolve a compound model ID ("provider:model") to its provider.
  * Falls back to the default provider (claude) if no prefix.
@@ -168,7 +176,7 @@ export function getModelCatalog(): ModelCatalogResponse {
         providerLabel,
         isDefault: model.isDefault,
         isNew: model.isNew,
-        capabilities: provider.capabilities,
+        capabilities: catalogCapabilitiesForProvider(provider),
         // This is keyed off provider.id ("codex"), not model.id. Catalog IDs are compound
         // values like "codex:gpt-5.5". We still hide Codex context windows here because
         // the CLI only exposes turn-level usage via turn.completed today, which can be

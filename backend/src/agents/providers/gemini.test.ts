@@ -60,6 +60,10 @@ describe("GeminiProvider", () => {
     expect(provider.capabilities.completions).toBe(false);
   });
 
+  it("does not support Codex goals", () => {
+    expect(provider.capabilities.goals).toBe(false);
+  });
+
   // ── buildArgs ──────────────────────────────────────────────────────
 
   it("builds first-message args with prompt, output format, yolo, and model", () => {

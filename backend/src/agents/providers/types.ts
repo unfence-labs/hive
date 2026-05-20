@@ -25,6 +25,7 @@ export interface ProviderCapabilities {
   planMode: boolean;
   blockingTools: boolean;
   completions: boolean;
+  goals: boolean;
 }
 
 // ── Session state passed to arg builders ────────────────────────────

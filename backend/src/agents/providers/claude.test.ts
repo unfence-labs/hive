@@ -67,6 +67,10 @@ describe("ClaudeProvider", () => {
     expect(provider.capabilities.completions).toBe(true);
   });
 
+  it("does not support Codex goals", () => {
+    expect(provider.capabilities.goals).toBe(false);
+  });
+
   // ── buildArgs ──────────────────────────────────────────────────────
 
   it("includes --print and --output-format stream-json", () => {

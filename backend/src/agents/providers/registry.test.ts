@@ -221,6 +221,7 @@ describe("getModelCatalog", () => {
       expect(typeof model.capabilities.planMode).toBe("boolean");
       expect(typeof model.capabilities.blockingTools).toBe("boolean");
       expect(typeof model.capabilities.completions).toBe("boolean");
+      expect(typeof model.capabilities.goals).toBe("boolean");
     }
   });
 
@@ -235,7 +236,26 @@ describe("getModelCatalog", () => {
       planMode: false,
       blockingTools: false,
       completions: false,
+      goals: false,
     });
+  });
+
+  it("exposes Codex goals capability when App Server goals are detected", () => {
+    markProviderAvailable("codex", { appServer: true, goals: true });
+    const catalog = getModelCatalog();
+
+    const codexModels = catalog.models.filter((m) => m.provider === "codex");
+    expect(codexModels.length).toBeGreaterThan(0);
+    expect(codexModels.every((model) => model.capabilities.goals)).toBe(true);
+  });
+
+  it("omits Codex goals capability when App Server goals are not detected", () => {
+    markProviderAvailable("codex", { appServer: true, goals: false });
+    const catalog = getModelCatalog();
+
+    const codexModels = catalog.models.filter((m) => m.provider === "codex");
+    expect(codexModels.length).toBeGreaterThan(0);
+    expect(codexModels.every((model) => !model.capabilities.goals)).toBe(true);
   });
 
   it("includes isNew flag from model definition", () => {

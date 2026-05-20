@@ -5,7 +5,7 @@ import { commandExecutionActivityToToolCall } from "@hive/shared/agent-activity"
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { AgentEventNormalizer, type NormalizedAgentEvent } from "./agent-event-normalizer.js";
-import { resolveProvider } from "./providers/registry.js";
+import { providerSupportsAppServerGoals, resolveProvider } from "./providers/registry.js";
 import type { AgentProvider } from "./providers/types.js";
 import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js";
 import type { AgentRunner, AgentRunnerTurnStartedEvent, StopReason } from "./runners/types.js";
@@ -43,7 +43,9 @@ function formatNormalizedExitCode(exitCode: number | undefined): string {
 
 function isCodexGoalCommand(content: string, providerId: string | undefined): boolean {
   const trimmed = content.trim();
-  return providerId === "codex" && (trimmed === "/goal" || trimmed.startsWith("/goal "));
+  return providerId === "codex"
+    && providerSupportsAppServerGoals(providerId)
+    && (trimmed === "/goal" || trimmed.startsWith("/goal "));
 }
 
 function cloneAgentActivity(activity: AgentActivity): AgentActivity {

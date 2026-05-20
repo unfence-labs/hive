@@ -294,6 +294,7 @@ export interface ProviderCapabilities {
   planMode: boolean;
   blockingTools: boolean;
   completions: boolean;
+  goals: boolean;
 }
 
 export interface ModelCatalogEntry {
