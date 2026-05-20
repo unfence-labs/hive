@@ -30,6 +30,12 @@ final class APIClient {
         UserDefaults.standard.string(forKey: "authToken") ?? ""
     }
 
+    private func pathSegment(_ value: String) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+
     // MARK: - Generic request methods
 
     private func request<T: Decodable>(_ method: String, path: String, body: Data? = nil) async throws -> T {
@@ -190,6 +196,16 @@ final class APIClient {
 
     func fetchWorkspaceScripts(workspaceId: String) async throws -> WorkspaceScriptsResponse {
         try await get(path: "/api/workspaces/\(workspaceId)/scripts")
+    }
+
+    func startWorkspaceScript(workspaceId: String, scriptId: String) async throws {
+        let scriptPath = pathSegment(scriptId)
+        try await requestVoid("POST", path: "/api/workspaces/\(workspaceId)/scripts/\(scriptPath)/start")
+    }
+
+    func stopWorkspaceScript(workspaceId: String, scriptId: String) async throws {
+        let scriptPath = pathSegment(scriptId)
+        try await requestVoid("POST", path: "/api/workspaces/\(workspaceId)/scripts/\(scriptPath)/stop")
     }
 
     func fetchBulkPrStatus(workspaceIds: [String]) async throws -> BulkPrStatusResponse {

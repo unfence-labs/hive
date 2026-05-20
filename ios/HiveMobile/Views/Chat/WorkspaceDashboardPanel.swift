@@ -1,5 +1,57 @@
 import SwiftUI
 
+enum ScriptDashboardActionKind {
+    case start
+    case stop
+    case restart
+}
+
+struct ScriptDashboardAction {
+    let scriptId: String
+    let scriptName: String
+    let kind: ScriptDashboardActionKind
+    let wasRunning: Bool
+
+    var title: String {
+        switch kind {
+        case .start:
+            return "Start \(scriptName)?"
+        case .stop:
+            return "Stop \(scriptName)?"
+        case .restart:
+            return "Restart \(scriptName)?"
+        }
+    }
+
+    var message: String {
+        switch kind {
+        case .start:
+            return "This will start the \(scriptName) script."
+        case .stop:
+            return "This will stop the running \(scriptName) script."
+        case .restart where wasRunning:
+            return "This will stop the current setup script and start it again."
+        case .restart:
+            return "This will run the setup script again."
+        }
+    }
+
+    var confirmTitle: String {
+        switch kind {
+        case .start:
+            return "Start"
+        case .stop:
+            return "Stop"
+        case .restart:
+            return "Restart"
+        }
+    }
+
+    var isDestructive: Bool {
+        kind == .stop
+    }
+}
+
 struct WorkspaceDashboardPanel: View {
     let workspace: Workspace
     let branchInfo: BranchInfo?
@@ -10,6 +62,7 @@ struct WorkspaceDashboardPanel: View {
     let isStreaming: Bool
     let hasUnread: Bool
     let scriptsLoadFailed: Bool
+    let onScriptAction: (ScriptDashboardAction) -> Void
 
     private var branchName: String {
         branchInfo?.name ?? workspace.branch
@@ -142,7 +195,13 @@ struct WorkspaceDashboardPanel: View {
                     spacing: HiveSpacing.sm
                 ) {
                     ForEach(visibleScripts) { script in
-                        ScriptStatusToken(script: script)
+                        Button {
+                            onScriptAction(script.action)
+                        } label: {
+                            ScriptStatusToken(script: script)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(script.action.title)
                     }
 
                     if hiddenScriptCount > 0 {
@@ -341,7 +400,7 @@ private struct ScriptStatusToken: View {
         }
         .font(.caption.monospacedDigit().weight(.medium))
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .frame(minHeight: 44)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(WhisperColor.surfaceSubtle)
@@ -471,7 +530,17 @@ private struct GitScopeDashboardSummary {
 private struct ScriptDashboardSummary: Identifiable {
     let id: String
     let name: String
+    let isSetup: Bool
     let status: ScriptStatusInfo
+
+    var action: ScriptDashboardAction {
+        ScriptDashboardAction(
+            scriptId: id,
+            scriptName: name,
+            kind: actionKind,
+            wasRunning: status.state == .running
+        )
+    }
 
     var statusText: String {
         switch status.state {
@@ -502,6 +571,13 @@ private struct ScriptDashboardSummary: Identifiable {
         }
     }
 
+    private var actionKind: ScriptDashboardActionKind {
+        if isSetup {
+            return .restart
+        }
+        return status.state == .running ? .stop : .start
+    }
+
     static func build(
         config: HiveConfig?,
         apiStatus: [String: ScriptStatusInfo],
@@ -521,6 +597,7 @@ private struct ScriptDashboardSummary: Identifiable {
             ScriptDashboardSummary(
                 id: id,
                 name: id,
+                isSetup: id == "setup",
                 status: mergedStatus[id] ?? ScriptStatusInfo(state: .idle)
             )
         }
@@ -648,7 +725,8 @@ private struct PullRequestDashboardSummary {
         prStatus: PrStatusResponse(pr: nil, error: nil),
         isStreaming: true,
         hasUnread: false,
-        scriptsLoadFailed: false
+        scriptsLoadFailed: false,
+        onScriptAction: { _ in }
     )
     .frame(height: 260)
     .hiveScreenBackground()

@@ -15,6 +15,8 @@ struct WorkspaceConversationsView: View {
     @State private var errorMessage: String?
     @State private var scriptsResponse: WorkspaceScriptsResponse?
     @State private var scriptsLoadFailed = false
+    @State private var pendingScriptAction: ScriptDashboardAction?
+    @State private var isPerformingScriptAction = false
 
     private let api = APIClient()
     private var focusedSessionId: String? {
@@ -32,7 +34,11 @@ struct WorkspaceConversationsView: View {
                 prStatus: projectStore.statusMonitor.prStatus(for: workspace.id),
                 isStreaming: projectStore.statusMonitor.isStreaming(workspace.id),
                 hasUnread: projectStore.statusMonitor.hasUnreadSessions(workspace.id),
-                scriptsLoadFailed: scriptsLoadFailed
+                scriptsLoadFailed: scriptsLoadFailed,
+                onScriptAction: { action in
+                    guard !isPerformingScriptAction else { return }
+                    pendingScriptAction = action
+                }
             )
 
             conversationsSection
@@ -67,7 +73,7 @@ struct WorkspaceConversationsView: View {
                 Task { await refreshContent() }
             }
         }
-        .alert("Conversation Error", isPresented: Binding(
+        .alert("Workspace Error", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
@@ -76,6 +82,21 @@ struct WorkspaceConversationsView: View {
             if let errorMessage {
                 Text(errorMessage)
             }
+        }
+        .alert(
+            pendingScriptAction?.title ?? "Script Action",
+            isPresented: Binding(
+                get: { pendingScriptAction != nil },
+                set: { if !$0 { pendingScriptAction = nil } }
+            ),
+            presenting: pendingScriptAction
+        ) { action in
+            Button(action.confirmTitle, role: action.isDestructive ? .destructive : nil) {
+                performScriptAction(action)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { action in
+            Text(action.message)
         }
     }
 
@@ -181,6 +202,46 @@ struct WorkspaceConversationsView: View {
         } catch {
             scriptsLoadFailed = true
         }
+    }
+
+    private func performScriptAction(_ action: ScriptDashboardAction) {
+        guard !isPerformingScriptAction else { return }
+
+        pendingScriptAction = nil
+        isPerformingScriptAction = true
+        Task {
+            defer { isPerformingScriptAction = false }
+
+            do {
+                switch action.kind {
+                case .start:
+                    try await api.startWorkspaceScript(workspaceId: workspace.id, scriptId: action.scriptId)
+                case .stop:
+                    try await api.stopWorkspaceScript(workspaceId: workspace.id, scriptId: action.scriptId)
+                case .restart:
+                    try await restartSetup(action)
+                }
+
+                errorMessage = nil
+                projectStore.statusMonitor.forceRefresh()
+                await loadScripts()
+            } catch is CancellationError {
+                // View disappeared.
+            } catch {
+                errorMessage = error.localizedDescription
+                await loadScripts()
+            }
+        }
+    }
+
+    private func restartSetup(_ action: ScriptDashboardAction) async throws {
+        do {
+            try await api.stopWorkspaceScript(workspaceId: workspace.id, scriptId: action.scriptId)
+        } catch APIError.httpError(let statusCode, _) where statusCode == 409 {
+            // Nothing was running; starting setup still gives the expected restart action.
+        }
+
+        try await api.startWorkspaceScript(workspaceId: workspace.id, scriptId: action.scriptId)
     }
 
     private func createSession() {
