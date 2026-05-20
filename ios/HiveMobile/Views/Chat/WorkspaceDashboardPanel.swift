@@ -327,7 +327,7 @@ private struct ScriptStatusToken: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            scriptIcon
+            ScriptStatusDot(summary: script)
 
             Text(script.name)
                 .foregroundStyle(WhisperColor.text)
@@ -352,24 +352,24 @@ private struct ScriptStatusToken: View {
         )
         .accessibilityElement(children: .combine)
     }
+}
 
-    @ViewBuilder
-    private var scriptIcon: some View {
-        switch script.status.state {
-        case .running:
-            AgentActivityIndicator(dotSize: 2.5, spacing: 1.2)
-                .frame(width: 11, height: 11)
-        case .done:
-            CompletedDot()
-                .frame(width: 11, height: 11)
-        case .error:
-            Circle()
-                .fill(Color.red)
-                .frame(width: 7, height: 7)
-                .frame(width: 11, height: 11)
+private struct ScriptStatusDot: View {
+    let summary: ScriptDashboardSummary
+
+    var body: some View {
+        Circle()
+            .fill(summary.color)
+            .frame(width: diameter, height: diameter)
+            .frame(width: 11, height: 11)
+    }
+
+    private var diameter: CGFloat {
+        switch summary.status.state {
+        case .running, .done, .error:
+            return 7
         case .idle:
-            StatusDot()
-                .frame(width: 11, height: 11)
+            return 6
         }
     }
 }
