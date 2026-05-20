@@ -314,10 +314,27 @@ private struct PullRequestRow: View {
                 .lineLimit(1)
                 .frame(width: 104, alignment: .leading)
 
-            Text(summary.title)
-                .font(.caption.monospacedDigit().weight(.medium))
-                .foregroundStyle(summary.color)
-                .lineLimit(1)
+            if let destinationURL = summary.destinationURL {
+                Link(destination: destinationURL) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(summary.title)
+                            .font(.caption.monospacedDigit().weight(.medium))
+
+                        Image(systemName: "arrow.up.right")
+                            .font(.caption2.weight(.semibold))
+                            .imageScale(.small)
+                    }
+                    .foregroundStyle(summary.color)
+                    .lineLimit(1)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open pull request \(summary.title)")
+            } else {
+                Text(summary.title)
+                    .font(.caption.monospacedDigit().weight(.medium))
+                    .foregroundStyle(summary.color)
+                    .lineLimit(1)
+            }
 
             Spacer(minLength: HiveSpacing.sm)
 
@@ -330,7 +347,7 @@ private struct PullRequestRow: View {
         .padding(.horizontal, HiveSpacing.md)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: summary.destinationURL == nil ? .combine : .contain)
     }
 }
 
@@ -608,29 +625,34 @@ private struct PullRequestDashboardSummary {
     let title: String
     let detail: String
     let color: Color
+    let destinationURL: URL?
 
     init(prStatus: PrStatusResponse?) {
         guard let prStatus else {
             title = "Loading"
             detail = "Fetching status"
             color = WhisperColor.textMuted
+            destinationURL = nil
             return
         }
         if let error = prStatus.error, !error.isEmpty {
             title = "Fetch error"
             detail = "-"
             color = .red
+            destinationURL = nil
             return
         }
         guard let pr = prStatus.pr else {
             title = "No PR"
             detail = "-"
             color = WhisperColor.textMuted
+            destinationURL = nil
             return
         }
 
         let prefix = "#\(pr.number)"
         let checks = Self.checksText(pr)
+        destinationURL = Self.destinationURL(from: pr.url)
 
         if pr.state == .merged {
             title = "\(prefix)"
@@ -690,6 +712,17 @@ private struct PullRequestDashboardSummary {
     private static func checksText(_ pr: PullRequestInfo) -> String {
         guard let passed = pr.checksPassed, let total = pr.checksTotal else { return "" }
         return " \(passed)/\(total)"
+    }
+
+    private static func destinationURL(from rawURL: String) -> URL? {
+        guard
+            let url = URL(string: rawURL),
+            let scheme = url.scheme?.lowercased(),
+            scheme == "https" || scheme == "http"
+        else {
+            return nil
+        }
+        return url
     }
 }
 
