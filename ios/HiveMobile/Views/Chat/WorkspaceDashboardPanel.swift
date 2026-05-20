@@ -131,7 +131,7 @@ struct WorkspaceDashboardPanel: View {
             } else if scriptsResponse == nil {
                 DashboardEmptyLine(text: "Loading scripts", color: WhisperColor.textMuted)
             } else if scriptSummaries.isEmpty {
-                DashboardEmptyLine(text: "-", color: WhisperColor.textMuted)
+                DashboardEmptyLine(text: "No scripts configured", color: WhisperColor.textMuted)
             } else {
                 LazyVGrid(
                     columns: [
@@ -502,19 +502,6 @@ private struct ScriptDashboardSummary: Identifiable {
         }
     }
 
-    private var priority: Int {
-        switch status.state {
-        case .running:
-            return 0
-        case .error:
-            return 1
-        case .done:
-            return 2
-        case .idle:
-            return 3
-        }
-    }
-
     static func build(
         config: HiveConfig?,
         apiStatus: [String: ScriptStatusInfo],
@@ -536,14 +523,6 @@ private struct ScriptDashboardSummary: Identifiable {
                 name: id,
                 status: mergedStatus[id] ?? ScriptStatusInfo(state: .idle)
             )
-        }
-        .sorted { lhs, rhs in
-            if lhs.priority != rhs.priority {
-                return lhs.priority < rhs.priority
-            }
-            if lhs.id == "setup" { return true }
-            if rhs.id == "setup" { return false }
-            return lhs.name < rhs.name
         }
     }
 }
@@ -567,8 +546,8 @@ private struct PullRequestDashboardSummary {
             return
         }
         guard let pr = prStatus.pr else {
-            title = "-"
-            detail = "-"
+            title = "No PR"
+            detail = "Not opened"
             color = WhisperColor.textMuted
             return
         }
