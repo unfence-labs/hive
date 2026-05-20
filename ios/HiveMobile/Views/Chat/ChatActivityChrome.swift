@@ -21,6 +21,7 @@ struct ChatActivityRowLabel: View {
     var isExpanded: Bool?
     var accessoryIcons: [String] = []
     var executing = false
+    @State private var pulse = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -109,6 +110,10 @@ struct ChatActivityRowLabel: View {
                 Circle()
                     .fill(WhisperColor.textSecondary)
                     .frame(width: 5, height: 5)
+                    .opacity(pulse ? 1 : 0.35)
+                    .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
+                    .onAppear { pulse = true }
+                    .onDisappear { pulse = false }
             }
         }
         .padding(.vertical, 3)

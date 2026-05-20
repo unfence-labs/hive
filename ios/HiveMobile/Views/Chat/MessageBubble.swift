@@ -608,7 +608,7 @@ private struct WhisperToolCallsBlock: View {
     }
 
     private var shouldCollapse: Bool {
-        !showExecutingState && visibleTools.count >= collapseThreshold
+        visibleTools.count >= collapseThreshold
     }
 
     var body: some View {
@@ -617,6 +617,7 @@ private struct WhisperToolCallsBlock: View {
                 CollapsedToolSummary(
                     tools: rootTools,
                     isExpanded: groupExpanded,
+                    isStreaming: showExecutingState,
                     onToggle: {
                         withAnimation(.easeInOut(duration: 0.2)) { groupExpanded.toggle() }
                     }
@@ -645,6 +646,7 @@ private struct WhisperToolCallsBlock: View {
 private struct CollapsedToolSummary: View {
     let tools: [ToolCall]
     let isExpanded: Bool
+    let isStreaming: Bool
     let onToggle: () -> Void
 
     private var summaryLabel: String {
@@ -669,7 +671,8 @@ private struct CollapsedToolSummary: View {
             ChatActivityRowLabel(
                 label: summaryLabel,
                 isExpanded: isExpanded,
-                accessoryIcons: uniqueIcons
+                accessoryIcons: uniqueIcons,
+                executing: isStreaming
             )
         }
         .buttonStyle(.plain)

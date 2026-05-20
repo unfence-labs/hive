@@ -227,7 +227,7 @@ describe("ToolCallList", () => {
     expect(screen.getByText("3 subagents")).toBeInTheDocument();
   });
 
-  it("does not collapse during streaming (showExecutingState)", () => {
+  it("collapses during streaming when threshold is reached", () => {
     render(
       <ToolCallList
         toolCalls={[
@@ -239,11 +239,12 @@ describe("ToolCallList", () => {
       />,
     );
 
-    // No summary — all tools shown individually
-    expect(screen.queryByText(/tool call/)).not.toBeInTheDocument();
-    expect(screen.getByText("Read")).toBeInTheDocument();
-    expect(screen.getByText("Grep")).toBeInTheDocument();
-    expect(screen.getByText("Edit")).toBeInTheDocument();
+    const summary = screen.getByRole("button", { name: /3 tool calls/ });
+    expect(summary).toBeInTheDocument();
+    expect(summary.querySelector(".animate-pulse")).toBeTruthy();
+    expect(screen.queryByText("Read")).not.toBeInTheDocument();
+    expect(screen.queryByText("Grep")).not.toBeInTheDocument();
+    expect(screen.queryByText("Edit")).not.toBeInTheDocument();
   });
 
   it("always shows interactive tools even when collapsed", () => {
@@ -385,7 +386,9 @@ describe("ToolCallList", () => {
       />,
     );
 
-    // Root card visible with agent type
+    await user.click(screen.getByText("1 subagent"));
+
+    // Root card visible with agent type after expanding the streaming summary
     expect(screen.getByText("Explore")).toBeInTheDocument();
     // Nested card not visible yet
     expect(screen.queryByText("Plan")).not.toBeInTheDocument();

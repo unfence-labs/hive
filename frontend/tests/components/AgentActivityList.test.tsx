@@ -219,7 +219,7 @@ describe("AgentActivityList", () => {
     expect(screen.queryByText("4 tool calls")).not.toBeInTheDocument();
   });
 
-  it("keeps tool-like activities expanded while streaming", () => {
+  it("collapses tool-like activities while streaming when threshold is reached", () => {
     const activities: AgentActivity[] = [
       {
         id: "cmd-1",
@@ -248,9 +248,9 @@ describe("AgentActivityList", () => {
 
     render(<AgentActivityList activities={activities} showExecutingState />);
 
-    expect(screen.queryByText("3 tool calls")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Bash")).toHaveLength(2);
-    expect(screen.getByText("Edit")).toBeInTheDocument();
+    expect(screen.getByText("3 tool calls")).toBeInTheDocument();
+    expect(screen.queryByText("Bash")).not.toBeInTheDocument();
+    expect(screen.queryByText("Edit")).not.toBeInTheDocument();
   });
 
   it("renders plan update steps", () => {
