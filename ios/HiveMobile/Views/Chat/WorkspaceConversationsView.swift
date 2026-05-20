@@ -17,6 +17,9 @@ struct WorkspaceConversationsView: View {
     @State private var scriptsLoadFailed = false
 
     private let api = APIClient()
+    private var focusedSessionId: String? {
+        store.sessionId ?? workspace.activeSessionId
+    }
 
     var body: some View {
         VStack(spacing: HiveSpacing.md) {
@@ -204,7 +207,7 @@ struct WorkspaceConversationsView: View {
         let targets = offsets.compactMap { index -> SessionMetadata? in
             sessions.indices.contains(index) ? sessions[index] : nil
         }
-        let focusedSessionId = activeSessionId
+        let deletedFocusedSessionId = focusedSessionId
 
         Task {
             var deletedSessionIds = Set<String>()
@@ -226,7 +229,7 @@ struct WorkspaceConversationsView: View {
 
             sessions.removeAll { deletedSessionIds.contains($0.sessionId) }
 
-            if let focusedSessionId, deletedSessionIds.contains(focusedSessionId) {
+            if let focusedSessionId = deletedFocusedSessionId, deletedSessionIds.contains(focusedSessionId) {
                 let fallbackSessionId = sessions.first?.sessionId
                 if store.sessionId == nil {
                     store.setFocusedSessionId(focusedSessionId)
@@ -238,7 +241,7 @@ struct WorkspaceConversationsView: View {
             }
 
             for deletedSessionId in deletedSessionIds {
-                if let focusedSessionId, deletedSessionId == focusedSessionId {
+                if let focusedSessionId = deletedFocusedSessionId, deletedSessionId == focusedSessionId {
                     continue
                 }
                 store.removeSessionState(deletedSessionId, fallbackSessionId: nil)
