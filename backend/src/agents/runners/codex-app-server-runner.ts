@@ -27,13 +27,17 @@ interface CodexAppServerClient {
   close(): void;
 }
 
+interface CodexAppServerRunnerOptions {
+  enableGoals?: boolean;
+}
+
 export class CodexAppServerRunner extends EventEmitter<AgentRunnerEvent> implements AgentRunner {
   private readonly appServer: CodexAppServerClient;
   private interruptTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(appServer: CodexAppServerClient = new CodexAppServerSession()) {
+  constructor(appServer?: CodexAppServerClient, options: CodexAppServerRunnerOptions = {}) {
     super();
-    this.appServer = appServer;
+    this.appServer = appServer ?? new CodexAppServerSession({ enableGoals: options.enableGoals });
     this.appServer.on("assistant", (data) => this.emit("assistant", data));
     this.appServer.on("user", (data) => this.emit("user", data));
     this.appServer.on("result", (data) => this.emit("result", data));

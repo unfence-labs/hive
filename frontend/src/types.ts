@@ -171,6 +171,7 @@ export interface ChatMessage {
   fileMentions?: FileMention[];
   toolCalls?: ToolCall[];
   agentActivities?: AgentActivity[];
+  goalCommand?: boolean;
   thinkingContent?: string;
   timestamp: string;
   cancelled?: boolean;

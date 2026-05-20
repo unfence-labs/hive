@@ -18,6 +18,7 @@ import {
   parseVersionFromOutput,
   getAllProviderInfo,
   providerSupportsAppServer,
+  providerSupportsAppServerGoals,
 } from "./registry.js";
 
 // Cast away the overloaded execFile signature so mockImplementation accepts simpler callbacks.
@@ -271,6 +272,7 @@ describe("detectAvailableProviders", () => {
     expect(providers.has("codex")).toBe(true);
     expect(providers.has("gemini")).toBe(true);
     expect(providerSupportsAppServer("codex")).toBe(true);
+    expect(providerSupportsAppServerGoals("codex")).toBe(true);
   });
 
   it("keeps Codex available but disables App Server when the subcommand is missing", async () => {
@@ -294,9 +296,10 @@ describe("detectAvailableProviders", () => {
     const providers = new Set(catalog.models.map((m) => m.provider));
     expect(providers.has("codex")).toBe(true);
     expect(providerSupportsAppServer("codex")).toBe(false);
+    expect(providerSupportsAppServerGoals("codex")).toBe(false);
   });
 
-  it("marks Codex App Server support when the subcommand is available", async () => {
+  it("marks Codex App Server and goals support when both are available", async () => {
     mockExecFile.mockImplementation(
       (cmd: string, args: string[], cb: (...a: unknown[]) => void) => {
         if (cmd === "codex" && args[0] === "--version") {
@@ -314,6 +317,32 @@ describe("detectAvailableProviders", () => {
     await detectAvailableProviders();
 
     expect(providerSupportsAppServer("codex")).toBe(true);
+    expect(providerSupportsAppServerGoals("codex")).toBe(true);
+  });
+
+  it("keeps Codex App Server enabled without goals when the flag is unsupported", async () => {
+    mockExecFile.mockImplementation(
+      (cmd: string, args: string[], cb: (...a: unknown[]) => void) => {
+        if (cmd === "codex" && args[0] === "--version") {
+          cb(null, { stdout: "codex 0.129.0\n", stderr: "" });
+          return;
+        }
+        if (cmd === "codex" && args[0] === "app-server" && args.includes("--enable")) {
+          cb(new Error("unknown option --enable"), { stdout: "", stderr: "unknown option --enable" });
+          return;
+        }
+        if (cmd === "codex" && args[0] === "app-server") {
+          cb(null, { stdout: "Usage: codex app-server\n", stderr: "" });
+          return;
+        }
+        cb(new Error("not found"), { stdout: "", stderr: "" });
+      },
+    );
+
+    await detectAvailableProviders();
+
+    expect(providerSupportsAppServer("codex")).toBe(true);
+    expect(providerSupportsAppServerGoals("codex")).toBe(false);
   });
 
   it("ignores providers whose CLI is not found", async () => {
@@ -356,6 +385,17 @@ describe("markProviderAvailable", () => {
 
     expect(getModelCatalog().models.some((m) => m.provider === "codex")).toBe(true);
     expect(providerSupportsAppServer("codex")).toBe(false);
+    expect(providerSupportsAppServerGoals("codex")).toBe(false);
+  });
+
+  it("can mark Codex App Server available without goals support", async () => {
+    mockNoProviderCli();
+    await detectAvailableProviders();
+
+    markProviderAvailable("codex", { appServer: true, goals: false });
+
+    expect(providerSupportsAppServer("codex")).toBe(true);
+    expect(providerSupportsAppServerGoals("codex")).toBe(false);
   });
 });
 

@@ -124,6 +124,19 @@ beforeEach(() => {
 });
 
 describe("CodexAppServerSession request handling", () => {
+  it("spawns app-server with the goals feature enabled", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession({ enableGoals: true });
+    await initializeSession(session, proc);
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      "codex",
+      ["app-server", "--enable", "goals", "--listen", "stdio://"],
+      expect.objectContaining({ stdio: ["pipe", "pipe", "pipe"] }),
+    );
+  });
+
   it("auto-accepts known command and file approval requests", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
@@ -1050,6 +1063,66 @@ describe("CodexAppServerSession normalized events", () => {
         type: "plan_updated",
         id: "codex-plan-turn-1",
         steps: [{ text: "Run tests", status: "completed" }],
+      },
+    ]);
+  });
+
+  it("normalizes native Codex goal notifications", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/updated",
+      params: {
+        goal: {
+          threadId: "thread-1",
+          objective: "Implement the backend protocol foundation",
+          status: "active",
+          tokenBudget: null,
+          tokensUsed: 1234,
+          timeUsedSeconds: 45,
+          createdAt: 1_779_300_000,
+          updatedAt: 1_779_300_060,
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/cleared",
+      params: {
+        threadId: "thread-1",
+      },
+    }) + "\n");
+
+    expect(events).toEqual([
+      {
+        type: "goal_updated",
+        id: "codex-goal-thread-1",
+        active: true,
+        threadId: "thread-1",
+        objective: "Implement the backend protocol foundation",
+        status: "active",
+        tokenBudget: null,
+        tokensUsed: 1234,
+        timeUsedSeconds: 45,
+        createdAt: 1_779_300_000,
+        updatedAt: 1_779_300_060,
+      },
+      {
+        type: "goal_updated",
+        id: "codex-goal-thread-1",
+        active: false,
+        threadId: "thread-1",
+        objective: undefined,
+        status: undefined,
+        tokenBudget: undefined,
+        tokensUsed: undefined,
+        timeUsedSeconds: undefined,
+        createdAt: undefined,
+        updatedAt: undefined,
       },
     ]);
   });

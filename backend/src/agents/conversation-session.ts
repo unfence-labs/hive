@@ -41,6 +41,11 @@ function formatNormalizedExitCode(exitCode: number | undefined): string {
   return exitCode === undefined ? "" : `Exit code: ${exitCode}`;
 }
 
+function isCodexGoalCommand(content: string, providerId: string | undefined): boolean {
+  const trimmed = content.trim();
+  return providerId === "codex" && (trimmed === "/goal" || trimmed.startsWith("/goal "));
+}
+
 function cloneAgentActivity(activity: AgentActivity): AgentActivity {
   switch (activity.kind) {
     case "command_execution":
@@ -49,6 +54,8 @@ function cloneAgentActivity(activity: AgentActivity): AgentActivity {
       return { ...activity, files: activity.files.map((file) => ({ ...file })) };
     case "plan_update":
       return { ...activity, steps: activity.steps.map((step) => ({ ...step })) };
+    case "goal_update":
+      return { ...activity };
     case "diagnostic":
       return { ...activity };
   }
@@ -265,7 +272,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           !this.testCommand &&
           resolved?.provider.id === "codex" &&
           this.sessionKind === "chat";
-        this.emitUserMessage(content, urlImages, fileMentions);
+        this.emitUserMessage(content, urlImages, fileMentions, isCodexGoalCommand(content, resolved?.provider.id));
         this.startAgentTurn(
           useNativeCodexImages ? promptContent : this.buildPromptWithImages(promptContent, imagePaths),
           msgOptions,
@@ -278,12 +285,17 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         this.emit("error", err instanceof Error ? err : new Error(String(err)));
       });
     } else {
-      this.emitUserMessage(content, undefined, fileMentions);
+      this.emitUserMessage(content, undefined, fileMentions, isCodexGoalCommand(content, resolved?.provider.id));
       this.startAgentTurn(promptContent, msgOptions, resolved);
     }
   }
 
-  private emitUserMessage(content: string, images?: ImageAttachment[], fileMentions?: FileMention[]): void {
+  private emitUserMessage(
+    content: string,
+    images?: ImageAttachment[],
+    fileMentions?: FileMention[],
+    goalCommand?: boolean,
+  ): void {
     const userMsg: ChatMessage = {
       id: nanoid(12),
       sessionId: this.sessionId,
@@ -291,6 +303,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       content,
       images: images?.length ? images : undefined,
       fileMentions: fileMentions?.length ? fileMentions : undefined,
+      goalCommand: goalCommand || undefined,
       timestamp: new Date().toISOString(),
     };
     if (!this._metadata.title) {
@@ -610,6 +623,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       case "plan_updated":
         this.handlePlanUpdateEvent(event);
         break;
+      case "goal_updated":
+        this.handleGoalUpdateEvent(event);
+        break;
       case "diagnostic":
         this.handleDiagnosticEvent(event);
         break;
@@ -741,6 +757,22 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       id: event.id,
       kind: "plan_update",
       steps: event.steps,
+    });
+  }
+
+  private handleGoalUpdateEvent(event: Extract<NormalizedAgentEvent, { type: "goal_updated" }>): void {
+    this.upsertAgentActivity({
+      id: event.id,
+      kind: "goal_update",
+      active: event.active,
+      threadId: event.threadId,
+      objective: event.objective,
+      status: event.status,
+      tokenBudget: event.tokenBudget,
+      tokensUsed: event.tokensUsed,
+      timeUsedSeconds: event.timeUsedSeconds,
+      createdAt: event.createdAt,
+      updatedAt: event.updatedAt,
     });
   }
 

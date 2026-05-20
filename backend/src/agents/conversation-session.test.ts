@@ -14,7 +14,7 @@ vi.mock("node:child_process", () => ({
 import { spawn } from "node:child_process";
 import { ConversationSession } from "./conversation-session.js";
 import * as providerRegistry from "./providers/registry.js";
-import type { AgentRunnerFactory } from "./runners/factory.js";
+import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js";
 import type { AgentRunner, AgentRunnerEvent } from "./runners/types.js";
 
 const mockSpawn = vi.mocked(spawn);
@@ -629,6 +629,241 @@ describe("ConversationSession", () => {
     expect(assistant?.toolCalls).toBeUndefined();
   });
 
+  it("streams and persists goal update activities", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "goal_updated",
+        id: "codex-goal-thread-1",
+        active: true,
+        threadId: "thread-1",
+        objective: "Implement the backend protocol foundation",
+        status: "active",
+        tokenBudget: 10000,
+        tokensUsed: 1234,
+        timeUsedSeconds: 45,
+        createdAt: 1_779_300_000,
+        updatedAt: 1_779_300_060,
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-goal" });
+      fakeRunner.emit("exit", 0, "provider-goal");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-goal",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "goal-activity-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Set a goal", { model: "codex:gpt-5.5" });
+
+    await waitForMessages(messages, "done");
+    expect(messages).toContainEqual({
+      type: "agent_activity",
+      sessionId: "goal-activity-session",
+      activity: {
+        id: "codex-goal-thread-1",
+        kind: "goal_update",
+        active: true,
+        threadId: "thread-1",
+        objective: "Implement the backend protocol foundation",
+        status: "active",
+        tokenBudget: 10000,
+        tokensUsed: 1234,
+        timeUsedSeconds: 45,
+        createdAt: 1_779_300_000,
+        updatedAt: 1_779_300_060,
+      },
+    });
+    const assistant = (await session.getMessages()).find((msg) => msg.role === "assistant");
+    expect(assistant?.agentActivities?.[0]).toMatchObject({
+      id: "codex-goal-thread-1",
+      kind: "goal_update",
+      active: true,
+    });
+    expect(assistant?.toolCalls).toBeUndefined();
+  });
+
+  it("persists cleared goal activity as inactive state", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "goal_updated",
+        id: "codex-goal-thread-1",
+        active: true,
+        threadId: "thread-1",
+        objective: "Implement the backend protocol foundation",
+      });
+      fakeRunner.emit("agent_event", {
+        type: "goal_updated",
+        id: "codex-goal-thread-1",
+        active: false,
+        threadId: "thread-1",
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-goal-clear" });
+      fakeRunner.emit("exit", 0, "provider-goal-clear");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-goal-clear",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "goal-clear-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Clear goal", { model: "codex:gpt-5.5" });
+
+    await waitForMessages(messages, "done");
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    expect(assistant?.agentActivities).toEqual([
+      {
+        id: "codex-goal-thread-1",
+        kind: "goal_update",
+        active: false,
+        threadId: "thread-1",
+      },
+    ]);
+  });
+
+  it("marks displayed Codex /goal user messages", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("result", { type: "result", session_id: "provider-goal-command" });
+      fakeRunner.emit("exit", 0, "provider-goal-command");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-goal-command",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "goal-command-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("  /goal Ship backend support", { model: "codex:gpt-5.5" });
+
+    await waitForMessages(messages, "done");
+    const userEvent = messages.find((msg): msg is Extract<WsOutgoing, { type: "user_message" }> => msg.type === "user_message");
+    expect(userEvent?.message.goalCommand).toBe(true);
+    const userMessage = (await session.getMessages()).find((msg) => msg.role === "user");
+    expect(userMessage?.goalCommand).toBe(true);
+  });
+
+  it("does not mark non-Codex /goal user messages", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("result", { type: "result", session_id: "provider-claude-goal" });
+      fakeRunner.emit("exit", 0, "provider-claude-goal");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "claude",
+      modelId: "opus-4-7",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-claude-goal",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "non-codex-goal-command-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("/goal This is just text", { model: "claude:opus-4-7" });
+
+    await waitForMessages(messages, "done");
+    const userEvent = messages.find((msg): msg is Extract<WsOutgoing, { type: "user_message" }> => msg.type === "user_message");
+    expect(userEvent?.message.goalCommand).toBeUndefined();
+    const userMessage = (await session.getMessages()).find((msg) => msg.role === "user");
+    expect(userMessage?.goalCommand).toBeUndefined();
+  });
+
+  it("does not mark Codex messages that only share the /goal prefix", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("result", { type: "result", session_id: "provider-goal-prefix" });
+      fakeRunner.emit("exit", 0, "provider-goal-prefix");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-goal-prefix",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "goal-prefix-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("/goalkeeper is not a command", { model: "codex:gpt-5.5" });
+
+    await waitForMessages(messages, "done");
+    const userMessage = (await session.getMessages()).find((msg) => msg.role === "user");
+    expect(userMessage?.goalCommand).toBeUndefined();
+  });
+
   it("creates session with a sessionId", () => {
     const session = createSession();
     expect(session.sessionId).toBeTruthy();
@@ -787,7 +1022,7 @@ describe("ConversationSession", () => {
 
     expect(mockSpawn).toHaveBeenCalledWith(
       "codex",
-      ["app-server", "--listen", "stdio://"],
+      ["app-server", "--enable", "goals", "--listen", "stdio://"],
       expect.objectContaining({ stdio: ["pipe", "pipe", "pipe"] }),
     );
 
@@ -842,6 +1077,45 @@ describe("ConversationSession", () => {
       text: "Hi from app-server",
     });
     expect(session.metadata.providerSessionId).toBe("thread-app-1");
+  });
+
+  it("reports Codex app-server debug args with goals enabled", () => {
+    const resolved = providerRegistry.resolveProvider("codex:gpt-5.5");
+
+    const selection = createAgentRunner({
+      cwd: "/tmp/test",
+      content: "Hello Codex",
+      msgOptions: { model: "codex:gpt-5.5" },
+      resolved,
+      isFirstMessage: true,
+      skipPermissions: true,
+      sessionKind: "chat",
+    });
+
+    expect(selection.debug).toEqual({
+      command: "codex",
+      args: ["app-server", "--enable", "goals", "--listen", "stdio://"],
+    });
+  });
+
+  it("omits Codex goals debug args when the feature is not detected", () => {
+    providerRegistry.markProviderAvailable("codex", { appServer: true, goals: false });
+    const resolved = providerRegistry.resolveProvider("codex:gpt-5.5");
+
+    const selection = createAgentRunner({
+      cwd: "/tmp/test",
+      content: "Hello Codex",
+      msgOptions: { model: "codex:gpt-5.5" },
+      resolved,
+      isFirstMessage: true,
+      skipPermissions: true,
+      sessionKind: "chat",
+    });
+
+    expect(selection.debug).toEqual({
+      command: "codex",
+      args: ["app-server", "--listen", "stdio://"],
+    });
   });
 
   it("falls back to codex exec when Codex app-server is not supported", () => {

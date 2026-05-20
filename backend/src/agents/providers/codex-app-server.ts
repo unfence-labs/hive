@@ -142,6 +142,10 @@ interface CodexAppServerTurnOptions {
   env?: Record<string, string>;
 }
 
+interface CodexAppServerSessionOptions {
+  enableGoals?: boolean;
+}
+
 const CLIENT_INFO = {
   name: "hive",
   title: "Hive",
@@ -158,6 +162,7 @@ const COLLAB_THREAD_REPLAY_TIMEOUT_MS = 1500;
  * protocol fields Hive consumes and leaves unknown fields untouched.
  */
 export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
+  private readonly enableGoals: boolean;
   private proc: ChildProcessWithoutNullStreams | null = null;
   private initialized: Promise<void> | null = null;
   private buffer = "";
@@ -181,6 +186,11 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private pendingCollabReplays = new Set<Promise<void>>();
   private lastUsage: TokenUsage | undefined;
   private lastProtocolError: string | undefined;
+
+  constructor(options: CodexAppServerSessionOptions = {}) {
+    super();
+    this.enableGoals = options.enableGoals ?? false;
+  }
 
   get capturedThreadId(): string | undefined {
     return this.threadId;
@@ -245,7 +255,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private async ensureInitialized(env: Record<string, string> | undefined): Promise<void> {
     if (this.initialized) return this.initialized;
     this.initialized = (async () => {
-      this.proc = spawn("codex", ["app-server", "--listen", "stdio://"], {
+      this.proc = spawn("codex", this.appServerArgs(), {
         stdio: ["pipe", "pipe", "pipe"],
         env: buildWorkspaceEnv(env),
       });
@@ -266,6 +276,15 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       this.notify("initialized");
     })();
     return this.initialized;
+  }
+
+  private appServerArgs(): string[] {
+    return [
+      "app-server",
+      ...(this.enableGoals ? ["--enable", "goals"] : []),
+      "--listen",
+      "stdio://",
+    ];
   }
 
   private async ensureThread(options: CodexAppServerTurnOptions): Promise<string> {
@@ -509,6 +528,12 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       }
       case "turn/plan/updated":
         this.emitPlanUpdate(data);
+        break;
+      case "thread/goal/updated":
+        this.emitGoalUpdate(data, true);
+        break;
+      case "thread/goal/cleared":
+        this.emitGoalUpdate(data, false);
         break;
       case "warning":
         this.emitProtocolDiagnostic(method, data, "Codex warning", "warning");
@@ -914,6 +939,28 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     });
   }
 
+  private emitGoalUpdate(data: JsonObject | null, active: boolean): void {
+    const goal = asRecord(data?.goal);
+    const threadId = asString(goal?.threadId)
+      ?? asString(data?.threadId)
+      ?? asString(asRecord(data?.thread)?.id)
+      ?? this.threadId
+      ?? "unknown";
+    this.emit("agent_event", {
+      type: "goal_updated",
+      id: `codex-goal-${threadId}`,
+      active,
+      threadId,
+      objective: asString(goal?.objective),
+      status: asString(goal?.status),
+      tokenBudget: asNullableProtocolNumber(goal?.tokenBudget),
+      tokensUsed: asNumber(goal?.tokensUsed),
+      timeUsedSeconds: asNumber(goal?.timeUsedSeconds),
+      createdAt: asNumber(goal?.createdAt),
+      updatedAt: asNumber(goal?.updatedAt),
+    });
+  }
+
   private emitFileChangeEvents(itemId: string, changes: FileUpdateChange[], status?: string): void {
     const firstChange = changes[0];
     const files = changes
@@ -1019,6 +1066,11 @@ function asString(value: unknown): string | undefined {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+function asNullableProtocolNumber(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  return asNumber(value);
 }
 
 function asNullableNumber(value: number | null | undefined): number | undefined {

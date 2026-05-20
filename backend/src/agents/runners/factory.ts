@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { StreamParser } from "../stream-parser.js";
-import { providerSupportsAppServer } from "../providers/registry.js";
+import { providerSupportsAppServer, providerSupportsAppServerGoals } from "../providers/registry.js";
 import type { MessageOptions } from "../../types.js";
 import type { AgentProvider } from "../providers/types.js";
 import type { AgentRunner } from "./types.js";
@@ -66,12 +66,21 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
   const supportsBlockingTools = provider?.capabilities.blockingTools ?? false;
 
   if (useCodexAppServer) {
+    const enableGoals = providerSupportsAppServerGoals(provider!.id);
     const env = {
       ...(provider!.buildEnv({ ...input.msgOptions, model: modelId }) ?? {}),
       ...(input.browserEnv ?? {}),
     };
-    const runner = (input.existingCodexAppServerRunner ?? new CodexAppServerRunner()) as CodexAppServerStartRunner;
+    const runner = (
+      input.existingCodexAppServerRunner ?? new CodexAppServerRunner(undefined, { enableGoals })
+    ) as CodexAppServerStartRunner;
     const model = provider!.models.find((m) => m.id === modelId);
+    const appServerArgs = [
+      "app-server",
+      ...(enableGoals ? ["--enable", "goals"] : []),
+      "--listen",
+      "stdio://",
+    ];
     return {
       runner,
       protocol: "codex_app_server",
@@ -81,7 +90,7 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
       cachedCodexAppServerRunner: runner,
       debug: {
         command: "codex",
-        args: ["app-server", "--listen", "stdio://"],
+        args: appServerArgs,
       },
       start: () => runner.startTurn({
         cwd: input.cwd,

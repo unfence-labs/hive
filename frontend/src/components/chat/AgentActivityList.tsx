@@ -12,7 +12,7 @@ import ChatToolUse, { ToolExpandedContent } from "@/components/ChatToolUse";
 import { ToolCallList } from "@/components/chat/ToolCallList";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
 
-type InlineAgentActivity = Exclude<AgentActivity, { kind: "plan_update" }>;
+type InlineAgentActivity = Exclude<AgentActivity, { kind: "plan_update" } | { kind: "goal_update" }>;
 
 interface AgentActivityListProps {
   activities: AgentActivity[];
@@ -77,7 +77,10 @@ export function AgentActivityList({
 }
 
 export function getInlineAgentActivities(activities: AgentActivity[]): InlineAgentActivity[] {
-  return activities.filter((activity): activity is InlineAgentActivity => activity.kind !== "plan_update");
+  return activities.filter(
+    (activity): activity is InlineAgentActivity =>
+      activity.kind !== "plan_update" && activity.kind !== "goal_update",
+  );
 }
 
 function mergeToolCalls(toolCalls: ToolCall[], activities: InlineAgentActivity[]): ToolCall[] {

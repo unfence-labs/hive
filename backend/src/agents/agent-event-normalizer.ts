@@ -35,6 +35,19 @@ export type NormalizedAgentEvent =
   | { type: "file_change_updated"; id: string; files?: AgentActivityFile[]; path?: string; diff?: string; status?: string; kind?: string }
   | { type: "plan_updated"; id: string; steps: Array<{ text: string; status: string }> }
   | {
+      type: "goal_updated";
+      id: string;
+      active: boolean;
+      threadId: string;
+      objective?: string;
+      status?: string;
+      tokenBudget?: number | null;
+      tokensUsed?: number;
+      timeUsedSeconds?: number;
+      createdAt?: number;
+      updatedAt?: number;
+    }
+  | {
       type: "diagnostic";
       id: string;
       severity: "info" | "warning" | "error";
