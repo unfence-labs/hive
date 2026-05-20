@@ -131,7 +131,7 @@ struct WorkspaceDashboardPanel: View {
             } else if scriptsResponse == nil {
                 DashboardEmptyLine(text: "Loading scripts", color: WhisperColor.textMuted)
             } else if scriptSummaries.isEmpty {
-                DashboardEmptyLine(text: "No scripts configured", color: WhisperColor.textMuted)
+                DashboardEmptyLine(text: "-", color: WhisperColor.textMuted)
             } else {
                 LazyVGrid(
                     columns: [
@@ -300,7 +300,7 @@ private struct DashboardRowDivider: View {
         Rectangle()
             .fill(WhisperColor.separator)
             .frame(height: 0.5)
-            .padding(.leading, HiveSpacing.md)
+            .padding(.horizontal, HiveSpacing.md)
     }
 }
 
@@ -424,22 +424,21 @@ private struct GitScopeDashboardSummary {
 
     var fileText: String {
         if !isLoaded { return "syncing" }
+        if !hasChanges { return "-" }
         return "\(fileCount) file\(fileCount == 1 ? "" : "s")"
     }
 
     var fileColor: Color {
-        if !isLoaded { return WhisperColor.textMuted }
-        return WhisperColor.text
+        hasChanges ? WhisperColor.text : WhisperColor.textMuted
     }
 
     var statusText: String {
         if hasChanges { return "changed" }
-        return isLoaded ? cleanText : "waiting"
+        return isLoaded ? "-" : "waiting"
     }
 
     var statusColor: Color {
-        if !isLoaded { return WhisperColor.textMuted }
-        return cleanText == "clean" ? WhisperColor.success : WhisperColor.textMuted
+        WhisperColor.textMuted
     }
 
     init(files: [DiffFileStat], cleanText: String) {
@@ -486,7 +485,7 @@ private struct ScriptDashboardSummary: Identifiable {
             }
             return "fail"
         case .idle:
-            return "idle"
+            return "-"
         }
     }
 
@@ -568,8 +567,8 @@ private struct PullRequestDashboardSummary {
             return
         }
         guard let pr = prStatus.pr else {
-            title = "No PR"
-            detail = "Not opened"
+            title = "-"
+            detail = "-"
             color = WhisperColor.textMuted
             return
         }
