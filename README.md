@@ -461,7 +461,7 @@ Frontend key modules:
 - `frontend/src/hooks/useModels.ts` model catalog fetch + selection + provider lock
 - `frontend/src/hooks/usePrStatus.ts` PR status (reads from bulk-seeded cache, no independent timer)
 - `frontend/src/hooks/useTabs.ts` multi-tab state with workspace snapshot cache, source/diff modes
-- `frontend/src/hooks/useTasks.ts` task progress from TaskCreate/TaskUpdate tool calls and Codex TodoList events
+- `frontend/src/hooks/useTasks.ts` task progress from TaskCreate/TaskUpdate tool calls, Codex TodoList events, and Codex App Server plan updates
 - `frontend/src/hooks/useBackgroundAgents.ts` background Task agent tracking
 - `frontend/src/hooks/useContextUsage.ts` context window usage calculation
 - `frontend/src/hooks/useBasePrompt.ts` base prompt CRUD

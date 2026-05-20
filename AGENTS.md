@@ -196,7 +196,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/hooks/useContextUsage.ts`: context window usage calculation from last assistant message tokens
 - `frontend/src/hooks/useBackgroundAgents.ts`: scans tool calls for background `Task` agents, returns running count
 - `frontend/src/hooks/useTabs.ts`: multi-tab state (session + file tabs) with workspace-level snapshot cache, `FileViewMode = "source" | "diff"`
-- `frontend/src/hooks/useTasks.ts`: derives `TrackedTask[]` from `TaskCreate`/`TaskUpdate` tool calls and Codex `TodoList` events for task tracker display
+- `frontend/src/hooks/useTasks.ts`: derives `TrackedTask[]` from `TaskCreate`/`TaskUpdate` tool calls, Codex `TodoList` events, and Codex App Server plan updates for task tracker display
 - `frontend/src/hooks/useDiff.ts`: diff fetching via `@pierre/diffs` for inline diff viewer
 - `frontend/src/hooks/useSidebarCollapsed.ts`: localStorage-backed sidebar collapsed state, Cmd/Ctrl+B keyboard shortcut
 - `frontend/src/hooks/useSidebarProjectFolders.ts`: sidebar folder organization — TanStack Query fetch + optimistic mutations with 300ms debounced PUT to `/api/ui-preferences`, localStorage cache for first-render bootstrap, one-shot migration from legacy `hive:sidebar-project-folders:v1` key
