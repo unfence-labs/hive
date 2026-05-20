@@ -36,12 +36,13 @@ These notifications are either diagnostic-only today or not yet rendered as rich
 - `model/rerouted`
 - `model/verification`
 - `item/fileChange/outputDelta`
-- `item/commandExecution/terminalInteraction`
 - `item/mcpToolCall/progress`
 - `item/plan/delta`
 - `rawResponseItem/completed`
 - `hook/started`
 - `hook/completed`
+
+`item/commandExecution/terminalInteraction` with non-empty `stdin` is still rendered as an unsupported-event diagnostic until Hive has a safe terminal-interaction UI.
 
 Warnings such as `warning`, `configWarning`, `deprecationNotice`, and `guardianWarning` are rendered as diagnostic activities.
 
@@ -52,6 +53,7 @@ The following notifications are intentionally absorbed instead of being rendered
 - `thread/status/changed` for routine thread states. `systemError` still emits an error diagnostic.
 - `mcpServer/startupStatus/updated` for `starting` and `ready`. `failed` and `cancelled` still emit warning diagnostics.
 - `account/rateLimits/updated` because rate-limit UX should be handled outside the chat activity stream in a future pass.
+- `item/commandExecution/terminalInteraction` when `stdin` is empty because Codex uses this as a background-terminal poll/wait signal, while Hive already renders command output through `item/commandExecution/outputDelta` and command completion through the final `commandExecution` item.
 
 ## Item Coverage
 
