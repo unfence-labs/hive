@@ -21,6 +21,7 @@ interface CodexAppServerClient {
   on(eventName: "result", listener: (...args: AgentRunnerEvent["result"]) => void): this;
   on(eventName: "system", listener: (...args: AgentRunnerEvent["system"]) => void): this;
   on(eventName: "agent_event", listener: (...args: AgentRunnerEvent["agent_event"]) => void): this;
+  on(eventName: "turn_started", listener: (...args: AgentRunnerEvent["turn_started"]) => void): this;
   on(eventName: "error", listener: (...args: AgentRunnerEvent["error"]) => void): this;
   startTurn(turn: CodexAppServerRunnerTurn): Promise<void>;
   interruptActiveTurn(): void;
@@ -43,6 +44,7 @@ export class CodexAppServerRunner extends EventEmitter<AgentRunnerEvent> impleme
     this.appServer.on("result", (data) => this.emit("result", data));
     this.appServer.on("system", (data) => this.emit("system", data));
     this.appServer.on("agent_event", (data) => this.emit("agent_event", data));
+    this.appServer.on("turn_started", (event) => this.emit("turn_started", event));
     this.appServer.on("error", (err) => this.emit("error", err));
   }
 

@@ -154,6 +154,28 @@ describe("CodexAppServerSession request handling", () => {
     await expect(waitForResponse(proc, 103)).resolves.toMatchObject({ id: 103, result: { decision: "approved" } });
   });
 
+  it("emits native turn_started events with thread and turn ids", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("turn_started", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "turn/started",
+      params: {
+        threadId: "thread-1",
+        turn: { id: "turn-2" },
+      },
+    }) + "\n");
+
+    await waitForCondition(() => events.length === 1);
+    expect(events).toEqual([{ threadId: "thread-1", turnId: "turn-2" }]);
+    expect(session.capturedThreadId).toBe("thread-1");
+    expect(session.capturedTurnId).toBe("turn-2");
+  });
+
   it("rejects known unsupported request paths with clear errors", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

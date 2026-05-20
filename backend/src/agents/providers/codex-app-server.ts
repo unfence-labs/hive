@@ -34,6 +34,7 @@ type JsonRpcMessage = JsonRpcResponse | JsonRpcRequest | JsonRpcNotification;
 
 type CodexAppServerEvent = StreamParserEvent & {
   agent_event: [event: NormalizedAgentEvent];
+  turn_started: [event: { threadId?: string; turnId?: string }];
 };
 
 type UserInput =
@@ -181,6 +182,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private emittedReasoningText = new Set<string>();
   private emittedDiagnostics = new Set<string>();
   private completedToolIds = new Set<string>();
+  private completedTurnIds = new Set<string>();
   private collabParentByThreadId = new Map<string, string>();
   private toolParentByItemId = new Map<string, string>();
   private pendingCollabReplays = new Set<Promise<void>>();
@@ -454,7 +456,18 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       case "turn/started": {
         const turn = asRecord(data?.turn);
-        this.activeTurnId = asString(turn?.id) ?? this.activeTurnId;
+        const threadId = asString(data?.threadId) ?? this.threadId;
+        const turnId = asString(turn?.id);
+        if (threadId) {
+          this.threadId = threadId;
+        }
+        if (turnId && turnId !== this.activeTurnId) {
+          this.resetTurnState();
+          this.activeTurnId = turnId;
+        } else {
+          this.activeTurnId = turnId ?? this.activeTurnId;
+        }
+        this.emit("turn_started", { threadId, turnId });
         break;
       }
       case "thread/tokenUsage/updated":
@@ -820,6 +833,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private handleTurnCompleted(data: JsonObject | null): void {
     const turn = asRecord(data?.turn);
     const turnId = asString(turn?.id);
+    if (turnId && this.completedTurnIds.has(turnId)) return;
     const activeTurnId = this.activeTurnId;
     if (turnId && activeTurnId && turnId !== activeTurnId) return;
 
@@ -852,8 +866,14 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       duration_ms: durationMs,
       status,
       error,
+      turn_id: asString(turn?.id) ?? activeTurnId,
+      thread_id: this.threadId,
       usage: usageFromTokenUsage(this.lastUsage),
     });
+    const completedTurnId = asString(turn?.id) ?? activeTurnId;
+    if (completedTurnId) {
+      this.completedTurnIds.add(completedTurnId);
+    }
     this.activeTurnId = undefined;
   }
 

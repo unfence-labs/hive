@@ -224,6 +224,10 @@ export type CliJsonLine =
       status?: string;
       /** Provider-specific terminal error detail for failed turns. */
       error?: string;
+      /** Provider-specific native turn id for protocol-backed runners. */
+      turn_id?: string;
+      /** Provider-specific native thread id for protocol-backed runners. */
+      thread_id?: string;
       /** Codex/Gemini adapters may place usage here; Claude puts it on assistant events. */
       usage?: {
         input_tokens: number;

@@ -101,6 +101,15 @@ async function waitForMessages(
   return messages.filter((msg) => msg.type === type);
 }
 
+async function waitForCondition(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("Timed out waiting for condition");
+}
+
 async function waitForStdinMethod(
   proc: ReturnType<typeof createMockProcess>,
   method: string,
@@ -1077,6 +1086,149 @@ describe("ConversationSession", () => {
       text: "Hi from app-server",
     });
     expect(session.metadata.providerSessionId).toBe("thread-app-1");
+  });
+
+  it("handles a spontaneous Codex app-server continuation after a completed user turn", async () => {
+    const session = createSession({ sessionId: "codex-goal-continuation" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Start goal", { model: "codex:gpt-5.5" });
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, { thread: { id: "thread-goal-1" } }));
+    const turnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(turnStart.id, { turn: { id: "turn-user-1" } }));
+    mockProc._stdout.push(appServerNotification("item/agentMessage/delta", {
+      threadId: "thread-goal-1",
+      turnId: "turn-user-1",
+      itemId: "msg-user-1",
+      delta: "Initial answer.",
+    }));
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-goal-1",
+      turn: { id: "turn-user-1", status: "completed", durationMs: 10 },
+    }));
+
+    await waitForMessages(messages, "done");
+    expect(session.status).toBe("idle");
+
+    mockProc._stdout.push(appServerNotification("turn/started", {
+      threadId: "thread-goal-1",
+      turn: { id: "turn-goal-2" },
+    }));
+
+    const busy = await waitForMessages(messages, "status");
+    expect(busy).toContainEqual(expect.objectContaining({
+      type: "status",
+      status: "busy",
+      sessionId: "codex-goal-continuation",
+      streaming: true,
+      lockedProvider: "codex",
+    }));
+
+    mockProc._stdout.push(appServerNotification("item/agentMessage/delta", {
+      threadId: "thread-goal-1",
+      turnId: "turn-goal-2",
+      itemId: "msg-goal-2",
+      delta: "Continuation output.",
+    }));
+    mockProc._stdout.push(appServerNotification("item/started", {
+      threadId: "thread-goal-1",
+      item: {
+        type: "commandExecution",
+        id: "cmd-goal-2",
+        command: "echo continuation",
+        status: "inProgress",
+      },
+    }));
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-goal-1",
+      turn: { id: "turn-goal-2", status: "completed", durationMs: 20 },
+    }));
+
+    const done = await waitForMessages(messages, "done", 2);
+    expect(done).toHaveLength(2);
+    expect(messages).toContainEqual({
+      type: "text_delta",
+      sessionId: "codex-goal-continuation",
+      text: "Continuation output.",
+    });
+    expect(messages).toContainEqual(expect.objectContaining({
+      type: "agent_activity",
+      sessionId: "codex-goal-continuation",
+      activity: expect.objectContaining({
+        id: "cmd-goal-2",
+        kind: "command_execution",
+        command: "echo continuation",
+      }),
+    }));
+    expect(session.status).toBe("idle");
+
+    const persisted = await session.getMessages();
+    expect(persisted.filter((message) => message.role === "user")).toHaveLength(1);
+    expect(persisted.filter((message) => message.role === "assistant")).toHaveLength(2);
+    expect(persisted.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "Continuation output.",
+      agentActivities: [
+        expect.objectContaining({
+          id: "cmd-goal-2",
+          kind: "command_execution",
+        }),
+      ],
+    });
+  });
+
+  it("stops an active spontaneous Codex app-server continuation", async () => {
+    const session = createSession({ sessionId: "codex-goal-stop" });
+    session.sendMessage("Start goal", { model: "codex:gpt-5.5" });
+
+    const init = await waitForStdinMethod(mockProc, "initialize");
+    mockProc._stdout.push(appServerResponse(init.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+    const threadStart = await waitForStdinMethod(mockProc, "thread/start");
+    mockProc._stdout.push(appServerResponse(threadStart.id, { thread: { id: "thread-stop-1" } }));
+    const turnStart = await waitForStdinMethod(mockProc, "turn/start");
+    mockProc._stdout.push(appServerResponse(turnStart.id, { turn: { id: "turn-user-1" } }));
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-stop-1",
+      turn: { id: "turn-user-1", status: "completed", durationMs: 10 },
+    }));
+
+    await waitForStdinMethod(mockProc, "turn/start");
+    await waitForCondition(() => session.status !== "streaming");
+
+    mockProc._stdout.push(appServerNotification("turn/started", {
+      threadId: "thread-stop-1",
+      turn: { id: "turn-goal-stop" },
+    }));
+    await waitForCondition(() => session.status === "streaming");
+
+    session.stop();
+
+    const interrupt = await waitForStdinMethod(mockProc, "turn/interrupt");
+    expect(interrupt.params).toMatchObject({
+      threadId: "thread-stop-1",
+      turnId: "turn-goal-stop",
+    });
+    mockProc._stdout.push(appServerResponse(interrupt.id, {}));
+    mockProc._stdout.push(appServerNotification("turn/completed", {
+      threadId: "thread-stop-1",
+      turn: { id: "turn-goal-stop", status: "interrupted", durationMs: 5 },
+    }));
+    await waitForCondition(() => session.status !== "streaming");
   });
 
   it("reports Codex app-server debug args with goals enabled", () => {
