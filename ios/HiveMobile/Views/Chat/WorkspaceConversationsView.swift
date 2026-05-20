@@ -22,24 +22,21 @@ struct WorkspaceConversationsView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 0) {
-                WorkspaceDashboardPanel(
-                    workspace: workspace,
-                    branchInfo: projectStore.statusMonitor.branchInfo(for: workspace.id),
-                    diffStats: projectStore.statusMonitor.diffStats(for: workspace.id),
-                    scriptsResponse: scriptsResponse,
-                    liveScriptStatus: projectStore.statusMonitor.scriptStatus(for: workspace.id),
-                    prStatus: projectStore.statusMonitor.prStatus(for: workspace.id),
-                    isStreaming: projectStore.statusMonitor.isStreaming(workspace.id),
-                    hasUnread: projectStore.statusMonitor.hasUnreadSessions(workspace.id),
-                    scriptsLoadFailed: scriptsLoadFailed
-                )
-                .frame(height: geometry.size.height * 0.4)
+        VStack(spacing: HiveSpacing.md) {
+            WorkspaceDashboardPanel(
+                workspace: workspace,
+                branchInfo: projectStore.statusMonitor.branchInfo(for: workspace.id),
+                diffStats: projectStore.statusMonitor.diffStats(for: workspace.id),
+                scriptsResponse: scriptsResponse,
+                liveScriptStatus: projectStore.statusMonitor.scriptStatus(for: workspace.id),
+                prStatus: projectStore.statusMonitor.prStatus(for: workspace.id),
+                isStreaming: projectStore.statusMonitor.isStreaming(workspace.id),
+                hasUnread: projectStore.statusMonitor.hasUnreadSessions(workspace.id),
+                scriptsLoadFailed: scriptsLoadFailed
+            )
 
-                conversationsSection
-                    .frame(height: geometry.size.height * 0.6)
-            }
+            conversationsSection
+                .frame(maxHeight: .infinity)
         }
         .hiveScreenBackground()
         .navigationTitle(workspace.name)
@@ -96,7 +93,7 @@ struct WorkspaceConversationsView: View {
                 Spacer(minLength: HiveSpacing.sm)
             }
             .padding(.horizontal, HiveSpacing.lg)
-            .padding(.bottom, HiveSpacing.xs)
+            .padding(.bottom, 2)
 
             conversationsList
         }
@@ -122,9 +119,9 @@ struct WorkspaceConversationsView: View {
                     )
                 }
                 .buttonStyle(.plain)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                .listRowInsets(EdgeInsets(top: 5, leading: HiveSpacing.lg, bottom: 5, trailing: HiveSpacing.lg))
                 .listRowBackground(WhisperColor.appBackground)
-                .listRowSeparatorTint(WhisperColor.separator)
+                .listRowSeparator(.hidden)
             }
             .onDelete(perform: deleteSessions)
         }

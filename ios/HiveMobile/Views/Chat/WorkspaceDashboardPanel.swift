@@ -42,6 +42,10 @@ struct WorkspaceDashboardPanel: View {
         GitDashboardSummary(stats: diffStats)
     }
 
+    private var prSummary: PullRequestDashboardSummary {
+        PullRequestDashboardSummary(prStatus: prStatus)
+    }
+
     private var scriptSummaries: [ScriptDashboardSummary] {
         ScriptDashboardSummary.build(
             config: scriptsResponse?.config,
@@ -59,18 +63,14 @@ struct WorkspaceDashboardPanel: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: HiveSpacing.md) {
+        VStack(alignment: .leading, spacing: HiveSpacing.lg) {
             header
-
-            VStack(alignment: .leading, spacing: HiveSpacing.sm) {
-                gitRow
-                scriptsRow
-                prRow
-            }
+            gitSummaryBlock
+            scriptsBlock
         }
         .padding(.horizontal, HiveSpacing.lg)
-        .padding(.vertical, HiveSpacing.md)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.vertical, HiveSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(WhisperColor.hubCardFill)
@@ -83,109 +83,100 @@ struct WorkspaceDashboardPanel: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: HiveSpacing.xs) {
-            HStack(alignment: .firstTextBaseline, spacing: HiveSpacing.sm) {
+        HStack(alignment: .top, spacing: HiveSpacing.md) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text(branchName)
-                    .font(WhisperFont.mono(15, weight: .semibold))
+                    .font(WhisperFont.mono(17, weight: .semibold))
                     .foregroundStyle(WhisperColor.text)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .truncationMode(.middle)
 
-                Spacer(minLength: HiveSpacing.sm)
-
-                HStack(spacing: 5) {
-                    if isStreaming {
-                        AgentActivityIndicator(dotSize: 2.5, spacing: 1.5)
-                            .frame(width: 12, height: 10)
-                    }
-                    Text(activityLabel)
-                        .font(.caption2.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(activityColor)
-                }
-            }
-
-            if !baseRefText.isEmpty {
-                Text(baseRefText)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(WhisperColor.textMuted)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-        }
-    }
-
-    private var gitRow: some View {
-        DashboardMetricRow(label: "git") {
-            VStack(alignment: .leading, spacing: 2) {
-                if gitSummary.hasChanges {
-                    HStack(spacing: HiveSpacing.sm) {
-                        Text("\(gitSummary.fileCount) file\(gitSummary.fileCount == 1 ? "" : "s")")
-                            .foregroundStyle(WhisperColor.text)
-
-                        Spacer(minLength: HiveSpacing.sm)
-
-                        if gitSummary.additions > 0 {
-                            Text("+\(gitSummary.additions)")
-                                .foregroundStyle(WhisperColor.success)
-                        }
-                        if gitSummary.deletions > 0 {
-                            Text("-\(gitSummary.deletions)")
-                                .foregroundStyle(.red)
-                        }
-                    }
-                    .font(.caption.monospacedDigit().weight(.medium))
-
-                    Text("working \(gitSummary.workingCount) / branch \(gitSummary.branchCount)")
-                        .font(.caption2.monospacedDigit())
+                if !baseRefText.isEmpty {
+                    Text(baseRefText)
+                        .font(.caption.monospacedDigit())
                         .foregroundStyle(WhisperColor.textMuted)
-                } else {
-                    Text("clean")
-                        .font(.caption.monospacedDigit().weight(.medium))
-                        .foregroundStyle(WhisperColor.success)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
             }
+
+            Spacer(minLength: HiveSpacing.sm)
+
+            DashboardStatusBadge(
+                text: activityLabel,
+                color: activityColor,
+                isStreaming: isStreaming,
+                hasUnread: hasUnread
+            )
         }
     }
 
-    private var scriptsRow: some View {
-        DashboardMetricRow(label: "scripts") {
+    private var gitSummaryBlock: some View {
+        VStack(alignment: .leading, spacing: HiveSpacing.sm) {
+            DashboardSectionTitle(title: "Workspace")
+
+            HStack(alignment: .top, spacing: 0) {
+                DashboardStatColumn(
+                    title: "Files",
+                    value: gitSummary.filesValue,
+                    detail: gitSummary.filesDetail,
+                    valueColor: gitSummary.filesColor
+                )
+
+                DashboardDivider()
+
+                DashboardStatColumn(
+                    title: "Changes",
+                    value: gitSummary.changesValue,
+                    detail: gitSummary.changesDetail,
+                    valueColor: gitSummary.changesColor
+                )
+
+                DashboardDivider()
+
+                DashboardStatColumn(
+                    title: "Pull Request",
+                    value: prSummary.title,
+                    detail: prSummary.detail,
+                    valueColor: prSummary.color
+                )
+            }
+            .padding(.vertical, HiveSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(WhisperColor.surfaceSubtle)
+            )
+        }
+    }
+
+    private var scriptsBlock: some View {
+        VStack(alignment: .leading, spacing: HiveSpacing.sm) {
+            DashboardSectionTitle(title: "Scripts")
+
             if scriptsLoadFailed {
-                Text("unavailable")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(WhisperColor.warningForeground)
+                DashboardEmptyLine(text: "Script status unavailable", color: WhisperColor.warningForeground)
             } else if scriptsResponse == nil {
-                Text("loading")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(WhisperColor.textMuted)
+                DashboardEmptyLine(text: "Loading scripts", color: WhisperColor.textMuted)
             } else if scriptSummaries.isEmpty {
-                Text("none")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(WhisperColor.textMuted)
+                DashboardEmptyLine(text: "No scripts configured", color: WhisperColor.textMuted)
             } else {
-                HStack(spacing: HiveSpacing.sm) {
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: HiveSpacing.sm),
+                        GridItem(.flexible(), spacing: HiveSpacing.sm)
+                    ],
+                    alignment: .leading,
+                    spacing: HiveSpacing.sm
+                ) {
                     ForEach(visibleScripts) { script in
                         ScriptStatusToken(script: script)
                     }
 
                     if hiddenScriptCount > 0 {
-                        Text("+\(hiddenScriptCount)")
-                            .font(.caption.monospacedDigit().weight(.medium))
-                            .foregroundStyle(WhisperColor.textMuted)
+                        DashboardMoreToken(count: hiddenScriptCount)
                     }
                 }
-                .lineLimit(1)
             }
-        }
-    }
-
-    private var prRow: some View {
-        let summary = PullRequestDashboardSummary(prStatus: prStatus)
-        return DashboardMetricRow(label: "pr") {
-            Text(summary.text)
-                .font(.caption.monospacedDigit().weight(.medium))
-                .foregroundStyle(summary.color)
-                .lineLimit(1)
-                .truncationMode(.tail)
         }
     }
 
@@ -215,25 +206,108 @@ struct WorkspaceDashboardPanel: View {
     }
 }
 
-private struct DashboardMetricRow<Content: View>: View {
-    let label: String
-    let content: Content
-
-    init(label: String, @ViewBuilder content: () -> Content) {
-        self.label = label
-        self.content = content()
-    }
+private struct DashboardStatusBadge: View {
+    let text: String
+    let color: Color
+    let isStreaming: Bool
+    let hasUnread: Bool
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: HiveSpacing.md) {
-            Text(label)
-                .font(.caption.monospacedDigit().weight(.semibold))
-                .foregroundStyle(WhisperColor.textMuted)
-                .frame(width: 50, alignment: .leading)
+        HStack(spacing: 6) {
+            if isStreaming {
+                AgentActivityIndicator(dotSize: 2.7, spacing: 1.4)
+                    .frame(width: 12, height: 12)
+            } else if hasUnread {
+                CompletedDot()
+                    .frame(width: 12, height: 12)
+            } else {
+                StatusDot()
+                    .frame(width: 12, height: 12)
+            }
 
-            content
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(text)
+                .font(.caption2.monospacedDigit().weight(.bold))
+                .foregroundStyle(color)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            Capsule(style: .continuous)
+                .fill(color.opacity(0.11))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(color.opacity(0.24), lineWidth: 0.5)
+        )
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct DashboardSectionTitle: View {
+    let title: String
+
+    var body: some View {
+        Text(title.uppercased())
+            .font(.caption.monospacedDigit().weight(.semibold))
+            .foregroundStyle(WhisperColor.textMuted)
+    }
+}
+
+private struct DashboardStatColumn: View {
+    let title: String
+    let value: String
+    let detail: String
+    let valueColor: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption2.monospacedDigit().weight(.semibold))
+                .foregroundStyle(WhisperColor.textMuted)
+                .lineLimit(1)
+
+            Text(value)
+                .font(WhisperFont.mono(15, weight: .semibold))
+                .foregroundStyle(valueColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+
+            Text(detail)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(WhisperColor.textSecondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, HiveSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct DashboardDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(WhisperColor.separator)
+            .frame(width: 0.5, height: 58)
+            .padding(.vertical, 2)
+    }
+}
+
+private struct DashboardEmptyLine: View {
+    let text: String
+    let color: Color
+
+    var body: some View {
+        Text(text)
+            .font(.caption.monospacedDigit().weight(.medium))
+            .foregroundStyle(color)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, HiveSpacing.md)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(WhisperColor.surfaceSubtle)
+            )
     }
 }
 
@@ -241,21 +315,73 @@ private struct ScriptStatusToken: View {
     let script: ScriptDashboardSummary
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 7) {
+            scriptIcon
+
             Text(script.name)
                 .foregroundStyle(WhisperColor.text)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(maxWidth: 72, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
             Text(script.statusText)
                 .foregroundStyle(script.color)
+                .lineLimit(1)
         }
         .font(.caption.monospacedDigit().weight(.medium))
-        .lineLimit(1)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(WhisperColor.surfaceSubtle)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(script.color.opacity(script.status.state == .idle ? 0.10 : 0.22), lineWidth: 0.5)
+        )
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var scriptIcon: some View {
+        switch script.status.state {
+        case .running:
+            AgentActivityIndicator(dotSize: 2.5, spacing: 1.2)
+                .frame(width: 11, height: 11)
+        case .done:
+            CompletedDot()
+                .frame(width: 11, height: 11)
+        case .error:
+            Circle()
+                .fill(Color.red)
+                .frame(width: 7, height: 7)
+                .frame(width: 11, height: 11)
+        case .idle:
+            StatusDot()
+                .frame(width: 11, height: 11)
+        }
+    }
+}
+
+private struct DashboardMoreToken: View {
+    let count: Int
+
+    var body: some View {
+        Text("+\(count) more")
+            .font(.caption.monospacedDigit().weight(.medium))
+            .foregroundStyle(WhisperColor.textMuted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(WhisperColor.surfaceSubtle)
+            )
     }
 }
 
 private struct GitDashboardSummary {
+    let isLoaded: Bool
     let fileCount: Int
     let workingCount: Int
     let branchCount: Int
@@ -266,8 +392,45 @@ private struct GitDashboardSummary {
         fileCount > 0
     }
 
+    var filesValue: String {
+        if !isLoaded { return "Syncing" }
+        if hasChanges { return "\(fileCount)" }
+        return "Clean"
+    }
+
+    var filesDetail: String {
+        if !isLoaded { return "Fetching diff" }
+        if hasChanges { return "\(workingCount) working / \(branchCount) branch" }
+        return "No local diff"
+    }
+
+    var filesColor: Color {
+        if !isLoaded { return WhisperColor.textMuted }
+        return hasChanges ? WhisperColor.text : WhisperColor.success
+    }
+
+    var changesValue: String {
+        if !isLoaded { return "..." }
+        guard hasChanges else { return "0" }
+        let net = additions - deletions
+        if net > 0 { return "+\(net)" }
+        return "\(net)"
+    }
+
+    var changesDetail: String {
+        if !isLoaded { return "Waiting for stats" }
+        guard hasChanges else { return "No additions or deletions" }
+        return "+\(additions) / -\(deletions)"
+    }
+
+    var changesColor: Color {
+        if !isLoaded { return WhisperColor.textMuted }
+        return hasChanges ? WhisperColor.text : WhisperColor.success
+    }
+
     init(stats: DiffStatResponse?) {
         guard let stats else {
+            isLoaded = false
             fileCount = 0
             workingCount = 0
             branchCount = 0
@@ -276,6 +439,7 @@ private struct GitDashboardSummary {
             return
         }
 
+        isLoaded = true
         let files = Set((stats.committed + stats.uncommitted).map(\.file))
         fileCount = files.count
         workingCount = stats.uncommitted.count
@@ -366,22 +530,26 @@ private struct ScriptDashboardSummary: Identifiable {
 }
 
 private struct PullRequestDashboardSummary {
-    let text: String
+    let title: String
+    let detail: String
     let color: Color
 
     init(prStatus: PrStatusResponse?) {
         guard let prStatus else {
-            text = "loading"
+            title = "Loading"
+            detail = "Fetching status"
             color = WhisperColor.textMuted
             return
         }
         if let error = prStatus.error, !error.isEmpty {
-            text = "unavailable"
+            title = "Unavailable"
+            detail = "Provider status"
             color = WhisperColor.warningForeground
             return
         }
         guard let pr = prStatus.pr else {
-            text = "no pr"
+            title = "No PR"
+            detail = "Not opened"
             color = WhisperColor.textMuted
             return
         }
@@ -390,43 +558,56 @@ private struct PullRequestDashboardSummary {
         let checks = Self.checksText(pr)
 
         if pr.state == .merged {
-            text = "\(prefix) merged"
+            title = "\(prefix)"
+            detail = "Merged"
             color = .purple
         } else if pr.state == .closed {
-            text = "\(prefix) closed"
+            title = "\(prefix)"
+            detail = "Closed"
             color = WhisperColor.textMuted
         } else if pr.state == .draft {
-            text = "\(prefix) draft"
+            title = "\(prefix)"
+            detail = "Draft"
             color = WhisperColor.textMuted
         } else if pr.mergeable == false || pr.mergeableState == .conflict {
-            text = "\(prefix) conflicts"
+            title = "\(prefix)"
+            detail = "Conflicts"
             color = WhisperColor.warningForeground
         } else if pr.checksStatus == .failure {
-            text = "\(prefix) checks failed\(checks)"
+            title = "\(prefix)"
+            detail = "Checks failed\(checks)"
             color = .red
         } else if pr.checksStatus == .cancelled {
-            text = "\(prefix) checks cancelled\(checks)"
+            title = "\(prefix)"
+            detail = "Checks cancelled\(checks)"
             color = WhisperColor.warningForeground
         } else if pr.checksStatus == .pending {
-            text = "\(prefix) checks\(checks)"
+            title = "\(prefix)"
+            detail = "Checks\(checks)"
             color = WhisperColor.warningForeground
         } else if pr.reviewStatus == .changes_requested {
-            text = "\(prefix) changes requested"
+            title = "\(prefix)"
+            detail = "Changes requested"
             color = WhisperColor.warningForeground
         } else if pr.mergeableState == .blocked {
-            text = "\(prefix) blocked"
+            title = "\(prefix)"
+            detail = "Blocked"
             color = WhisperColor.warningForeground
         } else if pr.mergeableState == .unstable {
-            text = "\(prefix) unstable"
+            title = "\(prefix)"
+            detail = "Unstable"
             color = WhisperColor.warningForeground
         } else if pr.reviewStatus == .review_required {
-            text = "\(prefix) review"
+            title = "\(prefix)"
+            detail = "Review needed"
             color = .blue
         } else if pr.mergeable == true || pr.mergeableState == .clean {
-            text = "\(prefix) ready"
+            title = "\(prefix)"
+            detail = "Ready"
             color = WhisperColor.success
         } else {
-            text = "\(prefix) open"
+            title = "\(prefix)"
+            detail = "Open"
             color = .blue
         }
     }

@@ -61,11 +61,29 @@ struct ConversationRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: HiveSpacing.md) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(isActive ? Color.accentColor : Color.clear)
+                .frame(width: 3, height: 38)
+
             VStack(alignment: .leading, spacing: HiveSpacing.xs) {
-                Text(title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(WhisperColor.text)
-                    .lineLimit(1)
+                HStack(spacing: HiveSpacing.sm) {
+                    Text(title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(WhisperColor.text)
+                        .lineLimit(1)
+
+                    if isActive {
+                        Text("Active")
+                            .font(.caption2.monospacedDigit().weight(.bold))
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(Color.accentColor.opacity(0.10))
+                            )
+                    }
+                }
 
                 Text(messageCountText)
                     .font(.system(size: 15))
@@ -86,9 +104,17 @@ struct ConversationRow: View {
                 SessionStatusIndicator(isStreaming: isStreaming, isUnread: isUnread)
             }
         }
-        .padding(.horizontal, HiveSpacing.lg)
-        .padding(.vertical, HiveSpacing.sm)
-        .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+        .padding(.horizontal, HiveSpacing.md)
+        .padding(.vertical, HiveSpacing.md)
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isActive ? WhisperColor.surfaceRaised : WhisperColor.hubCardFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(isActive ? Color.accentColor.opacity(0.28) : WhisperColor.hubCardBorder, lineWidth: 0.5)
+        )
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityText)
