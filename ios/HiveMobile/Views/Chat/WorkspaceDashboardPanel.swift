@@ -400,7 +400,7 @@ private struct ScriptStatusToken: View {
         }
         .font(.caption.monospacedDigit().weight(.medium))
         .padding(.horizontal, 10)
-        .frame(minHeight: 44)
+        .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(WhisperColor.surfaceSubtle)
