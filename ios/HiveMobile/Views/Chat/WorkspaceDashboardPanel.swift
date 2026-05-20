@@ -328,7 +328,7 @@ private struct PullRequestRow: View {
                             .font(.caption2.weight(.semibold))
                             .imageScale(.small)
                     }
-                    .foregroundStyle(WhisperColor.textMuted)
+                    .foregroundStyle(summary.titleColor)
                     .lineLimit(1)
                 }
                 .buttonStyle(.plain)
@@ -336,7 +336,7 @@ private struct PullRequestRow: View {
             } else {
                 Text(summary.title)
                     .font(.caption.monospacedDigit().weight(.medium))
-                    .foregroundStyle(WhisperColor.textMuted)
+                    .foregroundStyle(summary.titleColor)
                     .lineLimit(1)
             }
 
@@ -626,6 +626,7 @@ private struct ScriptDashboardSummary: Identifiable {
 private struct PullRequestDashboardSummary {
     let title: String
     let detail: String
+    let titleColor: Color
     let color: Color
     let destinationURL: URL?
 
@@ -633,6 +634,7 @@ private struct PullRequestDashboardSummary {
         guard let prStatus else {
             title = "Loading"
             detail = "Fetching status"
+            titleColor = WhisperColor.textMuted
             color = WhisperColor.textMuted
             destinationURL = nil
             return
@@ -640,6 +642,7 @@ private struct PullRequestDashboardSummary {
         if let error = prStatus.error, !error.isEmpty {
             title = "-"
             detail = "Fetch error"
+            titleColor = WhisperColor.textMuted
             color = .red
             destinationURL = nil
             return
@@ -647,6 +650,7 @@ private struct PullRequestDashboardSummary {
         guard let pr = prStatus.pr else {
             title = "No PR"
             detail = "-"
+            titleColor = WhisperColor.textMuted
             color = WhisperColor.textMuted
             destinationURL = nil
             return
@@ -657,6 +661,7 @@ private struct PullRequestDashboardSummary {
         destinationURL = Self.destinationURL(from: pr.url)
         title = prefix
         detail = display.dashboardDetail
+        titleColor = WhisperColor.text
         color = display.color
     }
 
