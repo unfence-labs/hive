@@ -4,6 +4,7 @@ private enum HubLayout {
     static let projectIndent: CGFloat = 16
     static let workspaceIndent: CGFloat = 16
     static let hierarchyLineInset: CGFloat = 5
+    static let projectIconCenterX: CGFloat = 10
 }
 
 struct HubView: View {
@@ -293,7 +294,10 @@ struct HubView: View {
                 .font(.caption)
                 .foregroundStyle(WhisperColor.textMuted)
                 .padding(.vertical, HiveSpacing.xs)
-                .hubHierarchyGuide(indent: HubLayout.workspaceIndent)
+                .hubHierarchyGuide(
+                    indent: HubLayout.workspaceIndent,
+                    lineInset: HubLayout.projectIconCenterX
+                )
         } else {
             VStack(spacing: HiveSpacing.xs) {
                 ForEach(sortedWorkspaces(project.workspaces)) { workspace in
@@ -318,7 +322,10 @@ struct HubView: View {
                     }
                 }
             }
-            .hubHierarchyGuide(indent: HubLayout.workspaceIndent)
+            .hubHierarchyGuide(
+                indent: HubLayout.workspaceIndent,
+                lineInset: HubLayout.projectIconCenterX
+            )
         }
     }
 
@@ -467,13 +474,13 @@ struct HubView: View {
 }
 
 private extension View {
-    func hubHierarchyGuide(indent: CGFloat) -> some View {
+    func hubHierarchyGuide(indent: CGFloat, lineInset: CGFloat = HubLayout.hierarchyLineInset) -> some View {
         padding(.leading, indent)
             .overlay(alignment: .leading) {
                 Rectangle()
                     .fill(WhisperColor.hubStructure)
                     .frame(width: 1)
-                    .padding(.leading, HubLayout.hierarchyLineInset)
+                    .padding(.leading, lineInset)
             }
     }
 }

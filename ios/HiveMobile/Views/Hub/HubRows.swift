@@ -180,11 +180,6 @@ struct HubWorkspaceRow: View {
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
         .contentShape(Rectangle())
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(WhisperColor.hubSeparator)
-                .frame(height: 0.5)
-        }
     }
 
     @ViewBuilder
