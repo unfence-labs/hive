@@ -9,15 +9,24 @@ struct StatusDot: View {
     }
 }
 
-/// Turn-completed indicator.
-struct CompletedDot: View {
+/// Unread activity indicator using the user's selected accent color.
+struct UnreadDot: View {
+    let size: CGFloat
+    let shadowRadius: CGFloat
+
     @State private var appeared = false
+    private let color = Color.accentColor
+
+    init(size: CGFloat = 8, shadowRadius: CGFloat = 6) {
+        self.size = size
+        self.shadowRadius = shadowRadius
+    }
 
     var body: some View {
         Circle()
-            .fill(WhisperColor.success)
-            .frame(width: 8, height: 8)
-            .shadow(color: WhisperColor.success.opacity(appeared ? 0.5 : 0), radius: 6)
+            .fill(color)
+            .frame(width: size, height: size)
+            .shadow(color: color.opacity(appeared ? 0.5 : 0), radius: shadowRadius)
             .scaleEffect(appeared ? 1.0 : 0.3)
             .opacity(appeared ? 1.0 : 0.0)
             .onAppear {
@@ -35,8 +44,8 @@ struct CompletedDot: View {
             Text("Idle").font(.caption2)
         }
         VStack {
-            CompletedDot()
-            Text("Completed").font(.caption2)
+            UnreadDot()
+            Text("Unread").font(.caption2)
         }
         VStack {
             AgentActivityIndicator(dotSize: 3, spacing: 1.5)

@@ -2,8 +2,9 @@ import SwiftUI
 
 private enum HubLayout {
     static let projectIndent: CGFloat = 16
-    static let workspaceIndent: CGFloat = 0
+    static let workspaceIndent: CGFloat = 16
     static let hierarchyLineInset: CGFloat = 5
+    static let projectIconCenterX: CGFloat = 10
 }
 
 struct HubView: View {
@@ -16,7 +17,6 @@ struct HubView: View {
     @State private var projectExpansionOverrides: [String: Bool] = HubView.loadExpansionOverrides(
         key: HubView.projectExpansionKey
     )
-    @State private var searchText = ""
 
     var body: some View {
         ZStack {
@@ -24,25 +24,22 @@ struct HubView: View {
                 .ignoresSafeArea()
 
             ScrollView {
-                if store.isLoading && store.projects.isEmpty {
-                    loadingState
-                } else if store.projects.isEmpty && !store.isLoading {
-                    ContentUnavailableView(
-                        "No Projects",
-                        systemImage: "folder",
-                        description: Text("Tap + to add your first project, or connect to your Hive server from Settings.")
-                    )
-                    .padding(.top, 40)
-                } else if !normalizedSearch.isEmpty && filteredSections.isEmpty {
-                    ContentUnavailableView(
-                        "No Results",
-                        systemImage: "magnifyingglass",
-                        description: Text("Try a project, workspace, or branch name.")
-                    )
-                    .padding(.top, 40)
-                } else {
-                    denseHubContent
+                VStack(alignment: .leading, spacing: HiveSpacing.md) {
+                    if store.isLoading && store.projects.isEmpty {
+                        loadingState
+                    } else if store.projects.isEmpty && !store.isLoading {
+                        ContentUnavailableView(
+                            "No Projects",
+                            systemImage: "folder",
+                            description: Text("Tap + to add your first project, or connect to your Hive server from Settings.")
+                        )
+                        .padding(.top, 40)
+                    } else {
+                        denseHubContent
+                    }
                 }
+                .padding(.horizontal, HiveSpacing.lg)
+                .padding(.vertical, HiveSpacing.md)
             }
             .scrollBounceBehavior(.always)
             .scrollContentBackground(.hidden)
@@ -51,11 +48,6 @@ struct HubView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
-        .searchable(
-            text: $searchText,
-            placement: .navigationBarDrawer(displayMode: .always),
-            prompt: "Search projects, branches"
-        )
         .toolbar { toolbarContent }
         .refreshable {
             // Unstructured Task shields refresh from SwiftUI prematurely
@@ -71,12 +63,16 @@ struct HubView: View {
             // Always safe: existing data stays visible while refresh runs.
             await store.refresh()
         }
+        .onAppear {
+            store.statusMonitor.viewingWorkspaceId = nil
+            store.statusMonitor.viewingSessionId = nil
+        }
         .overlay {
             if let errorMessage = store.errorMessage {
                 errorBanner(errorMessage)
             }
         }
-        .overlay(alignment: .top) {
+        .safeAreaInset(edge: .top, spacing: 0) {
             if let repoName = store.cloningRepoName {
                 HStack(spacing: HiveSpacing.sm) {
                     ProgressView()
@@ -88,7 +84,7 @@ struct HubView: View {
                 .padding(.horizontal, HiveSpacing.lg)
                 .padding(.vertical, HiveSpacing.sm)
                 .glassPill()
-                .padding(.top, HiveSpacing.sm)
+                .padding(.vertical, HiveSpacing.sm)
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
@@ -133,21 +129,14 @@ struct HubView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            Button {
+            ToolbarAddButton(
+                isLoading: store.isCreatingProject,
+                accessibilityLabel: "Add project",
+                accessibilityHint: "Opens the add project sheet."
+            ) {
                 showAddProject = true
-            } label: {
-                if store.isCreatingProject {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: "plus")
-                        .font(.title2.weight(.semibold))
-                }
             }
-            .buttonStyle(.plain)
             .disabled(store.isCreatingProject)
-            .accessibilityLabel("Add project")
-            .accessibilityHint("Opens the add project sheet.")
         }
     }
 
@@ -155,12 +144,10 @@ struct HubView: View {
 
     private var denseHubContent: some View {
         LazyVStack(alignment: .leading, spacing: HiveSpacing.md) {
-            ForEach(filteredSections) { section in
+            ForEach(baseSections) { section in
                 sectionView(section)
             }
         }
-        .padding(.horizontal, HiveSpacing.lg)
-        .padding(.vertical, HiveSpacing.md)
         .task(id: store.projects.flatMap { $0.workspaces.map(\.id) }) {
             let ids = store.projects.flatMap { $0.workspaces.map(\.id) }
             store.statusMonitor.syncPrPolling(visibleWorkspaceIds: ids)
@@ -172,40 +159,6 @@ struct HubView: View {
             projects: store.projects,
             preferences: store.uiPreferences.sidebar
         )
-    }
-
-    private var filteredSections: [HubSection] {
-        let query = normalizedSearch
-        guard !query.isEmpty else { return baseSections }
-
-        return baseSections.compactMap { section in
-            let sectionMatches = section.title.localizedCaseInsensitiveContains(query)
-            let projects = section.projects.compactMap { node -> HubProjectNode? in
-                if sectionMatches || projectMatches(node.project, query: query) {
-                    return node
-                }
-
-                let matchingWorkspaces = node.project.workspaces.filter {
-                    workspaceMatches($0, query: query)
-                }
-                guard !matchingWorkspaces.isEmpty else { return nil }
-
-                var project = node.project
-                project.workspaces = matchingWorkspaces
-                return HubProjectNode(project: project)
-            }
-
-            guard !projects.isEmpty else { return nil }
-            return HubSection(
-                kind: section.kind,
-                projects: projects,
-                defaultExpanded: true
-            )
-        }
-    }
-
-    private var normalizedSearch: String {
-        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func sectionView(_ section: HubSection) -> some View {
@@ -227,13 +180,7 @@ struct HubView: View {
                         projectView(node.project)
                     }
                 }
-                .padding(.leading, HubLayout.projectIndent)
-                .overlay(alignment: .leading) {
-                    Rectangle()
-                        .fill(WhisperColor.hubStructure)
-                        .frame(width: 1)
-                        .padding(.leading, HubLayout.hierarchyLineInset)
-                }
+                .hubHierarchyGuide(indent: HubLayout.projectIndent)
                 .transition(.opacity)
             }
         }
@@ -264,8 +211,11 @@ struct HubView: View {
             Text("No active workspaces")
                 .font(.caption)
                 .foregroundStyle(WhisperColor.textMuted)
-                .padding(.leading, HubLayout.workspaceIndent)
                 .padding(.vertical, HiveSpacing.xs)
+                .hubHierarchyGuide(
+                    indent: HubLayout.workspaceIndent,
+                    lineInset: HubLayout.projectIconCenterX
+                )
         } else {
             VStack(spacing: HiveSpacing.xs) {
                 ForEach(sortedWorkspaces(project.workspaces)) { workspace in
@@ -273,7 +223,8 @@ struct HubView: View {
                         HubWorkspaceRow(
                             workspace: workspace,
                             isStreaming: store.statusMonitor.isStreaming(workspace.id),
-                            turnCompleted: store.statusMonitor.isCompleted(workspace.id),
+                            turnCompleted: store.statusMonitor.isCompleted(workspace.id)
+                                || store.statusMonitor.hasUnreadSessions(workspace.id),
                             diffStats: store.statusMonitor.diffStats(for: workspace.id),
                             prStatus: store.statusMonitor.prStatus(for: workspace.id)
                         )
@@ -289,7 +240,10 @@ struct HubView: View {
                     }
                 }
             }
-            .padding(.leading, HubLayout.workspaceIndent)
+            .hubHierarchyGuide(
+                indent: HubLayout.workspaceIndent,
+                lineInset: HubLayout.projectIconCenterX
+            )
         }
     }
 
@@ -314,27 +268,14 @@ struct HubView: View {
 
     private func workspaceRunningRank(_ workspaceId: String) -> Int {
         if store.statusMonitor.isStreaming(workspaceId) { return 0 }
-        return 1
+        if store.statusMonitor.isCompleted(workspaceId) || store.statusMonitor.hasUnreadSessions(workspaceId) { return 1 }
+        return 2
     }
 
     private func handleCreateWorkspace(for projectId: String) {
         Task {
             await store.createWorkspace(in: projectId)
         }
-    }
-
-    // MARK: - Matching
-
-    private func projectMatches(_ project: Project, query: String) -> Bool {
-        let displayName = HubProjectDisplay.name(for: project).plain
-        return project.name.localizedCaseInsensitiveContains(query)
-            || displayName.localizedCaseInsensitiveContains(query)
-            || (project.url?.localizedCaseInsensitiveContains(query) ?? false)
-    }
-
-    private func workspaceMatches(_ workspace: Workspace, query: String) -> Bool {
-        workspace.name.localizedCaseInsensitiveContains(query)
-            || workspace.branch.localizedCaseInsensitiveContains(query)
     }
 
     // MARK: - Activity
@@ -356,7 +297,7 @@ struct HubView: View {
             if store.statusMonitor.isStreaming(workspace.id) {
                 next.streaming += 1
             }
-            if store.statusMonitor.isCompleted(workspace.id) {
+            if store.statusMonitor.isCompleted(workspace.id) || store.statusMonitor.hasUnreadSessions(workspace.id) {
                 next.completed += 1
             }
             if workspaceNeedsAttention(workspace.id) {
@@ -379,12 +320,10 @@ struct HubView: View {
     // MARK: - Expansion State
 
     private func isSectionExpanded(_ section: HubSection) -> Bool {
-        if !normalizedSearch.isEmpty { return true }
         return sectionExpansionOverrides[section.id] ?? section.defaultExpanded
     }
 
     private func isProjectExpanded(_ project: Project) -> Bool {
-        if !normalizedSearch.isEmpty { return true }
         return projectExpansionOverrides[project.id] ?? projectHasLiveAttention(project)
     }
 
@@ -433,6 +372,18 @@ struct HubView: View {
         }
         .transition(.move(edge: .bottom))
         .animation(.default, value: store.errorMessage)
+    }
+}
+
+private extension View {
+    func hubHierarchyGuide(indent: CGFloat, lineInset: CGFloat = HubLayout.hierarchyLineInset) -> some View {
+        padding(.leading, indent)
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(WhisperColor.hubStructure)
+                    .frame(width: 1)
+                    .padding(.leading, lineInset)
+            }
     }
 }
 

@@ -30,6 +30,12 @@ final class APIClient {
         UserDefaults.standard.string(forKey: "authToken") ?? ""
     }
 
+    private func pathSegment(_ value: String) -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+
     // MARK: - Generic request methods
 
     private func request<T: Decodable>(_ method: String, path: String, body: Data? = nil) async throws -> T {
@@ -120,10 +126,6 @@ final class APIClient {
         try await request("POST", path: path, body: body)
     }
 
-    private func delete<T: Decodable>(path: String) async throws -> T {
-        try await request("DELETE", path: path)
-    }
-
     // MARK: - Typed endpoints
 
     func checkHealth() async throws -> Bool {
@@ -173,8 +175,7 @@ final class APIClient {
     }
 
     func deleteSession(workspaceId: String, sessionId: String) async throws {
-        struct DeleteResponse: Decodable { let success: Bool }
-        let _: DeleteResponse = try await delete(path: "/api/workspaces/\(workspaceId)/sessions/\(sessionId)")
+        try await requestVoid("DELETE", path: "/api/workspaces/\(workspaceId)/sessions/\(sessionId)")
     }
 
     func archiveWorkspace(workspaceId: String) async throws {
@@ -187,6 +188,20 @@ final class APIClient {
 
     func fetchPrStatus(workspaceId: String) async throws -> PrStatusResponse {
         try await get(path: "/api/workspaces/\(workspaceId)/pr-status")
+    }
+
+    func fetchWorkspaceScripts(workspaceId: String) async throws -> WorkspaceScriptsResponse {
+        try await get(path: "/api/workspaces/\(workspaceId)/scripts")
+    }
+
+    func startWorkspaceScript(workspaceId: String, scriptId: String) async throws {
+        let scriptPath = pathSegment(scriptId)
+        try await requestVoid("POST", path: "/api/workspaces/\(workspaceId)/scripts/\(scriptPath)/start")
+    }
+
+    func stopWorkspaceScript(workspaceId: String, scriptId: String) async throws {
+        let scriptPath = pathSegment(scriptId)
+        try await requestVoid("POST", path: "/api/workspaces/\(workspaceId)/scripts/\(scriptPath)/stop")
     }
 
     func fetchBulkPrStatus(workspaceIds: [String]) async throws -> BulkPrStatusResponse {

@@ -34,12 +34,12 @@ struct HiveApp: App {
                     NavigationStack(path: $hubPath) {
                         HubView()
                             .navigationDestination(for: Workspace.self) { workspace in
-                                ChatView(
+                                WorkspaceConversationsView(
                                     workspace: workspace,
-                                    store: storeCache.getOrCreate(workspace.id)
+                                    store: storeCache.getOrCreate(workspace.id),
+                                    navigationPath: $hubPath
                                 )
                                 .toolbar(.hidden, for: .tabBar)
-                                .smoothTabBarTransition()
                             }
                     }
                 }

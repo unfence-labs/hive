@@ -16,6 +16,8 @@ struct ChatActivityRowLabel: View {
     var summary: String?
     var badgeText: String?
     var badgeIcon: String?
+    var trailingIcon: String?
+    var trailingIconColor = WhisperColor.textMuted
     var isExpanded: Bool?
     var accessoryIcons: [String] = []
     var executing = false
@@ -94,6 +96,13 @@ struct ChatActivityRowLabel: View {
                             .foregroundStyle(WhisperColor.textMuted)
                     }
                 }
+            }
+
+            if let trailingIcon {
+                Image(systemName: trailingIcon)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(trailingIconColor)
+                    .frame(width: 14, height: 14)
             }
 
             if executing {

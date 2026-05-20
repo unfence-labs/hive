@@ -248,10 +248,10 @@ private struct DiagnosticActivityRow: View {
 
     var body: some View {
         ActivityDisclosureRow(
-            icon: diagnosticIcon,
             title: activity.title,
             detail: activity.method,
-            status: activity.severity.rawValue
+            trailingIcon: diagnosticIcon,
+            trailingIconColor: diagnosticIconColor
         ) {
             VStack(alignment: .leading, spacing: 8) {
                 Text(activity.message)
@@ -270,11 +270,19 @@ private struct DiagnosticActivityRow: View {
         }
     }
 
-    private var diagnosticIcon: String {
+    private var diagnosticIcon: String? {
         switch activity.severity {
-        case .info: "info.circle"
+        case .info: nil
         case .warning: "exclamationmark.triangle"
         case .error: "xmark.circle"
+        }
+    }
+
+    private var diagnosticIconColor: Color {
+        switch activity.severity {
+        case .warning: WhisperColor.warning
+        case .error: .red
+        case .info: WhisperColor.textMuted
         }
     }
 }
@@ -296,10 +304,12 @@ private struct UnknownActivityRow: View {
 }
 
 private struct ActivityDisclosureRow<Content: View>: View {
-    let icon: String
+    let icon: String?
     let title: String
     var detail: String?
     var status: String?
+    var trailingIcon: String?
+    var trailingIconColor = WhisperColor.textMuted
     var defaultOpen = false
     var executing = false
     let content: Content
@@ -307,10 +317,12 @@ private struct ActivityDisclosureRow<Content: View>: View {
     @State private var isExpanded: Bool
 
     init(
-        icon: String,
+        icon: String? = nil,
         title: String,
         detail: String? = nil,
         status: String? = nil,
+        trailingIcon: String? = nil,
+        trailingIconColor: Color = WhisperColor.textMuted,
         defaultOpen: Bool = false,
         executing: Bool = false,
         @ViewBuilder content: () -> Content
@@ -319,6 +331,8 @@ private struct ActivityDisclosureRow<Content: View>: View {
         self.title = title
         self.detail = detail
         self.status = status
+        self.trailingIcon = trailingIcon
+        self.trailingIconColor = trailingIconColor
         self.defaultOpen = defaultOpen
         self.executing = executing
         self.content = content()
@@ -337,6 +351,8 @@ private struct ActivityDisclosureRow<Content: View>: View {
                     label: title,
                     detail: detail,
                     badgeText: status.flatMap { $0.isEmpty ? nil : readableActivityStatus($0) },
+                    trailingIcon: trailingIcon,
+                    trailingIconColor: trailingIconColor,
                     isExpanded: isExpanded,
                     executing: executing
                 )

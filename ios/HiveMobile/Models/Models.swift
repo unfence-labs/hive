@@ -164,7 +164,7 @@ struct BulkPrStatusResponse: Codable {
 
 // MARK: - Session & Chat
 
-struct SessionMetadata: Codable, Identifiable {
+struct SessionMetadata: Codable, Hashable, Identifiable {
     let sessionId: String
     let providerSessionId: String?
     let claudeSessionId: String?
@@ -327,6 +327,40 @@ struct DiffFileStat: Codable, Identifiable {
 struct DiffStatResponse: Codable {
     let committed: [DiffFileStat]
     let uncommitted: [DiffFileStat]
+}
+
+// MARK: - Scripts
+
+enum ScriptState: String, Codable {
+    case idle
+    case running
+    case done
+    case error
+}
+
+struct HiveConfigScripts: Codable {
+    let setup: String?
+    let run: [String: String]?
+}
+
+struct HiveConfig: Codable {
+    let scripts: HiveConfigScripts?
+    let port: Int?
+}
+
+struct ScriptStatusInfo: Codable, Equatable {
+    let state: ScriptState
+    let exitCode: Int?
+
+    init(state: ScriptState, exitCode: Int? = nil) {
+        self.state = state
+        self.exitCode = exitCode
+    }
+}
+
+struct WorkspaceScriptsResponse: Codable {
+    let config: HiveConfig?
+    let status: [String: ScriptStatusInfo]
 }
 
 // MARK: - Questions & Tool Input

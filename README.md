@@ -85,9 +85,10 @@ It manages:
 - Workspace header action for copying the current worktree path.
 
 **iOS**
-- Native SwiftUI app with chat, model selection, session switching (max 4), and push notifications (APNs).
+- Native SwiftUI app with workspace conversation lists, chat, model selection, session switching (max 4), and push notifications (APNs).
 - Dynamic model catalog from API with provider-grouped picker and session locking.
-- PR status bulk polling with enriched display matching the web frontend.
+- SwiftUI `NavigationStack` routing for workspaces and conversations.
+- PR status bulk polling with shared enriched display mapping for Hub rows and the workspace dashboard.
 - Push notifications with foreground suppression and cold-start bridging via `CompletedWorkspacesStore`.
 - Foreground reconnect (2s debounce) with background stream catchup.
 - Context window usage ring matching frontend thresholds.
@@ -215,6 +216,9 @@ npm run build
 npm run lint
 npm run typecheck
 npm test
+
+cd ../ios
+swift test
 ```
 
 ## Codex App Server Notes
@@ -527,9 +531,11 @@ $DATA_DIR/
 
 - Backend tests: `backend/src/**/*.test.ts`
 - Frontend tests: `frontend/tests/**/*.test.ts(x)`
-- Framework: Vitest
+- iOS Swift package tests: `ios/Tests/**/*.swift`
+- Frameworks: Vitest for backend/frontend, Swift Testing for iOS store/model tests
 - CI (`.github/workflows/ci.yml`) runs lint, typecheck, build, and tests on push/PR to `main`
 - CI sets `NODE_ENV=test` explicitly (React 19 only exports `act()` in development bundle)
+- Current GitHub CI covers the Node workspaces. Run `cd ios && swift test` and an Xcode simulator build before merging iOS changes.
 
 ## License
 

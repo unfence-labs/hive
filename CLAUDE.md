@@ -267,7 +267,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 
 ## iOS App (`ios/`)
 
-- `HiveMobile/HiveApp.swift`: app entry point + `AppDelegate` adapter + `CompletedWorkspacesStore` merge on launch
+- `HiveMobile/HiveApp.swift`: app entry point + `AppDelegate` adapter + `CompletedWorkspacesStore` merge on launch + native `NavigationStack` routing
 - `HiveMobile/Models/Models.swift`: data models (ChatMessage, ToolCall, Workspace, ModelCatalogEntry, etc.)
 - `HiveMobile/Models/AgentActivity.swift`: normalized agent activity models for Codex App Server command execution, file changes, plan updates, diagnostics, and unknown fallback
 - `HiveMobile/Models/WebSocketTypes.swift`: WS protocol types (mirrors `backend/src/types.ts`)
@@ -280,9 +280,11 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `HiveMobile/Stores/ChatDraftStore.swift`: draft message persistence (includes `selectedModelId`, `thinkingLevel`)
 - `HiveMobile/Stores/ProjectStore.swift`: project list state (accepts `ConversationStoreCache` at init)
 - `HiveMobile/Stores/ModelCatalog.swift`: dynamic model catalog from API, grouped by provider
-- `HiveMobile/Stores/HubStatusMonitor.swift`: single multiplexed hub WS + PR status bulk polling + turn-completed tracking + foreground reconnect (2s debounce) + background stream catchup
+- `HiveMobile/Stores/HubStatusMonitor.swift`: single multiplexed hub WS + PR status bulk polling + per-session streaming/unread tracking + foreground reconnect (2s debounce) + background stream catchup
 - `HiveMobile/Stores/TaskDerivation.swift`: pure function port of `useTasks.ts` — derives `TasksState` from messages and active tool calls, including Codex `TodoList` events
-- `HiveMobile/Views/Chat/ChatView.swift`: conversation UI + provider locking + model selection + per-session plan mode
+- `HiveMobile/Views/Chat/WorkspaceConversationsView.swift`: workspace-level conversation list, create/delete flow, and `NavigationPath` routing into chat
+- `HiveMobile/Views/Chat/ConversationRow.swift`: conversation row with active, streaming, unread, message count, and timestamp state
+- `HiveMobile/Views/Chat/ChatView.swift`: single-session conversation UI + provider locking + model selection + per-session plan mode
 - `HiveMobile/Views/Chat/ChatInputBar.swift`: input bar with provider-adaptive controls (thinking-level cycler) + context ring
 - `HiveMobile/Views/Chat/MessageBubble.swift`: message + tool call rendering + `#file`/`@agent` mention highlighting + copy-to-clipboard button
 - `HiveMobile/Views/Chat/AgentActivityList.swift`: SwiftUI renderer for `agent_activity` command execution, file changes, plan updates, diagnostics, and unknown activities
@@ -290,16 +292,15 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `HiveMobile/Views/Chat/ChatActivityChrome.swift`: shared chat activity content panel primitives
 - `HiveMobile/Views/Chat/ChatFormatting.swift`: shared chat formatting helpers
 - `HiveMobile/Views/Chat/ToolInputSheet.swift`: AskUserQuestion + ExitPlanMode interactive sheets
-- `HiveMobile/Views/Chat/SessionSheet.swift`: session switching (max 4 sessions)
 - `HiveMobile/Views/Chat/ContextRingView.swift`: SwiftUI context ring with matching color thresholds
 - `HiveMobile/Views/Chat/TaskTrackerView.swift`: collapsible task list bar (mirrors frontend `TaskTracker`)
 - `HiveMobile/Views/Chat/SessionEmptyState.swift`: empty state for new sessions (project/workspace/branch info)
 - `HiveMobile/Views/Hub/HubView.swift`: project/workspace navigation
 - `HiveMobile/Views/Hub/AddProjectSheet.swift`: new project creation
-- `HiveMobile/Views/Hub/WorkspaceCard.swift`: workspace cards with activity preview + enriched PR status display + turn-completed badge
-- `HiveMobile/Views/Components/StatusDot.swift`: idle (gray) / completed (green with glow animation) dot
+- `HiveMobile/Views/Hub/HubRows.swift`: folder/project/workspace rows with activity preview + enriched PR status display + turn-completed/unread badge
+- `HiveMobile/Views/Hub/HubStatusSummary.swift`: shared hub diff summary, PR attention rules, and PR status display mapping used by Hub rows and workspace dashboard
+- `HiveMobile/Views/Components/StatusDot.swift`: idle (gray) / unread activity (accent with glow animation) dot
 - `HiveMobile/Views/Components/AgentActivityIndicator.swift`: animated 3x3 dot grid wave pattern for agent activity
-- `HiveMobile/Views/Components/SmoothTabBarTransition.swift`: tab bar hide/show animation sync with navigation
 - `HiveMobile/Theme/DesignTokens.swift`: design tokens (WhisperColor, WhisperFont)
 
 ### Important iOS behavior
@@ -308,10 +309,11 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Auth token stored in UserDefaults, passed as query param on WS connections.
 - **Push notifications**: `AppDelegate` registers for remote notifications on launch, forwards device token to backend. Notifications suppressed in foreground (WS handles it). Notification taps routed through `CompletedWorkspacesStore` which persists IDs in UserDefaults for cold-start bridging to `HubStatusMonitor`.
 - **Single multiplexed hub WS**: `HubStatusMonitor.HubConnection` opens one WS to `/ws/hub` for all workspaces. Sends `sync_workspaces` on connect. Incoming `HubOutgoing` envelopes are demuxed by `workspaceId`. Hub-level events (status, diff_stats, branch_info) update monitor properties. ALL events are forwarded to the workspace's `ConversationStore` in the `ConversationStoreCache`.
-- **Foreground reconnect**: on `scenePhase` change to active (2s debounce), forces WS reconnect. Streams cleared before reconnect. If bootstrap arrives with `streaming=false` for a previously-streaming workspace, treated as completed turn (green dot without push).
+- **Foreground reconnect**: on `scenePhase` change to active (2s debounce), forces WS reconnect. Streams cleared before reconnect. If bootstrap arrives with `streaming=false` for a previously-streaming workspace, treated as unread workspace activity without push.
 - **ConversationStoreCache** (`@Environment`): app-level cache of `ConversationStore` instances keyed by workspace ID. Stores survive `ChatView` mount/unmount, preserving streaming state across navigation. Stores are eagerly created when streaming starts (even if ChatView isn't open). Evicted on workspace archive/delete.
-- **ChatView receives its store as a parameter** from the cache (via `HiveApp`'s `navigationDestination`). No per-view WS — all sends go through `store.send` closure wired to `WorkspaceConnection`.
-- **Turn-completed badge**: `HubStatusMonitor.completedWorkspaces` tracks workspaces where a `done` event fired. `WorkspaceCard` shows a green `StatusDot`. Cleared when `ChatView` opens (via `clearCompleted`). `viewingWorkspaceId` prevents false positives when user is already in chat.
+- **Workspace conversation navigation**: `HiveApp` owns the Hub `NavigationPath`. Workspace rows push `WorkspaceConversationsView`; conversation rows append `SessionMetadata` to the path so the custom row UI stays free of the default List disclosure chevron.
+- **ChatView receives its store as a parameter** from the cache (via `WorkspaceConversationsView`). No per-view WS — all sends go through `store.send` closure wired to the hub connection.
+- **Turn-completed/unread badges**: `HubStatusMonitor.completedWorkspaces` tracks background `done` events at workspace level, while `unreadSessions` tracks per-session unread `done` and failed background `cancelled` events. Hub workspace rows show an accent unread dot when either workspace completion or unread sessions exist. Conversation rows show per-session streaming/unread state. `viewingWorkspaceId`/`viewingSessionId` prevent false positives when the relevant screen is visible.
 - Tool rendering mirrors the frontend: same tool names, same icon mapping, same hierarchical display (parentToolUseId).
 - Codex App Server `agent_activity` events are decoded and stored per streaming session. Activities are upserted by id, persisted into finalized `ChatMessage.agentActivities`, and rendered through `AgentActivityList`.
 - Compatibility `tool_use` / `tool_result` events remain supported on iOS, but `MessageBubble` filters tool calls whose ids are already represented by an `AgentActivity` to avoid duplicate command/file/plan rows.
@@ -320,14 +322,15 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - AskUserQuestion renders as a paginated form sheet with multi-select support. Dismissed questions show "CANCELLED" badge.
 - ExitPlanMode renders as a markdown preview with approve/reject actions.
 - Chat drafts are persisted per-workspace and restored on app relaunch (includes `selectedModelId`, `thinkingLevel`).
+- Deleting the active conversation must clear its `ConversationStore` state and either focus the next remaining session or clear focus when none remain.
 - Model catalog is fetched dynamically from `/api/models`. Picker groups by provider, disables cross-provider items when session is locked.
 - All providers supporting reasoning effort show a unified thinking-level cycler; the supported list comes from `capabilities.thinkingLevels` (Claude: low/medium/high/xhigh/max; Codex: none/minimal/low/medium/high/xhigh). Plan mode hidden for providers that don't support it.
 - `lockedProvider` is read from WS status events (not REST) for instant model locking after first message.
 - Pre-multi-model sessions default to `"claude"` when they have messages but no `lockedProvider`.
-- PR status uses bulk endpoint matching the frontend.
+- PR status uses bulk endpoint matching the frontend. iOS keeps one shared `HubPrStatusDisplay` mapping so Hub rows and the workspace dashboard cannot drift.
 - `#file` mentions highlighted with `AttributedString` in `MessageBubble` using accent color.
 - Context ring matches frontend thresholds (green/yellow/red).
-- Max 4 sessions enforced in `SessionSheet`.
+- Max 4 sessions enforced in `WorkspaceConversationsView`.
 
 ## Coding Rules
 
@@ -335,7 +338,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Use English for code/comments/UI copy.
 - Keep backend routes testable by preserving optional `dataDir` injection.
 - Keep state mutations serialized via workspace/project lock helpers.
-- **Before completing any task, run tests (`npm test`) and typecheck (`npm run typecheck`) from the repo root to catch regressions. Do not consider a task done until both pass.**
+- **Before completing any task, run tests (`npm test`) and typecheck (`npm run typecheck`) from the repo root to catch regressions. For iOS changes, also run `cd ios && swift test` and an Xcode simulator build when Swift/Xcode is available. Do not consider a task done until the relevant checks pass or the missing toolchain is explicitly reported.**
 
 ## Critical Guardrails
 
@@ -359,9 +362,11 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 
 - Backend tests live next to source (`backend/src/**/*.test.ts`).
 - Frontend tests live in `frontend/tests/**`.
+- iOS Swift package tests live in `ios/Tests/**` and use Swift Testing.
 - Use `SessionOptions.command = "bash"` in backend tests to avoid local Claude CLI dependency.
 - WS tests use Fastify's `injectWS()` (not raw `new WebSocket()`) for deterministic message ordering.
 - CI sets `NODE_ENV=test` explicitly to ensure React 19 exports `act()` in its development bundle.
+- Current GitHub CI covers Node workspaces; iOS test/build validation is local unless the workflow is extended.
 
 ## Tauri Desktop App
 
