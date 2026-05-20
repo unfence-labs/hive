@@ -1070,6 +1070,41 @@ describe("WorkspaceView behavior", () => {
     expect(screen.getAllByText("Implementing auth")).toHaveLength(2);
   });
 
+  it("renders TaskTracker from Codex plan updates", async () => {
+    const user = userEvent.setup();
+    mocks.useConversation.mockReturnValue(buildConversationState({
+      messages: [
+        {
+          id: "msg-plan-1",
+          sessionId: "sess-plan",
+          role: "assistant",
+          content: "",
+          timestamp: "2026-02-12T00:00:00.000Z",
+          agentActivities: [{
+            id: "codex-plan-1",
+            kind: "plan_update",
+            steps: [
+              { text: "Inspect Codex plan flow", status: "completed" },
+              { text: "Move plan into task tracker", status: "inProgress" },
+            ],
+          }],
+        },
+      ],
+      isStreaming: true,
+      workspaceStatus: "busy",
+      sessionId: "sess-plan",
+    }));
+
+    renderWorkspace();
+    await screen.findByText("tokyo");
+
+    expect(screen.getByText("Move plan into task tracker")).toBeInTheDocument();
+    expect(screen.getByText("1/2")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /move plan into task tracker/i }));
+    expect(screen.getByText("Inspect Codex plan flow")).toBeInTheDocument();
+  });
+
   it("prefers projectName in header and shows origin default branch when provided", async () => {
     mocks.apiGet.mockImplementation(async (url: string) => {
       const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);

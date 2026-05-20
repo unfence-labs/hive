@@ -50,7 +50,12 @@ struct TaskTrackerView: View {
         if counts.completed == counts.total {
             return "All tasks completed"
         }
-        return counts.pending == 1 ? "1 task remaining" : "\(counts.pending) tasks remaining"
+        let remaining = counts.total - counts.completed
+        let hasOnlyOpenTasks = remaining == counts.pending + counts.inProgress
+        if hasOnlyOpenTasks {
+            return remaining == 1 ? "1 task remaining" : "\(remaining) tasks remaining"
+        }
+        return remaining == 1 ? "1 task not completed" : "\(remaining) tasks not completed"
     }
 
     private var collapsedRow: some View {
@@ -120,6 +125,10 @@ struct TaskTrackerView: View {
             Circle()
                 .stroke(WhisperColor.textMuted, lineWidth: 1)
                 .frame(width: 9, height: 9)
+        case .failed, .declined:
+            Image(systemName: "xmark.circle")
+                .font(.system(size: 11))
+                .foregroundStyle(.red)
         }
     }
 
@@ -128,6 +137,7 @@ struct TaskTrackerView: View {
         case .completed: WhisperColor.textMuted
         case .inProgress: WhisperColor.text
         case .pending: WhisperColor.textSecondary
+        case .failed, .declined: .red
         }
     }
 }

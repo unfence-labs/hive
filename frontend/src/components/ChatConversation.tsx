@@ -11,7 +11,7 @@ import ChatMessage from "@/components/ChatMessage";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
-import { AgentActivityList } from "@/components/chat/AgentActivityList";
+import { AgentActivityList, getInlineAgentActivities } from "@/components/chat/AgentActivityList";
 import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { formatElapsed } from "@/lib/time";
 import { getFallbackInteractiveAssistantIndex, hasExitPlanModeTool } from "@/lib/plan-state";
@@ -68,6 +68,7 @@ export default function ChatConversation({
   scrollToBottomTrigger = 0,
 }: ChatConversationProps) {
   const [elapsed, setElapsed] = useState(0);
+  const activeInlineAgentActivities = getInlineAgentActivities(activeAgentActivities);
 
   useEffect(() => {
     if (!isStreaming || !streamingStartedAt) {
@@ -223,7 +224,7 @@ export default function ChatConversation({
         })}
 
         {/* Live streaming content */}
-        {isStreaming && (currentStreamingText || currentThinking || activeToolCalls.length > 0 || activeAgentActivities.length > 0) && (
+        {isStreaming && (currentStreamingText || currentThinking || activeToolCalls.length > 0 || activeInlineAgentActivities.length > 0) && (
           <div className="flex w-full justify-start">
             <div className="max-w-[85%] text-sm leading-relaxed text-foreground">
               {currentThinking && (
@@ -235,7 +236,7 @@ export default function ChatConversation({
                 </div>
               )}
               <AgentActivityList
-                activities={activeAgentActivities}
+                activities={activeInlineAgentActivities}
                 toolCalls={activeToolCalls}
                 isInteractive
                 showExecutingState

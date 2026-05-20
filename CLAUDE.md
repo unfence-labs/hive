@@ -218,9 +218,9 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/components/WorkspacePathCopyButton.tsx`: workspace header path-copy action with tooltip and transient copied state
 - `frontend/src/components/ChatInput.tsx`: message input with provider-adaptive controls, `#` file autocomplete with `MentionHighlightOverlay`, Commit & Push quick action, context ring, message queue display, `appendText` ref for paste-from-diff
 - `frontend/src/components/ChatConversation.tsx`: conversation display with hydration flash fix (visibility:hidden + double-rAF settle)
-- `frontend/src/components/chat/AgentActivityList.tsx`: rich activity renderer for Codex App Server command execution, file changes, plan updates, and diagnostics
+- `frontend/src/components/chat/AgentActivityList.tsx`: inline renderer for Codex App Server command execution, file changes, and diagnostics; plan updates are filtered into the task tracker
 - `frontend/src/components/PrStatusSection.tsx`: enriched PR display (13 states)
-- `frontend/src/components/TaskTracker.tsx`: collapsible status bar showing active tasks + background agents with shimmer animation
+- `frontend/src/components/TaskTracker.tsx`: collapsible status bar showing active tasks, Codex plan updates, and background agents with shimmer animation
 - `frontend/src/components/AutomationRunLogSheet.tsx`: slide-over sheet for full automation run conversation log with collapsible system prompt banner
 - `frontend/src/components/CreateAutomationDialog.tsx`: automation creation + editing form with cron preview (next 3 runs)
 - `frontend/src/components/PromptEditor.tsx`: CodeMirror 6 markdown editor with `{TEMPLATE_VAR}` pill highlighting
@@ -248,7 +248,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Chat input supports image attachments (paste/drag-drop/picker), Commit & Push quick action button, and context window usage ring.
 - Message queue: users can type and submit one follow-up while the agent is streaming. Queued message renders with dashed border and "Queued" label, auto-dispatches on turn complete.
 - Plan proposals render inline in chat. `PlanActionBar` floats above the input with Copy, Hand-off (creates new session with plan content), and Approve. Backend emits `plan_mode_changed` WS events on `EnterPlanMode`/`ExitPlanMode` for automatic UI sync.
-- Codex App Server activity rendering uses the generic `AgentActivityList`; it reuses existing chat components (`ContentPanel`, `DiffView`, badges/icons) and filters redundant compatibility tool calls from display.
+- Codex App Server command/file activities are normalized into tool-call display data, plan updates feed `TaskTracker`, and diagnostics render through `AgentActivityList`.
 - Diagnostic activities make unsupported App Server notifications/requests visible in the chat stream so protocol coverage can be implemented incrementally.
 - Sub-agent Task tool calls render as collapsible `SubAgentNode` cards with type-specific icons, nested child tool trees, and result footers. Background agents tracked separately in `TaskTracker`.
 - Sidebar: org/repo two-tone project headers (lowercase), build/automation tabs, dashed primary border for active workspace, sidebar collapse via toggle or Cmd/Ctrl+B, workspace count/add button toggle on hover.
@@ -281,13 +281,13 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `HiveMobile/Stores/ProjectStore.swift`: project list state (accepts `ConversationStoreCache` at init)
 - `HiveMobile/Stores/ModelCatalog.swift`: dynamic model catalog from API, grouped by provider
 - `HiveMobile/Stores/HubStatusMonitor.swift`: single multiplexed hub WS + PR status bulk polling + per-session streaming/unread tracking + foreground reconnect (2s debounce) + background stream catchup
-- `HiveMobile/Stores/TaskDerivation.swift`: pure function port of `useTasks.ts` — derives `TasksState` from messages and active tool calls, including Codex `TodoList` events
+- `HiveMobile/Stores/TaskDerivation.swift`: pure function port of `useTasks.ts` — derives `TasksState` from messages, active tool calls, Codex `TodoList` events, and Codex App Server plan updates
 - `HiveMobile/Views/Chat/WorkspaceConversationsView.swift`: workspace-level conversation list, create/delete flow, and `NavigationPath` routing into chat
 - `HiveMobile/Views/Chat/ConversationRow.swift`: conversation row with active, streaming, unread, message count, and timestamp state
 - `HiveMobile/Views/Chat/ChatView.swift`: single-session conversation UI + provider locking + model selection + per-session plan mode
 - `HiveMobile/Views/Chat/ChatInputBar.swift`: input bar with provider-adaptive controls (thinking-level cycler) + context ring
 - `HiveMobile/Views/Chat/MessageBubble.swift`: message + tool call rendering + `#file`/`@agent` mention highlighting + copy-to-clipboard button
-- `HiveMobile/Views/Chat/AgentActivityList.swift`: SwiftUI renderer for `agent_activity` command execution, file changes, plan updates, diagnostics, and unknown activities
+- `HiveMobile/Views/Chat/AgentActivityList.swift`: SwiftUI renderer for visible `agent_activity` diagnostics and unknown activities; command/file activities are rendered as tool calls and plan updates feed the task tracker
 - `HiveMobile/Views/Chat/DiffRendering.swift`: shared chat diff line parsing/rendering used by tool-call diffs and agent file-change activities
 - `HiveMobile/Views/Chat/ChatActivityChrome.swift`: shared chat activity content panel primitives
 - `HiveMobile/Views/Chat/ChatFormatting.swift`: shared chat formatting helpers
@@ -315,8 +315,8 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - **ChatView receives its store as a parameter** from the cache (via `WorkspaceConversationsView`). No per-view WS — all sends go through `store.send` closure wired to the hub connection.
 - **Turn-completed/unread badges**: `HubStatusMonitor.completedWorkspaces` tracks background `done` events at workspace level, while `unreadSessions` tracks per-session unread `done` and failed background `cancelled` events. Hub workspace rows show an accent unread dot when either workspace completion or unread sessions exist. Conversation rows show per-session streaming/unread state. `viewingWorkspaceId`/`viewingSessionId` prevent false positives when the relevant screen is visible.
 - Tool rendering mirrors the frontend: same tool names, same icon mapping, same hierarchical display (parentToolUseId).
-- Codex App Server `agent_activity` events are decoded and stored per streaming session. Activities are upserted by id, persisted into finalized `ChatMessage.agentActivities`, and rendered through `AgentActivityList`.
-- Compatibility `tool_use` / `tool_result` events remain supported on iOS, but `MessageBubble` filters tool calls whose ids are already represented by an `AgentActivity` to avoid duplicate command/file/plan rows.
+- Codex App Server `agent_activity` events are decoded and stored per streaming session. Activities are upserted by id, persisted into finalized `ChatMessage.agentActivities`, and routed to tool-call rendering, `TaskTracker`, or `AgentActivityList` depending on kind.
+- Compatibility `tool_use` / `tool_result` events remain supported on iOS, but `MessageBubble` filters tool calls whose ids are already represented by an `AgentActivity` to avoid duplicate command/file rows.
 - Late live fragments after `done`/`cancelled` must not recreate a ghost stream; `ConversationStore` only accepts live text/thinking/tool/activity/plan events when a stream slot already exists, and ignores late `tool_input_required` after a terminal assistant message.
 - Unknown WS event types decode to `.unknown` instead of visible chat errors. Unknown agent activity kinds render as an unsupported activity row.
 - AskUserQuestion renders as a paginated form sheet with multi-select support. Dismissed questions show "CANCELLED" badge.

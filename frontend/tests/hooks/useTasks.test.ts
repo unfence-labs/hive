@@ -1,15 +1,16 @@
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { useTasks } from "@/hooks/useTasks";
-import type { ChatMessage, ToolCall } from "@/types";
+import type { AgentActivity, ChatMessage, ToolCall } from "@/types";
 
-function msg(toolCalls: ToolCall[]): ChatMessage {
+function msg(toolCalls: ToolCall[], agentActivities?: AgentActivity[]): ChatMessage {
   return {
     id: "m-" + Math.random().toString(36).slice(2, 6),
     sessionId: "s1",
     role: "assistant",
     content: "",
     toolCalls,
+    agentActivities,
     timestamp: new Date().toISOString(),
   };
 }
@@ -335,5 +336,76 @@ describe("useTasks", () => {
     const { result } = renderHook(() => useTasks(messages, active));
     expect(result.current.tasks[0].status).toBe("in_progress");
     expect(result.current.currentTask?.id).toBe("1");
+  });
+
+  it("derives tasks from the latest Codex plan update", () => {
+    const messages = [
+      msg([], [{
+        id: "codex-plan-old",
+        kind: "plan_update",
+        steps: [{ text: "Old step", status: "completed" }],
+      }]),
+      msg([], [{
+        id: "codex-plan-current",
+        kind: "plan_update",
+        steps: [
+          { text: "Inspect app-server flow", status: "completed" },
+          { text: "Move plan to tracker", status: "inProgress" },
+          { text: "Verify mobile parity", status: "pending" },
+        ],
+      }]),
+    ];
+
+    const { result } = renderHook(() => useTasks(messages, []));
+
+    expect(result.current.tasks.map((task) => task.subject)).toEqual([
+      "Inspect app-server flow",
+      "Move plan to tracker",
+      "Verify mobile parity",
+    ]);
+    expect(result.current.tasks.map((task) => task.status)).toEqual(["completed", "in_progress", "pending"]);
+    expect(result.current.currentTask?.subject).toBe("Move plan to tracker");
+    expect(result.current.counts).toEqual({ total: 3, completed: 1, inProgress: 1, pending: 1 });
+  });
+
+  it("uses active Codex plan updates over persisted plans", () => {
+    const messages = [
+      msg([], [{
+        id: "codex-plan-history",
+        kind: "plan_update",
+        steps: [{ text: "Historical plan", status: "completed" }],
+      }]),
+    ];
+    const activeActivities: AgentActivity[] = [{
+      id: "codex-plan-live",
+      kind: "plan_update",
+      steps: [
+        { text: "Live implementation", status: "inProgress" },
+        { text: "Run checks", status: "pending" },
+      ],
+    }];
+
+    const { result } = renderHook(() => useTasks(messages, [], activeActivities));
+
+    expect(result.current.tasks.map((task) => task.subject)).toEqual(["Live implementation", "Run checks"]);
+    expect(result.current.currentTask?.subject).toBe("Live implementation");
+  });
+
+  it("preserves failed and declined Codex plan statuses", () => {
+    const messages = [
+      msg([], [{
+        id: "codex-plan-failed",
+        kind: "plan_update",
+        steps: [
+          { text: "Try risky migration", status: "failed" },
+          { text: "Skip rejected change", status: "declined" },
+        ],
+      }]),
+    ];
+
+    const { result } = renderHook(() => useTasks(messages, []));
+
+    expect(result.current.tasks.map((task) => task.status)).toEqual(["failed", "declined"]);
+    expect(result.current.counts).toEqual({ total: 2, completed: 0, inProgress: 0, pending: 0 });
   });
 });

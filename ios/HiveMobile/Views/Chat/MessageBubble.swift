@@ -17,7 +17,7 @@ struct MessageBubble: View {
         mergeToolCalls(message.toolCalls ?? [], with: message.agentActivities ?? [])
     }
 
-    private var visibleActivities: [AgentActivity] {
+    private var visibleActivities: [VisibleAgentActivity] {
         visibleAgentActivities(message.agentActivities ?? [])
     }
 
@@ -44,7 +44,7 @@ struct MessageBubble: View {
 
                 let activities = visibleActivities
                 if message.role == .assistant, !activities.isEmpty {
-                    AgentActivityList(activities: activities, showExecutingState: message.id == "streaming")
+                    AgentActivityList(activities: activities)
                 }
 
                 messageFooter

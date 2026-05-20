@@ -21,7 +21,7 @@ Hive clients consume normalized `agent_activity` WebSocket events rather than th
 - `plan_update`
 - `diagnostic`
 
-The web frontend and iOS app both render these activities directly and keep `tool_use` / `tool_result` compatibility events as fallback data. Clients should filter compatibility tool calls whose ids are already represented by an `AgentActivity`, otherwise Codex command/file/plan rows will appear twice.
+The web frontend and iOS app both consume these activities and keep `tool_use` / `tool_result` compatibility events as fallback data. Command/file activities render through the tool-call UI, plan updates feed the task tracker, and diagnostic/unknown activities render inline. Clients should filter compatibility tool calls whose ids are already represented by an `AgentActivity`, otherwise Codex command/file rows will appear twice.
 
 Unsupported Codex App Server protocol events should continue to become `diagnostic` activities. Unknown client-side activity kinds should not surface as chat errors; render an unsupported/unknown activity row or ignore them safely.
 

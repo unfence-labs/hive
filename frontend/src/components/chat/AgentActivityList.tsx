@@ -1,10 +1,7 @@
 import { memo, useState, type ReactNode } from "react";
 import {
   AlertTriangleIcon,
-  CheckCircle2Icon,
   ChevronRightIcon,
-  CircleIcon,
-  Loader2Icon,
   XCircleIcon,
 } from "lucide-react";
 import { commandExecutionActivityToToolCall } from "@hive/shared/agent-activity";
@@ -14,6 +11,8 @@ import { ContentPanel, ContentPanelBody } from "@/components/chat/ContentPanel";
 import ChatToolUse, { ToolExpandedContent } from "@/components/ChatToolUse";
 import { ToolCallList } from "@/components/chat/ToolCallList";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
+
+type InlineAgentActivity = Exclude<AgentActivity, { kind: "plan_update" }>;
 
 interface AgentActivityListProps {
   activities: AgentActivity[];
@@ -34,10 +33,11 @@ export function AgentActivityList({
   dismissedToolCallIds,
   onQuestionAnswer,
 }: AgentActivityListProps) {
-  if (activities.length === 0 && toolCalls.length === 0) return null;
+  const inlineActivities = getInlineAgentActivities(activities);
+  if (inlineActivities.length === 0 && toolCalls.length === 0) return null;
 
-  const mergedToolCalls = mergeToolCalls(toolCalls, activities);
-  const otherActivities = activities.filter((activity) => activityToToolCalls(activity).length === 0);
+  const mergedToolCalls = mergeToolCalls(toolCalls, inlineActivities);
+  const otherActivities = inlineActivities.filter((activity) => activityToToolCalls(activity).length === 0);
 
   if (mergedToolCalls.length > 0 && otherActivities.length === 0) {
     return (
@@ -76,7 +76,11 @@ export function AgentActivityList({
   );
 }
 
-function mergeToolCalls(toolCalls: ToolCall[], activities: AgentActivity[]): ToolCall[] {
+export function getInlineAgentActivities(activities: AgentActivity[]): InlineAgentActivity[] {
+  return activities.filter((activity): activity is InlineAgentActivity => activity.kind !== "plan_update");
+}
+
+function mergeToolCalls(toolCalls: ToolCall[], activities: InlineAgentActivity[]): ToolCall[] {
   const toolCallIds = new Set(toolCalls.map((tool) => tool.id));
   const activityToolCalls = activities.flatMap((activity) => {
     if (toolCallIds.has(activity.id)) return [];
@@ -85,13 +89,12 @@ function mergeToolCalls(toolCalls: ToolCall[], activities: AgentActivity[]): Too
   return [...toolCalls, ...activityToolCalls];
 }
 
-function activityToToolCalls(activity: AgentActivity): ToolCall[] {
+function activityToToolCalls(activity: InlineAgentActivity): ToolCall[] {
   switch (activity.kind) {
     case "command_execution":
       return [commandActivityToToolCall(activity)];
     case "file_change":
       return fileChangeActivityToToolCalls(activity);
-    case "plan_update":
     case "diagnostic":
       return [];
   }
@@ -101,7 +104,7 @@ const AgentActivityItem = memo(function AgentActivityItem({
   activity,
   showExecutingState,
 }: {
-  activity: AgentActivity;
+  activity: InlineAgentActivity;
   showExecutingState?: boolean;
 }) {
   switch (activity.kind) {
@@ -120,8 +123,6 @@ const AgentActivityItem = memo(function AgentActivityItem({
           ))}
         </>
       );
-    case "plan_update":
-      return <PlanUpdateActivity activity={activity} />;
     case "diagnostic":
       return <DiagnosticActivity activity={activity} />;
   }
@@ -175,41 +176,6 @@ function ActivityShell({
   );
 }
 
-function PlanUpdateActivity({ activity }: { activity: Extract<AgentActivity, { kind: "plan_update" }> }) {
-  const complete = activity.steps.filter((step) => step.status === "completed").length;
-  const detail = (
-    <span className="text-xs font-normal text-muted-foreground/70">
-      {complete}/{activity.steps.length} complete
-    </span>
-  );
-
-  return (
-    <ActivityShell
-      title="Plan"
-      detail={detail}
-      defaultOpen={activity.steps.some((step) => step.status === "inProgress")}
-      expandedContent={
-        <div className="space-y-2">
-          {activity.steps.map((step, index) => (
-            <div key={`${index}-${step.text}`} className="flex min-w-0 items-start gap-2 text-sm">
-              <span className="mt-0.5 shrink-0" aria-hidden="true">{planStepIcon(step.status)}</span>
-              <span className="sr-only">{planStepStatusLabel(step.status)}: </span>
-              <span
-                className={cn(
-                  step.status === "completed" && "text-muted-foreground line-through",
-                  step.status === "pending" && "text-muted-foreground",
-                )}
-              >
-                {step.text}
-              </span>
-            </div>
-          ))}
-        </div>
-      }
-    />
-  );
-}
-
 function DiagnosticActivity({ activity }: { activity: Extract<AgentActivity, { kind: "diagnostic" }> }) {
   const detail = activity.method ? (
     <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
@@ -225,22 +191,6 @@ function DiagnosticActivity({ activity }: { activity: Extract<AgentActivity, { k
       expandedContent={[activity.message, activity.details].filter(Boolean).join("\n\n")}
     />
   );
-}
-
-function planStepIcon(status: string) {
-  if (status === "completed") return <CheckCircle2Icon className="size-3.5 text-green-500" />;
-  if (status === "inProgress") return <Loader2Icon className="size-3.5 animate-spin text-primary" />;
-  if (status === "failed" || status === "declined") return <XCircleIcon className="size-3.5 text-destructive" />;
-  return <CircleIcon className="size-3.5 text-muted-foreground/60" />;
-}
-
-function planStepStatusLabel(status: string) {
-  if (status === "completed") return "Completed";
-  if (status === "inProgress") return "In progress";
-  if (status === "pending") return "Pending";
-  if (status === "failed") return "Failed";
-  if (status === "declined") return "Declined";
-  return "Not started";
 }
 
 function diagnosticIcon(severity: Extract<AgentActivity, { kind: "diagnostic" }>["severity"]) {

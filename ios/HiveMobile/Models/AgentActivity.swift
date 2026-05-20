@@ -216,6 +216,30 @@ extension AgentActivity {
     }
 }
 
+enum VisibleAgentActivity: Equatable, Identifiable {
+    case diagnostic(AgentActivity.Diagnostic)
+    case unknown(AgentActivity.Unknown)
+
+    init?(_ activity: AgentActivity) {
+        guard activity.toolCalls.isEmpty else { return nil }
+        switch activity {
+        case .diagnostic(let diagnostic):
+            self = .diagnostic(diagnostic)
+        case .unknown(let unknown):
+            self = .unknown(unknown)
+        case .commandExecution, .fileChange, .planUpdate:
+            return nil
+        }
+    }
+
+    var id: String {
+        switch self {
+        case .diagnostic(let activity): activity.id
+        case .unknown(let activity): activity.id
+        }
+    }
+}
+
 private func toolCall(for activity: AgentActivity.CommandExecution) -> ToolCall {
     let classified = classifiedCommandAction(for: activity)
     return ToolCall(
@@ -288,8 +312,8 @@ func mergeToolCalls(_ toolCalls: [ToolCall], with activities: [AgentActivity]) -
     return merged
 }
 
-func visibleAgentActivities(_ activities: [AgentActivity]) -> [AgentActivity] {
-    activities.filter { $0.toolCalls.isEmpty }
+func visibleAgentActivities(_ activities: [AgentActivity]) -> [VisibleAgentActivity] {
+    activities.compactMap(VisibleAgentActivity.init)
 }
 
 private func encodeToolInput(_ values: [String: Any?]) -> String {

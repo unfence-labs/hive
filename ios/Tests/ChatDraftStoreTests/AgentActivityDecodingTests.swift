@@ -165,6 +165,7 @@ struct AgentActivityDecodingTests {
             return
         }
         #expect(plan.steps.map(\.text) == ["Inspect", "Patch"])
+        #expect(visibleAgentActivities(activities).map(\.id) == ["diag-1"])
 
         guard case .diagnostic(let diagnostic) = second else {
             Issue.record("Expected diagnostic activity")

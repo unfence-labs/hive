@@ -5,7 +5,7 @@ import { formatElapsed } from "@/lib/time";
 import { resolveImageSrc } from "@/lib/image-url";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
-import { AgentActivityList } from "@/components/chat/AgentActivityList";
+import { AgentActivityList, getInlineAgentActivities } from "@/components/chat/AgentActivityList";
 import { CopyButton } from "@/components/chat/CopyButton";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { FileIcon } from "lucide-react";
@@ -71,6 +71,18 @@ const ChatMessage = memo(function ChatMessage({
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const inlineAgentActivities = getInlineAgentActivities(message.agentActivities ?? []);
+
+  if (!isUser) {
+    const hasAssistantContent = Boolean(
+      message.content ||
+      message.thinkingContent ||
+      message.toolCalls?.length ||
+      inlineAgentActivities.length ||
+      message.cancelled,
+    );
+    if (!hasAssistantContent) return null;
+  }
 
   return (
     <div className={cn("flex w-full items-start", isUser ? "justify-end" : "justify-start")}>
@@ -138,12 +150,14 @@ const ChatMessage = memo(function ChatMessage({
             {message.thinkingContent && (
               <ThinkingBlock content={message.thinkingContent} />
             )}
-            <div className="prose-sm">
-              <MessageResponse>{message.content}</MessageResponse>
-            </div>
-            {Boolean(message.agentActivities?.length || message.toolCalls?.length) && (
+            {message.content && (
+              <div className="prose-sm">
+                <MessageResponse>{message.content}</MessageResponse>
+              </div>
+            )}
+            {Boolean(inlineAgentActivities.length || message.toolCalls?.length) && (
               <AgentActivityList
-                activities={message.agentActivities ?? []}
+                activities={inlineAgentActivities}
                 toolCalls={message.toolCalls}
                 isInteractive={isInteractive}
                 planStatus={planStatus}
