@@ -295,7 +295,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `HiveMobile/Views/Chat/ContextRingView.swift`: SwiftUI context ring with matching color thresholds
 - `HiveMobile/Views/Chat/TaskTrackerView.swift`: collapsible task list bar (mirrors frontend `TaskTracker`)
 - `HiveMobile/Views/Chat/SessionEmptyState.swift`: empty state for new sessions (project/workspace/branch info)
-- `HiveMobile/Views/Hub/HubView.swift`: project/workspace navigation with inline custom search field
+- `HiveMobile/Views/Hub/HubView.swift`: project/workspace navigation
 - `HiveMobile/Views/Hub/AddProjectSheet.swift`: new project creation
 - `HiveMobile/Views/Hub/HubRows.swift`: folder/project/workspace rows with activity preview + enriched PR status display + turn-completed/unread badge
 - `HiveMobile/Views/Hub/HubStatusSummary.swift`: shared hub diff summary, PR attention rules, and PR status display mapping used by Hub rows and workspace dashboard
@@ -328,7 +328,6 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `lockedProvider` is read from WS status events (not REST) for instant model locking after first message.
 - Pre-multi-model sessions default to `"claude"` when they have messages but no `lockedProvider`.
 - PR status uses bulk endpoint matching the frontend. iOS keeps one shared `HubPrStatusDisplay` mapping so Hub rows and the workspace dashboard cannot drift.
-- Hub search intentionally uses an inline `TextField` instead of `.searchable` because the navigation bar drawer created animation glitches in this app.
 - `#file` mentions highlighted with `AttributedString` in `MessageBubble` using accent color.
 - Context ring matches frontend thresholds (green/yellow/red).
 - Max 4 sessions enforced in `WorkspaceConversationsView`.

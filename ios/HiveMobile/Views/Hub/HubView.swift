@@ -17,7 +17,6 @@ struct HubView: View {
     @State private var projectExpansionOverrides: [String: Bool] = HubView.loadExpansionOverrides(
         key: HubView.projectExpansionKey
     )
-    @State private var searchText = ""
 
     var body: some View {
         ZStack {
@@ -26,10 +25,6 @@ struct HubView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: HiveSpacing.md) {
-                    if shouldShowSearchField {
-                        hubSearchField
-                    }
-
                     if store.isLoading && store.projects.isEmpty {
                         loadingState
                     } else if store.projects.isEmpty && !store.isLoading {
@@ -37,13 +32,6 @@ struct HubView: View {
                             "No Projects",
                             systemImage: "folder",
                             description: Text("Tap + to add your first project, or connect to your Hive server from Settings.")
-                        )
-                        .padding(.top, 40)
-                    } else if !normalizedSearch.isEmpty && filteredSections.isEmpty {
-                        ContentUnavailableView(
-                            "No Results",
-                            systemImage: "magnifyingglass",
-                            description: Text("Try a project, workspace, or branch name.")
                         )
                         .padding(.top, 40)
                     } else {
@@ -138,42 +126,6 @@ struct HubView: View {
         .frame(maxHeight: .infinity)
     }
 
-    private var shouldShowSearchField: Bool {
-        !store.projects.isEmpty || !normalizedSearch.isEmpty
-    }
-
-    private var hubSearchField: some View {
-        HStack(spacing: HiveSpacing.sm) {
-            Image(systemName: "magnifyingglass")
-                .font(.subheadline)
-                .foregroundStyle(WhisperColor.textMuted)
-
-            TextField("Search projects, branches", text: $searchText)
-                .textFieldStyle(.plain)
-                .submitLabel(.search)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(WhisperColor.textMuted)
-                }
-                .accessibilityLabel("Clear search")
-            }
-        }
-        .padding(.horizontal, HiveSpacing.md)
-        .frame(maxWidth: .infinity, minHeight: 44)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(WhisperColor.surfaceRaised)
-                .stroke(WhisperColor.borderSubtle, lineWidth: 0.5)
-        )
-    }
-
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
@@ -192,7 +144,7 @@ struct HubView: View {
 
     private var denseHubContent: some View {
         LazyVStack(alignment: .leading, spacing: HiveSpacing.md) {
-            ForEach(filteredSections) { section in
+            ForEach(baseSections) { section in
                 sectionView(section)
             }
         }
@@ -207,40 +159,6 @@ struct HubView: View {
             projects: store.projects,
             preferences: store.uiPreferences.sidebar
         )
-    }
-
-    private var filteredSections: [HubSection] {
-        let query = normalizedSearch
-        guard !query.isEmpty else { return baseSections }
-
-        return baseSections.compactMap { section in
-            let sectionMatches = section.title.localizedCaseInsensitiveContains(query)
-            let projects = section.projects.compactMap { node -> HubProjectNode? in
-                if sectionMatches || projectMatches(node.project, query: query) {
-                    return node
-                }
-
-                let matchingWorkspaces = node.project.workspaces.filter {
-                    workspaceMatches($0, query: query)
-                }
-                guard !matchingWorkspaces.isEmpty else { return nil }
-
-                var project = node.project
-                project.workspaces = matchingWorkspaces
-                return HubProjectNode(project: project)
-            }
-
-            guard !projects.isEmpty else { return nil }
-            return HubSection(
-                kind: section.kind,
-                projects: projects,
-                defaultExpanded: true
-            )
-        }
-    }
-
-    private var normalizedSearch: String {
-        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func sectionView(_ section: HubSection) -> some View {
@@ -360,20 +278,6 @@ struct HubView: View {
         }
     }
 
-    // MARK: - Matching
-
-    private func projectMatches(_ project: Project, query: String) -> Bool {
-        let displayName = HubProjectDisplay.name(for: project).plain
-        return project.name.localizedCaseInsensitiveContains(query)
-            || displayName.localizedCaseInsensitiveContains(query)
-            || (project.url?.localizedCaseInsensitiveContains(query) ?? false)
-    }
-
-    private func workspaceMatches(_ workspace: Workspace, query: String) -> Bool {
-        workspace.name.localizedCaseInsensitiveContains(query)
-            || workspace.branch.localizedCaseInsensitiveContains(query)
-    }
-
     // MARK: - Activity
 
     private func activitySummary(for section: HubSection) -> HubActivitySummary {
@@ -416,12 +320,10 @@ struct HubView: View {
     // MARK: - Expansion State
 
     private func isSectionExpanded(_ section: HubSection) -> Bool {
-        if !normalizedSearch.isEmpty { return true }
         return sectionExpansionOverrides[section.id] ?? section.defaultExpanded
     }
 
     private func isProjectExpanded(_ project: Project) -> Bool {
-        if !normalizedSearch.isEmpty { return true }
         return projectExpansionOverrides[project.id] ?? projectHasLiveAttention(project)
     }
 
