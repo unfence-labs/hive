@@ -92,8 +92,8 @@ It manages:
 - Push notifications with foreground suppression and cold-start bridging via `CompletedWorkspacesStore`.
 - Foreground reconnect (2s debounce) with background stream catchup.
 - Context window usage ring matching frontend thresholds.
-- Task tracker with collapsible task list, including Codex native todo lists.
-- Codex App Server `AgentActivity` rendering for command execution, file changes, plan updates, diagnostics, and unknown activity fallback.
+- Task tracker with collapsible task list, including Codex native todo lists and Codex App Server plan updates.
+- Codex App Server `AgentActivity` rendering for command execution, file changes, diagnostics, and unknown activity fallback.
 - Shared chat diff rendering for Claude/Gemini edit tools and Codex file-change activities.
 - `#file` and `@agent` mention highlighting in messages.
 - Copy-to-clipboard on agent messages.
@@ -461,7 +461,7 @@ Frontend key modules:
 - `frontend/src/hooks/useModels.ts` model catalog fetch + selection + provider lock
 - `frontend/src/hooks/usePrStatus.ts` PR status (reads from bulk-seeded cache, no independent timer)
 - `frontend/src/hooks/useTabs.ts` multi-tab state with workspace snapshot cache, source/diff modes
-- `frontend/src/hooks/useTasks.ts` task progress from TaskCreate/TaskUpdate tool calls and Codex TodoList events
+- `frontend/src/hooks/useTasks.ts` task progress from TaskCreate/TaskUpdate tool calls, Codex TodoList events, and Codex App Server plan updates
 - `frontend/src/hooks/useBackgroundAgents.ts` background Task agent tracking
 - `frontend/src/hooks/useContextUsage.ts` context window usage calculation
 - `frontend/src/hooks/useBasePrompt.ts` base prompt CRUD
@@ -483,7 +483,7 @@ Frontend key modules:
 - `frontend/src/lib/fuzzy-match.ts` fuzzy file matching for autocomplete
 - `frontend/src/components/Sidebar.tsx` project/workspace nav + build/automation tabs + collapse + unread + PR status
 - `frontend/src/components/ChatInput.tsx` message input + file autocomplete + context ring + quick actions
-- `frontend/src/components/TaskTracker.tsx` task list + background agents status bar
+- `frontend/src/components/TaskTracker.tsx` task list + Codex plan updates + background agents status bar
 - `frontend/src/components/diff/InlineDiffViewer.tsx` inline diff with split/unified + comments + paste-to-prompt
 - `frontend/src/components/chat/SubAgentNode.tsx` collapsible Task tool rendering
 - `frontend/src/components/chat/PlanActionBar.tsx` plan approval floating bar

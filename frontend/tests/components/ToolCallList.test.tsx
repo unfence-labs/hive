@@ -227,7 +227,7 @@ describe("ToolCallList", () => {
     expect(screen.getByText("3 subagents")).toBeInTheDocument();
   });
 
-  it("does not collapse during streaming (showExecutingState)", () => {
+  it("collapses during streaming when threshold is reached", () => {
     render(
       <ToolCallList
         toolCalls={[
@@ -239,11 +239,12 @@ describe("ToolCallList", () => {
       />,
     );
 
-    // No summary — all tools shown individually
-    expect(screen.queryByText(/tool call/)).not.toBeInTheDocument();
-    expect(screen.getByText("Read")).toBeInTheDocument();
-    expect(screen.getByText("Grep")).toBeInTheDocument();
-    expect(screen.getByText("Edit")).toBeInTheDocument();
+    const summary = screen.getByRole("button", { name: /3 tool calls/ });
+    expect(summary).toBeInTheDocument();
+    expect(summary.querySelector(".animate-pulse")).toBeTruthy();
+    expect(screen.queryByText("Read")).not.toBeInTheDocument();
+    expect(screen.queryByText("Grep")).not.toBeInTheDocument();
+    expect(screen.queryByText("Edit")).not.toBeInTheDocument();
   });
 
   it("always shows interactive tools even when collapsed", () => {
@@ -282,7 +283,7 @@ describe("ToolCallList", () => {
     expect(screen.getByText("1 tool call, 2 subagents")).toBeInTheDocument();
   });
 
-  it("counts only root tools in collapsed summary when sub-tools are nested under a Task", () => {
+  it("does not collapse when only child tools reach the threshold", () => {
     render(
       <ToolCallList
         toolCalls={[
@@ -307,7 +308,10 @@ describe("ToolCallList", () => {
       />,
     );
 
-    expect(screen.getByText("1 subagent")).toBeInTheDocument();
+    expect(screen.getByText("Explore")).toBeInTheDocument();
+    expect(screen.queryByText("1 subagent")).not.toBeInTheDocument();
+    expect(screen.queryByText("Read")).not.toBeInTheDocument();
+    expect(screen.queryByText("Grep")).not.toBeInTheDocument();
     expect(screen.queryByText("2 tool calls, 1 subagent")).not.toBeInTheDocument();
   });
 
@@ -549,9 +553,6 @@ describe("ToolCallList", () => {
         ]}
       />,
     );
-
-    // 4 regularTools >= 3 triggers collapse; expand summary first
-    await user.click(screen.getByText("1 subagent"));
 
     // Completed state shows checkmark SVG (no "Done" text)
     const btn = screen.getByRole("button", { name: /Explore/i });

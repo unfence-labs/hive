@@ -296,7 +296,7 @@ export default function WorkspaceView() {
     // If send fails (WS disconnected), keep queue — effect re-fires on reconnect
   }, [queuedMessage, isStreaming, workspaceStatus, pendingToolInputs, sendMessage, setQueuedMessage]);
 
-  const { tasks, currentTask, counts: taskCounts } = useTasks(messages, activeToolCalls);
+  const { tasks, currentTask, counts: taskCounts } = useTasks(messages, activeToolCalls, activeAgentActivities);
   const { agents: backgroundAgents, runningCount: bgRunningCount } = useBackgroundAgents(messages, activeToolCalls);
 
   const { sessions, createSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);

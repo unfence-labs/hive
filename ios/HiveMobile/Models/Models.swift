@@ -489,6 +489,8 @@ enum TaskStatus: String {
     case pending
     case inProgress = "in_progress"
     case completed
+    case failed
+    case declined
 }
 
 struct TrackedTask: Identifiable {

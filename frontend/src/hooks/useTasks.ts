@@ -1,12 +1,12 @@
 import { useMemo } from "react";
-import type { ChatMessage, ToolCall } from "@/types";
+import type { AgentActivity, ChatMessage, ToolCall } from "@/types";
 
 export interface TrackedTask {
   id: string;
   subject: string;
   description?: string;
   activeForm?: string;
-  status: "pending" | "in_progress" | "completed";
+  status: "pending" | "in_progress" | "completed" | "failed" | "declined";
   /** True while the TaskCreate tool_use hasn't received its result yet. */
   isCreating?: boolean;
 }
@@ -24,7 +24,7 @@ export interface TasksState {
   counts: TaskCounts;
 }
 
-const VALID_STATUSES = new Set(["pending", "in_progress", "completed"]);
+const VALID_STATUSES = new Set(["pending", "in_progress", "completed", "failed", "declined"]);
 const TASK_TOOL_NAMES = new Set(["TaskCreate", "TaskUpdate", "TodoList"]);
 
 /**
@@ -71,6 +71,26 @@ function parseTodoList(tool: ToolCall): Array<{ text: string; completed: boolean
   }
 }
 
+function normalizeTaskStatus(value: unknown): TrackedTask["status"] | undefined {
+  if (value === "inProgress") return "in_progress";
+  if (typeof value !== "string" || !VALID_STATUSES.has(value)) return undefined;
+  return value as TrackedTask["status"];
+}
+
+function planActivityToTasks(activity: Extract<AgentActivity, { kind: "plan_update" }>): TrackedTask[] {
+  return activity.steps
+    .map((step, index): TrackedTask | null => {
+      const subject = step.text.trim();
+      if (!subject) return null;
+      return {
+        id: `${activity.id}-${index + 1}`,
+        subject,
+        status: normalizeTaskStatus(step.status) ?? "pending",
+      };
+    })
+    .filter((task): task is TrackedTask => task != null);
+}
+
 const EMPTY: TasksState = {
   tasks: [],
   currentTask: undefined,
@@ -80,20 +100,30 @@ const EMPTY: TasksState = {
 export function useTasks(
   messages: ChatMessage[],
   activeToolCalls: ToolCall[],
+  activeAgentActivities: AgentActivity[] = [],
 ): TasksState {
   return useMemo(() => {
     // Collect all tool calls in chronological order
     const allTools: ToolCall[] = [];
+    const planActivities: Array<Extract<AgentActivity, { kind: "plan_update" }>> = [];
     for (const msg of messages) {
       if (msg.toolCalls) {
         for (const tc of msg.toolCalls) allTools.push(tc);
       }
+      if (msg.agentActivities) {
+        for (const activity of msg.agentActivities) {
+          if (activity.kind === "plan_update") planActivities.push(activity);
+        }
+      }
     }
     for (const tc of activeToolCalls) allTools.push(tc);
+    for (const activity of activeAgentActivities) {
+      if (activity.kind === "plan_update") planActivities.push(activity);
+    }
 
     // Quick bail: if no task tools at all, return empty
     const hasTaskTools = allTools.some((t) => TASK_TOOL_NAMES.has(t.name));
-    if (!hasTaskTools) return EMPTY;
+    if (!hasTaskTools && planActivities.length === 0) return EMPTY;
 
     const tasks = new Map<string, TrackedTask>();
     // Track TaskCreate order for fallback ID assignment
@@ -143,9 +173,8 @@ export function useTasks(
         if (typeof input.subject === "string") task.subject = input.subject;
         if (typeof input.description === "string") task.description = input.description;
         if (typeof input.activeForm === "string") task.activeForm = input.activeForm;
-        if (typeof input.status === "string" && VALID_STATUSES.has(input.status)) {
-          task.status = input.status as TrackedTask["status"];
-        }
+        const status = normalizeTaskStatus(input.status);
+        if (status) task.status = status;
       } else if (tool.name === "TodoList") {
         const todoItems = parseTodoList(tool);
         todoItems.forEach((item, index) => {
@@ -159,6 +188,16 @@ export function useTasks(
       }
     }
 
+    // Codex app-server emits plan updates as agent activities, not tool calls.
+    // Treat the latest plan as the current work tracker instead of accumulating
+    // stale plans from earlier turns.
+    const latestPlan = planActivities.at(-1);
+    if (latestPlan) {
+      for (const task of planActivityToTasks(latestPlan)) {
+        tasks.set(`plan:${task.id}`, task);
+      }
+    }
+
     const taskList = Array.from(tasks.values());
     const currentTask = taskList.find((t) => t.status === "in_progress");
     const counts: TaskCounts = {
@@ -169,5 +208,5 @@ export function useTasks(
     };
 
     return { tasks: taskList, currentTask, counts };
-  }, [messages, activeToolCalls]);
+  }, [messages, activeToolCalls, activeAgentActivities]);
 }

@@ -489,6 +489,10 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         }
         break;
       }
+      case "item/commandExecution/terminalInteraction":
+        if (asString(data?.stdin) === "") break;
+        this.emitUnsupportedNotification(method, params);
+        break;
       case "item/fileChange/patchUpdated": {
         const itemId = asString(data?.itemId);
         const changes = asArray(data?.changes) as FileUpdateChange[] | undefined;
@@ -537,17 +541,21 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       }
       default:
-        this.emitDiagnostic({
-          id: diagnosticId("codex-notification", method),
-          severity: "info",
-          title: "Unsupported App Server event",
-          message: `Hive does not render "${method}" yet.`,
-          method,
-          details: formatDiagnosticDetails(params),
-          dedupeKey: `notification:${method}`,
-        });
+        this.emitUnsupportedNotification(method, params);
         break;
     }
+  }
+
+  private emitUnsupportedNotification(method: string, params: unknown): void {
+    this.emitDiagnostic({
+      id: diagnosticId("codex-notification", method),
+      severity: "info",
+      title: "Unsupported App Server event",
+      message: `Hive does not render "${method}" yet.`,
+      method,
+      details: formatDiagnosticDetails(params),
+      dedupeKey: `notification:${method}`,
+    });
   }
 
   private emitProtocolDiagnostic(

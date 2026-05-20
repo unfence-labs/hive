@@ -219,7 +219,7 @@ describe("AgentActivityList", () => {
     expect(screen.queryByText("4 tool calls")).not.toBeInTheDocument();
   });
 
-  it("keeps tool-like activities expanded while streaming", () => {
+  it("collapses tool-like activities while streaming when threshold is reached", () => {
     const activities: AgentActivity[] = [
       {
         id: "cmd-1",
@@ -248,12 +248,12 @@ describe("AgentActivityList", () => {
 
     render(<AgentActivityList activities={activities} showExecutingState />);
 
-    expect(screen.queryByText("3 tool calls")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Bash")).toHaveLength(2);
-    expect(screen.getByText("Edit")).toBeInTheDocument();
+    expect(screen.getByText("3 tool calls")).toBeInTheDocument();
+    expect(screen.queryByText("Bash")).not.toBeInTheDocument();
+    expect(screen.queryByText("Edit")).not.toBeInTheDocument();
   });
 
-  it("renders plan update steps", () => {
+  it("omits plan update activities because the task tracker owns plan display", () => {
     const activities: AgentActivity[] = [{
       id: "plan-1",
       kind: "plan_update",
@@ -263,12 +263,12 @@ describe("AgentActivityList", () => {
       ],
     }];
 
-    render(<AgentActivityList activities={activities} />);
+    const { container } = render(<AgentActivityList activities={activities} />);
 
-    expect(screen.getByText("Plan")).toBeInTheDocument();
-    expect(screen.getByText("1/2 complete")).toBeInTheDocument();
-    expect(screen.getByText("Inspect")).toBeInTheDocument();
-    expect(screen.getByText("Implement")).toBeInTheDocument();
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText("Plan")).not.toBeInTheDocument();
+    expect(screen.queryByText("Inspect")).not.toBeInTheDocument();
+    expect(screen.queryByText("Implement")).not.toBeInTheDocument();
   });
 
   it("renders diagnostic activities with details", async () => {

@@ -5,7 +5,7 @@ import Foundation
 // Pure function that derives task tracking state from tool calls.
 // Direct port of frontend/src/hooks/useTasks.ts.
 
-private let validStatuses: Set<String> = ["pending", "in_progress", "completed"]
+private let validStatuses: Set<String> = ["pending", "in_progress", "completed", "failed", "declined"]
 private let taskToolNames: Set<String> = ["TaskCreate", "TaskUpdate", "TodoList"]
 
 /// Parse a task ID from a TaskCreate tool output string.
@@ -52,21 +52,58 @@ private func parseTodoList(_ tool: ToolCall) -> [(text: String, completed: Bool)
     }
 }
 
+private func normalizeTaskStatus(_ value: String?) -> TaskStatus? {
+    guard let value else { return nil }
+    if value == "inProgress" { return .inProgress }
+    guard validStatuses.contains(value) else { return nil }
+    return TaskStatus(rawValue: value)
+}
+
+private func planTasks(from activity: AgentActivity.PlanUpdate) -> [TrackedTask] {
+    activity.steps.enumerated().compactMap { index, step in
+        let subject = step.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !subject.isEmpty else { return nil }
+        return TrackedTask(
+            id: "\(activity.id)-\(index + 1)",
+            subject: subject,
+            status: normalizeTaskStatus(step.status) ?? .pending,
+            isCreating: false
+        )
+    }
+}
+
 /// Derive task tracking state from conversation messages and active (streaming) tool calls.
 /// Mirrors the logic in `frontend/src/hooks/useTasks.ts` exactly.
-func deriveTasks(from messages: [ChatMessage], activeToolCalls: [ToolCall]) -> TasksState {
+func deriveTasks(
+    from messages: [ChatMessage],
+    activeToolCalls: [ToolCall],
+    activeAgentActivities: [AgentActivity] = []
+) -> TasksState {
     // Collect all tool calls in chronological order
     var allTools: [ToolCall] = []
+    var planActivities: [AgentActivity.PlanUpdate] = []
     for msg in messages {
         if let tools = msg.toolCalls {
             allTools.append(contentsOf: tools)
         }
+        if let activities = msg.agentActivities {
+            for activity in activities {
+                if case .planUpdate(let plan) = activity {
+                    planActivities.append(plan)
+                }
+            }
+        }
     }
     allTools.append(contentsOf: activeToolCalls)
+    for activity in activeAgentActivities {
+        if case .planUpdate(let plan) = activity {
+            planActivities.append(plan)
+        }
+    }
 
     // Quick bail: no task tools at all
     let hasTaskTools = allTools.contains { taskToolNames.contains($0.name) }
-    guard hasTaskTools else { return .empty }
+    guard hasTaskTools || !planActivities.isEmpty else { return .empty }
 
     // Ordered storage: array of (key, task) pairs + index lookup
     var tasks: [(key: String, value: TrackedTask)] = []
@@ -123,8 +160,7 @@ func deriveTasks(from messages: [ChatMessage], activeToolCalls: [ToolCall]) -> T
             if let s = input["subject"] as? String { tasks[idx].value.subject = s }
             if let d = input["description"] as? String { tasks[idx].value.description = d }
             if let a = input["activeForm"] as? String { tasks[idx].value.activeForm = a }
-            if let s = statusStr, validStatuses.contains(s),
-               let status = TaskStatus(rawValue: s) {
+            if let status = normalizeTaskStatus(statusStr) {
                 tasks[idx].value.status = status
             }
         } else if tool.name == "TodoList" {
@@ -143,6 +179,21 @@ func deriveTasks(from messages: [ChatMessage], activeToolCalls: [ToolCall]) -> T
                     taskIndex[id] = tasks.count
                     tasks.append((key: id, value: task))
                 }
+            }
+        }
+    }
+
+    // Codex app-server emits plan updates as agent activities, not tool calls.
+    // The latest plan represents the current turn, so older plans should not
+    // accumulate in the global task tracker.
+    if let latestPlan = planActivities.last {
+        for task in planTasks(from: latestPlan) {
+            let key = "plan:\(task.id)"
+            if let existingIndex = taskIndex[key] {
+                tasks[existingIndex].value = task
+            } else {
+                taskIndex[key] = tasks.count
+                tasks.append((key: key, value: task))
             }
         }
     }

@@ -1,5 +1,5 @@
 import { useState, memo } from "react";
-import { ChevronRightIcon } from "lucide-react";
+import { ChevronRightIcon, XCircleIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TrackedTask, TaskCounts } from "@/hooks/useTasks";
 import type { BackgroundAgent } from "@/hooks/useBackgroundAgents";
@@ -26,6 +26,9 @@ function StatusIcon({ status }: { status: TrackedTask["status"] }) {
       return (
         <span className="inline-block size-2 animate-pulse rounded-full bg-primary" />
       );
+    case "failed":
+    case "declined":
+      return <XCircleIcon className="size-3 text-destructive" />;
     default:
       return (
         <svg {...svgProps} className="size-3 text-muted-foreground/40">
@@ -74,11 +77,15 @@ const TaskTracker = memo(function TaskTracker({
   if (!hasTasks && !hasAgents) return null;
 
   const allDone = counts.completed === counts.total;
+  const remaining = counts.total - counts.completed;
+  const hasOnlyOpenTasks = remaining === counts.pending + counts.inProgress;
   const collapsedLabel = currentTask
     ? (currentTask.activeForm ?? currentTask.subject)
     : allDone
       ? "All tasks completed"
-      : `${counts.pending} task${counts.pending === 1 ? "" : "s"} remaining`;
+      : hasOnlyOpenTasks
+        ? `${remaining} task${remaining === 1 ? "" : "s"} remaining`
+        : `${remaining} task${remaining === 1 ? "" : "s"} not completed`;
 
   const agentLabel = backgroundRunningCount > 0
     ? `${backgroundRunningCount} background agent${backgroundRunningCount !== 1 ? "s" : ""} running`
@@ -128,6 +135,7 @@ const TaskTracker = memo(function TaskTracker({
                       "min-w-0 truncate",
                       task.status === "completed" && "line-through text-muted-foreground/50",
                       task.status === "in_progress" && "text-foreground",
+                      (task.status === "failed" || task.status === "declined") && "text-destructive",
                     )}
                   >
                     {task.status === "in_progress"

@@ -101,9 +101,13 @@ final class ConversationStore {
         )
     }
 
-    /// Derived task tracking state from all TaskCreate/TaskUpdate tool calls.
+    /// Derived task tracking state from task tools and Codex plan updates.
     var tasksState: TasksState {
-        deriveTasks(from: messages, activeToolCalls: activeStream?.activeToolCalls ?? [])
+        deriveTasks(
+            from: messages,
+            activeToolCalls: activeStream?.activeToolCalls ?? [],
+            activeAgentActivities: activeStream?.activeAgentActivities ?? []
+        )
     }
 
     /// All messages to display: history + streaming message if active

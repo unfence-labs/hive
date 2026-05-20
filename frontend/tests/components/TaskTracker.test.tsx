@@ -87,6 +87,18 @@ describe("TaskTracker", () => {
     expect(screen.getByText("1 task remaining")).toBeInTheDocument();
   });
 
+  it("labels failed or declined tasks as not completed", () => {
+    const tasks = [
+      task({ id: "1", subject: "Rejected plan step", status: "declined" }),
+      task({ id: "2", subject: "Failed plan step", status: "failed" }),
+    ];
+    render(
+      <TaskTracker tasks={tasks} currentTask={undefined} counts={counts(tasks)} />,
+    );
+
+    expect(screen.getByText("2 tasks not completed")).toBeInTheDocument();
+  });
+
   it("shows count badge", () => {
     const tasks = [
       task({ id: "1", subject: "A", status: "completed" }),

@@ -21,7 +21,7 @@ Hive clients consume normalized `agent_activity` WebSocket events rather than th
 - `plan_update`
 - `diagnostic`
 
-The web frontend and iOS app both render these activities directly and keep `tool_use` / `tool_result` compatibility events as fallback data. Clients should filter compatibility tool calls whose ids are already represented by an `AgentActivity`, otherwise Codex command/file/plan rows will appear twice.
+The web frontend and iOS app both consume these activities and keep `tool_use` / `tool_result` compatibility events as fallback data. Command/file activities render through the tool-call UI, plan updates feed the task tracker, and diagnostic/unknown activities render inline. Clients should filter compatibility tool calls whose ids are already represented by an `AgentActivity`, otherwise Codex command/file rows will appear twice.
 
 Unsupported Codex App Server protocol events should continue to become `diagnostic` activities. Unknown client-side activity kinds should not surface as chat errors; render an unsupported/unknown activity row or ignore them safely.
 
@@ -36,12 +36,13 @@ These notifications are either diagnostic-only today or not yet rendered as rich
 - `model/rerouted`
 - `model/verification`
 - `item/fileChange/outputDelta`
-- `item/commandExecution/terminalInteraction`
 - `item/mcpToolCall/progress`
 - `item/plan/delta`
 - `rawResponseItem/completed`
 - `hook/started`
 - `hook/completed`
+
+`item/commandExecution/terminalInteraction` with non-empty `stdin` is still rendered as an unsupported-event diagnostic until Hive has a safe terminal-interaction UI.
 
 Warnings such as `warning`, `configWarning`, `deprecationNotice`, and `guardianWarning` are rendered as diagnostic activities.
 
@@ -52,6 +53,7 @@ The following notifications are intentionally absorbed instead of being rendered
 - `thread/status/changed` for routine thread states. `systemError` still emits an error diagnostic.
 - `mcpServer/startupStatus/updated` for `starting` and `ready`. `failed` and `cancelled` still emit warning diagnostics.
 - `account/rateLimits/updated` because rate-limit UX should be handled outside the chat activity stream in a future pass.
+- `item/commandExecution/terminalInteraction` when `stdin` is empty because Codex uses this as a background-terminal poll/wait signal, while Hive already renders command output through `item/commandExecution/outputDelta` and command completion through the final `commandExecution` item.
 
 ## Item Coverage
 

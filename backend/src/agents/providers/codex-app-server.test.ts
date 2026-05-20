@@ -235,6 +235,51 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
+  it("absorbs empty terminal interaction polls but keeps non-empty interactions diagnostic-only", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/commandExecution/terminalInteraction",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "cmd-1",
+        processId: "123",
+        stdin: "",
+      },
+    }) + "\n");
+
+    expect(events).toEqual([]);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/commandExecution/terminalInteraction",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        itemId: "cmd-1",
+        processId: "123",
+        stdin: "q\n",
+      },
+    }) + "\n");
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "diagnostic",
+        severity: "info",
+        title: "Unsupported App Server event",
+        message: "Hive does not render \"item/commandExecution/terminalInteraction\" yet.",
+        source: "codex_app_server",
+        method: "item/commandExecution/terminalInteraction",
+        details: expect.stringContaining("\"stdin\": \"q\\n\""),
+      }),
+    ]);
+  });
+
   it("ignores known App Server status notifications that do not belong in chat", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

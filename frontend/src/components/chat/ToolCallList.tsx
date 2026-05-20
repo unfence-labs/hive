@@ -144,8 +144,7 @@ export function ToolCallList({
   const childrenMap = buildChildrenMap(regularTools);
   const rootTools = regularTools.filter((t) => !t.parentToolUseId);
 
-  const shouldCollapse =
-    !showExecutingState && regularTools.length >= COLLAPSE_THRESHOLD;
+  const shouldCollapse = rootTools.length >= COLLAPSE_THRESHOLD;
 
   const uniqueToolNames = shouldCollapse
     ? [...new Set(rootTools.map((t) => t.name))]
@@ -185,6 +184,12 @@ export function ToolCallList({
                 </span>
               ))}
             </span>
+            {showExecutingState && (
+              <span
+                aria-hidden="true"
+                className="inline-block size-1.5 shrink-0 animate-pulse rounded-full bg-primary"
+              />
+            )}
           </button>
         </div>
       )}
