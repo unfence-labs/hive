@@ -13,6 +13,8 @@ struct WorkspaceConversationsView: View {
     @State private var isLoading = true
     @State private var isCreatingSession = false
     @State private var errorMessage: String?
+    @State private var scriptsResponse: WorkspaceScriptsResponse?
+    @State private var scriptsLoadFailed = false
 
     private let api = APIClient()
     private var activeSessionId: String? {
@@ -20,6 +22,87 @@ struct WorkspaceConversationsView: View {
     }
 
     var body: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                WorkspaceDashboardPanel(
+                    workspace: workspace,
+                    branchInfo: projectStore.statusMonitor.branchInfo(for: workspace.id),
+                    diffStats: projectStore.statusMonitor.diffStats(for: workspace.id),
+                    scriptsResponse: scriptsResponse,
+                    liveScriptStatus: projectStore.statusMonitor.scriptStatus(for: workspace.id),
+                    prStatus: projectStore.statusMonitor.prStatus(for: workspace.id),
+                    isStreaming: projectStore.statusMonitor.isStreaming(workspace.id),
+                    hasUnread: projectStore.statusMonitor.hasUnreadSessions(workspace.id),
+                    scriptsLoadFailed: scriptsLoadFailed
+                )
+                .frame(height: geometry.size.height * 0.4)
+
+                conversationsSection
+                    .frame(height: geometry.size.height * 0.6)
+            }
+        }
+        .hiveScreenBackground()
+        .navigationTitle(workspace.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(for: SessionMetadata.self) { session in
+            ChatView(workspace: workspace, session: session, store: store)
+        }
+        .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                ToolbarAddButton(
+                    isLoading: isCreatingSession,
+                    accessibilityLabel: "New conversation"
+                ) {
+                    createSession()
+                }
+                .disabled(sessions.count >= maxSessions || isCreatingSession)
+            }
+        }
+        .task {
+            markWorkspaceVisible()
+            await refreshContent()
+        }
+        .onAppear {
+            markWorkspaceVisible()
+            if !isLoading {
+                Task { await refreshContent() }
+            }
+        }
+        .alert("Conversation Error", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            if let errorMessage {
+                Text(errorMessage)
+            }
+        }
+    }
+
+    private var conversationsSection: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: HiveSpacing.sm) {
+                Text("Conversations")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(WhisperColor.text)
+
+                Text("\(sessions.count)/\(maxSessions)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(WhisperColor.textMuted)
+
+                Spacer(minLength: HiveSpacing.sm)
+            }
+            .padding(.horizontal, HiveSpacing.lg)
+            .padding(.bottom, HiveSpacing.xs)
+
+            conversationsList
+        }
+    }
+
+    private var conversationsList: some View {
         List {
             ForEach(sessions) { session in
                 Button {
@@ -47,7 +130,9 @@ struct WorkspaceConversationsView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .hiveScreenBackground()
+        .refreshable {
+            await refreshContent()
+        }
         .overlay {
             if isLoading {
                 ProgressView()
@@ -64,53 +149,19 @@ struct WorkspaceConversationsView: View {
                 .padding(.horizontal, HiveSpacing.xl)
             }
         }
-        .refreshable {
-            await loadSessions()
-        }
-        .navigationTitle(workspace.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(for: SessionMetadata.self) { session in
-            ChatView(workspace: workspace, session: session, store: store)
-        }
-        .toolbarBackground(WhisperColor.appBackground, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                ToolbarAddButton(
-                    isLoading: isCreatingSession,
-                    accessibilityLabel: "New conversation"
-                ) {
-                    createSession()
-                }
-                .disabled(sessions.count >= maxSessions || isCreatingSession)
-            }
-        }
-        .task {
-            markWorkspaceVisible()
-            await loadSessions()
-        }
-        .onAppear {
-            markWorkspaceVisible()
-            if !isLoading {
-                Task { await loadSessions() }
-            }
-        }
-        .alert("Conversation Error", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            if let errorMessage {
-                Text(errorMessage)
-            }
-        }
     }
 
     private func markWorkspaceVisible() {
         projectStore.statusMonitor.viewingWorkspaceId = workspace.id
         projectStore.statusMonitor.viewingSessionId = nil
         projectStore.statusMonitor.clearCompleted(workspace.id)
+        projectStore.statusMonitor.syncPrPolling(visibleWorkspaceIds: [workspace.id])
+    }
+
+    private func refreshContent() async {
+        projectStore.statusMonitor.forceRefresh()
+        await loadSessions()
+        await loadScripts()
     }
 
     private func loadSessions() async {
@@ -123,6 +174,17 @@ struct WorkspaceConversationsView: View {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func loadScripts() async {
+        do {
+            scriptsResponse = try await api.fetchWorkspaceScripts(workspaceId: workspace.id)
+            scriptsLoadFailed = false
+        } catch is CancellationError {
+            // View disappeared.
+        } catch {
+            scriptsLoadFailed = true
+        }
     }
 
     private func createSession() {

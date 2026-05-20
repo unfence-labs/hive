@@ -18,6 +18,7 @@ final class HubStatusMonitor {
     private(set) var workspaceDiffStats: [String: DiffStatResponse] = [:]
     private(set) var workspaceBranchInfo: [String: BranchInfo] = [:]
     private(set) var workspacePrStatus: [String: PrStatusResponse] = [:]
+    private(set) var workspaceScriptStatus: [String: [String: ScriptStatusInfo]] = [:]
     private(set) var workspaceLastActivityAt: [String: Date] = [:]
     private(set) var completedWorkspaces: Set<String> = [] {
         didSet { persistCompleted() }
@@ -98,6 +99,10 @@ final class HubStatusMonitor {
         workspacePrStatus[workspaceId]
     }
 
+    func scriptStatus(for workspaceId: String) -> [String: ScriptStatusInfo] {
+        workspaceScriptStatus[workspaceId] ?? [:]
+    }
+
     func isCompleted(_ workspaceId: String) -> Bool {
         completedWorkspaces.contains(workspaceId)
     }
@@ -147,6 +152,7 @@ final class HubStatusMonitor {
             workspaceDiffStats.removeValue(forKey: id)
             workspaceBranchInfo.removeValue(forKey: id)
             workspacePrStatus.removeValue(forKey: id)
+            workspaceScriptStatus.removeValue(forKey: id)
             workspaceLastActivityAt.removeValue(forKey: id)
             storeCache.evict(id)
             completedWorkspaces.remove(id)
@@ -176,6 +182,7 @@ final class HubStatusMonitor {
         workspaceDiffStats.removeAll()
         workspaceBranchInfo.removeAll()
         workspaceLastActivityAt.removeAll()
+        workspaceScriptStatus.removeAll()
         bulkPrPollTask?.cancel()
         bulkPrPollTask = nil
         prPollingIds.removeAll()
@@ -262,6 +269,13 @@ final class HubStatusMonitor {
 
     fileprivate func didReceiveBranchInfo(_ info: BranchInfo, for workspaceId: String) {
         workspaceBranchInfo[workspaceId] = info
+    }
+
+    fileprivate func didReceiveScriptStatus(scriptType: String, state: String, exitCode: Int?, for workspaceId: String) {
+        guard let scriptState = ScriptState(rawValue: state) else { return }
+        var statuses = workspaceScriptStatus[workspaceId] ?? [:]
+        statuses[scriptType] = ScriptStatusInfo(state: scriptState, exitCode: exitCode)
+        workspaceScriptStatus[workspaceId] = statuses
     }
 
     fileprivate func didReceiveDone(for workspaceId: String, sessionId: String?, markWorkspaceCompleted: Bool) {
@@ -485,6 +499,14 @@ private final class HubConnection {
 
         case .branchInfo(let info):
             monitor?.didReceiveBranchInfo(info, for: workspaceId)
+
+        case .scriptStatus(let scriptType, let state, let exitCode):
+            monitor?.didReceiveScriptStatus(
+                scriptType: scriptType,
+                state: state,
+                exitCode: exitCode,
+                for: workspaceId
+            )
 
         case .done(let sessionId, _, _, _, _):
             monitor?.didReceiveStreaming(false, for: workspaceId, sessionId: sessionId)
