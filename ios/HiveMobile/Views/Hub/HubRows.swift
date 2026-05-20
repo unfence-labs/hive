@@ -275,7 +275,7 @@ private struct HubPrBadge: View {
 
     var body: some View {
         if let pr = prStatus?.pr {
-            let display = HubPrDisplay(pr: pr)
+            let display = HubPrStatusDisplay(pr: pr)
             HStack(spacing: 3) {
                 Image(systemName: display.icon)
                 Text("#\(pr.number) \(display.label)")
@@ -286,54 +286,5 @@ private struct HubPrBadge: View {
             Text("No PR")
                 .foregroundStyle(WhisperColor.textMuted)
         }
-    }
-}
-
-private struct HubPrDisplay {
-    let icon: String
-    let label: String
-    let color: Color
-
-    init(pr: PullRequestInfo) {
-        let checksCount = Self.checksCountLabel(pr)
-
-        if pr.state == .merged {
-            self.init(icon: "arrow.triangle.merge", label: "Merged", color: .purple)
-        } else if pr.state == .closed {
-            self.init(icon: "xmark.circle", label: "Closed", color: .secondary)
-        } else if pr.state == .draft {
-            self.init(icon: "pencil.circle", label: "Draft", color: .secondary)
-        } else if pr.mergeable == false || pr.mergeableState == .conflict {
-            self.init(icon: "exclamationmark.triangle", label: "Conflicts", color: WhisperColor.warningForeground)
-        } else if pr.checksStatus == .failure {
-            self.init(icon: "xmark.circle", label: "Failed\(checksCount)", color: .red)
-        } else if pr.checksStatus == .cancelled {
-            self.init(icon: "nosign", label: "Cancelled", color: WhisperColor.warningForeground)
-        } else if pr.checksStatus == .pending {
-            self.init(icon: "clock", label: "Checks\(checksCount)", color: WhisperColor.warningForeground)
-        } else if pr.reviewStatus == .changes_requested {
-            self.init(icon: "exclamationmark.triangle", label: "Changes", color: WhisperColor.warningForeground)
-        } else if pr.mergeableState == .blocked {
-            self.init(icon: "nosign", label: "Blocked", color: WhisperColor.warningForeground)
-        } else if pr.mergeableState == .unstable {
-            self.init(icon: "exclamationmark.triangle", label: "Unstable", color: WhisperColor.warningForeground)
-        } else if pr.reviewStatus == .review_required {
-            self.init(icon: "eye", label: "Review", color: .blue)
-        } else if pr.mergeable == true || pr.mergeableState == .clean {
-            self.init(icon: "checkmark.circle", label: "Ready", color: WhisperColor.success)
-        } else {
-            self.init(icon: "arrow.triangle.pull", label: "Open", color: .blue)
-        }
-    }
-
-    private init(icon: String, label: String, color: Color) {
-        self.icon = icon
-        self.label = label
-        self.color = color
-    }
-
-    private static func checksCountLabel(_ pr: PullRequestInfo) -> String {
-        guard let passed = pr.checksPassed, let total = pr.checksTotal else { return "" }
-        return " \(passed)/\(total)"
     }
 }

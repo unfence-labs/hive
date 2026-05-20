@@ -37,25 +37,6 @@ struct UnreadDot: View {
     }
 }
 
-/// Turn-completed success indicator.
-struct CompletedDot: View {
-    @State private var appeared = false
-
-    var body: some View {
-        Circle()
-            .fill(WhisperColor.success)
-            .frame(width: 8, height: 8)
-            .shadow(color: WhisperColor.success.opacity(appeared ? 0.5 : 0), radius: 6)
-            .scaleEffect(appeared ? 1.0 : 0.3)
-            .opacity(appeared ? 1.0 : 0.0)
-            .onAppear {
-                withAnimation(.spring(duration: 0.4, bounce: 0.3)) {
-                    appeared = true
-                }
-            }
-    }
-}
-
 #Preview {
     HStack(spacing: 20) {
         VStack {
@@ -65,10 +46,6 @@ struct CompletedDot: View {
         VStack {
             UnreadDot()
             Text("Unread").font(.caption2)
-        }
-        VStack {
-            CompletedDot()
-            Text("Completed").font(.caption2)
         }
         VStack {
             AgentActivityIndicator(dotSize: 3, spacing: 1.5)

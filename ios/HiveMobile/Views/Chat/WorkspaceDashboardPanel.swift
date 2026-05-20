@@ -484,8 +484,8 @@ private struct GitDashboardSummary {
             return
         }
 
-        branch = GitScopeDashboardSummary(files: stats.committed, cleanText: "no branch diff")
-        workingTree = GitScopeDashboardSummary(files: stats.uncommitted, cleanText: "clean")
+        branch = GitScopeDashboardSummary(files: stats.committed)
+        workingTree = GitScopeDashboardSummary(files: stats.uncommitted)
     }
 }
 
@@ -494,7 +494,6 @@ private struct GitScopeDashboardSummary {
     let fileCount: Int
     let additions: Int
     let deletions: Int
-    let cleanText: String
 
     var hasChanges: Bool {
         isLoaded && fileCount > 0
@@ -523,20 +522,18 @@ private struct GitScopeDashboardSummary {
         WhisperColor.textMuted
     }
 
-    init(files: [DiffFileStat], cleanText: String) {
+    init(files: [DiffFileStat]) {
         isLoaded = true
         fileCount = Set(files.map(\.file)).count
         additions = files.reduce(0) { $0 + $1.additions }
         deletions = files.reduce(0) { $0 + $1.deletions }
-        self.cleanText = cleanText
     }
 
-    private init(isLoaded: Bool, fileCount: Int, additions: Int, deletions: Int, cleanText: String) {
+    private init(isLoaded: Bool, fileCount: Int, additions: Int, deletions: Int) {
         self.isLoaded = isLoaded
         self.fileCount = fileCount
         self.additions = additions
         self.deletions = deletions
-        self.cleanText = cleanText
     }
 
     static func loading() -> GitScopeDashboardSummary {
@@ -544,8 +541,7 @@ private struct GitScopeDashboardSummary {
             isLoaded: false,
             fileCount: 0,
             additions: 0,
-            deletions: 0,
-            cleanText: "waiting"
+            deletions: 0
         )
     }
 }
@@ -657,67 +653,11 @@ private struct PullRequestDashboardSummary {
         }
 
         let prefix = "#\(pr.number)"
-        let checks = Self.checksText(pr)
+        let display = HubPrStatusDisplay(pr: pr)
         destinationURL = Self.destinationURL(from: pr.url)
-
-        if pr.state == .merged {
-            title = "\(prefix)"
-            detail = "Merged"
-            color = .purple
-        } else if pr.state == .closed {
-            title = "\(prefix)"
-            detail = "Closed"
-            color = WhisperColor.textMuted
-        } else if pr.state == .draft {
-            title = "\(prefix)"
-            detail = "Draft"
-            color = WhisperColor.textMuted
-        } else if pr.mergeable == false || pr.mergeableState == .conflict {
-            title = "\(prefix)"
-            detail = "Conflicts"
-            color = WhisperColor.warningForeground
-        } else if pr.checksStatus == .failure {
-            title = "\(prefix)"
-            detail = "Checks failed\(checks)"
-            color = .red
-        } else if pr.checksStatus == .cancelled {
-            title = "\(prefix)"
-            detail = "Checks cancelled\(checks)"
-            color = WhisperColor.warningForeground
-        } else if pr.checksStatus == .pending {
-            title = "\(prefix)"
-            detail = "Checks\(checks)"
-            color = WhisperColor.warningForeground
-        } else if pr.reviewStatus == .changes_requested {
-            title = "\(prefix)"
-            detail = "Changes requested"
-            color = WhisperColor.warningForeground
-        } else if pr.mergeableState == .blocked {
-            title = "\(prefix)"
-            detail = "Blocked"
-            color = WhisperColor.warningForeground
-        } else if pr.mergeableState == .unstable {
-            title = "\(prefix)"
-            detail = "Unstable"
-            color = WhisperColor.warningForeground
-        } else if pr.reviewStatus == .review_required {
-            title = "\(prefix)"
-            detail = "Review needed"
-            color = .blue
-        } else if pr.mergeable == true || pr.mergeableState == .clean {
-            title = "\(prefix)"
-            detail = "Ready"
-            color = WhisperColor.success
-        } else {
-            title = "\(prefix)"
-            detail = "Open"
-            color = .blue
-        }
-    }
-
-    private static func checksText(_ pr: PullRequestInfo) -> String {
-        guard let passed = pr.checksPassed, let total = pr.checksTotal else { return "" }
-        return " \(passed)/\(total)"
+        title = prefix
+        detail = display.dashboardDetail
+        color = display.color
     }
 
     private static func destinationURL(from rawURL: String) -> URL? {

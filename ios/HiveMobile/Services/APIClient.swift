@@ -126,10 +126,6 @@ final class APIClient {
         try await request("POST", path: path, body: body)
     }
 
-    private func delete<T: Decodable>(path: String) async throws -> T {
-        try await request("DELETE", path: path)
-    }
-
     // MARK: - Typed endpoints
 
     func checkHealth() async throws -> Bool {

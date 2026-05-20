@@ -282,7 +282,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `HiveMobile/Stores/ModelCatalog.swift`: dynamic model catalog from API, grouped by provider
 - `HiveMobile/Stores/HubStatusMonitor.swift`: single multiplexed hub WS + PR status bulk polling + per-session streaming/unread tracking + foreground reconnect (2s debounce) + background stream catchup
 - `HiveMobile/Stores/TaskDerivation.swift`: pure function port of `useTasks.ts` — derives `TasksState` from messages and active tool calls, including Codex `TodoList` events
-- `HiveMobile/Views/Chat/WorkspaceConversationsView.swift`: workspace-level conversation list, create/delete flow, and `NavigationLink` routing into chat
+- `HiveMobile/Views/Chat/WorkspaceConversationsView.swift`: workspace-level conversation list, create/delete flow, and native `NavigationLink` routing into chat
 - `HiveMobile/Views/Chat/ConversationRow.swift`: conversation row with active, streaming, unread, message count, and timestamp state
 - `HiveMobile/Views/Chat/ChatView.swift`: single-session conversation UI + provider locking + model selection + per-session plan mode
 - `HiveMobile/Views/Chat/ChatInputBar.swift`: input bar with provider-adaptive controls (thinking-level cycler) + context ring
@@ -298,7 +298,8 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `HiveMobile/Views/Hub/HubView.swift`: project/workspace navigation with inline custom search field
 - `HiveMobile/Views/Hub/AddProjectSheet.swift`: new project creation
 - `HiveMobile/Views/Hub/HubRows.swift`: folder/project/workspace rows with activity preview + enriched PR status display + turn-completed/unread badge
-- `HiveMobile/Views/Components/StatusDot.swift`: idle (gray) / completed (green with glow animation) dot
+- `HiveMobile/Views/Hub/HubStatusSummary.swift`: shared hub diff summary, PR attention rules, and PR status display mapping used by Hub rows and workspace dashboard
+- `HiveMobile/Views/Components/StatusDot.swift`: idle (gray) / unread activity (accent with glow animation) dot
 - `HiveMobile/Views/Components/AgentActivityIndicator.swift`: animated 3x3 dot grid wave pattern for agent activity
 - `HiveMobile/Theme/DesignTokens.swift`: design tokens (WhisperColor, WhisperFont)
 
@@ -308,11 +309,11 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Auth token stored in UserDefaults, passed as query param on WS connections.
 - **Push notifications**: `AppDelegate` registers for remote notifications on launch, forwards device token to backend. Notifications suppressed in foreground (WS handles it). Notification taps routed through `CompletedWorkspacesStore` which persists IDs in UserDefaults for cold-start bridging to `HubStatusMonitor`.
 - **Single multiplexed hub WS**: `HubStatusMonitor.HubConnection` opens one WS to `/ws/hub` for all workspaces. Sends `sync_workspaces` on connect. Incoming `HubOutgoing` envelopes are demuxed by `workspaceId`. Hub-level events (status, diff_stats, branch_info) update monitor properties. ALL events are forwarded to the workspace's `ConversationStore` in the `ConversationStoreCache`.
-- **Foreground reconnect**: on `scenePhase` change to active (2s debounce), forces WS reconnect. Streams cleared before reconnect. If bootstrap arrives with `streaming=false` for a previously-streaming workspace, treated as completed turn (green dot without push).
+- **Foreground reconnect**: on `scenePhase` change to active (2s debounce), forces WS reconnect. Streams cleared before reconnect. If bootstrap arrives with `streaming=false` for a previously-streaming workspace, treated as unread workspace activity without push.
 - **ConversationStoreCache** (`@Environment`): app-level cache of `ConversationStore` instances keyed by workspace ID. Stores survive `ChatView` mount/unmount, preserving streaming state across navigation. Stores are eagerly created when streaming starts (even if ChatView isn't open). Evicted on workspace archive/delete.
 - **Workspace conversation navigation**: `HiveApp` owns the Hub `NavigationPath`. Workspace rows push `WorkspaceConversationsView`; conversation rows use value-based `NavigationLink` with `SessionMetadata` into `ChatView`.
 - **ChatView receives its store as a parameter** from the cache (via `WorkspaceConversationsView`). No per-view WS — all sends go through `store.send` closure wired to the hub connection.
-- **Turn-completed/unread badges**: `HubStatusMonitor.completedWorkspaces` tracks background `done` events at workspace level, while `unreadSessions` tracks per-session unread `done` and failed background `cancelled` events. Hub workspace rows show a completed dot when either workspace completion or unread sessions exist. Conversation rows show per-session streaming/unread state. `viewingWorkspaceId`/`viewingSessionId` prevent false positives when the relevant screen is visible.
+- **Turn-completed/unread badges**: `HubStatusMonitor.completedWorkspaces` tracks background `done` events at workspace level, while `unreadSessions` tracks per-session unread `done` and failed background `cancelled` events. Hub workspace rows show an accent unread dot when either workspace completion or unread sessions exist. Conversation rows show per-session streaming/unread state. `viewingWorkspaceId`/`viewingSessionId` prevent false positives when the relevant screen is visible.
 - Tool rendering mirrors the frontend: same tool names, same icon mapping, same hierarchical display (parentToolUseId).
 - Codex App Server `agent_activity` events are decoded and stored per streaming session. Activities are upserted by id, persisted into finalized `ChatMessage.agentActivities`, and rendered through `AgentActivityList`.
 - Compatibility `tool_use` / `tool_result` events remain supported on iOS, but `MessageBubble` filters tool calls whose ids are already represented by an `AgentActivity` to avoid duplicate command/file/plan rows.
@@ -326,7 +327,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - All providers supporting reasoning effort show a unified thinking-level cycler; the supported list comes from `capabilities.thinkingLevels` (Claude: low/medium/high/xhigh/max; Codex: none/minimal/low/medium/high/xhigh). Plan mode hidden for providers that don't support it.
 - `lockedProvider` is read from WS status events (not REST) for instant model locking after first message.
 - Pre-multi-model sessions default to `"claude"` when they have messages but no `lockedProvider`.
-- PR status uses bulk endpoint matching the frontend.
+- PR status uses bulk endpoint matching the frontend. iOS keeps one shared `HubPrStatusDisplay` mapping so Hub rows and the workspace dashboard cannot drift.
 - Hub search intentionally uses an inline `TextField` instead of `.searchable` because the navigation bar drawer created animation glitches in this app.
 - `#file` mentions highlighted with `AttributedString` in `MessageBubble` using accent color.
 - Context ring matches frontend thresholds (green/yellow/red).
