@@ -632,8 +632,8 @@ private struct PullRequestDashboardSummary {
 
     init(prStatus: PrStatusResponse?) {
         guard let prStatus else {
-            title = "Loading"
-            detail = "Fetching status"
+            title = "-"
+            detail = "Loading"
             titleColor = WhisperColor.textMuted
             color = WhisperColor.textMuted
             destinationURL = nil
@@ -648,8 +648,8 @@ private struct PullRequestDashboardSummary {
             return
         }
         guard let pr = prStatus.pr else {
-            title = "No PR"
-            detail = "-"
+            title = "-"
+            detail = "No PR"
             titleColor = WhisperColor.textMuted
             color = WhisperColor.textMuted
             destinationURL = nil
