@@ -1,5 +1,9 @@
 import SwiftUI
 
+private enum DashboardMetrics {
+    static let gitRowMinHeight: CGFloat = 36
+}
+
 enum ScriptDashboardActionKind {
     case start
     case stop
@@ -298,7 +302,7 @@ private struct GitScopeRow: View {
         }
         .padding(.horizontal, HiveSpacing.md)
         .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: DashboardMetrics.gitRowMinHeight, maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 }
@@ -346,7 +350,7 @@ private struct PullRequestRow: View {
         }
         .padding(.horizontal, HiveSpacing.md)
         .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: DashboardMetrics.gitRowMinHeight, maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: summary.destinationURL == nil ? .combine : .contain)
     }
 }
@@ -372,10 +376,12 @@ private struct ChangePair: View {
 }
 
 private struct DashboardRowDivider: View {
+    @Environment(\.displayScale) private var displayScale
+
     var body: some View {
         Rectangle()
             .fill(WhisperColor.separator)
-            .frame(height: 0.5)
+            .frame(height: 1 / displayScale)
             .padding(.horizontal, HiveSpacing.md)
     }
 }

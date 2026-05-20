@@ -2,7 +2,7 @@ import SwiftUI
 
 private enum HubLayout {
     static let projectIndent: CGFloat = 16
-    static let workspaceIndent: CGFloat = 0
+    static let workspaceIndent: CGFloat = 16
     static let hierarchyLineInset: CGFloat = 5
 }
 
@@ -261,13 +261,7 @@ struct HubView: View {
                         projectView(node.project)
                     }
                 }
-                .padding(.leading, HubLayout.projectIndent)
-                .overlay(alignment: .leading) {
-                    Rectangle()
-                        .fill(WhisperColor.hubStructure)
-                        .frame(width: 1)
-                        .padding(.leading, HubLayout.hierarchyLineInset)
-                }
+                .hubHierarchyGuide(indent: HubLayout.projectIndent)
                 .transition(.opacity)
             }
         }
@@ -298,8 +292,8 @@ struct HubView: View {
             Text("No active workspaces")
                 .font(.caption)
                 .foregroundStyle(WhisperColor.textMuted)
-                .padding(.leading, HubLayout.workspaceIndent)
                 .padding(.vertical, HiveSpacing.xs)
+                .hubHierarchyGuide(indent: HubLayout.workspaceIndent)
         } else {
             VStack(spacing: HiveSpacing.xs) {
                 ForEach(sortedWorkspaces(project.workspaces)) { workspace in
@@ -324,7 +318,7 @@ struct HubView: View {
                     }
                 }
             }
-            .padding(.leading, HubLayout.workspaceIndent)
+            .hubHierarchyGuide(indent: HubLayout.workspaceIndent)
         }
     }
 
@@ -469,6 +463,18 @@ struct HubView: View {
         }
         .transition(.move(edge: .bottom))
         .animation(.default, value: store.errorMessage)
+    }
+}
+
+private extension View {
+    func hubHierarchyGuide(indent: CGFloat) -> some View {
+        padding(.leading, indent)
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(WhisperColor.hubStructure)
+                    .frame(width: 1)
+                    .padding(.leading, HubLayout.hierarchyLineInset)
+            }
     }
 }
 
