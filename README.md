@@ -483,7 +483,7 @@ Frontend key modules:
 - `frontend/src/lib/fuzzy-match.ts` fuzzy file matching for autocomplete
 - `frontend/src/components/Sidebar.tsx` project/workspace nav + build/automation tabs + collapse + unread + PR status
 - `frontend/src/components/ChatInput.tsx` message input + file autocomplete + context ring + quick actions
-- `frontend/src/components/TaskTracker.tsx` task list + background agents status bar
+- `frontend/src/components/TaskTracker.tsx` task list + Codex plan updates + background agents status bar
 - `frontend/src/components/diff/InlineDiffViewer.tsx` inline diff with split/unified + comments + paste-to-prompt
 - `frontend/src/components/chat/SubAgentNode.tsx` collapsible Task tool rendering
 - `frontend/src/components/chat/PlanActionBar.tsx` plan approval floating bar
