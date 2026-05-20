@@ -434,7 +434,7 @@ private struct GitScopeDashboardSummary {
 
     var statusText: String {
         if hasChanges { return "changed" }
-        isLoaded ? cleanText : "waiting"
+        return isLoaded ? cleanText : "waiting"
     }
 
     var statusColor: Color {
