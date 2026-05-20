@@ -138,6 +138,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Codex stderr is classified before surfacing to clients: known operational noise is suppressed, websocket metadata encoding failures are emitted inline as `CodexDiagnostic` tool calls, and unknown stderr remains an error.
 - Codex native JSONL items are normalized to the shared tool protocol: `todo_list` becomes `TodoList`, item-level `error` becomes `CodexDiagnostic`, file changes become `Edit`, and repeated item updates reuse the same tool id while updating the tool result.
 - Codex App Server events are normalized into `AgentActivity` records for command execution, file changes, plan updates, and diagnostics. These are emitted through additive `agent_activity` WS events while `tool_use`/`tool_result` compatibility is preserved.
+- Codex App Server `thread/tokenUsage/updated` notifications feed assistant `contextUsedTokens` / `contextWindowTokens`, so the existing context ring can show provider-reported context usage without relying on static Codex catalog windows.
 - Unsupported Codex App Server notifications are surfaced as deduplicated diagnostic activities. Unsupported non-approval App Server requests are answered with explicit JSON-RPC errors and surfaced as diagnostic error activities. Command/file approvals are auto-accepted according to Hive's current no-approval policy.
 - Codex App Server close/reject paths clear transient process state, including unpersisted thread ids. If an App Server process is force-closed before `providerSessionId` is persisted, the next turn starts a fresh thread instead of trying to resume a stale in-memory thread id. Stale `turn/completed` events are ignored when another active turn has already started.
 - `providerSessionId` is the canonical persisted provider thread/session id. `claudeSessionId` remains as a compatibility shim for older session metadata.
@@ -193,7 +194,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/hooks/usePromptTemplates.ts`: prompt template CRUD hooks
 - `frontend/src/hooks/useBasePrompt.ts`: base prompt query + update + reset hooks
 - `frontend/src/hooks/useCustomAgents.ts`: custom agent CRUD hooks + completion cache invalidation
-- `frontend/src/hooks/useContextUsage.ts`: context window usage calculation from last assistant message tokens
+- `frontend/src/hooks/useContextUsage.ts`: context window usage calculation from provider-reported context fields, falling back to last assistant message input tokens
 - `frontend/src/hooks/useBackgroundAgents.ts`: scans tool calls for background `Task` agents, returns running count
 - `frontend/src/hooks/useTabs.ts`: multi-tab state (session + file tabs) with workspace-level snapshot cache, `FileViewMode = "source" | "diff"`
 - `frontend/src/hooks/useTasks.ts`: derives `TrackedTask[]` from `TaskCreate`/`TaskUpdate` tool calls, Codex `TodoList` events, and Codex App Server plan updates for task tracker display

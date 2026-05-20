@@ -75,6 +75,8 @@ struct ConversationStoreAgentActivityTests {
             durationMs: 1000,
             inputTokens: 10,
             outputTokens: 5,
+            contextUsedTokens: nil,
+            contextWindowTokens: nil,
             pendingToolName: nil
         ))
 
@@ -105,6 +107,8 @@ struct ConversationStoreAgentActivityTests {
             durationMs: 100,
             inputTokens: nil,
             outputTokens: nil,
+            contextUsedTokens: nil,
+            contextWindowTokens: nil,
             pendingToolName: nil
         ))
 

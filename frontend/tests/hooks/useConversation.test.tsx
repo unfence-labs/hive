@@ -2562,6 +2562,31 @@ describe("useConversation", () => {
       expect(assistant?.durationMs).toBe(2000);
     });
 
+    it("stores context usage fields from done event in assistant message", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
+        __wsMock.emit("ws-1", { type: "text_delta", text: "Codex reply" });
+        __wsMock.emit("ws-1", {
+          type: "done",
+          sessionId: "sess-1",
+          inputTokens: 41_000,
+          outputTokens: 900,
+          contextUsedTokens: 42_000,
+          contextWindowTokens: 400_000,
+        });
+      });
+
+      const assistant = result.current.messages.at(-1);
+      expect(assistant?.role).toBe("assistant");
+      expect(assistant?.inputTokens).toBe(41_000);
+      expect(assistant?.outputTokens).toBe(900);
+      expect(assistant?.contextUsedTokens).toBe(42_000);
+      expect(assistant?.contextWindowTokens).toBe(400_000);
+    });
+
     it("stores undefined tokens when done event has no token data", async () => {
       const { __wsMock } = await getWsMock();
       const { result } = renderHook(() => useConversation("ws-1"));

@@ -829,6 +829,27 @@ describe("ConversationSession", () => {
       itemId: "msg-1",
       delta: "Hi from app-server",
     }));
+    mockProc._stdout.push(appServerNotification("thread/tokenUsage/updated", {
+      threadId: "thread-app-1",
+      turnId: "turn-1",
+      tokenUsage: {
+        last: {
+          totalTokens: 42_000,
+          inputTokens: 36_000,
+          cachedInputTokens: 5_000,
+          outputTokens: 900,
+          reasoningOutputTokens: 100,
+        },
+        total: {
+          totalTokens: 80_000,
+          inputTokens: 70_000,
+          cachedInputTokens: 8_000,
+          outputTokens: 1_800,
+          reasoningOutputTokens: 200,
+        },
+        modelContextWindow: 400_000,
+      },
+    }));
     mockProc._stdout.push(appServerNotification("turn/completed", {
       threadId: "thread-app-1",
       turn: { id: "turn-1", durationMs: 42, status: "completed" },
@@ -836,6 +857,12 @@ describe("ConversationSession", () => {
 
     const done = await waitForMessages(messages, "done");
     expect(done).toHaveLength(1);
+    expect(done[0]).toMatchObject({
+      inputTokens: 41_000,
+      outputTokens: 900,
+      contextUsedTokens: 42_000,
+      contextWindowTokens: 400_000,
+    });
     expect(messages).toContainEqual({
       type: "text_delta",
       sessionId: "codex-app-chat",

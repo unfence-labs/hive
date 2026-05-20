@@ -57,6 +57,7 @@ type TurnStatus = "completed" | "interrupted" | "failed" | "inProgress";
 type TokenUsage = {
   total?: TokenBreakdown;
   last?: TokenBreakdown;
+  modelContextWindow?: number | null;
 };
 
 type TokenBreakdown = {
@@ -1073,6 +1074,8 @@ function usageFromTokenUsage(value: TokenUsage | undefined): {
   input_tokens: number;
   output_tokens: number;
   cache_read_input_tokens?: number;
+  context_used_tokens?: number;
+  context_window?: number;
 } | undefined {
   const usage = value?.last ?? value?.total;
   if (!usage) return undefined;
@@ -1080,6 +1083,8 @@ function usageFromTokenUsage(value: TokenUsage | undefined): {
     input_tokens: usage.inputTokens ?? 0,
     output_tokens: usage.outputTokens ?? 0,
     cache_read_input_tokens: usage.cachedInputTokens,
+    context_used_tokens: usage.totalTokens,
+    context_window: value?.modelContextWindow ?? undefined,
   };
 }
 

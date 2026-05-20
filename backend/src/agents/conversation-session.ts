@@ -407,6 +407,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let resultDurationMs: number | undefined;
     let resultInputTokens: number | undefined;
     let resultOutputTokens: number | undefined;
+    let resultContextUsedTokens: number | undefined;
+    let resultContextWindowTokens: number | undefined;
     let lastStderr: string | undefined;
     const emittedDiagnostics = new Set<string>();
 
@@ -459,16 +461,21 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       if (data.duration_ms != null) {
         resultDurationMs = data.duration_ms;
       }
-      // Only use result-level usage as fallback — the last assistant event
-      // carries the actual context-window usage for the final sub-call, while
-      // the result event may report cumulative tokens across all sub-calls
-      // in the turn (which can exceed the context window size).
+      // Only use result-level input/output usage as fallback. Some providers
+      // report cumulative turn totals here, while assistant events carry the
+      // final model-call usage. Dedicated context fields are handled separately.
       if (data.usage && resultInputTokens === undefined) {
         resultInputTokens =
           data.usage.input_tokens +
           (data.usage.cache_creation_input_tokens ?? 0) +
           (data.usage.cache_read_input_tokens ?? 0);
         resultOutputTokens = data.usage.output_tokens;
+      }
+      if (data.usage?.context_used_tokens != null) {
+        resultContextUsedTokens = data.usage.context_used_tokens;
+      }
+      if (data.usage?.context_window != null) {
+        resultContextWindowTokens = data.usage.context_window;
       }
     });
 
@@ -498,6 +505,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           resultDurationMs,
           resultInputTokens,
           resultOutputTokens,
+          resultContextUsedTokens,
+          resultContextWindowTokens,
           blockingToolNames,
         });
       };
@@ -558,6 +567,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         resultDurationMs,
         resultInputTokens,
         resultOutputTokens,
+        resultContextUsedTokens,
+        resultContextWindowTokens,
         blockingToolNames,
       });
     });
@@ -765,6 +776,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     resultDurationMs,
     resultInputTokens,
     resultOutputTokens,
+    resultContextUsedTokens,
+    resultContextWindowTokens,
     blockingToolNames,
   }: {
     exitCode: number;
@@ -774,6 +787,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     resultDurationMs?: number;
     resultInputTokens?: number;
     resultOutputTokens?: number;
+    resultContextUsedTokens?: number;
+    resultContextWindowTokens?: number;
     blockingToolNames: Set<string>;
   }): void {
     const wasCancelled = !failureDetail && exitCode !== 0 && this._status === "streaming" && !killedForBlockingTool;
@@ -813,6 +828,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         durationMs: resultDurationMs,
         inputTokens: resultInputTokens,
         outputTokens: resultOutputTokens,
+        contextUsedTokens: resultContextUsedTokens,
+        contextWindowTokens: resultContextWindowTokens,
       };
       void this.enqueuePersist(assistantMsg);
     }
@@ -863,6 +880,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             durationMs: resultDurationMs,
             inputTokens: resultInputTokens,
             outputTokens: resultOutputTokens,
+            contextUsedTokens: resultContextUsedTokens,
+            contextWindowTokens: resultContextWindowTokens,
             pendingToolName,
           });
         }

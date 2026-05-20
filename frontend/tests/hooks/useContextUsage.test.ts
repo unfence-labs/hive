@@ -56,6 +56,25 @@ describe("useContextUsage", () => {
     expect(result.current.usageFraction).toBe(0.25); // 50k / 200k
   });
 
+  it("prefers provider-reported context usage and window when available", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({
+        role: "assistant",
+        content: "Codex reply",
+        inputTokens: 41_000,
+        outputTokens: 900,
+        contextUsedTokens: 42_000,
+        contextWindowTokens: 400_000,
+      }),
+    ];
+
+    const { result } = renderHook(() => useContextUsage(messages, claudeModel));
+    expect(result.current.inputTokens).toBe(42_000);
+    expect(result.current.outputTokens).toBe(900);
+    expect(result.current.contextWindow).toBe(400_000);
+    expect(result.current.usageFraction).toBe(0.105);
+  });
+
   it("skips assistant messages without token data", () => {
     const messages: ChatMessage[] = [
       makeMessage({ role: "assistant", content: "With tokens", inputTokens: 30_000, outputTokens: 200 }),

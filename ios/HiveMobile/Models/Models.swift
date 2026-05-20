@@ -242,6 +242,8 @@ struct ChatMessage: Codable, Identifiable {
     let durationMs: Int?
     let inputTokens: Int?
     let outputTokens: Int?
+    let contextUsedTokens: Int?
+    let contextWindowTokens: Int?
 
     init(id: String, sessionId: String, role: MessageRole, content: String,
          images: [ImageAttachment]?, fileMentions: [FileMention]? = nil,
@@ -249,7 +251,8 @@ struct ChatMessage: Codable, Identifiable {
          thinkingContent: String?,
          timestamp: String, cancelled: Bool?, errorDetail: String? = nil,
          durationMs: Int?,
-         inputTokens: Int? = nil, outputTokens: Int? = nil) {
+         inputTokens: Int? = nil, outputTokens: Int? = nil,
+         contextUsedTokens: Int? = nil, contextWindowTokens: Int? = nil) {
         self.id = id
         self.sessionId = sessionId
         self.role = role
@@ -265,6 +268,8 @@ struct ChatMessage: Codable, Identifiable {
         self.durationMs = durationMs
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
+        self.contextUsedTokens = contextUsedTokens
+        self.contextWindowTokens = contextWindowTokens
     }
 
     init(from decoder: Decoder) throws {
@@ -303,12 +308,26 @@ struct ChatMessage: Codable, Identifiable {
         } else {
             outputTokens = nil
         }
+        if let intVal = try? container.decodeIfPresent(Int.self, forKey: .contextUsedTokens) {
+            contextUsedTokens = intVal
+        } else if let doubleVal = try? container.decodeIfPresent(Double.self, forKey: .contextUsedTokens) {
+            contextUsedTokens = Int(doubleVal)
+        } else {
+            contextUsedTokens = nil
+        }
+        if let intVal = try? container.decodeIfPresent(Int.self, forKey: .contextWindowTokens) {
+            contextWindowTokens = intVal
+        } else if let doubleVal = try? container.decodeIfPresent(Double.self, forKey: .contextWindowTokens) {
+            contextWindowTokens = Int(doubleVal)
+        } else {
+            contextWindowTokens = nil
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, sessionId, role, content, images, fileMentions, toolCalls, agentActivities
         case thinkingContent, timestamp, cancelled, errorDetail, durationMs
-        case inputTokens, outputTokens
+        case inputTokens, outputTokens, contextUsedTokens, contextWindowTokens
     }
 }
 
