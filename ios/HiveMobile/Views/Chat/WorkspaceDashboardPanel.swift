@@ -540,14 +540,14 @@ private struct PullRequestDashboardSummary {
             return
         }
         if let error = prStatus.error, !error.isEmpty {
-            title = "Unavailable"
-            detail = "Provider status"
-            color = WhisperColor.warningForeground
+            title = "Fetch error"
+            detail = "-"
+            color = .red
             return
         }
         guard let pr = prStatus.pr else {
             title = "No PR"
-            detail = "Not opened"
+            detail = "-"
             color = WhisperColor.textMuted
             return
         }
