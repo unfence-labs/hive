@@ -638,8 +638,8 @@ private struct PullRequestDashboardSummary {
             return
         }
         if let error = prStatus.error, !error.isEmpty {
-            title = "Fetch error"
-            detail = "-"
+            title = "-"
+            detail = "Fetch error"
             color = .red
             destinationURL = nil
             return
