@@ -302,7 +302,7 @@ private struct GitScopeRow: View {
         }
         .padding(.horizontal, HiveSpacing.md)
         .padding(.vertical, 10)
-        .frame(minHeight: DashboardMetrics.gitRowMinHeight, maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: DashboardMetrics.gitRowMinHeight, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 }
@@ -350,7 +350,7 @@ private struct PullRequestRow: View {
         }
         .padding(.horizontal, HiveSpacing.md)
         .padding(.vertical, 10)
-        .frame(minHeight: DashboardMetrics.gitRowMinHeight, maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: DashboardMetrics.gitRowMinHeight, alignment: .leading)
         .accessibilityElement(children: summary.destinationURL == nil ? .combine : .contain)
     }
 }
