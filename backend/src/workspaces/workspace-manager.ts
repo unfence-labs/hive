@@ -8,6 +8,7 @@ import {
   removeWorktreeOrDeleteDirectory,
 } from "../utils/git-worktree.js";
 import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/paths.js";
+import { refreshDefaultBranchFromOrigin } from "../utils/git-default-branch.js";
 import { pickCityName } from "../utils/city-names.js";
 import { loadProject, loadAllProjects, saveProject, getDataDir, withProjectStateLock } from "../state/state.js";
 import { isInitialized, lookupWorkspace } from "../state/workspace-index.js";
@@ -137,24 +138,7 @@ export async function createWorkspace(
 
       const defaultBranch = await resolveDefaultBranch(bare);
 
-      // Pull the remote default branch into FETCH_HEAD, then fast-forward
-      // the local ref only when the remote is strictly ahead.  This avoids
-      // overwriting local merges that haven't been pushed yet while still
-      // ensuring new workspaces start from the latest remote content.
-      try {
-        await git(["fetch", "origin", defaultBranch], bare);
-        // Safe to fast-forward when the local ref is an ancestor of FETCH_HEAD
-        await git(
-          ["merge-base", "--is-ancestor", `refs/heads/${defaultBranch}`, "FETCH_HEAD"],
-          bare,
-        );
-        await git(
-          ["update-ref", `refs/heads/${defaultBranch}`, "FETCH_HEAD"],
-          bare,
-        );
-      } catch {
-        // Fetch failed, local is ahead, or branches diverged — proceed with local state
-      }
+      await refreshDefaultBranchFromOrigin(bare, defaultBranch);
 
       // Create worktree from the default branch
       await addWorktreeWithNewBranch(bare, wsPath, branch, defaultBranch);
@@ -368,6 +352,7 @@ export async function getWorkspaceDiff(
   // Keep these scopes aligned with the modified-file UX: branch commits,
   // working tree changes, or a combined review against the default branch.
   if (scope === "committed") {
+    await refreshDefaultBranchFromOrigin(bare, defaultBranch);
     return git(["diff", "--find-renames", `${defaultBranch}...${workspace.branch}`], bare)
       .then((r) => r.stdout)
       .catch(() => "");
@@ -381,6 +366,7 @@ export async function getWorkspaceDiff(
     return [trackedDiff, untrackedDiff].filter(Boolean).join("\n");
   }
 
+  await refreshDefaultBranchFromOrigin(bare, defaultBranch);
   const mergeBase = await git(
     ["merge-base", defaultBranch, workspace.branch],
     wsPath,
@@ -522,6 +508,7 @@ export async function getWorkspaceDiffStat(
 ): Promise<DiffStatResponse> {
   const { bare, wsPath, defaultBranch, workspace } =
     await resolveWorkspacePaths(wsId, dataDir);
+  await refreshDefaultBranchFromOrigin(bare, defaultBranch);
   return computeDiffStat(bare, wsPath, defaultBranch, workspace.branch);
 }
 
