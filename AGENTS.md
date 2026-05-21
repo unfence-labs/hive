@@ -127,7 +127,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - On first message, a lightweight Claude subprocess generates a branch name and session title (`naming.ts`), then renames the branch via `git branch -m`.
 - Workspace merge is executed in a temporary worktree on default branch, then default-branch ref is updated.
 - `archiveWorkspace()` removes worktree and moves matching session folders under `archive/<ws-id>/sessions`.
-- Git sync pushes cached `branch_info` + `diff_stats` snapshots to new WS clients. PR status is no longer polled here — moved to on-demand REST endpoints.
+- Git sync pushes cached `branch_info` + `diff_stats` snapshots to new WS clients. Before computing diff stats, Hive refreshes the local default branch from `origin/<defaultBranch>` with a fast-forward-only update, throttled per project, so branch diffs do not include already-merged default-branch changes. PR status is no longer polled here — moved to on-demand REST endpoints.
 - WS uses a single multiplexed hub endpoint (`/ws/hub`). Clients send `sync_workspaces` with workspace ID lists to subscribe/unsubscribe. All outgoing messages are wrapped in `HubOutgoing` envelopes (`{ workspaceId, event }`). Bootstrap (status, history, branch_info, diff_stats, script_status) is sent per workspace on subscribe.
 - Preflight checks run at startup and exit with clear errors if git/claude/gh are missing. Codex and Gemini are optional.
 - Notification system supports 5 event types: turn complete (with duration + summary), needs input, proposed plan, agent failed, automation run complete. Events dispatched to Telegram and/or APNs channels.

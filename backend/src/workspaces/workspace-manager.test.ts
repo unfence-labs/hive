@@ -26,6 +26,21 @@ let dataDir: string;
 let fixtureRepoUrl: string;
 let projectId: string;
 
+async function pushRemoteMainFile(
+  cloneName: string,
+  fileName: string,
+  content: string,
+): Promise<void> {
+  const pushClone = join(tempDir, cloneName);
+  await git(["clone", fixtureRepoUrl, pushClone]);
+  await git(["config", "user.email", "test@hive.dev"], pushClone);
+  await git(["config", "user.name", "Test"], pushClone);
+  await writeFile(join(pushClone, fileName), content);
+  await git(["add", "."], pushClone);
+  await git(["commit", "-m", `add ${fileName}`], pushClone);
+  await git(["push", "origin", "main"], pushClone);
+}
+
 beforeEach(async () => {
   clearWorkspaceIndexForTests();
   tempDir = await createTempDir("hive-ws-test-");
@@ -103,16 +118,7 @@ describe("createWorkspace", () => {
   });
 
   it("picks up new files pushed to remote after project creation", async () => {
-    // Clone from fixture bare to simulate a collaborator pushing changes
-    const pushClone = join(tempDir, "push-clone");
-    await git(["clone", fixtureRepoUrl, pushClone]);
-    await git(["config", "user.email", "test@hive.dev"], pushClone);
-    await git(["config", "user.name", "Test"], pushClone);
-
-    await writeFile(join(pushClone, "new-remote-file.txt"), "from remote\n");
-    await git(["add", "."], pushClone);
-    await git(["commit", "-m", "add new file on remote"], pushClone);
-    await git(["push", "origin", "main"], pushClone);
+    await pushRemoteMainFile("push-clone", "new-remote-file.txt", "from remote\n");
 
     // Workspace should fetch and contain the new file
     const ws = await createWorkspace(projectId, dataDir);
@@ -145,15 +151,7 @@ describe("createWorkspace", () => {
     const ws1Path = join(dataDir, projectId, "workspaces", ws1.name);
     expect(existsSync(join(ws1Path, "round2.txt"))).toBe(false);
 
-    // Push a new commit to the remote
-    const pushClone = join(tempDir, "push-clone-multi");
-    await git(["clone", fixtureRepoUrl, pushClone]);
-    await git(["config", "user.email", "test@hive.dev"], pushClone);
-    await git(["config", "user.name", "Test"], pushClone);
-    await writeFile(join(pushClone, "round2.txt"), "second round\n");
-    await git(["add", "."], pushClone);
-    await git(["commit", "-m", "second round"], pushClone);
-    await git(["push", "origin", "main"], pushClone);
+    await pushRemoteMainFile("push-clone-multi", "round2.txt", "second round\n");
 
     // Second workspace should have the new file
     const ws2 = await createWorkspace(projectId, dataDir);
@@ -578,6 +576,32 @@ describe("getWorkspaceDiffStat", () => {
     const readme = committed.find((s) => s.file === "README.md");
     expect(readme).toBeDefined();
     expect(readme!.status).toBe("modified");
+  });
+
+  it("refreshes the default branch before committed stats", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+    const bare = bareRepoPath(dataDir, projectId);
+
+    await pushRemoteMainFile("push-clone-stale-main", "main-only.txt", "from main\n");
+
+    await git(["fetch", "origin", "main:refs/hive-test/main-update"], bare);
+    await git(["merge", "--ff-only", "refs/hive-test/main-update"], wsPath);
+
+    await writeFile(join(wsPath, "branch-only.txt"), "from branch\n");
+    await git(["add", "."], wsPath);
+    await git(["config", "user.email", "test@hive.dev"], wsPath);
+    await git(["config", "user.name", "Test"], wsPath);
+    await git(["commit", "-m", "add branch-only file"], wsPath);
+
+    const beforeRefresh = await git(["diff", "--name-only", `main...${ws.branch}`], bare);
+    expect(beforeRefresh.stdout.split("\n")).toContain("main-only.txt");
+
+    const { committed } = await getWorkspaceDiffStat(ws.id, dataDir);
+    const files = committed.map((s) => s.file);
+
+    expect(files).toContain("branch-only.txt");
+    expect(files).not.toContain("main-only.txt");
   });
 
   it("returns uncommitted stats for unstaged changes", async () => {

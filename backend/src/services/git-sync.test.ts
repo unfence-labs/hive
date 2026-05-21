@@ -6,7 +6,7 @@ import { createProject } from "../projects/project-manager.js";
 import { createWorkspace } from "../workspaces/workspace-manager.js";
 import { git } from "../utils/git.js";
 import { loadProject } from "../state/state.js";
-import { workspacesDir } from "../utils/paths.js";
+import { bareRepoPath, workspacesDir } from "../utils/paths.js";
 import { getBranchName, GitSyncService } from "./git-sync.js";
 import type { BranchInfo, DiffStatResponse } from "../types.js";
 
@@ -14,6 +14,21 @@ let tempDir: string;
 let dataDir: string;
 let fixtureRepoUrl: string;
 let projectId: string;
+
+async function pushRemoteMainFile(
+  cloneName: string,
+  fileName: string,
+  content: string,
+): Promise<void> {
+  const pushClone = join(tempDir, cloneName);
+  await git(["clone", fixtureRepoUrl, pushClone]);
+  await git(["config", "user.email", "test@hive.dev"], pushClone);
+  await git(["config", "user.name", "Test"], pushClone);
+  await writeFile(join(pushClone, fileName), content);
+  await git(["add", "."], pushClone);
+  await git(["commit", "-m", `add ${fileName}`], pushClone);
+  await git(["push", "origin", "main"], pushClone);
+}
 
 beforeEach(async () => {
   tempDir = await createTempDir("hive-git-sync-test-");
@@ -248,6 +263,30 @@ describe("GitSyncService", () => {
 
     const updatedDiff = service.getCachedDiffStats(ws.id);
     expect(updatedDiff?.uncommitted.some((f) => f.file === "bootstrap.txt")).toBe(true);
+  });
+
+  it("refreshes the default branch before broadcasting diff stats", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(workspacesDir(dataDir, projectId), ws.name);
+    const bare = bareRepoPath(dataDir, projectId);
+
+    await pushRemoteMainFile("push-clone-stale-main", "main-only.txt", "from main\n");
+
+    await git(["fetch", "origin", "main:refs/hive-test/main-update"], bare);
+    await git(["merge", "--ff-only", "refs/hive-test/main-update"], wsPath);
+
+    await writeFile(join(wsPath, "branch-only.txt"), "from branch\n");
+    await git(["add", "."], wsPath);
+    await git(["config", "user.email", "test@hive.dev"], wsPath);
+    await git(["config", "user.name", "Test"], wsPath);
+    await git(["commit", "-m", "add branch-only file"], wsPath);
+
+    await service.poll();
+
+    const committed = service.getCachedDiffStats(ws.id)?.committed ?? [];
+    const files = committed.map((s) => s.file);
+    expect(files).toContain("branch-only.txt");
+    expect(files).not.toContain("main-only.txt");
   });
 
   it("returns undefined from getCachedBranchInfo/getCachedDiffStats for unknown workspace", async () => {
