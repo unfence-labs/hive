@@ -509,14 +509,28 @@ struct TaskCounts {
     let pending: Int
 }
 
+enum TaskTrackerSource: Equatable {
+    case taskTools
+    case codexPlan
+}
+
+enum TaskTrackerStatus: Equatable {
+    case live
+    case unconfirmed
+}
+
 struct TasksState {
     let tasks: [TrackedTask]
     let currentTask: TrackedTask?
     let counts: TaskCounts
+    let trackerSource: TaskTrackerSource?
+    let trackerStatus: TaskTrackerStatus
 
     static let empty = TasksState(
         tasks: [],
         currentTask: nil,
-        counts: TaskCounts(total: 0, completed: 0, inProgress: 0, pending: 0)
+        counts: TaskCounts(total: 0, completed: 0, inProgress: 0, pending: 0),
+        trackerSource: nil,
+        trackerStatus: .live
     )
 }

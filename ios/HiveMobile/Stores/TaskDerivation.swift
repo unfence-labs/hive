@@ -8,6 +8,11 @@ import Foundation
 private let validStatuses: Set<String> = ["pending", "in_progress", "completed", "failed", "declined"]
 private let taskToolNames: Set<String> = ["TaskCreate", "TaskUpdate", "TodoList"]
 
+private enum PlanActivitySource: Equatable {
+    case history
+    case active
+}
+
 /// Parse a task ID from a TaskCreate tool output string.
 /// Tries JSON `{ "task": { "id": "42" } }` first, then regex `Task #1 created...`.
 func parseTaskId(from output: String) -> String? {
@@ -72,6 +77,12 @@ private func planTasks(from activity: AgentActivity.PlanUpdate) -> [TrackedTask]
     }
 }
 
+private func hasOpenPlanTask(_ tasks: [TrackedTask], activityId: String) -> Bool {
+    tasks.contains { task in
+        task.id.hasPrefix("\(activityId)-") && (task.status == .pending || task.status == .inProgress)
+    }
+}
+
 /// Derive task tracking state from conversation messages and active (streaming) tool calls.
 /// Mirrors the logic in `frontend/src/hooks/useTasks.ts` exactly.
 func deriveTasks(
@@ -81,7 +92,7 @@ func deriveTasks(
 ) -> TasksState {
     // Collect all tool calls in chronological order
     var allTools: [ToolCall] = []
-    var planActivities: [AgentActivity.PlanUpdate] = []
+    var planActivities: [(plan: AgentActivity.PlanUpdate, source: PlanActivitySource)] = []
     for msg in messages {
         if let tools = msg.toolCalls {
             allTools.append(contentsOf: tools)
@@ -89,7 +100,7 @@ func deriveTasks(
         if let activities = msg.agentActivities {
             for activity in activities {
                 if case .planUpdate(let plan) = activity {
-                    planActivities.append(plan)
+                    planActivities.append((plan: plan, source: .history))
                 }
             }
         }
@@ -97,7 +108,7 @@ func deriveTasks(
     allTools.append(contentsOf: activeToolCalls)
     for activity in activeAgentActivities {
         if case .planUpdate(let plan) = activity {
-            planActivities.append(plan)
+            planActivities.append((plan: plan, source: .active))
         }
     }
 
@@ -186,8 +197,9 @@ func deriveTasks(
     // Codex app-server emits plan updates as agent activities, not tool calls.
     // The latest plan represents the current turn, so older plans should not
     // accumulate in the global task tracker.
-    if let latestPlan = planActivities.last {
-        for task in planTasks(from: latestPlan) {
+    let latestPlanEntry = planActivities.last
+    if let latestPlanEntry {
+        for task in planTasks(from: latestPlanEntry.plan) {
             let key = "plan:\(task.id)"
             if let existingIndex = taskIndex[key] {
                 tasks[existingIndex].value = task
@@ -206,6 +218,22 @@ func deriveTasks(
         inProgress: taskList.filter { $0.status == .inProgress }.count,
         pending: taskList.filter { $0.status == .pending }.count
     )
+    let trackerSource: TaskTrackerSource? = latestPlanEntry != nil ? .codexPlan : (hasTaskTools ? .taskTools : nil)
+    // A persisted Codex plan with open steps is only the last reported snapshot,
+    // not proof that the finished turn still has work remaining.
+    let hasUnconfirmedOpenPlanTasks: Bool
+    if let latestPlanEntry, latestPlanEntry.source == .history {
+        hasUnconfirmedOpenPlanTasks = hasOpenPlanTask(taskList, activityId: latestPlanEntry.plan.id)
+    } else {
+        hasUnconfirmedOpenPlanTasks = false
+    }
+    let trackerStatus: TaskTrackerStatus = hasUnconfirmedOpenPlanTasks ? .unconfirmed : .live
 
-    return TasksState(tasks: taskList, currentTask: currentTask, counts: counts)
+    return TasksState(
+        tasks: taskList,
+        currentTask: currentTask,
+        counts: counts,
+        trackerSource: trackerSource,
+        trackerStatus: trackerStatus
+    )
 }

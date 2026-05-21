@@ -78,6 +78,8 @@ struct TaskDerivationTests {
         #expect(state.counts.completed == 1)
         #expect(state.counts.inProgress == 1)
         #expect(state.counts.pending == 1)
+        #expect(state.trackerSource == .codexPlan)
+        #expect(state.trackerStatus == .unconfirmed)
     }
 
     @Test
@@ -107,6 +109,30 @@ struct TaskDerivationTests {
 
         #expect(state.tasks.map(\.subject) == ["Live implementation", "Run checks"])
         #expect(state.currentTask?.subject == "Live implementation")
+        #expect(state.trackerSource == .codexPlan)
+        #expect(state.trackerStatus == .live)
+    }
+
+    @Test
+    func keepsCompletedHistoricalCodexPlanUpdatesLive() throws {
+        let message = assistantMessage(
+            toolCalls: [],
+            agentActivities: [
+                .planUpdate(AgentActivity.PlanUpdate(
+                    id: "codex-plan-history",
+                    steps: [
+                        AgentActivityPlanStep(text: "Inspect", status: "completed"),
+                        AgentActivityPlanStep(text: "Patch", status: "completed")
+                    ]
+                ))
+            ]
+        )
+
+        let state = deriveTasks(from: [message], activeToolCalls: [])
+
+        #expect(state.trackerStatus == .live)
+        #expect(state.counts.total == 2)
+        #expect(state.counts.completed == 2)
     }
 
     @Test
@@ -131,6 +157,7 @@ struct TaskDerivationTests {
         #expect(state.counts.completed == 0)
         #expect(state.counts.inProgress == 0)
         #expect(state.counts.pending == 0)
+        #expect(state.trackerStatus == .live)
     }
 
     private func assistantMessage(

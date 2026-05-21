@@ -4,6 +4,7 @@ struct TaskTrackerView: View {
     let tasks: [TrackedTask]
     let currentTask: TrackedTask?
     let counts: TaskCounts
+    let trackerStatus: TaskTrackerStatus
     let isStreaming: Bool
 
     @State private var isExpanded = false
@@ -44,6 +45,10 @@ struct TaskTrackerView: View {
     // MARK: - Collapsed Row
 
     private var collapsedLabel: String {
+        if isUnconfirmed {
+            let unconfirmed = counts.pending + counts.inProgress
+            return unconfirmed == 1 ? "1 task unconfirmed" : "\(unconfirmed) tasks unconfirmed"
+        }
         if let current = currentTask {
             return current.activeForm ?? current.subject
         }
@@ -58,6 +63,10 @@ struct TaskTrackerView: View {
         return remaining == 1 ? "1 task not completed" : "\(remaining) tasks not completed"
     }
 
+    private var isUnconfirmed: Bool {
+        trackerStatus == .unconfirmed
+    }
+
     private var collapsedRow: some View {
         HStack(spacing: HiveSpacing.sm) {
             Image(systemName: "chevron.right")
@@ -67,7 +76,7 @@ struct TaskTrackerView: View {
                 .frame(width: 14, alignment: .center)
 
             Group {
-                if currentTask != nil && isStreaming {
+                if currentTask != nil && isStreaming && !isUnconfirmed {
                     Text(collapsedLabel)
                         .shimmer()
                 } else {
@@ -92,14 +101,14 @@ struct TaskTrackerView: View {
 
     private func taskRow(_ task: TrackedTask) -> some View {
         HStack(spacing: HiveSpacing.sm) {
-            taskStatusIcon(task.status)
+            taskStatusIcon(task.status, unconfirmed: isUnconfirmed)
                 .frame(width: 14, alignment: .center)
 
             Text(task.status == .inProgress
                  ? (task.activeForm ?? task.subject)
                  : task.subject)
                 .font(WhisperFont.mono(12))
-                .foregroundStyle(textStyle(for: task.status))
+                .foregroundStyle(textStyle(for: task.status, unconfirmed: isUnconfirmed))
                 .strikethrough(task.status == .completed)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -110,29 +119,38 @@ struct TaskTrackerView: View {
     // MARK: - Status Icons
 
     @ViewBuilder
-    private func taskStatusIcon(_ status: TaskStatus) -> some View {
-        switch status {
-        case .completed:
-            Image(systemName: "checkmark.circle")
+    private func taskStatusIcon(_ status: TaskStatus, unconfirmed: Bool) -> some View {
+        if unconfirmed && (status == .pending || status == .inProgress) {
+            Image(systemName: "questionmark.circle")
                 .font(.system(size: 11))
-                .foregroundStyle(WhisperColor.success)
-        case .inProgress:
-            Circle()
-                .fill(Color.accentColor)
-                .frame(width: 7, height: 7)
-                .modifier(PulsingDotModifier())
-        case .pending:
-            Circle()
-                .stroke(WhisperColor.textMuted, lineWidth: 1)
-                .frame(width: 9, height: 9)
-        case .failed, .declined:
-            Image(systemName: "xmark.circle")
-                .font(.system(size: 11))
-                .foregroundStyle(.red)
+                .foregroundStyle(WhisperColor.textMuted)
+        } else {
+            switch status {
+            case .completed:
+                Image(systemName: "checkmark.circle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(WhisperColor.success)
+            case .inProgress:
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 7, height: 7)
+                    .modifier(PulsingDotModifier())
+            case .pending:
+                Circle()
+                    .stroke(WhisperColor.textMuted, lineWidth: 1)
+                    .frame(width: 9, height: 9)
+            case .failed, .declined:
+                Image(systemName: "xmark.circle")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+            }
         }
     }
 
-    private func textStyle(for status: TaskStatus) -> Color {
+    private func textStyle(for status: TaskStatus, unconfirmed: Bool) -> Color {
+        if unconfirmed && (status == .pending || status == .inProgress) {
+            return WhisperColor.textMuted
+        }
         switch status {
         case .completed: WhisperColor.textMuted
         case .inProgress: WhisperColor.text
@@ -171,6 +189,7 @@ private struct PulsingDotModifier: ViewModifier {
             ],
             currentTask: TrackedTask(id: "2", subject: "Implement API endpoints", activeForm: "Implementing API endpoints", status: .inProgress, isCreating: false),
             counts: TaskCounts(total: 3, completed: 1, inProgress: 1, pending: 1),
+            trackerStatus: .live,
             isStreaming: true
         )
     }

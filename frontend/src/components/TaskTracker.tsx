@@ -1,7 +1,7 @@
 import { useState, memo } from "react";
-import { ChevronRightIcon, TargetIcon, XCircleIcon } from "lucide-react";
+import { ChevronRightIcon, CircleDashedIcon, TargetIcon, XCircleIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { TrackedTask, TaskCounts } from "@/hooks/useTasks";
+import type { TrackedTask, TaskCounts, TaskTrackerStatus } from "@/hooks/useTasks";
 import type { BackgroundAgent } from "@/hooks/useBackgroundAgents";
 import type { GoalState } from "@/hooks/useGoalState";
 
@@ -15,7 +15,11 @@ const svgProps = {
   strokeLinejoin: "round" as const,
 };
 
-function StatusIcon({ status }: { status: TrackedTask["status"] }) {
+function StatusIcon({ status, unconfirmed }: { status: TrackedTask["status"]; unconfirmed?: boolean }) {
+  if (unconfirmed && (status === "pending" || status === "in_progress")) {
+    return <CircleDashedIcon className="size-3 text-muted-foreground/50" />;
+  }
+
   switch (status) {
     case "completed":
       return (
@@ -120,6 +124,7 @@ interface TaskTrackerProps {
   tasks: TrackedTask[];
   currentTask: TrackedTask | undefined;
   counts: TaskCounts;
+  trackerStatus?: TaskTrackerStatus;
   isStreaming?: boolean;
   backgroundAgents?: BackgroundAgent[];
   backgroundRunningCount?: number;
@@ -130,6 +135,7 @@ const TaskTracker = memo(function TaskTracker({
   tasks,
   currentTask,
   counts,
+  trackerStatus = "live",
   isStreaming,
   backgroundAgents = [],
   backgroundRunningCount = 0,
@@ -144,10 +150,14 @@ const TaskTracker = memo(function TaskTracker({
 
   if (!hasGoal && !hasTasks && !hasAgents) return null;
 
+  const isUnconfirmed = trackerStatus === "unconfirmed";
   const allDone = counts.completed === counts.total;
   const remaining = counts.total - counts.completed;
+  const unconfirmedCount = counts.pending + counts.inProgress;
   const hasOnlyOpenTasks = remaining === counts.pending + counts.inProgress;
-  const collapsedLabel = currentTask
+  const collapsedLabel = isUnconfirmed
+    ? `${unconfirmedCount} task${unconfirmedCount === 1 ? "" : "s"} unconfirmed`
+    : currentTask
     ? (currentTask.activeForm ?? currentTask.subject)
     : allDone
       ? "All tasks completed"
@@ -243,8 +253,9 @@ const TaskTracker = memo(function TaskTracker({
             <span
               className={cn(
                 "min-w-0 truncate",
-                currentTask && isStreaming && "animate-shimmer",
+                currentTask && isStreaming && !isUnconfirmed && "animate-shimmer",
               )}
+              title={isUnconfirmed ? "Codex finished before reporting a final plan update" : undefined}
             >
               {collapsedLabel}
             </span>
@@ -261,13 +272,14 @@ const TaskTracker = memo(function TaskTracker({
                   className="flex items-center gap-2 py-0.5 pl-5 text-xs text-muted-foreground"
                 >
                   <span className="flex shrink-0 items-center justify-center" style={{ width: 12 }}>
-                    <StatusIcon status={task.status} />
+                    <StatusIcon status={task.status} unconfirmed={isUnconfirmed} />
                   </span>
                   <span
                     className={cn(
                       "min-w-0 truncate",
                       task.status === "completed" && "line-through text-muted-foreground/50",
-                      task.status === "in_progress" && "text-foreground",
+                      task.status === "in_progress" && (isUnconfirmed ? "text-muted-foreground/60" : "text-foreground"),
+                      isUnconfirmed && task.status === "pending" && "text-muted-foreground/60",
                       (task.status === "failed" || task.status === "declined") && "text-destructive",
                     )}
                   >

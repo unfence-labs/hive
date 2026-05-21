@@ -18,10 +18,15 @@ export interface TaskCounts {
   pending: number;
 }
 
+export type TaskTrackerSource = "task_tools" | "codex_plan";
+export type TaskTrackerStatus = "live" | "unconfirmed";
+
 export interface TasksState {
   tasks: TrackedTask[];
   currentTask: TrackedTask | undefined;
   counts: TaskCounts;
+  trackerSource?: TaskTrackerSource;
+  trackerStatus: TaskTrackerStatus;
 }
 
 const VALID_STATUSES = new Set(["pending", "in_progress", "completed", "failed", "declined"]);
@@ -91,10 +96,24 @@ function planActivityToTasks(activity: Extract<AgentActivity, { kind: "plan_upda
     .filter((task): task is TrackedTask => task != null);
 }
 
+function hasOpenPlanTask(tasks: TrackedTask[], activityId: string): boolean {
+  return tasks.some(
+    (task) =>
+      task.id.startsWith(`${activityId}-`) &&
+      (task.status === "pending" || task.status === "in_progress"),
+  );
+}
+
 const EMPTY: TasksState = {
   tasks: [],
   currentTask: undefined,
   counts: { total: 0, completed: 0, inProgress: 0, pending: 0 },
+  trackerStatus: "live",
+};
+
+type PlanActivityEntry = {
+  activity: Extract<AgentActivity, { kind: "plan_update" }>;
+  source: "history" | "active";
 };
 
 export function useTasks(
@@ -105,20 +124,20 @@ export function useTasks(
   return useMemo(() => {
     // Collect all tool calls in chronological order
     const allTools: ToolCall[] = [];
-    const planActivities: Array<Extract<AgentActivity, { kind: "plan_update" }>> = [];
+    const planActivities: PlanActivityEntry[] = [];
     for (const msg of messages) {
       if (msg.toolCalls) {
         for (const tc of msg.toolCalls) allTools.push(tc);
       }
       if (msg.agentActivities) {
         for (const activity of msg.agentActivities) {
-          if (activity.kind === "plan_update") planActivities.push(activity);
+          if (activity.kind === "plan_update") planActivities.push({ activity, source: "history" });
         }
       }
     }
     for (const tc of activeToolCalls) allTools.push(tc);
     for (const activity of activeAgentActivities) {
-      if (activity.kind === "plan_update") planActivities.push(activity);
+      if (activity.kind === "plan_update") planActivities.push({ activity, source: "active" });
     }
 
     // Quick bail: if no task tools at all, return empty
@@ -191,9 +210,9 @@ export function useTasks(
     // Codex app-server emits plan updates as agent activities, not tool calls.
     // Treat the latest plan as the current work tracker instead of accumulating
     // stale plans from earlier turns.
-    const latestPlan = planActivities.at(-1);
-    if (latestPlan) {
-      for (const task of planActivityToTasks(latestPlan)) {
+    const latestPlanEntry = planActivities.at(-1);
+    if (latestPlanEntry) {
+      for (const task of planActivityToTasks(latestPlanEntry.activity)) {
         tasks.set(`plan:${task.id}`, task);
       }
     }
@@ -206,7 +225,14 @@ export function useTasks(
       inProgress: taskList.filter((t) => t.status === "in_progress").length,
       pending: taskList.filter((t) => t.status === "pending").length,
     };
+    const trackerSource: TaskTrackerSource | undefined = latestPlanEntry ? "codex_plan" : hasTaskTools ? "task_tools" : undefined;
+    // A persisted Codex plan with open steps is only the last reported snapshot,
+    // not proof that the finished turn still has work remaining.
+    const hasUnconfirmedOpenPlanTasks =
+      latestPlanEntry?.source === "history" &&
+      hasOpenPlanTask(taskList, latestPlanEntry.activity.id);
+    const trackerStatus: TaskTrackerStatus = hasUnconfirmedOpenPlanTasks ? "unconfirmed" : "live";
 
-    return { tasks: taskList, currentTask, counts };
+    return { tasks: taskList, currentTask, counts, trackerSource, trackerStatus };
   }, [messages, activeToolCalls, activeAgentActivities]);
 }

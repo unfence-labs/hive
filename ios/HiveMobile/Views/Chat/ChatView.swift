@@ -128,6 +128,7 @@ struct ChatView: View {
                         tasks: tasksState.tasks,
                         currentTask: tasksState.currentTask,
                         counts: tasksState.counts,
+                        trackerStatus: tasksState.trackerStatus,
                         isStreaming: store.isStreaming
                     )
                 }

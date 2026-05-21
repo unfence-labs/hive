@@ -171,6 +171,45 @@ describe("TaskTracker", () => {
     expect(screen.getByText("1 task remaining")).toBeInTheDocument();
   });
 
+  it("shows unconfirmed label for stale Codex plan tasks", () => {
+    const tasks = [
+      task({ id: "1", subject: "A", status: "completed" }),
+      task({ id: "2", subject: "B", status: "in_progress" }),
+      task({ id: "3", subject: "C", status: "pending" }),
+    ];
+    render(
+      <TaskTracker
+        tasks={tasks}
+        currentTask={tasks[1]}
+        counts={counts(tasks)}
+        trackerStatus="unconfirmed"
+        isStreaming
+      />,
+    );
+
+    const label = screen.getByText("2 tasks unconfirmed");
+    expect(label).toBeInTheDocument();
+    expect(label).not.toHaveClass("animate-shimmer");
+    expect(label).toHaveAttribute("title", "Codex finished before reporting a final plan update");
+  });
+
+  it("shows singular unconfirmed label", () => {
+    const tasks = [
+      task({ id: "1", subject: "A", status: "completed" }),
+      task({ id: "2", subject: "B", status: "pending" }),
+    ];
+    render(
+      <TaskTracker
+        tasks={tasks}
+        currentTask={undefined}
+        counts={counts(tasks)}
+        trackerStatus="unconfirmed"
+      />,
+    );
+
+    expect(screen.getByText("1 task unconfirmed")).toBeInTheDocument();
+  });
+
   it("labels failed or declined tasks as not completed", () => {
     const tasks = [
       task({ id: "1", subject: "Rejected plan step", status: "declined" }),
