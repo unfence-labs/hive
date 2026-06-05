@@ -7,7 +7,7 @@ import type { AgentRunner } from "./types.js";
 import { CodexAppServerRunner } from "./codex-app-server-runner.js";
 import { ProcessAgentRunner } from "./process-agent-runner.js";
 
-type SessionKind = "chat" | "automation";
+type SessionKind = "chat" | "automation" | "brain";
 
 export interface CreateAgentRunnerInput {
   cwd: string;
@@ -18,6 +18,8 @@ export interface CreateAgentRunnerInput {
   isFirstMessage: boolean;
   systemPrompt?: string;
   skipPermissions: boolean;
+  /** Optional allow-list bounding the available built-in tool set. */
+  tools?: string[];
   browserEnv?: Record<string, string>;
   sessionKind: SessionKind;
   providerSessionId?: string;
@@ -117,6 +119,7 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
       sessionId: nextProviderSessionId,
       systemPrompt: input.systemPrompt,
       skipPermissions: input.skipPermissions,
+      tools: input.tools,
     });
     if (provider!.id === "codex") {
       stdinContent = cliContent;

@@ -111,3 +111,22 @@ export async function buildFileTree(
   const remaining = { count: options.maxNodes ?? DEFAULT_MAX_TREE_NODES };
   return readTree(rootPath, rootPath, 0, maxDepth, remaining);
 }
+
+/**
+ * Flatten a file tree into a sorted list of relative file paths (directories
+ * omitted). Used to inject a Brain "map" into the agent system prompt.
+ */
+export function flattenFilePaths(nodes: WorkspaceFileTreeNode[]): string[] {
+  const paths: string[] = [];
+  const walk = (items: WorkspaceFileTreeNode[]): void => {
+    for (const node of items) {
+      if (node.type === "file") {
+        paths.push(node.path);
+      } else if (node.children?.length) {
+        walk(node.children);
+      }
+    }
+  };
+  walk(nodes);
+  return paths;
+}

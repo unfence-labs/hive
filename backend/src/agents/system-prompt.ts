@@ -168,3 +168,52 @@ export async function buildSystemPrompt(opts: SystemPromptOptions): Promise<stri
 
   return sections.join("\n\n");
 }
+
+/** Hardcoded base prompt describing the Brain agent's role and constraints. */
+export const BRAIN_BASE_PROMPT = `You are the agent for the user's **Brain**, a personal knowledge base stored as a Git repository.
+The Brain holds the user's notes, documentation, code snippets, references, and brainstorming — not application source code.
+Your job is to help the user capture, organize, refine, and retrieve this knowledge by reading and writing files in the Brain.
+
+How retrieval works: there is no search index. You are given a map of the Brain's file paths below. The user guides you to the right place (e.g. "look in solana/"). Use the map to navigate, then Read the relevant files before answering or editing.
+
+Rules:
+- Read and write files ONLY inside the Brain repository. Never touch files outside it.
+- You have no shell/terminal access; use your Read, Write, Edit, Glob, and Grep tools.
+- Prefer clear Markdown for notes. Keep a sensible folder structure; reuse existing folders when they fit.
+- When the user asks you to record something, write it to an appropriate file rather than only replying in chat.
+- All file content must be in English.`;
+
+export interface BrainSystemPromptOptions {
+  /** Brain repository working-tree path (Brain `cwd`). */
+  cwd: string;
+  /** Relative file paths currently in the Brain (the navigation map). */
+  filePaths: string[];
+}
+
+/**
+ * Format the Brain's file-path map as a system-prompt block. Paths only (no
+ * content) — this is the agent's retrieval mechanism: it knows the structure
+ * and the user guides it to the right place.
+ */
+export function formatBrainMapBlock(filePaths: string[]): string {
+  const lines = ["# Brain Map (file paths only — Read files before editing)", ""];
+  if (filePaths.length === 0) {
+    lines.push("(The Brain is currently empty.)");
+  } else {
+    for (const path of filePaths) lines.push(`- ${path}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Build the system prompt for a Brain agent session. Injects the Brain file-path
+ * map so the agent always knows the knowledge-base structure.
+ */
+export function buildBrainSystemPrompt(opts: BrainSystemPromptOptions): string {
+  const basePrompt = interpolatePromptVariables(BRAIN_BASE_PROMPT, {
+    cwd: opts.cwd,
+    defaultBranch: "main",
+    projectName: "Brain",
+  });
+  return [basePrompt, formatBrainMapBlock(opts.filePaths)].join("\n\n");
+}

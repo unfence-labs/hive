@@ -34,6 +34,13 @@ export interface ProviderSessionState {
   sessionId: string;
   systemPrompt?: string;
   skipPermissions: boolean;
+  /**
+   * Optional allow-list bounding the *available* built-in tool set. Providers
+   * that support it (Claude via `--tools`) must restrict the available tools to
+   * exactly this list. Independent of `skipPermissions`, which only controls
+   * auto-approval. Undefined leaves provider defaults unchanged.
+   */
+  tools?: string[];
 }
 
 // ── Message options subset relevant to providers ────────────────────

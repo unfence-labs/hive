@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
-import { BrainIcon, MessageSquareIcon } from "lucide-react";
+import { BrainIcon } from "lucide-react";
 import { useBrain } from "@/hooks/useBrain";
 import {
   useBrainFileContent,
@@ -8,7 +8,9 @@ import {
   useBrainFileTree,
 } from "@/hooks/useBrainFiles";
 import { useBrainSave, useBrainStatus } from "@/hooks/useBrainGit";
+import { useBrainChatRefresh } from "@/hooks/useBrainChatRefresh";
 import { ResizeHandle } from "@/components/ResizeHandle";
+import { BrainChatPanel } from "@/components/brain/BrainChatPanel";
 import { BrainEditorPanel, type BrainSaveIndicator } from "@/components/brain/BrainEditorPanel";
 import { BrainFileTree } from "@/components/brain/BrainFileTree";
 import { BrainReviewChanges } from "@/components/brain/BrainReviewChanges";
@@ -32,6 +34,9 @@ export default function BrainView() {
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const pendingCount = statusQuery.data?.count ?? 0;
+
+  // Refresh the editor/tree/status when the Brain agent writes files.
+  useBrainChatRefresh(selectedPath || null);
 
   useEffect(() => {
     return () => {
@@ -124,22 +129,18 @@ export default function BrainView() {
         onLayoutChanged={onLayoutChanged}
         style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
       >
-        {/* Chat — collapsed by default, placeholder for M-C */}
+        {/* Brain agent chat */}
         <Panel
           id="brain-chat"
           panelRef={chatPanelRef}
           collapsible
           collapsedSize={0}
-          defaultSize={0}
+          defaultSize="24%"
           minSize="18%"
           maxSize="40%"
           className="bg-sidebar"
         >
-          {/* Filled in M-C — wire the Brain agent chat here. */}
-          <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
-            <MessageSquareIcon className="size-5" />
-            <span className="text-sm">Chat — coming in M-C</span>
-          </div>
+          <BrainChatPanel />
         </Panel>
 
         <ResizeHandle orientation="vertical" />

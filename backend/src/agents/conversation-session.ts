@@ -72,7 +72,7 @@ function normalizeActivityFiles(
   return existingFiles?.map((file) => ({ ...file })) ?? [];
 }
 
-type SessionKind = "chat" | "automation";
+type SessionKind = "chat" | "automation" | "brain";
 
 export interface ConversationSessionConfig {
   cwd: string;
@@ -84,6 +84,12 @@ export interface ConversationSessionConfig {
   skipPermissions?: boolean;
   browserEnv?: Record<string, string>;
   sessionKind?: SessionKind;
+  /**
+   * Optional allow-list bounding the *available* built-in tools (not just
+   * auto-approval). When set, it is plumbed to the provider arg builder
+   * (e.g. Claude's `--tools`). Undefined leaves provider defaults unchanged.
+   */
+  tools?: string[];
   runnerFactory?: AgentRunnerFactory;
 }
 
@@ -101,6 +107,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private readonly systemPrompt: string | undefined;
   private readonly skipPermissions: boolean;
   private readonly sessionKind: SessionKind;
+  private readonly tools: string[] | undefined;
   private readonly runnerFactory: AgentRunnerFactory;
   private browserEnv: Record<string, string> | undefined;
   private readonly sessionDir: string;
@@ -133,6 +140,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.systemPrompt = config.systemPrompt;
     this.skipPermissions = config.skipPermissions ?? true;
     this.sessionKind = config.sessionKind ?? "chat";
+    this.tools = config.tools;
     this.runnerFactory = config.runnerFactory ?? createAgentRunner;
     this.browserEnv = config.browserEnv;
     this.workspaceId = config.workspaceId;
@@ -369,6 +377,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       isFirstMessage,
       systemPrompt: this.systemPrompt,
       skipPermissions: this.skipPermissions,
+      tools: this.tools,
       browserEnv: this.browserEnv,
       sessionKind: this.sessionKind,
       providerSessionId: this.cliSessionId,

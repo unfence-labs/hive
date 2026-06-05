@@ -26,6 +26,13 @@ vi.mock("@/hooks/useBrainGit", () => ({
   useBrainSave: mocks.useBrainSave,
 }));
 
+// The chat panel + its WS refresh hook are exercised in their own tests; keep
+// them inert here so BrainView's editor/tree behavior is tested in isolation.
+vi.mock("@/hooks/useBrainChatRefresh", () => ({ useBrainChatRefresh: vi.fn() }));
+vi.mock("@/components/brain/BrainChatPanel", () => ({
+  BrainChatPanel: () => <div data-testid="brain-chat-panel">brain-chat</div>,
+}));
+
 // Keep the diff/editor lightweight in tests.
 vi.mock("@/components/diff/FileDiffCard", () => ({
   FileDiffCard: ({ fileName }: { fileName: string }) => <div data-testid="diff-file">{fileName}</div>,
@@ -64,9 +71,9 @@ describe("BrainView", () => {
     expect(screen.getByText(/No Brain repository connected/i)).toBeInTheDocument();
   });
 
-  it("renders the three-column layout with a collapsed chat placeholder", () => {
+  it("renders the three-column layout with the Brain chat panel", () => {
     render(<BrainView />);
-    expect(screen.getByText(/Chat — coming in M-C/i)).toBeInTheDocument();
+    expect(screen.getByTestId("brain-chat-panel")).toBeInTheDocument();
     expect(screen.getByText("Notes")).toBeInTheDocument();
   });
 

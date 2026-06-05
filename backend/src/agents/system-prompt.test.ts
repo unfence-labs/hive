@@ -6,6 +6,7 @@ import { git } from "../utils/git.js";
 import {
   getGitContext,
   buildSystemPrompt,
+  buildBrainSystemPrompt,
   loadBasePrompt,
   formatGitContextBlock,
   interpolatePromptVariables,
@@ -31,6 +32,29 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
+});
+
+describe("buildBrainSystemPrompt", () => {
+  it("injects the Brain file-path map", () => {
+    const prompt = buildBrainSystemPrompt({
+      cwd: "/data/brain/repo",
+      filePaths: ["solana/notes.md", "ideas/roadmap.md"],
+    });
+    expect(prompt).toContain("Brain Map");
+    expect(prompt).toContain("- solana/notes.md");
+    expect(prompt).toContain("- ideas/roadmap.md");
+    expect(prompt).toContain("Brain");
+  });
+
+  it("describes an empty Brain when there are no files", () => {
+    const prompt = buildBrainSystemPrompt({ cwd: "/data/brain/repo", filePaths: [] });
+    expect(prompt).toContain("currently empty");
+  });
+
+  it("reminds the agent to stay inside the Brain", () => {
+    const prompt = buildBrainSystemPrompt({ cwd: "/data/brain/repo", filePaths: [] });
+    expect(prompt).toMatch(/ONLY inside the Brain/i);
+  });
 });
 
 describe("getGitContext", () => {

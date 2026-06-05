@@ -42,9 +42,11 @@ export default function App() {
   const workspaceIds = useMemo(
     () =>
       Array.from(
-        new Set(
-          projects.flatMap((project) => (project.workspaces ?? []).map((workspace) => workspace.id)),
-        ),
+        new Set([
+          // The Brain is addressed as a synthetic workspace id over the same hub.
+          "brain",
+          ...projects.flatMap((project) => (project.workspaces ?? []).map((workspace) => workspace.id)),
+        ]),
       ),
     [projects],
   );

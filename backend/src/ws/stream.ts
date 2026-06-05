@@ -8,8 +8,8 @@ import {
   getSessionMessages,
   getStreamingSessionIds,
   stopStreaming,
-  type SessionOptions,
-} from "../agents/agent-manager.js";
+} from "../agents/session-dispatch.js";
+import type { SessionOptions } from "../agents/agent-manager.js";
 import { errorMessage } from "../utils/errors.js";
 import { isAuthorized } from "../utils/auth.js";
 import type { WsIncoming, WsOutgoing, HubIncoming, HubOutgoing } from "../types.js";

@@ -59,7 +59,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/api/brain.ts`: singleton Brain routes — state read-create-connect-delete (`GET/POST/DELETE /api/brain`), working-tree file ops (`GET /api/brain/files`, `GET/PUT/DELETE /api/brain/file`, `POST /api/brain/file/rename`), and git ops (`GET /api/brain/status`, `GET /api/brain/diff`, `POST /api/brain/save`) for a normal Git clone, not a Project
 - `backend/src/brain/brain-files.ts`: Brain working-tree file operations (list/read/upsert/delete/rename) with `requireBrainRepo()` guard (409 when absent), anti-traversal `resolveBrainFilePath()`, and `.git` protection. Upsert/delete/rename touch disk only — never git.
 - `backend/src/brain/brain-git.ts`: Brain git operations — `getBrainStatus()` (porcelain pending changes), `getBrainDiff()` (working-tree-vs-HEAD incl. untracked), `saveBrain()` (`git add -A` + commit + push)
-- `backend/src/utils/file-tree.ts`: shared recursive file-tree builder (`buildFileTree`) reused by workspace and Brain listings (ignores VCS/build/dep dirs, depth + node caps)
+- `backend/src/utils/file-tree.ts`: shared recursive file-tree builder (`buildFileTree`) reused by workspace and Brain listings (ignores VCS/build/dep dirs, depth + node caps); `flattenFilePaths()` flattens a tree into a sorted path list (used for the Brain map)
 - `backend/src/utils/git-diff.ts`: shared `getUntrackedDiff()` — synthetic new-file patches for untracked files, concatenable with `git diff HEAD`
 - `backend/src/api/workspaces.ts`: workspace CRUD + diff/stat + files/file + merge + archive + PR status + bulk PR status + file-completions + terminal start/stop
 - `backend/src/api/agents.ts`: session routes (single + multi-session)
@@ -81,18 +81,20 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/services/git-sync.ts`: branch/diff polling and workspace broadcasts (PR status moved to REST)
 - `backend/src/services/script-runner.ts`: PTY-based script execution with status broadcasting + command-less interactive terminal mode
 - `backend/src/services/automation-scheduler.ts`: cron-based automation executor (croner, ConversationSession, summary extraction, git context injection, notifications)
-- `backend/src/agents/conversation-session.ts`: agent process lifecycle per turn (provider-aware)
+- `backend/src/agents/conversation-session.ts`: agent process lifecycle per turn (provider-aware); `SessionKind` (`chat`/`automation`/`brain`); optional `tools` allow-list plumbed to the provider arg builder
 - `backend/src/agents/stream-parser.ts`: NDJSON parser for Claude CLI `--output-format stream-json --verbose`
 - `backend/src/agents/agent-event-normalizer.ts`: provider event normalization into Hive stream events and activity updates
 - `backend/src/agents/runners/factory.ts`: runner selection (`codex` chat -> App Server, Codex automation -> process runner)
 - `backend/src/agents/runners/process-agent-runner.ts`: CLI process runner for Claude, Gemini, and Codex exec automations
 - `backend/src/agents/runners/codex-app-server-runner.ts`: Codex App Server turn runner and stop/interruption lifecycle
-- `backend/src/agents/agent-manager.ts`: in-memory session registry, persistence, switching, notification dispatch
+- `backend/src/agents/agent-manager.ts`: in-memory session registry, persistence, switching, notification dispatch (workspace-coupled)
+- `backend/src/agents/brain-manager.ts`: Brain session manager — reuses `ConversationSession` but resolves context from the Brain clone (`cwd = brainRepoPath`, `dataDir = brainDir`, `workspaceId = "brain"`); list/create/switch/delete with `MAX_BRAIN_SESSIONS = 4`; restricted `BRAIN_TOOLS = [Read, Write, Edit, Glob, Grep]`; Brain system prompt with fresh file-path map per session
+- `backend/src/agents/session-dispatch.ts`: unified session surface keyed by workspace id — routes `wsId === "brain"` to `brain-manager`, everything else to `agent-manager`, so the WS hub + session routes stay manager-agnostic (no duplicated session logic)
 - `backend/src/agents/naming.ts`: branch + session auto-naming via dedicated Claude subprocess
-- `backend/src/agents/system-prompt.ts`: system prompt construction — `DEFAULT_BASE_PROMPT`, `loadBasePrompt()`, `getGitContext()`, `formatGitContextBlock()`, `buildSystemPrompt()` with template variable interpolation (`{PROJECT}`, `{DIR}`, `{DEFAULT_BRANCH}`)
+- `backend/src/agents/system-prompt.ts`: system prompt construction — `DEFAULT_BASE_PROMPT`, `loadBasePrompt()`, `getGitContext()`, `formatGitContextBlock()`, `buildSystemPrompt()` with template variable interpolation (`{PROJECT}`, `{DIR}`, `{DEFAULT_BRANCH}`); `buildBrainSystemPrompt()` + `formatBrainMapBlock()` inject the Brain's flattened file-path map (paths only) as the retrieval mechanism
 - `backend/src/agents/providers/types.ts`: `AgentProvider` interface, `ProviderCapabilities`, `ModelDefinition` (includes `contextWindow`), `StreamAdapter`
 - `backend/src/agents/providers/registry.ts`: CLI detection, model ID resolution (`"claude:opus-4-7"`), model catalog builder, npm package version tracking
-- `backend/src/agents/providers/claude.ts`: Claude provider (CLI args, env, `--effort` flag for reasoning effort)
+- `backend/src/agents/providers/claude.ts`: Claude provider (CLI args, env, `--effort` flag for reasoning effort, `--tools` allow-list when `session.tools` is set)
 - `backend/src/agents/providers/codex.ts`: Codex provider (`codex exec` CLI args, thread resume)
 - `backend/src/agents/providers/codex-app-server.ts`: long-lived JSON-RPC bridge for interactive Codex chat over `codex app-server`
 - `backend/src/agents/providers/codex-stream-adapter.ts`: Codex JSONL->StreamParserEvent normalizer for assistant text/thinking, tool calls, native todo lists, file changes, token usage, and non-fatal diagnostics
@@ -154,6 +156,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Image attachments are resized via sharp (max 1568px, JPEG q80) and stored as files on disk, served via HTTP (`/api/workspaces/:wsId/sessions/:sessionId/attachments/:filename`).
 - PR status: single-workspace endpoint (`GET /api/workspaces/:wsId/pr-status`) with 15s TTL cache, plus bulk endpoint (`POST /api/workspaces/bulk-pr-status`) that seeds per-workspace cache entries. Returns enriched data: review state, checks counts, mergeable state (13-state priority ladder), supports closed/merged/draft PRs.
 - System prompt construction: `system-prompt.ts` loads base prompt from `~/.hive/prompts/base.md` (or hardcoded default), interpolates template variables (`{PROJECT}`, `{DIR}`, `{DEFAULT_BRANCH}`), appends git context block.
+- Brain chat (M-C): Brain sessions run through the shared `ConversationSession` machinery via a dedicated `brain-manager` (the workspace-coupled `agent-manager` cannot back a non-workspace clone). Sessions persist under `$DATA_DIR/brain/sessions/<id>/`, are addressed over the existing WS hub as `workspaceId = "brain"` (no new WS message types), and are routed by `session-dispatch.ts`. The Brain system prompt injects a fresh file-path map (paths only, `.git` excluded) at each session start/disk-load — the user guides the agent, there is no search index. Brain sessions are bounded to `Read Write Edit Glob Grep` via Claude's `--tools` flag, which restricts the *available* tool set (so the agent has no Bash) even under `--dangerously-skip-permissions` (which only auto-approves). The `tools` allow-list is undefined for workspace/automation sessions, leaving their behavior unchanged.
 - Automation scheduler (`AutomationScheduler`) runs as a singleton service alongside `GitSyncService`, instantiated in `main()`.
 - Automations execute `ConversationSession` directly (not via agent-manager) to keep automation sessions decoupled from workspace sessions.
 - Automation system prompt: auto-appends `## Summary` instruction + git context block (for project-linked automations). The resolved system prompt is persisted to disk alongside run messages.
@@ -168,9 +171,10 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 
 ## Frontend Architecture
 
-- `frontend/src/App.tsx`: routing (including `/brain`), global workspace WS syncing, WS cache invalidation
+- `frontend/src/App.tsx`: routing (including `/brain`), global workspace WS syncing (always includes the synthetic `"brain"` workspace id), WS cache invalidation
 - `frontend/src/pages/WorkspaceView.tsx`: chat + file tree + inline diff viewer + scripts + modified files + PR status
-- `frontend/src/pages/BrainView.tsx`: three-column resizable Brain layout (`useDefaultLayout({ id: "hive-brain" })`) — collapsed chat placeholder (left, "coming in M-C"), editor/review (center), file tree (right); owns selected-file + edit/review mode + save indicator state
+- `frontend/src/pages/BrainView.tsx`: three-column resizable Brain layout (`useDefaultLayout({ id: "hive-brain" })`) — Brain agent chat (left, `BrainChatPanel`, `defaultSize "24%"`, collapsible), editor/review (center), file tree (right); owns selected-file + edit/review mode + save indicator state; calls `useBrainChatRefresh(selectedPath)` to refresh on agent writes
+- `frontend/src/components/brain/BrainChatPanel.tsx`: Brain agent chat reusing `useConversation`/`useSessions`/`ConversationTabs`/`ChatConversation`/`ChatInput`/`TaskTracker`/`QuestionPanel` pointed at `workspaceId = "brain"` (max 4 sessions, create/switch/delete, single-message queue)
 - `frontend/src/components/brain/BrainEditorPanel.tsx`: central Brain editor — Rendered/Raw toggle (Streamdown / MarkdownEditor), debounced disk write (PUT /api/brain/file, not git), Save button with pending-count badge + Saved/Saving/Push failed indicator
 - `frontend/src/components/brain/BrainReviewChanges.tsx`: Save review panel — renders the full working-tree diff via `FileDiffCard`, optional commit message, Save & Push / Cancel
 - `frontend/src/components/brain/BrainFileTree.tsx`: right-column Brain tree reusing shared `FileTree` primitives + create (new note) / rename (Dialog) / delete (AlertDialog) actions
@@ -206,6 +210,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/hooks/useBrain.ts`: Brain singleton query + create/connect/delete mutations for `/api/brain`
 - `frontend/src/hooks/useBrainFiles.ts`: Brain file-tree + file-content queries and upsert/delete/rename mutations (each invalidates the tree + git status)
 - `frontend/src/hooks/useBrainGit.ts`: `useBrainStatus` (Save badge), `useBrainDiff` (review, fetched on demand), `useBrainSave` (commit+push, invalidates status+diff)
+- `frontend/src/hooks/useBrainChatRefresh.ts`: subscribes to the `"brain"` hub channel and invalidates Brain file-tree/status/open-file queries on agent `Write`/`Edit` tool calls and `done`/`cancelled` (last-write-wins editor refresh)
 - `frontend/src/hooks/usePromptTemplates.ts`: prompt template CRUD hooks
 - `frontend/src/hooks/useBasePrompt.ts`: base prompt query + update + reset hooks
 - `frontend/src/hooks/useCustomAgents.ts`: custom agent CRUD hooks + completion cache invalidation
@@ -257,7 +262,8 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 ### Important frontend behavior
 
 - The frontend supports a configurable server URL (Settings > Connection) for remote backend connectivity. All API calls (`useApi.ts`) and WebSockets (`ws-transport.ts`) resolve the base URL via `getServerUrl()` from `useServerUrl.ts`.
-- The app maintains a single hub WS connection; `wsTransport.syncWorkspaces` sends `sync_workspaces` with the full workspace ID set to the backend.
+- The app maintains a single hub WS connection; `wsTransport.syncWorkspaces` sends `sync_workspaces` with the full workspace ID set to the backend. The synthetic `"brain"` id is always included so the Brain agent chat streams over the same hub.
+- Brain chat (M-C): `BrainChatPanel` reuses the workspace chat stack verbatim pointed at `workspaceId = "brain"` (no rewritten chat components). When the Brain agent runs a `Write`/`Edit` tool or finishes a turn, `useBrainChatRefresh` invalidates the Brain file tree, status, and the open file's content so the central editor reflects the agent's changes (last-write-wins for the open file).
 - `useConversation` hydrates from REST history, resolves stale replay races with request tokens, and ignores late live fragments after a terminal assistant message. It also tracks `lockedProvider` from WS status events.
 - Session tabs support create/switch/delete (max 4 sessions) with live message replay, per-session streaming indicators, and per-session unread badges.
 - Chat input dynamically adapts controls based on the selected provider's capabilities: a unified thinking-level cycler reads the supported list from `capabilities.thinkingLevels` (Claude: low/medium/high/xhigh/max via `--effort`; Codex: none/minimal/low/medium/high/xhigh via `model_reasoning_effort`; Gemini: `[]` → hidden), plan mode hidden when unsupported, `/` and `@` autocomplete gated by `completions` capability, `#` file mention autocomplete with fuzzy matching.
