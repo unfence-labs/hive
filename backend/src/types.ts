@@ -102,6 +102,41 @@ export type BrainState =
       createdAt: string;
     };
 
+/** Working-tree change status for a single Brain file, relative to HEAD. */
+export type BrainFileStatusKind =
+  | "added"
+  | "modified"
+  | "deleted"
+  | "renamed"
+  | "untracked";
+
+/** One pending change in the Brain working tree (what `save` would commit). */
+export interface BrainFileStatus {
+  path: string;
+  status: BrainFileStatusKind;
+  /** Original path for renamed entries. */
+  renamedFrom?: string;
+}
+
+/** Response of `GET /api/brain/status`: the set of changes awaiting save. */
+export interface BrainStatusResponse {
+  files: BrainFileStatus[];
+  count: number;
+}
+
+/** Response of `POST /api/brain/save`: outcome of commit + push. */
+export interface BrainSaveResponse {
+  committed: boolean;
+  pushed: boolean;
+  error?: string;
+}
+
+/** Response of `GET /api/brain/file`: a single file's path and text content. */
+export interface BrainFileContent {
+  path: string;
+  content: string;
+}
+
 export type {
   ProjectEnvConfig,
   ProjectEnvData,

@@ -38,7 +38,13 @@ export async function loadProject(
 ): Promise<ProjectState | null> {
   try {
     const raw = await readFile(stateFilePath(dataDir, projectId), "utf-8");
-    return JSON.parse(raw) as ProjectState;
+    const parsed = JSON.parse(raw) as ProjectState;
+    // Some DATA_DIR subdirectories also keep a `state.json` but are not projects
+    // (e.g. the Brain at $DATA_DIR/brain). A real project always has a
+    // `workspaces` array, so anything else is skipped rather than treated as a
+    // malformed project (which would break workspace reconciliation).
+    if (!parsed || !Array.isArray(parsed.workspaces)) return null;
+    return parsed;
   } catch (err: unknown) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") return null;

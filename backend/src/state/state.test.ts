@@ -63,6 +63,18 @@ describe("loadProject", () => {
     const result = await loadProject("corrupt", dataDir);
     expect(result).toBeNull();
   });
+
+  it("returns null for a non-project state.json (e.g. the Brain) lacking workspaces", async () => {
+    const dir = join(dataDir, "brain");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "state.json"),
+      JSON.stringify({ exists: true, repoUrl: "git@github.com:test/brain.git" }),
+      "utf-8",
+    );
+    const result = await loadProject("brain", dataDir);
+    expect(result).toBeNull();
+  });
 });
 
 describe("loadAllProjects", () => {
@@ -99,6 +111,24 @@ describe("loadAllProjects", () => {
     const results = await loadAllProjects(dataDir);
     expect(results).toHaveLength(1);
     expect(results[0].id).toBe("proj-real");
+  });
+
+  it("ignores a Brain directory whose state.json is not a project", async () => {
+    // Regression: the Brain stores $DATA_DIR/brain/state.json, which previously
+    // got loaded as a malformed project and broke workspace reconciliation.
+    await saveProject(makeState("proj-real"), dataDir);
+    const brainDir = join(dataDir, "brain");
+    await mkdir(brainDir, { recursive: true });
+    await writeFile(
+      join(brainDir, "state.json"),
+      JSON.stringify({ exists: true, repoUrl: "git@github.com:test/brain.git" }),
+      "utf-8",
+    );
+    const results = await loadAllProjects(dataDir);
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe("proj-real");
+    // Every returned project must have an iterable workspaces array.
+    expect(results.every((p) => Array.isArray(p.workspaces))).toBe(true);
   });
 
   it("returns empty array for non-existent data dir", async () => {

@@ -5,6 +5,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { brainRoutes } from "./brain.js";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
+import { git } from "../utils/git.js";
 import { brainRepoPath } from "../utils/paths.js";
 
 let tempDir: string;
@@ -78,6 +79,97 @@ describe("brain routes", () => {
 
     expect(res.statusCode).toBe(409);
     expect(res.json().error).toBe("Brain already exists");
+  });
+
+  it("file routes return 409 when no Brain is connected", async () => {
+    const app = await buildTestApp();
+    const res = await app.inject({ method: "GET", url: "/api/brain/files" });
+    await app.close();
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("file CRUD + git status/diff/save round-trip", async () => {
+    const fixtureDir = join(tempDir, "fixtures");
+    await mkdir(fixtureDir, { recursive: true });
+    const origin = await createFixtureRepo(fixtureDir);
+    const app = await buildTestApp();
+
+    await app.inject({
+      method: "POST",
+      url: "/api/brain",
+      payload: { mode: "connect", url: origin },
+    });
+    // Committer identity for the local clone.
+    await git(["config", "user.email", "test@hive.dev"], brainRepoPath(dataDir));
+    await git(["config", "user.name", "Hive Test"], brainRepoPath(dataDir));
+
+    // Upsert a new file (working tree only).
+    const putRes = await app.inject({
+      method: "PUT",
+      url: "/api/brain/file",
+      payload: { path: "notes/idea.md", content: "# Idea\n" },
+    });
+    expect(putRes.statusCode).toBe(200);
+
+    // Read it back.
+    const getRes = await app.inject({
+      method: "GET",
+      url: "/api/brain/file?path=notes/idea.md",
+    });
+    expect(getRes.json()).toEqual({ path: "notes/idea.md", content: "# Idea\n" });
+
+    // List shows the new directory + file.
+    const listRes = await app.inject({ method: "GET", url: "/api/brain/files" });
+    const tree = listRes.json() as Array<{ name: string; type: string }>;
+    expect(tree.some((n) => n.name === "notes" && n.type === "directory")).toBe(true);
+
+    // Status reflects the untracked file.
+    const statusRes = await app.inject({ method: "GET", url: "/api/brain/status" });
+    expect(statusRes.json().count).toBe(1);
+    expect(statusRes.json().files[0]).toMatchObject({
+      path: "notes/idea.md",
+      status: "untracked",
+    });
+
+    // Diff includes the new file.
+    const diffRes = await app.inject({ method: "GET", url: "/api/brain/diff" });
+    expect(diffRes.json().diff).toContain("notes/idea.md");
+
+    // Rename it.
+    const renameRes = await app.inject({
+      method: "POST",
+      url: "/api/brain/file/rename",
+      payload: { from: "notes/idea.md", to: "notes/renamed.md" },
+    });
+    expect(renameRes.statusCode).toBe(200);
+
+    // Save commits + pushes.
+    const saveRes = await app.inject({
+      method: "POST",
+      url: "/api/brain/save",
+      payload: { message: "Add idea" },
+    });
+    expect(saveRes.json()).toEqual({ committed: true, pushed: true });
+
+    // Nothing left to commit afterwards.
+    const cleanStatus = await app.inject({ method: "GET", url: "/api/brain/status" });
+    expect(cleanStatus.json().count).toBe(0);
+
+    const saveAgain = await app.inject({
+      method: "POST",
+      url: "/api/brain/save",
+      payload: {},
+    });
+    expect(saveAgain.json()).toEqual({ committed: false, pushed: false });
+
+    // Delete the saved file.
+    const deleteRes = await app.inject({
+      method: "DELETE",
+      url: "/api/brain/file?path=notes/renamed.md",
+    });
+    expect(deleteRes.statusCode).toBe(204);
+
+    await app.close();
   });
 
   it("DELETE /api/brain removes state and clone", async () => {

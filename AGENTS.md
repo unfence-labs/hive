@@ -56,7 +56,11 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 
 - `backend/src/index.ts`: app wiring, auth/rate-limit hooks, route registration, git sync + notifier bootstrap, preflight checks
 - `backend/src/api/projects.ts`: project CRUD + fetch
-- `backend/src/api/brain.ts`: singleton Brain state/read-create-connect-delete routes (`GET/POST/DELETE /api/brain`) for a normal Git clone, not a Project
+- `backend/src/api/brain.ts`: singleton Brain routes — state read-create-connect-delete (`GET/POST/DELETE /api/brain`), working-tree file ops (`GET /api/brain/files`, `GET/PUT/DELETE /api/brain/file`, `POST /api/brain/file/rename`), and git ops (`GET /api/brain/status`, `GET /api/brain/diff`, `POST /api/brain/save`) for a normal Git clone, not a Project
+- `backend/src/brain/brain-files.ts`: Brain working-tree file operations (list/read/upsert/delete/rename) with `requireBrainRepo()` guard (409 when absent), anti-traversal `resolveBrainFilePath()`, and `.git` protection. Upsert/delete/rename touch disk only — never git.
+- `backend/src/brain/brain-git.ts`: Brain git operations — `getBrainStatus()` (porcelain pending changes), `getBrainDiff()` (working-tree-vs-HEAD incl. untracked), `saveBrain()` (`git add -A` + commit + push)
+- `backend/src/utils/file-tree.ts`: shared recursive file-tree builder (`buildFileTree`) reused by workspace and Brain listings (ignores VCS/build/dep dirs, depth + node caps)
+- `backend/src/utils/git-diff.ts`: shared `getUntrackedDiff()` — synthetic new-file patches for untracked files, concatenable with `git diff HEAD`
 - `backend/src/api/workspaces.ts`: workspace CRUD + diff/stat + files/file + merge + archive + PR status + bulk PR status + file-completions + terminal start/stop
 - `backend/src/api/agents.ts`: session routes (single + multi-session)
 - `backend/src/api/completions.ts`: provider-aware completion scanning endpoint
@@ -166,7 +170,11 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 
 - `frontend/src/App.tsx`: routing (including `/brain`), global workspace WS syncing, WS cache invalidation
 - `frontend/src/pages/WorkspaceView.tsx`: chat + file tree + inline diff viewer + scripts + modified files + PR status
-- `frontend/src/pages/BrainView.tsx`: minimal M-A Brain placeholder showing repo URL; no chat, editor, file operations, or three-column layout yet
+- `frontend/src/pages/BrainView.tsx`: three-column resizable Brain layout (`useDefaultLayout({ id: "hive-brain" })`) — collapsed chat placeholder (left, "coming in M-C"), editor/review (center), file tree (right); owns selected-file + edit/review mode + save indicator state
+- `frontend/src/components/brain/BrainEditorPanel.tsx`: central Brain editor — Rendered/Raw toggle (Streamdown / MarkdownEditor), debounced disk write (PUT /api/brain/file, not git), Save button with pending-count badge + Saved/Saving/Push failed indicator
+- `frontend/src/components/brain/BrainReviewChanges.tsx`: Save review panel — renders the full working-tree diff via `FileDiffCard`, optional commit message, Save & Push / Cancel
+- `frontend/src/components/brain/BrainFileTree.tsx`: right-column Brain tree reusing shared `FileTree` primitives + create (new note) / rename (Dialog) / delete (AlertDialog) actions
+- `frontend/src/components/diff/FileDiffCard.tsx`: shared single-file diff card (header + `@pierre/diffs` `FileDiff`) reused by `InlineDiffViewer` and `BrainReviewChanges`
 - `frontend/src/pages/AutomationDetail.tsx`: automation config display + run history + run log sheet + enable/disable + manual trigger + delete + inline editing
 - `frontend/src/pages/AutomationsHome.tsx`: automation list empty state with creation CTA
 - `frontend/src/pages/settings/AppearanceSettings.tsx`: accent color picker
@@ -196,6 +204,8 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/hooks/useChatInputDraftPersistence.ts`: draft persistence (message, images, planMode, selectedModelId, thinkingLevel)
 - `frontend/src/hooks/useAutomations.ts`: automation CRUD + trigger + run history + run messages hooks (TanStack Query)
 - `frontend/src/hooks/useBrain.ts`: Brain singleton query + create/connect/delete mutations for `/api/brain`
+- `frontend/src/hooks/useBrainFiles.ts`: Brain file-tree + file-content queries and upsert/delete/rename mutations (each invalidates the tree + git status)
+- `frontend/src/hooks/useBrainGit.ts`: `useBrainStatus` (Save badge), `useBrainDiff` (review, fetched on demand), `useBrainSave` (commit+push, invalidates status+diff)
 - `frontend/src/hooks/usePromptTemplates.ts`: prompt template CRUD hooks
 - `frontend/src/hooks/useBasePrompt.ts`: base prompt query + update + reset hooks
 - `frontend/src/hooks/useCustomAgents.ts`: custom agent CRUD hooks + completion cache invalidation
@@ -270,6 +280,18 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Draft persistence saves `selectedModelId` and `thinkingLevel` alongside message text, images, and toggles.
 - AskUserQuestion dismissed by user shows "CANCELLED" badge in chat history.
 - WS cache invalidation (`useWsCacheInvalidation`): `diff_stats` events invalidate file-completions and diff queries; `done`/`cancelled` invalidate session data.
+
+### Brain (M-B) — two-stage Save model
+
+- The Brain (`/brain`) is a normal Git clone, editable without an agent. M-B is 100% REST (no WebSocket, no agent/session); the left chat column is a collapsed placeholder filled in M-C.
+- **Two distinct persistence levels — do not conflate them:**
+  1. **Disk write (working tree):** editing a note writes the file to disk immediately via a debounced `PUT /api/brain/file`. This is NOT git; it only prevents losing work (and enables future agent collaboration in M-C).
+  2. **Git save (commit + push):** manual, triggered by the Save button after reviewing the working-tree-vs-HEAD diff. This is the backup to the remote. "Save" means publish/back up, not "save my text" (already on disk).
+- Save flow: click Save -> center panel switches to "Review changes" (full diff of all pending files: modified + new/untracked + deleted) -> optional commit message -> Save & Push commits + pushes, Cancel returns to the editor without committing.
+- `POST /api/brain/save` semantics: nothing to commit -> `{ committed: false, pushed: false }` (not an error); commit OK but push fails -> `{ committed: true, pushed: false, error }` (local commit kept, UI shows "Push failed"); default commit message is `Brain update <ISO timestamp>`.
+- `GET /api/brain/diff` reflects exactly what `save` would commit: tracked changes via `git diff HEAD` plus synthetic patches for untracked files (shared `getUntrackedDiff`).
+- All Brain routes are scoped to the Brain repo with anti-traversal validation and a 409 guard when no Brain is connected; the `.git` directory is never accessible. File ops accept an injectable `dataDir` for tests.
+- Single human editor in M-B, so React Query invalidation on mutation is sufficient (no live refresh). WebSocket-driven refresh on agent writes is deferred to M-C.
 
 ## iOS App (`ios/`)
 
