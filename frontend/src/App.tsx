@@ -14,6 +14,7 @@ import BrainView from "@/pages/BrainView";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import EmptyStateLogo from "@/components/EmptyStateLogo";
 import { useProjects } from "@/hooks/useProjects";
+import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import type { Project } from "@/types";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
@@ -44,7 +45,7 @@ export default function App() {
       Array.from(
         new Set([
           // The Brain is addressed as a synthetic workspace id over the same hub.
-          "brain",
+          BRAIN_WORKSPACE_ID,
           ...projects.flatMap((project) => (project.workspaces ?? []).map((workspace) => workspace.id)),
         ]),
       ),

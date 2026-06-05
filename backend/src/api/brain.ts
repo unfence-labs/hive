@@ -50,8 +50,12 @@ export async function brainRoutes(app: FastifyInstance, dataDir?: string) {
 
   app.delete("/api/brain", async (_req, reply) => {
     const dir = dataDir ?? getDataDir();
-    await deleteBrain(dir);
-    return reply.status(204).send();
+    try {
+      await deleteBrain(dir);
+      return reply.status(204).send();
+    } catch (err: unknown) {
+      return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed to delete Brain") });
+    }
   });
 
   // ── File operations (working tree — no commit) ──────────────────────

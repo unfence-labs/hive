@@ -10,10 +10,8 @@ import QuestionPanel from "@/components/chat/QuestionPanel";
 import { ConversationTabs } from "@/components/ConversationTabs";
 import TaskTracker from "@/components/TaskTracker";
 import { wsTransport } from "@/lib/ws-transport";
+import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import type { FileMention, ImageAttachment, MessageOptions, QueuedMessage } from "@/types";
-
-/** Synthetic workspace id the Brain shares on the hub WS channel. */
-const BRAIN_WORKSPACE_ID = "brain";
 
 /**
  * Brain agent chat panel. Reuses the workspace conversation machinery

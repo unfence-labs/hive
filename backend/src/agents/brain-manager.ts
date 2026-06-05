@@ -29,6 +29,9 @@ export const BRAIN_WORKSPACE_ID = "brain";
 /** Maximum coexisting Brain sessions, matching the workspace cap. */
 export const MAX_BRAIN_SESSIONS = 4;
 
+/** Max wait for a deleted session's process to exit before releasing the lock (ms). */
+const EXIT_AWAIT_TIMEOUT_MS = 6000;
+
 const loadedSessions = new Map<string, ConversationSession>();
 let activeSessionId: string | undefined;
 let lock: Promise<void> = Promise.resolve();
@@ -350,8 +353,16 @@ export async function hardDeleteBrainSession(
     if (loaded) {
       loadedSessions.delete(sessionId);
       if (wasActive) activeSessionId = undefined;
+      // Wait for the process to exit, but never hold the lock forever: if a
+      // wedged runner never emits "exit", fall through after a timeout (just
+      // above the runner's SIGKILL grace) so Brain session ops can't deadlock.
       await new Promise<void>((resolve) => {
-        loaded.once("exit", () => resolve());
+        const done = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = setTimeout(done, EXIT_AWAIT_TIMEOUT_MS);
+        loaded.once("exit", done);
         loaded.stop("park");
       });
     }

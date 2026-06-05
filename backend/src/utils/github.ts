@@ -92,14 +92,23 @@ export async function createGitHubRepository(
 
   const repoName = validateGitHubRepositoryName(name);
 
+  let owner = "";
+  let fullName = "";
   try {
     const { stdout: login } = await ghClient(["api", "user", "--jq", ".login"]);
-    const owner = login.trim();
+    owner = login.trim();
     if (!owner) throw new Error("Unable to determine GitHub user");
-
-    const fullName = `${owner}/${repoName}`;
+    fullName = `${owner}/${repoName}`;
     await ghClient(["repo", "create", fullName, `--${visibility}`]);
+  } catch (err) {
+    throw new Error(formatGhFailure(err));
+  }
 
+  // The repo now exists. Any failure past this point must delete it so a
+  // transient error (e.g. `repo view` replication lag) cannot orphan the remote:
+  // callers create the repo before entering their own cleanup scope, so this
+  // function owns cleanup of its own partial work.
+  try {
     const { stdout } = await ghClient([
       "repo",
       "view",
@@ -114,6 +123,7 @@ export async function createGitHubRepository(
 
     return { owner, name: repoName, fullName, sshUrl };
   } catch (err) {
+    await deleteGitHubRepository(fullName, ghClient).catch(() => {});
     throw new Error(formatGhFailure(err));
   }
 }
