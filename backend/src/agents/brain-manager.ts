@@ -29,9 +29,6 @@ export const BRAIN_WORKSPACE_ID = "brain";
 /** Maximum coexisting Brain sessions, matching the workspace cap. */
 export const MAX_BRAIN_SESSIONS = 4;
 
-/** Built-in tools available to the Brain agent — read/write notes, no shell. */
-export const BRAIN_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"] as const;
-
 const loadedSessions = new Map<string, ConversationSession>();
 let activeSessionId: string | undefined;
 let lock: Promise<void> = Promise.resolve();
@@ -151,7 +148,6 @@ async function createSession(dataDir: string, options?: CreateOptions): Promise<
     command: options?.command,
     systemPrompt,
     sessionKind: "brain",
-    tools: [...BRAIN_TOOLS],
   });
   await session.persistMetadata();
   attachNotificationListener(session);
@@ -188,7 +184,6 @@ async function loadSessionFromDisk(
     command: options?.command,
     systemPrompt,
     sessionKind: "brain",
-    tools: [...BRAIN_TOOLS],
   });
   attachNotificationListener(session);
   loadedSessions.set(sessionId, session);

@@ -43,11 +43,6 @@ export class ClaudeProvider implements AgentProvider {
       "--output-format", "stream-json",
       "--verbose",
       ...(model ? ["--model", model.cliValue] : []),
-      // `--tools` bounds the *available* built-in tool set (independent of
-      // `--dangerously-skip-permissions`, which only governs auto-approval).
-      // Brain sessions pass a restricted list (no Bash) to disable destructive
-      // shell access entirely.
-      ...(session.tools?.length ? ["--tools", ...session.tools] : []),
       ...(options.thinkingLevel ? ["--effort", options.thinkingLevel] : []),
       ...(options.planMode
         ? ["--permission-mode", "plan"]

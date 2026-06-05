@@ -182,28 +182,6 @@ describe("ClaudeProvider", () => {
     expect(args).not.toContain("--effort");
   });
 
-  // ── --tools flag (bounds available tools, e.g. for Brain) ──────────
-
-  it("adds --tools with the allow-list when provided (Brain session)", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession({
-      tools: ["Read", "Write", "Edit", "Glob", "Grep"],
-    }));
-    const idx = args.indexOf("--tools");
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args.slice(idx + 1, idx + 6)).toEqual(["Read", "Write", "Edit", "Glob", "Grep"]);
-    expect(args).not.toContain("Bash");
-  });
-
-  it("omits --tools for a normal workspace session (no tools list)", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession());
-    expect(args).not.toContain("--tools");
-  });
-
-  it("omits --tools when the allow-list is empty", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession({ tools: [] }));
-    expect(args).not.toContain("--tools");
-  });
-
   // ── buildEnv ───────────────────────────────────────────────────────
 
   it("always includes CLAUDE_CODE_ENABLE_TASKS", () => {
