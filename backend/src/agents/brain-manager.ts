@@ -3,7 +3,7 @@ import { readdir, readFile, rm } from "node:fs/promises";
 import { ConversationSession } from "./conversation-session.js";
 import { buildBrainSystemPrompt } from "./system-prompt.js";
 import { getDataDir } from "../state/state.js";
-import { brainDir, brainRepoPath } from "../utils/paths.js";
+import { BRAIN_WORKSPACE_ID, brainDir, brainRepoPath } from "../utils/paths.js";
 import { requireBrainRepo } from "../brain/brain-files.js";
 import { buildFileTree, flattenFilePaths } from "../utils/file-tree.js";
 import { NotFoundError } from "../utils/errors.js";
@@ -24,7 +24,7 @@ import type { ChatMessage, SessionMetadata } from "../types.js";
  * All Brain sessions share a single logical workspace id, {@link BRAIN_WORKSPACE_ID},
  * so the existing WS hub and frontend transport address them unchanged.
  */
-export const BRAIN_WORKSPACE_ID = "brain";
+export { BRAIN_WORKSPACE_ID };
 
 /** Maximum coexisting Brain sessions, matching the workspace cap. */
 export const MAX_BRAIN_SESSIONS = 4;

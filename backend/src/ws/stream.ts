@@ -14,11 +14,10 @@ import { errorMessage } from "../utils/errors.js";
 import { isAuthorized } from "../utils/auth.js";
 import type { WsIncoming, WsOutgoing, HubIncoming, HubOutgoing } from "../types.js";
 import { getScriptStatus } from "../services/script-runner.js";
-import { getWorkspace } from "../workspaces/workspace-manager.js";
-import { workspacesDir } from "../utils/paths.js";
+import { resolveChatCwd } from "../agents/chat-context.js";
 import { getDataDir } from "../state/state.js";
 import { browserSessionManager } from "../services/browser-session-manager.js";
-import { join, resolve, sep } from "node:path";
+import { resolve, sep } from "node:path";
 import { replaceCompletionAliases, type CompletionProvider } from "../utils/completion-scanner.js";
 
 interface GitSyncSnapshotProvider {
@@ -474,9 +473,8 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             (completionProvider === "claude" && incoming.content.includes("@"));
           if (incoming.fileMentions?.length || shouldResolveCompletionAliases) {
             const dir = dataDir ?? getDataDir();
-            const wsResult = await getWorkspace(wsId, dir);
-            if (wsResult) {
-              const wsPath = join(workspacesDir(dir, wsResult.projectState.id), wsResult.workspace.name);
+            const wsPath = await resolveChatCwd(wsId, dir);
+            if (wsPath) {
               let resolvedContent = incoming.content;
               if (incoming.fileMentions?.length) {
                 resolvedContent = replaceFileMentionsWithAbsolutePaths(resolvedContent, incoming.fileMentions, wsPath);
