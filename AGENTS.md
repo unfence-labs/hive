@@ -56,6 +56,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 
 - `backend/src/index.ts`: app wiring, auth/rate-limit hooks, route registration, git sync + notifier bootstrap, preflight checks
 - `backend/src/api/projects.ts`: project CRUD + fetch
+- `backend/src/api/brain.ts`: singleton Brain state/read-create-connect-delete routes (`GET/POST/DELETE /api/brain`) for a normal Git clone, not a Project
 - `backend/src/api/workspaces.ts`: workspace CRUD + diff/stat + files/file + merge + archive + PR status + bulk PR status + file-completions + terminal start/stop
 - `backend/src/api/agents.ts`: session routes (single + multi-session)
 - `backend/src/api/completions.ts`: provider-aware completion scanning endpoint
@@ -103,12 +104,14 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/state/agent-instructions.ts`: global instruction discovery and synchronization (`~/.codex/AGENTS.md` canonical, `~/.claude/CLAUDE.md` symlink, `AGENTS.override.md` read-only visibility)
 - `backend/src/state/skills.ts`: global skill discovery and synchronization (`~/.agents/skills` canonical, `~/.claude/skills` symlinks)
 - `backend/src/state/custom-agents.ts`: global custom agent discovery and provider-native persistence (`~/.claude/agents/*.md`, `~/.codex/agents/*.toml`) without symlink sync
+- `backend/src/state/brain.ts`: Brain singleton state persistence at `$DATA_DIR/brain/state.json`
 - `backend/src/utils/custom-agent-manifest.ts`: Claude Markdown frontmatter + Codex TOML manifest parsing and counterpart formatting
 - `backend/src/state/ui-preferences.ts`: UI preferences persistence (`$DATA_DIR/ui-preferences.json`) — atomic write, sanitize helper drops folders/project refs that no longer exist
-- `backend/src/state/state.ts`: JSON persistence + per-project locks
+- `backend/src/state/state.ts`: JSON persistence + shared atomic JSON writes + per-project locks
 - `backend/src/state/config.ts`: file-based app config (`$DATA_DIR/config.json`)
 - `backend/src/utils/preflight.ts`: startup dependency checks (git >= 2.17, claude, gh; codex/gemini optional)
-- `backend/src/utils/github.ts`: GitHub URL parsing, `gh` CLI wrapper, PR status fetching (reviews, checks, merge state)
+- `backend/src/utils/github.ts`: GitHub URL parsing, `gh` CLI wrapper, shared GitHub repo creation helpers, PR status fetching (reviews, checks, merge state)
+- `backend/src/brain/brain-repo.ts`: Brain normal-clone creation/connect/delete operations; create mode provisions a private GitHub repo, seeds README, commits, and pushes
 - `backend/src/utils/hive-config.ts`: `hive.json` parser for workspace scripts
 - `backend/src/utils/summary-extractor.ts`: extract `## Summary` section from agent messages
 - `backend/src/utils/format.ts`: `formatDuration(ms)` utility for notification formatting
@@ -161,8 +164,9 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 
 ## Frontend Architecture
 
-- `frontend/src/App.tsx`: routing, global workspace WS syncing, WS cache invalidation
+- `frontend/src/App.tsx`: routing (including `/brain`), global workspace WS syncing, WS cache invalidation
 - `frontend/src/pages/WorkspaceView.tsx`: chat + file tree + inline diff viewer + scripts + modified files + PR status
+- `frontend/src/pages/BrainView.tsx`: minimal M-A Brain placeholder showing repo URL; no chat, editor, file operations, or three-column layout yet
 - `frontend/src/pages/AutomationDetail.tsx`: automation config display + run history + run log sheet + enable/disable + manual trigger + delete + inline editing
 - `frontend/src/pages/AutomationsHome.tsx`: automation list empty state with creation CTA
 - `frontend/src/pages/settings/AppearanceSettings.tsx`: accent color picker
@@ -191,6 +195,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/hooks/useFileCompletions.ts`: file path completions for `#` mention autocomplete
 - `frontend/src/hooks/useChatInputDraftPersistence.ts`: draft persistence (message, images, planMode, selectedModelId, thinkingLevel)
 - `frontend/src/hooks/useAutomations.ts`: automation CRUD + trigger + run history + run messages hooks (TanStack Query)
+- `frontend/src/hooks/useBrain.ts`: Brain singleton query + create/connect/delete mutations for `/api/brain`
 - `frontend/src/hooks/usePromptTemplates.ts`: prompt template CRUD hooks
 - `frontend/src/hooks/useBasePrompt.ts`: base prompt query + update + reset hooks
 - `frontend/src/hooks/useCustomAgents.ts`: custom agent CRUD hooks + completion cache invalidation

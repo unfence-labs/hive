@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import { projectRoutes } from "./api/projects.js";
+import { brainRoutes } from "./api/brain.js";
 import { projectEnvRoutes } from "./api/project-env.js";
 import { workspaceRoutes } from "./api/workspaces.js";
 import { completionRoutes } from "./api/completions.js";
@@ -299,6 +300,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   });
 
   await app.register((instance: FastifyInstance) => projectRoutes(instance));
+  await app.register((instance: FastifyInstance) => brainRoutes(instance));
   await app.register((instance: FastifyInstance) => projectEnvRoutes(instance));
   await app.register((instance: FastifyInstance) => workspaceRoutes(instance));
   await app.register((instance: FastifyInstance) => completionRoutes(instance));

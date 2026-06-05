@@ -138,18 +138,14 @@ describe("initProject", () => {
     const gitModule = await import("../utils/git.js");
     const originalGit = gitModule.git;
 
-    const ghSpy = vi.spyOn(githubModule, "gh").mockImplementation(async (args) => {
-      if (args.join(" ") === "api user --jq .login") {
-        return { stdout: "octocat", stderr: "" };
-      }
-      if (args.join(" ") === "repo create octocat/remote-repo --private") {
-        return { stdout: "", stderr: "" };
-      }
-      if (args.join(" ") === "repo view octocat/remote-repo --json sshUrl --jq .sshUrl") {
-        return { stdout: "git@github.com:octocat/remote-repo.git", stderr: "" };
-      }
-      throw new Error(`Unexpected gh call: ${args.join(" ")}`);
-    });
+    const createGitHubRepositorySpy = vi
+      .spyOn(githubModule, "createGitHubRepository")
+      .mockResolvedValue({
+        owner: "octocat",
+        name: "remote-repo",
+        fullName: "octocat/remote-repo",
+        sshUrl: "git@github.com:octocat/remote-repo.git",
+      });
 
     const gitSpy = vi.spyOn(gitModule, "git").mockImplementation(async (args, cwd) => {
       if (args.join(" ") === "push --all origin") {
@@ -167,22 +163,7 @@ describe("initProject", () => {
 
       expect(warning).toBeUndefined();
       expect(state.url).toBe("git@github.com:octocat/remote-repo.git");
-      expect(ghSpy).toHaveBeenCalledWith(["api", "user", "--jq", ".login"]);
-      expect(ghSpy).toHaveBeenCalledWith([
-        "repo",
-        "create",
-        "octocat/remote-repo",
-        "--private",
-      ]);
-      expect(ghSpy).toHaveBeenCalledWith([
-        "repo",
-        "view",
-        "octocat/remote-repo",
-        "--json",
-        "sshUrl",
-        "--jq",
-        ".sshUrl",
-      ]);
+      expect(createGitHubRepositorySpy).toHaveBeenCalledWith("remote-repo", "private");
       expect(gitSpy).toHaveBeenCalledWith([
         "remote",
         "add",

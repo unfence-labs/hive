@@ -93,6 +93,15 @@ export interface ProjectState {
   workspaces: Workspace[];
 }
 
+/** Singleton Brain state returned by `/api/brain` and persisted when connected. */
+export type BrainState =
+  | { exists: false }
+  | {
+      exists: true;
+      repoUrl: string;
+      createdAt: string;
+    };
+
 export type {
   ProjectEnvConfig,
   ProjectEnvData,

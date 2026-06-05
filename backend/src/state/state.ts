@@ -17,6 +17,21 @@ function stateFilePath(dataDir: string, projectId: string): string {
   return join(dataDir, projectId, "state.json");
 }
 
+/**
+ * Atomically writes pretty-printed JSON by writing a sibling temp file first,
+ * then renaming it over the target path.
+ */
+export async function writeJsonAtomic(
+  target: string,
+  value: unknown,
+  dir: string,
+): Promise<void> {
+  await mkdir(dir, { recursive: true });
+  const tmp = join(dir, `${randomUUID()}.tmp`);
+  await writeFile(tmp, JSON.stringify(value, null, 2), "utf-8");
+  await rename(tmp, target);
+}
+
 export async function loadProject(
   projectId: string,
   dataDir = getDataDir()
@@ -56,11 +71,7 @@ export async function saveProject(
   dataDir = getDataDir()
 ): Promise<void> {
   const dir = join(dataDir, state.id);
-  await mkdir(dir, { recursive: true });
-  const target = stateFilePath(dataDir, state.id);
-  const tmp = join(dir, `state.${randomUUID()}.tmp`);
-  await writeFile(tmp, JSON.stringify(state, null, 2), "utf-8");
-  await rename(tmp, target);
+  await writeJsonAtomic(stateFilePath(dataDir, state.id), state, dir);
   notifyProjectSaved(state);
 }
 

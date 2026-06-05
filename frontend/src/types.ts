@@ -15,6 +15,15 @@ export interface Project {
   warning?: string;
 }
 
+/** Singleton Brain state returned by `/api/brain`. */
+export type BrainState =
+  | { exists: false }
+  | {
+      exists: true;
+      repoUrl: string;
+      createdAt: string;
+    };
+
 export type {
   ProjectEnvConfig,
   ProjectEnvData,

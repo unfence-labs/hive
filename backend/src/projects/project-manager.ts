@@ -2,7 +2,11 @@ import { join } from "node:path";
 import { rm, mkdir, writeFile } from "node:fs/promises";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
-import { gh } from "../utils/github.js";
+import {
+  createGitHubRepository,
+  deleteGitHubRepository,
+  validateGitHubRepositoryName,
+} from "../utils/github.js";
 import { bareRepoPath } from "../utils/paths.js";
 import { saveProject, loadProject, loadAllProjects, getDataDir } from "../state/state.js";
 import { notifyProjectDeleted } from "../state/workspace-index.js";
@@ -46,22 +50,6 @@ export async function createProject(
   return state;
 }
 
-// ── Validate repo name ──────────────────────────────────────────────
-
-const REPO_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
-
-function validateRepoName(name: string): string {
-  const trimmed = name.trim().toLowerCase();
-  if (!trimmed) throw new Error("Repository name is required");
-  if (trimmed.length > 100) throw new Error("Repository name must be 100 characters or fewer");
-  if (!REPO_NAME_RE.test(trimmed)) {
-    throw new Error(
-      "Repository name can only contain lowercase letters, numbers, hyphens, underscores, and dots",
-    );
-  }
-  return trimmed;
-}
-
 // ── Create GitHub repo + link to bare ───────────────────────────────
 
 async function createGitHubRepo(
@@ -69,43 +57,16 @@ async function createGitHubRepo(
   visibility: "public" | "private",
   bare: string,
 ): Promise<string> {
-  // Defense-in-depth: visibility is interpolated as a CLI flag, so reject anything unexpected
-  if (visibility !== "public" && visibility !== "private") {
-    throw new Error("Invalid visibility");
-  }
-
-  const { stdout: login } = await gh(["api", "user", "--jq", ".login"]);
-  const owner = login.trim();
-  if (!owner) throw new Error("Unable to determine GitHub user");
-
-  const repo = `${owner}/${name}`;
-  await gh([
-    "repo",
-    "create",
-    repo,
-    `--${visibility}`,
-  ]);
+  const repo = await createGitHubRepository(name, visibility);
 
   // Point the bare repo at the new remote and push the initial commit.
   // If any post-create step fails, delete the GitHub repo so we don't leave orphans.
   try {
-    const { stdout } = await gh([
-      "repo",
-      "view",
-      repo,
-      "--json",
-      "sshUrl",
-      "--jq",
-      ".sshUrl",
-    ]);
-    const url = stdout.trim();
-    if (!url) throw new Error("Unable to determine GitHub SSH URL");
-
-    await git(["remote", "add", "origin", url], bare);
+    await git(["remote", "add", "origin", repo.sshUrl], bare);
     await git(["push", "--all", "origin"], bare);
-    return url;
+    return repo.sshUrl;
   } catch (err) {
-    await gh(["repo", "delete", repo, "--yes"]).catch(() => {});
+    await deleteGitHubRepository(repo.fullName).catch(() => {});
     throw err;
   }
 }
@@ -123,7 +84,7 @@ export async function initProject(
   options: { visibility?: "public" | "private" } = {},
   dataDir = getDataDir(),
 ): Promise<InitProjectResult> {
-  const repoName = validateRepoName(name);
+  const repoName = validateGitHubRepositoryName(name);
   const id = `proj-${nanoid(8)}`;
   const projectDir = join(dataDir, id);
   const bare = bareRepoPath(dataDir, id);

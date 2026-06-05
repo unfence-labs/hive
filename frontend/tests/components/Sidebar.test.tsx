@@ -7,7 +7,7 @@ import Sidebar from "@/components/Sidebar";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { api } from "@/hooks/useApi";
 import type { UiPreferencesPayload } from "@/lib/sidebar-preferences";
-import type { Project, PullRequestInfo, WsOutgoing } from "@/types";
+import type { BrainState, Project, PullRequestInfo, WsOutgoing } from "@/types";
 
 /** Match elements whose full textContent equals `text` (handles text split across child spans). */
 function withTextContent(text: string) {
@@ -24,6 +24,21 @@ vi.mock("@/hooks/useApi", () => ({
     put: vi.fn(),
     delete: vi.fn(),
   },
+}));
+
+const brainMock = vi.hoisted(() => ({
+  brain: { exists: false } as BrainState,
+}));
+
+vi.mock("@/hooks/useBrain", () => ({
+  useBrain: () => ({
+    brain: brainMock.brain,
+    loading: false,
+    error: null,
+    createBrain: vi.fn(),
+    connectBrain: vi.fn(),
+    deleteBrain: vi.fn(),
+  }),
 }));
 
 vi.mock("react-resizable-panels", () => {
@@ -104,6 +119,7 @@ function renderSidebar(
   projects: Project[],
   apiOverrides?: {
     projects?: Project[] | Error | (() => Promise<Project[]>);
+    brain?: { exists: false } | { exists: true; repoUrl: string; createdAt: string };
     diffStat?: Record<string, unknown> | Error;
     automations?: Record<string, unknown>[] | Error;
     uiPreferences?: UiPreferencesPayload;
@@ -119,6 +135,9 @@ function renderSidebar(
       if (override instanceof Error) throw override;
       if (typeof override === "function") return override();
       return override ?? projects;
+    }
+    if (url === "/api/brain") {
+      return apiOverrides?.brain ?? { exists: false };
     }
     if (url === "/api/automations") {
       const override = apiOverrides?.automations;
@@ -164,6 +183,10 @@ function renderSidebar(
             />
             <Route
               path="/automations/:automationId"
+              element={<SidebarRoute />}
+            />
+            <Route
+              path="/brain"
               element={<SidebarRoute />}
             />
             <Route path="/settings" element={<SettingsStateProbe />} />
@@ -278,6 +301,7 @@ describe("Sidebar", () => {
     vi.mocked(api.delete).mockReset();
     localStorage.removeItem("hive:sidebar-project-folders:v1");
     localStorage.removeItem("hive:sidebar-project-folders:cache:v1");
+    brainMock.brain = { exists: false };
     mockPostWithBulkFallback({});
     const { __wsMock } = await getWsMock();
     __wsMock.reset();
@@ -293,6 +317,29 @@ describe("Sidebar", () => {
 
     await user.click(screen.getByText(withTextContent("acme/alpha")));
     expect(screen.getByText("workspace/tokyo")).toBeInTheDocument();
+  });
+
+  it("renders a pinned Brain entry only when Brain exists", async () => {
+    const user = userEvent.setup();
+    const firstRender = renderSidebar("/projects", projects);
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    expect(screen.queryByRole("link", { name: /Brain/i })).not.toBeInTheDocument();
+    firstRender.unmount();
+
+    brainMock.brain = {
+      exists: true,
+      repoUrl: "git@github.com:octocat/brain.git",
+      createdAt: "2026-06-05T00:00:00.000Z",
+    };
+    renderSidebar("/projects", projects);
+
+    const brainLink = await screen.findByRole("link", { name: /Brain/i });
+    expect(brainLink).toHaveAttribute("href", "/brain");
+    expect(screen.getByText("git@github.com:octocat/brain.git")).toBeInTheDocument();
+
+    await user.click(brainLink);
+    expect(screen.getAllByTestId("location-path").at(-1)).toHaveTextContent("/brain");
   });
 
   it("shows workspace count beside project name only when count is greater than zero", async () => {
