@@ -248,11 +248,11 @@ export async function getWorkspaceDiff(
   }
 
   if (scope === "uncommitted") {
-    const [trackedDiff, untrackedDiff] = await Promise.all([
+    const [trackedDiff, untracked] = await Promise.all([
       git(["diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
       getUntrackedDiff(wsPath),
     ]);
-    return [trackedDiff, untrackedDiff].filter(Boolean).join("\n");
+    return [trackedDiff, untracked.patch].filter(Boolean).join("\n");
   }
 
   await refreshDefaultBranchFromOrigin(bare, defaultBranch);
@@ -261,14 +261,14 @@ export async function getWorkspaceDiff(
     wsPath,
   ).then((r) => r.stdout.trim()).catch(() => "");
 
-  const [combinedDiff, untrackedDiff] = await Promise.all([
+  const [combinedDiff, untracked] = await Promise.all([
     mergeBase
       ? git(["diff", mergeBase], wsPath).then((r) => r.stdout).catch(() => "")
       : git(["diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
     getUntrackedDiff(wsPath),
   ]);
 
-  return [combinedDiff, untrackedDiff].filter(Boolean).join("\n");
+  return [combinedDiff, untracked.patch].filter(Boolean).join("\n");
 }
 
 function parseDiffStat(

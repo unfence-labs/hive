@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import { BRAIN_STATUS_QUERY_KEY } from "@/hooks/useBrainFiles";
-import type { BrainSaveResponse, BrainStatusResponse } from "@/types";
+import type { BrainDiffResponse, BrainSaveResponse, BrainStatusResponse } from "@/types";
 
 /** Cache key for the Brain diff (working tree vs HEAD). */
 export const BRAIN_DIFF_QUERY_KEY = ["brain", "diff"] as const;
@@ -21,7 +21,7 @@ export function useBrainStatus() {
 export function useBrainDiff(enabled: boolean) {
   return useQuery({
     queryKey: BRAIN_DIFF_QUERY_KEY,
-    queryFn: () => api.get<{ diff: string }>("/api/brain/diff"),
+    queryFn: () => api.get<BrainDiffResponse>("/api/brain/diff"),
     enabled,
     staleTime: 0, // The diff is volatile — always fetch fresh when review opens.
   });

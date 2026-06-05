@@ -52,6 +52,17 @@ export interface BrainSaveResponse {
   error?: string;
 }
 
+/**
+ * Response of `GET /api/brain/diff`: the working-tree-vs-HEAD diff plus the
+ * number of untracked files omitted from `diff` because of the render cap.
+ * A non-zero `omittedFileCount` means the review under-represents what Save will
+ * commit (`git add -A` commits everything), so the UI surfaces a warning.
+ */
+export interface BrainDiffResponse {
+  diff: string;
+  omittedFileCount: number;
+}
+
 /** Response of `GET /api/brain/file`: a single file's path and text content. */
 export interface BrainFileContent {
   path: string;

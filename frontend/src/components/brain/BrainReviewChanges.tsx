@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { parsePatchFiles } from "@pierre/diffs";
-import { AlertCircleIcon, Loader2Icon } from "lucide-react";
+import { AlertCircleIcon, AlertTriangleIcon, Loader2Icon } from "lucide-react";
 import { useThemeType } from "@/hooks/useThemeType";
 import { useBrainDiff } from "@/hooks/useBrainGit";
 import { FileDiffCard } from "@/components/diff/FileDiffCard";
@@ -24,6 +24,7 @@ export function BrainReviewChanges({ onConfirm, onCancel, isSaving }: BrainRevie
   const { data, isLoading, error } = useBrainDiff(true);
   const themeType = useThemeType();
   const [message, setMessage] = useState("");
+  const omittedFileCount = data?.omittedFileCount ?? 0;
 
   const files = useMemo(() => {
     const diff = data?.diff;
@@ -58,15 +59,27 @@ export function BrainReviewChanges({ onConfirm, onCancel, isSaving }: BrainRevie
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {omittedFileCount > 0 && (
+          <div
+            role="alert"
+            className="mb-4 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-amber-700 dark:text-amber-300"
+          >
+            <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <span className="text-sm">
+              {omittedFileCount} more file{omittedFileCount === 1 ? "" : "s"} not shown in this
+              diff (they will still be committed).
+            </span>
+          </div>
+        )}
         {isLoading && (
-          <div className="flex items-center justify-center py-10 text-muted-foreground">
-            <Loader2Icon className="mr-2 size-5 animate-spin" />
+          <div role="status" className="flex items-center justify-center py-10 text-muted-foreground">
+            <Loader2Icon className="mr-2 size-5 animate-spin" aria-hidden="true" />
             Loading changes...
           </div>
         )}
         {error && !isLoading && (
-          <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-4 text-destructive">
-            <AlertCircleIcon className="size-4 shrink-0" />
+          <div role="alert" className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-4 text-destructive">
+            <AlertCircleIcon className="size-4 shrink-0" aria-hidden="true" />
             <span className="text-sm">{error.message}</span>
           </div>
         )}
@@ -102,15 +115,22 @@ export function BrainReviewChanges({ onConfirm, onCancel, isSaving }: BrainRevie
           disabled={isSaving}
           className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
         />
-        <Button variant="ghost" size="sm" onClick={onCancel} disabled={isSaving}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="cursor-pointer"
+          onClick={onCancel}
+          disabled={isSaving}
+        >
           Cancel
         </Button>
         <Button
           size="sm"
+          className="cursor-pointer"
           onClick={() => onConfirm(message.trim())}
           disabled={isSaving || files.length === 0}
         >
-          {isSaving && <Loader2Icon className="size-3.5 animate-spin" />}
+          {isSaving && <Loader2Icon className="size-3.5 animate-spin" aria-hidden="true" />}
           Save &amp; Push
         </Button>
       </div>

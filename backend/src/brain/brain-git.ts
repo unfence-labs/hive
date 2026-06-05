@@ -1,4 +1,5 @@
 import type {
+  BrainDiffResponse,
   BrainFileStatus,
   BrainFileStatusKind,
   BrainSaveResponse,
@@ -62,16 +63,29 @@ export async function getBrainStatus(
  * Build the Brain working-tree-vs-HEAD diff in unified format, including
  * tracked changes (modified/deleted) and synthetic patches for untracked
  * files so the diff reflects exactly what `save` would commit.
+ *
+ * Untracked rendering is capped (see {@link getUntrackedDiff}); any overflow is
+ * reported as `omittedFileCount` so the review can warn that more files will be
+ * committed than displayed instead of hiding them silently.
+ *
+ * @param dataDir Data directory (injectable for tests).
+ * @param maxUntrackedFiles Cap forwarded to `getUntrackedDiff` (injectable for tests).
  */
-export async function getBrainDiff(dataDir = getDataDir()): Promise<string> {
+export async function getBrainDiff(
+  dataDir = getDataDir(),
+  maxUntrackedFiles?: number,
+): Promise<BrainDiffResponse> {
   const repoPath = await requireBrainRepo(dataDir);
-  const [trackedDiff, untrackedDiff] = await Promise.all([
+  const [trackedDiff, untracked] = await Promise.all([
     git(["diff", "--find-renames", "HEAD"], repoPath)
       .then((r) => r.stdout)
       .catch(() => ""),
-    getUntrackedDiff(repoPath),
+    getUntrackedDiff(repoPath, maxUntrackedFiles),
   ]);
-  return [trackedDiff, untrackedDiff].filter(Boolean).join("\n");
+  return {
+    diff: [trackedDiff, untracked.patch].filter(Boolean).join("\n"),
+    omittedFileCount: untracked.total - untracked.included,
+  };
 }
 
 /**

@@ -58,7 +58,7 @@ describe("getBrainDiff", () => {
     await writeBrainFile("README.md", "# Modified Repo\n", dataDir);
     await writeBrainFile("brand-new.md", "hello new\n", dataDir);
 
-    const diff = await getBrainDiff(dataDir);
+    const { diff, omittedFileCount } = await getBrainDiff(dataDir);
     // Modified tracked file appears via `git diff HEAD`.
     expect(diff).toContain("a/README.md");
     expect(diff).toContain("+# Modified Repo");
@@ -66,6 +66,34 @@ describe("getBrainDiff", () => {
     expect(diff).toContain("b/brand-new.md");
     expect(diff).toContain("new file mode");
     expect(diff).toContain("+hello new");
+    // Everything fit under the cap.
+    expect(omittedFileCount).toBe(0);
+  });
+
+  it("reports omittedFileCount when untracked files exceed the cap", async () => {
+    await connectFixtureBrain();
+    // Five untracked files, but cap rendering at two.
+    for (let i = 0; i < 5; i++) {
+      await writeBrainFile(`note-${i}.md`, `content ${i}\n`, dataDir);
+    }
+
+    const { diff, omittedFileCount } = await getBrainDiff(dataDir, 2);
+    // Two files rendered, three omitted but still surfaced via the count.
+    expect(omittedFileCount).toBe(3);
+    expect(diff).toContain("b/note-0.md");
+    expect(diff).toContain("b/note-1.md");
+    expect(diff).not.toContain("b/note-2.md");
+  });
+
+  it("renders an empty new file without a spurious blank addition line", async () => {
+    await connectFixtureBrain();
+    await writeBrainFile("empty.md", "", dataDir);
+
+    const { diff } = await getBrainDiff(dataDir);
+    expect(diff).toContain("b/empty.md");
+    expect(diff).toContain("@@ -0,0 +0,0 @@");
+    // No body line follows the empty-file hunk header.
+    expect(diff).not.toContain("+\n");
   });
 });
 

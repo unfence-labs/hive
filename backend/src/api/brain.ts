@@ -124,7 +124,7 @@ export async function brainRoutes(app: FastifyInstance, dataDir?: string) {
   app.get("/api/brain/diff", async (_req, reply) => {
     const dir = dataDir ?? getDataDir();
     try {
-      return reply.send({ diff: await getBrainDiff(dir) });
+      return reply.send(await getBrainDiff(dir));
     } catch (err: unknown) {
       return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed to compute Brain diff") });
     }

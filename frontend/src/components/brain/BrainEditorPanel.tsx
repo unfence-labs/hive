@@ -117,31 +117,37 @@ export function BrainEditorPanel({
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Toolbar */}
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border/50 px-4">
-        <div className="flex items-center rounded-md border border-border p-0.5">
+        <div
+          role="group"
+          aria-label="Editor view mode"
+          className="flex items-center rounded-md border border-border p-0.5"
+        >
           <button
             type="button"
+            aria-pressed={viewMode === "rendered"}
             onClick={() => setViewMode("rendered")}
             className={cn(
-              "flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors",
+              "flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               viewMode === "rendered"
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <EyeIcon className="size-3.5" />
+            <EyeIcon className="size-3.5" aria-hidden="true" />
             Rendered
           </button>
           <button
             type="button"
+            aria-pressed={viewMode === "raw"}
             onClick={() => setViewMode("raw")}
             className={cn(
-              "flex items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors",
+              "flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               viewMode === "raw"
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <CodeIcon className="size-3.5" />
+            <CodeIcon className="size-3.5" aria-hidden="true" />
             Raw
           </button>
         </div>
@@ -155,10 +161,11 @@ export function BrainEditorPanel({
           <Button
             size="sm"
             variant="outline"
+            className="cursor-pointer"
             onClick={onRequestReview}
             disabled={pendingCount === 0}
           >
-            <CloudUploadIcon className="size-3.5" />
+            <CloudUploadIcon className="size-3.5" aria-hidden="true" />
             Save
             {pendingCount > 0 && (
               <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px]">
@@ -205,24 +212,28 @@ export function BrainEditorPanel({
 function SaveStatus({ indicator }: { indicator: BrainSaveIndicator }) {
   if (indicator === "saving") {
     return (
-      <span className="flex items-center gap-1 text-xs text-muted-foreground">
-        <Loader2Icon className="size-3.5 animate-spin" />
+      <span role="status" className="flex items-center gap-1 text-xs text-muted-foreground">
+        <Loader2Icon className="size-3.5 animate-spin" aria-hidden="true" />
         Saving...
       </span>
     );
   }
   if (indicator === "saved") {
+    // Darker greens in light mode for AA contrast; lighter in dark mode.
     return (
-      <span className="flex items-center gap-1 text-xs text-green-500">
-        <CheckIcon className="size-3.5" />
+      <span role="status" className="flex items-center gap-1 text-xs text-green-700 dark:text-green-400">
+        <CheckIcon className="size-3.5" aria-hidden="true" />
         Saved
       </span>
     );
   }
   if (indicator === "push-failed") {
     return (
-      <span className="flex items-center gap-1 text-xs text-yellow-500">
-        <AlertTriangleIcon className="size-3.5" />
+      <span
+        role="status"
+        className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400"
+      >
+        <AlertTriangleIcon className="size-3.5" aria-hidden="true" />
         Push failed
       </span>
     );
