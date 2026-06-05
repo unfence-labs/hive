@@ -39,37 +39,34 @@ export async function getUntrackedDiff(
     .then((r) => r.stdout)
     .catch(() => "");
   const untrackedFiles = untrackedResult.split("\n").filter(Boolean);
-  const untrackedPatches: string[] = [];
-  let included = 0;
 
-  for (const file of untrackedFiles.slice(0, maxFiles)) {
-    try {
-      const content = await readFile(join(repoPath, file), "utf-8");
-      if (content.includes("\0")) continue;
-      // An empty file has no added lines: emit a `@@ -0,0 +0,0 @@` header with
-      // no body so it does not render a spurious blank "+1" line.
-      if (content.length === 0) {
-        untrackedPatches.push(
-          `diff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n@@ -0,0 +0,0 @@`,
-        );
-        included += 1;
-        continue;
+  // Read the capped set of files concurrently; Promise.all preserves order so
+  // the concatenated patch stays deterministic. A null entry means the file was
+  // skipped (binary or unreadable) — it stays counted in `total` but not `included`.
+  const rendered = await Promise.all(
+    untrackedFiles.slice(0, maxFiles).map(async (file): Promise<string | null> => {
+      try {
+        const content = await readFile(join(repoPath, file), "utf-8");
+        if (content.includes("\0")) return null;
+        // An empty file has no added lines: emit a `@@ -0,0 +0,0 @@` header with
+        // no body so it does not render a spurious blank "+1" line.
+        if (content.length === 0) {
+          return `diff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n@@ -0,0 +0,0 @@`;
+        }
+        const lines = content.endsWith("\n") ? content.slice(0, -1).split("\n") : content.split("\n");
+        const hunkBody = lines.map((l) => `+${l}`).join("\n");
+        return `diff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n@@ -0,0 +1,${lines.length} @@\n${hunkBody}`;
+      } catch {
+        return null;
       }
-      const lines = content.endsWith("\n") ? content.slice(0, -1).split("\n") : content.split("\n");
-      const lineCount = lines.length;
-      const hunkBody = lines.map((l) => `+${l}`).join("\n");
-      untrackedPatches.push(
-        `diff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n@@ -0,0 +1,${lineCount} @@\n${hunkBody}`,
-      );
-      included += 1;
-    } catch {
-      // Skip unreadable files (they remain counted in `total`).
-    }
-  }
+    }),
+  );
+
+  const untrackedPatches = rendered.filter((p): p is string => p !== null);
 
   return {
     patch: untrackedPatches.join("\n"),
     total: untrackedFiles.length,
-    included,
+    included: untrackedPatches.length,
   };
 }

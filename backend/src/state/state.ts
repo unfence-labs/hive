@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { ProjectState } from "../types.js";
 import { DEFAULT_BASE_PROMPT } from "../agents/system-prompt.js";
 import { notifyProjectSaved } from "./workspace-index.js";
+import { withKeyedLock } from "../utils/async-lock.js";
 
 const projectLocks = new Map<string, Promise<void>>();
 
@@ -94,25 +95,7 @@ export async function withProjectStateLock<T>(
   fn: () => Promise<T>,
   dataDir = getDataDir()
 ): Promise<T> {
-  const key = projectLockKey(projectId, dataDir);
-  const prev = projectLocks.get(key) ?? Promise.resolve();
-
-  let release: (() => void) | undefined;
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const queued = prev.then(() => current);
-  projectLocks.set(key, queued);
-
-  await prev;
-  try {
-    return await fn();
-  } finally {
-    release?.();
-    if (projectLocks.get(key) === queued) {
-      projectLocks.delete(key);
-    }
-  }
+  return withKeyedLock(projectLocks, projectLockKey(projectId, dataDir), fn);
 }
 
 export function _clearProjectLocksForTests(): void {

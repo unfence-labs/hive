@@ -9,6 +9,8 @@ import { buildFileTree, flattenFilePaths } from "../utils/file-tree.js";
 import { NotFoundError } from "../utils/errors.js";
 import { getNotifier } from "./agent-manager.js";
 import { extractSummary, extractPreview } from "../utils/summary-extractor.js";
+import { withKeyedLock } from "../utils/async-lock.js";
+import { parseJsonlMessages, sortByUpdatedAtDesc } from "./session-utils.js";
 import type { ChatMessage, SessionMetadata } from "../types.js";
 
 /**
@@ -34,31 +36,8 @@ const EXIT_AWAIT_TIMEOUT_MS = 6000;
 
 const loadedSessions = new Map<string, ConversationSession>();
 let activeSessionId: string | undefined;
-let lock: Promise<void> = Promise.resolve();
-
-/** Serialize Brain session state mutations. */
-async function withLock<T>(fn: () => Promise<T>): Promise<T> {
-  const prev = lock;
-  let release: (() => void) | undefined;
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  lock = prev.then(() => current);
-  await prev;
-  try {
-    return await fn();
-  } finally {
-    release?.();
-  }
-}
-
-function sortByUpdatedAtDesc<T extends { updatedAt: string }>(items: T[]): T[] {
-  return items.sort((a, b) => {
-    const aTime = new Date(a.updatedAt).getTime() || 0;
-    const bTime = new Date(b.updatedAt).getTime() || 0;
-    return bTime - aTime;
-  });
-}
+/** Single-key lock map serializing Brain session state mutations. */
+const brainLocks = new Map<string, Promise<void>>();
 
 function sessionsRoot(dataDir: string): string {
   return join(brainDir(dataDir), "sessions");
@@ -73,19 +52,6 @@ function getMostRecentlyUpdatedLoadedSession(): ConversationSession | undefined 
   if (sessions.length === 0) return undefined;
   const sorted = sortByUpdatedAtDesc(sessions.map((s) => s.metadata));
   return sorted[0] ? loadedSessions.get(sorted[0].sessionId) : undefined;
-}
-
-function parseJsonlMessages(raw: string): ChatMessage[] {
-  const messages: ChatMessage[] = [];
-  for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      messages.push(JSON.parse(line) as ChatMessage);
-    } catch {
-      // Skip malformed lines to preserve recoverability.
-    }
-  }
-  return messages;
 }
 
 /**
@@ -201,7 +167,7 @@ export async function getOrCreateBrainSession(
   dataDir = getDataDir(),
   options?: CreateOptions,
 ): Promise<{ session: ConversationSession; created: boolean }> {
-  return withLock(async () => {
+  return withKeyedLock(brainLocks, BRAIN_WORKSPACE_ID, async () => {
     await requireBrainRepo(dataDir);
 
     const existing = getActiveSession();
@@ -279,7 +245,7 @@ export async function createNewBrainSession(
   dataDir = getDataDir(),
   options?: CreateOptions,
 ): Promise<ConversationSession> {
-  return withLock(async () => {
+  return withKeyedLock(brainLocks, BRAIN_WORKSPACE_ID, async () => {
     await requireBrainRepo(dataDir);
     const existing = await listBrainSessions(dataDir);
     if (existing.length >= MAX_BRAIN_SESSIONS) {
@@ -297,7 +263,7 @@ export async function activateBrainSession(
   dataDir = getDataDir(),
   options?: CreateOptions,
 ): Promise<ConversationSession> {
-  return withLock(async () => {
+  return withKeyedLock(brainLocks, BRAIN_WORKSPACE_ID, async () => {
     await requireBrainRepo(dataDir);
     const active = getActiveSession();
     if (active?.sessionId === sessionId) return active;
@@ -346,7 +312,7 @@ export async function hardDeleteBrainSession(
   sessionId: string,
   dataDir = getDataDir(),
 ): Promise<void> {
-  await withLock(async () => {
+  await withKeyedLock(brainLocks, BRAIN_WORKSPACE_ID, async () => {
     const loaded = loadedSessions.get(sessionId);
     const wasActive = activeSessionId === sessionId;
 
@@ -394,5 +360,5 @@ export function _clearBrainSessions(): void {
   }
   loadedSessions.clear();
   activeSessionId = undefined;
-  lock = Promise.resolve();
+  brainLocks.clear();
 }

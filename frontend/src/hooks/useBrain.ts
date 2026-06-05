@@ -30,9 +30,7 @@ export function useBrain() {
         name,
       }),
     onSuccess: (state) => {
-      queryClient.setQueryData(BRAIN_QUERY_KEY, state);
-      void queryClient.invalidateQueries({ queryKey: BRAIN_QUERY_KEY });
-    },
+      queryClient.setQueryData(BRAIN_QUERY_KEY, state);    },
   });
 
   const connectBrain = useMutation({
@@ -42,17 +40,13 @@ export function useBrain() {
         url,
       }),
     onSuccess: (state) => {
-      queryClient.setQueryData(BRAIN_QUERY_KEY, state);
-      void queryClient.invalidateQueries({ queryKey: BRAIN_QUERY_KEY });
-    },
+      queryClient.setQueryData(BRAIN_QUERY_KEY, state);    },
   });
 
   const deleteBrain = useMutation({
     mutationFn: () => api.delete<void>("/api/brain"),
     onSuccess: () => {
-      queryClient.setQueryData<BrainState>(BRAIN_QUERY_KEY, { exists: false });
-      void queryClient.invalidateQueries({ queryKey: BRAIN_QUERY_KEY });
-    },
+      queryClient.setQueryData<BrainState>(BRAIN_QUERY_KEY, { exists: false });    },
   });
 
   return {
