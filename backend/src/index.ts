@@ -5,6 +5,7 @@ import type { FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import { projectRoutes } from "./api/projects.js";
+import { brainRoutes } from "./api/brain.js";
 import { projectEnvRoutes } from "./api/project-env.js";
 import { workspaceRoutes } from "./api/workspaces.js";
 import { completionRoutes } from "./api/completions.js";
@@ -25,6 +26,7 @@ import { browserWsRoutes } from "./ws/browser.js";
 import { automationRoutes } from "./api/automations.js";
 import { promptTemplateRoutes } from "./api/prompt-templates.js";
 import { basePromptRoutes } from "./api/base-prompt.js";
+import { brainPromptRoutes } from "./api/brain-prompt.js";
 import { skillRoutes } from "./api/skills.js";
 import { instructionRoutes } from "./api/agent-instructions.js";
 import { customAgentRoutes } from "./api/custom-agents.js";
@@ -299,6 +301,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   });
 
   await app.register((instance: FastifyInstance) => projectRoutes(instance));
+  await app.register((instance: FastifyInstance) => brainRoutes(instance));
   await app.register((instance: FastifyInstance) => projectEnvRoutes(instance));
   await app.register((instance: FastifyInstance) => workspaceRoutes(instance));
   await app.register((instance: FastifyInstance) => completionRoutes(instance));
@@ -330,6 +333,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   );
   await app.register((instance: FastifyInstance) => promptTemplateRoutes(instance));
   await app.register((instance: FastifyInstance) => basePromptRoutes(instance));
+  await app.register((instance: FastifyInstance) => brainPromptRoutes(instance));
   await app.register((instance: FastifyInstance) => skillRoutes(instance));
   await app.register((instance: FastifyInstance) => instructionRoutes(instance));
   await app.register((instance: FastifyInstance) => customAgentRoutes(instance));

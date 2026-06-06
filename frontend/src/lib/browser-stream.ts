@@ -1,7 +1,5 @@
 import { getServerUrl } from "@/hooks/useServerUrl";
 
-export type BrowserStreamConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
-
 export interface BrowserStreamFrame {
   src: string;
   url?: string;

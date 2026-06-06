@@ -1,12 +1,15 @@
 import type { Stats } from "node:fs";
 import { readdir, readFile, stat, mkdir, writeFile, rename } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
 import {
   addWorktreeWithNewBranch,
   removeWorktreeOrDeleteDirectory,
 } from "../utils/git-worktree.js";
+import { buildFileTree } from "../utils/file-tree.js";
+import { MAX_TEXT_FILE_SIZE, resolveSafeRepoFilePath } from "../utils/repo-files.js";
+import { buildDiffResponse, getUntrackedDiff } from "../utils/git-diff.js";
 import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/paths.js";
 import { refreshDefaultBranchFromOrigin } from "../utils/git-default-branch.js";
 import { pickCityName } from "../utils/city-names.js";
@@ -15,32 +18,7 @@ import { isInitialized, lookupWorkspace } from "../state/workspace-index.js";
 import { copyProjectEnvToWorkspace } from "../state/project-env.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../utils/errors.js";
 import { stopAllForWorkspace } from "../services/script-runner.js";
-import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffScope, DiffStatResponse } from "../types.js";
-
-const IGNORED_DIRS = new Set([
-  ".git",
-  "node_modules",
-  // Build output
-  "target",        // Rust/Cargo
-  "build",         // Java/Gradle, C/CMake
-  "dist",          // JS bundlers
-  ".next",         // Next.js
-  ".nuxt",         // Nuxt
-  ".svelte-kit",   // SvelteKit
-  ".output",       // Nitro/Nuxt
-  "__pycache__",   // Python
-  ".cache",        // Various tools
-  ".parcel-cache", // Parcel
-  ".turbo",        // Turborepo
-  // Dependency/env
-  ".venv",         // Python virtualenv
-  "venv",
-  ".tox",          // Python tox
-  // IDE
-  ".idea",         // JetBrains
-]);
-const MAX_TREE_DEPTH = 8;
-const MAX_TREE_NODES = 3000;
+import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffScope, DiffResponse, DiffStatResponse } from "../types.js";
 
 function findWorkspace(state: ProjectState, wsId: string): Workspace | undefined {
   return state.workspaces.find((ws) => ws.id === wsId);
@@ -55,69 +33,6 @@ function findProjectByWorkspace(
     if (ws) return { state, workspace: ws };
   }
   return undefined;
-}
-
-function toUnixPath(path: string): string {
-  return path.split(sep).join("/");
-}
-
-function sortDirEntries(a: { name: string; isDirectory: () => boolean }, b: { name: string; isDirectory: () => boolean }): number {
-  if (a.isDirectory() !== b.isDirectory()) {
-    return a.isDirectory() ? -1 : 1;
-  }
-  return a.name.localeCompare(b.name);
-}
-
-async function readWorkspaceTree(
-  rootPath: string,
-  currentPath: string,
-  depth: number,
-  remaining: { count: number }
-): Promise<WorkspaceFileTreeNode[]> {
-  if (depth > MAX_TREE_DEPTH || remaining.count <= 0) {
-    return [];
-  }
-
-  const entries = await readdir(currentPath, { withFileTypes: true });
-  entries.sort(sortDirEntries);
-
-  const nodes: WorkspaceFileTreeNode[] = [];
-  for (const entry of entries) {
-    if (remaining.count <= 0) break;
-
-    const absolutePath = join(currentPath, entry.name);
-    const relativePath = toUnixPath(relative(rootPath, absolutePath));
-
-    if (entry.isDirectory()) {
-      if (IGNORED_DIRS.has(entry.name)) continue;
-
-      remaining.count -= 1;
-      const children = await readWorkspaceTree(
-        rootPath,
-        absolutePath,
-        depth + 1,
-        remaining,
-      );
-      nodes.push({
-        name: entry.name,
-        path: relativePath,
-        type: "directory",
-        ...(children.length > 0 ? { children } : {}),
-      });
-      continue;
-    }
-
-    if (!entry.isFile()) continue;
-
-    remaining.count -= 1;
-    nodes.push({
-      name: entry.name,
-      path: relativePath,
-      type: "file",
-    });
-  }
-
-  return nodes;
 }
 
 export async function createWorkspace(
@@ -316,36 +231,12 @@ async function resolveWorkspacePaths(
   return { bare, wsPath, defaultBranch, workspace };
 }
 
-async function getUntrackedDiff(wsPath: string): Promise<string> {
-  const untrackedResult = await git(["ls-files", "--others", "--exclude-standard"], wsPath)
-    .then((r) => r.stdout)
-    .catch(() => "");
-  const untrackedFiles = untrackedResult.split("\n").filter(Boolean);
-  const untrackedPatches: string[] = [];
-
-  for (const file of untrackedFiles.slice(0, 100)) {
-    try {
-      const content = await readFile(join(wsPath, file), "utf-8");
-      if (content.includes("\0")) continue;
-      const lines = content.endsWith("\n") ? content.slice(0, -1).split("\n") : content.split("\n");
-      const lineCount = lines.length;
-      const hunkBody = lines.map((l) => `+${l}`).join("\n");
-      untrackedPatches.push(
-        `diff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n@@ -0,0 +1,${lineCount} @@\n${hunkBody}`,
-      );
-    } catch {
-      // Skip unreadable files
-    }
-  }
-
-  return untrackedPatches.join("\n");
-}
-
 export async function getWorkspaceDiff(
   wsId: string,
   dataDir = getDataDir(),
   scope: DiffScope = "combined",
-): Promise<string> {
+  maxUntrackedFiles?: number,
+): Promise<DiffResponse> {
   const { bare, wsPath, defaultBranch, workspace } =
     await resolveWorkspacePaths(wsId, dataDir);
 
@@ -353,17 +244,18 @@ export async function getWorkspaceDiff(
   // working tree changes, or a combined review against the default branch.
   if (scope === "committed") {
     await refreshDefaultBranchFromOrigin(bare, defaultBranch);
-    return git(["diff", "--find-renames", `${defaultBranch}...${workspace.branch}`], bare)
+    const diff = await git(["diff", "--find-renames", `${defaultBranch}...${workspace.branch}`], bare)
       .then((r) => r.stdout)
       .catch(() => "");
+    return { diff, omittedFileCount: 0 };
   }
 
   if (scope === "uncommitted") {
-    const [trackedDiff, untrackedDiff] = await Promise.all([
+    const [trackedDiff, untracked] = await Promise.all([
       git(["diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
-      getUntrackedDiff(wsPath),
+      getUntrackedDiff(wsPath, maxUntrackedFiles),
     ]);
-    return [trackedDiff, untrackedDiff].filter(Boolean).join("\n");
+    return buildDiffResponse(trackedDiff, untracked);
   }
 
   await refreshDefaultBranchFromOrigin(bare, defaultBranch);
@@ -372,14 +264,14 @@ export async function getWorkspaceDiff(
     wsPath,
   ).then((r) => r.stdout.trim()).catch(() => "");
 
-  const [combinedDiff, untrackedDiff] = await Promise.all([
+  const [combinedDiff, untracked] = await Promise.all([
     mergeBase
       ? git(["diff", mergeBase], wsPath).then((r) => r.stdout).catch(() => "")
       : git(["diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
-    getUntrackedDiff(wsPath),
+    getUntrackedDiff(wsPath, maxUntrackedFiles),
   ]);
 
-  return [combinedDiff, untrackedDiff].filter(Boolean).join("\n");
+  return buildDiffResponse(combinedDiff, untracked);
 }
 
 function parseDiffStat(
@@ -524,11 +416,8 @@ export async function listWorkspaceFiles(
     result.workspace.name,
   );
 
-  const remaining = { count: MAX_TREE_NODES };
-  return readWorkspaceTree(workspacePath, workspacePath, 0, remaining);
+  return buildFileTree(workspacePath);
 }
-
-const MAX_FILE_SIZE = 1024 * 1024; // 1 MB
 
 export interface WorkspaceFileEntry {
   absolutePath: string;
@@ -541,8 +430,6 @@ export async function getWorkspaceFileEntry(
   filePath: string,
   dataDir = getDataDir()
 ): Promise<WorkspaceFileEntry> {
-  if (!filePath) throw new BadRequestError("Missing file path");
-
   const result = await getWorkspace(wsId, dataDir);
   if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
 
@@ -551,10 +438,9 @@ export async function getWorkspaceFileEntry(
     result.workspace.name,
   );
 
-  const resolved = resolve(workspacePath, filePath);
-  if (!resolved.startsWith(workspacePath + sep) && resolved !== workspacePath) {
-    throw new BadRequestError("Invalid file path");
-  }
+  // Shared with the Brain: rejects traversal, the repo root, `.git`, and
+  // symlink escapes (lexical resolve does not follow symlinks).
+  const resolved = await resolveSafeRepoFilePath(workspacePath, filePath);
 
   let fileStat;
   try {
@@ -577,7 +463,7 @@ export async function getWorkspaceFileContent(
 ): Promise<{ content: string; path: string }> {
   const file = await getWorkspaceFileEntry(wsId, filePath, dataDir);
 
-  if (file.stat.size > MAX_FILE_SIZE) {
+  if (file.stat.size > MAX_TEXT_FILE_SIZE) {
     throw new BadRequestError(`File too large (${Math.round(file.stat.size / 1024)}KB, max 1MB)`);
   }
 

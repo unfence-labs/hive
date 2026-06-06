@@ -7,7 +7,7 @@ import type { AgentRunner } from "./types.js";
 import { CodexAppServerRunner } from "./codex-app-server-runner.js";
 import { ProcessAgentRunner } from "./process-agent-runner.js";
 
-type SessionKind = "chat" | "automation";
+type SessionKind = "chat" | "automation" | "brain";
 
 export interface CreateAgentRunnerInput {
   cwd: string;

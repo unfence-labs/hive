@@ -124,4 +124,44 @@ describe("FileContentToolbar", () => {
     await user.click(screen.getByRole("button", { name: "Paste to prompt (2)" }));
     expect(onPasteToPrompt).toHaveBeenCalledTimes(1);
   });
+
+  it("shows the Raw/Rendered toggle only in source mode for renderable files", () => {
+    renderToolbar({ mode: "source", supportsRendered: true });
+    expect(screen.getByRole("button", { name: "Raw" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rendered" })).toBeInTheDocument();
+  });
+
+  it("hides the Raw/Rendered toggle for non-renderable files", () => {
+    renderToolbar({ mode: "source", supportsRendered: false });
+    expect(screen.queryByRole("button", { name: "Raw" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rendered" })).not.toBeInTheDocument();
+  });
+
+  it("hides the Raw/Rendered toggle in diff mode", () => {
+    renderToolbar({ mode: "diff", supportsRendered: true });
+    expect(screen.queryByRole("button", { name: "Raw" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rendered" })).not.toBeInTheDocument();
+  });
+
+  it("hides the Source/Diff toggle when showSourceDiffToggle is false", () => {
+    renderToolbar({ mode: "source", showSourceDiffToggle: false, supportsRendered: true });
+    expect(screen.queryByRole("button", { name: "Source" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Diff" })).not.toBeInTheDocument();
+    // The Raw/Rendered toggle and file path still render.
+    expect(screen.getByRole("button", { name: "Raw" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rendered" })).toBeInTheDocument();
+    expect(screen.getByText("Button.tsx")).toBeInTheDocument();
+  });
+
+  it("forwards render mode changes", async () => {
+    const user = userEvent.setup();
+    const onRenderModeChange = vi.fn();
+    renderToolbar({ mode: "source", supportsRendered: true, onRenderModeChange });
+
+    await user.click(screen.getByRole("button", { name: "Rendered" }));
+    await user.click(screen.getByRole("button", { name: "Raw" }));
+
+    expect(onRenderModeChange).toHaveBeenNthCalledWith(1, "rendered");
+    expect(onRenderModeChange).toHaveBeenNthCalledWith(2, "raw");
+  });
 });

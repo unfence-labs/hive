@@ -6,8 +6,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Sidebar from "@/components/Sidebar";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { api } from "@/hooks/useApi";
+import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import type { UiPreferencesPayload } from "@/lib/sidebar-preferences";
-import type { Project, PullRequestInfo, WsOutgoing } from "@/types";
+import type { BrainState, Project, PullRequestInfo, WsOutgoing } from "@/types";
 
 /** Match elements whose full textContent equals `text` (handles text split across child spans). */
 function withTextContent(text: string) {
@@ -24,6 +25,21 @@ vi.mock("@/hooks/useApi", () => ({
     put: vi.fn(),
     delete: vi.fn(),
   },
+}));
+
+const brainMock = vi.hoisted(() => ({
+  brain: { exists: false } as BrainState,
+}));
+
+vi.mock("@/hooks/useBrain", () => ({
+  useBrain: () => ({
+    brain: brainMock.brain,
+    loading: false,
+    error: null,
+    createBrain: vi.fn(),
+    connectBrain: vi.fn(),
+    deleteBrain: vi.fn(),
+  }),
 }));
 
 vi.mock("react-resizable-panels", () => {
@@ -104,6 +120,7 @@ function renderSidebar(
   projects: Project[],
   apiOverrides?: {
     projects?: Project[] | Error | (() => Promise<Project[]>);
+    brain?: { exists: false } | { exists: true; repoUrl: string; createdAt: string };
     diffStat?: Record<string, unknown> | Error;
     automations?: Record<string, unknown>[] | Error;
     uiPreferences?: UiPreferencesPayload;
@@ -119,6 +136,9 @@ function renderSidebar(
       if (override instanceof Error) throw override;
       if (typeof override === "function") return override();
       return override ?? projects;
+    }
+    if (url === "/api/brain") {
+      return apiOverrides?.brain ?? { exists: false };
     }
     if (url === "/api/automations") {
       const override = apiOverrides?.automations;
@@ -143,7 +163,12 @@ function renderSidebar(
     throw new Error(`Unexpected PUT: ${url}`);
   });
 
-  const workspaceIds = projects.flatMap((p) => (p.workspaces ?? []).map((ws) => ws.id));
+  // Mirror App.tsx: the synthetic Brain id is always subscribed so the Brain
+  // streams over the same hub and surfaces activity in the sidebar.
+  const workspaceIds = [
+    ...projects.flatMap((p) => (p.workspaces ?? []).map((ws) => ws.id)),
+    BRAIN_WORKSPACE_ID,
+  ];
 
   return render(
     <QueryClientProvider client={queryClient}>
@@ -164,6 +189,10 @@ function renderSidebar(
             />
             <Route
               path="/automations/:automationId"
+              element={<SidebarRoute />}
+            />
+            <Route
+              path="/brain"
               element={<SidebarRoute />}
             />
             <Route path="/settings" element={<SettingsStateProbe />} />
@@ -278,6 +307,7 @@ describe("Sidebar", () => {
     vi.mocked(api.delete).mockReset();
     localStorage.removeItem("hive:sidebar-project-folders:v1");
     localStorage.removeItem("hive:sidebar-project-folders:cache:v1");
+    brainMock.brain = { exists: false };
     mockPostWithBulkFallback({});
     const { __wsMock } = await getWsMock();
     __wsMock.reset();
@@ -293,6 +323,64 @@ describe("Sidebar", () => {
 
     await user.click(screen.getByText(withTextContent("acme/alpha")));
     expect(screen.getByText("workspace/tokyo")).toBeInTheDocument();
+  });
+
+  it("renders a pinned Brain entry only when Brain exists", async () => {
+    const user = userEvent.setup();
+    const firstRender = renderSidebar("/projects", projects);
+
+    await screen.findByText(withTextContent("acme/alpha"));
+    expect(screen.queryByRole("link", { name: /Brain/i })).not.toBeInTheDocument();
+    firstRender.unmount();
+
+    brainMock.brain = {
+      exists: true,
+      repoUrl: "git@github.com:octocat/brain.git",
+      createdAt: "2026-06-05T00:00:00.000Z",
+    };
+    renderSidebar("/projects", projects);
+
+    const brainLink = await screen.findByRole("link", { name: /Brain/i });
+    expect(brainLink).toHaveAttribute("href", "/brain");
+    // The repo URL is intentionally not shown — the entry is a clean nav row.
+    expect(
+      screen.queryByText("git@github.com:octocat/brain.git"),
+    ).not.toBeInTheDocument();
+
+    await user.click(brainLink);
+    expect(screen.getAllByTestId("location-path").at(-1)).toHaveTextContent("/brain");
+  });
+
+  it("surfaces Brain activity (unread then streaming) on the sidebar entry", async () => {
+    brainMock.brain = {
+      exists: true,
+      repoUrl: "git@github.com:octocat/brain.git",
+      createdAt: "2026-06-05T00:00:00.000Z",
+    };
+    const { __wsMock } = await getWsMock();
+    // Viewing another page, so a completed Brain turn is background activity.
+    renderSidebar("/home", projects);
+
+    const brainLink = await screen.findByRole("link", { name: /Brain/i });
+    expect(brainLink.querySelector("[aria-label='Unread activity']")).toBeNull();
+
+    // A background turn completes -> unread dot.
+    act(() => {
+      __wsMock.emit(BRAIN_WORKSPACE_ID, { type: "done", sessionId: "brain-sess-1" });
+    });
+    expect(brainLink.querySelector("[aria-label='Unread activity']")).not.toBeNull();
+
+    // A new turn starts -> streaming indicator takes over.
+    act(() => {
+      __wsMock.emit(BRAIN_WORKSPACE_ID, {
+        type: "status",
+        status: "busy",
+        sessionId: "brain-sess-1",
+        streaming: true,
+      });
+    });
+    expect(brainLink.querySelector("[aria-label='Agent is working']")).not.toBeNull();
+    expect(brainLink.querySelector("[aria-label='Unread activity']")).toBeNull();
   });
 
   it("shows workspace count beside project name only when count is greater than zero", async () => {

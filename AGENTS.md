@@ -56,9 +56,16 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 
 - `backend/src/index.ts`: app wiring, auth/rate-limit hooks, route registration, git sync + notifier bootstrap, preflight checks
 - `backend/src/api/projects.ts`: project CRUD + fetch
+- `backend/src/api/brain.ts`: singleton Brain routes — state read-create-connect-delete (`GET/POST/DELETE /api/brain`), working-tree file ops (`GET /api/brain/files`, `GET/PUT /api/brain/file`), and git ops (`GET /api/brain/status`, `GET /api/brain/diff` returning `{ diff, omittedFileCount }`, `POST /api/brain/save`) for a normal Git clone, not a Project. The Brain has no note create/rename/delete UI, so those file-op routes were removed.
+- `backend/src/brain/brain-files.ts`: Brain working-tree file operations (list/read/upsert) with `requireBrainRepo()` guard (409 when absent). Path safety is shared with workspaces via `backend/src/utils/repo-files.ts` (`resolveSafeRepoFilePath`). Reads over the 1 MB cap return a bounded prefix with `truncated: true` (the agent can write notes larger than any cap directly to disk, so reads degrade to a read-only preview instead of erroring). Upsert touches disk only — never git.
+- `backend/src/utils/repo-files.ts`: shared repo-relative file-path safety reused by workspace + Brain file ops — `resolveRepoFilePath()` (lexical anti-traversal, repo-root + `.git` rejection), `assertRealPathInsideRepo()` (resolves the nearest existing ancestor with `realpath` to block symlink escapes), `resolveSafeRepoFilePath()` (both combined), and the shared `MAX_TEXT_FILE_SIZE` cap.
+- `backend/src/brain/brain-git.ts`: Brain git operations — `getBrainStatus()` (porcelain pending changes), `getBrainDiff()` (working-tree-vs-HEAD incl. untracked; returns `{ diff, omittedFileCount }` where `omittedFileCount` is the number of untracked files dropped by the render cap, surfaced so the review never hides files that `add -A` will commit), `saveBrain()` (`git add -A` + commit + push)
+- `backend/src/utils/file-tree.ts`: shared recursive file-tree builder (`buildFileTree`) reused by workspace and Brain listings (ignores VCS/build/dep dirs, depth + node caps); `flattenFilePaths()` flattens a tree into a sorted path list (used for the Brain map)
+- `backend/src/utils/git-diff.ts`: shared `getUntrackedDiff()` — synthetic new-file patches for untracked files, concatenable with `git diff HEAD`. Returns `{ patch, total, included }` (injectable `maxFiles` cap, default 100) so callers can surface how many untracked files were omitted from the rendered patch. Empty files render a `@@ -0,0 +0,0 @@` hunk (no spurious blank `+` line).
 - `backend/src/api/workspaces.ts`: workspace CRUD + diff/stat + files/file + merge + archive + PR status + bulk PR status + file-completions + terminal start/stop
 - `backend/src/api/agents.ts`: session routes (single + multi-session)
 - `backend/src/api/completions.ts`: provider-aware completion scanning endpoint
+- `backend/src/agents/chat-context.ts`: shared `resolveChatCwd(wsId)` mapping a chat workspace id to its working directory (Brain repo for `"brain"`, Git worktree otherwise; `null` when absent); used by the file-mention resolver (`ws/stream.ts`) and the file/`@`/`/` completion endpoints so the Brain gets the same `#`-mention + autocomplete behavior as workspaces without duplicated branches
 - `backend/src/api/models.ts`: model catalog endpoint (`GET /api/models`)
 - `backend/src/api/settings.ts`: notification config CRUD + test message + APNs device token registration
 - `backend/src/api/account.ts`: GitHub OAuth device flow + `gh` CLI integration
@@ -76,15 +83,17 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/services/git-sync.ts`: branch/diff polling and workspace broadcasts (PR status moved to REST)
 - `backend/src/services/script-runner.ts`: PTY-based script execution with status broadcasting + command-less interactive terminal mode
 - `backend/src/services/automation-scheduler.ts`: cron-based automation executor (croner, ConversationSession, summary extraction, git context injection, notifications)
-- `backend/src/agents/conversation-session.ts`: agent process lifecycle per turn (provider-aware)
+- `backend/src/agents/conversation-session.ts`: agent process lifecycle per turn (provider-aware); `SessionKind` (`chat`/`automation`/`brain`)
 - `backend/src/agents/stream-parser.ts`: NDJSON parser for Claude CLI `--output-format stream-json --verbose`
 - `backend/src/agents/agent-event-normalizer.ts`: provider event normalization into Hive stream events and activity updates
 - `backend/src/agents/runners/factory.ts`: runner selection (`codex` chat -> App Server, Codex automation -> process runner)
 - `backend/src/agents/runners/process-agent-runner.ts`: CLI process runner for Claude, Gemini, and Codex exec automations
 - `backend/src/agents/runners/codex-app-server-runner.ts`: Codex App Server turn runner and stop/interruption lifecycle
-- `backend/src/agents/agent-manager.ts`: in-memory session registry, persistence, switching, notification dispatch
+- `backend/src/agents/agent-manager.ts`: in-memory session registry, persistence, switching, notification dispatch (workspace-coupled)
+- `backend/src/agents/brain-manager.ts`: Brain session manager — reuses `ConversationSession` but resolves context from the Brain clone (`cwd = brainRepoPath`, `dataDir = brainDir`, `workspaceId = "brain"`); list/create/switch/delete with `MAX_BRAIN_SESSIONS = 4`; Brain system prompt with fresh file-path map per session
+- `backend/src/agents/session-dispatch.ts`: unified session surface keyed by workspace id — routes `wsId === "brain"` to `brain-manager`, everything else to `agent-manager`, so the WS hub + session routes stay manager-agnostic (no duplicated session logic)
 - `backend/src/agents/naming.ts`: branch + session auto-naming via dedicated Claude subprocess
-- `backend/src/agents/system-prompt.ts`: system prompt construction — `DEFAULT_BASE_PROMPT`, `loadBasePrompt()`, `getGitContext()`, `formatGitContextBlock()`, `buildSystemPrompt()` with template variable interpolation (`{PROJECT}`, `{DIR}`, `{DEFAULT_BRANCH}`)
+- `backend/src/agents/system-prompt.ts`: system prompt construction — `DEFAULT_BASE_PROMPT`, `loadBasePrompt()`, `getGitContext()`, `formatGitContextBlock()`, `buildSystemPrompt()` with template variable interpolation (`{PROJECT}`, `{DIR}`, `{DEFAULT_BRANCH}`); `buildBrainSystemPrompt()` + `formatBrainMapBlock()` inject the Brain's flattened file-path map (paths only) as the retrieval mechanism
 - `backend/src/agents/providers/types.ts`: `AgentProvider` interface, `ProviderCapabilities`, `ModelDefinition` (includes `contextWindow`), `StreamAdapter`
 - `backend/src/agents/providers/registry.ts`: CLI detection, model ID resolution (`"claude:opus-4-7"`), model catalog builder, npm package version tracking
 - `backend/src/agents/providers/claude.ts`: Claude provider (CLI args, env, `--effort` flag for reasoning effort)
@@ -103,12 +112,14 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `backend/src/state/agent-instructions.ts`: global instruction discovery and synchronization (`~/.codex/AGENTS.md` canonical, `~/.claude/CLAUDE.md` symlink, `AGENTS.override.md` read-only visibility)
 - `backend/src/state/skills.ts`: global skill discovery and synchronization (`~/.agents/skills` canonical, `~/.claude/skills` symlinks)
 - `backend/src/state/custom-agents.ts`: global custom agent discovery and provider-native persistence (`~/.claude/agents/*.md`, `~/.codex/agents/*.toml`) without symlink sync
+- `backend/src/state/brain.ts`: Brain singleton state persistence at `$DATA_DIR/brain/state.json`
 - `backend/src/utils/custom-agent-manifest.ts`: Claude Markdown frontmatter + Codex TOML manifest parsing and counterpart formatting
 - `backend/src/state/ui-preferences.ts`: UI preferences persistence (`$DATA_DIR/ui-preferences.json`) — atomic write, sanitize helper drops folders/project refs that no longer exist
-- `backend/src/state/state.ts`: JSON persistence + per-project locks
+- `backend/src/state/state.ts`: JSON persistence + shared atomic JSON writes + per-project locks
 - `backend/src/state/config.ts`: file-based app config (`$DATA_DIR/config.json`)
 - `backend/src/utils/preflight.ts`: startup dependency checks (git >= 2.17, claude, gh; codex/gemini optional)
-- `backend/src/utils/github.ts`: GitHub URL parsing, `gh` CLI wrapper, PR status fetching (reviews, checks, merge state)
+- `backend/src/utils/github.ts`: GitHub URL parsing, `gh` CLI wrapper, shared GitHub repo creation helpers, PR status fetching (reviews, checks, merge state)
+- `backend/src/brain/brain-repo.ts`: Brain normal-clone creation/connect/delete operations; create mode provisions a private GitHub repo, seeds README, commits, and pushes
 - `backend/src/utils/hive-config.ts`: `hive.json` parser for workspace scripts
 - `backend/src/utils/summary-extractor.ts`: extract `## Summary` section from agent messages
 - `backend/src/utils/format.ts`: `formatDuration(ms)` utility for notification formatting
@@ -147,6 +158,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Image attachments are resized via sharp (max 1568px, JPEG q80) and stored as files on disk, served via HTTP (`/api/workspaces/:wsId/sessions/:sessionId/attachments/:filename`).
 - PR status: single-workspace endpoint (`GET /api/workspaces/:wsId/pr-status`) with 15s TTL cache, plus bulk endpoint (`POST /api/workspaces/bulk-pr-status`) that seeds per-workspace cache entries. Returns enriched data: review state, checks counts, mergeable state (13-state priority ladder), supports closed/merged/draft PRs.
 - System prompt construction: `system-prompt.ts` loads base prompt from `~/.hive/prompts/base.md` (or hardcoded default), interpolates template variables (`{PROJECT}`, `{DIR}`, `{DEFAULT_BRANCH}`), appends git context block.
+- Brain chat (M-C): Brain sessions run through the shared `ConversationSession` machinery via a dedicated `brain-manager` (the workspace-coupled `agent-manager` cannot back a non-workspace clone). Sessions persist under `$DATA_DIR/brain/sessions/<id>/`, are addressed over the existing WS hub as `workspaceId = "brain"` (no new WS message types), and are routed by `session-dispatch.ts`. The Brain system prompt injects a fresh file-path map (paths only, `.git` excluded) at each session start/disk-load — the user guides the agent, there is no search index. Brain sessions use the same full tool set and skip-permissions behavior as workspace sessions (no tool restriction). `#file` mentions, `@agent`, and `/command` autocomplete work in Brain chat too: the file-mention resolver and the `file-completions`/`completions` endpoints resolve `wsId === "brain"` against the Brain repo via `resolveChatCwd` (autocomplete lists tracked files via `git ls-files`, while mentions resolve any path within the repo, so freshly-created uncommitted notes are still mentionable by typing their path).
 - Automation scheduler (`AutomationScheduler`) runs as a singleton service alongside `GitSyncService`, instantiated in `main()`.
 - Automations execute `ConversationSession` directly (not via agent-manager) to keep automation sessions decoupled from workspace sessions.
 - Automation system prompt: auto-appends `## Summary` instruction + git context block (for project-linked automations). The resolved system prompt is persisted to disk alongside run messages.
@@ -161,8 +173,10 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 
 ## Frontend Architecture
 
-- `frontend/src/App.tsx`: routing, global workspace WS syncing, WS cache invalidation
-- `frontend/src/pages/WorkspaceView.tsx`: chat + file tree + inline diff viewer + scripts + modified files + PR status
+- `frontend/src/App.tsx`: routing (including `/brain`), global workspace WS syncing (always includes the synthetic `"brain"` workspace id), WS cache invalidation
+- `frontend/src/pages/WorkspaceView.tsx`: chat + file tree + inline diff viewer + scripts + modified files + PR status. The conversation column (chat/sessions/tabs/tasks/queue) comes from the shared `useConversationColumn` hook + `ConversationPane` component; the page keeps its plan flow (`PlanActionBar`, `handleSend` with plan-reject, hand-off, `dismissPlan`/`approvePlan`), the unread-clear effect, diff-scope logic, the file/diff tab takeover (`FileContentToolbar` + `FileViewer`/`InlineDiffViewer`), browser panel, PR section, and scripts inline.
+- `frontend/src/pages/BrainView.tsx`: two-column resizable Brain layout (`useDefaultLayout({ id: "hive-brain-v2" })`) mirroring `WorkspaceView` — a main column (left, `minSize "40%"`) with the agent chat plus a file-tab takeover via the shared `FileViewer`, and the read-only notes file tree (right, shared `FileTree`/`renderFileTreeNodes` primitives, `defaultSize "25%"`). The chat column is the shared `useConversationColumn` hook + `ConversationPane` component pointed at `workspaceId = "brain"` (so the Brain now uses the same per-session message queue as workspaces, no longer a single queue dropped on session switch). The page keeps its `handleSend` (plain), file-tab state, `renderMode` (defaults to `"rendered"` — Raw enables editing), the tree actions (`handleSelect`/`handleWriteToDisk`), and the Save flow (status badge + indicator; Save commits + pushes directly with no review modal) inline; it passes no `planActionBar` (Brain has no plan flow). The Brain has no note create/rename/delete UI — notes are authored by the agent or edited in Raw mode. Clicking a note opens it in a file tab that takes over the chat area; opening invalidates that file's content key first to defeat the `staleTime: Infinity` cache. `useBrainChatRefresh(openFile)` refreshes tree/status/open-file on agent writes. The bottom-right Sync section hosts the Save indicator + Save button.
+- `frontend/src/components/diff/FileDiffCard.tsx`: shared single-file diff card (header + `@pierre/diffs` `FileDiff`) reused by `InlineDiffViewer`
 - `frontend/src/pages/AutomationDetail.tsx`: automation config display + run history + run log sheet + enable/disable + manual trigger + delete + inline editing
 - `frontend/src/pages/AutomationsHome.tsx`: automation list empty state with creation CTA
 - `frontend/src/pages/settings/AppearanceSettings.tsx`: accent color picker
@@ -178,6 +192,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/components/settings/`: shared settings editor frame, resource list, provider status primitives, and selection helpers
 - `frontend/src/contexts/WorkspaceLiveDataContext.tsx`: React context for `useWorkspaceLiveData` — provides per-session unread tracking, `clearUnread(wsId, sessionId?)`
 - `frontend/src/hooks/useConversation.ts`: reducer-driven WS conversation state + tool responses + `lockedProvider` tracking + late live-fragment guards
+- `frontend/src/hooks/useConversationColumn.ts`: shared conversation-column orchestration reused by `WorkspaceView` + `BrainView` — aggregates `useConversation`/`useSessions`/`useTabs`/`useTasks`/`useBackgroundAgents` into one object, computes `effectiveLockedProvider`, owns the per-session message queue (keyed `wsId:sessionId`, auto-dequeue on idle) + `scrollToBottomTrigger`, and exposes shared `handleCreateSession`/`handleActivateSession`/`handleDeleteSession`. Page divergences ride on `opts.onActivateSession` (unread clear) and `opts.onLastSessionDeleted` (cache cleanup). Plan logic, file-mention handlers, and ChatInput's `onSend` stay per-page.
 - `frontend/src/hooks/useSessions.ts`: list/create/activate/delete sessions (max 4)
 - `frontend/src/hooks/useWorkspaceLiveData.ts`: live status/branch/diff/script data from WS + per-session unread tracking (`unreadBySession`)
 - `frontend/src/hooks/useModels.ts`: model catalog fetch, selection, provider-aware locking
@@ -191,6 +206,10 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/hooks/useFileCompletions.ts`: file path completions for `#` mention autocomplete
 - `frontend/src/hooks/useChatInputDraftPersistence.ts`: draft persistence (message, images, planMode, selectedModelId, thinkingLevel)
 - `frontend/src/hooks/useAutomations.ts`: automation CRUD + trigger + run history + run messages hooks (TanStack Query)
+- `frontend/src/hooks/useBrain.ts`: Brain singleton query + create/connect/delete mutations for `/api/brain`
+- `frontend/src/hooks/useBrainFiles.ts`: Brain file-tree + file-content queries and the upsert mutation (invalidates the tree + git status)
+- `frontend/src/hooks/useBrainGit.ts`: `useBrainStatus` (Save badge), `useBrainSave` (commit+push directly, invalidates status + parsed diff)
+- `frontend/src/hooks/useBrainChatRefresh.ts`: subscribes to the `"brain"` hub channel and invalidates Brain file-tree/status/open-file queries on agent `Write`/`Edit` tool calls and `done`/`cancelled` (last-write-wins editor refresh)
 - `frontend/src/hooks/usePromptTemplates.ts`: prompt template CRUD hooks
 - `frontend/src/hooks/useBasePrompt.ts`: base prompt query + update + reset hooks
 - `frontend/src/hooks/useCustomAgents.ts`: custom agent CRUD hooks + completion cache invalidation
@@ -215,10 +234,11 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/lib/clipboard.ts`: `copyToClipboard()` with `execCommand` fallback for HTTP contexts
 - `frontend/src/lib/terminal.ts`: SSH command builder + terminal app detection (Tauri)
 - `frontend/src/lib/open-external.ts`: VS Code remote SSH URI builder + external app launcher
-- `frontend/src/components/Sidebar.tsx`: project/workspace nav + org/repo two-tone headers + resizable workspace/automation panels + sidebar collapse + bulk PR status + unread badges + dashed active border
+- `frontend/src/components/Sidebar.tsx`: project/workspace nav + org/repo two-tone headers + resizable workspace/automation panels + sidebar collapse + bulk PR status + unread badges + dashed active border. The pinned Brain entry overlays a `SidebarActivityDot` on its icon, driven by `workspaceActivityState(liveData["brain"])` (streaming ping / unread dot), so background Brain turns surface in the sidebar like workspaces.
 - `frontend/src/components/WorkspacePathCopyButton.tsx`: workspace header path-copy action with tooltip and transient copied state
 - `frontend/src/components/ChatInput.tsx`: message input with provider-adaptive controls, `#` file autocomplete with `MentionHighlightOverlay`, Commit & Push quick action, context ring, message queue display, `appendText` ref for paste-from-diff
 - `frontend/src/components/ChatConversation.tsx`: conversation display with hydration flash fix (visibility:hidden + double-rAF settle)
+- `frontend/src/components/chat/ConversationPane.tsx`: shared chat-body layout reused by `WorkspaceView` + `BrainView` — renders `ConversationTabs` + a body (hidden, not unmounted, while a file tab is active) with `ChatConversation`, an optional `TaskTracker` (gated on tasks/agents present and no pending question), and a footer that switches between `QuestionPanel` (when an `AskUserQuestion` is pending) and the input. The page-built `<ChatInput>` and optional `<PlanActionBar>` are passed as `chatInput`/`planActionBar` slots inside a shared `relative` footer wrapper.
 - `frontend/src/components/chat/AgentActivityList.tsx`: inline renderer for Codex App Server command execution, file changes, and diagnostics; plan updates are filtered into the task tracker
 - `frontend/src/components/PrStatusSection.tsx`: enriched PR display (13 states)
 - `frontend/src/components/TaskTracker.tsx`: collapsible status bar showing active tasks, Codex plan updates, and background agents with shimmer animation
@@ -226,7 +246,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/components/CreateAutomationDialog.tsx`: automation creation + editing form with cron preview (next 3 runs)
 - `frontend/src/components/PromptEditor.tsx`: CodeMirror 6 markdown editor with `{TEMPLATE_VAR}` pill highlighting
 - `frontend/src/components/PromptFlowExplainer.tsx`: interactive diagram showing prompt assembly flow (interactive chat vs automations)
-- `frontend/src/components/FileContentToolbar.tsx`: toolbar with source/diff toggle, split/unified layout, paste-to-prompt
+- `frontend/src/components/FileContentToolbar.tsx`: toolbar with source/diff toggle (hideable via `showSourceDiffToggle={false}` — the Brain has no per-file diff), Raw/Rendered toggle, split/unified layout, paste-to-prompt; diff-only props are optional with safe defaults
 - `frontend/src/components/diff/InlineDiffViewer.tsx`: inline diff viewer (`@pierre/diffs/react`) with split/unified modes, line selection, diff comments, paste-to-prompt
 - `frontend/src/components/chat/ModelSelector.tsx`: model picker grouped by provider with icons, badges, and provider lock
 - `frontend/src/components/chat/PlanProposal.tsx`: plan mode proposal with inline markdown rendering
@@ -242,7 +262,8 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 ### Important frontend behavior
 
 - The frontend supports a configurable server URL (Settings > Connection) for remote backend connectivity. All API calls (`useApi.ts`) and WebSockets (`ws-transport.ts`) resolve the base URL via `getServerUrl()` from `useServerUrl.ts`.
-- The app maintains a single hub WS connection; `wsTransport.syncWorkspaces` sends `sync_workspaces` with the full workspace ID set to the backend.
+- The app maintains a single hub WS connection; `wsTransport.syncWorkspaces` sends `sync_workspaces` with the full workspace ID set to the backend. The synthetic `"brain"` id is always included so the Brain agent chat streams over the same hub.
+- Brain chat (M-C): `BrainView` reuses the workspace chat stack inline pointed at `workspaceId = "brain"` (no rewritten chat components; the old `BrainChatPanel`/`BrainEditorPanel` were removed and their orchestration folded into `BrainView`, which now structurally mirrors `WorkspaceView`). Clicking a note opens it in a file tab (shared `FileViewer`, editable in Raw only) that takes over the chat area, exactly like a workspace; Brain has no per-file diff (source-only, so `FileContentToolbar` is passed `showSourceDiffToggle={false}`). When the Brain agent runs a `Write`/`Edit` tool or finishes a turn, `useBrainChatRefresh` invalidates the Brain file tree, status, and the open file's content so the file viewer reflects the agent's changes (last-write-wins for the open file).
 - `useConversation` hydrates from REST history, resolves stale replay races with request tokens, and ignores late live fragments after a terminal assistant message. It also tracks `lockedProvider` from WS status events.
 - Session tabs support create/switch/delete (max 4 sessions) with live message replay, per-session streaming indicators, and per-session unread badges.
 - Chat input dynamically adapts controls based on the selected provider's capabilities: a unified thinking-level cycler reads the supported list from `capabilities.thinkingLevels` (Claude: low/medium/high/xhigh/max via `--effort`; Codex: none/minimal/low/medium/high/xhigh via `model_reasoning_effort`; Gemini: `[]` → hidden), plan mode hidden when unsupported, `/` and `@` autocomplete gated by `completions` capability, `#` file mention autocomplete with fuzzy matching.
@@ -265,6 +286,18 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Draft persistence saves `selectedModelId` and `thinkingLevel` alongside message text, images, and toggles.
 - AskUserQuestion dismissed by user shows "CANCELLED" badge in chat history.
 - WS cache invalidation (`useWsCacheInvalidation`): `diff_stats` events invalidate file-completions and diff queries; `done`/`cancelled` invalidate session data.
+
+### Brain (M-B) — two-stage Save model
+
+- The Brain (`/brain`) is a normal Git clone, editable without an agent. M-B is 100% REST (no WebSocket, no agent/session); the left chat column is a collapsed placeholder filled in M-C.
+- **Two distinct persistence levels — do not conflate them:**
+  1. **Disk write (working tree):** editing a note writes the file to disk immediately via a debounced `PUT /api/brain/file`. This is NOT git; it only prevents losing work (and enables future agent collaboration in M-C).
+  2. **Git save (commit + push):** manual, triggered by the Save button — clicking it commits + pushes the whole working tree directly (no review modal, no commit-message input). Pending changes are reviewed beforehand in the right-column "Modified" tab + per-file diff viewer. This is the backup to the remote. "Save" means publish/back up, not "save my text" (already on disk).
+- Save flow: click Save -> commits + pushes immediately; the bottom-right Sync section's Save indicator shows Saving -> Saved (3s) / Push failed. No diff review modal and no commit-message input (the backend default message is used).
+- `POST /api/brain/save` semantics: nothing to commit -> `{ committed: false, pushed: false }` (not an error); commit OK but push fails -> `{ committed: true, pushed: false, error }` (local commit kept, UI shows "Push failed"); default commit message is `Brain update <ISO timestamp>`.
+- `GET /api/brain/diff` reflects exactly what `save` would commit: tracked changes via `git diff HEAD` plus synthetic patches for untracked files (shared `getUntrackedDiff`). It returns `{ diff, omittedFileCount }`; the frontend now consumes it via `useDiff` (parsed) for the "Modified" tab + inline diff viewer. (`omittedFileCount` is no longer surfaced in the UI since the review modal was removed — a candidate for later cleanup.)
+- All Brain routes are scoped to the Brain repo with anti-traversal validation and a 409 guard when no Brain is connected; the `.git` directory is never accessible. File ops accept an injectable `dataDir` for tests.
+- Single human editor in M-B, so React Query invalidation on mutation is sufficient (no live refresh). WebSocket-driven refresh on agent writes is deferred to M-C.
 
 ## iOS App (`ios/`)
 

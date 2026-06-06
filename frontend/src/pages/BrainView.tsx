@@ -1,0 +1,675 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
+import { BrainIcon, CloudUploadIcon } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useBrain } from "@/hooks/useBrain";
+import {
+  useBrainFileMutations,
+  useBrainFileTree,
+} from "@/hooks/useBrainFiles";
+import { useBrainSave, useBrainStatus } from "@/hooks/useBrainGit";
+import { useBrainChatRefresh } from "@/hooks/useBrainChatRefresh";
+import { useConversationColumn } from "@/hooks/useConversationColumn";
+import {
+  useClearUnread,
+  useWorkspaceLiveDataContext,
+} from "@/contexts/WorkspaceLiveDataContext";
+import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
+import { ConversationPane } from "@/components/chat/ConversationPane";
+import { BrainWelcome } from "@/components/BrainWelcome";
+import { FileViewer, type FileViewerHandle } from "@/components/FileViewer";
+import { FileContentToolbar } from "@/components/FileContentToolbar";
+import { FileTree, renderFileTreeNodes } from "@/components/ai-elements/file-tree";
+import { InlineDiffViewer, type InlineDiffViewerHandle } from "@/components/diff/InlineDiffViewer";
+import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
+import { ResizeHandle } from "@/components/ResizeHandle";
+import { Badge } from "@/components/ui/badge";
+import { wsTransport } from "@/lib/ws-transport";
+import { BRAIN_WORKSPACE_ID, brainFileQueryKey } from "@/lib/brain";
+import { isMarkdownFilePath } from "@/lib/file-preview";
+import { cn } from "@/lib/utils";
+import type {
+  DiffFileStat,
+  DiffScope,
+  FileMention,
+  ImageAttachment,
+  MessageOptions,
+  WorkspaceFileTreeNode,
+} from "@/types";
+
+/** Outcome indicator for the last git save. */
+type BrainSaveIndicator = "idle" | "saving" | "saved" | "push-failed";
+
+/** The Brain's single working-tree diff scope (it has no branch commits). */
+const BRAIN_DIFF_SCOPE: DiffScope = "uncommitted";
+const BRAIN_DIFF_SCOPES: DiffScope[] = [BRAIN_DIFF_SCOPE];
+
+const DEFAULT_EXPANDED = new Set<string>();
+
+/** Recursively count the file (non-directory) nodes in a Brain file tree. */
+function countFiles(nodes: WorkspaceFileTreeNode[]): number {
+  return nodes.reduce(
+    (acc, node) =>
+      node.type === "file"
+        ? acc + 1
+        : acc + (node.children ? countFiles(node.children) : 0),
+    0,
+  );
+}
+
+/** Expand the first top-level directory so the tree isn't fully collapsed on load. */
+function buildInitialExpanded(nodes: WorkspaceFileTreeNode[]): Set<string> {
+  const expanded = new Set(DEFAULT_EXPANDED);
+  const firstDirectory = nodes.find((node) => node.type === "directory");
+  if (firstDirectory) expanded.add(firstDirectory.path);
+  return expanded;
+}
+
+/**
+ * Brain page. Mirrors the Workspace layout: a main column (agent chat with a
+ * file-tab takeover via the shared {@link FileViewer} / {@link InlineDiffViewer})
+ * on the left and a shared file browser on the right with "All" (tree) and
+ * "Modified" (pending-change list) tabs — the same components WorkspaceView uses.
+ * Clicking a note opens it in a source tab; clicking a modified file opens a
+ * diff tab. Editing happens in the Raw source view (debounced disk writes); the
+ * Sync section (bottom-right) commits + pushes the whole working tree directly
+ * (no review modal). The Brain has no note-management UI (no create/rename/delete).
+ */
+export default function BrainView() {
+  const { brain, loading } = useBrain();
+  const brainConnected = brain.exists;
+
+  const queryClient = useQueryClient();
+  const fileTreeQuery = useBrainFileTree();
+  const statusQuery = useBrainStatus();
+  const { upsertFile } = useBrainFileMutations();
+  const { save, isSaving } = useBrainSave();
+
+  const pendingCount = statusQuery.data?.count ?? 0;
+  const brainTree = useMemo(() => fileTreeQuery.data ?? [], [fileTreeQuery.data]);
+  const fileTreeError = fileTreeQuery.error?.message ?? null;
+
+  // Pending changes → DiffFileStat[] for the shared ModifiedFileList. Brain
+  // status carries no +/- counts; ModifiedFileList hides zero counts.
+  const brainStats = useMemo<DiffFileStat[]>(
+    () =>
+      (statusQuery.data?.files ?? []).map((f) => ({
+        file: f.path,
+        additions: 0,
+        deletions: 0,
+        status: f.status === "untracked" ? "added" : f.status === "renamed" ? "renamed" : f.status,
+      })),
+    [statusQuery.data?.files],
+  );
+  const modifiedPaths = useMemo(
+    () => new Set(brainStats.map((s) => s.file)),
+    [brainStats],
+  );
+
+  const notesCount = useMemo(() => countFiles(brainTree), [brainTree]);
+  const repoUrl = brain.exists ? brain.repoUrl : undefined;
+
+  const onLastSessionDeleted = useCallback(() => {
+    wsTransport.clearCachedData(BRAIN_WORKSPACE_ID);
+  }, []);
+
+  const clearUnread = useClearUnread();
+
+  // Clear the per-session unread badge when a Brain session is activated.
+  const onActivateSession = useCallback(
+    (targetSessionId: string) => {
+      clearUnread(BRAIN_WORKSPACE_ID, targetSessionId);
+    },
+    [clearUnread],
+  );
+
+  // ── Brain agent chat (shared workspace machinery, pointed at "brain") ──
+  // The conversation column (chat, sessions, tabs, tasks, queue) is shared with
+  // WorkspaceView via useConversationColumn.
+  const {
+    messages,
+    isStreaming,
+    streamingStartedAt,
+    currentStreamingText,
+    currentThinking,
+    activeToolCalls,
+    activeAgentActivities,
+    pendingToolInputs,
+    connectionStatus,
+    error,
+    sessionId,
+    sendMessage,
+    stopStreaming,
+    answerQuestion,
+    batchAnswerQuestions,
+    rejectToolInput,
+    agentPlanMode,
+    switchCounter,
+    // Tabs
+    openFile,
+    fileViewMode,
+    diffScope,
+    isFileTabActive,
+    activateTab,
+    openFileTab,
+    openDiffTab,
+    setFileViewMode,
+    setDiffScope,
+    closeFileTab,
+    // Sessions
+    sessions,
+    effectiveLockedProvider,
+    // Tasks + background agents
+    tasks,
+    currentTask,
+    taskCounts,
+    backgroundAgents,
+    backgroundRunningCount: bgRunningCount,
+    // Queue + scroll
+    queuedMessage,
+    setQueuedMessage,
+    scrollToBottomTrigger,
+    bumpScrollToBottom,
+    // Handlers
+    handleCreateSession,
+    handleActivateSession,
+    handleDeleteSession,
+  } = useConversationColumn(BRAIN_WORKSPACE_ID, { onActivateSession, onLastSessionDeleted });
+
+  const liveData = useWorkspaceLiveDataContext();
+
+  // Clear unread only when the active conversation is actually visible. While a
+  // file tab is open, keep unread so the conversation tab can still show a dot.
+  useEffect(() => {
+    if (isFileTabActive) return;
+    if (sessionId && liveData[BRAIN_WORKSPACE_ID]?.unreadSessions?.[sessionId]) {
+      clearUnread(BRAIN_WORKSPACE_ID, sessionId);
+    }
+  }, [isFileTabActive, sessionId, liveData, clearUnread]);
+
+  const supportsRendered = openFile ? isMarkdownFilePath(openFile) : false;
+  // Default to Rendered: notes are for reading; switching to Raw enables editing.
+  const [renderMode, setRenderMode] = useState<"raw" | "rendered">("rendered");
+
+  // Whether the open file has pending working-tree changes (enables the Diff tab).
+  const isFileModified = openFile ? modifiedPaths.has(openFile) : false;
+
+  // Refresh the tree/status/diff/open-file when the Brain agent writes files.
+  useBrainChatRefresh(isFileTabActive ? openFile : null);
+
+  // ── Right-column file tree (All tab) ──
+  const [sidebarTab, setSidebarTab] = useState<"all" | "modified">("all");
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(DEFAULT_EXPANDED);
+  // Initialize the expanded set once when the tree first loads.
+  const initializedRef = useRef(false);
+  useEffect(() => {
+    if (initializedRef.current || !fileTreeQuery.data) return;
+    initializedRef.current = true;
+    setExpandedPaths(buildInitialExpanded(fileTreeQuery.data));
+  }, [fileTreeQuery.data]);
+
+  // Refs for the inline diff → chat input bridge.
+  const chatInputRef = useRef<ChatInputHandle>(null);
+  const diffViewerRef = useRef<InlineDiffViewerHandle>(null);
+  const fileViewerRef = useRef<FileViewerHandle>(null);
+
+  // Inline diff state — reuse the same persisted style key as WorkspaceView.
+  const [diffStyle, setDiffStyle] = useState<"split" | "unified">(() => {
+    const stored = localStorage.getItem("diff-style");
+    return stored === "split" ? "split" : "unified";
+  });
+  const handleDiffStyleChange = useCallback((style: "split" | "unified") => {
+    setDiffStyle(style);
+    localStorage.setItem("diff-style", style);
+  }, []);
+  const [diffCommentCount, setDiffCommentCount] = useState(0);
+
+  // ── Save flow (commit + push directly, no review modal) ──
+  const [saveIndicator, setSaveIndicator] = useState<BrainSaveIndicator>("idle");
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    };
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    setSaveIndicator("saving");
+    try {
+      await fileViewerRef.current?.flushPendingWrite();
+      // No message → backend uses its default `Brain update <timestamp>`.
+      const result = await save(undefined);
+      if (result.committed && !result.pushed) {
+        setSaveIndicator("push-failed");
+      } else {
+        setSaveIndicator("saved");
+        if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+        savedTimerRef.current = setTimeout(() => setSaveIndicator("idle"), 3000);
+      }
+    } catch {
+      setSaveIndicator("push-failed");
+    }
+  }, [save]);
+
+  // Single at-a-glance sync state: the status query lifecycle folded together
+  // with the save outcome (see deriveBrainSyncState for precedence).
+  const syncState = deriveBrainSyncState({
+    statusLoading: statusQuery.isLoading,
+    statusError: statusQuery.isError,
+    saveIndicator,
+    pendingCount,
+  });
+
+  // ── File-tree actions ──
+  // Opening a file is a discrete action (never happens while typing that file),
+  // so invalidate its content key first to defeat the `staleTime: Infinity`
+  // cache and show fresh disk content on re-open.
+  const handleSelect = useCallback(
+    (path: string) => {
+      void queryClient.invalidateQueries({ queryKey: brainFileQueryKey(path) });
+      openFileTab(path);
+    },
+    [openFileTab, queryClient],
+  );
+
+  // Open a modified file in a diff tab.
+  const handleModifiedFileClick = useCallback(
+    (path: string) => {
+      openDiffTab(path, BRAIN_DIFF_SCOPE);
+      setSidebarTab("modified");
+    },
+    [openDiffTab],
+  );
+
+  const handleWriteToDisk = useCallback(
+    (path: string, content: string) => {
+      // Keep the content cache in sync with edits, optimistically and without a
+      // refetch, so the rendered preview and raw<->rendered / source<->diff
+      // switches never reset the editor to the stale disk-at-open content.
+      // setQueryData pushes exactly what is already on screen, so (unlike an
+      // invalidate) it cannot clobber in-flight typing.
+      queryClient.setQueryData(brainFileQueryKey(path), { path, content });
+      return upsertFile(path, content);
+    },
+    [queryClient, upsertFile],
+  );
+
+  const handleSend = useCallback(
+    (
+      content: string,
+      images?: ImageAttachment[],
+      options?: MessageOptions,
+      fileMentions?: FileMention[],
+    ): boolean => {
+      const sent = sendMessage(content, images, options, undefined, fileMentions);
+      if (sent) bumpScrollToBottom();
+      return sent;
+    },
+    [sendMessage, bumpScrollToBottom],
+  );
+
+  // ── File-view (tab) handlers ──
+  const handleFileViewModeChange = useCallback(
+    (mode: "source" | "diff") => {
+      if (mode === "diff") setDiffScope(BRAIN_DIFF_SCOPE);
+      setFileViewMode(mode);
+    },
+    [setDiffScope, setFileViewMode],
+  );
+
+  const handlePasteToPrompt = useCallback(() => {
+    diffViewerRef.current?.pasteToPrompt();
+  }, []);
+
+  const handleDiffPasteText = useCallback(
+    (text: string) => {
+      if (sessionId) activateTab(`session:${sessionId}`);
+      requestAnimationFrame(() => chatInputRef.current?.appendText(text));
+    },
+    [sessionId, activateTab],
+  );
+
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+    id: "hive-brain",
+    storage: localStorage,
+  });
+
+  if (!loading && !brainConnected) {
+    return (
+      <div className="flex h-full min-h-0 flex-col bg-background">
+        <BrainHeader />
+        <div className="flex flex-1 items-center justify-center px-6">
+          <p className="text-sm text-muted-foreground">No Brain repository connected.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col bg-background">
+      <Group
+        orientation="horizontal"
+        defaultLayout={defaultLayout}
+        onLayoutChanged={onLayoutChanged}
+        style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
+      >
+        <Panel id="brain-main" minSize="40%">
+          <div className="flex min-w-0 h-full flex-col overflow-hidden">
+            <BrainHeader />
+            <ConversationPane
+              sessions={sessions}
+              activeSessionId={sessionId}
+              isStreaming={isStreaming}
+              streamingSessions={liveData[BRAIN_WORKSPACE_ID]?.streamingSessions}
+              unreadSessions={liveData[BRAIN_WORKSPACE_ID]?.unreadSessions}
+              onCreateSession={handleCreateSession}
+              onActivateSession={handleActivateSession}
+              onDeleteSession={handleDeleteSession}
+              openFile={openFile}
+              isFileTabActive={isFileTabActive}
+              fileViewMode={fileViewMode}
+              onFileTabActivate={() => openFile && activateTab(`file:${openFile}`)}
+              onFileTabClose={closeFileTab}
+              onConversationActivate={() => sessionId && activateTab(`session:${sessionId}`)}
+              messages={messages}
+              streamingStartedAt={streamingStartedAt}
+              currentStreamingText={currentStreamingText}
+              currentThinking={currentThinking}
+              activeToolCalls={activeToolCalls}
+              activeAgentActivities={activeAgentActivities}
+              pendingToolInputs={pendingToolInputs}
+              onQuestionAnswer={answerQuestion}
+              onFileMentionClick={handleSelect}
+              projectName="Brain"
+              emptyState={<BrainWelcome notesCount={notesCount} repoUrl={repoUrl} />}
+              switchCounter={switchCounter}
+              agentPlanMode={agentPlanMode}
+              error={error}
+              queuedMessage={queuedMessage}
+              onClearQueue={() => setQueuedMessage(null)}
+              scrollToBottomTrigger={scrollToBottomTrigger}
+              tasks={tasks}
+              currentTask={currentTask}
+              taskCounts={taskCounts}
+              backgroundAgents={backgroundAgents}
+              backgroundRunningCount={bgRunningCount}
+              onBatchAnswerQuestions={batchAnswerQuestions}
+              onDismissQuestion={() => rejectToolInput("[question_dismissed]")}
+              chatInput={
+                <ChatInput
+                  ref={chatInputRef}
+                  wsId={BRAIN_WORKSPACE_ID}
+                  sessionId={sessionId}
+                  lockedProvider={effectiveLockedProvider}
+                  onSend={handleSend}
+                  onStop={stopStreaming}
+                  disabled={false}
+                  isStreaming={isStreaming}
+                  connectionStatus={connectionStatus}
+                  messages={messages}
+                  queuedMessage={queuedMessage}
+                  onQueue={(msg) => {
+                    setQueuedMessage(msg);
+                    bumpScrollToBottom();
+                  }}
+                  agentPlanMode={agentPlanMode}
+                />
+              }
+            />
+            {isFileTabActive && openFile && (
+              <div className="flex min-h-0 flex-1 flex-col">
+                <FileContentToolbar
+                  filePath={openFile}
+                  mode={fileViewMode}
+                  onModeChange={handleFileViewModeChange}
+                  isModified={isFileModified}
+                  diffScope={BRAIN_DIFF_SCOPE}
+                  availableDiffScopes={BRAIN_DIFF_SCOPES}
+                  onDiffScopeChange={setDiffScope}
+                  diffStyle={diffStyle}
+                  onDiffStyleChange={handleDiffStyleChange}
+                  commentCount={diffCommentCount}
+                  onPasteToPrompt={handlePasteToPrompt}
+                  supportsRendered={supportsRendered}
+                  renderMode={renderMode}
+                  onRenderModeChange={setRenderMode}
+                />
+                {fileViewMode === "source" ? (
+                  <FileViewer
+                    ref={fileViewerRef}
+                    wsId={BRAIN_WORKSPACE_ID}
+                    filePath={openFile}
+                    renderMode={renderMode}
+                    editable
+                    onWriteToDisk={handleWriteToDisk}
+                  />
+                ) : (
+                  <InlineDiffViewer
+                    ref={diffViewerRef}
+                    wsId={BRAIN_WORKSPACE_ID}
+                    filePath={openFile}
+                    diffScope={diffScope}
+                    diffStyle={diffStyle}
+                    onCommentCountChange={setDiffCommentCount}
+                    onPasteToPrompt={handleDiffPasteText}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        </Panel>
+
+        <ResizeHandle orientation="vertical" />
+
+        <Panel id="brain-tree" minSize={220} maxSize={480} defaultSize="25%" className="bg-sidebar">
+          <div className="flex h-full flex-col">
+            <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4" data-tauri-drag-region>
+              <button
+                type="button"
+                className={cn(
+                  "text-xs uppercase tracking-wide transition-colors",
+                  sidebarTab === "all"
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setSidebarTab("all")}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
+                  sidebarTab === "modified"
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setSidebarTab("modified")}
+              >
+                Modified
+                {pendingCount > 0 && (
+                  <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                    {pendingCount}
+                  </Badge>
+                )}
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto p-3">
+              {sidebarTab === "modified" && (
+                <ModifiedFileList
+                  committed={[]}
+                  uncommitted={brainStats}
+                  onFileClick={handleModifiedFileClick}
+                  activeFile={isFileTabActive && fileViewMode === "diff" ? openFile ?? undefined : undefined}
+                  activeScope={isFileTabActive && fileViewMode === "diff" ? BRAIN_DIFF_SCOPE : undefined}
+                />
+              )}
+              {sidebarTab === "all" && fileTreeError && (
+                <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                  {fileTreeError}
+                </div>
+              )}
+              {sidebarTab === "all" && !fileTreeError && (
+                <FileTree
+                  expanded={expandedPaths}
+                  onExpandedChange={setExpandedPaths}
+                  onPathSelect={handleSelect}
+                  selectedPath={isFileTabActive ? openFile ?? "" : ""}
+                >
+                  {brainTree.length ? (
+                    renderFileTreeNodes(brainTree)
+                  ) : (
+                    <div className="px-2 py-1 text-xs text-muted-foreground">No notes yet.</div>
+                  )}
+                </FileTree>
+              )}
+            </div>
+            {/* Sync: commit + push the whole working tree directly. */}
+            <BrainSyncSection
+              pendingCount={pendingCount}
+              syncState={syncState}
+              isSaving={isSaving}
+              onSave={handleSave}
+            />
+          </div>
+        </Panel>
+      </Group>
+    </div>
+  );
+}
+
+/** Slim Brain header: just the title bar (Save moved to the Sync section). */
+function BrainHeader() {
+  return (
+    <div className="flex h-12 items-center gap-2 border-b border-border/50 px-4" data-tauri-drag-region>
+      <BrainIcon className="size-4 text-primary" aria-hidden="true" />
+      <span className="text-sm font-semibold text-foreground">Brain</span>
+    </div>
+  );
+}
+
+/** Consolidated at-a-glance Brain sync state shown as a colored dot + label. */
+type BrainSyncState =
+  | "loading"
+  | "error"
+  | "saving"
+  | "push-failed"
+  | "saved"
+  | "pending"
+  | "synced";
+
+/**
+ * Resolve the single sync state from the status query lifecycle + save outcome.
+ * Precedence: an in-flight/failed save wins over the status query, then the
+ * query's own loading/error, then the transient "saved" flash, then pending vs.
+ * clean. Amber = unsaved work, green = backed up.
+ */
+function deriveBrainSyncState(args: {
+  statusLoading: boolean;
+  statusError: boolean;
+  saveIndicator: BrainSaveIndicator;
+  pendingCount: number;
+}): BrainSyncState {
+  const { statusLoading, statusError, saveIndicator, pendingCount } = args;
+  if (saveIndicator === "saving") return "saving";
+  if (saveIndicator === "push-failed") return "push-failed";
+  if (statusError) return "error";
+  if (statusLoading) return "loading";
+  if (saveIndicator === "saved") return "saved";
+  if (pendingCount > 0) return "pending";
+  return "synced";
+}
+
+/**
+ * Dot color + label + text color per state, all from theme tokens. Color is
+ * reserved for states that need attention (warning) or are in flight (primary):
+ * the resting "all good" states stay muted. Dots pulse during an operation.
+ */
+const BRAIN_SYNC_STATE_META: Record<
+  BrainSyncState,
+  { label: string; dotClass: string; textClass: string; pulse?: boolean }
+> = {
+  loading: {
+    label: "Loading…",
+    dotClass: "bg-muted-foreground/50",
+    textClass: "text-muted-foreground",
+    pulse: true,
+  },
+  error: {
+    label: "Status unavailable",
+    dotClass: "bg-destructive",
+    textClass: "text-destructive",
+  },
+  saving: {
+    label: "Saving…",
+    dotClass: "bg-primary",
+    textClass: "text-primary",
+    pulse: true,
+  },
+  "push-failed": {
+    label: "Push failed",
+    dotClass: "bg-warning",
+    textClass: "text-warning-foreground",
+  },
+  saved: {
+    label: "Saved",
+    dotClass: "bg-primary",
+    textClass: "text-primary",
+  },
+  pending: {
+    label: "Unsaved changes",
+    dotClass: "bg-warning",
+    textClass: "text-warning-foreground",
+  },
+  synced: {
+    label: "Up to date",
+    dotClass: "bg-muted-foreground/60",
+    textClass: "text-muted-foreground",
+  },
+};
+
+interface BrainSyncSectionProps {
+  pendingCount: number;
+  syncState: BrainSyncState;
+  isSaving: boolean;
+  onSave: () => void;
+}
+
+/**
+ * Bottom-right Sync line: the live sync state (colored dot + label) on the left
+ * for at-a-glance status, and an inline Save action (commits + pushes directly)
+ * on the right — mirrors the workspace PR status line. Disabled while a save is
+ * in flight or when there is nothing to commit.
+ */
+function BrainSyncSection({ pendingCount, syncState, isSaving, onSave }: BrainSyncSectionProps) {
+  const meta = BRAIN_SYNC_STATE_META[syncState];
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-t border-border/50 px-3 py-2.5">
+      <span role="status" className={cn("flex items-center gap-1.5 text-xs font-medium", meta.textClass)}>
+        <span
+          className={cn("size-1.5 shrink-0 rounded-full", meta.dotClass, meta.pulse && "animate-pulse")}
+          aria-hidden="true"
+        />
+        {meta.label}
+      </span>
+      <button
+        type="button"
+        onClick={onSave}
+        disabled={pendingCount === 0 || isSaving}
+        className={cn(
+          "ml-auto flex shrink-0 cursor-pointer items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground",
+          // Dim the whole button (icon + label + count badge) together when disabled.
+          "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground",
+        )}
+      >
+        <CloudUploadIcon className="size-3.5 shrink-0" aria-hidden="true" />
+        Save
+        {pendingCount > 0 && (
+          <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-[10px]">
+            {pendingCount}
+          </Badge>
+        )}
+      </button>
+    </div>
+  );
+}

@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { ProjectState } from "../types.js";
 import { DEFAULT_BASE_PROMPT } from "../agents/system-prompt.js";
 import { notifyProjectSaved } from "./workspace-index.js";
+import { withKeyedLock } from "../utils/async-lock.js";
 
 const projectLocks = new Map<string, Promise<void>>();
 
@@ -17,13 +18,34 @@ function stateFilePath(dataDir: string, projectId: string): string {
   return join(dataDir, projectId, "state.json");
 }
 
+/**
+ * Atomically writes pretty-printed JSON by writing a sibling temp file first,
+ * then renaming it over the target path.
+ */
+export async function writeJsonAtomic(
+  target: string,
+  value: unknown,
+  dir: string,
+): Promise<void> {
+  await mkdir(dir, { recursive: true });
+  const tmp = join(dir, `${randomUUID()}.tmp`);
+  await writeFile(tmp, JSON.stringify(value, null, 2), "utf-8");
+  await rename(tmp, target);
+}
+
 export async function loadProject(
   projectId: string,
   dataDir = getDataDir()
 ): Promise<ProjectState | null> {
   try {
     const raw = await readFile(stateFilePath(dataDir, projectId), "utf-8");
-    return JSON.parse(raw) as ProjectState;
+    const parsed = JSON.parse(raw) as ProjectState;
+    // Some DATA_DIR subdirectories also keep a `state.json` but are not projects
+    // (e.g. the Brain at $DATA_DIR/brain). A real project always has a
+    // `workspaces` array, so anything else is skipped rather than treated as a
+    // malformed project (which would break workspace reconciliation).
+    if (!parsed || !Array.isArray(parsed.workspaces)) return null;
+    return parsed;
   } catch (err: unknown) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") return null;
@@ -56,11 +78,7 @@ export async function saveProject(
   dataDir = getDataDir()
 ): Promise<void> {
   const dir = join(dataDir, state.id);
-  await mkdir(dir, { recursive: true });
-  const target = stateFilePath(dataDir, state.id);
-  const tmp = join(dir, `state.${randomUUID()}.tmp`);
-  await writeFile(tmp, JSON.stringify(state, null, 2), "utf-8");
-  await rename(tmp, target);
+  await writeJsonAtomic(stateFilePath(dataDir, state.id), state, dir);
   notifyProjectSaved(state);
 }
 
@@ -77,25 +95,7 @@ export async function withProjectStateLock<T>(
   fn: () => Promise<T>,
   dataDir = getDataDir()
 ): Promise<T> {
-  const key = projectLockKey(projectId, dataDir);
-  const prev = projectLocks.get(key) ?? Promise.resolve();
-
-  let release: (() => void) | undefined;
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const queued = prev.then(() => current);
-  projectLocks.set(key, queued);
-
-  await prev;
-  try {
-    return await fn();
-  } finally {
-    release?.();
-    if (projectLocks.get(key) === queued) {
-      projectLocks.delete(key);
-    }
-  }
+  return withKeyedLock(projectLocks, projectLockKey(projectId, dataDir), fn);
 }
 
 export function _clearProjectLocksForTests(): void {

@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Terminal, FileCode2, GitBranch, MessageSquare, Lightbulb, Settings } from "lucide-react";
+import { Terminal, FileCode2, GitBranch, MessageSquare, Lightbulb, Settings, Brain, FolderTree } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type FlowMode = "chat" | "automation";
+type FlowMode = "chat" | "brain" | "automation";
 
 export function PromptFlowExplainer() {
   const [mode, setMode] = useState<FlowMode>("chat");
@@ -28,6 +28,15 @@ export function PromptFlowExplainer() {
             )}
           >
             Interactive Chat
+          </button>
+          <button
+            onClick={() => setMode("brain")}
+            className={cn(
+              "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
+              mode === "brain" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Brain
           </button>
           <button
             onClick={() => setMode("automation")}
@@ -70,6 +79,33 @@ export function PromptFlowExplainer() {
                 title="User Message"
                 desc="File mentions & resized images"
                 isHovered={hoveredCard === "user"}
+                onHover={setHoveredCard}
+              />
+            </>
+          ) : mode === "brain" ? (
+            <>
+              <SourceCard
+                id="brain"
+                icon={<Brain className="h-4 w-4" />}
+                title="Brain Agent Prompt"
+                desc="Global Brain instructions"
+                isHovered={hoveredCard === "brain"}
+                onHover={setHoveredCard}
+              />
+              <SourceCard
+                id="brain-map"
+                icon={<FolderTree className="h-4 w-4" />}
+                title="Brain File Map"
+                desc="Note paths only"
+                isHovered={hoveredCard === "brain-map"}
+                onHover={setHoveredCard}
+              />
+              <SourceCard
+                id="brain-user"
+                icon={<MessageSquare className="h-4 w-4" />}
+                title="User Message"
+                desc="File mentions & resized images"
+                isHovered={hoveredCard === "brain-user"}
                 onHover={setHoveredCard}
               />
             </>
@@ -132,6 +168,19 @@ export function PromptFlowExplainer() {
                   <div className="my-2 border-t border-white/10" />
                   <PayloadBlock id="user" hoveredId={hoveredCard} color="text-white">
                     -p "Please refactor /absolute/path/to/file.ts..."
+                  </PayloadBlock>
+                </>
+              ) : mode === "brain" ? (
+                <>
+                  <PayloadBlock id="brain" hoveredId={hoveredCard} color="text-blue-400">
+                    --append-system-prompt "You are the Brain agent...
+                  </PayloadBlock>
+                  <PayloadBlock id="brain-map" hoveredId={hoveredCard} color="text-cyan-400">
+                    {`\n\n# Brain Files\nnotes/ideas.md\nnotes/people/..."`}
+                  </PayloadBlock>
+                  <div className="my-2 border-t border-white/10" />
+                  <PayloadBlock id="brain-user" hoveredId={hoveredCard} color="text-white">
+                    -p "Summarize what we know about #notes/ideas.md..."
                   </PayloadBlock>
                 </>
               ) : (

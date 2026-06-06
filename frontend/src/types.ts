@@ -15,6 +15,55 @@ export interface Project {
   warning?: string;
 }
 
+/** Singleton Brain state returned by `/api/brain`. */
+export type BrainState =
+  | { exists: false }
+  | {
+      exists: true;
+      repoUrl: string;
+      createdAt: string;
+    };
+
+/** Working-tree change status for a single Brain file, relative to HEAD. */
+export type BrainFileStatusKind =
+  | "added"
+  | "modified"
+  | "deleted"
+  | "renamed"
+  | "untracked";
+
+/** One pending change in the Brain working tree (what `save` would commit). */
+export interface BrainFileStatus {
+  path: string;
+  status: BrainFileStatusKind;
+  renamedFrom?: string;
+}
+
+/** Response of `GET /api/brain/status`: the set of changes awaiting save. */
+export interface BrainStatusResponse {
+  files: BrainFileStatus[];
+  count: number;
+}
+
+/** Response of `POST /api/brain/save`: outcome of commit + push. */
+export interface BrainSaveResponse {
+  committed: boolean;
+  pushed: boolean;
+  error?: string;
+}
+
+/** Response of `GET /api/brain/file`: a single file's path and text content. */
+export interface BrainFileContent {
+  path: string;
+  content: string;
+  /**
+   * `true` when `content` is a bounded prefix of a file larger than the read
+   * cap. The full file is intact on disk; the UI renders truncated content
+   * read-only so a save cannot overwrite the dropped tail.
+   */
+  truncated?: boolean;
+}
+
 export type {
   ProjectEnvConfig,
   ProjectEnvData,
@@ -108,10 +157,6 @@ export interface WorkspaceFileTreeNode {
   path: string;
   type: "file" | "directory";
   children?: WorkspaceFileTreeNode[];
-}
-
-export interface CreateProjectRequest {
-  url: string;
 }
 
 // ── Queued message type ──────────────────────────────────────────────
@@ -596,11 +641,6 @@ export interface UpdateCustomAgentRequest {
 }
 
 // ── Hub WebSocket protocol (multiplexed) ────────────────────────────
-
-/** Client -> Server (hub-level). */
-export type HubIncoming =
-  | { type: "sync_workspaces"; workspaceIds: string[] }
-  | { workspaceId: string; event: WsIncoming };
 
 /** Server -> Client (hub-level). Every outgoing event is tagged with its workspace. */
 export interface HubOutgoing {

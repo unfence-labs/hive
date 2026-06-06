@@ -14,6 +14,7 @@ import {
 } from "../workspaces/workspace-manager.js";
 import { git } from "../utils/git.js";
 import { endSession } from "../agents/agent-manager.js";
+import { resolveChatCwd } from "../agents/chat-context.js";
 import { createReadStream } from "node:fs";
 import { basename, join } from "node:path";
 import { bareRepoPath, resolveDefaultBranch, workspacesDir } from "../utils/paths.js";
@@ -153,8 +154,7 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
 
   app.get<{ Params: { wsId: string }; Querystring: { scope?: string } }>("/api/workspaces/:wsId/diff", async (req, reply) => {
     try {
-      const diff = await getWorkspaceDiff(req.params.wsId, dataDir, parseDiffScope(req.query.scope));
-      return reply.send({ diff });
+      return reply.send(await getWorkspaceDiff(req.params.wsId, dataDir, parseDiffScope(req.query.scope)));
     } catch (err: unknown) {
       return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });
     }
@@ -278,11 +278,10 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
 
   app.get<{ Params: { wsId: string } }>("/api/workspaces/:wsId/file-completions", async (req, reply) => {
     try {
-      const result = await getWorkspace(req.params.wsId, dataDir);
-      if (!result) return reply.status(404).send({ error: "Workspace not found" });
-
       const dir = dataDir ?? getDataDir();
-      const wsPath = join(workspacesDir(dir, result.projectState.id), result.workspace.name);
+      const wsPath = await resolveChatCwd(req.params.wsId, dir);
+      if (!wsPath) return reply.status(404).send({ error: "Workspace not found" });
+
       const { stdout } = await git(["ls-files"], wsPath);
       const files = stdout.split("\n").filter(Boolean);
       return reply.send({ files });

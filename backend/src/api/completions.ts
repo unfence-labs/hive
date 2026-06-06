@@ -1,7 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { join } from "node:path";
-import { getWorkspace } from "../workspaces/workspace-manager.js";
-import { workspacesDir } from "../utils/paths.js";
+import { resolveChatCwd } from "../agents/chat-context.js";
 import { scanCompletions, type CompletionProvider } from "../utils/completion-scanner.js";
 import { getDataDir } from "../state/state.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
@@ -20,15 +18,10 @@ export async function completionRoutes(
         }
 
         const dir = dataDir ?? getDataDir();
-        const result = await getWorkspace(req.params.wsId, dir);
-        if (!result) {
+        const workspaceCwd = await resolveChatCwd(req.params.wsId, dir);
+        if (!workspaceCwd) {
           return reply.status(404).send({ error: "Workspace not found" });
         }
-
-        const workspaceCwd = join(
-          workspacesDir(dir, result.projectState.id),
-          result.workspace.name,
-        );
 
         const items = await scanCompletions(workspaceCwd, { provider });
         return reply.send({ items });

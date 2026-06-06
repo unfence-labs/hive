@@ -5,14 +5,10 @@ import {
   EMPTY_UI_PREFERENCES_PAYLOAD,
   parseUiPreferencesPayload,
   sanitizeUiPreferencesPayload,
-  type SidebarProjectFolder,
-  type SidebarProjectFoldersState,
   type UiPreferencesPayload,
 } from "@hive/shared/sidebar-preferences";
 import { getDataDir } from "./state.js";
 
-export type SidebarFolder = SidebarProjectFolder;
-export type SidebarPreferences = SidebarProjectFoldersState;
 export type UiPreferences = UiPreferencesPayload;
 
 function filePath(dataDir: string): string {

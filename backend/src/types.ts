@@ -1,13 +1,6 @@
 import type { AgentActivity } from "@hive/shared/agent-activity";
 export type { AgentActivity, AgentActivityCommandAction, AgentActivityFile } from "@hive/shared/agent-activity";
 
-export interface Project {
-  id: string;
-  name: string;
-  url: string;
-  createdAt: string;
-}
-
 export type WorkspaceStatus = "idle" | "busy";
 
 export interface Workspace {
@@ -44,10 +37,6 @@ export interface CompletionItem {
   description?: string;
   argumentHint?: string;
   source: CompletionSource;
-}
-
-export interface CompletionsResponse {
-  items: CompletionItem[];
 }
 
 // ── Branch / GitHub sync types ──────────────────────────────────────
@@ -91,6 +80,69 @@ export interface ProjectState {
   url?: string;
   createdAt: string;
   workspaces: Workspace[];
+}
+
+/** Singleton Brain state returned by `/api/brain` and persisted when connected. */
+export type BrainState =
+  | { exists: false }
+  | {
+      exists: true;
+      repoUrl: string;
+      createdAt: string;
+    };
+
+/** Working-tree change status for a single Brain file, relative to HEAD. */
+export type BrainFileStatusKind =
+  | "added"
+  | "modified"
+  | "deleted"
+  | "renamed"
+  | "untracked";
+
+/** One pending change in the Brain working tree (what `save` would commit). */
+export interface BrainFileStatus {
+  path: string;
+  status: BrainFileStatusKind;
+  /** Original path for renamed entries. */
+  renamedFrom?: string;
+}
+
+/** Response of `GET /api/brain/status`: the set of changes awaiting save. */
+export interface BrainStatusResponse {
+  files: BrainFileStatus[];
+  count: number;
+}
+
+/** Response of `POST /api/brain/save`: outcome of commit + push. */
+export interface BrainSaveResponse {
+  committed: boolean;
+  pushed: boolean;
+  error?: string;
+}
+
+/**
+ * Response of diff endpoints: the rendered unified diff plus the number of
+ * untracked files omitted from `diff` because of the render cap.
+ *
+ * Save/commit flows can still include those omitted untracked files, so a
+ * non-zero `omittedFileCount` means the UI must warn that the preview is
+ * incomplete instead of implying the selected file has no changes.
+ */
+export interface DiffResponse {
+  diff: string;
+  omittedFileCount: number;
+}
+
+/** Response of `GET /api/brain/file`: a single file's path and text content. */
+export interface BrainFileContent {
+  path: string;
+  content: string;
+  /**
+   * `true` when `content` is a bounded prefix of a file larger than the read
+   * cap. The full file is intact on disk; the UI renders truncated content
+   * read-only so a save cannot overwrite the dropped tail.
+   */
+  truncated?: boolean;
 }
 
 export type {
@@ -247,21 +299,6 @@ export type CliJsonLine =
 
 export type ScriptType = string;
 export type ScriptState = "idle" | "running" | "done" | "error";
-
-export interface HiveConfig {
-  scripts?: { setup?: string; run?: Record<string, string> };
-  port?: number;
-}
-
-export interface ScriptStatusInfo {
-  state: ScriptState;
-  exitCode?: number;
-}
-
-export interface WorkspaceScriptsResponse {
-  config: HiveConfig | null;
-  status: Record<string, ScriptStatusInfo>;
-}
 
 // ── Diff types ───────────────────────────────────────────────────────
 

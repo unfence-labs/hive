@@ -72,7 +72,7 @@ function normalizeActivityFiles(
   return existingFiles?.map((file) => ({ ...file })) ?? [];
 }
 
-type SessionKind = "chat" | "automation";
+type SessionKind = "chat" | "automation" | "brain";
 
 export interface ConversationSessionConfig {
   cwd: string;

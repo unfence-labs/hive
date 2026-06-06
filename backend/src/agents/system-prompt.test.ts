@@ -6,10 +6,13 @@ import { git } from "../utils/git.js";
 import {
   getGitContext,
   buildSystemPrompt,
+  buildBrainSystemPrompt,
   loadBasePrompt,
+  loadBrainPrompt,
   formatGitContextBlock,
   interpolatePromptVariables,
   DEFAULT_BASE_PROMPT,
+  BRAIN_BASE_PROMPT,
 } from "./system-prompt.js";
 import type { GitContext } from "./system-prompt.js";
 
@@ -31,6 +34,58 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
+});
+
+describe("buildBrainSystemPrompt", () => {
+  it("injects the Brain file-path map", () => {
+    const prompt = buildBrainSystemPrompt({
+      cwd: "/data/brain/repo",
+      filePaths: ["solana/notes.md", "ideas/roadmap.md"],
+    });
+    expect(prompt).toContain("Brain Map");
+    expect(prompt).toContain("- solana/notes.md");
+    expect(prompt).toContain("- ideas/roadmap.md");
+    expect(prompt).toContain("Brain");
+  });
+
+  it("describes an empty Brain when there are no files", () => {
+    const prompt = buildBrainSystemPrompt({ cwd: "/data/brain/repo", filePaths: [] });
+    expect(prompt).toContain("currently empty");
+  });
+
+  it("reminds the agent to stay inside the Brain", () => {
+    const prompt = buildBrainSystemPrompt({ cwd: "/data/brain/repo", filePaths: [] });
+    expect(prompt).toMatch(/ONLY inside the Brain/i);
+  });
+
+  it("uses an injected basePrompt over the hardcoded default", () => {
+    const prompt = buildBrainSystemPrompt({
+      cwd: "/data/brain/repo",
+      filePaths: ["a.md"],
+      basePrompt: "Custom brain instructions in {DIR}.",
+    });
+    expect(prompt).toContain("Custom brain instructions in /data/brain/repo.");
+    expect(prompt).not.toContain("personal knowledge base");
+    // Map is still appended.
+    expect(prompt).toContain("- a.md");
+  });
+});
+
+describe("loadBrainPrompt", () => {
+  it("reads from file when it exists", async () => {
+    const promptsDir = join(tempDir, "prompts");
+    await mkdir(promptsDir, { recursive: true });
+    await writeFile(join(promptsDir, "brain.md"), "Brain prompt from disk.");
+
+    const result = await loadBrainPrompt(promptsDir);
+    expect(result).toBe("Brain prompt from disk.");
+  });
+
+  it("returns BRAIN_BASE_PROMPT when file is missing", async () => {
+    const promptsDir = join(tempDir, "no-such-dir");
+    const result = await loadBrainPrompt(promptsDir);
+    expect(result).toBe(BRAIN_BASE_PROMPT);
+  });
 });
 
 describe("getGitContext", () => {

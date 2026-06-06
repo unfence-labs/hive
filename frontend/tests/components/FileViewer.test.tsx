@@ -1,8 +1,8 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { FileViewer } from "@/components/FileViewer";
+import { FileViewer, type FileViewerHandle } from "@/components/FileViewer";
 import type { ComponentProps } from "react";
 
 function renderFileViewer(props: ComponentProps<typeof FileViewer>) {
@@ -24,6 +24,24 @@ vi.mock("@/hooks/useApi", () => ({
 
 vi.mock("@/lib/shiki", () => ({
   highlightCode: vi.fn(),
+}));
+
+vi.mock("@/components/MarkdownEditor", () => ({
+  MarkdownEditor: ({
+    value,
+    onChange,
+    ariaLabel,
+  }: {
+    value: string;
+    onChange: (value: string) => void;
+    ariaLabel: string;
+  }) => (
+    <textarea
+      aria-label={ariaLabel}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  ),
 }));
 
 async function getApiMock() {
@@ -172,5 +190,61 @@ describe("FileViewer", () => {
       expect(container).toBeInTheDocument();
       expect(container?.querySelector(".file-viewer-content")).toBeInTheDocument();
     });
+  });
+
+  it("flushes a pending editable write through the imperative handle", async () => {
+    const apiMock = await getApiMock();
+    apiMock.mockResolvedValue({ content: "old", path: "notes/a.md" });
+    const onWriteToDisk = vi.fn().mockResolvedValue(undefined);
+    const ref = React.createRef<FileViewerHandle>();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FileViewer
+          ref={ref}
+          wsId="brain"
+          filePath="notes/a.md"
+          editable
+          onWriteToDisk={onWriteToDisk}
+        />
+      </QueryClientProvider>,
+    );
+
+    const editor = await screen.findByLabelText("File content");
+    fireEvent.change(editor, { target: { value: "new" } });
+    expect(onWriteToDisk).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await ref.current?.flushPendingWrite();
+    });
+
+    expect(onWriteToDisk).toHaveBeenCalledWith("notes/a.md", "new");
+  });
+
+  it("renders a truncated file read-only even when editable is requested", async () => {
+    const apiMock = await getApiMock();
+    const highlightMock = await getHighlightMock();
+    apiMock.mockResolvedValue({ content: "prefix only", path: "notes/big.md", truncated: true });
+    highlightMock.mockResolvedValue(
+      '<pre class="shiki"><code><span class="line">prefix only</span></code></pre>',
+    );
+    const onWriteToDisk = vi.fn();
+
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <FileViewer wsId="brain" filePath="notes/big.md" editable onWriteToDisk={onWriteToDisk} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/too large to load fully/i)).toBeInTheDocument();
+    });
+    // No editor is rendered, so the truncated tail can never be overwritten.
+    expect(screen.queryByLabelText("File content")).not.toBeInTheDocument();
   });
 });

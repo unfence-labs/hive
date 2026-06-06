@@ -147,6 +147,10 @@ vi.mock("@/pages/WorkspaceView", () => ({
   default: () => <div>workspace view</div>,
 }));
 
+vi.mock("@/pages/BrainView", () => ({
+  default: () => <div>brain view</div>,
+}));
+
 vi.mock("@/components/AppLayout", async () => {
   const { Outlet } = await import("react-router-dom");
   return {
@@ -173,8 +177,9 @@ describe("App", () => {
     const { unmount } = renderApp();
 
     const subscribedWorkspaceIds = mocks.onMessage.mock.calls.map((call) => call[0]);
-    expect(new Set(subscribedWorkspaceIds)).toEqual(new Set(["w1", "w2"]));
-    expect(mocks.syncWorkspaces).toHaveBeenCalledWith(["w1", "w2"]);
+    // The Brain is always subscribed as a synthetic "brain" workspace.
+    expect(new Set(subscribedWorkspaceIds)).toEqual(new Set(["brain", "w1", "w2"]));
+    expect(mocks.syncWorkspaces).toHaveBeenCalledWith(["brain", "w1", "w2"]);
     expect(mocks.disconnectAll).not.toHaveBeenCalled();
 
     unmount();
@@ -198,6 +203,14 @@ describe("App", () => {
     expect(screen.getByText("workspace view")).toBeInTheDocument();
   });
 
+  it("renders brain route", () => {
+    window.history.pushState({}, "", "/brain");
+
+    renderApp();
+
+    expect(screen.getByText("brain view")).toBeInTheDocument();
+  });
+
   it("does not sync workspaces while project list is still loading", () => {
     mocks.loading = true;
 
@@ -206,13 +219,14 @@ describe("App", () => {
     expect(mocks.syncWorkspaces).not.toHaveBeenCalled();
   });
 
-  it("syncs an empty workspace list when there are no projects", () => {
+  it("syncs only the Brain workspace when there are no projects", () => {
     mocks.projects = [];
 
     renderApp();
 
-    expect(mocks.syncWorkspaces).toHaveBeenCalledWith([]);
-    expect(mocks.onMessage).not.toHaveBeenCalled();
+    expect(mocks.syncWorkspaces).toHaveBeenCalledWith(["brain"]);
+    // Brain is still subscribed for cache invalidation even with no projects.
+    expect(mocks.onMessage).toHaveBeenCalledWith("brain", expect.any(Function));
   });
 
   it("opens add-project dialog from empty state and submits project creation", async () => {
