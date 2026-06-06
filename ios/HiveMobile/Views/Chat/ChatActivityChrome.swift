@@ -107,13 +107,14 @@ struct ChatActivityRowLabel: View {
             }
 
             if executing {
+                // Theme-colored, position-stable pulse (matches the web's
+                // `bg-primary animate-pulse` and the TaskTracker in-progress dot).
                 Circle()
-                    .fill(WhisperColor.textSecondary)
+                    .fill(Color.accentColor)
                     .frame(width: 5, height: 5)
-                    .opacity(pulse ? 1 : 0.35)
+                    .opacity(pulse ? 1 : 0.4)
                     .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
                     .onAppear { pulse = true }
-                    .onDisappear { pulse = false }
             }
         }
         .padding(.vertical, 3)

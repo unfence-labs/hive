@@ -166,4 +166,24 @@ describe("AutocompletePopup", () => {
 
     expect(screen.getByText("Show available commands")).toBeInTheDocument();
   });
+
+  it("renders the argument hint when provided", () => {
+    render(
+      <AutocompletePopup
+        items={[
+          {
+            ...makeItem("code-review", "builtin", "Review the current diff"),
+            argumentHint: "[low|medium|high|ultra] [--fix] [--comment]",
+          },
+        ]}
+        selectedIndex={0}
+        onSelect={vi.fn()}
+        onHover={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("[low|medium|high|ultra] [--fix] [--comment]"),
+    ).toBeInTheDocument();
+  });
 });

@@ -109,6 +109,14 @@ export function AutocompletePopup({
               onMouseEnter={() => onHover(globalIndex)}
             >
               <span className="shrink-0 font-medium">{item.label}</span>
+              {item.argumentHint && (
+                <span className={cn(
+                  "shrink-0 font-mono text-xs",
+                  globalIndex === selectedIndex ? "text-primary/50" : "text-muted-foreground/70",
+                )}>
+                  {item.argumentHint}
+                </span>
+              )}
               {item.description && (
                 <span className={cn(
                   "truncate text-xs",

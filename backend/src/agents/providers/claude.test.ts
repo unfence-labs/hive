@@ -186,6 +186,41 @@ describe("ClaudeProvider", () => {
     expect(args).not.toContain("--effort");
   });
 
+  // ── fast mode (--settings) ─────────────────────────────────────────
+
+  it("marks Opus as supporting fast mode and the others as not", () => {
+    const opus = provider.models.find((m) => m.id === "opus-4-8");
+    const sonnet = provider.models.find((m) => m.id === "sonnet-4-6");
+    const haiku = provider.models.find((m) => m.id === "haiku-4-5");
+    expect(opus?.supportsFastMode).toBe(true);
+    expect(sonnet?.supportsFastMode).toBeFalsy();
+    expect(haiku?.supportsFastMode).toBeFalsy();
+  });
+
+  it("adds --settings {fastMode:true} when fastMode is on and the model is Opus", () => {
+    const args = provider.buildArgs("Hello", { model: "opus-4-8", fastMode: true }, baseSession());
+    const idx = args.indexOf("--settings");
+    expect(idx).toBeGreaterThan(-1);
+    expect(JSON.parse(args[idx + 1])).toEqual({ fastMode: true });
+  });
+
+  it("applies fast mode to aliased Opus 4.7 selections", () => {
+    const args = provider.buildArgs("Hello", { model: "opus-4-7", fastMode: true }, baseSession());
+    expect(args).toContain("--settings");
+  });
+
+  it("omits --settings when fastMode is on but the model does not support it", () => {
+    for (const model of ["sonnet-4-6", "haiku-4-5"]) {
+      const args = provider.buildArgs("Hello", { model, fastMode: true }, baseSession());
+      expect(args).not.toContain("--settings");
+    }
+  });
+
+  it("omits --settings when fastMode is off", () => {
+    const args = provider.buildArgs("Hello", { model: "opus-4-8" }, baseSession());
+    expect(args).not.toContain("--settings");
+  });
+
   // ── buildEnv ───────────────────────────────────────────────────────
 
   it("always includes CLAUDE_CODE_ENABLE_TASKS", () => {

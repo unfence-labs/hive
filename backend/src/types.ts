@@ -352,6 +352,8 @@ export interface MessageOptions {
   model?: string;
   /** Reasoning effort level for providers that support it (Claude `--effort`, Codex `model_reasoning_effort`). */
   thinkingLevel?: ThinkingLevel;
+  /** Claude fast mode: high-speed Opus configuration (lower latency, higher cost). Opus-only. */
+  fastMode?: boolean;
 }
 
 export type ThinkingLevel = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";

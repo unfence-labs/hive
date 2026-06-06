@@ -10,6 +10,7 @@ struct ChatView: View {
     @State private var isLoading = true
     @State private var planModeEnabled = false
     @State private var thinkingLevel: ThinkingLevel = .high
+    @State private var fastModeEnabled = false
     @State private var selectedModelId: String = ""
     @State private var draftAttachments: [ImageAttachment] = []
 
@@ -32,6 +33,21 @@ struct ChatView: View {
 
     private var selectedModel: ModelCatalogEntry? {
         modelCatalog.models.first { $0.id == selectedModelId }
+    }
+
+    /// Resolve the model to open this conversation on. Prefer the session's
+    /// locked provider's default model so an existing chat (e.g. Opus) doesn't
+    /// open on the global default, which may be a different provider (e.g. Codex)
+    /// after the in-memory draft is gone (app relaunch). Mirrors the web's
+    /// `useModels(lockedProvider)` seeding.
+    private func initialModelId() -> String {
+        if let provider = lockedProvider {
+            if let match = modelCatalog.models.first(where: { $0.provider == provider && $0.isDefault == true })
+                ?? modelCatalog.models.first(where: { $0.provider == provider }) {
+                return match.id
+            }
+        }
+        return modelCatalog.defaultModelId
     }
 
     private var selectedCapabilities: ProviderCapabilities? {
@@ -138,6 +154,7 @@ struct ChatView: View {
                     isBusy: store.isBusy,
                     planModeEnabled: $planModeEnabled,
                     thinkingLevel: $thinkingLevel,
+                    fastModeEnabled: $fastModeEnabled,
                     models: modelCatalog.models,
                     groupedModels: modelCatalog.groupedByProvider,
                     selectedModelId: selectedModelId,
@@ -172,7 +189,7 @@ struct ChatView: View {
         .task { await setup() }
         .onChange(of: modelCatalog.isLoaded) {
             if selectedModelId.isEmpty, !modelCatalog.defaultModelId.isEmpty {
-                selectedModelId = modelCatalog.defaultModelId
+                selectedModelId = initialModelId()
             }
         }
         .onChange(of: store.agentPlanMode) { _, active in
@@ -256,7 +273,7 @@ struct ChatView: View {
         restoreDraft(for: selectedSessionId)
 
         if selectedModelId.isEmpty {
-            selectedModelId = modelCatalog.defaultModelId
+            selectedModelId = initialModelId()
         }
 
         await loadMessages()
@@ -307,6 +324,7 @@ struct ChatView: View {
             text: savedDraft,
             planModeEnabled: planModeEnabled,
             thinkingLevel: thinkingLevel,
+            fastModeEnabled: fastModeEnabled,
             selectedModelId: selectedModelId.isEmpty ? nil : selectedModelId,
             attachments: savedAttachments.map(ChatDraftStore.Attachment.init)
         )
@@ -317,6 +335,8 @@ struct ChatView: View {
         let levels = caps?.thinkingLevels ?? []
         let supportsThinking = !levels.isEmpty
         let supportsPlanMode = caps?.planMode ?? true
+        // Fast mode is Opus-only; never send it for a model that can't use it.
+        let supportsFastMode = selectedModel?.supportsFastMode ?? false
 
         let effectiveThinking: ThinkingLevel = {
             guard supportsThinking else { return thinkingLevel }
@@ -328,7 +348,8 @@ struct ChatView: View {
         let options = MessageOptions(
             planMode: supportsPlanMode ? (planModeEnabled ? true : nil) : nil,
             model: selectedModelId.isEmpty ? nil : selectedModelId,
-            thinkingLevel: supportsThinking ? effectiveThinking : nil
+            thinkingLevel: supportsThinking ? effectiveThinking : nil,
+            fastMode: (supportsFastMode && fastModeEnabled) ? true : nil
         )
 
         Task {
@@ -405,6 +426,7 @@ struct ChatView: View {
                 text: draft,
                 planModeEnabled: planModeEnabled,
                 thinkingLevel: thinkingLevel,
+                fastModeEnabled: fastModeEnabled,
                 selectedModelId: selectedModelId.isEmpty ? nil : selectedModelId,
                 attachments: draftAttachments.map(ChatDraftStore.Attachment.init)
             )
@@ -416,6 +438,7 @@ struct ChatView: View {
             draft = saved.text
             planModeEnabled = saved.planModeEnabled
             thinkingLevel = saved.thinkingLevel
+            fastModeEnabled = saved.fastModeEnabled
             if let modelId = saved.selectedModelId {
                 selectedModelId = modelId
             }
@@ -424,7 +447,8 @@ struct ChatView: View {
             draft = ""
             planModeEnabled = false
             thinkingLevel = .high
-            selectedModelId = modelCatalog.defaultModelId
+            fastModeEnabled = false
+            selectedModelId = initialModelId()
             draftAttachments = []
         }
     }

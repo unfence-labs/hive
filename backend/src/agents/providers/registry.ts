@@ -182,6 +182,7 @@ export function getModelCatalog(): ModelCatalogResponse {
         // the CLI only exposes turn-level usage via turn.completed today, which can be
         // cumulative across sub-calls and would make the context ring misleading.
         contextWindow: provider.id === "codex" ? undefined : model.contextWindow,
+        supportsFastMode: model.supportsFastMode,
       });
     }
   }
