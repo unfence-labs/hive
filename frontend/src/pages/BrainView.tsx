@@ -264,9 +264,15 @@ export default function BrainView() {
 
   const handleWriteToDisk = useCallback(
     (path: string, content: string) => {
+      // Keep the content cache in sync with edits, optimistically and without a
+      // refetch, so the rendered preview and raw<->rendered / source<->diff
+      // switches never reset the editor to the stale disk-at-open content.
+      // setQueryData pushes exactly what is already on screen, so (unlike an
+      // invalidate) it cannot clobber in-flight typing.
+      queryClient.setQueryData(brainFileQueryKey(path), { path, content });
       void upsertFile(path, content);
     },
-    [upsertFile],
+    [queryClient, upsertFile],
   );
 
   const handleSend = useCallback(
