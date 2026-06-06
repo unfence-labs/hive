@@ -18,6 +18,7 @@ final class ChatDraftStore {
         var text: String
         var planModeEnabled: Bool
         var thinkingLevel: ThinkingLevel
+        var fastModeEnabled: Bool
         var selectedModelId: String?
         var attachments: [Attachment]
 
@@ -25,6 +26,7 @@ final class ChatDraftStore {
             !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !attachments.isEmpty
                 || planModeEnabled
+                || fastModeEnabled
                 || thinkingLevel != .high
                 || selectedModelId != nil
         }
