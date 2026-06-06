@@ -7,6 +7,7 @@ import {
   withProjectStateLock,
 } from "../state/state.js";
 import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/paths.js";
+import { refreshDefaultBranchFromOrigin } from "../utils/git-default-branch.js";
 import { computeDiffStat } from "../workspaces/workspace-manager.js";
 import type { BranchInfo, DiffStatResponse, Workspace } from "../types.js";
 
@@ -14,6 +15,7 @@ type BranchChangeCallback = (wsId: string, info: BranchInfo) => void;
 type DiffStatsChangeCallback = (wsId: string, stats: DiffStatResponse) => void;
 
 const GIT_SYNC_CONCURRENCY = 6;
+const DEFAULT_BRANCH_REFRESH_TTL_MS = 60_000;
 
 async function withConcurrency<T>(
   items: T[],
@@ -44,6 +46,7 @@ export class GitSyncService {
   private diffStatsCache = new Map<string, string>();
   private latestBranchInfo = new Map<string, BranchInfo>();
   private latestDiffStats = new Map<string, DiffStatResponse>();
+  private defaultBranchRefreshCache = new Map<string, { branch: string; at: number }>();
   private syncing = false;
 
   constructor(private readonly dataDir: string) {}
@@ -93,6 +96,8 @@ export class GitSyncService {
           // Bare repo inaccessible — skip entire project
           continue;
         }
+
+        await this.refreshDefaultBranch(project.id, bare, defaultBranch);
 
         await withConcurrency(
           project.workspaces,
@@ -168,6 +173,24 @@ export class GitSyncService {
     }
   }
 
+  private async refreshDefaultBranch(
+    projectId: string,
+    bare: string,
+    defaultBranch: string,
+  ): Promise<void> {
+    const now = Date.now();
+    const cached = this.defaultBranchRefreshCache.get(projectId);
+    if (
+      cached?.branch === defaultBranch &&
+      now - cached.at < DEFAULT_BRANCH_REFRESH_TTL_MS
+    ) {
+      return;
+    }
+
+    await refreshDefaultBranchFromOrigin(bare, defaultBranch);
+    this.defaultBranchRefreshCache.set(projectId, { branch: defaultBranch, at: now });
+  }
+
   _clearForTests(): void {
     this.stop();
     this.branchCallbacks = [];
@@ -176,6 +199,7 @@ export class GitSyncService {
     this.diffStatsCache.clear();
     this.latestBranchInfo.clear();
     this.latestDiffStats.clear();
+    this.defaultBranchRefreshCache.clear();
     this.syncing = false;
   }
 }

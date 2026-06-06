@@ -9,23 +9,20 @@ import {
   useImperativeHandle,
 } from "react";
 import {
-  FileTextIcon,
   ImageIcon,
   Loader2Icon,
   AlertCircleIcon,
   MessageSquarePlusIcon,
   XIcon,
 } from "lucide-react";
-import { FileDiff } from "@pierre/diffs/react";
 import {
   type SelectedLineRange,
   type DiffLineAnnotation,
-  type FileDiffMetadata,
 } from "@pierre/diffs";
-import { cn } from "@/lib/utils";
 import { nanoid } from "nanoid";
 import { useThemeType } from "@/hooks/useThemeType";
 import { useDiff } from "@/hooks/useDiff";
+import { FileDiffCard } from "@/components/diff/FileDiffCard";
 import { FileViewer } from "@/components/FileViewer";
 import { isImageFilePath } from "@/lib/file-preview";
 import type { DiffScope } from "@/types";
@@ -46,140 +43,6 @@ export interface DiffComment {
 const EMPTY_ANNOTATIONS: DiffLineAnnotation<DiffComment>[] = [];
 
 // ---------- Sub-components ----------
-
-function getStatusColor(type: string) {
-  switch (type) {
-    case "new":
-      return "text-green-500";
-    case "deleted":
-      return "text-red-500";
-    case "rename-pure":
-    case "rename-changed":
-      return "text-yellow-500";
-    default:
-      return "text-blue-500";
-  }
-}
-
-interface MemoizedFileDiffProps {
-  fileDiff: FileDiffMetadata;
-  fileName: string;
-  additions: number;
-  deletions: number;
-  annotations: DiffLineAnnotation<DiffComment>[];
-  selectedLines: SelectedLineRange | null;
-  themeType: "dark" | "light";
-  diffStyle: "split" | "unified";
-  onLineSelected: (range: SelectedLineRange | null) => void;
-  onRemoveComment: (id: string) => void;
-}
-
-const MemoizedFileDiffComponent = memo(
-  function MemoizedFileDiffComponent({
-    fileDiff,
-    fileName,
-    additions,
-    deletions,
-    annotations,
-    selectedLines,
-    themeType,
-    diffStyle,
-    onLineSelected,
-    onRemoveComment,
-  }: MemoizedFileDiffProps) {
-    const options = useMemo(
-      () => ({
-        theme: {
-          dark: "github-dark" as const,
-          light: "github-light" as const,
-        },
-        themeType,
-        diffStyle,
-        enableLineSelection: true,
-        onLineSelected,
-        disableFileHeader: true,
-        unsafeCSS:
-          "pre { font-family: var(--font-mono, ui-monospace, monospace) !important; font-size: 13px !important; line-height: 1.5 !important; }",
-      }),
-      [themeType, diffStyle, onLineSelected],
-    );
-
-    const renderAnnotation = useCallback(
-      (annotation: DiffLineAnnotation<DiffComment>) => (
-        <div className="flex items-center gap-2 border-l-2 border-primary bg-primary/10 px-2 py-1 text-xs">
-          <MessageSquarePlusIcon className="size-3 shrink-0 text-primary" />
-          <span className="text-foreground">
-            {annotation.metadata?.comment}
-          </span>
-          <button
-            type="button"
-            onClick={() =>
-              annotation.metadata && onRemoveComment(annotation.metadata.id)
-            }
-            className="ml-auto rounded p-0.5 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
-            aria-label="Remove comment"
-          >
-            <XIcon className="size-3" />
-          </button>
-        </div>
-      ),
-      [onRemoveComment],
-    );
-
-    return (
-      <div className="border border-border/50">
-        <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border/50 bg-muted px-3 py-2">
-          <FileTextIcon
-            className={cn(
-              "h-[1em] w-[1em] shrink-0",
-              getStatusColor(fileDiff.type),
-            )}
-          />
-          <span className="truncate">{fileName}</span>
-          {fileDiff.prevName && fileDiff.prevName !== fileName && (
-            <span className="truncate text-muted-foreground">
-              &larr; {fileDiff.prevName}
-            </span>
-          )}
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            {additions > 0 && (
-              <span className="text-green-500">+{additions}</span>
-            )}
-            {deletions > 0 && (
-              <span className="text-red-500">-{deletions}</span>
-            )}
-          </div>
-        </div>
-        {fileDiff.hunks.length === 0 ||
-        fileDiff.hunks.every((h) => h.hunkContent.length === 0) ? (
-          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            Empty file
-          </div>
-        ) : (
-          <FileDiff
-            fileDiff={fileDiff}
-            lineAnnotations={annotations}
-            selectedLines={selectedLines}
-            options={options}
-            renderAnnotation={renderAnnotation}
-          />
-        )}
-      </div>
-    );
-  },
-  (prevProps, nextProps) =>
-    prevProps.fileDiff === nextProps.fileDiff &&
-    prevProps.fileName === nextProps.fileName &&
-    prevProps.additions === nextProps.additions &&
-    prevProps.deletions === nextProps.deletions &&
-    prevProps.annotations === nextProps.annotations &&
-    (prevProps.selectedLines === nextProps.selectedLines ||
-      (prevProps.selectedLines === null && nextProps.selectedLines === null)) &&
-    prevProps.themeType === nextProps.themeType &&
-    prevProps.diffStyle === nextProps.diffStyle &&
-    prevProps.onLineSelected === nextProps.onLineSelected &&
-    prevProps.onRemoveComment === nextProps.onRemoveComment,
-);
 
 interface CommentInputBarProps {
   activeFileName: string | null;
@@ -309,7 +172,12 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
     onPasteToPrompt,
   }, ref) {
   const isImageFile = isImageFilePath(filePath);
-  const { patchFiles, loading: isLoading, error } = useDiff(wsId, diffScope, !isImageFile);
+  const {
+    patchFiles,
+    omittedFileCount = 0,
+    loading: isLoading,
+    error,
+  } = useDiff(wsId, diffScope, !isImageFile);
   const themeType = useThemeType();
 
   const [comments, setComments] = useState<DiffComment[]>([]);
@@ -367,6 +235,24 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
   const handleRemoveComment = useCallback((commentId: string) => {
     setComments((prev) => prev.filter((c) => c.id !== commentId));
   }, []);
+
+  const renderComment = useCallback(
+    (annotation: DiffLineAnnotation<DiffComment>) => (
+      <div className="flex items-center gap-2 border-l-2 border-primary bg-primary/10 px-2 py-1 text-xs">
+        <MessageSquarePlusIcon className="size-3 shrink-0 text-primary" />
+        <span className="text-foreground">{annotation.metadata?.comment}</span>
+        <button
+          type="button"
+          onClick={() => annotation.metadata && handleRemoveComment(annotation.metadata.id)}
+          className="ml-auto rounded p-0.5 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          aria-label="Remove comment"
+        >
+          <XIcon className="size-3" />
+        </button>
+      </div>
+    ),
+    [handleRemoveComment],
+  );
 
   const handleCancelComment = useCallback(() => {
     setShowCommentInput(false);
@@ -469,6 +355,21 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
     );
   }
 
+  if (!matchedFile && omittedFileCount > 0) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-4">
+        <div className="flex max-w-md items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-4 text-amber-700 dark:text-amber-300">
+          <AlertCircleIcon className="mt-0.5 size-4 shrink-0" />
+          <span className="text-sm">
+            This file is not included in the rendered diff. {omittedFileCount} untracked{" "}
+            {omittedFileCount === 1 ? "file was" : "files were"} omitted from the preview,
+            but Save still includes all pending files.
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   // No changes for this file
   if (!matchedFile) {
     return (
@@ -492,7 +393,7 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
 
       {/* Diff content */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <MemoizedFileDiffComponent
+        <FileDiffCard
           key={matchedFile.key}
           fileDiff={matchedFile.fileDiff}
           fileName={matchedFile.fileName}
@@ -500,14 +401,12 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
           deletions={matchedFile.deletions}
           annotations={getAnnotationsForFile(matchedFile.fileName)}
           selectedLines={
-            activeFileName === matchedFile.fileName
-              ? selectedRange
-              : null
+            activeFileName === matchedFile.fileName ? selectedRange : null
           }
           themeType={themeType}
           diffStyle={diffStyle}
           onLineSelected={getLineSelectedCallback(matchedFile.fileName)}
-          onRemoveComment={handleRemoveComment}
+          renderAnnotation={renderComment}
         />
       </div>
 

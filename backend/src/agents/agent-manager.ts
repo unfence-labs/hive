@@ -8,6 +8,8 @@ import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
 import { runNamingTask } from "./naming.js";
 import { NotFoundError } from "../utils/errors.js";
 import { extractSummary, extractPreview } from "../utils/summary-extractor.js";
+import { withKeyedLock } from "../utils/async-lock.js";
+import { parseJsonlMessages, sortByUpdatedAtDesc } from "./session-utils.js";
 import type { ChatMessage, SessionMetadata } from "../types.js";
 import { Notifier } from "../notifications/notifier.js";
 import { TelegramChannel } from "../notifications/telegram.js";
@@ -74,43 +76,11 @@ export interface SessionOptions {
 }
 
 async function withWorkspaceLock<T>(wsId: string, fn: () => Promise<T>): Promise<T> {
-  const prev = workspaceLocks.get(wsId) ?? Promise.resolve();
-  let release: (() => void) | undefined;
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const queued = prev.then(() => current);
-  workspaceLocks.set(wsId, queued);
-
-  await prev;
-  try {
-    return await fn();
-  } finally {
-    release?.();
-    if (workspaceLocks.get(wsId) === queued) {
-      workspaceLocks.delete(wsId);
-    }
-  }
+  return withKeyedLock(workspaceLocks, wsId, fn);
 }
 
 async function withWorkspaceBranchRenameLock<T>(wsId: string, fn: () => Promise<T>): Promise<T> {
-  const prev = workspaceBranchRenameLocks.get(wsId) ?? Promise.resolve();
-  let release: (() => void) | undefined;
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const queued = prev.then(() => current);
-  workspaceBranchRenameLocks.set(wsId, queued);
-
-  await prev;
-  try {
-    return await fn();
-  } finally {
-    release?.();
-    if (workspaceBranchRenameLocks.get(wsId) === queued) {
-      workspaceBranchRenameLocks.delete(wsId);
-    }
-  }
+  return withKeyedLock(workspaceBranchRenameLocks, wsId, fn);
 }
 
 function getOrCreateLoadedSessionMap(wsId: string): Map<string, ConversationSession> {
@@ -132,14 +102,6 @@ function getLoadedSessionById(wsId: string, sessionId: string): ConversationSess
 
 function getLoadedSessions(wsId: string): ConversationSession[] {
   return Array.from(loadedSessionsByWorkspace.get(wsId)?.values() ?? []);
-}
-
-function sortByUpdatedAtDesc<T extends { updatedAt: string }>(items: T[]): T[] {
-  return items.sort((a, b) => {
-    const aTime = new Date(a.updatedAt).getTime() || 0;
-    const bTime = new Date(b.updatedAt).getTime() || 0;
-    return bTime - aTime;
-  });
 }
 
 function removeLoadedSession(wsId: string, sessionId: string): void {
@@ -266,19 +228,6 @@ export function getSession(wsId: string): ConversationSession | undefined {
 /** Get a specific loaded session for a workspace (if present in memory). */
 export function getSessionById(wsId: string, sessionId: string): ConversationSession | undefined {
   return getLoadedSessionById(wsId, sessionId);
-}
-
-function parseJsonlMessages(raw: string): ChatMessage[] {
-  const messages: ChatMessage[] = [];
-  for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      messages.push(JSON.parse(line) as ChatMessage);
-    } catch {
-      // Skip malformed lines to preserve recoverability.
-    }
-  }
-  return messages;
 }
 
 /**

@@ -508,7 +508,7 @@ private final class HubConnection {
                 for: workspaceId
             )
 
-        case .done(let sessionId, _, _, _, _):
+        case .done(let sessionId, _, _, _, _, _, _):
             monitor?.didReceiveStreaming(false, for: workspaceId, sessionId: sessionId)
             monitor?.didReceiveDone(for: workspaceId, sessionId: sessionId, markWorkspaceCompleted: true)
 

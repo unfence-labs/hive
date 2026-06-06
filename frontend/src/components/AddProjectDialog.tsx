@@ -15,8 +15,9 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 import { api } from "@/hooks/useApi";
+import { useBrain } from "@/hooks/useBrain";
 
-type DialogMode = "clone" | "create";
+type DialogMode = "clone" | "create" | "brain";
 
 interface AccountStatus {
   ghInstalled: boolean;
@@ -34,7 +35,7 @@ interface AddProjectDialogProps {
   }) => Promise<{ id: string; warning?: string } | void>;
 }
 
-// Must match backend REPO_NAME_RE in backend/src/projects/project-manager.ts
+// Must match backend REPO_NAME_RE in backend/src/utils/github.ts
 const REPO_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
 
 export default function AddProjectDialog({
@@ -44,6 +45,7 @@ export default function AddProjectDialog({
   onCreate,
 }: AddProjectDialogProps) {
   const navigate = useNavigate();
+  const { brain, createBrain } = useBrain();
 
   // ── Shared state ─────────────────────────────────────────────────
   const [mode, setMode] = useState<DialogMode>("clone");
@@ -75,7 +77,7 @@ export default function AddProjectDialog({
     queryKey: ["account", "status"],
     queryFn: () => api.get<AccountStatus>("/api/account/status"),
     staleTime: 5 * 60_000,
-    enabled: open && mode === "create",
+    enabled: open && (mode === "create" || mode === "brain"),
   });
 
   const ghConnected = account?.authenticated === true;
@@ -88,6 +90,7 @@ export default function AddProjectDialog({
 
   const canSubmitClone = url.trim().length > 0;
   const canSubmitCreate = name.trim().length > 0 && !nameError;
+  const canSubmitBrain = brain.exists || (canSubmitCreate && ghConnected);
 
   // ── Handlers ─────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
@@ -99,6 +102,18 @@ export default function AddProjectDialog({
       let result: { id: string; warning?: string } | void;
       if (mode === "clone") {
         result = await onClone(url.trim());
+      } else if (mode === "brain") {
+        if (brain.exists) {
+          onOpenChange(false);
+          navigate("/brain");
+          return;
+        }
+        await createBrain({ name: name.trim().toLowerCase() });
+        setName("");
+        setMode("clone");
+        onOpenChange(false);
+        navigate("/brain");
+        return;
       } else {
         result = await onCreate({
           name: name.trim().toLowerCase(),
@@ -135,18 +150,24 @@ export default function AddProjectDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {mode === "clone" ? "Add Project" : "Create Project"}
+            {mode === "clone"
+              ? "Add Project"
+              : mode === "brain"
+                ? brain.exists ? "Open Brain" : "Brain"
+                : "Create Project"}
           </DialogTitle>
           <DialogDescription>
             {mode === "clone"
               ? "Enter the Git repository URL to clone into Hive."
-              : "Create a new Git repository and start working."}
+              : mode === "brain"
+                ? "Create or open your private Brain repository."
+                : "Create a new Git repository and start working."}
           </DialogDescription>
         </DialogHeader>
 
         {/* ── Mode toggle ────────────────────────────────────────── */}
         <div className="flex gap-1 rounded-lg bg-muted p-1">
-          {(["clone", "create"] as const).map((m) => (
+          {(["clone", "create", "brain"] as const).map((m) => (
             <button
               key={m}
               type="button"
@@ -158,7 +179,11 @@ export default function AddProjectDialog({
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              {m === "clone" ? "Clone existing" : "Create new"}
+              {m === "clone"
+                ? "Clone existing"
+                : m === "brain"
+                  ? brain.exists ? "Open Brain" : "Brain"
+                  : "Create new"}
             </button>
           ))}
         </div>
@@ -173,6 +198,51 @@ export default function AddProjectDialog({
               disabled={loading}
               autoFocus
             />
+          ) : mode === "brain" ? (
+            <div className="space-y-4">
+              {brain.exists ? (
+                <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <p className="text-sm font-medium text-foreground">Brain already exists</p>
+                  <p className="mt-1 break-all text-xs text-muted-foreground">
+                    {brain.repoUrl}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="brain-repo-name" className="text-xs font-medium text-muted-foreground">
+                      Repository name
+                    </Label>
+                    <Input
+                      id="brain-repo-name"
+                      placeholder="my-brain"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      disabled={loading}
+                      autoFocus
+                    />
+                    {nameError && (
+                      <p className="text-xs text-destructive">{nameError}</p>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {account === undefined ? (
+                      <span>Checking GitHub connection...</span>
+                    ) : ghConnected ? (
+                      <span>
+                        <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+                        Private GitHub repository as{" "}
+                        <span className="font-medium text-foreground">@{account.user?.login}</span>
+                      </span>
+                    ) : (
+                      <span className="text-warning-foreground">
+                        GitHub connection required - connect an account in Settings.
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           ) : (
             /* ── Create form ─────────────────────────────────────── */
             <div className="space-y-4">
@@ -222,7 +292,7 @@ export default function AddProjectDialog({
               {/* ── GitHub status indicator ───────────────────────── */}
               <div className="text-xs text-muted-foreground">
                 {account === undefined ? (
-                  <span>Checking GitHub connection…</span>
+                  <span>Checking GitHub connection...</span>
                 ) : ghConnected ? (
                   <span>
                     <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
@@ -263,7 +333,11 @@ export default function AddProjectDialog({
                   type="submit"
                   disabled={
                     loading ||
-                    (mode === "clone" ? !canSubmitClone : !canSubmitCreate)
+                    (mode === "clone"
+                      ? !canSubmitClone
+                      : mode === "brain"
+                        ? !canSubmitBrain
+                        : !canSubmitCreate)
                   }
                 >
                   {loading
@@ -272,7 +346,9 @@ export default function AddProjectDialog({
                       : "Creating…"
                     : mode === "clone"
                       ? "Add"
-                      : "Create"}
+                      : mode === "brain" && brain.exists
+                        ? "Open Brain"
+                        : "Create"}
                 </Button>
               </>
             )}

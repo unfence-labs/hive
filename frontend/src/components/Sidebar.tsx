@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getNextRun, formatTimeUntil } from "@/lib/cron";
 import {
   AlertCircle,
+  Brain,
   FolderPlus,
   Loader2,
   Settings,
@@ -25,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
 import { useProjects } from "@/hooks/useProjects";
+import { useBrain } from "@/hooks/useBrain";
 import { useBulkPrStatus, usePrStatusMap } from "@/hooks/usePrStatus";
 import { useSidebarProjectFolders } from "@/hooks/useSidebarProjectFolders";
 import { api } from "@/hooks/useApi";
@@ -34,7 +36,13 @@ import {
   parseProjectOwnerRepo,
 } from "@/lib/sidebar-helpers";
 import { cn } from "@/lib/utils";
-import { aggregateScriptRunning, aggregateWorkspaceActivity } from "@/lib/workspace-activity";
+import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
+import {
+  aggregateScriptRunning,
+  aggregateWorkspaceActivity,
+  workspaceActivityState,
+} from "@/lib/workspace-activity";
+import { SidebarActivityDot } from "@/components/sidebar/SidebarActivityDot";
 import { useAutomations } from "@/hooks/useAutomations";
 import { SidebarShell } from "@/components/SidebarShell";
 import { ResizeHandle } from "@/components/ResizeHandle";
@@ -94,6 +102,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     createWorkspace,
     archiveWorkspace,
   } = useProjects();
+  const { brain } = useBrain();
   const { data: automations, isLoading: automationsLoading } = useAutomations();
   const queryClient = useQueryClient();
   const { wsId: activeWsId } = useParams();
@@ -465,13 +474,35 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     </div>
   );
 
-  const workspacePanelContent = loading ? (
-    <div className="space-y-2 px-2">
-      <Skeleton className="h-6 w-full" />
-      <Skeleton className="h-6 w-3/4" />
-      <Skeleton className="h-6 w-full" />
-    </div>
-  ) : (
+  const brainActivity = workspaceActivityState(liveData[BRAIN_WORKSPACE_ID]);
+  const brainSidebarEntry = brain.exists ? (
+    <Link
+      to="/brain"
+      className={cn(
+        // h-9 mirrors the right-panel ConversationTabs band, and -mt-2 cancels the
+        // scroll wrapper's p-2 top padding, so the Brain row lines up exactly with
+        // the file/tab bar. Border only when active; transparent at rest avoids shift.
+        "-mt-2 mb-3 flex h-9 items-center gap-2 rounded-md border border-transparent px-2 text-sm transition-colors",
+        pathname === "/brain"
+          ? "sidebar-card-active"
+          : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground",
+      )}
+    >
+      <span className="relative inline-flex shrink-0">
+        <Brain
+          className={cn(
+            "h-4 w-4 shrink-0",
+            pathname === "/brain" ? "text-primary" : "text-sidebar-foreground/70",
+          )}
+          aria-hidden="true"
+        />
+        <SidebarActivityDot state={brainActivity} dimmed={pathname === "/brain"} />
+      </span>
+      <span className="truncate text-sidebar-foreground">Brain</span>
+    </Link>
+  ) : null;
+
+  const loadedWorkspaceContent = (
     <>
       {(projectsUnavailable || projectsAppearIncomplete) && (
         <div
@@ -594,6 +625,22 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
         <div className={cn("space-y-px", folders.length > 0 && "mt-0.5")}>
           {rootProjects.map((project) => renderProjectItem(project, null))}
         </div>
+      )}
+    </>
+  );
+
+  const workspacePanelContent = (
+    <>
+      {brainSidebarEntry}
+
+      {loading ? (
+        <div className="space-y-2 px-2">
+          <Skeleton className="h-6 w-full" />
+          <Skeleton className="h-6 w-3/4" />
+          <Skeleton className="h-6 w-full" />
+        </div>
+      ) : (
+        loadedWorkspaceContent
       )}
     </>
   );

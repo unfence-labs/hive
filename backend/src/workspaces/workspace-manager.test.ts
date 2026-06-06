@@ -26,6 +26,21 @@ let dataDir: string;
 let fixtureRepoUrl: string;
 let projectId: string;
 
+async function pushRemoteMainFile(
+  cloneName: string,
+  fileName: string,
+  content: string,
+): Promise<void> {
+  const pushClone = join(tempDir, cloneName);
+  await git(["clone", fixtureRepoUrl, pushClone]);
+  await git(["config", "user.email", "test@hive.dev"], pushClone);
+  await git(["config", "user.name", "Test"], pushClone);
+  await writeFile(join(pushClone, fileName), content);
+  await git(["add", "."], pushClone);
+  await git(["commit", "-m", `add ${fileName}`], pushClone);
+  await git(["push", "origin", "main"], pushClone);
+}
+
 beforeEach(async () => {
   clearWorkspaceIndexForTests();
   tempDir = await createTempDir("hive-ws-test-");
@@ -103,16 +118,7 @@ describe("createWorkspace", () => {
   });
 
   it("picks up new files pushed to remote after project creation", async () => {
-    // Clone from fixture bare to simulate a collaborator pushing changes
-    const pushClone = join(tempDir, "push-clone");
-    await git(["clone", fixtureRepoUrl, pushClone]);
-    await git(["config", "user.email", "test@hive.dev"], pushClone);
-    await git(["config", "user.name", "Test"], pushClone);
-
-    await writeFile(join(pushClone, "new-remote-file.txt"), "from remote\n");
-    await git(["add", "."], pushClone);
-    await git(["commit", "-m", "add new file on remote"], pushClone);
-    await git(["push", "origin", "main"], pushClone);
+    await pushRemoteMainFile("push-clone", "new-remote-file.txt", "from remote\n");
 
     // Workspace should fetch and contain the new file
     const ws = await createWorkspace(projectId, dataDir);
@@ -145,15 +151,7 @@ describe("createWorkspace", () => {
     const ws1Path = join(dataDir, projectId, "workspaces", ws1.name);
     expect(existsSync(join(ws1Path, "round2.txt"))).toBe(false);
 
-    // Push a new commit to the remote
-    const pushClone = join(tempDir, "push-clone-multi");
-    await git(["clone", fixtureRepoUrl, pushClone]);
-    await git(["config", "user.email", "test@hive.dev"], pushClone);
-    await git(["config", "user.name", "Test"], pushClone);
-    await writeFile(join(pushClone, "round2.txt"), "second round\n");
-    await git(["add", "."], pushClone);
-    await git(["commit", "-m", "second round"], pushClone);
-    await git(["push", "origin", "main"], pushClone);
+    await pushRemoteMainFile("push-clone-multi", "round2.txt", "second round\n");
 
     // Second workspace should have the new file
     const ws2 = await createWorkspace(projectId, dataDir);
@@ -351,8 +349,9 @@ describe("archiveWorkspace", () => {
 describe("getWorkspaceDiff", () => {
   it("returns empty diff when no changes", async () => {
     const ws = await createWorkspace(projectId, dataDir);
-    const diff = await getWorkspaceDiff(ws.id, dataDir);
-    expect(diff).toBe("");
+    const result = await getWorkspaceDiff(ws.id, dataDir);
+    expect(result.diff).toBe("");
+    expect(result.omittedFileCount).toBe(0);
   });
 
   it("throws for non-existent workspace", async () => {
@@ -370,9 +369,10 @@ describe("getWorkspaceDiff", () => {
     await git(["config", "user.name", "Test"], wsPath);
     await git(["commit", "-m", "add new file"], wsPath);
 
-    const diff = await getWorkspaceDiff(ws.id, dataDir);
-    expect(diff).toContain("new-file.txt");
-    expect(diff).toContain("hello world");
+    const result = await getWorkspaceDiff(ws.id, dataDir);
+    expect(result.diff).toContain("new-file.txt");
+    expect(result.diff).toContain("hello world");
+    expect(result.omittedFileCount).toBe(0);
   });
 
   it("includes untracked files as synthetic diff patches", async () => {
@@ -382,14 +382,31 @@ describe("getWorkspaceDiff", () => {
     // Create an untracked file (not git-added)
     await writeFile(join(wsPath, "untracked.txt"), "line1\nline2\n");
 
-    const diff = await getWorkspaceDiff(ws.id, dataDir);
+    const result = await getWorkspaceDiff(ws.id, dataDir);
 
-    expect(diff).toContain("diff --git a/untracked.txt b/untracked.txt");
-    expect(diff).toContain("new file mode 100644");
-    expect(diff).toContain("--- /dev/null");
-    expect(diff).toContain("+++ b/untracked.txt");
-    expect(diff).toContain("+line1");
-    expect(diff).toContain("+line2");
+    expect(result.diff).toContain("diff --git a/untracked.txt b/untracked.txt");
+    expect(result.diff).toContain("new file mode 100644");
+    expect(result.diff).toContain("--- /dev/null");
+    expect(result.diff).toContain("+++ b/untracked.txt");
+    expect(result.diff).toContain("+line1");
+    expect(result.diff).toContain("+line2");
+    expect(result.omittedFileCount).toBe(0);
+  });
+
+  it("reports omittedFileCount when untracked files exceed the render cap", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    for (let i = 0; i < 5; i += 1) {
+      await writeFile(join(wsPath, `untracked-${i}.txt`), `file ${i}\n`);
+    }
+
+    const result = await getWorkspaceDiff(ws.id, dataDir, "uncommitted", 2);
+
+    expect(result.diff).toContain("untracked-0.txt");
+    expect(result.diff).toContain("untracked-1.txt");
+    expect(result.diff).not.toContain("untracked-2.txt");
+    expect(result.omittedFileCount).toBe(3);
   });
 
   it("skips binary untracked files (containing null bytes)", async () => {
@@ -401,10 +418,10 @@ describe("getWorkspaceDiff", () => {
     // Also create a text file to verify partial inclusion
     await writeFile(join(wsPath, "text.txt"), "visible\n");
 
-    const diff = await getWorkspaceDiff(ws.id, dataDir);
+    const result = await getWorkspaceDiff(ws.id, dataDir);
 
-    expect(diff).not.toContain("binary.bin");
-    expect(diff).toContain("text.txt");
+    expect(result.diff).not.toContain("binary.bin");
+    expect(result.diff).toContain("text.txt");
   });
 
   it("includes untracked files in subdirectories", async () => {
@@ -414,10 +431,10 @@ describe("getWorkspaceDiff", () => {
     await mkdir(join(wsPath, "subdir"), { recursive: true });
     await writeFile(join(wsPath, "subdir", "nested.txt"), "nested content\n");
 
-    const diff = await getWorkspaceDiff(ws.id, dataDir);
+    const result = await getWorkspaceDiff(ws.id, dataDir);
 
-    expect(diff).toContain("subdir/nested.txt");
-    expect(diff).toContain("+nested content");
+    expect(result.diff).toContain("subdir/nested.txt");
+    expect(result.diff).toContain("+nested content");
   });
 
   it("combines committed, uncommitted, and untracked diffs", async () => {
@@ -437,11 +454,11 @@ describe("getWorkspaceDiff", () => {
     // Untracked file
     await writeFile(join(wsPath, "brand-new.txt"), "untracked\n");
 
-    const diff = await getWorkspaceDiff(ws.id, dataDir);
+    const result = await getWorkspaceDiff(ws.id, dataDir);
 
-    expect(diff).toContain("committed.txt");
-    expect(diff).toContain("README.md");
-    expect(diff).toContain("brand-new.txt");
+    expect(result.diff).toContain("committed.txt");
+    expect(result.diff).toContain("README.md");
+    expect(result.diff).toContain("brand-new.txt");
   });
 
   it("returns only committed changes for the committed diff scope", async () => {
@@ -457,11 +474,12 @@ describe("getWorkspaceDiff", () => {
     await writeFile(join(wsPath, "README.md"), "local only change\n");
     await writeFile(join(wsPath, "brand-new.txt"), "untracked\n");
 
-    const diff = await getWorkspaceDiff(ws.id, dataDir, "committed");
+    const result = await getWorkspaceDiff(ws.id, dataDir, "committed");
 
-    expect(diff).toContain("committed.txt");
-    expect(diff).not.toContain("README.md");
-    expect(diff).not.toContain("brand-new.txt");
+    expect(result.diff).toContain("committed.txt");
+    expect(result.diff).not.toContain("README.md");
+    expect(result.diff).not.toContain("brand-new.txt");
+    expect(result.omittedFileCount).toBe(0);
   });
 
   it("returns only working tree changes for the uncommitted diff scope", async () => {
@@ -477,11 +495,11 @@ describe("getWorkspaceDiff", () => {
     await writeFile(join(wsPath, "README.md"), "local only change\n");
     await writeFile(join(wsPath, "brand-new.txt"), "untracked\n");
 
-    const diff = await getWorkspaceDiff(ws.id, dataDir, "uncommitted");
+    const result = await getWorkspaceDiff(ws.id, dataDir, "uncommitted");
 
-    expect(diff).not.toContain("committed.txt");
-    expect(diff).toContain("README.md");
-    expect(diff).toContain("brand-new.txt");
+    expect(result.diff).not.toContain("committed.txt");
+    expect(result.diff).toContain("README.md");
+    expect(result.diff).toContain("brand-new.txt");
   });
 
   it("separates committed and uncommitted hunks for the same file by scope", async () => {
@@ -499,10 +517,10 @@ describe("getWorkspaceDiff", () => {
     const committedDiff = await getWorkspaceDiff(ws.id, dataDir, "committed");
     const uncommittedDiff = await getWorkspaceDiff(ws.id, dataDir, "uncommitted");
 
-    expect(committedDiff).toContain("+committed change");
-    expect(committedDiff).not.toContain("+uncommitted extra");
-    expect(uncommittedDiff).not.toContain("+committed change");
-    expect(uncommittedDiff).toContain("+uncommitted extra");
+    expect(committedDiff.diff).toContain("+committed change");
+    expect(committedDiff.diff).not.toContain("+uncommitted extra");
+    expect(uncommittedDiff.diff).not.toContain("+committed change");
+    expect(uncommittedDiff.diff).toContain("+uncommitted extra");
   });
 
   it("does not duplicate a file modified in both committed and uncommitted changes", async () => {
@@ -519,15 +537,15 @@ describe("getWorkspaceDiff", () => {
     // Further uncommitted change to same file
     await writeFile(join(wsPath, "README.md"), "committed change\nuncommitted extra\n");
 
-    const diff = await getWorkspaceDiff(ws.id, dataDir);
+    const result = await getWorkspaceDiff(ws.id, dataDir);
 
     // README.md should appear exactly once as a diff block
-    const matches = diff.match(/diff --git a\/README\.md b\/README\.md/g);
+    const matches = result.diff.match(/diff --git a\/README\.md b\/README\.md/g);
     expect(matches).toHaveLength(1);
 
     // Both changes should be visible in the single diff
-    expect(diff).toContain("+committed change");
-    expect(diff).toContain("+uncommitted extra");
+    expect(result.diff).toContain("+committed change");
+    expect(result.diff).toContain("+uncommitted extra");
   });
 
   it("handles file without trailing newline in synthetic diff", async () => {
@@ -536,10 +554,10 @@ describe("getWorkspaceDiff", () => {
 
     await writeFile(join(wsPath, "no-newline.txt"), "no trailing newline");
 
-    const diff = await getWorkspaceDiff(ws.id, dataDir);
+    const result = await getWorkspaceDiff(ws.id, dataDir);
 
-    expect(diff).toContain("+no trailing newline");
-    expect(diff).toContain("@@ -0,0 +1,1 @@");
+    expect(result.diff).toContain("+no trailing newline");
+    expect(result.diff).toContain("@@ -0,0 +1,1 @@");
   });
 });
 
@@ -578,6 +596,32 @@ describe("getWorkspaceDiffStat", () => {
     const readme = committed.find((s) => s.file === "README.md");
     expect(readme).toBeDefined();
     expect(readme!.status).toBe("modified");
+  });
+
+  it("refreshes the default branch before committed stats", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+    const bare = bareRepoPath(dataDir, projectId);
+
+    await pushRemoteMainFile("push-clone-stale-main", "main-only.txt", "from main\n");
+
+    await git(["fetch", "origin", "main:refs/hive-test/main-update"], bare);
+    await git(["merge", "--ff-only", "refs/hive-test/main-update"], wsPath);
+
+    await writeFile(join(wsPath, "branch-only.txt"), "from branch\n");
+    await git(["add", "."], wsPath);
+    await git(["config", "user.email", "test@hive.dev"], wsPath);
+    await git(["config", "user.name", "Test"], wsPath);
+    await git(["commit", "-m", "add branch-only file"], wsPath);
+
+    const beforeRefresh = await git(["diff", "--name-only", `main...${ws.branch}`], bare);
+    expect(beforeRefresh.stdout.split("\n")).toContain("main-only.txt");
+
+    const { committed } = await getWorkspaceDiffStat(ws.id, dataDir);
+    const files = committed.map((s) => s.file);
+
+    expect(files).toContain("branch-only.txt");
+    expect(files).not.toContain("main-only.txt");
   });
 
   it("returns uncommitted stats for unstaged changes", async () => {

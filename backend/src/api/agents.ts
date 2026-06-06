@@ -12,8 +12,8 @@ import {
   hardDeleteSession,
   getSpecificSessionMessages,
   resolveSessionAttachmentPath,
-  type SessionOptions,
-} from "../agents/agent-manager.js";
+} from "../agents/session-dispatch.js";
+import type { SessionOptions } from "../agents/agent-manager.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
 
 export interface SessionRoutesOptions {

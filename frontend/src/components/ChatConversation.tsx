@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -42,6 +42,12 @@ interface ChatConversationProps {
   queuedMessage?: QueuedMessage | null;
   onClearQueue?: () => void;
   scrollToBottomTrigger?: number;
+  /**
+   * Page-specific empty-state content shown when there are no messages and the
+   * workspace-welcome props are absent (e.g. the Brain). Falls back to the
+   * generic prompt when omitted.
+   */
+  emptyState?: ReactNode;
 }
 
 export default function ChatConversation({
@@ -66,6 +72,7 @@ export default function ChatConversation({
   queuedMessage,
   onClearQueue,
   scrollToBottomTrigger = 0,
+  emptyState,
 }: ChatConversationProps) {
   const [elapsed, setElapsed] = useState(0);
   const activeInlineAgentActivities = getInlineAgentActivities(activeAgentActivities);
@@ -199,6 +206,10 @@ export default function ChatConversation({
                 defaultBranch={defaultBranch}
                 fileCount={fileCount ?? 0}
               />
+            </ConversationEmptyState>
+          ) : emptyState ? (
+            <ConversationEmptyState className="py-20">
+              {emptyState}
             </ConversationEmptyState>
           ) : (
             <ConversationEmptyState

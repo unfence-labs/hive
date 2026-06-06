@@ -10,9 +10,11 @@ import ConnectionSettings from "@/pages/settings/ConnectionSettings";
 import NotificationSettings from "@/pages/settings/NotificationSettings";
 import AgentSettings from "@/pages/settings/AgentSettings";
 import ProjectDetail from "@/pages/settings/ProjectDetail";
+import BrainView from "@/pages/BrainView";
 import AddProjectDialog from "@/components/AddProjectDialog";
 import EmptyStateLogo from "@/components/EmptyStateLogo";
 import { useProjects } from "@/hooks/useProjects";
+import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import type { Project } from "@/types";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
@@ -41,9 +43,11 @@ export default function App() {
   const workspaceIds = useMemo(
     () =>
       Array.from(
-        new Set(
-          projects.flatMap((project) => (project.workspaces ?? []).map((workspace) => workspace.id)),
-        ),
+        new Set([
+          // The Brain is addressed as a synthetic workspace id over the same hub.
+          BRAIN_WORKSPACE_ID,
+          ...projects.flatMap((project) => (project.workspaces ?? []).map((workspace) => workspace.id)),
+        ]),
       ),
     [projects],
   );
@@ -121,6 +125,7 @@ export default function App() {
             <Route path="projects" element={<Navigate to="/home" replace />} />
             <Route path="projects/:id" element={<Navigate to="/home" replace />} />
             <Route path="workspaces/:wsId" element={<WorkspaceView />} />
+            <Route path="brain" element={<BrainView />} />
             <Route path="automations" element={<Navigate to="/home" replace />} />
             <Route path="automations/:automationId" element={<Suspense fallback={null}><AutomationDetail /></Suspense>} />
             <Route path="settings" element={<Navigate to="/settings/appearance" replace />} />

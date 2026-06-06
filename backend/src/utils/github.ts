@@ -11,6 +11,45 @@ let ghAvailable: boolean | null = null;
 let ghUnavailableReason = "";
 let ghUnavailableAt = 0;
 
+export type RepositoryVisibility = "public" | "private";
+
+export interface GitHubRepository {
+  owner: string;
+  name: string;
+  fullName: string;
+  sshUrl: string;
+}
+
+export type GhClient = typeof gh;
+
+const REPO_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
+
+/** Validate and normalize a GitHub repository name for `gh repo create`. */
+export function validateGitHubRepositoryName(name: string): string {
+  const trimmed = name.trim().toLowerCase();
+  if (!trimmed) throw new Error("Repository name is required");
+  if (trimmed.length > 100) throw new Error("Repository name must be 100 characters or fewer");
+  if (!REPO_NAME_RE.test(trimmed)) {
+    throw new Error(
+      "Repository name can only contain lowercase letters, numbers, hyphens, underscores, and dots",
+    );
+  }
+  return trimmed;
+}
+
+function formatGhFailure(err: unknown): string {
+  const error = err as NodeJS.ErrnoException & { stderr?: string };
+  if (error.code === "ENOENT") {
+    return "GitHub CLI not found. Install `gh` and run `gh auth login`.";
+  }
+
+  const detail = error.stderr?.trim() || error.message;
+  if (detail?.includes("auth login")) {
+    return "GitHub CLI is not authenticated. Run `gh auth login` and try again.";
+  }
+  return detail ? `GitHub CLI failed: ${detail}` : "GitHub CLI failed.";
+}
+
 export function parseGitHubRepo(
   url: string,
 ): { owner: string; repo: string } | null {
@@ -39,6 +78,62 @@ export async function gh(
     maxBuffer: 10 * 1024 * 1024,
   });
   return { stdout: stdout.trim(), stderr: stderr.trim() };
+}
+
+/** Create a GitHub repository and return its SSH clone URL. */
+export async function createGitHubRepository(
+  name: string,
+  visibility: RepositoryVisibility,
+  ghClient: GhClient = gh,
+): Promise<GitHubRepository> {
+  if (visibility !== "public" && visibility !== "private") {
+    throw new Error("Invalid visibility");
+  }
+
+  const repoName = validateGitHubRepositoryName(name);
+
+  let owner = "";
+  let fullName = "";
+  try {
+    const { stdout: login } = await ghClient(["api", "user", "--jq", ".login"]);
+    owner = login.trim();
+    if (!owner) throw new Error("Unable to determine GitHub user");
+    fullName = `${owner}/${repoName}`;
+    await ghClient(["repo", "create", fullName, `--${visibility}`]);
+  } catch (err) {
+    throw new Error(formatGhFailure(err));
+  }
+
+  // The repo now exists. Any failure past this point must delete it so a
+  // transient error (e.g. `repo view` replication lag) cannot orphan the remote:
+  // callers create the repo before entering their own cleanup scope, so this
+  // function owns cleanup of its own partial work.
+  try {
+    const { stdout } = await ghClient([
+      "repo",
+      "view",
+      fullName,
+      "--json",
+      "sshUrl",
+      "--jq",
+      ".sshUrl",
+    ]);
+    const sshUrl = stdout.trim();
+    if (!sshUrl) throw new Error("Unable to determine GitHub SSH URL");
+
+    return { owner, name: repoName, fullName, sshUrl };
+  } catch (err) {
+    await deleteGitHubRepository(fullName, ghClient).catch(() => {});
+    throw new Error(formatGhFailure(err));
+  }
+}
+
+/** Delete a GitHub repository by `owner/name`. Intended for cleanup after failed setup. */
+export async function deleteGitHubRepository(
+  fullName: string,
+  ghClient: GhClient = gh,
+): Promise<void> {
+  await ghClient(["repo", "delete", fullName, "--yes"]);
 }
 
 /** Check whether the `gh` binary is on PATH. Caches the result. */

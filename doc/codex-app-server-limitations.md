@@ -11,6 +11,7 @@ The integration intentionally promotes the main chat activity into first-class H
 
 The remaining items below are known protocol surface area that Hive does not yet render with rich, dedicated UI. Unsupported items should stay visible as diagnostics instead of failing silently.
 Known App Server notifications that are routine runtime state rather than chat activity are handled explicitly and ignored.
+`thread/tokenUsage/updated` is handled separately from activity rendering: Hive stores its provider-reported context-used and context-window values on the finalized assistant message so the existing context ring can render accurate Codex App Server context usage.
 
 ## Client Rendering Contract
 

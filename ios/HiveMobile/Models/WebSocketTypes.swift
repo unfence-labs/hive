@@ -113,7 +113,7 @@ enum WsOutgoing: Decodable {
     case toolResult(sessionId: String, toolUseId: String, output: String)
     case agentActivity(sessionId: String, activity: AgentActivity)
     case toolInputRequired(sessionId: String, requestId: String, toolName: String, toolUseId: String, input: String)
-    case done(sessionId: String, durationMs: Int?, inputTokens: Int?, outputTokens: Int?, pendingToolName: String?)
+    case done(sessionId: String, durationMs: Int?, inputTokens: Int?, outputTokens: Int?, contextUsedTokens: Int?, contextWindowTokens: Int?, pendingToolName: String?)
     case error(message: String, sessionId: String?)
     case cancelled(sessionId: String, errorDetail: String?, userInitiated: Bool?, durationMs: Int?)
     case status(status: WorkspaceStatus, sessionId: String?, streaming: Bool?, streamingStartedAt: Double?, lockedProvider: String?)
@@ -129,7 +129,7 @@ enum WsOutgoing: Decodable {
         case type, sessionId, text, id, name, input, output
         case activity
         case parentToolUseId, toolUseId, requestId, toolName
-        case durationMs, inputTokens, outputTokens, pendingToolName
+        case durationMs, inputTokens, outputTokens, contextUsedTokens, contextWindowTokens, pendingToolName
         case errorDetail, userInitiated
         case message, status, streaming, streamingStartedAt, lockedProvider
         case messages, info, stats
@@ -215,9 +215,27 @@ enum WsOutgoing: Decodable {
             } else {
                 doneOutputTokens = nil
             }
+            let doneContextUsedTokens: Int?
+            if let intVal = try? container.decodeIfPresent(Int.self, forKey: .contextUsedTokens) {
+                doneContextUsedTokens = intVal
+            } else if let doubleVal = try? container.decodeIfPresent(Double.self, forKey: .contextUsedTokens) {
+                doneContextUsedTokens = Int(doubleVal)
+            } else {
+                doneContextUsedTokens = nil
+            }
+            let doneContextWindowTokens: Int?
+            if let intVal = try? container.decodeIfPresent(Int.self, forKey: .contextWindowTokens) {
+                doneContextWindowTokens = intVal
+            } else if let doubleVal = try? container.decodeIfPresent(Double.self, forKey: .contextWindowTokens) {
+                doneContextWindowTokens = Int(doubleVal)
+            } else {
+                doneContextWindowTokens = nil
+            }
             let donePendingToolName = try container.decodeIfPresent(String.self, forKey: .pendingToolName)
             self = .done(sessionId: doneSessionId, durationMs: doneDuration,
                          inputTokens: doneInputTokens, outputTokens: doneOutputTokens,
+                         contextUsedTokens: doneContextUsedTokens,
+                         contextWindowTokens: doneContextWindowTokens,
                          pendingToolName: donePendingToolName)
         case "error":
             self = .error(

@@ -131,6 +131,29 @@ describe("ChatConversation empty states", () => {
     expect(screen.queryByText(/You're in a new copy of/i)).not.toBeInTheDocument();
   });
 
+  it("renders the custom emptyState when provided and workspace metadata is absent", () => {
+    renderConversation({
+      projectName: "Brain",
+      emptyState: <div data-testid="custom-empty">brain welcome</div>,
+    });
+
+    expect(screen.getByTestId("custom-empty")).toHaveTextContent("brain welcome");
+    expect(screen.queryByText("Send a message to start a conversation.")).not.toBeInTheDocument();
+  });
+
+  it("prefers the workspace welcome over emptyState when workspace metadata is present", () => {
+    renderConversation({
+      workspaceName: "san-antonio",
+      projectName: "hive",
+      branch: "workspace/san-antonio",
+      defaultBranch: "main",
+      emptyState: <div data-testid="custom-empty">brain welcome</div>,
+    });
+
+    expect(screen.getByText(/You're in a new copy of/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("custom-empty")).not.toBeInTheDocument();
+  });
+
   it("does not render empty states when messages exist", () => {
     renderConversation({
       messages: [

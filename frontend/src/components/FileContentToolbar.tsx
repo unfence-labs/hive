@@ -14,32 +14,51 @@ interface FileContentToolbarProps {
   filePath: string;
   mode: FileViewMode;
   onModeChange: (mode: FileViewMode) => void;
-  isModified: boolean;
-  diffScope: DiffScope;
-  availableDiffScopes: DiffScope[];
-  onDiffScopeChange: (scope: DiffScope) => void;
-  diffStyle: "split" | "unified";
-  onDiffStyleChange: (style: "split" | "unified") => void;
-  commentCount: number;
-  onPasteToPrompt: () => void;
+  /**
+   * Whether to show the Source/Diff segmented toggle. When `false` the toggle is
+   * hidden entirely. Defaults to `true`. The diff-only props below are only
+   * read while `mode === "diff"`.
+   */
+  showSourceDiffToggle?: boolean;
+  isModified?: boolean;
+  diffScope?: DiffScope;
+  availableDiffScopes?: DiffScope[];
+  onDiffScopeChange?: (scope: DiffScope) => void;
+  diffStyle?: "split" | "unified";
+  onDiffStyleChange?: (style: "split" | "unified") => void;
+  commentCount?: number;
+  onPasteToPrompt?: () => void;
   sourceLabel?: string;
   supportsTextDiff?: boolean;
+  /** Markdown render mode for the source view. Defaults to `"raw"`. */
+  renderMode?: "raw" | "rendered";
+  /** Called when the user toggles the Raw/Rendered segmented control. */
+  onRenderModeChange?: (mode: "raw" | "rendered") => void;
+  /**
+   * Whether the open file can be rendered (e.g. Markdown). When `false` the
+   * Raw/Rendered toggle is hidden. Defaults to `false`.
+   */
+  supportsRendered?: boolean;
 }
 
 export function FileContentToolbar({
   filePath,
   mode,
   onModeChange,
-  isModified,
-  diffScope,
-  availableDiffScopes,
+  showSourceDiffToggle = true,
+  isModified = false,
+  diffScope = "uncommitted",
+  availableDiffScopes = [],
   onDiffScopeChange,
-  diffStyle,
+  diffStyle = "unified",
   onDiffStyleChange,
-  commentCount,
+  commentCount = 0,
   onPasteToPrompt,
   sourceLabel = "Source",
   supportsTextDiff = true,
+  renderMode = "raw",
+  onRenderModeChange,
+  supportsRendered = false,
 }: FileContentToolbarProps) {
   const parts = filePath.split("/");
   const basename = parts.pop() ?? filePath;
@@ -63,13 +82,35 @@ export function FileContentToolbar({
         </span>
 
         <div className="ml-auto flex items-center gap-2">
+          {/* Raw / Rendered toggle (source mode, renderable files only) */}
+          {mode === "source" && supportsRendered && (
+            <div className="flex items-center rounded-lg bg-muted p-0.5">
+              <button
+                type="button"
+                onClick={() => onRenderModeChange?.("raw")}
+                className={toggleCls(renderMode === "raw")}
+                aria-pressed={renderMode === "raw"}
+              >
+                Raw
+              </button>
+              <button
+                type="button"
+                onClick={() => onRenderModeChange?.("rendered")}
+                className={toggleCls(renderMode === "rendered")}
+                aria-pressed={renderMode === "rendered"}
+              >
+                Rendered
+              </button>
+            </div>
+          )}
+
           {/* Diff-only controls */}
           {mode === "diff" && supportsTextDiff && (
             <>
               {commentCount > 0 && (
                 <button
                   type="button"
-                  onClick={onPasteToPrompt}
+                  onClick={() => onPasteToPrompt?.()}
                   className="flex min-h-7 items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground transition-colors outline-none hover:bg-primary/90 focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 >
                   <MessageSquarePlusIcon className="size-3" />
@@ -82,7 +123,7 @@ export function FileContentToolbar({
                     <button
                       key={scope}
                       type="button"
-                      onClick={() => onDiffScopeChange(scope)}
+                      onClick={() => onDiffScopeChange?.(scope)}
                       className={toggleCls(diffScope === scope)}
                     >
                       {DIFF_SCOPE_LABELS[scope]}
@@ -93,7 +134,7 @@ export function FileContentToolbar({
               <div className="flex items-center rounded-lg bg-muted p-0.5">
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <button type="button" onClick={() => onDiffStyleChange("split")} className={toggleCls(diffStyle === "split")}>
+                    <button type="button" onClick={() => onDiffStyleChange?.("split")} className={toggleCls(diffStyle === "split")}>
                       <Columns2Icon className="size-3" />
                       Split
                     </button>
@@ -102,7 +143,7 @@ export function FileContentToolbar({
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <button type="button" onClick={() => onDiffStyleChange("unified")} className={toggleCls(diffStyle === "unified")}>
+                    <button type="button" onClick={() => onDiffStyleChange?.("unified")} className={toggleCls(diffStyle === "unified")}>
                       <Rows3Icon className="size-3" />
                       Stacked
                     </button>
@@ -114,30 +155,32 @@ export function FileContentToolbar({
           )}
 
           {/* Source / Diff toggle */}
-          <div className="flex items-center rounded-lg bg-muted p-0.5">
-            <button
-              type="button"
-              onClick={() => onModeChange("source")}
-              className={toggleCls(mode === "source")}
-              aria-pressed={mode === "source"}
-            >
-              {sourceLabel}
-            </button>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => isModified && onModeChange("diff")}
-                  disabled={!isModified}
-                  className={cn(toggleCls(mode === "diff"), !isModified && "cursor-not-allowed opacity-40")}
-                  aria-pressed={mode === "diff"}
-                >
-                  Diff
-                </button>
-              </TooltipTrigger>
-              {!isModified && <TooltipContent>No changes for this file</TooltipContent>}
-            </Tooltip>
-          </div>
+          {showSourceDiffToggle && (
+            <div className="flex items-center rounded-lg bg-muted p-0.5">
+              <button
+                type="button"
+                onClick={() => onModeChange("source")}
+                className={toggleCls(mode === "source")}
+                aria-pressed={mode === "source"}
+              >
+                {sourceLabel}
+              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => isModified && onModeChange("diff")}
+                    disabled={!isModified}
+                    className={cn(toggleCls(mode === "diff"), !isModified && "cursor-not-allowed opacity-40")}
+                    aria-pressed={mode === "diff"}
+                  >
+                    Diff
+                  </button>
+                </TooltipTrigger>
+                {!isModified && <TooltipContent>No changes for this file</TooltipContent>}
+              </Tooltip>
+            </div>
+          )}
         </div>
       </div>
     </TooltipProvider>

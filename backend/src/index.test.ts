@@ -77,6 +77,13 @@ describe("buildApp", () => {
     expect(res.statusCode).not.toBe(404);
   });
 
+  it("registers brain routes", async () => {
+    app = await buildApp();
+    const res = await app.inject({ method: "GET", url: "/api/brain" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ exists: false });
+  });
+
   it("registers workspace routes", async () => {
     app = await buildApp();
     const res = await app.inject({ method: "GET", url: "/api/workspaces/test-ws" });

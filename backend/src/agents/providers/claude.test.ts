@@ -38,7 +38,7 @@ describe("ClaudeProvider", () => {
 
   it("includes opus, sonnet, and haiku", () => {
     const ids = provider.models.map((m) => m.id);
-    expect(ids).toContain("opus-4-7");
+    expect(ids).toContain("opus-4-8");
     expect(ids).toContain("sonnet-4-6");
     expect(ids).toContain("haiku-4-5");
   });
@@ -103,6 +103,12 @@ describe("ClaudeProvider", () => {
     const args = provider.buildArgs("Hello", { model: "sonnet-4-6" }, baseSession());
     expect(args).toContain("--model");
     expect(args).toContain("claude-sonnet-4-6");
+  });
+
+  it("maps persisted Opus 4.7 selections to Opus 4.8", () => {
+    const args = provider.buildArgs("Hello", { model: "opus-4-7" }, baseSession());
+    expect(args).toContain("--model");
+    expect(args).toContain("claude-opus-4-8[1m]");
   });
 
   it("omits --model when model is not in the list", () => {

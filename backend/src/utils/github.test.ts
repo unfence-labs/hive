@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { parseGitHubRepo, fetchPrForBranch, isGhInstalled, gh, _resetGhState } from "./github.js";
+import {
+  parseGitHubRepo,
+  fetchPrForBranch,
+  isGhInstalled,
+  gh,
+  createGitHubRepository,
+  _resetGhState,
+} from "./github.js";
 
 // ── parseGitHubRepo ─────────────────────────────────────────────────
 
@@ -176,6 +183,43 @@ describe("gh", () => {
     execFileMock.mockImplementation(mockExecFileError({ message: "command failed" }));
 
     await expect(gh(["bad"])).rejects.toThrow("command failed");
+  });
+});
+
+// ── createGitHubRepository ──────────────────────────────────────────
+
+describe("createGitHubRepository", () => {
+  function makeGhClient(handlers: { view?: () => Promise<{ stdout: string; stderr: string }> } = {}) {
+    return vi.fn(async (args: string[]) => {
+      const key = `${args[0]} ${args[1]}`;
+      if (key === "api user") return { stdout: "octocat", stderr: "" };
+      if (key === "repo create") return { stdout: "", stderr: "" };
+      if (key === "repo view") {
+        return handlers.view
+          ? handlers.view()
+          : { stdout: "git@github.com:octocat/my-repo.git", stderr: "" };
+      }
+      if (key === "repo delete") return { stdout: "", stderr: "" };
+      throw new Error(`unexpected gh args: ${args.join(" ")}`);
+    });
+  }
+
+  it("returns the repo and does not delete on success", async () => {
+    const ghClient = makeGhClient();
+    const repo = await createGitHubRepository("my-repo", "private", ghClient);
+    expect(repo).toEqual({
+      owner: "octocat",
+      name: "my-repo",
+      fullName: "octocat/my-repo",
+      sshUrl: "git@github.com:octocat/my-repo.git",
+    });
+    expect(ghClient.mock.calls.some((c) => c[0][0] === "repo" && c[0][1] === "delete")).toBe(false);
+  });
+
+  it("deletes the just-created repo when the sshUrl fetch fails (no orphan)", async () => {
+    const ghClient = makeGhClient({ view: () => Promise.reject(new Error("replication lag")) });
+    await expect(createGitHubRepository("my-repo", "private", ghClient)).rejects.toThrow();
+    expect(ghClient).toHaveBeenCalledWith(["repo", "delete", "octocat/my-repo", "--yes"]);
   });
 });
 

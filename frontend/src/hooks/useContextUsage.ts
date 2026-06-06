@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { ChatMessage, ModelCatalogEntry } from "@/types";
 
 export interface ContextUsageData {
-  /** Last turn's input tokens (= current context window usage). */
+  /** Tokens currently occupying the model context window. */
   inputTokens: number | null;
   /** Total output tokens for last turn. */
   outputTokens: number | null;
@@ -17,27 +17,30 @@ export function useContextUsage(
   selectedModel: ModelCatalogEntry | undefined,
 ): ContextUsageData {
   return useMemo(() => {
-    let lastInputTokens: number | null = null;
+    let lastContextUsedTokens: number | null = null;
     let lastOutputTokens: number | null = null;
+    let lastContextWindowTokens: number | null = null;
 
-    // Reverse-scan for last assistant message with token data
+    // Reverse-scan for last assistant message with token data.
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
-      if (msg.role === "assistant" && msg.inputTokens != null && lastInputTokens === null) {
-        lastInputTokens = msg.inputTokens;
+      const contextUsedTokens = msg.contextUsedTokens ?? msg.inputTokens;
+      if (msg.role === "assistant" && contextUsedTokens != null && lastContextUsedTokens === null) {
+        lastContextUsedTokens = contextUsedTokens;
         lastOutputTokens = msg.outputTokens ?? null;
+        lastContextWindowTokens = msg.contextWindowTokens ?? null;
         break;
       }
     }
 
-    const contextWindow = selectedModel?.contextWindow ?? null;
+    const contextWindow = lastContextWindowTokens ?? selectedModel?.contextWindow ?? null;
     const usageFraction =
-      lastInputTokens != null && contextWindow
-        ? Math.min(1, lastInputTokens / contextWindow)
+      lastContextUsedTokens != null && contextWindow
+        ? Math.min(1, lastContextUsedTokens / contextWindow)
         : null;
 
     return {
-      inputTokens: lastInputTokens,
+      inputTokens: lastContextUsedTokens,
       outputTokens: lastOutputTokens,
       contextWindow,
       usageFraction,
