@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
-import {
-  AlertTriangleIcon,
-  BrainIcon,
-  CheckIcon,
-  CloudUploadIcon,
-  Loader2Icon,
-} from "lucide-react";
+import { BrainIcon, CloudUploadIcon } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useBrain } from "@/hooks/useBrain";
 import {
@@ -30,7 +24,6 @@ import { InlineDiffViewer, type InlineDiffViewerHandle } from "@/components/diff
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { wsTransport } from "@/lib/ws-transport";
 import { BRAIN_WORKSPACE_ID, brainFileQueryKey } from "@/lib/brain";
 import { isMarkdownFilePath } from "@/lib/file-preview";
@@ -257,6 +250,15 @@ export default function BrainView() {
       setSaveIndicator("push-failed");
     }
   }, [save]);
+
+  // Single at-a-glance sync state: the status query lifecycle folded together
+  // with the save outcome (see deriveBrainSyncState for precedence).
+  const syncState = deriveBrainSyncState({
+    statusLoading: statusQuery.isLoading,
+    statusError: statusQuery.isError,
+    saveIndicator,
+    pendingCount,
+  });
 
   // ── File-tree actions ──
   // Opening a file is a discrete action (never happens while typing that file),
@@ -525,7 +527,7 @@ export default function BrainView() {
             {/* Sync: commit + push the whole working tree directly. */}
             <BrainSyncSection
               pendingCount={pendingCount}
-              saveIndicator={saveIndicator}
+              syncState={syncState}
               isSaving={isSaving}
               onSave={handleSave}
             />
@@ -546,72 +548,128 @@ function BrainHeader() {
   );
 }
 
+/** Consolidated at-a-glance Brain sync state shown as a colored dot + label. */
+type BrainSyncState =
+  | "loading"
+  | "error"
+  | "saving"
+  | "push-failed"
+  | "saved"
+  | "pending"
+  | "synced";
+
+/**
+ * Resolve the single sync state from the status query lifecycle + save outcome.
+ * Precedence: an in-flight/failed save wins over the status query, then the
+ * query's own loading/error, then the transient "saved" flash, then pending vs.
+ * clean. Amber = unsaved work, green = backed up.
+ */
+function deriveBrainSyncState(args: {
+  statusLoading: boolean;
+  statusError: boolean;
+  saveIndicator: BrainSaveIndicator;
+  pendingCount: number;
+}): BrainSyncState {
+  const { statusLoading, statusError, saveIndicator, pendingCount } = args;
+  if (saveIndicator === "saving") return "saving";
+  if (saveIndicator === "push-failed") return "push-failed";
+  if (statusError) return "error";
+  if (statusLoading) return "loading";
+  if (saveIndicator === "saved") return "saved";
+  if (pendingCount > 0) return "pending";
+  return "synced";
+}
+
+/**
+ * Dot color + label + text color per state, all from theme tokens. Color is
+ * reserved for states that need attention (warning) or are in flight (primary):
+ * the resting "all good" states stay muted. Dots pulse during an operation.
+ */
+const BRAIN_SYNC_STATE_META: Record<
+  BrainSyncState,
+  { label: string; dotClass: string; textClass: string; pulse?: boolean }
+> = {
+  loading: {
+    label: "Loading…",
+    dotClass: "bg-muted-foreground/50",
+    textClass: "text-muted-foreground",
+    pulse: true,
+  },
+  error: {
+    label: "Status unavailable",
+    dotClass: "bg-destructive",
+    textClass: "text-destructive",
+  },
+  saving: {
+    label: "Saving…",
+    dotClass: "bg-primary",
+    textClass: "text-primary",
+    pulse: true,
+  },
+  "push-failed": {
+    label: "Push failed",
+    dotClass: "bg-warning",
+    textClass: "text-warning-foreground",
+  },
+  saved: {
+    label: "Saved",
+    dotClass: "bg-primary",
+    textClass: "text-primary",
+  },
+  pending: {
+    label: "Unsaved changes",
+    dotClass: "bg-warning",
+    textClass: "text-warning-foreground",
+  },
+  synced: {
+    label: "Up to date",
+    dotClass: "bg-muted-foreground/60",
+    textClass: "text-muted-foreground",
+  },
+};
+
 interface BrainSyncSectionProps {
   pendingCount: number;
-  saveIndicator: BrainSaveIndicator;
+  syncState: BrainSyncState;
   isSaving: boolean;
   onSave: () => void;
 }
 
 /**
- * Bottom-right Sync panel: the Save button (commits + pushes directly), the
- * pending-change count badge, and the last-save outcome indicator.
+ * Bottom-right Sync line: the live sync state (colored dot + label) on the left
+ * for at-a-glance status, and an inline Save action (commits + pushes directly)
+ * on the right — mirrors the workspace PR status line. Disabled while a save is
+ * in flight or when there is nothing to commit.
  */
-function BrainSyncSection({ pendingCount, saveIndicator, isSaving, onSave }: BrainSyncSectionProps) {
+function BrainSyncSection({ pendingCount, syncState, isSaving, onSave }: BrainSyncSectionProps) {
+  const meta = BRAIN_SYNC_STATE_META[syncState];
   return (
-    <div className="flex h-12 shrink-0 items-center gap-2 border-t border-border/50 px-3">
-      <span className="text-xs uppercase tracking-wide text-muted-foreground">Sync</span>
-      <div className="ml-auto flex items-center gap-2">
-        <SaveStatus indicator={saveIndicator} />
-        <Button
-          size="sm"
-          variant="outline"
-          className="cursor-pointer"
-          onClick={onSave}
-          disabled={pendingCount === 0 || isSaving}
-        >
-          <CloudUploadIcon className="size-3.5" aria-hidden="true" />
-          Save
-          {pendingCount > 0 && (
-            <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px]">
-              {pendingCount}
-            </Badge>
-          )}
-        </Button>
-      </div>
+    <div className="flex shrink-0 items-center gap-2 border-t border-border/50 px-3 py-2.5">
+      <span role="status" className={cn("flex items-center gap-1.5 text-xs font-medium", meta.textClass)}>
+        <span
+          className={cn("size-1.5 shrink-0 rounded-full", meta.dotClass, meta.pulse && "animate-pulse")}
+          aria-hidden="true"
+        />
+        {meta.label}
+      </span>
+      <button
+        type="button"
+        onClick={onSave}
+        disabled={pendingCount === 0 || isSaving}
+        className={cn(
+          "ml-auto flex shrink-0 cursor-pointer items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground",
+          // Dim the whole button (icon + label + count badge) together when disabled.
+          "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground",
+        )}
+      >
+        <CloudUploadIcon className="size-3.5 shrink-0" aria-hidden="true" />
+        Save
+        {pendingCount > 0 && (
+          <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-[10px]">
+            {pendingCount}
+          </Badge>
+        )}
+      </button>
     </div>
   );
-}
-
-/** Inline indicator for the last git save outcome. */
-function SaveStatus({ indicator }: { indicator: BrainSaveIndicator }) {
-  if (indicator === "saving") {
-    return (
-      <span role="status" className="flex items-center gap-1 text-xs text-muted-foreground">
-        <Loader2Icon className="size-3.5 animate-spin" aria-hidden="true" />
-        Saving...
-      </span>
-    );
-  }
-  if (indicator === "saved") {
-    // Darker greens in light mode for AA contrast; lighter in dark mode.
-    return (
-      <span role="status" className="flex items-center gap-1 text-xs text-green-700 dark:text-green-400">
-        <CheckIcon className="size-3.5" aria-hidden="true" />
-        Saved
-      </span>
-    );
-  }
-  if (indicator === "push-failed") {
-    return (
-      <span
-        role="status"
-        className={cn("flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400")}
-      >
-        <AlertTriangleIcon className="size-3.5" aria-hidden="true" />
-        Push failed
-      </span>
-    );
-  }
-  return null;
 }
