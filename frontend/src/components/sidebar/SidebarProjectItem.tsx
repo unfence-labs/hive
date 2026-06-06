@@ -13,8 +13,9 @@ import { ActivityWave } from "@/components/ui/activity-wave";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
 import { computePrDisplayCompact } from "@/lib/pr-display";
 import { cn } from "@/lib/utils";
+import { DiffStatBadge } from "@/components/diff/DiffStatBadge";
 import type { WorkspaceLiveData } from "@/hooks/useWorkspaceLiveData";
-import { aggregateScriptRunning, aggregateWorkspaceActivity } from "@/lib/workspace-activity";
+import { aggregateScriptRunning, aggregateWorkspaceActivity, workspaceDiffTotals } from "@/lib/workspace-activity";
 import type { PrStatusResponse, Project } from "@/types";
 import { ArchiveIcon, Loader2 } from "lucide-react";
 
@@ -139,6 +140,7 @@ export function SidebarProjectItem({
               const wsUnread = !wsStreaming && Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
               const prStatus = prStatuses[ws.id];
               const wsArchiving = archivingWsId === ws.id;
+              const diffTotals = workspaceDiffTotals(wsLive);
 
               return (
                 <div
@@ -177,22 +179,30 @@ export function SidebarProjectItem({
                           />
                         </div>
 
-                        <div className="mt-0.5 flex items-center gap-1 pl-5 text-[11px]">
-                          {prStatus?.pr ? (
-                            (() => {
-                              const display = computePrDisplayCompact(prStatus.pr);
-                              return (
-                                <span className={cn("truncate", display.textClass)}>
-                                  #{prStatus.pr.number} {display.label}
-                                </span>
-                              );
-                            })()
-                          ) : prLoading ? (
-                            <span className="text-muted-foreground">Loading…</span>
-                          ) : prStatus?.error ? (
-                            <span className="text-muted-foreground">Error fetching PR</span>
-                          ) : (
-                            <span className="text-muted-foreground">No PR</span>
+                        <div className="mt-0.5 flex items-center gap-1.5 pl-5 text-[11px]">
+                          <span className="min-w-0 flex-1 truncate">
+                            {prStatus?.pr ? (
+                              (() => {
+                                const display = computePrDisplayCompact(prStatus.pr);
+                                return (
+                                  <span className={display.textClass}>
+                                    #{prStatus.pr.number} {display.label}
+                                  </span>
+                                );
+                              })()
+                            ) : prLoading ? (
+                              <span className="text-muted-foreground">Loading…</span>
+                            ) : prStatus?.error ? (
+                              <span className="text-muted-foreground">Error fetching PR</span>
+                            ) : (
+                              <span className="text-muted-foreground">No PR</span>
+                            )}
+                          </span>
+                          {diffTotals && (
+                            <DiffStatBadge
+                              additions={diffTotals.additions}
+                              deletions={diffTotals.deletions}
+                            />
                           )}
                         </div>
                       </Link>
