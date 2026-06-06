@@ -88,7 +88,7 @@ export function PromptFlowExplainer() {
                 id="brain"
                 icon={<Brain className="h-4 w-4" />}
                 title="Brain Agent Prompt"
-                desc="Editable Brain instructions"
+                desc="Global Brain instructions"
                 isHovered={hoveredCard === "brain"}
                 onHover={setHoveredCard}
               />
@@ -96,7 +96,7 @@ export function PromptFlowExplainer() {
                 id="brain-map"
                 icon={<FolderTree className="h-4 w-4" />}
                 title="Brain File Map"
-                desc="Appended automatically — note paths only"
+                desc="Note paths only"
                 isHovered={hoveredCard === "brain-map"}
                 onHover={setHoveredCard}
               />

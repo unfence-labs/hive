@@ -14,7 +14,6 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
   DialogTitle,
   DialogDescription,
   DialogFooter,
@@ -171,12 +170,11 @@ export default function PromptTemplatesSettings() {
       {/* How it works dialog */}
       <Dialog open={showFlowDialog} onOpenChange={setShowFlowDialog}>
         <DialogContent className="max-h-[80vh] overflow-auto sm:max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>Prompt Construction Flow</DialogTitle>
-            <DialogDescription>
-              How your prompts are assembled before being sent to the AI model.
-            </DialogDescription>
-          </DialogHeader>
+          {/* Title/description live in PromptFlowExplainer; keep them here sr-only for dialog a11y. */}
+          <DialogTitle className="sr-only">Prompt Construction Flow</DialogTitle>
+          <DialogDescription className="sr-only">
+            How your prompts are assembled before being sent to the AI model.
+          </DialogDescription>
           <PromptFlowExplainer />
           <DialogFooter showCloseButton />
         </DialogContent>
