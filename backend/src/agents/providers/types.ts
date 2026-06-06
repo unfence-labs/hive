@@ -17,6 +17,8 @@ export interface ModelDefinition {
   isNew?: boolean;
   /** Maximum context window size in tokens. */
   contextWindow?: number;
+  /** Whether this model supports Claude fast mode (Opus-only). */
+  supportsFastMode?: boolean;
 }
 
 export interface ProviderCapabilities {
@@ -42,6 +44,7 @@ export interface ProviderMessageOptions {
   model?: string;
   planMode?: boolean;
   thinkingLevel?: ThinkingLevel;
+  fastMode?: boolean;
 }
 
 // ── Stream adapter ──────────────────────────────────────────────────
@@ -86,6 +89,8 @@ export interface ModelCatalogEntry {
   capabilities: ProviderCapabilities;
   /** Maximum context window size in tokens. */
   contextWindow?: number;
+  /** Whether this model supports Claude fast mode (Opus-only). */
+  supportsFastMode?: boolean;
 }
 
 export interface ModelCatalogResponse {

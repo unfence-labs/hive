@@ -13,7 +13,7 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import type { ChatMessage, CompletionItem, FileMention, ImageAttachment, MessageOptions, QueuedMessage, ThinkingLevel } from "@/types";
 import { cn } from "@/lib/utils";
-import { BrainIcon, BookOpenIcon, PlusIcon, SquareIcon } from "lucide-react";
+import { BrainIcon, BookOpenIcon, PlusIcon, SquareIcon, ZapIcon } from "lucide-react";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
 import { AutocompletePopup } from "@/components/chat/AutocompletePopup";
 import { FileAutocompletePopup } from "@/components/chat/FileAutocompletePopup";
@@ -102,6 +102,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   const [value, setValue] = useState("");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(DEFAULT_THINKING_LEVEL);
   const [planMode, setPlanMode] = useState(false);
+  const [fastMode, setFastMode] = useState(false);
   const [fileCount, setFileCount] = useState(0);
   const [autocomplete, setAutocomplete] = useState<AutocompleteState | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -132,6 +133,9 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   const supportsThinking = thinkingLevels.length > 0;
   const supportsPlanMode = capabilities?.planMode ?? true;
   const supportsCompletions = capabilities?.completions ?? true;
+  const supportsFastMode = selectedModel?.supportsFastMode ?? false;
+  // Never send fastMode when the selected model can't use it (e.g. Sonnet/Haiku).
+  const effectiveFastMode = supportsFastMode && fastMode;
 
   const effectiveThinkingLevel: ThinkingLevel = supportsThinking
     ? (thinkingLevels.includes(thinkingLevel)
@@ -147,12 +151,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
     selectedModelId,
     defaultModelId,
     thinkingLevel,
+    fastMode,
     attachmentsRef,
     fileMentions,
     setValue,
     setPlanMode,
     setSelectedModelId,
     setThinkingLevel,
+    setFastMode,
     setFileCount,
     setFileMentions,
   });
@@ -322,6 +328,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
       model: selectedModelId || undefined,
       ...(supportsPlanMode && { planMode }),
       ...(supportsThinking && { thinkingLevel: effectiveThinkingLevel }),
+      ...(effectiveFastMode && { fastMode: true }),
     };
 
     const mentions: FileMention[] | undefined = fileMentions.length > 0
@@ -420,6 +427,19 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
               >
                 <BookOpenIcon className="size-3" />
                 Plan
+              </PromptInputButton>
+            )}
+            {supportsFastMode && (
+              <PromptInputButton
+                aria-label="Toggle fast mode (faster Opus, higher cost)"
+                title="Fast mode: faster Opus responses at a higher cost per token"
+                variant="ghost"
+                size="xs"
+                onClick={() => setFastMode((v) => !v)}
+                className={cn("h-5 text-[11px] transition-colors", fastMode && activeStyle)}
+              >
+                <ZapIcon className="size-3" />
+                Fast
               </PromptInputButton>
             )}
           </PromptInputTools>

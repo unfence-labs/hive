@@ -47,6 +47,7 @@ function useDraftHarness({ wsId, sessionId }: { wsId?: string; sessionId?: strin
   const [planMode, setPlanMode] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState("");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("high");
+  const [fastMode, setFastMode] = useState(false);
   const [fileCount, setFileCount] = useState(0);
   const [fileMentions, setFileMentions] = useState<FileMention[]>([]);
   const attachmentsRef = useRef<AttachmentsContext | null>(null);
@@ -69,12 +70,14 @@ function useDraftHarness({ wsId, sessionId }: { wsId?: string; sessionId?: strin
     selectedModelId,
     defaultModelId: "claude:opus-4-7",
     thinkingLevel,
+    fastMode,
     attachmentsRef: attachmentsRef as MutableRefObject<AttachmentsContext | null>,
     fileMentions,
     setValue,
     setPlanMode,
     setSelectedModelId,
     setThinkingLevel,
+    setFastMode,
     setFileCount,
     setFileMentions,
   });
@@ -84,12 +87,14 @@ function useDraftHarness({ wsId, sessionId }: { wsId?: string; sessionId?: strin
     planMode,
     selectedModelId,
     thinkingLevel,
+    fastMode,
     fileCount,
     fileMentions,
     setValue,
     setPlanMode,
     setSelectedModelId,
     setThinkingLevel,
+    setFastMode,
     setFileMentions,
     setFiles,
     attachments: attachmentsRef.current,
@@ -220,6 +225,28 @@ describe("useChatInputDraftPersistence", () => {
 
     rerender({ currentSessionId: sessionA });
     expect(result.current.thinkingLevel).toBe("low");
+  });
+
+  it("persists and restores fast mode per session", () => {
+    const wsId = nextId("ws");
+    const sessionA = nextId("sess-a");
+    const sessionB = nextId("sess-b");
+
+    const { result, rerender } = renderHook(
+      ({ currentSessionId }: { currentSessionId?: string }) =>
+        useDraftHarness({ wsId, sessionId: currentSessionId }),
+      { initialProps: { currentSessionId: sessionA } },
+    );
+
+    act(() => {
+      result.current.setFastMode(true);
+    });
+
+    rerender({ currentSessionId: sessionB });
+    expect(result.current.fastMode).toBe(false);
+
+    rerender({ currentSessionId: sessionA });
+    expect(result.current.fastMode).toBe(true);
   });
 
   it("deletes empty drafts after a switch when defaults are restored", () => {
