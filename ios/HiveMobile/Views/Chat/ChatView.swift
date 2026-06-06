@@ -35,6 +35,21 @@ struct ChatView: View {
         modelCatalog.models.first { $0.id == selectedModelId }
     }
 
+    /// Resolve the model to open this conversation on. Prefer the session's
+    /// locked provider's default model so an existing chat (e.g. Opus) doesn't
+    /// open on the global default, which may be a different provider (e.g. Codex)
+    /// after the in-memory draft is gone (app relaunch). Mirrors the web's
+    /// `useModels(lockedProvider)` seeding.
+    private func initialModelId() -> String {
+        if let provider = lockedProvider {
+            if let match = modelCatalog.models.first(where: { $0.provider == provider && $0.isDefault == true })
+                ?? modelCatalog.models.first(where: { $0.provider == provider }) {
+                return match.id
+            }
+        }
+        return modelCatalog.defaultModelId
+    }
+
     private var selectedCapabilities: ProviderCapabilities? {
         selectedModel?.capabilities
     }
@@ -173,7 +188,7 @@ struct ChatView: View {
         .task { await setup() }
         .onChange(of: modelCatalog.isLoaded) {
             if selectedModelId.isEmpty, !modelCatalog.defaultModelId.isEmpty {
-                selectedModelId = modelCatalog.defaultModelId
+                selectedModelId = initialModelId()
             }
         }
         .onChange(of: store.agentPlanMode) { _, active in
@@ -257,7 +272,7 @@ struct ChatView: View {
         restoreDraft(for: selectedSessionId)
 
         if selectedModelId.isEmpty {
-            selectedModelId = modelCatalog.defaultModelId
+            selectedModelId = initialModelId()
         }
 
         await loadMessages()
@@ -432,7 +447,7 @@ struct ChatView: View {
             planModeEnabled = false
             thinkingLevel = .high
             fastModeEnabled = false
-            selectedModelId = modelCatalog.defaultModelId
+            selectedModelId = initialModelId()
             draftAttachments = []
         }
     }
