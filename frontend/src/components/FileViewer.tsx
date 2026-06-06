@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { ImageOffIcon, Loader2Icon } from "lucide-react";
 import { highlightCode } from "@/lib/shiki";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
@@ -53,6 +60,12 @@ function basename(filePath: string): string {
   return filePath.split("/").pop() ?? filePath;
 }
 
+type FileWriteCallback = (path: string, content: string) => Promise<unknown> | void;
+
+export interface FileViewerHandle {
+  flushPendingWrite: () => Promise<void>;
+}
+
 interface FileViewerProps {
   wsId: string;
   filePath: string;
@@ -71,7 +84,7 @@ interface FileViewerProps {
    * Persist edited content (working tree only — NOT a git commit). Called
    * debounced as the user types. Only used when `editable` is `true`.
    */
-  onWriteToDisk?: (path: string, content: string) => void;
+  onWriteToDisk?: FileWriteCallback;
 }
 
 function ImageFilePreview({ wsId, filePath }: { wsId: string; filePath: string }) {
@@ -120,18 +133,27 @@ function ImageFilePreview({ wsId, filePath }: { wsId: string; filePath: string }
   );
 }
 
-export function FileViewer({
+export const FileViewer = forwardRef<FileViewerHandle, FileViewerProps>(function FileViewer({
   wsId,
   filePath,
   renderMode = "raw",
   editable = false,
   onWriteToDisk,
-}: FileViewerProps) {
+}, ref) {
   const theme = useThemeType();
   const shikiTheme = theme === "dark" ? "github-dark" : "github-light";
   const isImageFile = isImageFilePath(filePath);
   const isMarkdown = isMarkdownFilePath(filePath);
   const showRendered = renderMode === "rendered" && isMarkdown;
+  const editableRef = useRef<EditableRawFileHandle>(null);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      flushPendingWrite: () => editableRef.current?.flushPendingWrite() ?? Promise.resolve(),
+    }),
+    [],
+  );
 
   const { content, isLoading: contentLoading, error: contentError } = useFileContent(
     isImageFile ? undefined : wsId,
@@ -192,6 +214,7 @@ export function FileViewer({
   if (editable) {
     return (
       <EditableRawFile
+        ref={editableRef}
         filePath={filePath}
         content={content ?? ""}
         onWriteToDisk={onWriteToDisk}
@@ -233,7 +256,7 @@ export function FileViewer({
       `}</style>
     </div>
   );
-}
+});
 
 /** Rendered Markdown preview (read-only). Mirrors the Brain editor's styling. */
 function RenderedMarkdown({ content }: { content: string }) {
@@ -256,22 +279,37 @@ function RenderedMarkdown({ content }: { content: string }) {
  * belongs to and flushed before switching files / on unmount, so no edit is lost
  * inside the debounce window (logic preserved from the original Brain editor).
  */
-function EditableRawFile({
+interface EditableRawFileHandle {
+  flushPendingWrite: () => Promise<void>;
+}
+
+const EditableRawFile = forwardRef<EditableRawFileHandle, {
+  filePath: string;
+  content: string;
+  onWriteToDisk?: FileWriteCallback;
+}>(function EditableRawFile({
   filePath,
   content,
   onWriteToDisk,
-}: {
-  filePath: string;
-  content: string;
-  onWriteToDisk?: (path: string, content: string) => void;
-}) {
+}, ref) {
   const [buffer, setBuffer] = useState(content);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef<{ path: string; content: string } | null>(null);
+  const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
   const filePathRef = useRef(filePath);
   filePathRef.current = filePath;
   const writeRef = useRef(onWriteToDisk);
   writeRef.current = onWriteToDisk;
+
+  const enqueueWrite = useCallback((path: string, content: string) => {
+    const write = writeQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        await writeRef.current?.(path, content);
+      });
+    writeQueueRef.current = write;
+    return write;
+  }, []);
 
   // Immediately persist any pending debounced edit. Safe to call repeatedly.
   const flush = useCallback(() => {
@@ -282,9 +320,12 @@ function EditableRawFile({
     const pending = pendingRef.current;
     if (pending) {
       pendingRef.current = null;
-      writeRef.current?.(pending.path, pending.content);
+      return enqueueWrite(pending.path, pending.content);
     }
-  }, []);
+    return writeQueueRef.current;
+  }, [enqueueWrite]);
+
+  useImperativeHandle(ref, () => ({ flushPendingWrite: flush }), [flush]);
 
   // Reset the buffer whenever the loaded file changes (new selection or refetch).
   useEffect(() => {
@@ -297,7 +338,7 @@ function EditableRawFile({
   flushRef.current = flush;
   useEffect(() => {
     return () => {
-      flushRef.current();
+      void flushRef.current().catch(() => undefined);
     };
   }, [filePath]);
 
@@ -311,9 +352,9 @@ function EditableRawFile({
       debounceRef.current = null;
       const pending = pendingRef.current;
       pendingRef.current = null;
-      if (pending) writeRef.current?.(pending.path, pending.content);
+      if (pending) void enqueueWrite(pending.path, pending.content).catch(() => undefined);
     }, DISK_WRITE_DEBOUNCE_MS);
-  }, []);
+  }, [enqueueWrite]);
 
   return (
     <div className="min-h-0 flex-1 overflow-auto">
@@ -326,4 +367,4 @@ function EditableRawFile({
       />
     </div>
   );
-}
+});

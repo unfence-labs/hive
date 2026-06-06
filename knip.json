@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreExportsUsedInFile": true,
+  "ignoreIssues": {
+    "frontend/src/components/ai-elements/**": ["exports", "types"],
+    "frontend/src/components/ui/**": ["exports", "types"]
+  },
+  "workspaces": {
+    "backend": {
+      "entry": ["ecosystem.config.cjs"],
+      "ignoreBinaries": ["codex", "gh"]
+    },
+    "frontend": {
+      "entry": ["src/index.css"]
+    }
+  }
+}

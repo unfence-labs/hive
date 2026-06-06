@@ -154,8 +154,7 @@ export async function workspaceRoutes(app: FastifyInstance, dataDir?: string) {
 
   app.get<{ Params: { wsId: string }; Querystring: { scope?: string } }>("/api/workspaces/:wsId/diff", async (req, reply) => {
     try {
-      const diff = await getWorkspaceDiff(req.params.wsId, dataDir, parseDiffScope(req.query.scope));
-      return reply.send({ diff });
+      return reply.send(await getWorkspaceDiff(req.params.wsId, dataDir, parseDiffScope(req.query.scope)));
     } catch (err: unknown) {
       return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed") });
     }

@@ -153,10 +153,6 @@ export interface WorkspaceFileTreeNode {
   children?: WorkspaceFileTreeNode[];
 }
 
-export interface CreateProjectRequest {
-  url: string;
-}
-
 // ── Queued message type ──────────────────────────────────────────────
 
 export interface QueuedMessage {
@@ -639,11 +635,6 @@ export interface UpdateCustomAgentRequest {
 }
 
 // ── Hub WebSocket protocol (multiplexed) ────────────────────────────
-
-/** Client -> Server (hub-level). */
-export type HubIncoming =
-  | { type: "sync_workspaces"; workspaceIds: string[] }
-  | { workspaceId: string; event: WsIncoming };
 
 /** Server -> Client (hub-level). Every outgoing event is tagged with its workspace. */
 export interface HubOutgoing {

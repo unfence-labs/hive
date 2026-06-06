@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { git } from "./git.js";
+import type { DiffResponse } from "../types.js";
 
 /** Hard cap on how many untracked files are rendered into a synthetic diff. */
-export const DEFAULT_MAX_UNTRACKED_FILES = 100;
+const DEFAULT_MAX_UNTRACKED_FILES = 100;
 
 /** Result of {@link getUntrackedDiff}: the synthetic patch plus coverage counts. */
 export interface UntrackedDiffResult {
@@ -13,6 +14,17 @@ export interface UntrackedDiffResult {
   total: number;
   /** Number of untracked files actually rendered into {@link patch}. */
   included: number;
+}
+
+/** Combine tracked diff output with capped untracked patches and coverage info. */
+export function buildDiffResponse(
+  trackedDiff: string,
+  untracked: UntrackedDiffResult,
+): DiffResponse {
+  return {
+    diff: [trackedDiff, untracked.patch].filter(Boolean).join("\n"),
+    omittedFileCount: untracked.total - untracked.included,
+  };
 }
 
 /**

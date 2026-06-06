@@ -1,12 +1,12 @@
 import type {
-  BrainDiffResponse,
   BrainFileStatus,
   BrainFileStatusKind,
   BrainSaveResponse,
   BrainStatusResponse,
+  DiffResponse,
 } from "../types.js";
 import { git } from "../utils/git.js";
-import { getUntrackedDiff } from "../utils/git-diff.js";
+import { buildDiffResponse, getUntrackedDiff } from "../utils/git-diff.js";
 import { getDataDir } from "../state/state.js";
 import { requireBrainRepo } from "./brain-files.js";
 
@@ -74,7 +74,7 @@ export async function getBrainStatus(
 export async function getBrainDiff(
   dataDir = getDataDir(),
   maxUntrackedFiles?: number,
-): Promise<BrainDiffResponse> {
+): Promise<DiffResponse> {
   const repoPath = await requireBrainRepo(dataDir);
   const [trackedDiff, untracked] = await Promise.all([
     git(["diff", "--find-renames", "HEAD"], repoPath)
@@ -82,10 +82,7 @@ export async function getBrainDiff(
       .catch(() => ""),
     getUntrackedDiff(repoPath, maxUntrackedFiles),
   ]);
-  return {
-    diff: [trackedDiff, untracked.patch].filter(Boolean).join("\n"),
-    omittedFileCount: untracked.total - untracked.included,
-  };
+  return buildDiffResponse(trackedDiff, untracked);
 }
 
 /**

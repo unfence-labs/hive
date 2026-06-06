@@ -16,8 +16,8 @@ interface FileContentToolbarProps {
   onModeChange: (mode: FileViewMode) => void;
   /**
    * Whether to show the Source/Diff segmented toggle. When `false` the toggle is
-   * hidden entirely (e.g. the Brain, which has no per-file diff). Defaults to
-   * `true`. The diff-only props below are only read while `mode === "diff"`.
+   * hidden entirely. Defaults to `true`. The diff-only props below are only
+   * read while `mode === "diff"`.
    */
   showSourceDiffToggle?: boolean;
   isModified?: boolean;

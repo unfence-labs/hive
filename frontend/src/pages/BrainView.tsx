@@ -20,7 +20,7 @@ import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext
 import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 import { ConversationPane } from "@/components/chat/ConversationPane";
 import { BrainWelcome } from "@/components/BrainWelcome";
-import { FileViewer } from "@/components/FileViewer";
+import { FileViewer, type FileViewerHandle } from "@/components/FileViewer";
 import { FileContentToolbar } from "@/components/FileContentToolbar";
 import { FileTree, renderFileTreeNodes } from "@/components/ai-elements/file-tree";
 import { InlineDiffViewer, type InlineDiffViewerHandle } from "@/components/diff/InlineDiffViewer";
@@ -196,6 +196,7 @@ export default function BrainView() {
   // Refs for the inline diff → chat input bridge.
   const chatInputRef = useRef<ChatInputHandle>(null);
   const diffViewerRef = useRef<InlineDiffViewerHandle>(null);
+  const fileViewerRef = useRef<FileViewerHandle>(null);
 
   // Inline diff state — reuse the same persisted style key as WorkspaceView.
   const [diffStyle, setDiffStyle] = useState<"split" | "unified">(() => {
@@ -220,6 +221,7 @@ export default function BrainView() {
   const handleSave = useCallback(async () => {
     setSaveIndicator("saving");
     try {
+      await fileViewerRef.current?.flushPendingWrite();
       // No message → backend uses its default `Brain update <timestamp>`.
       const result = await save(undefined);
       if (result.committed && !result.pushed) {
@@ -263,7 +265,7 @@ export default function BrainView() {
       // setQueryData pushes exactly what is already on screen, so (unlike an
       // invalidate) it cannot clobber in-flight typing.
       queryClient.setQueryData(brainFileQueryKey(path), { path, content });
-      void upsertFile(path, content);
+      return upsertFile(path, content);
     },
     [queryClient, upsertFile],
   );
@@ -410,6 +412,7 @@ export default function BrainView() {
                 />
                 {fileViewMode === "source" ? (
                   <FileViewer
+                    ref={fileViewerRef}
                     wsId={BRAIN_WORKSPACE_ID}
                     filePath={openFile}
                     renderMode={renderMode}

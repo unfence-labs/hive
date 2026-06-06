@@ -1,7 +1,6 @@
 import { renderHook, waitFor, act } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  useBrainFileContent,
   useBrainFileMutations,
   useBrainFileTree,
 } from "@/hooks/useBrainFiles";
@@ -30,24 +29,6 @@ describe("useBrainFiles", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(api.get).toHaveBeenCalledWith("/api/brain/files");
     expect(result.current.data).toHaveLength(1);
-  });
-
-  it("does not fetch file content when no path is selected", async () => {
-    const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useBrainFileContent(null), { wrapper });
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(api.get).not.toHaveBeenCalled();
-  });
-
-  it("fetches file content for a selected path", async () => {
-    vi.mocked(api.get).mockResolvedValueOnce({ path: "notes/x.md", content: "hi" });
-    const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useBrainFileContent("notes/x.md"), { wrapper });
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(api.get).toHaveBeenCalledWith("/api/brain/file?path=notes%2Fx.md");
-    expect(result.current.data?.content).toBe("hi");
   });
 
   it("upsert writes to disk and invalidates tree + status", async () => {

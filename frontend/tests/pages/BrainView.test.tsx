@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   useWorkspaceLiveDataContext: vi.fn(),
   useTasks: vi.fn(),
   useBackgroundAgents: vi.fn(),
+  flushFileViewer: vi.fn(),
 }));
 
 vi.mock("@/hooks/useBrain", () => ({ useBrain: mocks.useBrain }));
@@ -53,11 +54,19 @@ vi.mock("@/components/ChatInput", () => ({
 }));
 
 // Keep FileViewer + diff/editor lightweight in tests.
-vi.mock("@/components/FileViewer", () => ({
-  FileViewer: ({ filePath }: { filePath: string }) => (
-    <div data-testid="file-viewer">{filePath}</div>
-  ),
-}));
+vi.mock("@/components/FileViewer", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  return {
+    FileViewer: React.forwardRef<{ flushPendingWrite: () => Promise<void> }, { filePath: string }>(
+      function FileViewer({ filePath }, ref) {
+        React.useImperativeHandle(ref, () => ({
+          flushPendingWrite: mocks.flushFileViewer,
+        }));
+        return <div data-testid="file-viewer">{filePath}</div>;
+      },
+    ),
+  };
+});
 vi.mock("@/components/diff/InlineDiffViewer", () => ({
   InlineDiffViewer: ({ filePath }: { filePath: string }) => (
     <div data-testid="inline-diff">{filePath}</div>
@@ -113,6 +122,7 @@ describe("BrainView", () => {
     });
     mocks.useBrainStatus.mockReturnValue({ data: { files: [{ path: "a.md", status: "modified" }], count: 1 } });
     mocks.useBrainSave.mockReturnValue({ save: mocks.save, isSaving: false });
+    mocks.flushFileViewer.mockResolvedValue(undefined);
 
     mocks.useConversation.mockReturnValue(emptyConversation());
     mocks.useSessions.mockReturnValue({
@@ -217,5 +227,25 @@ describe("BrainView", () => {
     // No review modal / sheet appears.
     expect(screen.queryByText(/Review changes/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Save & Push/i })).not.toBeInTheDocument();
+  });
+
+  it("flushes an open raw file before saving", async () => {
+    const user = userEvent.setup();
+    const order: string[] = [];
+    mocks.flushFileViewer.mockImplementation(async () => {
+      order.push("flush");
+    });
+    mocks.save.mockImplementation(async () => {
+      order.push("save");
+      return { committed: true, pushed: true };
+    });
+    renderBrain();
+
+    await user.click(screen.getByText("a.md"));
+    await screen.findByTestId("file-viewer");
+    await user.click(screen.getByRole("button", { name: /Save/i }));
+
+    await waitFor(() => expect(mocks.save).toHaveBeenCalled());
+    expect(order).toEqual(["flush", "save"]);
   });
 });

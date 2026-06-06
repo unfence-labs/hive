@@ -62,6 +62,44 @@ describe("useDiff", () => {
     expect(result.current.patchFiles).toBe(parsed);
     expect(result.current.error).toBeNull();
     expect(result.current.loading).toBe(false);
+    expect(result.current.omittedFileCount).toBe(0);
+  });
+
+  it("returns the workspace omitted-file count when the rendered diff is capped", async () => {
+    const parsed = [{ files: [] }] as never[];
+    vi.mocked(api.get).mockResolvedValueOnce({
+      diff: "patch-content",
+      omittedFileCount: 3,
+    });
+    vi.mocked(parsePatchFiles).mockReturnValueOnce(parsed);
+    const { wrapper } = createWrapper();
+
+    const { result } = renderHook(() => useDiff("ws-1", "uncommitted", true), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(api.get).toHaveBeenCalledWith("/api/workspaces/ws-1/diff?scope=uncommitted");
+    expect(result.current.patchFiles).toBe(parsed);
+    expect(result.current.omittedFileCount).toBe(3);
+  });
+
+  it("uses the Brain diff endpoint and returns its omitted-file count", async () => {
+    vi.mocked(api.get).mockResolvedValueOnce({
+      diff: "",
+      omittedFileCount: 2,
+    });
+    const { wrapper } = createWrapper();
+
+    const { result } = renderHook(() => useDiff("brain", "uncommitted", true), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    expect(api.get).toHaveBeenCalledWith("/api/brain/diff");
+    expect(result.current.omittedFileCount).toBe(2);
   });
 
   it("stores empty parsed files when server returns empty diff", async () => {

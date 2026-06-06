@@ -8,7 +8,7 @@ import {
   removeWorktreeOrDeleteDirectory,
 } from "../utils/git-worktree.js";
 import { buildFileTree } from "../utils/file-tree.js";
-import { getUntrackedDiff } from "../utils/git-diff.js";
+import { buildDiffResponse, getUntrackedDiff } from "../utils/git-diff.js";
 import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/paths.js";
 import { refreshDefaultBranchFromOrigin } from "../utils/git-default-branch.js";
 import { pickCityName } from "../utils/city-names.js";
@@ -17,7 +17,7 @@ import { isInitialized, lookupWorkspace } from "../state/workspace-index.js";
 import { copyProjectEnvToWorkspace } from "../state/project-env.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../utils/errors.js";
 import { stopAllForWorkspace } from "../services/script-runner.js";
-import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffScope, DiffStatResponse } from "../types.js";
+import type { Workspace, ProjectState, WorkspaceFileTreeNode, DiffFileStat, DiffFileStatus, DiffScope, DiffResponse, DiffStatResponse } from "../types.js";
 
 function findWorkspace(state: ProjectState, wsId: string): Workspace | undefined {
   return state.workspaces.find((ws) => ws.id === wsId);
@@ -234,7 +234,8 @@ export async function getWorkspaceDiff(
   wsId: string,
   dataDir = getDataDir(),
   scope: DiffScope = "combined",
-): Promise<string> {
+  maxUntrackedFiles?: number,
+): Promise<DiffResponse> {
   const { bare, wsPath, defaultBranch, workspace } =
     await resolveWorkspacePaths(wsId, dataDir);
 
@@ -242,17 +243,18 @@ export async function getWorkspaceDiff(
   // working tree changes, or a combined review against the default branch.
   if (scope === "committed") {
     await refreshDefaultBranchFromOrigin(bare, defaultBranch);
-    return git(["diff", "--find-renames", `${defaultBranch}...${workspace.branch}`], bare)
+    const diff = await git(["diff", "--find-renames", `${defaultBranch}...${workspace.branch}`], bare)
       .then((r) => r.stdout)
       .catch(() => "");
+    return { diff, omittedFileCount: 0 };
   }
 
   if (scope === "uncommitted") {
     const [trackedDiff, untracked] = await Promise.all([
       git(["diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
-      getUntrackedDiff(wsPath),
+      getUntrackedDiff(wsPath, maxUntrackedFiles),
     ]);
-    return [trackedDiff, untracked.patch].filter(Boolean).join("\n");
+    return buildDiffResponse(trackedDiff, untracked);
   }
 
   await refreshDefaultBranchFromOrigin(bare, defaultBranch);
@@ -265,10 +267,10 @@ export async function getWorkspaceDiff(
     mergeBase
       ? git(["diff", mergeBase], wsPath).then((r) => r.stdout).catch(() => "")
       : git(["diff", "HEAD"], wsPath).then((r) => r.stdout).catch(() => ""),
-    getUntrackedDiff(wsPath),
+    getUntrackedDiff(wsPath, maxUntrackedFiles),
   ]);
 
-  return [combinedDiff, untracked.patch].filter(Boolean).join("\n");
+  return buildDiffResponse(combinedDiff, untracked);
 }
 
 function parseDiffStat(

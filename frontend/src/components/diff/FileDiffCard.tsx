@@ -11,8 +11,7 @@ import { cn } from "@/lib/utils";
 const UNSAFE_CSS =
   "pre { font-family: var(--font-mono, ui-monospace, monospace) !important; font-size: 13px !important; line-height: 1.5 !important; }";
 
-/** Map a parsed diff file type to a status color for the header icon. */
-export function diffStatusColor(type: string): string {
+function diffStatusColor(type: string): string {
   switch (type) {
     case "new":
       return "text-green-500";
@@ -41,8 +40,8 @@ export interface FileDiffCardProps<TMeta = unknown> {
 
 /**
  * Render a single parsed diff file as a bordered card with a sticky header.
- * Shared by the workspace `InlineDiffViewer` and the Brain review panel so the
- * diff rendering, theming, and header layout stay consistent.
+ * Shared by the workspace and Brain inline diff viewers so diff rendering,
+ * theming, and header layout stay consistent.
  */
 function FileDiffCardComponent<TMeta>({
   fileDiff,

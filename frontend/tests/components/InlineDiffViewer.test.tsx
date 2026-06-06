@@ -129,6 +129,7 @@ describe("InlineDiffViewer", () => {
     vi.clearAllMocks();
     mocks.useDiff.mockReturnValue({
       patchFiles: defaultParsedFiles,
+      omittedFileCount: 0,
       loading: false,
       error: null,
     });
@@ -137,6 +138,7 @@ describe("InlineDiffViewer", () => {
   it("renders loading state while diff data is being fetched", () => {
     mocks.useDiff.mockReturnValue({
       patchFiles: [],
+      omittedFileCount: 0,
       loading: true,
       error: null,
     });
@@ -148,6 +150,7 @@ describe("InlineDiffViewer", () => {
   it("renders an error state when diff fetch fails", () => {
     mocks.useDiff.mockReturnValue({
       patchFiles: [],
+      omittedFileCount: 0,
       loading: false,
       error: "network failed",
     });
@@ -159,6 +162,21 @@ describe("InlineDiffViewer", () => {
   it("renders empty state when the selected file has no changes", () => {
     renderViewer({ filePath: "src/missing.ts" });
     expect(screen.getByText("No changes for this file")).toBeInTheDocument();
+  });
+
+  it("warns when the selected file may be omitted from a capped diff", () => {
+    mocks.useDiff.mockReturnValue({
+      patchFiles: [],
+      omittedFileCount: 2,
+      loading: false,
+      error: null,
+    });
+
+    renderViewer({ filePath: "notes/missing.md" });
+
+    expect(screen.getByText(/not included in the rendered diff/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 untracked files were omitted/i)).toBeInTheDocument();
+    expect(screen.queryByText("No changes for this file")).not.toBeInTheDocument();
   });
 
   it("matches file by basename and renders diff stats", () => {
@@ -257,6 +275,7 @@ describe("InlineDiffViewer", () => {
           ],
         },
       ],
+      omittedFileCount: 0,
       loading: false,
       error: null,
     });

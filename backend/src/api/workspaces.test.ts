@@ -193,6 +193,7 @@ describe("GET /api/workspaces/:wsId/diff", () => {
     const res = await app.inject({ method: "GET", url: `/api/workspaces/${ws.id}/diff` });
     expect(res.statusCode).toBe(200);
     expect(res.json().diff).toContain("api-test.txt");
+    expect(res.json().omittedFileCount).toBe(0);
   });
 
   it("returns scoped diffs", async () => {
@@ -222,9 +223,11 @@ describe("GET /api/workspaces/:wsId/diff", () => {
     expect(committedRes.statusCode).toBe(200);
     expect(committedRes.json().diff).toContain("committed.txt");
     expect(committedRes.json().diff).not.toContain("README.md");
+    expect(committedRes.json().omittedFileCount).toBe(0);
     expect(uncommittedRes.statusCode).toBe(200);
     expect(uncommittedRes.json().diff).not.toContain("committed.txt");
     expect(uncommittedRes.json().diff).toContain("README.md");
+    expect(uncommittedRes.json().omittedFileCount).toBe(0);
   });
 
   it("rejects invalid diff scopes", async () => {

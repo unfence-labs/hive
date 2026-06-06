@@ -1,11 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
-import { useFileContent } from "@/hooks/useFileContent";
 import {
   BRAIN_FILES_QUERY_KEY,
   BRAIN_PARSED_DIFF_QUERY_KEY,
   BRAIN_STATUS_QUERY_KEY,
-  BRAIN_WORKSPACE_ID,
 } from "@/lib/brain";
 import type { BrainFileContent, WorkspaceFileTreeNode } from "@/types";
 
@@ -15,24 +13,6 @@ export function useBrainFileTree() {
     queryKey: BRAIN_FILES_QUERY_KEY,
     queryFn: () => api.get<WorkspaceFileTreeNode[]>("/api/brain/files"),
   });
-}
-
-/**
- * Query a single Brain file's content. Disabled when no path is selected.
- *
- * Delegates to the shared {@link useFileContent} hook (which owns the Brain
- * endpoint, cache key, and `staleTime: Infinity` semantics) and re-exposes a
- * `useQuery`-compatible subset (`data`/`isLoading`/`isSuccess`/`error`) so
- * existing Brain callers keep compiling unchanged.
- */
-export function useBrainFileContent(path: string | null) {
-  const { content, isLoading, error } = useFileContent(BRAIN_WORKSPACE_ID, path);
-  return {
-    data: content !== undefined ? ({ path: path ?? "", content } as BrainFileContent) : undefined,
-    isLoading,
-    isSuccess: !isLoading && !error && content !== undefined,
-    error,
-  };
 }
 
 /**

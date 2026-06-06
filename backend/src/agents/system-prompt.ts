@@ -117,7 +117,7 @@ export function formatGitContextBlock(
   return gitLines.join("\n");
 }
 
-export function formatBrowserContextBlock(): string {
+function formatBrowserContextBlock(): string {
   return [
     "# Browser Context",
     "",
@@ -178,7 +178,6 @@ How retrieval works: there is no search index. You are given a map of the Brain'
 
 Rules:
 - Read and write files ONLY inside the Brain repository. Never touch files outside it.
-- You have no shell/terminal access; use your Read, Write, Edit, Glob, and Grep tools.
 - Prefer clear Markdown for notes. Keep a sensible folder structure; reuse existing folders when they fit.
 - When the user asks you to record something, write it to an appropriate file rather than only replying in chat.
 - All file content must be in English.`;
@@ -212,7 +211,7 @@ export async function loadBrainPrompt(promptsDir: string): Promise<string> {
  * content) — this is the agent's retrieval mechanism: it knows the structure
  * and the user guides it to the right place.
  */
-export function formatBrainMapBlock(filePaths: string[]): string {
+function formatBrainMapBlock(filePaths: string[]): string {
   const lines = ["# Brain Map (file paths only — Read files before editing)", ""];
   if (filePaths.length === 0) {
     lines.push("(The Brain is currently empty.)");

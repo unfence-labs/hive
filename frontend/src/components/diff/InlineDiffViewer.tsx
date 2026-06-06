@@ -172,7 +172,12 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
     onPasteToPrompt,
   }, ref) {
   const isImageFile = isImageFilePath(filePath);
-  const { patchFiles, loading: isLoading, error } = useDiff(wsId, diffScope, !isImageFile);
+  const {
+    patchFiles,
+    omittedFileCount = 0,
+    loading: isLoading,
+    error,
+  } = useDiff(wsId, diffScope, !isImageFile);
   const themeType = useThemeType();
 
   const [comments, setComments] = useState<DiffComment[]>([]);
@@ -345,6 +350,21 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
         <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-4 text-destructive">
           <AlertCircleIcon className="size-4 shrink-0" />
           <span className="text-sm">{error}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!matchedFile && omittedFileCount > 0) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-4">
+        <div className="flex max-w-md items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-4 text-amber-700 dark:text-amber-300">
+          <AlertCircleIcon className="mt-0.5 size-4 shrink-0" />
+          <span className="text-sm">
+            This file is not included in the rendered diff. {omittedFileCount} untracked{" "}
+            {omittedFileCount === 1 ? "file was" : "files were"} omitted from the preview,
+            but Save still includes all pending files.
+          </span>
         </div>
       </div>
     );

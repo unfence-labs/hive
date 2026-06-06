@@ -1,13 +1,6 @@
 import type { AgentActivity } from "@hive/shared/agent-activity";
 export type { AgentActivity, AgentActivityCommandAction, AgentActivityFile } from "@hive/shared/agent-activity";
 
-export interface Project {
-  id: string;
-  name: string;
-  url: string;
-  createdAt: string;
-}
-
 export type WorkspaceStatus = "idle" | "busy";
 
 export interface Workspace {
@@ -44,10 +37,6 @@ export interface CompletionItem {
   description?: string;
   argumentHint?: string;
   source: CompletionSource;
-}
-
-export interface CompletionsResponse {
-  items: CompletionItem[];
 }
 
 // ── Branch / GitHub sync types ──────────────────────────────────────
@@ -132,14 +121,14 @@ export interface BrainSaveResponse {
 }
 
 /**
- * Response of `GET /api/brain/diff`: the working-tree-vs-HEAD diff plus the
- * number of untracked files omitted from `diff` because of the render cap.
+ * Response of diff endpoints: the rendered unified diff plus the number of
+ * untracked files omitted from `diff` because of the render cap.
  *
- * `save` commits everything via `git add -A`, so a non-zero `omittedFileCount`
- * means the review under-represents what will be committed; the UI surfaces a
- * warning rather than letting files be committed unseen.
+ * Save/commit flows can still include those omitted untracked files, so a
+ * non-zero `omittedFileCount` means the UI must warn that the preview is
+ * incomplete instead of implying the selected file has no changes.
  */
-export interface BrainDiffResponse {
+export interface DiffResponse {
   diff: string;
   omittedFileCount: number;
 }
@@ -304,21 +293,6 @@ export type CliJsonLine =
 
 export type ScriptType = string;
 export type ScriptState = "idle" | "running" | "done" | "error";
-
-export interface HiveConfig {
-  scripts?: { setup?: string; run?: Record<string, string> };
-  port?: number;
-}
-
-export interface ScriptStatusInfo {
-  state: ScriptState;
-  exitCode?: number;
-}
-
-export interface WorkspaceScriptsResponse {
-  config: HiveConfig | null;
-  status: Record<string, ScriptStatusInfo>;
-}
 
 // ── Diff types ───────────────────────────────────────────────────────
 

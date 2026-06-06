@@ -3,7 +3,7 @@ import { api } from "@/hooks/useApi";
 import type { BrainState } from "@/types";
 
 /** React Query cache key for the singleton Brain state. */
-export const BRAIN_QUERY_KEY = ["brain"] as const;
+const BRAIN_QUERY_KEY = ["brain"] as const;
 
 export interface CreateBrainInput {
   /** GitHub repository name to create for the Brain. */
@@ -28,9 +28,10 @@ export function useBrain() {
       api.post<Extract<BrainState, { exists: true }>>("/api/brain", {
         mode: "create",
         name,
-      }),
+    }),
     onSuccess: (state) => {
-      queryClient.setQueryData(BRAIN_QUERY_KEY, state);    },
+      queryClient.setQueryData(BRAIN_QUERY_KEY, state);
+    },
   });
 
   const connectBrain = useMutation({
@@ -38,15 +39,17 @@ export function useBrain() {
       api.post<Extract<BrainState, { exists: true }>>("/api/brain", {
         mode: "connect",
         url,
-      }),
+    }),
     onSuccess: (state) => {
-      queryClient.setQueryData(BRAIN_QUERY_KEY, state);    },
+      queryClient.setQueryData(BRAIN_QUERY_KEY, state);
+    },
   });
 
   const deleteBrain = useMutation({
     mutationFn: () => api.delete<void>("/api/brain"),
     onSuccess: () => {
-      queryClient.setQueryData<BrainState>(BRAIN_QUERY_KEY, { exists: false });    },
+      queryClient.setQueryData<BrainState>(BRAIN_QUERY_KEY, { exists: false });
+    },
   });
 
   return {
