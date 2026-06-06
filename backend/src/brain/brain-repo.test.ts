@@ -26,6 +26,33 @@ async function createEmptyBareRepo(path: string): Promise<void> {
 }
 
 describe("createBrain", () => {
+  // createBrain commits internally and no longer configures a repo-local git
+  // identity (production uses the developer's own git config). Provide an
+  // identity via env so the commit also works where no global git config exists
+  // (e.g. CI). Scoped + restored so it doesn't leak to other tests.
+  const IDENTITY_ENV = {
+    GIT_AUTHOR_NAME: "Brain Test",
+    GIT_AUTHOR_EMAIL: "brain-test@hive.dev",
+    GIT_COMMITTER_NAME: "Brain Test",
+    GIT_COMMITTER_EMAIL: "brain-test@hive.dev",
+  } as const;
+  const savedIdentityEnv: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const [key, value] of Object.entries(IDENTITY_ENV)) {
+      savedIdentityEnv[key] = process.env[key];
+      process.env[key] = value;
+    }
+  });
+
+  afterEach(() => {
+    for (const key of Object.keys(IDENTITY_ENV)) {
+      const prev = savedIdentityEnv[key];
+      if (prev === undefined) delete process.env[key];
+      else process.env[key] = prev;
+    }
+  });
+
   it("creates a normal clone, seeds README, commits, pushes, and persists state", async () => {
     const origin = join(tempDir, "brain-origin.git");
     await createEmptyBareRepo(origin);

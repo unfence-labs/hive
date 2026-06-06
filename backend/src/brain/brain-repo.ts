@@ -60,11 +60,6 @@ async function persistBrain(repoUrl: string, dataDir: string, now: () => Date): 
   return state;
 }
 
-async function configureBrainRepo(repoPath: string): Promise<void> {
-  await git(["config", "user.email", "hive@local"], repoPath);
-  await git(["config", "user.name", "Hive"], repoPath);
-}
-
 /** Create the singleton Brain GitHub repository, clone it normally, seed README, commit, and push. */
 export async function createBrain(
   name: string,
@@ -84,7 +79,6 @@ export async function createBrain(
   try {
     await git(["clone", remote.sshUrl, repoPath]);
     await git(["checkout", "-b", "main"], repoPath);
-    await configureBrainRepo(repoPath);
     await writeFile(
       join(repoPath, "README.md"),
       `# ${remote.name}\n\nThis repository stores your Hive Brain knowledge base.\n`,
