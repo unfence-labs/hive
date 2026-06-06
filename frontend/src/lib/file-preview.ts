@@ -91,6 +91,16 @@ export function isImageFilePath(filePath: string): boolean {
   return IMAGE_FILE_EXTENSIONS.has(fileExtension(filePath));
 }
 
+const MARKDOWN_FILE_EXTENSIONS = new Set(["md", "markdown"]);
+
+/**
+ * Whether a path points to a Markdown file (`.md`/`.markdown`, case-insensitive).
+ * Used to gate the Raw ⇄ Rendered toggle and rendered-preview mode.
+ */
+export function isMarkdownFilePath(filePath: string): boolean {
+  return MARKDOWN_FILE_EXTENSIONS.has(fileExtension(filePath));
+}
+
 export function workspaceFileRawPath(wsId: string, filePath: string): string {
   return `/api/workspaces/${encodeURIComponent(wsId)}/file/raw?path=${encodeURIComponent(filePath)}`;
 }

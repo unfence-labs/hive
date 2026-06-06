@@ -1,13 +1,17 @@
-import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ImageOffIcon, Loader2Icon } from "lucide-react";
-import { api } from "@/hooks/useApi";
 import { highlightCode } from "@/lib/shiki";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { MessageResponse } from "@/components/ai-elements/message";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useThemeType } from "@/hooks/useThemeType";
+import { useFileContent } from "@/hooks/useFileContent";
 import { resolveImageSrc } from "@/lib/image-url";
-import { isImageFilePath, workspaceFileRawPath } from "@/lib/file-preview";
+import { isImageFilePath, isMarkdownFilePath, workspaceFileRawPath } from "@/lib/file-preview";
 import { cn } from "@/lib/utils";
+
+/** Debounce (ms) before flushing edits to disk via the `onWriteToDisk` callback. */
+const DISK_WRITE_DEBOUNCE_MS = 600;
 
 const EXT_TO_LANG: Record<string, string> = {
   ts: "typescript",
@@ -52,9 +56,25 @@ function basename(filePath: string): string {
 interface FileViewerProps {
   wsId: string;
   filePath: string;
+  /**
+   * Markdown render mode. Only honored for Markdown files; non-Markdown files
+   * always render raw. Defaults to `"raw"`.
+   */
+  renderMode?: "raw" | "rendered";
+  /**
+   * When `true`, raw Markdown is shown in an editable {@link MarkdownEditor}
+   * with debounced disk writes via {@link FileViewerProps.onWriteToDisk}.
+   * Defaults to `false` (read-only).
+   */
+  editable?: boolean;
+  /**
+   * Persist edited content (working tree only — NOT a git commit). Called
+   * debounced as the user types. Only used when `editable` is `true`.
+   */
+  onWriteToDisk?: (path: string, content: string) => void;
 }
 
-function ImageFilePreview({ wsId, filePath }: FileViewerProps) {
+function ImageFilePreview({ wsId, filePath }: { wsId: string; filePath: string }) {
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
   const src = resolveImageSrc(workspaceFileRawPath(wsId, filePath));
   const name = basename(filePath);
@@ -100,46 +120,48 @@ function ImageFilePreview({ wsId, filePath }: FileViewerProps) {
   );
 }
 
-export function FileViewer({ wsId, filePath }: FileViewerProps) {
+export function FileViewer({
+  wsId,
+  filePath,
+  renderMode = "raw",
+  editable = false,
+  onWriteToDisk,
+}: FileViewerProps) {
   const theme = useThemeType();
   const shikiTheme = theme === "dark" ? "github-dark" : "github-light";
   const isImageFile = isImageFilePath(filePath);
+  const isMarkdown = isMarkdownFilePath(filePath);
+  const showRendered = renderMode === "rendered" && isMarkdown;
 
-  const fileQuery = useQuery({
-    queryKey: ["file", wsId, filePath],
-    queryFn: () =>
-      api.get<{ content: string; path: string }>(
-        `/api/workspaces/${wsId}/file?path=${encodeURIComponent(filePath)}`,
-      ),
-    enabled: !!wsId && !!filePath && !isImageFile,
-    staleTime: 2 * 60 * 1000,
-  });
+  const { content, isLoading: contentLoading, error: contentError } = useFileContent(
+    isImageFile ? undefined : wsId,
+    isImageFile ? null : filePath,
+  );
 
+  // Shiki HTML for the read-only raw view. Skipped when editing or rendering.
+  const skipHtml = isImageFile || showRendered || editable;
   const [html, setHtml] = useState("");
   useEffect(() => {
-    if (isImageFile) {
-      setHtml("");
-      return;
-    }
-    if (!fileQuery.data) {
+    if (skipHtml || content === undefined) {
       setHtml("");
       return;
     }
     let cancelled = false;
-    highlightCode(fileQuery.data.content, getLang(filePath), shikiTheme).then((result) => {
+    highlightCode(content, getLang(filePath), shikiTheme).then((result) => {
       if (!cancelled) setHtml(result);
     });
     return () => {
       cancelled = true;
     };
-  }, [fileQuery.data, filePath, isImageFile, shikiTheme]);
+  }, [content, filePath, skipHtml, shikiTheme]);
 
   if (isImageFile) {
     return <ImageFilePreview wsId={wsId} filePath={filePath} />;
   }
 
-  const loading = fileQuery.isLoading || (!!fileQuery.data && !html);
-  const error = fileQuery.error?.message ?? null;
+  const error = contentError?.message ?? null;
+  // The raw read-only branch also waits for the highlighted HTML to be ready.
+  const loading = contentLoading || (!skipHtml && content !== undefined && !html);
 
   if (loading) {
     return (
@@ -160,6 +182,20 @@ export function FileViewer({ wsId, filePath }: FileViewerProps) {
           {error}
         </div>
       </div>
+    );
+  }
+
+  if (showRendered) {
+    return <RenderedMarkdown content={content ?? ""} />;
+  }
+
+  if (editable) {
+    return (
+      <EditableRawFile
+        filePath={filePath}
+        content={content ?? ""}
+        onWriteToDisk={onWriteToDisk}
+      />
     );
   }
 
@@ -195,6 +231,99 @@ export function FileViewer({ wsId, filePath }: FileViewerProps) {
           background: color-mix(in oklch, var(--foreground) 5%, transparent);
         }
       `}</style>
+    </div>
+  );
+}
+
+/** Rendered Markdown preview (read-only). Mirrors the Brain editor's styling. */
+function RenderedMarkdown({ content }: { content: string }) {
+  return (
+    <div className="min-h-0 flex-1 overflow-auto">
+      <div className="px-6 py-4 text-sm [&_h1]:text-2xl [&_h2]:text-xl [&_h3]:text-lg">
+        {content.trim() ? (
+          <MessageResponse>{content}</MessageResponse>
+        ) : (
+          <span className="text-muted-foreground">Empty file.</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Editable raw view backed by {@link MarkdownEditor}, with debounced disk writes
+ * via `onWriteToDisk`. The latest pending edit is captured alongside the path it
+ * belongs to and flushed before switching files / on unmount, so no edit is lost
+ * inside the debounce window (logic preserved from the original Brain editor).
+ */
+function EditableRawFile({
+  filePath,
+  content,
+  onWriteToDisk,
+}: {
+  filePath: string;
+  content: string;
+  onWriteToDisk?: (path: string, content: string) => void;
+}) {
+  const [buffer, setBuffer] = useState(content);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef = useRef<{ path: string; content: string } | null>(null);
+  const filePathRef = useRef(filePath);
+  filePathRef.current = filePath;
+  const writeRef = useRef(onWriteToDisk);
+  writeRef.current = onWriteToDisk;
+
+  // Immediately persist any pending debounced edit. Safe to call repeatedly.
+  const flush = useCallback(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    const pending = pendingRef.current;
+    if (pending) {
+      pendingRef.current = null;
+      writeRef.current?.(pending.path, pending.content);
+    }
+  }, []);
+
+  // Reset the buffer whenever the loaded file changes (new selection or refetch).
+  useEffect(() => {
+    setBuffer(content);
+  }, [content, filePath]);
+
+  // Flush the pending write of the *previous* file before switching, and on
+  // unmount, so no edit is lost inside the debounce window.
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
+  useEffect(() => {
+    return () => {
+      flushRef.current();
+    };
+  }, [filePath]);
+
+  const handleChange = useCallback((next: string) => {
+    setBuffer(next);
+    const path = filePathRef.current;
+    if (!path) return;
+    pendingRef.current = { path, content: next };
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      const pending = pendingRef.current;
+      pendingRef.current = null;
+      if (pending) writeRef.current?.(pending.path, pending.content);
+    }, DISK_WRITE_DEBOUNCE_MS);
+  }, []);
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto">
+      <MarkdownEditor
+        value={buffer}
+        onChange={handleChange}
+        maxHeight="100%"
+        ariaLabel="File content"
+        className="h-full"
+      />
     </div>
   );
 }

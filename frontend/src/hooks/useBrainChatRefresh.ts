@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { wsTransport } from "@/lib/ws-transport";
-import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import {
   BRAIN_FILES_QUERY_KEY,
   BRAIN_STATUS_QUERY_KEY,
+  BRAIN_WORKSPACE_ID,
   brainFileQueryKey,
-} from "@/hooks/useBrainFiles";
+} from "@/lib/brain";
 
 /** Tool names that mutate the Brain working tree. */
 const WRITE_TOOLS = new Set(["Write", "Edit"]);

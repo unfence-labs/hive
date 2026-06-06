@@ -1,10 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
-import { BRAIN_STATUS_QUERY_KEY } from "@/hooks/useBrainFiles";
+import { BRAIN_DIFF_QUERY_KEY, BRAIN_STATUS_QUERY_KEY } from "@/lib/brain";
 import type { BrainDiffResponse, BrainSaveResponse, BrainStatusResponse } from "@/types";
-
-/** Cache key for the Brain diff (working tree vs HEAD). */
-export const BRAIN_DIFF_QUERY_KEY = ["brain", "diff"] as const;
 
 /**
  * Query the Brain pending-change status — drives the Save badge count. The

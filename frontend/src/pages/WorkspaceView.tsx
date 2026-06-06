@@ -5,8 +5,7 @@ import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-pan
 import { ChevronDownIcon, TerminalIcon } from "lucide-react";
 import { VscodeIcon, Iterm2Icon } from "@/components/icons/software-icons";
 import { api } from "@/hooks/useApi";
-import { useConversation } from "@/hooks/useConversation";
-import { useSessions } from "@/hooks/useSessions";
+import { useConversationColumn } from "@/hooks/useConversationColumn";
 import { useWorkspaceLiveDataContext, useClearUnread } from "@/contexts/WorkspaceLiveDataContext";
 
 import {
@@ -14,10 +13,8 @@ import {
   FileTreeFile,
   FileTreeFolder,
 } from "@/components/ai-elements/file-tree";
-import ChatConversation from "@/components/ChatConversation";
 import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
-import QuestionPanel from "@/components/chat/QuestionPanel";
-import { ConversationTabs } from "@/components/ConversationTabs";
+import { ConversationPane } from "@/components/chat/ConversationPane";
 import { FileViewer } from "@/components/FileViewer";
 import { FileContentToolbar } from "@/components/FileContentToolbar";
 import { BranchLabel } from "@/components/BranchLabel";
@@ -26,9 +23,6 @@ import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { PrStatusSection } from "@/components/PrStatusSection";
 import { BrowserPanel } from "@/components/BrowserPanel";
 import ScriptPanel from "@/components/ScriptPanel";
-import TaskTracker from "@/components/TaskTracker";
-import { useTasks } from "@/hooks/useTasks";
-import { useBackgroundAgents } from "@/hooks/useBackgroundAgents";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -51,11 +45,10 @@ import { WorkspacePathCopyButton } from "@/components/WorkspacePathCopyButton";
 import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
-import { isImageFilePath } from "@/lib/file-preview";
+import { isImageFilePath, isMarkdownFilePath } from "@/lib/file-preview";
 import { PlanActionBar } from "@/components/chat/PlanActionBar";
 import { useScripts } from "@/hooks/useScripts";
-import { useTabs } from "@/hooks/useTabs";
-import type { DiffFileStat, DiffScope, DiffStatResponse, FileMention, ImageAttachment, MessageOptions, QueuedMessage, Workspace, WorkspaceFileTreeNode } from "@/types";
+import type { DiffFileStat, DiffScope, DiffStatResponse, FileMention, ImageAttachment, MessageOptions, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 const DEFAULT_EXPANDED = new Set<string>();
 
@@ -211,11 +204,22 @@ export default function WorkspaceView() {
     setSelectedPath(firstFilePath ?? "");
   }, [wsId, filesQuery.data]);
 
+  const onLastSessionDeleted = useCallback(() => {
+    if (wsId) wsTransport.clearCachedData(wsId);
+    void queryClient.invalidateQueries({ queryKey: ["workspace", wsId] });
+  }, [wsId, queryClient]);
+
+  const onActivateSession = useCallback(
+    (targetSessionId: string) => {
+      if (wsId) clearUnread(wsId, targetSessionId);
+    },
+    [wsId, clearUnread],
+  );
+
   const {
     messages,
     isStreaming,
     streamingStartedAt,
-    workspaceStatus,
     currentStreamingText,
     currentThinking,
     activeToolCalls,
@@ -226,7 +230,6 @@ export default function WorkspaceView() {
     sessionId,
     sendMessage,
     stopStreaming,
-    clearChat,
     switchSession,
     answerQuestion,
     batchAnswerQuestions,
@@ -234,11 +237,8 @@ export default function WorkspaceView() {
     rejectToolInput,
     dismissPlan,
     agentPlanMode,
-    lockedProvider,
     switchCounter,
-  } = useConversation(wsId);
-
-  const {
+    // Tabs
     openFile,
     fileViewMode,
     diffScope,
@@ -249,8 +249,31 @@ export default function WorkspaceView() {
     setFileViewMode,
     setDiffScope,
     closeFileTab,
-  } = useTabs(sessionId, wsId);
+    // Sessions
+    sessions,
+    createSession,
+    refreshSessions,
+    effectiveLockedProvider,
+    // Tasks + background agents
+    tasks,
+    currentTask,
+    taskCounts,
+    backgroundAgents,
+    backgroundRunningCount: bgRunningCount,
+    // Queue + scroll
+    queuedMessage,
+    setQueuedMessage,
+    scrollToBottomTrigger,
+    bumpScrollToBottom,
+    // Handlers
+    handleCreateSession,
+    handleActivateSession,
+    handleDeleteSession,
+  } = useConversationColumn(wsId, { onActivateSession, onLastSessionDeleted });
+
   const openFileIsImage = openFile ? isImageFilePath(openFile) : false;
+  const supportsRendered = openFile ? isMarkdownFilePath(openFile) : false;
+  const [renderMode, setRenderMode] = useState<"raw" | "rendered">("raw");
 
   // Clear unread only when the active conversation is actually visible.
   // If the file tab is open, keep unread state so the tab can show a dot.
@@ -260,50 +283,6 @@ export default function WorkspaceView() {
       clearUnread(wsId, sessionId);
     }
   }, [isFileTabActive, wsId, sessionId, liveData, clearUnread]);
-
-  // ── Scroll-to-bottom trigger: incremented on send/queue to force scroll ──
-  const [scrollToBottomTrigger, setScrollToBottomTrigger] = useState(0);
-
-  // ── Message queue: lets users type one follow-up while agent is busy ──
-  // Stored per (workspace, session) so switching sessions/workspaces preserves
-  // each session's pending message instead of silently dropping it.
-  const [queuedMessages, setQueuedMessages] = useState<Record<string, QueuedMessage>>({});
-  const queueKey = wsId && sessionId ? `${wsId}:${sessionId}` : null;
-  const queuedMessage = queueKey ? queuedMessages[queueKey] ?? null : null;
-  const setQueuedMessage = useCallback((msg: QueuedMessage | null) => {
-    if (!queueKey) return;
-    setQueuedMessages((prev) => {
-      if (msg === null) {
-        if (!(queueKey in prev)) return prev;
-        const next = { ...prev };
-        delete next[queueKey];
-        return next;
-      }
-      return { ...prev, [queueKey]: msg };
-    });
-  }, [queueKey]);
-
-  // Auto-dequeue when the agent finishes and workspace is truly idle
-  useEffect(() => {
-    if (!queuedMessage) return;
-    if (isStreaming) return;
-    if (workspaceStatus !== "idle") return;
-    if (pendingToolInputs.length > 0) return;
-
-    const { content, images, options, fileMentions } = queuedMessage;
-    const sent = sendMessage(content, images, options, undefined, fileMentions);
-    if (sent) setQueuedMessage(null);
-    // If send fails (WS disconnected), keep queue — effect re-fires on reconnect
-  }, [queuedMessage, isStreaming, workspaceStatus, pendingToolInputs, sendMessage, setQueuedMessage]);
-
-  const { tasks, currentTask, counts: taskCounts } = useTasks(messages, activeToolCalls, activeAgentActivities);
-  const { agents: backgroundAgents, runningCount: bgRunningCount } = useBackgroundAgents(messages, activeToolCalls);
-
-  const { sessions, createSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
-
-  // Mirror iOS: fall back to session metadata when WS hasn't delivered lockedProvider yet.
-  const effectiveLockedProvider = lockedProvider
-    ?? sessions.find((s) => s.sessionId === sessionId)?.lockedProvider;
 
   // Scripts (hive.json setup/run)
   const {
@@ -385,37 +364,6 @@ export default function WorkspaceView() {
     }
   }, [browserPanelCollapsed, currentBrowserStatus, rightPanelRef]);
 
-  const handleCreateSession = useCallback(async () => {
-    const meta = await createSession();
-    if (meta) {
-      switchSession(meta.sessionId);
-    }
-  }, [createSession, switchSession]);
-
-  const handleActivateSession = useCallback((targetSessionId: string) => {
-    activateTab(`session:${targetSessionId}`);
-    if (targetSessionId === sessionId) return;
-    switchSession(targetSessionId);
-    if (wsId) clearUnread(wsId, targetSessionId);
-  }, [sessionId, switchSession, wsId, clearUnread, activateTab]);
-
-  const handleDeleteSession = useCallback(async (targetSessionId: string) => {
-    const isActive = targetSessionId === sessionId;
-    const success = await deleteSession(targetSessionId);
-    if (!success) return;
-
-    if (isActive) {
-      const next = sessions.find((s) => s.sessionId !== targetSessionId);
-      if (next) {
-        handleActivateSession(next.sessionId);
-      } else {
-        clearChat();
-        if (wsId) wsTransport.clearCachedData(wsId);
-        void queryClient.invalidateQueries({ queryKey: ["workspace", wsId] });
-      }
-    }
-  }, [deleteSession, sessionId, sessions, handleActivateSession, clearChat, wsId, queryClient]);
-
   const handleFileTreeSelect = useCallback((path: string) => {
     setSelectedPath(path);
     openFileTab(path);
@@ -466,14 +414,14 @@ export default function WorkspaceView() {
     (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]): boolean => {
       if (hasPendingPlan && hasPendingExitPlanInput) {
         rejectToolInput(content);
-        setScrollToBottomTrigger((c) => c + 1);
+        bumpScrollToBottom();
         return true;
       }
       const sent = sendMessage(content, images, options, undefined, fileMentions);
-      if (sent) setScrollToBottomTrigger((c) => c + 1);
+      if (sent) bumpScrollToBottom();
       return sent;
     },
-    [hasPendingPlan, hasPendingExitPlanInput, rejectToolInput, sendMessage],
+    [hasPendingPlan, hasPendingExitPlanInput, rejectToolInput, sendMessage, bumpScrollToBottom],
   );
 
   // Refs for inline diff → chat input bridge
@@ -642,7 +590,7 @@ export default function WorkspaceView() {
               </TooltipProvider>
             )}
           </div>
-          <ConversationTabs
+          <ConversationPane
             sessions={sessions}
             activeSessionId={sessionId}
             isStreaming={isStreaming}
@@ -657,76 +605,62 @@ export default function WorkspaceView() {
             onFileTabActivate={() => openFile && activateTab(`file:${openFile}`)}
             onFileTabClose={closeFileTab}
             onConversationActivate={() => sessionId && activateTab(`session:${sessionId}`)}
-          />
-          <div className={!isFileTabActive ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
-            <ChatConversation
-              messages={messages}
-              isStreaming={isStreaming}
-              streamingStartedAt={streamingStartedAt}
-              currentStreamingText={currentStreamingText}
-              currentThinking={currentThinking}
-              activeToolCalls={activeToolCalls}
-              activeAgentActivities={activeAgentActivities}
-              pendingToolInputs={pendingToolInputs}
-              onQuestionAnswer={answerQuestion}
-              onFileMentionClick={handleFileTreeSelect}
-              workspaceName={workspace?.name}
-              projectName={workspace?.projectName}
-              branch={displayBranch}
-              defaultBranch={workspace?.defaultBranch}
-              fileCount={fileCount}
-              switchCounter={switchCounter}
-              agentPlanMode={agentPlanMode}
-              error={error}
-              queuedMessage={queuedMessage}
-              onClearQueue={() => setQueuedMessage(null)}
-              scrollToBottomTrigger={scrollToBottomTrigger}
-            />
-            {(tasks.length > 0 || backgroundAgents.length > 0) && !pendingToolInputs.some((p) => p.toolName === "AskUserQuestion") && (
-              <TaskTracker
-                tasks={tasks}
-                currentTask={currentTask}
-                counts={taskCounts}
-                isStreaming={isStreaming}
-                backgroundAgents={backgroundAgents}
-                backgroundRunningCount={bgRunningCount}
-              />
-            )}
-            {pendingToolInputs.some((p) => p.toolName === "AskUserQuestion") ? (
-              <QuestionPanel
-                pendingToolInputs={pendingToolInputs}
-                onBatchSubmit={batchAnswerQuestions}
-                onDismiss={() => rejectToolInput("[question_dismissed]")}
-              />
-            ) : (
-              <div className="relative">
-                {hasPendingPlan && pendingPlanData && (
-                  <PlanActionBar
-                    planContent={pendingPlanData.content}
-                    planPath={pendingPlanData.planPath}
-                    onApprove={approvePlan}
-                    onHandOff={handleHandOff}
-                  />
-                )}
-                <ChatInput
-                  ref={chatInputRef}
-                  wsId={wsId}
-                  sessionId={sessionId}
-                  lockedProvider={effectiveLockedProvider}
-                  onSend={handleSend}
-                  onStop={stopStreaming}
-                  disabled={false}
-                  isStreaming={isStreaming}
-                  connectionStatus={connectionStatus}
-                  placeholder={hasPendingPlan ? "Enter your plan adjustments here..." : undefined}
-                  messages={messages}
-                  queuedMessage={queuedMessage}
-                  onQueue={(msg) => { setQueuedMessage(msg); setScrollToBottomTrigger((c) => c + 1); }}
-                  agentPlanMode={agentPlanMode}
+            messages={messages}
+            streamingStartedAt={streamingStartedAt}
+            currentStreamingText={currentStreamingText}
+            currentThinking={currentThinking}
+            activeToolCalls={activeToolCalls}
+            activeAgentActivities={activeAgentActivities}
+            pendingToolInputs={pendingToolInputs}
+            onQuestionAnswer={answerQuestion}
+            onFileMentionClick={handleFileTreeSelect}
+            workspaceName={workspace?.name}
+            projectName={workspace?.projectName}
+            branch={displayBranch}
+            defaultBranch={workspace?.defaultBranch}
+            fileCount={fileCount}
+            switchCounter={switchCounter}
+            agentPlanMode={agentPlanMode}
+            error={error}
+            queuedMessage={queuedMessage}
+            onClearQueue={() => setQueuedMessage(null)}
+            scrollToBottomTrigger={scrollToBottomTrigger}
+            tasks={tasks}
+            currentTask={currentTask}
+            taskCounts={taskCounts}
+            backgroundAgents={backgroundAgents}
+            backgroundRunningCount={bgRunningCount}
+            onBatchAnswerQuestions={batchAnswerQuestions}
+            onDismissQuestion={() => rejectToolInput("[question_dismissed]")}
+            planActionBar={
+              hasPendingPlan && pendingPlanData ? (
+                <PlanActionBar
+                  planContent={pendingPlanData.content}
+                  planPath={pendingPlanData.planPath}
+                  onApprove={approvePlan}
+                  onHandOff={handleHandOff}
                 />
-              </div>
-            )}
-          </div>
+              ) : undefined
+            }
+            chatInput={
+              <ChatInput
+                ref={chatInputRef}
+                wsId={wsId}
+                sessionId={sessionId}
+                lockedProvider={effectiveLockedProvider}
+                onSend={handleSend}
+                onStop={stopStreaming}
+                disabled={false}
+                isStreaming={isStreaming}
+                connectionStatus={connectionStatus}
+                placeholder={hasPendingPlan ? "Enter your plan adjustments here..." : undefined}
+                messages={messages}
+                queuedMessage={queuedMessage}
+                onQueue={(msg) => { setQueuedMessage(msg); bumpScrollToBottom(); }}
+                agentPlanMode={agentPlanMode}
+              />
+            }
+          />
           {isFileTabActive && openFile && wsId && (
             <div className="flex min-h-0 flex-1 flex-col">
               <FileContentToolbar
@@ -743,9 +677,12 @@ export default function WorkspaceView() {
                 onPasteToPrompt={handlePasteToPrompt}
                 sourceLabel={openFileIsImage ? "Preview" : "Source"}
                 supportsTextDiff={!openFileIsImage}
+                renderMode={renderMode}
+                onRenderModeChange={setRenderMode}
+                supportsRendered={supportsRendered}
               />
               {fileViewMode === "source" ? (
-                <FileViewer wsId={wsId} filePath={openFile} />
+                <FileViewer wsId={wsId} filePath={openFile} renderMode={renderMode} />
               ) : (
                 <InlineDiffViewer
                   ref={diffViewerRef}
