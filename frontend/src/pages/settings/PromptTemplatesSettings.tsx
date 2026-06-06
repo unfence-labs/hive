@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { Loader2, Plus, Trash2, Save, X, RotateCcw, ChevronRight, HelpCircle, Sparkles } from "lucide-react";
+import { Loader2, Plus, Trash2, Save, X, RotateCcw, ChevronRight, HelpCircle, Sparkles, Brain } from "lucide-react";
+import type { UseQueryResult, UseMutationResult } from "@tanstack/react-query";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,15 +39,21 @@ import {
   useUpdateBasePrompt,
   useResetBasePrompt,
 } from "@/hooks/useBasePrompt";
+import {
+  useBrainPrompt,
+  useUpdateBrainPrompt,
+  useResetBrainPrompt,
+} from "@/hooks/useBrainPrompt";
 import { PromptEditor } from "@/components/PromptEditor";
 import { PromptFlowExplainer } from "@/components/PromptFlowExplainer";
 import { cn } from "@/lib/utils";
-import type { PromptTemplate } from "@/types";
+import type { BasePromptData, PromptTemplate } from "@/types";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
 type Selection =
   | { kind: "base" }
+  | { kind: "brain" }
   | { kind: "template"; id: string }
   | { kind: "create"; type: "system" | "user" }
   | null;
@@ -64,6 +71,7 @@ const TEMPLATE_VARIABLES = [
 export default function PromptTemplatesSettings() {
   const { data: templates, isLoading: templatesLoading } = usePromptTemplates();
   const { data: baseData, isLoading: baseLoading } = useBasePrompt();
+  const { data: brainData, isLoading: brainLoading } = useBrainPrompt();
   const [selection, setSelection] = useState<Selection>({ kind: "base" });
   const [deleteTarget, setDeleteTarget] = useState<PromptTemplate | null>(null);
   const [showFlowDialog, setShowFlowDialog] = useState(false);
@@ -88,7 +96,7 @@ export default function PromptTemplatesSettings() {
     setSelection({ kind: "base" });
   }
 
-  if (templatesLoading || baseLoading) return null;
+  if (templatesLoading || baseLoading || brainLoading) return null;
 
   const handleDelete = (template: PromptTemplate) => {
     setDeleteTarget(template);
@@ -126,6 +134,7 @@ export default function PromptTemplatesSettings() {
           selection={selection}
           onSelect={setSelection}
           baseData={baseData ?? null}
+          brainData={brainData ?? null}
           systemTemplates={systemTemplates}
           userTemplates={userTemplates}
         />
@@ -186,12 +195,14 @@ function LeftPanel({
   selection,
   onSelect,
   baseData,
+  brainData,
   systemTemplates,
   userTemplates,
 }: {
   selection: Selection;
   onSelect: (s: Selection) => void;
   baseData: BasePromptSummary | null;
+  brainData: BasePromptSummary | null;
   systemTemplates: PromptTemplate[];
   userTemplates: PromptTemplate[];
 }) {
@@ -199,7 +210,7 @@ function LeftPanel({
     <div className="flex w-64 shrink-0 flex-col border-r border-border/50">
       <ScrollArea className="flex-1">
         <div className="p-2">
-          {/* Pinned: Base Prompt */}
+          {/* Pinned: Build Agent Prompt */}
           <ListItem
             label="Build Agent Prompt"
             icon={<Sparkles className="h-3 w-3 text-primary" />}
@@ -207,6 +218,16 @@ function LeftPanel({
             badgeVariant={baseData?.isDefault ? "secondary" : "default"}
             isSelected={selection?.kind === "base"}
             onClick={() => onSelect({ kind: "base" })}
+          />
+
+          {/* Pinned: Brain Agent Prompt */}
+          <ListItem
+            label="Brain Agent Prompt"
+            icon={<Brain className="h-3 w-3 text-primary" />}
+            badge={brainData?.isDefault ? "Default" : "Custom"}
+            badgeVariant={brainData?.isDefault ? "secondary" : "default"}
+            isSelected={selection?.kind === "brain"}
+            onClick={() => onSelect({ kind: "brain" })}
           />
 
           <div className="my-2 border-t border-border/30" />
@@ -326,6 +347,10 @@ function RightPanel({
     return <BasePromptDetail />;
   }
 
+  if (selection?.kind === "brain") {
+    return <BrainPromptDetail />;
+  }
+
   if (selection?.kind === "template" && selectedTemplate) {
     return (
       <TemplateDetail
@@ -349,12 +374,39 @@ function RightPanel({
   return <EmptyState />;
 }
 
-// ── Base Prompt Detail ─────────────────────────────────────────────────
+// ── Editable Prompt Detail (shared) ────────────────────────────────────
 
-function BasePromptDetail() {
-  const { data } = useBasePrompt();
-  const updateMutation = useUpdateBasePrompt();
-  const resetMutation = useResetBasePrompt();
+type PromptVariable = { token: string; desc: string };
+
+/**
+ * Shared master-detail editor for an editable prompt resource (Build Agent
+ * Prompt, Brain Agent Prompt). Owns the header/badge/description, the
+ * `PromptEditor`, an optional template-variables hint, the collapsible
+ * "View default prompt" section, the Save/Reset actions, and the reset-confirm
+ * dialog. Base and brain plug in by passing their own resource hooks + copy.
+ */
+function EditablePromptDetail({
+  title,
+  description,
+  variables,
+  resetDescription,
+  usePrompt,
+  useUpdatePrompt,
+  useResetPrompt,
+}: {
+  title: string;
+  description: string;
+  /** Optional `{TEMPLATE_VAR}` hint shown under the editor. */
+  variables?: readonly PromptVariable[];
+  /** Copy for the reset confirmation dialog body. */
+  resetDescription: string;
+  usePrompt: () => UseQueryResult<BasePromptData>;
+  useUpdatePrompt: () => UseMutationResult<BasePromptData, Error, string>;
+  useResetPrompt: () => UseMutationResult<unknown, Error, void>;
+}) {
+  const { data } = usePrompt();
+  const updateMutation = useUpdatePrompt();
+  const resetMutation = useResetPrompt();
   const [draft, setDraft] = useState(data?.content ?? "");
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showDefault, setShowDefault] = useState(false);
@@ -380,7 +432,7 @@ function BasePromptDetail() {
       {/* Header */}
       <div className="mb-4 shrink-0">
         <div className="flex items-center gap-2">
-          <h2 className="text-base font-medium text-foreground">Build Agent Prompt</h2>
+          <h2 className="text-base font-medium text-foreground">{title}</h2>
           <Badge
             variant="secondary"
             className={cn(
@@ -391,9 +443,7 @@ function BasePromptDetail() {
             {data.isDefault ? "Default" : "Custom"}
           </Badge>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Injected into every build agent session under workspaces.
-        </p>
+        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
       </div>
 
       {/* Editor */}
@@ -402,15 +452,17 @@ function BasePromptDetail() {
       </div>
 
       {/* Template variables hint */}
-      <div className="mt-3 flex shrink-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/70">
-        <span className="font-medium text-muted-foreground">Variables:</span>
-        {TEMPLATE_VARIABLES.map((v) => (
-          <span key={v.token}>
-            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">{v.token}</code>{" "}
-            <span className="text-muted-foreground/50">{v.desc}</span>
-          </span>
-        ))}
-      </div>
+      {variables && variables.length > 0 && (
+        <div className="mt-3 flex shrink-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/70">
+          <span className="font-medium text-muted-foreground">Variables:</span>
+          {variables.map((v) => (
+            <span key={v.token}>
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">{v.token}</code>{" "}
+              <span className="text-muted-foreground/50">{v.desc}</span>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Collapsible default view */}
       {!data.isDefault && (
@@ -467,10 +519,7 @@ function BasePromptDetail() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Reset to default</AlertDialogTitle>
-            <AlertDialogDescription>
-              Your custom base prompt will be removed and replaced with the default system prompt.
-              This cannot be undone.
-            </AlertDialogDescription>
+            <AlertDialogDescription>{resetDescription}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -484,6 +533,38 @@ function BasePromptDetail() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+/** Build Agent Prompt editor — interpolates workspace git/project variables. */
+function BasePromptDetail() {
+  return (
+    <EditablePromptDetail
+      title="Build Agent Prompt"
+      description="Injected into every build agent session under workspaces."
+      variables={TEMPLATE_VARIABLES}
+      resetDescription="Your custom base prompt will be removed and replaced with the default system prompt. This cannot be undone."
+      usePrompt={useBasePrompt}
+      useUpdatePrompt={useUpdateBasePrompt}
+      useResetPrompt={useResetBasePrompt}
+    />
+  );
+}
+
+/**
+ * Brain Agent Prompt editor — no git/project variables; the Brain's file-path
+ * map is appended automatically by the backend.
+ */
+function BrainPromptDetail() {
+  return (
+    <EditablePromptDetail
+      title="Brain Agent Prompt"
+      description="Injected into every Brain agent session. The Brain's file map is appended automatically."
+      resetDescription="Your custom Brain prompt will be removed and replaced with the default system prompt. This cannot be undone."
+      usePrompt={useBrainPrompt}
+      useUpdatePrompt={useUpdateBrainPrompt}
+      useResetPrompt={useResetBrainPrompt}
+    />
   );
 }
 

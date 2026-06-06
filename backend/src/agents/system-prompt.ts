@@ -188,6 +188,23 @@ export interface BrainSystemPromptOptions {
   cwd: string;
   /** Relative file paths currently in the Brain (the navigation map). */
   filePaths: string[];
+  /** Editable base prompt; falls back to {@link BRAIN_BASE_PROMPT} when omitted. */
+  basePrompt?: string;
+}
+
+/**
+ * Load the Brain base prompt from `{promptsDir}/brain.md`.
+ * Returns the hardcoded {@link BRAIN_BASE_PROMPT} if the file can't be read.
+ */
+export async function loadBrainPrompt(promptsDir: string): Promise<string> {
+  try {
+    return await readFile(join(promptsDir, "brain.md"), "utf-8");
+  } catch (err: unknown) {
+    if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn("[system-prompt] Failed to load brain.md, using default:", err);
+    }
+    return BRAIN_BASE_PROMPT;
+  }
 }
 
 /**
@@ -210,7 +227,7 @@ export function formatBrainMapBlock(filePaths: string[]): string {
  * map so the agent always knows the knowledge-base structure.
  */
 export function buildBrainSystemPrompt(opts: BrainSystemPromptOptions): string {
-  const basePrompt = interpolatePromptVariables(BRAIN_BASE_PROMPT, {
+  const basePrompt = interpolatePromptVariables(opts.basePrompt ?? BRAIN_BASE_PROMPT, {
     cwd: opts.cwd,
     defaultBranch: "main",
     projectName: "Brain",
