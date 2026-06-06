@@ -328,7 +328,7 @@ export default function BrainView() {
   );
 
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
-    id: "hive-brain-v2",
+    id: "hive-brain",
     storage: localStorage,
   });
 

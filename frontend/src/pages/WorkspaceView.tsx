@@ -287,7 +287,7 @@ export default function WorkspaceView() {
     storage: localStorage,
   });
   const { defaultLayout: splitLayout, onLayoutChanged: onSplitLayoutChanged } = useDefaultLayout({
-    id: "hive-right-split-v4",
+    id: "hive-right-split",
     storage: localStorage,
   });
 
