@@ -10,6 +10,8 @@ export interface FileContentResult {
   isLoading: boolean;
   /** The fetch error, or `null` when there is none. */
   error: Error | null;
+  /** `true` when `content` is a bounded prefix of a larger file (Brain only). */
+  truncated: boolean;
 }
 
 /**
@@ -40,7 +42,7 @@ export function useFileContent(
       const url = isBrain
         ? `/api/brain/file?path=${encodeURIComponent(filePath ?? "")}`
         : `/api/workspaces/${wsId}/file?path=${encodeURIComponent(filePath ?? "")}`;
-      return api.get<{ content: string; path: string }>(url);
+      return api.get<{ content: string; path: string; truncated?: boolean }>(url);
     },
     enabled: !!wsId && !!filePath,
     staleTime: isBrain ? Infinity : 2 * 60 * 1000,
@@ -50,5 +52,6 @@ export function useFileContent(
     content: query.data?.content,
     isLoading: query.isLoading,
     error: (query.error as Error | null) ?? null,
+    truncated: query.data?.truncated ?? false,
   };
 }

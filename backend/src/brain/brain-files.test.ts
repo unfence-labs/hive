@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createFixtureRepo, createTempDir } from "../utils/test-helpers.js";
+import { brainRepoPath } from "../utils/paths.js";
 import { connectBrain } from "./brain-repo.js";
 import {
   listBrainFiles,
   readBrainFile,
-  resolveBrainFilePath,
   writeBrainFile,
 } from "./brain-files.js";
 
@@ -59,25 +59,34 @@ describe("brain file operations", () => {
     await connectFixtureBrain();
     await expect(readBrainFile("missing.md", dataDir)).rejects.toMatchObject({ statusCode: 404 });
   });
+
+  it("rejects reading a symlink that escapes the repo", async () => {
+    await connectFixtureBrain();
+    await writeFile(join(tempDir, "secret.txt"), "top secret");
+    await symlink(join(tempDir, "secret.txt"), join(brainRepoPath(dataDir), "leak.md"));
+    await expect(readBrainFile("leak.md", dataDir)).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it("rejects writing through a symlinked directory that escapes the repo", async () => {
+    await connectFixtureBrain();
+    await mkdir(join(tempDir, "outside"), { recursive: true });
+    await symlink(join(tempDir, "outside"), join(brainRepoPath(dataDir), "link"));
+    await expect(writeBrainFile("link/evil.md", "x", dataDir)).rejects.toMatchObject({
+      statusCode: 400,
+    });
+  });
+
+  it("returns a truncated prefix for oversized files instead of throwing", async () => {
+    await connectFixtureBrain();
+    const big = "a".repeat(1024 * 1024 + 64);
+    await writeFile(join(brainRepoPath(dataDir), "big.md"), big);
+    const read = await readBrainFile("big.md", dataDir);
+    expect(read.truncated).toBe(true);
+    expect(read.content.length).toBe(1024 * 1024);
+  });
 });
 
-describe("resolveBrainFilePath", () => {
-  it("rejects path traversal", () => {
-    expect(() => resolveBrainFilePath("/repo", "../escape.md")).toThrow();
-  });
-
-  it("rejects the repo root itself", () => {
-    expect(() => resolveBrainFilePath("/repo", ".")).toThrow();
-  });
-
-  it("rejects the .git directory", () => {
-    expect(() => resolveBrainFilePath("/repo", ".git/config")).toThrow();
-  });
-
-  it("accepts a nested relative path", () => {
-    expect(resolveBrainFilePath("/repo", "a/b.md")).toBe("/repo/a/b.md");
-  });
-
+describe("Brain path safety", () => {
   it("blocks traversal even with a writeBrainFile call", async () => {
     await connectFixtureBrain();
     await writeFile(join(tempDir, "outside.md"), "secret");

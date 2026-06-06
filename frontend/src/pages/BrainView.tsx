@@ -16,7 +16,10 @@ import {
 import { useBrainSave, useBrainStatus } from "@/hooks/useBrainGit";
 import { useBrainChatRefresh } from "@/hooks/useBrainChatRefresh";
 import { useConversationColumn } from "@/hooks/useConversationColumn";
-import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext";
+import {
+  useClearUnread,
+  useWorkspaceLiveDataContext,
+} from "@/contexts/WorkspaceLiveDataContext";
 import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 import { ConversationPane } from "@/components/chat/ConversationPane";
 import { BrainWelcome } from "@/components/BrainWelcome";
@@ -117,6 +120,16 @@ export default function BrainView() {
     wsTransport.clearCachedData(BRAIN_WORKSPACE_ID);
   }, []);
 
+  const clearUnread = useClearUnread();
+
+  // Clear the per-session unread badge when a Brain session is activated.
+  const onActivateSession = useCallback(
+    (targetSessionId: string) => {
+      clearUnread(BRAIN_WORKSPACE_ID, targetSessionId);
+    },
+    [clearUnread],
+  );
+
   // ── Brain agent chat (shared workspace machinery, pointed at "brain") ──
   // The conversation column (chat, sessions, tabs, tasks, queue) is shared with
   // WorkspaceView via useConversationColumn.
@@ -168,9 +181,18 @@ export default function BrainView() {
     handleCreateSession,
     handleActivateSession,
     handleDeleteSession,
-  } = useConversationColumn(BRAIN_WORKSPACE_ID, { onLastSessionDeleted });
+  } = useConversationColumn(BRAIN_WORKSPACE_ID, { onActivateSession, onLastSessionDeleted });
 
   const liveData = useWorkspaceLiveDataContext();
+
+  // Clear unread only when the active conversation is actually visible. While a
+  // file tab is open, keep unread so the conversation tab can still show a dot.
+  useEffect(() => {
+    if (isFileTabActive) return;
+    if (sessionId && liveData[BRAIN_WORKSPACE_ID]?.unreadSessions?.[sessionId]) {
+      clearUnread(BRAIN_WORKSPACE_ID, sessionId);
+    }
+  }, [isFileTabActive, sessionId, liveData, clearUnread]);
 
   const supportsRendered = openFile ? isMarkdownFilePath(openFile) : false;
   // Default to Rendered: notes are for reading; switching to Raw enables editing.

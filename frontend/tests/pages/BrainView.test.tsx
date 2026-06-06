@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   useConversation: vi.fn(),
   useSessions: vi.fn(),
   useWorkspaceLiveDataContext: vi.fn(),
+  useClearUnread: vi.fn(),
   useTasks: vi.fn(),
   useBackgroundAgents: vi.fn(),
   flushFileViewer: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock("@/hooks/useConversation", () => ({ useConversation: mocks.useConversati
 vi.mock("@/hooks/useSessions", () => ({ useSessions: mocks.useSessions }));
 vi.mock("@/contexts/WorkspaceLiveDataContext", () => ({
   useWorkspaceLiveDataContext: mocks.useWorkspaceLiveDataContext,
+  useClearUnread: mocks.useClearUnread,
 }));
 vi.mock("@/hooks/useTasks", () => ({ useTasks: mocks.useTasks }));
 vi.mock("@/hooks/useBackgroundAgents", () => ({ useBackgroundAgents: mocks.useBackgroundAgents }));
@@ -131,6 +133,7 @@ describe("BrainView", () => {
       deleteSession: vi.fn(),
     });
     mocks.useWorkspaceLiveDataContext.mockReturnValue({});
+    mocks.useClearUnread.mockReturnValue(vi.fn());
     mocks.useTasks.mockReturnValue({ tasks: [], currentTask: null, counts: {} });
     mocks.useBackgroundAgents.mockReturnValue({ agents: [], runningCount: 0 });
   });

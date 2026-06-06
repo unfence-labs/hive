@@ -36,7 +36,13 @@ import {
   parseProjectOwnerRepo,
 } from "@/lib/sidebar-helpers";
 import { cn } from "@/lib/utils";
-import { aggregateScriptRunning, aggregateWorkspaceActivity } from "@/lib/workspace-activity";
+import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
+import {
+  aggregateScriptRunning,
+  aggregateWorkspaceActivity,
+  workspaceActivityState,
+} from "@/lib/workspace-activity";
+import { SidebarActivityDot } from "@/components/sidebar/SidebarActivityDot";
 import { useAutomations } from "@/hooks/useAutomations";
 import { SidebarShell } from "@/components/SidebarShell";
 import { ResizeHandle } from "@/components/ResizeHandle";
@@ -468,6 +474,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     </div>
   );
 
+  const brainActivity = workspaceActivityState(liveData[BRAIN_WORKSPACE_ID]);
   const brainSidebarEntry = brain.exists ? (
     <Link
       to="/brain"
@@ -481,13 +488,16 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
           : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground",
       )}
     >
-      <Brain
-        className={cn(
-          "h-4 w-4 shrink-0",
-          pathname === "/brain" ? "text-primary" : "text-sidebar-foreground/70",
-        )}
-        aria-hidden="true"
-      />
+      <span className="relative inline-flex shrink-0">
+        <Brain
+          className={cn(
+            "h-4 w-4 shrink-0",
+            pathname === "/brain" ? "text-primary" : "text-sidebar-foreground/70",
+          )}
+          aria-hidden="true"
+        />
+        <SidebarActivityDot state={brainActivity} dimmed={pathname === "/brain"} />
+      </span>
       <span className="truncate text-sidebar-foreground">Brain</span>
     </Link>
   ) : null;

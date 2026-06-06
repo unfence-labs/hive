@@ -1,14 +1,13 @@
 import type { Stats } from "node:fs";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, resolve, sep } from "node:path";
+import { mkdir, open, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { BrainFileContent, WorkspaceFileTreeNode } from "../types.js";
 import { buildFileTree } from "../utils/file-tree.js";
 import { BadRequestError, ConflictError, NotFoundError } from "../utils/errors.js";
+import { MAX_TEXT_FILE_SIZE, resolveSafeRepoFilePath } from "../utils/repo-files.js";
 import { brainRepoPath } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
 import { loadBrainState } from "../state/brain.js";
-
-const MAX_FILE_SIZE = 1024 * 1024; // 1 MB
 
 /**
  * Resolve the Brain repository path, asserting the Brain exists.
@@ -20,29 +19,6 @@ export async function requireBrainRepo(dataDir = getDataDir()): Promise<string> 
     throw new ConflictError("Brain is not connected");
   }
   return brainRepoPath(dataDir);
-}
-
-/**
- * Resolve a Brain-relative path to an absolute path, rejecting traversal
- * outside the repo and any attempt to touch the `.git` directory.
- */
-export function resolveBrainFilePath(repoPath: string, relPath: string): string {
-  if (!relPath || !relPath.trim()) {
-    throw new BadRequestError("Missing file path");
-  }
-  const root = resolve(repoPath);
-  const resolved = resolve(root, relPath);
-  if (resolved !== root && !resolved.startsWith(`${root}${sep}`)) {
-    throw new BadRequestError("Invalid file path");
-  }
-  if (resolved === root) {
-    throw new BadRequestError("Invalid file path");
-  }
-  const gitDir = `${root}${sep}.git`;
-  if (resolved === gitDir || resolved.startsWith(`${gitDir}${sep}`)) {
-    throw new BadRequestError("Refusing to access the .git directory");
-  }
-  return resolved;
 }
 
 /** List the Brain working-tree files as a recursive tree (`.git` excluded). */
@@ -59,7 +35,7 @@ export async function readBrainFile(
   dataDir = getDataDir(),
 ): Promise<BrainFileContent> {
   const repoPath = await requireBrainRepo(dataDir);
-  const absolutePath = resolveBrainFilePath(repoPath, relPath);
+  const absolutePath = await resolveSafeRepoFilePath(repoPath, relPath);
 
   let fileStat: Stats;
   try {
@@ -70,8 +46,22 @@ export async function readBrainFile(
   if (!fileStat.isFile()) {
     throw new BadRequestError("Path is not a file");
   }
-  if (fileStat.size > MAX_FILE_SIZE) {
-    throw new BadRequestError(`File too large (${Math.round(fileStat.size / 1024)}KB, max 1MB)`);
+
+  // The agent can write notes directly to disk (its own Write tool bypasses the
+  // size-checked write path), so any finite cap can be exceeded. Rather than
+  // making such a note unviewable, return a bounded prefix and flag it as
+  // truncated; the UI renders truncated files read-only so a save can never
+  // overwrite the dropped tail.
+  if (fileStat.size > MAX_TEXT_FILE_SIZE) {
+    const handle = await open(absolutePath, "r");
+    try {
+      const buffer = Buffer.alloc(MAX_TEXT_FILE_SIZE);
+      const { bytesRead } = await handle.read(buffer, 0, MAX_TEXT_FILE_SIZE, 0);
+      const content = buffer.subarray(0, bytesRead).toString("utf-8");
+      return { path: relPath, content, truncated: true };
+    } finally {
+      await handle.close();
+    }
   }
 
   const content = await readFile(absolutePath, "utf-8");
@@ -88,7 +78,7 @@ export async function writeBrainFile(
   dataDir = getDataDir(),
 ): Promise<BrainFileContent> {
   const repoPath = await requireBrainRepo(dataDir);
-  const absolutePath = resolveBrainFilePath(repoPath, relPath);
+  const absolutePath = await resolveSafeRepoFilePath(repoPath, relPath);
   await mkdir(dirname(absolutePath), { recursive: true });
   await writeFile(absolutePath, content, "utf-8");
   return { path: relPath, content };

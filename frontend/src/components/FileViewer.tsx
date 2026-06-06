@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ImageOffIcon, Loader2Icon } from "lucide-react";
+import { AlertTriangleIcon, ImageOffIcon, Loader2Icon } from "lucide-react";
 import { highlightCode } from "@/lib/shiki";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MessageResponse } from "@/components/ai-elements/message";
@@ -155,13 +155,17 @@ export const FileViewer = forwardRef<FileViewerHandle, FileViewerProps>(function
     [],
   );
 
-  const { content, isLoading: contentLoading, error: contentError } = useFileContent(
+  const { content, isLoading: contentLoading, error: contentError, truncated } = useFileContent(
     isImageFile ? undefined : wsId,
     isImageFile ? null : filePath,
   );
 
+  // A truncated file holds only a prefix of the on-disk content, so it must
+  // never be editable — a save would overwrite the dropped tail.
+  const effectiveEditable = editable && !truncated;
+
   // Shiki HTML for the read-only raw view. Skipped when editing or rendering.
-  const skipHtml = isImageFile || showRendered || editable;
+  const skipHtml = isImageFile || showRendered || effectiveEditable;
   const [html, setHtml] = useState("");
   useEffect(() => {
     if (skipHtml || content === undefined) {
@@ -207,11 +211,18 @@ export const FileViewer = forwardRef<FileViewerHandle, FileViewerProps>(function
     );
   }
 
+  const banner = truncated ? <TruncatedNotice /> : null;
+
   if (showRendered) {
-    return <RenderedMarkdown content={content ?? ""} />;
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {banner}
+        <RenderedMarkdown content={content ?? ""} />
+      </div>
+    );
   }
 
-  if (editable) {
+  if (effectiveEditable) {
     return (
       <EditableRawFile
         ref={editableRef}
@@ -223,7 +234,9 @@ export const FileViewer = forwardRef<FileViewerHandle, FileViewerProps>(function
   }
 
   return (
-    <div className="file-viewer min-h-0 flex-1 overflow-auto">
+    <div className="flex min-h-0 flex-1 flex-col">
+      {banner}
+      <div className="file-viewer min-h-0 flex-1 overflow-auto">
       <div
         className="file-viewer-content text-sm"
         dangerouslySetInnerHTML={{ __html: html }}
@@ -254,9 +267,26 @@ export const FileViewer = forwardRef<FileViewerHandle, FileViewerProps>(function
           background: color-mix(in oklch, var(--foreground) 5%, transparent);
         }
       `}</style>
+      </div>
     </div>
   );
 });
+
+/** Banner shown when only a prefix of a large file is loaded (read-only). */
+function TruncatedNotice() {
+  return (
+    <div
+      className="flex shrink-0 items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-400"
+      role="status"
+    >
+      <AlertTriangleIcon className="size-3.5 shrink-0" />
+      <span>
+        This file is too large to load fully. Showing a preview only — editing is
+        disabled to avoid overwriting the rest of the file.
+      </span>
+    </div>
+  );
+}
 
 /** Rendered Markdown preview (read-only). Mirrors the Brain editor's styling. */
 function RenderedMarkdown({ content }: { content: string }) {

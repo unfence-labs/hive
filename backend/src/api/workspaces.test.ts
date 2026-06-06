@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { projectRoutes } from "./projects.js";
@@ -513,6 +513,24 @@ describe("GET /api/workspaces/:wsId/file", () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/workspaces/${ws.id}/file?path=../../etc/passwd`,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("returns 400 for a symlink that escapes the workspace", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+
+    await writeFile(join(dataDir, "secret.txt"), "top secret");
+    await symlink(join(dataDir, "secret.txt"), join(wsPath, "leak.txt"));
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${ws.id}/file?path=leak.txt`,
     });
     expect(res.statusCode).toBe(400);
   });

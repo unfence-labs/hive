@@ -223,4 +223,28 @@ describe("FileViewer", () => {
 
     expect(onWriteToDisk).toHaveBeenCalledWith("notes/a.md", "new");
   });
+
+  it("renders a truncated file read-only even when editable is requested", async () => {
+    const apiMock = await getApiMock();
+    const highlightMock = await getHighlightMock();
+    apiMock.mockResolvedValue({ content: "prefix only", path: "notes/big.md", truncated: true });
+    highlightMock.mockResolvedValue(
+      '<pre class="shiki"><code><span class="line">prefix only</span></code></pre>',
+    );
+    const onWriteToDisk = vi.fn();
+
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <FileViewer wsId="brain" filePath="notes/big.md" editable onWriteToDisk={onWriteToDisk} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/too large to load fully/i)).toBeInTheDocument();
+    });
+    // No editor is rendered, so the truncated tail can never be overwritten.
+    expect(screen.queryByLabelText("File content")).not.toBeInTheDocument();
+  });
 });

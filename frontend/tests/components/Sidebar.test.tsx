@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Sidebar from "@/components/Sidebar";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { api } from "@/hooks/useApi";
+import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import type { UiPreferencesPayload } from "@/lib/sidebar-preferences";
 import type { BrainState, Project, PullRequestInfo, WsOutgoing } from "@/types";
 
@@ -162,7 +163,12 @@ function renderSidebar(
     throw new Error(`Unexpected PUT: ${url}`);
   });
 
-  const workspaceIds = projects.flatMap((p) => (p.workspaces ?? []).map((ws) => ws.id));
+  // Mirror App.tsx: the synthetic Brain id is always subscribed so the Brain
+  // streams over the same hub and surfaces activity in the sidebar.
+  const workspaceIds = [
+    ...projects.flatMap((p) => (p.workspaces ?? []).map((ws) => ws.id)),
+    BRAIN_WORKSPACE_ID,
+  ];
 
   return render(
     <QueryClientProvider client={queryClient}>
@@ -343,6 +349,38 @@ describe("Sidebar", () => {
 
     await user.click(brainLink);
     expect(screen.getAllByTestId("location-path").at(-1)).toHaveTextContent("/brain");
+  });
+
+  it("surfaces Brain activity (unread then streaming) on the sidebar entry", async () => {
+    brainMock.brain = {
+      exists: true,
+      repoUrl: "git@github.com:octocat/brain.git",
+      createdAt: "2026-06-05T00:00:00.000Z",
+    };
+    const { __wsMock } = await getWsMock();
+    // Viewing another page, so a completed Brain turn is background activity.
+    renderSidebar("/home", projects);
+
+    const brainLink = await screen.findByRole("link", { name: /Brain/i });
+    expect(brainLink.querySelector("[aria-label='Unread activity']")).toBeNull();
+
+    // A background turn completes -> unread dot.
+    act(() => {
+      __wsMock.emit(BRAIN_WORKSPACE_ID, { type: "done", sessionId: "brain-sess-1" });
+    });
+    expect(brainLink.querySelector("[aria-label='Unread activity']")).not.toBeNull();
+
+    // A new turn starts -> streaming indicator takes over.
+    act(() => {
+      __wsMock.emit(BRAIN_WORKSPACE_ID, {
+        type: "status",
+        status: "busy",
+        sessionId: "brain-sess-1",
+        streaming: true,
+      });
+    });
+    expect(brainLink.querySelector("[aria-label='Agent is working']")).not.toBeNull();
+    expect(brainLink.querySelector("[aria-label='Unread activity']")).toBeNull();
   });
 
   it("shows workspace count beside project name only when count is greater than zero", async () => {

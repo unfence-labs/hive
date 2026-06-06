@@ -116,6 +116,10 @@ export async function deleteBrain(dataDir = getDataDir()): Promise<void> {
   const repoPath = brainRepoPath(dataDir);
   assertPathInsideBrain(dataDir, join(dir, "state.json"));
   assertPathInsideBrain(dataDir, repoPath);
-  await deleteBrainState(dataDir);
+  // Remove the on-disk clone first, then drop the state. If the rm throws, the
+  // Brain stays "connected" (state intact) and the delete can be retried,
+  // instead of leaving a state-less repo on disk that blocks recreate
+  // (assertBrainDoesNotExist would see the leftover repo and reject forever).
   await rm(repoPath, { recursive: true, force: true });
+  await deleteBrainState(dataDir);
 }

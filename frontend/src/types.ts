@@ -56,6 +56,12 @@ export interface BrainSaveResponse {
 export interface BrainFileContent {
   path: string;
   content: string;
+  /**
+   * `true` when `content` is a bounded prefix of a file larger than the read
+   * cap. The full file is intact on disk; the UI renders truncated content
+   * read-only so a save cannot overwrite the dropped tail.
+   */
+  truncated?: boolean;
 }
 
 export type {

@@ -1,6 +1,6 @@
 import type { Stats } from "node:fs";
 import { readdir, readFile, stat, mkdir, writeFile, rename } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 import { nanoid } from "nanoid";
 import { git } from "../utils/git.js";
 import {
@@ -8,6 +8,7 @@ import {
   removeWorktreeOrDeleteDirectory,
 } from "../utils/git-worktree.js";
 import { buildFileTree } from "../utils/file-tree.js";
+import { MAX_TEXT_FILE_SIZE, resolveSafeRepoFilePath } from "../utils/repo-files.js";
 import { buildDiffResponse, getUntrackedDiff } from "../utils/git-diff.js";
 import { bareRepoPath, workspacesDir, resolveDefaultBranch } from "../utils/paths.js";
 import { refreshDefaultBranchFromOrigin } from "../utils/git-default-branch.js";
@@ -418,8 +419,6 @@ export async function listWorkspaceFiles(
   return buildFileTree(workspacePath);
 }
 
-const MAX_FILE_SIZE = 1024 * 1024; // 1 MB
-
 export interface WorkspaceFileEntry {
   absolutePath: string;
   path: string;
@@ -431,8 +430,6 @@ export async function getWorkspaceFileEntry(
   filePath: string,
   dataDir = getDataDir()
 ): Promise<WorkspaceFileEntry> {
-  if (!filePath) throw new BadRequestError("Missing file path");
-
   const result = await getWorkspace(wsId, dataDir);
   if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
 
@@ -441,10 +438,9 @@ export async function getWorkspaceFileEntry(
     result.workspace.name,
   );
 
-  const resolved = resolve(workspacePath, filePath);
-  if (!resolved.startsWith(workspacePath + sep) && resolved !== workspacePath) {
-    throw new BadRequestError("Invalid file path");
-  }
+  // Shared with the Brain: rejects traversal, the repo root, `.git`, and
+  // symlink escapes (lexical resolve does not follow symlinks).
+  const resolved = await resolveSafeRepoFilePath(workspacePath, filePath);
 
   let fileStat;
   try {
@@ -467,7 +463,7 @@ export async function getWorkspaceFileContent(
 ): Promise<{ content: string; path: string }> {
   const file = await getWorkspaceFileEntry(wsId, filePath, dataDir);
 
-  if (file.stat.size > MAX_FILE_SIZE) {
+  if (file.stat.size > MAX_TEXT_FILE_SIZE) {
     throw new BadRequestError(`File too large (${Math.round(file.stat.size / 1024)}KB, max 1MB)`);
   }
 
