@@ -267,6 +267,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `useConversation` hydrates from REST history, resolves stale replay races with request tokens, and ignores late live fragments after a terminal assistant message. It also tracks `lockedProvider` from WS status events.
 - Session tabs support create/switch/delete (max 4 sessions) with live message replay, per-session streaming indicators, and per-session unread badges.
 - Chat input dynamically adapts controls based on the selected provider's capabilities: a unified thinking-level cycler reads the supported list from `capabilities.thinkingLevels` (Claude: low/medium/high/xhigh/max via `--effort`; Codex: none/minimal/low/medium/high/xhigh via `model_reasoning_effort`; Gemini: `[]` → hidden), plan mode hidden when unsupported, `/` and `@` autocomplete gated by `completions` capability, `#` file mention autocomplete with fuzzy matching.
+- Fast mode (Claude Opus only): a `Fast` toggle appears in the chat input only when the selected model's `ModelCatalogEntry.supportsFastMode` is set (currently Opus 4.8). It sets `MessageOptions.fastMode`, which `ClaudeProvider.buildArgs` translates into an inline `--settings '{"fastMode":true}'` session override (there is no `--fast` flag in headless mode). The provider gates emission on the resolved model supporting fast mode, so a stale flag on Sonnet/Haiku is dropped. Fast mode is persisted per-session in the chat-input draft. Wired on iOS too (see iOS behavior).
 - Chat input supports image attachments (paste/drag-drop/picker), Commit & Push quick action button, and context window usage ring.
 - Message queue: users can type and submit one follow-up while the agent is streaming. Queued message renders with dashed border and "Queued" label, auto-dispatches on turn complete.
 - Plan proposals render inline in chat. `PlanActionBar` floats above the input with Copy, Hand-off (creates new session with plan content), and Approve. Backend emits `plan_mode_changed` WS events on `EnterPlanMode`/`ExitPlanMode` for automatic UI sync.
@@ -355,10 +356,11 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Unknown WS event types decode to `.unknown` instead of visible chat errors. Unknown agent activity kinds render as an unsupported activity row.
 - AskUserQuestion renders as a paginated form sheet with multi-select support. Dismissed questions show "CANCELLED" badge.
 - ExitPlanMode renders as a markdown preview with approve/reject actions.
-- Chat drafts are persisted per-workspace and restored on app relaunch (includes `selectedModelId`, `thinkingLevel`).
+- Chat drafts are persisted in memory per-workspace/session while the app is running (includes `selectedModelId`, `thinkingLevel`, `fastModeEnabled`); they are intentionally lost on app termination.
 - Deleting the active conversation must clear its `ConversationStore` state and either focus the next remaining session or clear focus when none remain.
 - Model catalog is fetched dynamically from `/api/models`. Picker groups by provider, disables cross-provider items when session is locked.
 - All providers supporting reasoning effort show a unified thinking-level cycler; the supported list comes from `capabilities.thinkingLevels` (Claude: low/medium/high/xhigh/max; Codex: none/minimal/low/medium/high/xhigh). Plan mode hidden for providers that don't support it.
+- Fast mode (Claude Opus only): a `Fast` toggle (`ModeToggle`, bolt icon) appears in `ChatInputBar` only when the selected `ModelCatalogEntry.supportsFastMode` is set. It sets `MessageOptions.fastMode`, gated on the selected model supporting it (so a stale flag on Sonnet/Haiku is dropped before the WS send). Persisted per-session in `ChatDraftStore.Draft.fastModeEnabled`.
 - `lockedProvider` is read from WS status events (not REST) for instant model locking after first message.
 - Pre-multi-model sessions default to `"claude"` when they have messages but no `lockedProvider`.
 - PR status uses bulk endpoint matching the frontend. iOS keeps one shared `HubPrStatusDisplay` mapping so Hub rows and the workspace dashboard cannot drift.

@@ -1,21 +1,33 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRef, type ComponentProps } from "react";
 import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 
+const modelMock = vi.hoisted(() => {
+  const capabilities = { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true };
+  const models = [
+    { id: "claude:opus-4-7", modelId: "opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code", isNew: false, supportsFastMode: true, capabilities },
+    { id: "claude:sonnet-4-6", modelId: "sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code", isNew: true, capabilities },
+  ];
+  return {
+    models,
+    selectedModelId: "claude:opus-4-7",
+    setSelectedModelId: vi.fn((id: string) => {
+      modelMock.selectedModelId = id;
+    }),
+  };
+});
+
 vi.mock("@/hooks/useModels", () => ({
   useModels: () => ({
-    models: [
-      { id: "claude:opus-4-7", modelId: "opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code", isNew: false, capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true } },
-      { id: "claude:sonnet-4-6", modelId: "sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code", isNew: true, capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true } },
-    ],
+    models: modelMock.models,
     defaultModelId: "claude:opus-4-7",
-    selectedModelId: "claude:opus-4-7",
-    selectedModel: { id: "claude:opus-4-7", modelId: "opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code", isNew: false, capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true } },
-    capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true },
-    setSelectedModelId: vi.fn(),
+    selectedModelId: modelMock.selectedModelId,
+    selectedModel: modelMock.models.find((model) => model.id === modelMock.selectedModelId),
+    capabilities: modelMock.models.find((model) => model.id === modelMock.selectedModelId)?.capabilities,
+    setSelectedModelId: modelMock.setSelectedModelId,
     isLoading: false,
   }),
 }));
@@ -62,6 +74,11 @@ function renderChatInput(overrides?: Partial<ComponentProps<typeof ChatInput>>) 
 }
 
 describe("ChatInput", () => {
+  beforeEach(() => {
+    modelMock.selectedModelId = "claude:opus-4-7";
+    modelMock.setSelectedModelId.mockClear();
+  });
+
   it("does not render legacy status labels", () => {
     renderChatInput();
 
@@ -150,6 +167,48 @@ describe("ChatInput", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
 
     expect(onSend).toHaveBeenCalledWith("hello", undefined, { model: "claude:opus-4-7", planMode: true, thinkingLevel: "xhigh" }, undefined);
+  });
+
+  it("shows Fast only for models that support it", () => {
+    const { rerender } = renderChatInput();
+    expect(screen.getByRole("button", { name: "Toggle fast mode (faster Opus, higher cost)" })).toBeInTheDocument();
+
+    modelMock.selectedModelId = "claude:sonnet-4-6";
+    rerender();
+
+    expect(screen.queryByRole("button", { name: "Toggle fast mode (faster Opus, higher cost)" })).not.toBeInTheDocument();
+  });
+
+  it("sends fastMode only after the Opus Fast toggle is enabled", async () => {
+    const user = userEvent.setup();
+    const { onSend } = renderChatInput();
+
+    await user.click(screen.getByRole("button", { name: "Toggle fast mode (faster Opus, higher cost)" }));
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, {
+      model: "claude:opus-4-7",
+      planMode: false,
+      thinkingLevel: "high",
+      fastMode: true,
+    }, undefined);
+  });
+
+  it("does not send fastMode for models that do not support it", async () => {
+    modelMock.selectedModelId = "claude:sonnet-4-6";
+    const user = userEvent.setup();
+    const { onSend } = renderChatInput();
+
+    expect(screen.queryByRole("button", { name: "Toggle fast mode (faster Opus, higher cost)" })).not.toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onSend).toHaveBeenCalledWith("hello", undefined, {
+      model: "claude:sonnet-4-6",
+      planMode: false,
+      thinkingLevel: "high",
+    }, undefined);
   });
 
   it("cycles thinking level back to default after a full rotation", async () => {

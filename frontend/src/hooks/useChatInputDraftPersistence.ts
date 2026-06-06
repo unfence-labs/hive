@@ -7,6 +7,7 @@ interface DraftState {
   planMode: boolean;
   selectedModelId: string;
   thinkingLevel: ThinkingLevel;
+  fastMode: boolean;
   files: AttachmentsContext["files"];
   fileMentions: FileMention[];
 }
@@ -19,12 +20,14 @@ interface UseChatInputDraftPersistenceParams {
   selectedModelId: string;
   defaultModelId: string;
   thinkingLevel: ThinkingLevel;
+  fastMode: boolean;
   attachmentsRef: MutableRefObject<AttachmentsContext | null>;
   fileMentions: FileMention[];
   setValue: (value: string) => void;
   setPlanMode: (value: boolean) => void;
   setSelectedModelId: (value: string) => void;
   setThinkingLevel: (value: ThinkingLevel) => void;
+  setFastMode: (value: boolean) => void;
   setFileCount: (count: number) => void;
   setFileMentions: Dispatch<SetStateAction<FileMention[]>>;
 }
@@ -68,6 +71,7 @@ function hasPersistableDraft(draft: DraftState): boolean {
     draft.files.length > 0 ||
     draft.fileMentions.length > 0 ||
     draft.planMode ||
+    draft.fastMode ||
     draft.thinkingLevel !== "high"
   );
 }
@@ -102,12 +106,14 @@ export function useChatInputDraftPersistence({
   selectedModelId,
   defaultModelId,
   thinkingLevel,
+  fastMode,
   attachmentsRef,
   fileMentions,
   setValue,
   setPlanMode,
   setSelectedModelId,
   setThinkingLevel,
+  setFastMode,
   setFileCount,
   setFileMentions,
 }: UseChatInputDraftPersistenceParams) {
@@ -121,6 +127,8 @@ export function useChatInputDraftPersistence({
   selectedModelIdRef.current = selectedModelId;
   const thinkingLevelRef = useRef(thinkingLevel);
   thinkingLevelRef.current = thinkingLevel;
+  const fastModeRef = useRef(fastMode);
+  fastModeRef.current = fastMode;
   const defaultModelIdRef = useRef(defaultModelId);
   defaultModelIdRef.current = defaultModelId;
   const fileMentionsRef = useRef(fileMentions);
@@ -139,6 +147,7 @@ export function useChatInputDraftPersistence({
       planMode: planModeRef.current,
       selectedModelId: selectedModelIdRef.current,
       thinkingLevel: thinkingLevelRef.current,
+      fastMode: fastModeRef.current,
       files: [...files],
       fileMentions: [...fileMentionsRef.current],
     }, options?.allowDelete ?? true);
@@ -169,6 +178,7 @@ export function useChatInputDraftPersistence({
         setPlanMode(draft.planMode);
         setSelectedModelId(draft.selectedModelId);
         setThinkingLevel(draft.thinkingLevel);
+        setFastMode(draft.fastMode ?? false);
         attachmentsRef.current?.restore([...draft.files]);
         setFileCount(draft.files.length);
         setFileMentions(draft.fileMentions ?? []);
@@ -176,6 +186,7 @@ export function useChatInputDraftPersistence({
         setValue("");
         setPlanMode(false);
         setThinkingLevel("high");
+        setFastMode(false);
         if (defaultModelIdRef.current) setSelectedModelId(defaultModelIdRef.current);
         attachmentsRef.current?.restore([]);
         setFileCount(0);
@@ -194,6 +205,7 @@ export function useChatInputDraftPersistence({
     setPlanMode,
     setSelectedModelId,
     setThinkingLevel,
+    setFastMode,
     setFileCount,
     setFileMentions,
   ]);

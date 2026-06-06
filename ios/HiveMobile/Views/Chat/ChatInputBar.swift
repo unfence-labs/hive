@@ -7,6 +7,7 @@ struct ChatInputBar: View {
     let isBusy: Bool
     @Binding var planModeEnabled: Bool
     @Binding var thinkingLevel: ThinkingLevel
+    @Binding var fastModeEnabled: Bool
     let models: [ModelCatalogEntry]
     let groupedModels: [ModelProviderGroup]
     let selectedModelId: String
@@ -65,6 +66,10 @@ struct ChatInputBar: View {
     private var thinkingLevels: [ThinkingLevel] { capabilities?.thinkingLevels ?? [] }
     private var supportsThinking: Bool { !thinkingLevels.isEmpty }
     private var supportsPlanMode: Bool { capabilities?.planMode ?? true }
+    /// Fast mode is gated per-model (Opus-only), not by provider capabilities.
+    private var supportsFastMode: Bool {
+        models.first { $0.id == selectedModelId }?.supportsFastMode ?? false
+    }
 
     /// Clamp the bound `thinkingLevel` to a value the current provider supports;
     /// prefer the user's current selection, else `.high`, else the provider's first level.
@@ -118,6 +123,9 @@ struct ChatInputBar: View {
             }
             if supportsPlanMode {
                 ModeToggle(systemImage: "doc.text", label: "Plan", isActive: $planModeEnabled, highlightColor: hiveAccent)
+            }
+            if supportsFastMode {
+                ModeToggle(systemImage: "bolt.fill", label: "Fast", isActive: $fastModeEnabled, highlightColor: hiveAccent)
             }
 
             Spacer()
@@ -389,11 +397,11 @@ private extension ImageAttachment {
         .init(id: "claude:opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code",
               isDefault: true, isNew: nil,
               capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true),
-              contextWindow: 1_000_000),
+              contextWindow: 1_000_000, supportsFastMode: true),
         .init(id: "claude:sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code",
               isDefault: nil, isNew: true,
               capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true),
-              contextWindow: 1_000_000),
+              contextWindow: 1_000_000, supportsFastMode: nil),
     ]
     let grouped = [ModelProviderGroup(provider: "claude", providerLabel: "Claude Code", models: sampleModels)]
 
@@ -405,6 +413,7 @@ private extension ImageAttachment {
             isBusy: false,
             planModeEnabled: .constant(false),
             thinkingLevel: .constant(.high),
+            fastModeEnabled: .constant(false),
             models: sampleModels,
             groupedModels: grouped,
             selectedModelId: "claude:opus-4-7",
@@ -422,6 +431,7 @@ private extension ImageAttachment {
             isBusy: true,
             planModeEnabled: .constant(true),
             thinkingLevel: .constant(.low),
+            fastModeEnabled: .constant(true),
             models: sampleModels,
             groupedModels: grouped,
             selectedModelId: "claude:sonnet-4-6",

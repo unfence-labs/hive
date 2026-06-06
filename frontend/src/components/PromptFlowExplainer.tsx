@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Terminal, FileCode2, GitBranch, MessageSquare, Lightbulb, Settings, Brain, FolderTree } from "lucide-react";
+import { Terminal, FileCode2, GitBranch, MessageSquare, Lightbulb, Settings, Brain, FolderTree, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type FlowMode = "chat" | "brain" | "automation";
@@ -71,6 +71,14 @@ export function PromptFlowExplainer() {
                 title="Git Context"
                 desc="Project, Branch, Status, Commits"
                 isHovered={hoveredCard === "git"}
+                onHover={setHoveredCard}
+              />
+              <SourceCard
+                id="browser"
+                icon={<Globe className="h-4 w-4" />}
+                title="Browser Context"
+                desc="agent-browser live preview hint"
+                isHovered={hoveredCard === "browser"}
                 onHover={setHoveredCard}
               />
               <SourceCard
@@ -163,7 +171,10 @@ export function PromptFlowExplainer() {
                     --append-system-prompt "You are an AI coding agent...
                   </PayloadBlock>
                   <PayloadBlock id="git" hoveredId={hoveredCard} color="text-green-400">
-                    {`\n\n# Git Context\nProject: Hive\nBranch: main\n..."`}
+                    {`\n\n# Git Context\nProject: Hive\nBranch: main\n...`}
+                  </PayloadBlock>
+                  <PayloadBlock id="browser" hoveredId={hoveredCard} color="text-orange-400">
+                    {`\n\n# Browser Context\nHive provides a read-only live browser panel..."`}
                   </PayloadBlock>
                   <div className="my-2 border-t border-white/10" />
                   <PayloadBlock id="user" hoveredId={hoveredCard} color="text-white">
