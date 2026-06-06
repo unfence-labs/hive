@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
-import { BRAIN_DIFF_QUERY_KEY, BRAIN_STATUS_QUERY_KEY } from "@/lib/brain";
+import {
+  BRAIN_DIFF_QUERY_KEY,
+  BRAIN_PARSED_DIFF_QUERY_KEY,
+  BRAIN_STATUS_QUERY_KEY,
+} from "@/lib/brain";
 import type { BrainDiffResponse, BrainSaveResponse, BrainStatusResponse } from "@/types";
 
 /**
@@ -36,6 +40,7 @@ export function useBrainSave() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: BRAIN_STATUS_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: BRAIN_DIFF_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: BRAIN_PARSED_DIFF_QUERY_KEY });
     },
   });
 

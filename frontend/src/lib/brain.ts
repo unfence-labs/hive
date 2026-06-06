@@ -13,7 +13,17 @@ export const BRAIN_WORKSPACE_ID = "brain";
  */
 export const BRAIN_FILES_QUERY_KEY = ["brain", "files"] as const;
 export const BRAIN_STATUS_QUERY_KEY = ["brain", "status"] as const;
+/**
+ * Cache key for the raw Brain diff (`{ diff, omittedFileCount }`) used by the
+ * Save review modal (`useBrainDiff`).
+ */
 export const BRAIN_DIFF_QUERY_KEY = ["brain", "diff"] as const;
+/**
+ * Cache key for the Brain diff parsed for the inline viewer (`useDiff`). Kept
+ * distinct from {@link BRAIN_DIFF_QUERY_KEY} because the shapes differ — sharing
+ * one key with two return types would corrupt the cache.
+ */
+export const BRAIN_PARSED_DIFF_QUERY_KEY = ["brain", "diff", "parsed"] as const;
 
 /** Cache key for a single Brain file's content. */
 export function brainFileQueryKey(path: string | null): readonly unknown[] {

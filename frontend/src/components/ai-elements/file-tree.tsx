@@ -20,6 +20,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import type { WorkspaceFileTreeNode } from "@/types";
 
 interface FileTreeContextType {
   expandedPaths: Set<string>;
@@ -259,6 +260,26 @@ export const FileTreeName = ({
     {children}
   </span>
 );
+
+/**
+ * Render a recursive {@link WorkspaceFileTreeNode} array into the shared
+ * read-only {@link FileTree} primitives (folders + files). Shared by
+ * WorkspaceView and BrainView so both render their file trees identically;
+ * selection/expansion is owned by the surrounding {@link FileTree}.
+ */
+export function renderFileTreeNodes(nodes: WorkspaceFileTreeNode[]): ReactNode {
+  return nodes.map((node) => {
+    const nodePath = node.path;
+    if (node.type === "directory") {
+      return (
+        <FileTreeFolder key={nodePath} path={nodePath} name={node.name}>
+          {node.children ? renderFileTreeNodes(node.children) : null}
+        </FileTreeFolder>
+      );
+    }
+    return <FileTreeFile key={nodePath} path={nodePath} name={node.name} />;
+  });
+}
 
 export type FileTreeActionsProps = HTMLAttributes<HTMLDivElement>;
 

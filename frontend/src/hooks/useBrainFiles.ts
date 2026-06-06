@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import { useFileContent } from "@/hooks/useFileContent";
 import {
+  BRAIN_DIFF_QUERY_KEY,
   BRAIN_FILES_QUERY_KEY,
+  BRAIN_PARSED_DIFF_QUERY_KEY,
   BRAIN_STATUS_QUERY_KEY,
   BRAIN_WORKSPACE_ID,
 } from "@/lib/brain";
@@ -34,14 +36,10 @@ export function useBrainFileContent(path: string | null) {
   };
 }
 
-export interface RenameBrainFileInput {
-  from: string;
-  to: string;
-}
-
 /**
- * Mutations for Brain file operations (upsert/delete/rename). Each mutation
- * invalidates both the file tree and the git status badge after success.
+ * Mutations for Brain file operations (upsert). The mutation invalidates the
+ * file tree, the git status badge, and the diff (raw + parsed) after success
+ * so the Modified tab and any open diff stay fresh.
  *
  * Note: upsert writes to disk only (working tree) — it does NOT commit. Git
  * persistence happens through the explicit Save flow (see `useBrainGit`).
@@ -52,6 +50,8 @@ export function useBrainFileMutations() {
   const invalidateTreeAndStatus = () => {
     void queryClient.invalidateQueries({ queryKey: BRAIN_FILES_QUERY_KEY });
     void queryClient.invalidateQueries({ queryKey: BRAIN_STATUS_QUERY_KEY });
+    void queryClient.invalidateQueries({ queryKey: BRAIN_DIFF_QUERY_KEY });
+    void queryClient.invalidateQueries({ queryKey: BRAIN_PARSED_DIFF_QUERY_KEY });
   };
 
   const upsertFile = useMutation({
@@ -60,22 +60,8 @@ export function useBrainFileMutations() {
     onSuccess: invalidateTreeAndStatus,
   });
 
-  const deleteFile = useMutation({
-    mutationFn: (path: string) =>
-      api.delete<void>(`/api/brain/file?path=${encodeURIComponent(path)}`),
-    onSuccess: invalidateTreeAndStatus,
-  });
-
-  const renameFile = useMutation({
-    mutationFn: ({ from, to }: RenameBrainFileInput) =>
-      api.post<BrainFileContent>("/api/brain/file/rename", { from, to }),
-    onSuccess: invalidateTreeAndStatus,
-  });
-
   return {
     upsertFile: (path: string, content: string) => upsertFile.mutateAsync({ path, content }),
-    deleteFile: (path: string) => deleteFile.mutateAsync(path),
-    renameFile: (input: RenameBrainFileInput) => renameFile.mutateAsync(input),
     isUpserting: upsertFile.isPending,
   };
 }

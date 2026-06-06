@@ -8,11 +8,7 @@ import { api } from "@/hooks/useApi";
 import { useConversationColumn } from "@/hooks/useConversationColumn";
 import { useWorkspaceLiveDataContext, useClearUnread } from "@/contexts/WorkspaceLiveDataContext";
 
-import {
-  FileTree,
-  FileTreeFile,
-  FileTreeFolder,
-} from "@/components/ai-elements/file-tree";
+import { FileTree, renderFileTreeNodes } from "@/components/ai-elements/file-tree";
 import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 import { ConversationPane } from "@/components/chat/ConversationPane";
 import { FileViewer } from "@/components/FileViewer";
@@ -76,20 +72,6 @@ function buildInitialExpanded(nodes: WorkspaceFileTreeNode[]): Set<string> {
 
 function matchesDiffStat(filePath: string | null | undefined, stat: DiffFileStat): boolean {
   return !!filePath && (stat.file === filePath || filePath.endsWith(`/${stat.file}`));
-}
-
-function renderFileTreeNodes(nodes: WorkspaceFileTreeNode[]) {
-  return nodes.map((node) => {
-    const nodePath = node.path;
-    if (node.type === "directory") {
-      return (
-        <FileTreeFolder key={nodePath} path={nodePath} name={node.name}>
-          {node.children ? renderFileTreeNodes(node.children) : null}
-        </FileTreeFolder>
-      );
-    }
-    return <FileTreeFile key={nodePath} path={nodePath} name={node.name} />;
-  });
 }
 
 export default function WorkspaceView() {

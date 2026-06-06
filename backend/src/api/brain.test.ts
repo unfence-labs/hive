@@ -88,7 +88,7 @@ describe("brain routes", () => {
     expect(res.statusCode).toBe(409);
   });
 
-  it("file CRUD + git status/diff/save round-trip", async () => {
+  it("file upsert/read/list + git status/diff/save round-trip", async () => {
     const fixtureDir = join(tempDir, "fixtures");
     await mkdir(fixtureDir, { recursive: true });
     const origin = await createFixtureRepo(fixtureDir);
@@ -135,14 +135,6 @@ describe("brain routes", () => {
     const diffRes = await app.inject({ method: "GET", url: "/api/brain/diff" });
     expect(diffRes.json().diff).toContain("notes/idea.md");
 
-    // Rename it.
-    const renameRes = await app.inject({
-      method: "POST",
-      url: "/api/brain/file/rename",
-      payload: { from: "notes/idea.md", to: "notes/renamed.md" },
-    });
-    expect(renameRes.statusCode).toBe(200);
-
     // Save commits + pushes.
     const saveRes = await app.inject({
       method: "POST",
@@ -161,13 +153,6 @@ describe("brain routes", () => {
       payload: {},
     });
     expect(saveAgain.json()).toEqual({ committed: false, pushed: false });
-
-    // Delete the saved file.
-    const deleteRes = await app.inject({
-      method: "DELETE",
-      url: "/api/brain/file?path=notes/renamed.md",
-    });
-    expect(deleteRes.statusCode).toBe(204);
 
     await app.close();
   });

@@ -1,15 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createFixtureRepo, createTempDir } from "../utils/test-helpers.js";
-import { brainRepoPath } from "../utils/paths.js";
 import { connectBrain } from "./brain-repo.js";
 import {
-  deleteBrainFile,
   listBrainFiles,
   readBrainFile,
-  renameBrainFile,
   resolveBrainFilePath,
   writeBrainFile,
 } from "./brain-files.js";
@@ -57,29 +53,6 @@ describe("brain file operations", () => {
     await writeBrainFile("a.md", "first", dataDir);
     await writeBrainFile("a.md", "second", dataDir);
     expect((await readBrainFile("a.md", dataDir)).content).toBe("second");
-  });
-
-  it("deletes files", async () => {
-    await connectFixtureBrain();
-    await writeBrainFile("gone.md", "x", dataDir);
-    await deleteBrainFile("gone.md", dataDir);
-    expect(existsSync(join(brainRepoPath(dataDir), "gone.md"))).toBe(false);
-    await expect(readBrainFile("gone.md", dataDir)).rejects.toMatchObject({ statusCode: 404 });
-  });
-
-  it("renames files", async () => {
-    await connectFixtureBrain();
-    await writeBrainFile("old.md", "content", dataDir);
-    await renameBrainFile("old.md", "nested/new.md", dataDir);
-    expect(existsSync(join(brainRepoPath(dataDir), "old.md"))).toBe(false);
-    expect((await readBrainFile("nested/new.md", dataDir)).content).toBe("content");
-  });
-
-  it("rejects rename when destination exists", async () => {
-    await connectFixtureBrain();
-    await writeBrainFile("a.md", "a", dataDir);
-    await writeBrainFile("b.md", "b", dataDir);
-    await expect(renameBrainFile("a.md", "b.md", dataDir)).rejects.toMatchObject({ statusCode: 409 });
   });
 
   it("returns 404 reading a missing file", async () => {

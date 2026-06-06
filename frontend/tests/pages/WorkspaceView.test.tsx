@@ -263,25 +263,40 @@ vi.mock("@/components/diff/ModifiedFileList", () => ({
   ModifiedFileList: () => <div data-testid="modified-file-list">modified-file-list</div>,
 }));
 
-vi.mock("@/components/ai-elements/file-tree", () => ({
-  FileTree: ({ children, onPathSelect }: { children?: ReactNode; onPathSelect?: (path: string) => void }) => (
-    <div data-testid="file-tree">
-      {children}
-      {onPathSelect && (
-        <button type="button" data-testid="select-file-btn" onClick={() => onPathSelect("src/index.ts")}>
-          select file
-        </button>
-      )}
-    </div>
-  ),
-  FileTreeFile: ({ name }: { name: string }) => <div data-testid={`file-${name}`}>{name}</div>,
-  FileTreeFolder: ({ name, children }: { name: string; children?: ReactNode }) => (
+vi.mock("@/components/ai-elements/file-tree", () => {
+  const FileTreeFile = ({ name }: { name: string }) => <div data-testid={`file-${name}`}>{name}</div>;
+  const FileTreeFolder = ({ name, children }: { name: string; children?: ReactNode }) => (
     <div data-testid={`folder-${name}`}>
       <span>{name}</span>
       {children}
     </div>
-  ),
-}));
+  );
+  const renderFileTreeNodes = (nodes: WorkspaceFileTreeNode[]): ReactNode =>
+    nodes.map((node) =>
+      node.type === "directory" ? (
+        <FileTreeFolder key={node.path} name={node.name}>
+          {node.children ? renderFileTreeNodes(node.children) : null}
+        </FileTreeFolder>
+      ) : (
+        <FileTreeFile key={node.path} name={node.name} />
+      ),
+    );
+  return {
+    FileTree: ({ children, onPathSelect }: { children?: ReactNode; onPathSelect?: (path: string) => void }) => (
+      <div data-testid="file-tree">
+        {children}
+        {onPathSelect && (
+          <button type="button" data-testid="select-file-btn" onClick={() => onPathSelect("src/index.ts")}>
+            select file
+          </button>
+        )}
+      </div>
+    ),
+    FileTreeFile,
+    FileTreeFolder,
+    renderFileTreeNodes,
+  };
+});
 
 const WORKSPACES: Record<string, Workspace> = {
   "ws-1": {

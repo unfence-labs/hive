@@ -1,5 +1,5 @@
 import type { Stats } from "node:fs";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import type { BrainFileContent, WorkspaceFileTreeNode } from "../types.js";
 import { buildFileTree } from "../utils/file-tree.js";
@@ -92,51 +92,4 @@ export async function writeBrainFile(
   await mkdir(dirname(absolutePath), { recursive: true });
   await writeFile(absolutePath, content, "utf-8");
   return { path: relPath, content };
-}
-
-/** Delete a Brain file from disk (working tree only — no commit). */
-export async function deleteBrainFile(
-  relPath: string,
-  dataDir = getDataDir(),
-): Promise<void> {
-  const repoPath = await requireBrainRepo(dataDir);
-  const absolutePath = resolveBrainFilePath(repoPath, relPath);
-  try {
-    await rm(absolutePath, { force: false });
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new NotFoundError(`File not found: ${relPath}`);
-    }
-    throw err;
-  }
-}
-
-/** Rename/move a Brain file on disk (working tree only — no commit). */
-export async function renameBrainFile(
-  from: string,
-  to: string,
-  dataDir = getDataDir(),
-): Promise<BrainFileContent> {
-  const repoPath = await requireBrainRepo(dataDir);
-  const fromPath = resolveBrainFilePath(repoPath, from);
-  const toPath = resolveBrainFilePath(repoPath, to);
-
-  try {
-    await stat(toPath);
-    throw new ConflictError(`Destination already exists: ${to}`);
-  } catch (err: unknown) {
-    if (err instanceof ConflictError) throw err;
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-  }
-
-  await mkdir(dirname(toPath), { recursive: true });
-  try {
-    await rename(fromPath, toPath);
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new NotFoundError(`File not found: ${from}`);
-    }
-    throw err;
-  }
-  return { path: to, content: "" };
 }

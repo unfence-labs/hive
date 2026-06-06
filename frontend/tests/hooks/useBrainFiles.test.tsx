@@ -64,26 +64,4 @@ describe("useBrainFiles", () => {
     expect(spy).toHaveBeenCalledWith({ queryKey: ["brain", "files"] });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["brain", "status"] });
   });
-
-  it("delete calls the delete endpoint", async () => {
-    vi.mocked(api.delete).mockResolvedValueOnce(undefined);
-    const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useBrainFileMutations(), { wrapper });
-
-    await act(async () => {
-      await result.current.deleteFile("notes/x.md");
-    });
-    expect(api.delete).toHaveBeenCalledWith("/api/brain/file?path=notes%2Fx.md");
-  });
-
-  it("rename calls the rename endpoint", async () => {
-    vi.mocked(api.post).mockResolvedValueOnce({ path: "b.md", content: "" });
-    const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useBrainFileMutations(), { wrapper });
-
-    await act(async () => {
-      await result.current.renameFile({ from: "a.md", to: "b.md" });
-    });
-    expect(api.post).toHaveBeenCalledWith("/api/brain/file/rename", { from: "a.md", to: "b.md" });
-  });
 });

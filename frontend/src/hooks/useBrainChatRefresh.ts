@@ -2,7 +2,9 @@ import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { wsTransport } from "@/lib/ws-transport";
 import {
+  BRAIN_DIFF_QUERY_KEY,
   BRAIN_FILES_QUERY_KEY,
+  BRAIN_PARSED_DIFF_QUERY_KEY,
   BRAIN_STATUS_QUERY_KEY,
   BRAIN_WORKSPACE_ID,
   brainFileQueryKey,
@@ -15,10 +17,11 @@ const WRITE_TOOLS = new Set(["Write", "Edit"]);
  * Refresh Brain editor state when the Brain agent writes files.
  *
  * The Brain is not git-sync polled, so file changes surface only through the
- * agent's tool stream. We invalidate the file tree, pending-change status, and
- * the open file's content when a write/edit tool completes or a turn finishes.
- * For the currently open file this is a last-write-wins refresh (agreed): the
- * editor adopts the agent's new content.
+ * agent's tool stream. We invalidate the file tree, pending-change status, the
+ * diff (both the raw review diff and the parsed inline-viewer diff), and the
+ * open file's content when a write/edit tool completes or a turn finishes. For
+ * the currently open file this is a last-write-wins refresh (agreed): the editor
+ * adopts the agent's new content.
  *
  * @param openFilePath - The path currently open in the editor (refreshed too).
  */
@@ -29,6 +32,8 @@ export function useBrainChatRefresh(openFilePath: string | null): void {
     const invalidateBrainFiles = () => {
       void queryClient.invalidateQueries({ queryKey: BRAIN_FILES_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: BRAIN_STATUS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: BRAIN_DIFF_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: BRAIN_PARSED_DIFF_QUERY_KEY });
       if (openFilePath) {
         void queryClient.invalidateQueries({ queryKey: brainFileQueryKey(openFilePath) });
       }

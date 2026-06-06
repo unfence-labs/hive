@@ -1,10 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { createBrain, connectBrain, deleteBrain } from "../brain/brain-repo.js";
 import {
-  deleteBrainFile,
   listBrainFiles,
   readBrainFile,
-  renameBrainFile,
   writeBrainFile,
 } from "../brain/brain-files.js";
 import { getBrainDiff, getBrainStatus, saveBrain } from "../brain/brain-git.js";
@@ -88,29 +86,6 @@ export async function brainRoutes(app: FastifyInstance, dataDir?: string) {
       return reply.send(await writeBrainFile(path, content, dir));
     } catch (err: unknown) {
       return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed to write Brain file") });
-    }
-  });
-
-  app.delete<{ Querystring: { path?: string } }>("/api/brain/file", async (req, reply) => {
-    const dir = dataDir ?? getDataDir();
-    try {
-      if (!req.query.path) throw new BadRequestError("Missing 'path' query parameter");
-      await deleteBrainFile(req.query.path, dir);
-      return reply.status(204).send();
-    } catch (err: unknown) {
-      return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed to delete Brain file") });
-    }
-  });
-
-  app.post<{ Body: { from?: string; to?: string } }>("/api/brain/file/rename", async (req, reply) => {
-    const dir = dataDir ?? getDataDir();
-    try {
-      const { from, to } = req.body ?? {};
-      if (!from) throw new BadRequestError("from is required");
-      if (!to) throw new BadRequestError("to is required");
-      return reply.send(await renameBrainFile(from, to, dir));
-    } catch (err: unknown) {
-      return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed to rename Brain file") });
     }
   });
 

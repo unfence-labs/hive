@@ -60,6 +60,11 @@ vi.mock("@/components/FileViewer", () => ({
     <div data-testid="file-viewer">{filePath}</div>
   ),
 }));
+vi.mock("@/components/diff/InlineDiffViewer", () => ({
+  InlineDiffViewer: ({ filePath }: { filePath: string }) => (
+    <div data-testid="inline-diff">{filePath}</div>
+  ),
+}));
 vi.mock("@/components/diff/FileDiffCard", () => ({
   FileDiffCard: ({ fileName }: { fileName: string }) => <div data-testid="diff-file">{fileName}</div>,
 }));
@@ -73,21 +78,6 @@ vi.mock("@pierre/diffs", () => ({
   parsePatchFiles: () => [
     { files: [{ name: "a.md", prevName: "", type: "modified", hunks: [] }] },
   ],
-}));
-
-// jsdom has no layout, so the real virtualizer renders 0 rows. Render every row
-// so the tree's notes are queryable (windowing itself is covered elsewhere).
-vi.mock("@tanstack/react-virtual", () => ({
-  useVirtualizer: ({ count }: { count: number }) => ({
-    getTotalSize: () => count * 28,
-    getVirtualItems: () =>
-      Array.from({ length: count }, (_, index) => ({
-        index,
-        key: index,
-        start: index * 28,
-        size: 28,
-      })),
-  }),
 }));
 
 function emptyConversation() {
@@ -125,8 +115,6 @@ describe("BrainView", () => {
     mocks.useBrainFileTree.mockReturnValue({ data: [{ name: "a.md", path: "a.md", type: "file" }], error: null });
     mocks.useBrainFileMutations.mockReturnValue({
       upsertFile: vi.fn().mockResolvedValue(undefined),
-      deleteFile: vi.fn().mockResolvedValue(undefined),
-      renameFile: vi.fn().mockResolvedValue(undefined),
     });
     mocks.useBrainStatus.mockReturnValue({ data: { files: [{ path: "a.md", status: "modified" }], count: 1 } });
     mocks.useBrainDiff.mockReturnValue({ data: { diff: "patch" }, isLoading: false, error: null });
@@ -149,12 +137,22 @@ describe("BrainView", () => {
     expect(screen.getByText(/No Brain repository connected/i)).toBeInTheDocument();
   });
 
-  it("renders the chat column and the notes tree", () => {
+  it("renders the chat column and the shared file browser (All/Modified tabs)", () => {
     renderBrain();
     expect(screen.getByTestId("chat-conversation")).toBeInTheDocument();
-    expect(screen.getByText("Notes")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^All$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Modified/i })).toBeInTheDocument();
+    // The note appears in the tree (All tab is the default).
+    expect(screen.getByText("a.md")).toBeInTheDocument();
     // Chat is visible, no file tab open yet.
     expect(screen.queryByTestId("file-viewer")).not.toBeInTheDocument();
+  });
+
+  it("has no note-management (create/rename/delete) affordances", () => {
+    renderBrain();
+    expect(screen.queryByRole("button", { name: /New note/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Rename/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Delete/i })).not.toBeInTheDocument();
   });
 
   it("opens a file tab (FileViewer) that takes over the chat area when a note is selected", async () => {
@@ -169,6 +167,20 @@ describe("BrainView", () => {
     expect(viewer).toHaveTextContent("a.md");
     const chat = screen.getByTestId("chat-conversation");
     expect(chat.closest(".hidden")).not.toBeNull();
+  });
+
+  it("opens a per-file diff tab (InlineDiffViewer) from the Modified tab", async () => {
+    const user = userEvent.setup();
+    renderBrain();
+
+    // Switch to the Modified tab, then click the modified file.
+    await user.click(screen.getByRole("button", { name: /^Modified/i }));
+    const modifiedRow = await screen.findByRole("button", { name: /a\.md/i });
+    await user.click(modifiedRow);
+
+    // The inline diff viewer takes over the chat area for that file.
+    const diff = await screen.findByTestId("inline-diff");
+    expect(diff).toHaveTextContent("a.md");
   });
 
   it("returns to the chat when the file tab is closed", async () => {
@@ -189,14 +201,14 @@ describe("BrainView", () => {
     await waitFor(() => expect(screen.queryByTestId("file-viewer")).not.toBeInTheDocument());
   });
 
-  it("disables Save when there are no pending changes", () => {
+  it("disables Save (in the Sync section) when there are no pending changes", () => {
     mocks.useBrainStatus.mockReturnValue({ data: { files: [], count: 0 } });
     renderBrain();
     const saveBtn = screen.getByRole("button", { name: /Save/i });
     expect(saveBtn).toBeDisabled();
   });
 
-  it("opens the review modal on Save and commits + pushes on confirm", async () => {
+  it("opens the review modal on Save (Sync section) and commits + pushes on confirm", async () => {
     const user = userEvent.setup();
     mocks.save.mockResolvedValue({ committed: true, pushed: true });
     renderBrain();
