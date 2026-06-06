@@ -26,10 +26,8 @@ import { FileTree, renderFileTreeNodes } from "@/components/ai-elements/file-tre
 import { InlineDiffViewer, type InlineDiffViewerHandle } from "@/components/diff/InlineDiffViewer";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { ResizeHandle } from "@/components/ResizeHandle";
-import { BrainReviewChanges } from "@/components/brain/BrainReviewChanges";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { wsTransport } from "@/lib/ws-transport";
 import { BRAIN_WORKSPACE_ID, brainFileQueryKey } from "@/lib/brain";
 import { isMarkdownFilePath } from "@/lib/file-preview";
@@ -78,8 +76,8 @@ function buildInitialExpanded(nodes: WorkspaceFileTreeNode[]): Set<string> {
  * "Modified" (pending-change list) tabs — the same components WorkspaceView uses.
  * Clicking a note opens it in a source tab; clicking a modified file opens a
  * diff tab. Editing happens in the Raw source view (debounced disk writes); the
- * Sync section (bottom-right) commits + pushes the whole working tree via a
- * review modal. The Brain has no note-management UI (no create/rename/delete).
+ * Sync section (bottom-right) commits + pushes the whole working tree directly
+ * (no review modal). The Brain has no note-management UI (no create/rename/delete).
  */
 export default function BrainView() {
   const { brain, loading } = useBrain();
@@ -210,8 +208,7 @@ export default function BrainView() {
   }, []);
   const [diffCommentCount, setDiffCommentCount] = useState(0);
 
-  // ── Save flow (commit + push) ──
-  const [reviewOpen, setReviewOpen] = useState(false);
+  // ── Save flow (commit + push directly, no review modal) ──
   const [saveIndicator, setSaveIndicator] = useState<BrainSaveIndicator>("idle");
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -220,26 +217,22 @@ export default function BrainView() {
     };
   }, []);
 
-  const handleConfirmSave = useCallback(
-    async (message: string) => {
-      setSaveIndicator("saving");
-      try {
-        const result = await save(message || undefined);
-        if (result.committed && !result.pushed) {
-          setSaveIndicator("push-failed");
-        } else {
-          setSaveIndicator("saved");
-          if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
-          savedTimerRef.current = setTimeout(() => setSaveIndicator("idle"), 3000);
-        }
-      } catch {
+  const handleSave = useCallback(async () => {
+    setSaveIndicator("saving");
+    try {
+      // No message → backend uses its default `Brain update <timestamp>`.
+      const result = await save(undefined);
+      if (result.committed && !result.pushed) {
         setSaveIndicator("push-failed");
-      } finally {
-        setReviewOpen(false);
+      } else {
+        setSaveIndicator("saved");
+        if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+        savedTimerRef.current = setTimeout(() => setSaveIndicator("idle"), 3000);
       }
-    },
-    [save],
-  );
+    } catch {
+      setSaveIndicator("push-failed");
+    }
+  }, [save]);
 
   // ── File-tree actions ──
   // Opening a file is a discrete action (never happens while typing that file),
@@ -504,37 +497,16 @@ export default function BrainView() {
                 </FileTree>
               )}
             </div>
-            {/* Sync: commit + push the whole working tree via the review modal. */}
+            {/* Sync: commit + push the whole working tree directly. */}
             <BrainSyncSection
               pendingCount={pendingCount}
               saveIndicator={saveIndicator}
-              onSave={() => setReviewOpen(true)}
+              isSaving={isSaving}
+              onSave={handleSave}
             />
           </div>
         </Panel>
       </Group>
-
-      {/* Save review modal — commit + push the working tree */}
-      <Sheet open={reviewOpen} onOpenChange={setReviewOpen}>
-        <SheetContent
-          side="right"
-          className="w-[min(92vw,860px)] sm:max-w-none p-0 flex flex-col"
-        >
-          <SheetTitle className="sr-only">Save Brain changes</SheetTitle>
-          <SheetDescription className="sr-only">
-            Review the working-tree changes that will be committed and pushed.
-          </SheetDescription>
-          {reviewOpen && (
-            <div className="flex h-full min-h-0 flex-col">
-              <BrainReviewChanges
-                onConfirm={handleConfirmSave}
-                onCancel={() => setReviewOpen(false)}
-                isSaving={isSaving}
-              />
-            </div>
-          )}
-        </SheetContent>
-      </Sheet>
     </div>
   );
 }
@@ -552,14 +524,15 @@ function BrainHeader() {
 interface BrainSyncSectionProps {
   pendingCount: number;
   saveIndicator: BrainSaveIndicator;
+  isSaving: boolean;
   onSave: () => void;
 }
 
 /**
- * Bottom-right Sync panel: the Save button (opens the review modal), the
+ * Bottom-right Sync panel: the Save button (commits + pushes directly), the
  * pending-change count badge, and the last-save outcome indicator.
  */
-function BrainSyncSection({ pendingCount, saveIndicator, onSave }: BrainSyncSectionProps) {
+function BrainSyncSection({ pendingCount, saveIndicator, isSaving, onSave }: BrainSyncSectionProps) {
   return (
     <div className="flex h-12 shrink-0 items-center gap-2 border-t border-border/50 px-3">
       <span className="text-xs uppercase tracking-wide text-muted-foreground">Sync</span>
@@ -570,7 +543,7 @@ function BrainSyncSection({ pendingCount, saveIndicator, onSave }: BrainSyncSect
           variant="outline"
           className="cursor-pointer"
           onClick={onSave}
-          disabled={pendingCount === 0}
+          disabled={pendingCount === 0 || isSaving}
         >
           <CloudUploadIcon className="size-3.5" aria-hidden="true" />
           Save

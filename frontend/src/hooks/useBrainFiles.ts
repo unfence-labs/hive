@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import { useFileContent } from "@/hooks/useFileContent";
 import {
-  BRAIN_DIFF_QUERY_KEY,
   BRAIN_FILES_QUERY_KEY,
   BRAIN_PARSED_DIFF_QUERY_KEY,
   BRAIN_STATUS_QUERY_KEY,
@@ -38,8 +37,8 @@ export function useBrainFileContent(path: string | null) {
 
 /**
  * Mutations for Brain file operations (upsert). The mutation invalidates the
- * file tree, the git status badge, and the diff (raw + parsed) after success
- * so the Modified tab and any open diff stay fresh.
+ * file tree, the git status badge, and the parsed diff after success so the
+ * Modified tab and any open diff stay fresh.
  *
  * Note: upsert writes to disk only (working tree) — it does NOT commit. Git
  * persistence happens through the explicit Save flow (see `useBrainGit`).
@@ -50,7 +49,6 @@ export function useBrainFileMutations() {
   const invalidateTreeAndStatus = () => {
     void queryClient.invalidateQueries({ queryKey: BRAIN_FILES_QUERY_KEY });
     void queryClient.invalidateQueries({ queryKey: BRAIN_STATUS_QUERY_KEY });
-    void queryClient.invalidateQueries({ queryKey: BRAIN_DIFF_QUERY_KEY });
     void queryClient.invalidateQueries({ queryKey: BRAIN_PARSED_DIFF_QUERY_KEY });
   };
 

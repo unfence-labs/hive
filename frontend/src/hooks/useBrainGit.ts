@@ -1,11 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import {
-  BRAIN_DIFF_QUERY_KEY,
   BRAIN_PARSED_DIFF_QUERY_KEY,
   BRAIN_STATUS_QUERY_KEY,
 } from "@/lib/brain";
-import type { BrainDiffResponse, BrainSaveResponse, BrainStatusResponse } from "@/types";
+import type { BrainSaveResponse, BrainStatusResponse } from "@/types";
 
 /**
  * Query the Brain pending-change status — drives the Save badge count. The
@@ -18,19 +17,9 @@ export function useBrainStatus() {
   });
 }
 
-/** Query the Brain working-tree-vs-HEAD diff. Disabled until review opens. */
-export function useBrainDiff(enabled: boolean) {
-  return useQuery({
-    queryKey: BRAIN_DIFF_QUERY_KEY,
-    queryFn: () => api.get<BrainDiffResponse>("/api/brain/diff"),
-    enabled,
-    staleTime: 0, // The diff is volatile — always fetch fresh when review opens.
-  });
-}
-
 /**
  * Save mutation: commits + pushes the whole working tree. On success the status
- * badge and diff are invalidated so the UI reflects the now-clean tree.
+ * badge and parsed diff are invalidated so the UI reflects the now-clean tree.
  */
 export function useBrainSave() {
   const queryClient = useQueryClient();
@@ -39,7 +28,6 @@ export function useBrainSave() {
       api.post<BrainSaveResponse>("/api/brain/save", { message }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: BRAIN_STATUS_QUERY_KEY });
-      void queryClient.invalidateQueries({ queryKey: BRAIN_DIFF_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: BRAIN_PARSED_DIFF_QUERY_KEY });
     },
   });

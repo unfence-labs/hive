@@ -15,7 +15,6 @@ const mocks = vi.hoisted(() => ({
   useBrainFileTree: vi.fn(),
   useBrainFileMutations: vi.fn(),
   useBrainStatus: vi.fn(),
-  useBrainDiff: vi.fn(),
   useBrainSave: vi.fn(),
   save: vi.fn(),
   // Chat hooks
@@ -33,7 +32,6 @@ vi.mock("@/hooks/useBrainFiles", () => ({
 }));
 vi.mock("@/hooks/useBrainGit", () => ({
   useBrainStatus: mocks.useBrainStatus,
-  useBrainDiff: mocks.useBrainDiff,
   useBrainSave: mocks.useBrainSave,
 }));
 vi.mock("@/hooks/useBrainChatRefresh", () => ({ useBrainChatRefresh: vi.fn() }));
@@ -64,9 +62,6 @@ vi.mock("@/components/diff/InlineDiffViewer", () => ({
   InlineDiffViewer: ({ filePath }: { filePath: string }) => (
     <div data-testid="inline-diff">{filePath}</div>
   ),
-}));
-vi.mock("@/components/diff/FileDiffCard", () => ({
-  FileDiffCard: ({ fileName }: { fileName: string }) => <div data-testid="diff-file">{fileName}</div>,
 }));
 vi.mock("@/components/ai-elements/message", () => ({
   MessageResponse: ({ children }: { children: string }) => <div>{children}</div>,
@@ -117,7 +112,6 @@ describe("BrainView", () => {
       upsertFile: vi.fn().mockResolvedValue(undefined),
     });
     mocks.useBrainStatus.mockReturnValue({ data: { files: [{ path: "a.md", status: "modified" }], count: 1 } });
-    mocks.useBrainDiff.mockReturnValue({ data: { diff: "patch" }, isLoading: false, error: null });
     mocks.useBrainSave.mockReturnValue({ save: mocks.save, isSaving: false });
 
     mocks.useConversation.mockReturnValue(emptyConversation());
@@ -208,7 +202,7 @@ describe("BrainView", () => {
     expect(saveBtn).toBeDisabled();
   });
 
-  it("opens the review modal on Save (Sync section) and commits + pushes on confirm", async () => {
+  it("commits + pushes directly on Save (Sync section), with no review modal", async () => {
     const user = userEvent.setup();
     mocks.save.mockResolvedValue({ committed: true, pushed: true });
     renderBrain();
@@ -217,23 +211,11 @@ describe("BrainView", () => {
     expect(saveBtn).toHaveTextContent("1");
     await user.click(saveBtn);
 
-    // Review modal appears with the diff.
-    expect(await screen.findByText(/Review changes/i)).toBeInTheDocument();
-    expect(screen.getByTestId("diff-file")).toHaveTextContent("a.md");
-
-    await user.click(screen.getByRole("button", { name: /Save & Push/i }));
+    // The save mutation is invoked directly (no message → backend default).
     await waitFor(() => expect(mocks.save).toHaveBeenCalledWith(undefined));
-  });
 
-  it("closes the review modal on cancel without saving", async () => {
-    const user = userEvent.setup();
-    renderBrain();
-
-    await user.click(screen.getByRole("button", { name: /Save/i }));
-    expect(await screen.findByText(/Review changes/i)).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /^Cancel$/i }));
-    await waitFor(() => expect(screen.queryByText(/Review changes/i)).not.toBeInTheDocument());
-    expect(mocks.save).not.toHaveBeenCalled();
+    // No review modal / sheet appears.
+    expect(screen.queryByText(/Review changes/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Save & Push/i })).not.toBeInTheDocument();
   });
 });
