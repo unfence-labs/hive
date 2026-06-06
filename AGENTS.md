@@ -356,7 +356,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Unknown WS event types decode to `.unknown` instead of visible chat errors. Unknown agent activity kinds render as an unsupported activity row.
 - AskUserQuestion renders as a paginated form sheet with multi-select support. Dismissed questions show "CANCELLED" badge.
 - ExitPlanMode renders as a markdown preview with approve/reject actions.
-- Chat drafts are persisted per-workspace and restored on app relaunch (includes `selectedModelId`, `thinkingLevel`, `fastModeEnabled`).
+- Chat drafts are persisted in memory per-workspace/session while the app is running (includes `selectedModelId`, `thinkingLevel`, `fastModeEnabled`); they are intentionally lost on app termination.
 - Deleting the active conversation must clear its `ConversationStore` state and either focus the next remaining session or clear focus when none remain.
 - Model catalog is fetched dynamically from `/api/models`. Picker groups by provider, disables cross-provider items when session is locked.
 - All providers supporting reasoning effort show a unified thinking-level cycler; the supported list comes from `capabilities.thinkingLevels` (Claude: low/medium/high/xhigh/max; Codex: none/minimal/low/medium/high/xhigh). Plan mode hidden for providers that don't support it.
