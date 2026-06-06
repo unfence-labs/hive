@@ -336,7 +336,10 @@ describe("Sidebar", () => {
 
     const brainLink = await screen.findByRole("link", { name: /Brain/i });
     expect(brainLink).toHaveAttribute("href", "/brain");
-    expect(screen.getByText("git@github.com:octocat/brain.git")).toBeInTheDocument();
+    // The repo URL is intentionally not shown — the entry is a clean nav row.
+    expect(
+      screen.queryByText("git@github.com:octocat/brain.git"),
+    ).not.toBeInTheDocument();
 
     await user.click(brainLink);
     expect(screen.getAllByTestId("location-path").at(-1)).toHaveTextContent("/brain");

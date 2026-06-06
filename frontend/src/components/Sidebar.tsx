@@ -472,19 +472,23 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     <Link
       to="/brain"
       className={cn(
-        "sidebar-card mb-3 flex items-center gap-2 rounded-md border px-2.5 py-2",
-        pathname === "/brain" && "sidebar-card-active",
+        // h-9 mirrors the right-panel ConversationTabs band, and -mt-2 cancels the
+        // scroll wrapper's p-2 top padding, so the Brain row lines up exactly with
+        // the file/tab bar. Border only when active; transparent at rest avoids shift.
+        "-mt-2 mb-3 flex h-9 items-center gap-2 rounded-md border border-transparent px-2 text-sm transition-colors",
+        pathname === "/brain"
+          ? "sidebar-card-active"
+          : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground",
       )}
     >
-      <Brain className="h-4 w-4 shrink-0 text-sidebar-foreground/80" />
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium text-sidebar-foreground">
-          Brain
-        </div>
-        <div className="truncate text-[11px] text-muted-foreground">
-          {brain.repoUrl}
-        </div>
-      </div>
+      <Brain
+        className={cn(
+          "h-4 w-4 shrink-0",
+          pathname === "/brain" ? "text-primary" : "text-sidebar-foreground/70",
+        )}
+        aria-hidden="true"
+      />
+      <span className="truncate text-sidebar-foreground">Brain</span>
     </Link>
   ) : null;
 
