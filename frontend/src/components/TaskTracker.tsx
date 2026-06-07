@@ -1,5 +1,5 @@
 import { useState, memo } from "react";
-import { ChevronRightIcon, CircleDashedIcon, TargetIcon, XCircleIcon } from "lucide-react";
+import { ChevronRightIcon, CircleDashedIcon, XCircleIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TrackedTask, TaskCounts, TaskTrackerStatus } from "@/hooks/useTasks";
 import type { BackgroundAgent } from "@/hooks/useBackgroundAgents";
@@ -56,32 +56,40 @@ function AgentStatusIcon({ isRunning }: { isRunning: boolean }) {
   );
 }
 
-function formatGoalStatus(status: string | undefined): string {
-  const normalized = status
+function normalizeGoalStatus(status: string | undefined): string {
+  return status
     ?.trim()
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/[-_]+/g, " ")
-    .toLowerCase();
+    .toLowerCase() ?? "";
+}
+
+function formatGoalHeader(status: string | undefined): string {
+  const normalized = normalizeGoalStatus(status);
   switch (normalized) {
-    case undefined:
     case "":
     case "running":
     case "in progress":
-      return "active";
-    case "paused":
-      return "paused";
-    case "blocked":
-      return "blocked";
-    case "usage limited":
-      return "usage limited";
-    case "budget limited":
-      return "budget limited";
+      return "Goal running";
     case "complete":
     case "completed":
-      return "complete";
+      return "Goal reached";
+    case "paused":
+      return "Goal paused";
+    case "blocked":
+      return "Goal blocked";
+    case "usage limited":
+      return "Goal usage limited";
+    case "budget limited":
+      return "Goal budget limited";
     default:
-      return normalized;
+      return `Goal ${normalized}`;
   }
+}
+
+function isGoalComplete(status: string | undefined): boolean {
+  const normalized = normalizeGoalStatus(status);
+  return normalized === "complete" || normalized === "completed";
 }
 
 function formatCompactCount(value: number): string {
@@ -97,7 +105,7 @@ function formatCompactCount(value: number): string {
   return `${millions.toFixed(1).replace(/\.0$/, "")}m`;
 }
 
-function formatGoalProgress(goal: GoalState): string | null {
+function formatGoalTokens(goal: GoalState): string | null {
   const tokensUsed = typeof goal.tokensUsed === "number" ? goal.tokensUsed : null;
   const tokenBudget = typeof goal.tokenBudget === "number" ? goal.tokenBudget : null;
   if (tokensUsed != null && tokenBudget != null) {
@@ -169,10 +177,11 @@ const TaskTracker = memo(function TaskTracker({
     ? `${backgroundRunningCount} background agent${backgroundRunningCount !== 1 ? "s" : ""} running`
     : "All background agents completed";
   const goalObjective = goal?.objective?.trim() || "Goal running";
-  const goalStatus = goal ? formatGoalStatus(goal.status) : "";
-  const goalProgress = goal ? formatGoalProgress(goal) : null;
+  const goalHeader = goal ? formatGoalHeader(goal.status) : "Goal running";
+  const goalTokens = goal ? formatGoalTokens(goal) : null;
   const goalElapsed = typeof goal?.timeUsedSeconds === "number" ? formatGoalElapsed(goal.timeUsedSeconds) : null;
-  const goalMeta = [goalStatus, goalProgress, goalElapsed].filter(Boolean);
+  const goalComplete = goal ? isGoalComplete(goal.status) : false;
+  const goalHeaderMeta = [goalTokens, goalElapsed].filter(Boolean);
 
   return (
     <div className="border-t border-border/50 bg-background px-4 py-1.5">
@@ -190,43 +199,30 @@ const TaskTracker = memo(function TaskTracker({
                 goalExpanded && "rotate-90",
               )}
             />
-            <TargetIcon className="size-3 shrink-0 text-primary/80" />
             <span
               className={cn(
                 "min-w-0 truncate",
-                isStreaming && goal.status !== "complete" && goal.status !== "completed" && "animate-shimmer",
+                isStreaming && !goalComplete && "animate-shimmer",
               )}
+              title={goalObjective}
             >
-              {goalObjective}
+              {goalHeader}
             </span>
-            {goalMeta.length > 0 && (
-              <span className="ml-auto shrink-0 text-[11px] font-normal text-muted-foreground/60">
-                {goalMeta.join(" · ")}
+            {goalHeaderMeta.length > 0 && (
+              <span className="ml-auto shrink-0 text-[11px] font-normal text-muted-foreground/50">
+                {goalHeaderMeta.join(" · ")}
               </span>
             )}
           </button>
 
           {goalExpanded && (
-            <div className="mt-1 space-y-0.5 pb-0.5 pl-5 text-xs text-muted-foreground">
-              <div className="flex items-center gap-2 py-0.5">
-                <span className="shrink-0 font-medium text-muted-foreground/70">Goal</span>
-                <span className="min-w-0 truncate text-foreground">{goalObjective}</span>
-              </div>
-              <div className="flex items-center gap-2 py-0.5 text-[11px] text-muted-foreground/60">
-                <span>{goalStatus}</span>
-                {goalProgress && (
-                  <>
-                    <span>·</span>
-                    <span>{goalProgress}</span>
-                  </>
-                )}
-                {goalElapsed && (
-                  <>
-                    <span>·</span>
-                    <span>{goalElapsed}</span>
-                  </>
-                )}
-              </div>
+            <div className="mt-1 flex items-start gap-2 pb-0.5 pl-5 text-xs text-muted-foreground">
+              <span className="flex shrink-0 items-center justify-center pt-1" style={{ width: 12 }}>
+                <StatusIcon status={goalComplete ? "completed" : "pending"} />
+              </span>
+              <span className="min-w-0 whitespace-pre-wrap break-words font-medium leading-relaxed">
+                {goalObjective}
+              </span>
             </div>
           )}
         </>
