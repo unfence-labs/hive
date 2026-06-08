@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import Fastify from "fastify";
 import { existsSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { brainRoutes } from "./brain.js";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
@@ -55,6 +55,7 @@ describe("brain routes", () => {
       exists: true,
       repoUrl: origin,
       createdAt: expect.any(String),
+      lastSyncedAt: expect.any(String),
       repoPath: brainRepoPath(dataDir),
     });
     expect(existsSync(join(brainRepoPath(dataDir), ".git"))).toBe(true);
@@ -142,7 +143,11 @@ describe("brain routes", () => {
       url: "/api/brain/save",
       payload: { message: "Add idea" },
     });
-    expect(saveRes.json()).toEqual({ committed: true, pushed: true });
+    expect(saveRes.json()).toEqual({
+      committed: true,
+      pushed: true,
+      lastSyncedAt: expect.any(String),
+    });
 
     // Nothing left to commit afterwards.
     const cleanStatus = await app.inject({ method: "GET", url: "/api/brain/status" });
@@ -156,6 +161,54 @@ describe("brain routes", () => {
     expect(saveAgain.json()).toEqual({ committed: false, pushed: false });
 
     await app.close();
+  });
+
+  it("streams raw Brain PDFs for file previews", async () => {
+    const fixtureDir = join(tempDir, "fixtures");
+    await mkdir(fixtureDir, { recursive: true });
+    const origin = await createFixtureRepo(fixtureDir);
+    const app = await buildTestApp();
+
+    await app.inject({
+      method: "POST",
+      url: "/api/brain",
+      payload: { mode: "connect", url: origin },
+    });
+    const pdf = Buffer.from("%PDF-1.4\n%%EOF\n", "utf-8");
+    await mkdir(join(brainRepoPath(dataDir), "docs"), { recursive: true });
+    await writeFile(join(brainRepoPath(dataDir), "docs", "spec.pdf"), pdf);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/brain/file/raw?path=docs/spec.pdf",
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("application/pdf");
+    expect(res.headers["content-disposition"]).toBe('inline; filename="spec.pdf"');
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    expect(res.rawPayload).toEqual(pdf);
+  });
+
+  it("rejects Brain raw file directory traversal attempts", async () => {
+    const fixtureDir = join(tempDir, "fixtures");
+    await mkdir(fixtureDir, { recursive: true });
+    const origin = await createFixtureRepo(fixtureDir);
+    const app = await buildTestApp();
+
+    await app.inject({
+      method: "POST",
+      url: "/api/brain",
+      payload: { mode: "connect", url: origin },
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/brain/file/raw?path=../../etc/passwd",
+    });
+    await app.close();
+
+    expect(res.statusCode).toBe(400);
   });
 
   it("DELETE /api/brain removes state and clone", async () => {

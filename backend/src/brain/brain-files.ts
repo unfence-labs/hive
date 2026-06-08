@@ -9,6 +9,12 @@ import { brainRepoPath } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
 import { loadBrainState } from "../state/brain.js";
 
+export interface BrainFileEntry {
+  absolutePath: string;
+  path: string;
+  stat: Stats;
+}
+
 /**
  * Resolve the Brain repository path, asserting the Brain exists.
  * Throws {@link ConflictError} (409) when no Brain is connected.
@@ -34,6 +40,34 @@ export async function readBrainFile(
   relPath: string,
   dataDir = getDataDir(),
 ): Promise<BrainFileContent> {
+  const file = await getBrainFileEntry(relPath, dataDir);
+
+  // The agent can write notes directly to disk (its own Write tool bypasses the
+  // size-checked write path), so any finite cap can be exceeded. Rather than
+  // making such a note unviewable, return a bounded prefix and flag it as
+  // truncated; the UI renders truncated files read-only so a save can never
+  // overwrite the dropped tail.
+  if (file.stat.size > MAX_TEXT_FILE_SIZE) {
+    const handle = await open(file.absolutePath, "r");
+    try {
+      const buffer = Buffer.alloc(MAX_TEXT_FILE_SIZE);
+      const { bytesRead } = await handle.read(buffer, 0, MAX_TEXT_FILE_SIZE, 0);
+      const content = buffer.subarray(0, bytesRead).toString("utf-8");
+      return { path: file.path, content, truncated: true };
+    } finally {
+      await handle.close();
+    }
+  }
+
+  const content = await readFile(file.absolutePath, "utf-8");
+  return { path: file.path, content };
+}
+
+/** Resolve a Brain working-tree file for raw streaming routes. */
+export async function getBrainFileEntry(
+  relPath: string,
+  dataDir = getDataDir(),
+): Promise<BrainFileEntry> {
   const repoPath = await requireBrainRepo(dataDir);
   const absolutePath = await resolveSafeRepoFilePath(repoPath, relPath);
 
@@ -47,25 +81,7 @@ export async function readBrainFile(
     throw new BadRequestError("Path is not a file");
   }
 
-  // The agent can write notes directly to disk (its own Write tool bypasses the
-  // size-checked write path), so any finite cap can be exceeded. Rather than
-  // making such a note unviewable, return a bounded prefix and flag it as
-  // truncated; the UI renders truncated files read-only so a save can never
-  // overwrite the dropped tail.
-  if (fileStat.size > MAX_TEXT_FILE_SIZE) {
-    const handle = await open(absolutePath, "r");
-    try {
-      const buffer = Buffer.alloc(MAX_TEXT_FILE_SIZE);
-      const { bytesRead } = await handle.read(buffer, 0, MAX_TEXT_FILE_SIZE, 0);
-      const content = buffer.subarray(0, bytesRead).toString("utf-8");
-      return { path: relPath, content, truncated: true };
-    } finally {
-      await handle.close();
-    }
-  }
-
-  const content = await readFile(absolutePath, "utf-8");
-  return { path: relPath, content };
+  return { absolutePath, path: relPath, stat: fileStat };
 }
 
 /**
