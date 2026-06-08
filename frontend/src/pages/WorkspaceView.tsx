@@ -37,7 +37,7 @@ import { useTerminalApps } from "@/hooks/useTerminalApps";
 import { openTerminalSsh } from "@/lib/terminal";
 import { useLayoutContext } from "@/components/AppLayout";
 import { ResizeHandle } from "@/components/ResizeHandle";
-import { WorkspacePathCopyButton } from "@/components/WorkspacePathCopyButton";
+import { PathCopyButton } from "@/components/PathCopyButton";
 import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
@@ -507,9 +507,10 @@ export default function WorkspaceView() {
               {workspace?.defaultBranch && (
                 <span className="truncate text-xs text-muted-foreground/60">{"> origin/"}{workspace.defaultBranch}</span>
               )}
-              <WorkspacePathCopyButton
+              <PathCopyButton
                 path={workspacePath}
                 disabledReason={copyWorkspacePathDisabledReason}
+                label="Workspace path"
               />
             </div>
             <div className="ml-auto" />

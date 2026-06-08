@@ -30,7 +30,14 @@ export async function getBrainStatus(
   const repoPath = await requireBrainRepo(dataDir);
   // -z gives NUL-delimited records; renames emit an extra NUL-separated old path.
   // -uall lists individual untracked files instead of collapsing directories.
-  const { stdout } = await git(["status", "--porcelain", "-z", "-uall"], repoPath);
+  // Fetch the upstream tracking ref alongside the change set; the lookup throws
+  // when no tracking ref is set (normalized to null).
+  const [{ stdout }, upstream] = await Promise.all([
+    git(["status", "--porcelain", "-z", "-uall"], repoPath),
+    git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], repoPath)
+      .then((r) => r.stdout || null)
+      .catch(() => null),
+  ]);
 
   const files: BrainFileStatus[] = [];
   const records = stdout.split("\0");
@@ -56,7 +63,7 @@ export async function getBrainStatus(
     files.push({ path, status });
   }
 
-  return { files, count: files.length };
+  return { files, count: files.length, upstream };
 }
 
 /**

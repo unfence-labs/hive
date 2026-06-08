@@ -35,7 +35,11 @@ async function connectFixtureBrain(): Promise<void> {
 describe("getBrainStatus", () => {
   it("returns no changes for a clean tree", async () => {
     await connectFixtureBrain();
-    expect(await getBrainStatus(dataDir)).toEqual({ files: [], count: 0 });
+    const status = await getBrainStatus(dataDir);
+    expect(status.files).toEqual([]);
+    expect(status.count).toBe(0);
+    // A fresh clone tracks origin.
+    expect(status.upstream).toMatch(/^origin\//);
   });
 
   it("reports modified, added (untracked), and deleted files", async () => {

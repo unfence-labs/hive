@@ -55,6 +55,7 @@ describe("brain routes", () => {
       exists: true,
       repoUrl: origin,
       createdAt: expect.any(String),
+      repoPath: brainRepoPath(dataDir),
     });
     expect(existsSync(join(brainRepoPath(dataDir), ".git"))).toBe(true);
   });

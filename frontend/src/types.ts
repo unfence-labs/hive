@@ -22,6 +22,8 @@ export type BrainState =
       exists: true;
       repoUrl: string;
       createdAt: string;
+      /** Absolute local clone path on the backend host (for the copy-path action). */
+      repoPath: string;
     };
 
 /** Working-tree change status for a single Brain file, relative to HEAD. */
@@ -39,10 +41,13 @@ export interface BrainFileStatus {
   renamedFrom?: string;
 }
 
-/** Response of `GET /api/brain/status`: the set of changes awaiting save. */
+/** Response of `GET /api/brain/status`: the set of changes awaiting save plus
+ *  the upstream tracking ref for the header. */
 export interface BrainStatusResponse {
   files: BrainFileStatus[];
   count: number;
+  /** Upstream tracking ref (e.g. "origin/main"), or null when none is set. */
+  upstream: string | null;
 }
 
 /** Response of `POST /api/brain/save`: outcome of commit + push. */

@@ -55,6 +55,7 @@ async function persistBrain(repoUrl: string, dataDir: string, now: () => Date): 
     exists: true,
     repoUrl,
     createdAt: now().toISOString(),
+    repoPath: brainRepoPath(dataDir),
   };
   await saveBrainState(state, dataDir);
   return state;

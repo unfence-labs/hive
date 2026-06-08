@@ -20,6 +20,8 @@ import { BrainWelcome } from "@/components/BrainWelcome";
 import { FileViewer, type FileViewerHandle } from "@/components/FileViewer";
 import { FileContentToolbar } from "@/components/FileContentToolbar";
 import { FileTree, renderFileTreeNodes } from "@/components/ai-elements/file-tree";
+import { PathCopyButton } from "@/components/PathCopyButton";
+import { BranchLabel } from "@/components/BranchLabel";
 import { InlineDiffViewer, type InlineDiffViewerHandle } from "@/components/diff/InlineDiffViewer";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { ResizeHandle } from "@/components/ResizeHandle";
@@ -108,6 +110,8 @@ export default function BrainView() {
 
   const notesCount = useMemo(() => countFiles(brainTree), [brainTree]);
   const repoUrl = brain.exists ? brain.repoUrl : undefined;
+  const repoPath = brain.exists ? brain.repoPath : undefined;
+  const brainUpstream = statusQuery.data?.upstream ?? null;
 
   const onLastSessionDeleted = useCallback(() => {
     wsTransport.clearCachedData(BRAIN_WORKSPACE_ID);
@@ -337,7 +341,7 @@ export default function BrainView() {
   if (!loading && !brainConnected) {
     return (
       <div className="flex h-full min-h-0 flex-col bg-background">
-        <BrainHeader />
+        <BrainHeader path={repoPath} upstream={brainUpstream} />
         <div className="flex flex-1 items-center justify-center px-6">
           <p className="text-sm text-muted-foreground">No Brain repository connected.</p>
         </div>
@@ -355,7 +359,7 @@ export default function BrainView() {
       >
         <Panel id="brain-main" minSize="40%">
           <div className="flex min-w-0 h-full flex-col overflow-hidden">
-            <BrainHeader />
+            <BrainHeader path={repoPath} upstream={brainUpstream} />
             <ConversationPane
               sessions={sessions}
               activeSessionId={sessionId}
@@ -538,12 +542,31 @@ export default function BrainView() {
   );
 }
 
-/** Slim Brain header: just the title bar (Save moved to the Sync section). */
-function BrainHeader() {
+/**
+ * Slim Brain header: title + the upstream tracking ref (e.g. "origin/main") +
+ * copy-path action. Save lives in the Sync section, not here.
+ */
+function BrainHeader({
+  path,
+  upstream,
+}: {
+  path?: string;
+  upstream?: string | null;
+}) {
   return (
     <div className="flex h-12 items-center gap-2 border-b border-border/50 px-4" data-tauri-drag-region>
       <BrainIcon className="size-4 text-primary" aria-hidden="true" />
-      <span className="text-sm font-semibold text-foreground">Brain</span>
+      <span className="shrink-0 text-sm font-semibold text-foreground">Brain</span>
+      <div className="flex min-w-0 items-center gap-1">
+        {upstream && (
+          <BranchLabel branch={upstream} showIcon={false} className="text-xs text-muted-foreground" />
+        )}
+        <PathCopyButton
+          path={path ?? ""}
+          disabledReason="Brain path unavailable. Connect a Brain repository first."
+          label="Brain path"
+        />
+      </div>
     </div>
   );
 }

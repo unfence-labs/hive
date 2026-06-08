@@ -72,6 +72,7 @@ describe("createBrain", () => {
       exists: true,
       repoUrl: origin,
       createdAt: "2026-06-05T12:00:00.000Z",
+      repoPath: brainRepoPath(dataDir),
     });
     expect(existsSync(join(brainRepoPath(dataDir), ".git"))).toBe(true);
 
