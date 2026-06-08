@@ -71,7 +71,7 @@ describe("TaskTracker", () => {
     // title attribute (and the expanded view), not the collapsed label.
     expect(screen.getByText("Goal active")).toBeInTheDocument();
     expect(screen.getByTitle("Ship the Codex Goals UI")).toBeInTheDocument();
-    expect(screen.getByText("1.2k/10k · 2m 5s")).toBeInTheDocument();
+    expect(screen.getByText("1.2k/10.0k · 2m 5s")).toBeInTheDocument();
   });
 
   it("rolls compact token counts over to millions", () => {
@@ -84,7 +84,7 @@ describe("TaskTracker", () => {
       />,
     );
 
-    expect(screen.getByText("1m/2m")).toBeInTheDocument();
+    expect(screen.getByText("1.0m/2.0m")).toBeInTheDocument();
   });
 
   it("expands goal details", async () => {

@@ -48,7 +48,7 @@ struct ContextRingView: View {
     private var tooltipText: String {
         var parts: [String] = []
         if let input = usage.inputTokens, let window = usage.contextWindow {
-            parts.append("\(formatTokens(input)) / \(formatTokens(window)) tokens")
+            parts.append("\(compactTokenCount(input)) / \(compactTokenCount(window)) tokens")
         }
         if let frac = usage.usageFraction {
             parts.append("\(Int(frac * 100))%")
@@ -70,12 +70,5 @@ struct ContextRingView: View {
             .animation(.easeInOut(duration: 0.3), value: fraction)
             .help(tooltipText)
         }
-    }
-
-    private func formatTokens(_ count: Int) -> String {
-        if count < 1_000 { return "\(count)" }
-        if count < 100_000 { return String(format: "%.1fK", Double(count) / 1_000) }
-        if count < 1_000_000 { return "\(count / 1_000)K" }
-        return String(format: "%.1fM", Double(count) / 1_000_000)
     }
 }

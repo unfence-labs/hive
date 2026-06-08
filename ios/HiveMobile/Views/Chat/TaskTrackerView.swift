@@ -1,36 +1,65 @@
 import SwiftUI
 
 struct TaskTrackerView: View {
+    var goal: GoalState?
     let tasks: [TrackedTask]
     let currentTask: TrackedTask?
     let counts: TaskCounts
     let trackerStatus: TaskTrackerStatus
+    var backgroundAgents: [BackgroundAgent] = []
+    var backgroundRunningCount: Int = 0
     let isStreaming: Bool
 
-    @State private var isExpanded = false
+    private var hasGoal: Bool { goal != nil }
+    private var hasTasks: Bool { !tasks.isEmpty }
+    private var hasAgents: Bool { !backgroundAgents.isEmpty }
 
     var body: some View {
-        if !tasks.isEmpty {
+        if hasGoal || hasTasks || hasAgents {
             GlassEffectContainer {
                 VStack(alignment: .leading, spacing: 0) {
-                    Button {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            isExpanded.toggle()
+                    if let goal {
+                        let complete = GoalFormatting.isComplete(goal.status)
+                        TrackerSection(
+                            label: GoalFormatting.header(goal.status),
+                            trailing: GoalFormatting.headerMeta(goal),
+                            isShimmering: isStreaming && !complete
+                        ) {
+                            goalRow(goal, complete: complete)
                         }
-                    } label: {
-                        collapsedRow
                     }
-                    .buttonStyle(.plain)
 
-                    if isExpanded {
-                        VStack(alignment: .leading, spacing: 2) {
+                    if hasGoal && (hasTasks || hasAgents) {
+                        sectionDivider
+                    }
+
+                    if hasTasks {
+                        TrackerSection(
+                            label: collapsedLabel,
+                            trailing: "\(counts.completed)/\(counts.total)",
+                            isShimmering: currentTask != nil && isStreaming && !isUnconfirmed
+                        ) {
                             ForEach(tasks) { task in
                                 taskRow(task)
                             }
                         }
-                        .padding(.top, 6)
-                        .padding(.bottom, 2)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+
+                    if hasTasks && hasAgents {
+                        sectionDivider
+                    }
+
+                    if hasAgents {
+                        let completed = backgroundAgents.count - backgroundRunningCount
+                        TrackerSection(
+                            label: agentLabel,
+                            trailing: "\(completed)/\(backgroundAgents.count)",
+                            isShimmering: backgroundRunningCount > 0 && isStreaming
+                        ) {
+                            ForEach(backgroundAgents) { agent in
+                                agentRow(agent)
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, HiveSpacing.lg)
@@ -42,7 +71,7 @@ struct TaskTrackerView: View {
         }
     }
 
-    // MARK: - Collapsed Row
+    // MARK: - Labels
 
     private var collapsedLabel: String {
         if isUnconfirmed {
@@ -63,41 +92,33 @@ struct TaskTrackerView: View {
         return remaining == 1 ? "1 task not completed" : "\(remaining) tasks not completed"
     }
 
+    private var agentLabel: String {
+        if backgroundRunningCount > 0 {
+            return backgroundRunningCount == 1
+                ? "1 background agent running"
+                : "\(backgroundRunningCount) background agents running"
+        }
+        return "All background agents completed"
+    }
+
     private var isUnconfirmed: Bool {
         trackerStatus == .unconfirmed
     }
 
-    private var collapsedRow: some View {
-        HStack(spacing: HiveSpacing.sm) {
-            Image(systemName: "chevron.right")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(WhisperColor.textMuted)
-                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+    // MARK: - Rows
+
+    private func goalRow(_ goal: GoalState, complete: Bool) -> some View {
+        HStack(alignment: .top, spacing: HiveSpacing.sm) {
+            taskStatusIcon(complete ? .completed : .pending, unconfirmed: false)
                 .frame(width: 14, alignment: .center)
 
-            Group {
-                if currentTask != nil && isStreaming && !isUnconfirmed {
-                    Text(collapsedLabel)
-                        .shimmer()
-                } else {
-                    Text(collapsedLabel)
-                }
-            }
-            .font(WhisperFont.mono(12))
-            .foregroundStyle(WhisperColor.textSecondary)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text("\(counts.completed)/\(counts.total)")
-                .font(WhisperFont.mono(11))
-                .foregroundStyle(WhisperColor.textMuted)
+            Text(GoalFormatting.objective(goal))
+                .font(WhisperFont.mono(12))
+                .foregroundStyle(WhisperColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .contentShape(Rectangle())
-        .padding(.vertical, 2)
+        .padding(.vertical, 1)
     }
-
-    // MARK: - Task Row (expanded)
 
     private func taskRow(_ task: TrackedTask) -> some View {
         HStack(spacing: HiveSpacing.sm) {
@@ -114,6 +135,31 @@ struct TaskTrackerView: View {
                 .truncationMode(.tail)
         }
         .padding(.vertical, 1)
+    }
+
+    private func agentRow(_ agent: BackgroundAgent) -> some View {
+        HStack(spacing: HiveSpacing.sm) {
+            agentStatusIcon(isRunning: agent.isRunning)
+                .frame(width: 14, alignment: .center)
+
+            Text(agent.subagentType)
+                .font(WhisperFont.mono(12).weight(.medium))
+                .foregroundStyle(WhisperColor.textMuted)
+
+            Text(agent.description)
+                .font(WhisperFont.mono(12))
+                .foregroundStyle(agent.isRunning ? WhisperColor.text : WhisperColor.textMuted)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.vertical, 1)
+    }
+
+    private var sectionDivider: some View {
+        Rectangle()
+            .fill(WhisperColor.textMuted.opacity(0.15))
+            .frame(height: 0.5)
+            .padding(.vertical, 4)
     }
 
     // MARK: - Status Icons
@@ -144,6 +190,20 @@ struct TaskTrackerView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.red)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func agentStatusIcon(isRunning: Bool) -> some View {
+        if isRunning {
+            Circle()
+                .fill(Color.accentColor)
+                .frame(width: 7, height: 7)
+                .modifier(PulsingDotModifier())
+        } else {
+            Image(systemName: "checkmark.circle")
+                .font(.system(size: 11))
+                .foregroundStyle(WhisperColor.success)
         }
     }
 
@@ -182,6 +242,18 @@ private struct PulsingDotModifier: ViewModifier {
     VStack(spacing: 0) {
         Spacer()
         TaskTrackerView(
+            goal: GoalState(
+                id: "goal-1",
+                active: true,
+                threadId: "thread-1",
+                objective: "Ship the Codex Goals UI on iOS",
+                status: "running",
+                tokenBudget: 100_000,
+                tokensUsed: 15_200,
+                timeUsedSeconds: 125,
+                createdAt: nil,
+                updatedAt: nil
+            ),
             tasks: [
                 TrackedTask(id: "1", subject: "Set up database schema", status: .completed, isCreating: false),
                 TrackedTask(id: "2", subject: "Implement API endpoints", activeForm: "Implementing API endpoints", status: .inProgress, isCreating: false),
@@ -190,6 +262,10 @@ private struct PulsingDotModifier: ViewModifier {
             currentTask: TrackedTask(id: "2", subject: "Implement API endpoints", activeForm: "Implementing API endpoints", status: .inProgress, isCreating: false),
             counts: TaskCounts(total: 3, completed: 1, inProgress: 1, pending: 1),
             trackerStatus: .live,
+            backgroundAgents: [
+                BackgroundAgent(toolId: "a1", subagentType: "Explore", description: "Search for callers", model: nil, isRunning: true),
+            ],
+            backgroundRunningCount: 1,
             isStreaming: true
         )
     }

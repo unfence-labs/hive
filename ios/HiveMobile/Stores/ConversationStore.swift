@@ -110,6 +110,22 @@ final class ConversationStore {
         )
     }
 
+    /// Active Codex goal, if any (mirrors `useGoalState`).
+    var goalState: GoalState? {
+        deriveGoalState(
+            from: messages,
+            activeAgentActivities: activeStream?.activeAgentActivities ?? []
+        )
+    }
+
+    /// Background sub-agents and their running state (mirrors `useBackgroundAgents`).
+    var backgroundAgents: BackgroundAgentsState {
+        deriveBackgroundAgents(
+            from: messages,
+            activeToolCalls: activeStream?.activeToolCalls ?? []
+        )
+    }
+
     /// All messages to display: history + streaming message if active
     var displayMessages: [ChatMessage] {
         if let streaming = streamingMessage {

@@ -625,7 +625,7 @@ private struct WhisperToolCallsBlock: View {
     }
 
     private var childrenByParentId: [String: [ToolCall]] {
-        Dictionary(grouping: visibleTools.filter { $0.parentToolUseId != nil }) { $0.parentToolUseId ?? "" }
+        buildChildrenMap(visibleTools)
     }
 
     private var shouldCollapse: Bool {

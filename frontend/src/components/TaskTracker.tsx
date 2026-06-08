@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import type { TrackedTask, TaskCounts, TaskTrackerStatus } from "@/hooks/useTasks";
 import type { BackgroundAgent } from "@/hooks/useBackgroundAgents";
 import type { GoalState } from "@/hooks/useGoalState";
+import { formatTokenCount } from "@/lib/format-usage";
 
 const svgProps = {
   className: "size-3",
@@ -92,30 +93,14 @@ function isGoalComplete(status: string | undefined): boolean {
   return normalized === "complete" || normalized === "completed";
 }
 
-function formatCompactCount(value: number): string {
-  if (value < 1_000) return String(value);
-  if (value < 1_000_000) {
-    const thousands = value / 1_000;
-    if (thousands >= 10) {
-      const rounded = Math.round(thousands);
-      // Rounding can push e.g. 999_500 up to 1000k — roll over to millions.
-      if (rounded >= 1_000) return "1m";
-      return `${rounded}k`;
-    }
-    return `${thousands.toFixed(1).replace(/\.0$/, "")}k`;
-  }
-  const millions = value / 1_000_000;
-  return `${millions.toFixed(1).replace(/\.0$/, "")}m`;
-}
-
 function formatGoalTokens(goal: GoalState): string | null {
   const tokensUsed = typeof goal.tokensUsed === "number" ? goal.tokensUsed : null;
   const tokenBudget = typeof goal.tokenBudget === "number" ? goal.tokenBudget : null;
   if (tokensUsed != null && tokenBudget != null) {
-    return `${formatCompactCount(tokensUsed)}/${formatCompactCount(tokenBudget)}`;
+    return `${formatTokenCount(tokensUsed)}/${formatTokenCount(tokenBudget)}`;
   }
-  if (tokensUsed != null) return `${formatCompactCount(tokensUsed)} used`;
-  if (tokenBudget != null) return `0/${formatCompactCount(tokenBudget)}`;
+  if (tokensUsed != null) return `${formatTokenCount(tokensUsed)} used`;
+  if (tokenBudget != null) return `0/${formatTokenCount(tokenBudget)}`;
   return null;
 }
 

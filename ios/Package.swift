@@ -33,11 +33,15 @@ let package = Package(
                 "Models/AgentActivity.swift",
                 "Models/Models.swift",
                 "Models/WebSocketTypes.swift",
+                "Stores/BackgroundAgentDerivation.swift",
                 "Stores/ChatDraftStore.swift",
                 "Stores/ConversationStore.swift",
+                "Stores/GoalDerivation.swift",
+                "Stores/GoalFormatting.swift",
                 "Stores/HubOrganization.swift",
                 "Stores/SubAgentStatus.swift",
-                "Stores/TaskDerivation.swift"
+                "Stores/TaskDerivation.swift",
+                "Stores/TokenFormatting.swift"
             ]
         ),
         .testTarget(

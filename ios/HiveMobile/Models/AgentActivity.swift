@@ -272,6 +272,10 @@ enum VisibleAgentActivity: Equatable, Identifiable {
     }
 }
 
+/// The active Codex goal, mirroring `frontend/src/hooks/useGoalState.ts` where
+/// `GoalState` is the `goal_update` activity itself.
+typealias GoalState = AgentActivity.GoalUpdate
+
 private func toolCall(for activity: AgentActivity.CommandExecution) -> ToolCall {
     let classified = classifiedCommandAction(for: activity)
     return ToolCall(

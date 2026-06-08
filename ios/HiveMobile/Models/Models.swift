@@ -563,3 +563,24 @@ struct TasksState {
         trackerStatus: .live
     )
 }
+
+// MARK: - Background Agents
+//
+// Mirrors `frontend/src/hooks/useBackgroundAgents.ts`.
+
+struct BackgroundAgent: Identifiable, Equatable {
+    let toolId: String
+    let subagentType: String
+    let description: String
+    let model: String?
+    let isRunning: Bool
+
+    var id: String { toolId }
+}
+
+struct BackgroundAgentsState: Equatable {
+    let agents: [BackgroundAgent]
+    let runningCount: Int
+
+    static let empty = BackgroundAgentsState(agents: [], runningCount: 0)
+}
