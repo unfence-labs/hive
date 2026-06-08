@@ -232,6 +232,24 @@ describe("BrainView", () => {
     expect(screen.queryByRole("button", { name: /Save & Push/i })).not.toBeInTheDocument();
   });
 
+  it("shows push failed when pushing existing local commits fails", async () => {
+    const user = userEvent.setup();
+    mocks.useBrainStatus.mockReturnValue({
+      data: {
+        files: [],
+        count: 0,
+        upstream: "origin/main",
+        unpushedCommitCount: 1,
+      },
+    });
+    mocks.save.mockResolvedValue({ committed: false, pushed: false, error: "Push failed" });
+    renderBrain();
+
+    await user.click(screen.getByRole("button", { name: /Save/i }));
+
+    await waitFor(() => expect(screen.getByText("Push failed")).toBeInTheDocument());
+  });
+
   it("flushes an open raw file before saving", async () => {
     const user = userEvent.setup();
     const order: string[] = [];

@@ -246,7 +246,7 @@ export default function BrainView() {
       await fileViewerRef.current?.flushPendingWrite();
       // No message → backend uses its default `Brain update <timestamp>`.
       const result = await save(undefined);
-      if (result.committed && !result.pushed) {
+      if (result.error || (result.committed && !result.pushed)) {
         setSaveIndicator("push-failed");
       } else {
         setSaveIndicator("saved");
