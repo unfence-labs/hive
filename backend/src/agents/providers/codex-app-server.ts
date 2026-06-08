@@ -319,7 +319,21 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     return started.thread.id;
   }
 
+  /** Full reset, including cross-turn parent maps. Used at process init/teardown. */
   private resetTurnState(): void {
+    this.resetForNewTurn();
+    this.collabParentByThreadId.clear();
+    this.toolParentByItemId.clear();
+  }
+
+  /**
+   * Per-turn reset run on each `turn/started`. Clears turn-scoped dedup/accumulator
+   * state but deliberately PRESERVES the collab/tool parent maps: with goals a single
+   * prompt spans several autonomous turns, and a sub-agent thread spawned in one turn
+   * can emit live items in a later turn. Wiping the maps here would orphan those child
+   * tool calls (they'd render top-level instead of nested under their Agent tool call).
+   */
+  private resetForNewTurn(): void {
     this.activeTurnId = undefined;
     this.emittedToolIds.clear();
     this.commandOutputs.clear();
@@ -328,8 +342,6 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.emittedReasoningText.clear();
     this.emittedDiagnostics.clear();
     this.completedToolIds.clear();
-    this.collabParentByThreadId.clear();
-    this.toolParentByItemId.clear();
     this.pendingCollabReplays.clear();
     this.lastUsage = undefined;
     this.lastProtocolError = undefined;
@@ -467,7 +479,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
           this.threadId = threadId;
         }
         if (turnId && turnId !== this.activeTurnId) {
-          this.resetTurnState();
+          this.resetForNewTurn();
           this.activeTurnId = turnId;
         } else {
           this.activeTurnId = turnId ?? this.activeTurnId;

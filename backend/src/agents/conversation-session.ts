@@ -475,6 +475,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       resultDurationMs = undefined;
       resultInputTokens = undefined;
       resultOutputTokens = undefined;
+      resultContextUsedTokens = undefined;
+      resultContextWindowTokens = undefined;
       lastStderr = undefined;
       emittedDiagnostics.clear();
       normalizer = new AgentEventNormalizer();

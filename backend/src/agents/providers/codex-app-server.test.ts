@@ -707,6 +707,75 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
+  it("preserves collab parent mapping across a turn boundary (goal continuation)", async () => {
+    // With goals, a single prompt spans several autonomous turns. A sub-agent
+    // spawned in one turn can emit live items in a later turn; the per-turn reset
+    // on turn/started must NOT wipe the collab parent map or those child tool
+    // calls would render top-level instead of nested under their Agent call.
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: unknown[] = [];
+    session.on("assistant", (event) => assistantEvents.push(event));
+    await initializeSession(session, proc);
+
+    // Turn 1: the collab sub-agent is spawned, mapping thread-child -> collab-1.
+    proc._stdout.push(JSON.stringify({
+      method: "turn/started",
+      params: { threadId: "thread-1", turn: { id: "turn-1" } },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "inProgress",
+          receiverThreadIds: ["thread-child"],
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+
+    // Turn 2 begins (new turnId) — this triggers the per-turn reset.
+    proc._stdout.push(JSON.stringify({
+      method: "turn/started",
+      params: { threadId: "thread-1", turn: { id: "turn-2" } },
+    }) + "\n");
+
+    // The sub-agent thread emits a live command in the NEW turn.
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "commandExecution",
+          id: "child-cmd-late",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "inProgress",
+        },
+      },
+    }) + "\n");
+
+    await waitForCondition(() =>
+      assistantEvents.some((event) =>
+        (event as { message?: { content?: Array<{ id?: string }> } }).message?.content?.some(
+          (block) => block.id === "child-cmd-late",
+        ),
+      ),
+    );
+
+    const lateChild = assistantEvents
+      .flatMap((event) => (event as { message?: { content?: Array<Record<string, unknown>> } }).message?.content ?? [])
+      .find((block) => block.id === "child-cmd-late");
+    expect(lateChild).toEqual(
+      expect.objectContaining({ id: "child-cmd-late", name: "Bash", parentToolUseId: "collab-1" }),
+    );
+  });
+
   it("emits Codex commandActions on command execution activity events", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
