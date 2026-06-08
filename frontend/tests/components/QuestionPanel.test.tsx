@@ -32,6 +32,40 @@ describe("QuestionPanel", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("shows option descriptions below their labels", () => {
+    render(
+      <QuestionPanel
+        pendingToolInputs={[
+          askInput("ask-1", [
+            {
+              question: "Choose an implementation",
+              options: [
+                {
+                  label: "Fast path",
+                  description: "Use the existing component and keep the change local.",
+                },
+                {
+                  label: "Larger refactor",
+                  description: "Move shared rendering into a reusable helper first.",
+                },
+              ],
+            },
+          ]),
+        ]}
+        onBatchSubmit={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Choose an implementation")).toBeInTheDocument();
+    expect(screen.getByText("Fast path")).toBeInTheDocument();
+    expect(
+      screen.getByText("Use the existing component and keep the change local."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Larger refactor")).toBeInTheDocument();
+    expect(screen.getByText("Move shared rendering into a reusable helper first.")).toBeInTheDocument();
+  });
+
   it("groups and submits answered questions by toolUseId", async () => {
     const user = userEvent.setup();
     const onBatchSubmit = vi.fn();
