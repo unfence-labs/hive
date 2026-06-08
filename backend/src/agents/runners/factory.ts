@@ -5,6 +5,7 @@ import type { MessageOptions } from "../../types.js";
 import type { AgentProvider } from "../providers/types.js";
 import type { AgentRunner } from "./types.js";
 import { CodexAppServerRunner } from "./codex-app-server-runner.js";
+import { buildCodexAppServerArgs } from "../providers/codex-app-server.js";
 import { ProcessAgentRunner } from "./process-agent-runner.js";
 
 type SessionKind = "chat" | "automation" | "brain";
@@ -75,12 +76,6 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
       input.existingCodexAppServerRunner ?? new CodexAppServerRunner(undefined, { enableGoals })
     ) as CodexAppServerStartRunner;
     const model = provider!.models.find((m) => m.id === modelId);
-    const appServerArgs = [
-      "app-server",
-      ...(enableGoals ? ["--enable", "goals"] : []),
-      "--listen",
-      "stdio://",
-    ];
     return {
       runner,
       protocol: "codex_app_server",
@@ -90,7 +85,7 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
       cachedCodexAppServerRunner: runner,
       debug: {
         command: "codex",
-        args: appServerArgs,
+        args: buildCodexAppServerArgs(enableGoals),
       },
       start: () => runner.startTurn({
         cwd: input.cwd,

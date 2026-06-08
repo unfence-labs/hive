@@ -18,14 +18,12 @@ export interface TaskCounts {
   pending: number;
 }
 
-export type TaskTrackerSource = "task_tools" | "codex_plan";
 export type TaskTrackerStatus = "live" | "unconfirmed";
 
 export interface TasksState {
   tasks: TrackedTask[];
   currentTask: TrackedTask | undefined;
   counts: TaskCounts;
-  trackerSource?: TaskTrackerSource;
   trackerStatus: TaskTrackerStatus;
 }
 
@@ -225,7 +223,6 @@ export function useTasks(
       inProgress: taskList.filter((t) => t.status === "in_progress").length,
       pending: taskList.filter((t) => t.status === "pending").length,
     };
-    const trackerSource: TaskTrackerSource | undefined = latestPlanEntry ? "codex_plan" : hasTaskTools ? "task_tools" : undefined;
     // A persisted Codex plan with open steps is only the last reported snapshot,
     // not proof that the finished turn still has work remaining.
     const hasUnconfirmedOpenPlanTasks =
@@ -233,6 +230,6 @@ export function useTasks(
       hasOpenPlanTask(taskList, latestPlanEntry.activity.id);
     const trackerStatus: TaskTrackerStatus = hasUnconfirmedOpenPlanTasks ? "unconfirmed" : "live";
 
-    return { tasks: taskList, currentTask, counts, trackerSource, trackerStatus };
+    return { tasks: taskList, currentTask, counts, trackerStatus };
   }, [messages, activeToolCalls, activeAgentActivities]);
 }

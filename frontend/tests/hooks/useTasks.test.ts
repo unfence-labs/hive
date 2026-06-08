@@ -366,7 +366,6 @@ describe("useTasks", () => {
     expect(result.current.tasks.map((task) => task.status)).toEqual(["completed", "in_progress", "pending"]);
     expect(result.current.currentTask?.subject).toBe("Move plan to tracker");
     expect(result.current.counts).toEqual({ total: 3, completed: 1, inProgress: 1, pending: 1 });
-    expect(result.current.trackerSource).toBe("codex_plan");
     expect(result.current.trackerStatus).toBe("unconfirmed");
   });
 
@@ -391,7 +390,6 @@ describe("useTasks", () => {
 
     expect(result.current.tasks.map((task) => task.subject)).toEqual(["Live implementation", "Run checks"]);
     expect(result.current.currentTask?.subject).toBe("Live implementation");
-    expect(result.current.trackerSource).toBe("codex_plan");
     expect(result.current.trackerStatus).toBe("live");
   });
 

@@ -161,6 +161,19 @@ const MAX_DIAGNOSTIC_DETAILS_LENGTH = 4000;
 const COLLAB_THREAD_REPLAY_TIMEOUT_MS = 1500;
 
 /**
+ * Canonical `codex app-server` CLI args. Single source of truth so the real spawn
+ * (CodexAppServerSession) and the runner factory's debug.args can never drift.
+ */
+export function buildCodexAppServerArgs(enableGoals: boolean): string[] {
+  return [
+    "app-server",
+    ...(enableGoals ? ["--enable", "goals"] : []),
+    "--listen",
+    "stdio://",
+  ];
+}
+
+/**
  * Per-chat-session bridge to `codex app-server`.
  *
  * The generated App Server schema is very large and changes with the installed
@@ -262,7 +275,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private async ensureInitialized(env: Record<string, string> | undefined): Promise<void> {
     if (this.initialized) return this.initialized;
     this.initialized = (async () => {
-      this.proc = spawn("codex", this.appServerArgs(), {
+      this.proc = spawn("codex", buildCodexAppServerArgs(this.enableGoals), {
         stdio: ["pipe", "pipe", "pipe"],
         env: buildWorkspaceEnv(env),
       });
@@ -285,14 +298,6 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     return this.initialized;
   }
 
-  private appServerArgs(): string[] {
-    return [
-      "app-server",
-      ...(this.enableGoals ? ["--enable", "goals"] : []),
-      "--listen",
-      "stdio://",
-    ];
-  }
 
   private async ensureThread(options: CodexAppServerTurnOptions): Promise<string> {
     if (options.threadId) {
