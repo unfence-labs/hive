@@ -191,7 +191,11 @@ struct BrainConversationsView: View {
         saveErrorMessage = nil
         do {
             let result = try await api.saveBrain(message: nil)
-            if result.committed && !result.pushed {
+            // A push can fail with committed:false too (e.g. pushing pre-existing
+            // local commits when there is nothing new to commit), so the error
+            // flag — not just committed && !pushed — must drive the failure state.
+            // Matches the web `handleSave` precedence in BrainView.tsx.
+            if result.error != nil || (result.committed && !result.pushed) {
                 saveIndicator = .pushFailed
                 saveErrorMessage = brainSaveFailureMessage(result: result)
             } else {
