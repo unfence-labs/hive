@@ -3,15 +3,21 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useClipboardCopy } from "@/hooks/useClipboardCopy";
 
-interface WorkspacePathCopyButtonProps {
+interface PathCopyButtonProps {
   path: string;
   disabledReason: string;
+  /** What the path refers to, used in the aria-labels (e.g. "Workspace path"). */
+  label?: string;
 }
 
-export function WorkspacePathCopyButton({
+/** Ghost icon button that copies an absolute path to the clipboard, with a
+ *  tooltip showing the path (or a disabled reason when unavailable). Reused by
+ *  the Workspace and Brain headers. */
+export function PathCopyButton({
   path,
   disabledReason,
-}: WorkspacePathCopyButtonProps) {
+  label = "Path",
+}: PathCopyButtonProps) {
   const { copy, isCopied } = useClipboardCopy();
   const canCopy = path.length > 0;
   const copied = canCopy && isCopied(path);
@@ -27,7 +33,7 @@ export function WorkspacePathCopyButton({
               className="size-5 text-muted-foreground/70 hover:text-foreground"
               onClick={() => { if (canCopy) void copy(path); }}
               disabled={!canCopy}
-              aria-label={copied ? "Workspace path copied" : "Copy workspace path"}
+              aria-label={copied ? `${label} copied` : `Copy ${label.toLowerCase()}`}
             >
               {copied ? (
                 <CheckIcon className="size-3 text-green-500" />

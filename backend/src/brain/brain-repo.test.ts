@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { git } from "../utils/git.js";
@@ -72,6 +72,8 @@ describe("createBrain", () => {
       exists: true,
       repoUrl: origin,
       createdAt: "2026-06-05T12:00:00.000Z",
+      lastSyncedAt: "2026-06-05T12:00:00.000Z",
+      repoPath: brainRepoPath(dataDir),
     });
     expect(existsSync(join(brainRepoPath(dataDir), ".git"))).toBe(true);
 
@@ -93,6 +95,8 @@ describe("connectBrain", () => {
     });
 
     expect(state.repoUrl).toBe(origin);
+    expect(state.createdAt).toBe("2026-06-05T13:00:00.000Z");
+    expect(state.lastSyncedAt).toBe("2026-06-05T13:00:00.000Z");
     expect(existsSync(join(brainRepoPath(dataDir), ".git"))).toBe(true);
     const { stdout } = await git(["remote", "get-url", "origin"], brainRepoPath(dataDir));
     expect(stdout).toBe(origin);
@@ -105,6 +109,29 @@ describe("connectBrain", () => {
 
     await connectBrain(origin, dataDir);
     await expect(connectBrain(origin, dataDir)).rejects.toThrow("Brain already exists");
+  });
+});
+
+describe("loadBrainState", () => {
+  it("hydrates legacy state with createdAt as lastSyncedAt", async () => {
+    const createdAt = "2026-06-05T14:00:00.000Z";
+    await mkdir(join(dataDir, "brain"), { recursive: true });
+    await writeFile(
+      join(dataDir, "brain", "state.json"),
+      JSON.stringify({
+        exists: true,
+        repoUrl: "git@example.com:octocat/brain.git",
+        createdAt,
+      }),
+      "utf-8",
+    );
+
+    await expect(loadBrainState(dataDir)).resolves.toMatchObject({
+      exists: true,
+      createdAt,
+      lastSyncedAt: createdAt,
+      repoPath: brainRepoPath(dataDir),
+    });
   });
 });
 

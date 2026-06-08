@@ -20,6 +20,8 @@ import { BrainWelcome } from "@/components/BrainWelcome";
 import { FileViewer, type FileViewerHandle } from "@/components/FileViewer";
 import { FileContentToolbar } from "@/components/FileContentToolbar";
 import { FileTree, renderFileTreeNodes } from "@/components/ai-elements/file-tree";
+import { PathCopyButton } from "@/components/PathCopyButton";
+import { BranchLabel } from "@/components/BranchLabel";
 import { InlineDiffViewer, type InlineDiffViewerHandle } from "@/components/diff/InlineDiffViewer";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { ResizeHandle } from "@/components/ResizeHandle";
@@ -27,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { wsTransport } from "@/lib/ws-transport";
 import { BRAIN_WORKSPACE_ID, brainFileQueryKey } from "@/lib/brain";
 import { isMarkdownFilePath } from "@/lib/file-preview";
+import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type {
   DiffFileStat,
@@ -86,6 +89,8 @@ export default function BrainView() {
   const { save, isSaving } = useBrainSave();
 
   const pendingCount = statusQuery.data?.count ?? 0;
+  const unpushedCommitCount = statusQuery.data?.unpushedCommitCount ?? 0;
+  const lastSyncedAt = statusQuery.data?.lastSyncedAt ?? (brain.exists ? brain.lastSyncedAt : undefined);
   const brainTree = useMemo(() => fileTreeQuery.data ?? [], [fileTreeQuery.data]);
   const fileTreeError = fileTreeQuery.error?.message ?? null;
 
@@ -108,6 +113,8 @@ export default function BrainView() {
 
   const notesCount = useMemo(() => countFiles(brainTree), [brainTree]);
   const repoUrl = brain.exists ? brain.repoUrl : undefined;
+  const repoPath = brain.exists ? brain.repoPath : undefined;
+  const brainUpstream = statusQuery.data?.upstream ?? null;
 
   const onLastSessionDeleted = useCallback(() => {
     wsTransport.clearCachedData(BRAIN_WORKSPACE_ID);
@@ -239,7 +246,7 @@ export default function BrainView() {
       await fileViewerRef.current?.flushPendingWrite();
       // No message → backend uses its default `Brain update <timestamp>`.
       const result = await save(undefined);
-      if (result.committed && !result.pushed) {
+      if (result.error || (result.committed && !result.pushed)) {
         setSaveIndicator("push-failed");
       } else {
         setSaveIndicator("saved");
@@ -258,6 +265,7 @@ export default function BrainView() {
     statusError: statusQuery.isError,
     saveIndicator,
     pendingCount,
+    unpushedCommitCount,
   });
 
   // ── File-tree actions ──
@@ -337,7 +345,7 @@ export default function BrainView() {
   if (!loading && !brainConnected) {
     return (
       <div className="flex h-full min-h-0 flex-col bg-background">
-        <BrainHeader />
+        <BrainHeader path={repoPath} upstream={brainUpstream} />
         <div className="flex flex-1 items-center justify-center px-6">
           <p className="text-sm text-muted-foreground">No Brain repository connected.</p>
         </div>
@@ -355,7 +363,7 @@ export default function BrainView() {
       >
         <Panel id="brain-main" minSize="40%">
           <div className="flex min-w-0 h-full flex-col overflow-hidden">
-            <BrainHeader />
+            <BrainHeader path={repoPath} upstream={brainUpstream} />
             <ConversationPane
               sessions={sessions}
               activeSessionId={sessionId}
@@ -527,6 +535,8 @@ export default function BrainView() {
             {/* Sync: commit + push the whole working tree directly. */}
             <BrainSyncSection
               pendingCount={pendingCount}
+              unpushedCommitCount={unpushedCommitCount}
+              lastSyncedAt={lastSyncedAt}
               syncState={syncState}
               isSaving={isSaving}
               onSave={handleSave}
@@ -538,12 +548,31 @@ export default function BrainView() {
   );
 }
 
-/** Slim Brain header: just the title bar (Save moved to the Sync section). */
-function BrainHeader() {
+/**
+ * Slim Brain header: title + the upstream tracking ref (e.g. "origin/main") +
+ * copy-path action. Save lives in the Sync section, not here.
+ */
+function BrainHeader({
+  path,
+  upstream,
+}: {
+  path?: string;
+  upstream?: string | null;
+}) {
   return (
     <div className="flex h-12 items-center gap-2 border-b border-border/50 px-4" data-tauri-drag-region>
       <BrainIcon className="size-4 text-primary" aria-hidden="true" />
-      <span className="text-sm font-semibold text-foreground">Brain</span>
+      <span className="shrink-0 text-sm font-semibold text-foreground">Brain</span>
+      <div className="flex min-w-0 items-center gap-1">
+        {upstream && (
+          <BranchLabel branch={upstream} showIcon={false} className="text-xs text-muted-foreground" />
+        )}
+        <PathCopyButton
+          path={path ?? ""}
+          disabledReason="Brain path unavailable. Connect a Brain repository first."
+          label="Brain path"
+        />
+      </div>
     </div>
   );
 }
@@ -556,6 +585,7 @@ type BrainSyncState =
   | "push-failed"
   | "saved"
   | "pending"
+  | "unpushed"
   | "synced";
 
 /**
@@ -569,14 +599,16 @@ function deriveBrainSyncState(args: {
   statusError: boolean;
   saveIndicator: BrainSaveIndicator;
   pendingCount: number;
+  unpushedCommitCount: number | null;
 }): BrainSyncState {
-  const { statusLoading, statusError, saveIndicator, pendingCount } = args;
+  const { statusLoading, statusError, saveIndicator, pendingCount, unpushedCommitCount } = args;
   if (saveIndicator === "saving") return "saving";
   if (saveIndicator === "push-failed") return "push-failed";
   if (statusError) return "error";
   if (statusLoading) return "loading";
   if (saveIndicator === "saved") return "saved";
   if (pendingCount > 0) return "pending";
+  if ((unpushedCommitCount ?? 0) > 0) return "unpushed";
   return "synced";
 }
 
@@ -621,6 +653,11 @@ const BRAIN_SYNC_STATE_META: Record<
     dotClass: "bg-warning",
     textClass: "text-warning-foreground",
   },
+  unpushed: {
+    label: "Not pushed",
+    dotClass: "bg-warning",
+    textClass: "text-warning-foreground",
+  },
   synced: {
     label: "Up to date",
     dotClass: "bg-muted-foreground/60",
@@ -630,6 +667,8 @@ const BRAIN_SYNC_STATE_META: Record<
 
 interface BrainSyncSectionProps {
   pendingCount: number;
+  unpushedCommitCount: number | null;
+  lastSyncedAt?: string;
   syncState: BrainSyncState;
   isSaving: boolean;
   onSave: () => void;
@@ -641,35 +680,58 @@ interface BrainSyncSectionProps {
  * on the right — mirrors the workspace PR status line. Disabled while a save is
  * in flight or when there is nothing to commit.
  */
-function BrainSyncSection({ pendingCount, syncState, isSaving, onSave }: BrainSyncSectionProps) {
+function BrainSyncSection({
+  pendingCount,
+  unpushedCommitCount,
+  lastSyncedAt,
+  syncState,
+  isSaving,
+  onSave,
+}: BrainSyncSectionProps) {
   const meta = BRAIN_SYNC_STATE_META[syncState];
+  const canSave = pendingCount > 0 || (unpushedCommitCount ?? 0) > 0;
+  const lastSyncLabel = lastSyncedAt
+    ? `Last synced ${formatRelativeTime(lastSyncedAt)}`
+    : "Never synced";
+  const lastSyncTitle = lastSyncedAt
+    ? `Last successful sync: ${formatAbsoluteTime(lastSyncedAt)}`
+    : "No successful Brain sync recorded yet";
+
   return (
-    <div className="flex shrink-0 items-center gap-2 border-t border-border/50 px-3 py-2.5">
-      <span role="status" className={cn("flex items-center gap-1.5 text-xs font-medium", meta.textClass)}>
-        <span
-          className={cn("size-1.5 shrink-0 rounded-full", meta.dotClass, meta.pulse && "animate-pulse")}
-          aria-hidden="true"
-        />
-        {meta.label}
-      </span>
-      <button
-        type="button"
-        onClick={onSave}
-        disabled={pendingCount === 0 || isSaving}
-        className={cn(
-          "ml-auto flex shrink-0 cursor-pointer items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground",
-          // Dim the whole button (icon + label + count badge) together when disabled.
-          "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground",
-        )}
+    <div className="flex shrink-0 flex-col border-t border-border/50 px-3 py-2">
+      <div className="flex items-center gap-2">
+        <span role="status" className={cn("flex min-w-0 items-center gap-1.5 text-xs font-medium", meta.textClass)}>
+          <span
+            className={cn("size-1.5 shrink-0 rounded-full", meta.dotClass, meta.pulse && "animate-pulse")}
+            aria-hidden="true"
+          />
+          <span className="truncate">{meta.label}</span>
+        </span>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={!canSave || isSaving}
+          className={cn(
+            "ml-auto flex shrink-0 cursor-pointer items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground",
+            // Dim the whole button (icon + label + count badge) together when disabled.
+            "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground",
+          )}
+        >
+          <CloudUploadIcon className="size-3.5 shrink-0" aria-hidden="true" />
+          Save
+          {pendingCount > 0 && (
+            <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-[10px]">
+              {pendingCount}
+            </Badge>
+          )}
+        </button>
+      </div>
+      <div
+        className="mt-1 min-w-0 truncate pl-3 text-[11px] leading-none text-muted-foreground"
+        title={lastSyncTitle}
       >
-        <CloudUploadIcon className="size-3.5 shrink-0" aria-hidden="true" />
-        Save
-        {pendingCount > 0 && (
-          <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-[10px]">
-            {pendingCount}
-          </Badge>
-        )}
-      </button>
+        {lastSyncLabel}
+      </div>
     </div>
   );
 }

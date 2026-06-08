@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
+import { createReadStream } from "node:fs";
 import { createBrain, connectBrain, deleteBrain } from "../brain/brain-repo.js";
 import {
+  getBrainFileEntry,
   listBrainFiles,
   readBrainFile,
   writeBrainFile,
@@ -9,6 +11,7 @@ import { getBrainDiff, getBrainStatus, saveBrain } from "../brain/brain-git.js";
 import { loadBrainState } from "../state/brain.js";
 import { getDataDir } from "../state/state.js";
 import { BadRequestError, errorMessage, errorStatus } from "../utils/errors.js";
+import { headerFilename, rawFileContentType } from "../utils/raw-file.js";
 
 type BrainRequest =
   | { mode: "create"; name?: string }
@@ -72,6 +75,24 @@ export async function brainRoutes(app: FastifyInstance, dataDir?: string) {
     try {
       if (!req.query.path) throw new BadRequestError("Missing 'path' query parameter");
       return reply.send(await readBrainFile(req.query.path, dir));
+    } catch (err: unknown) {
+      return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed to read Brain file") });
+    }
+  });
+
+  app.get<{ Querystring: { path?: string } }>("/api/brain/file/raw", async (req, reply) => {
+    const dir = dataDir ?? getDataDir();
+    try {
+      if (!req.query.path) throw new BadRequestError("Missing 'path' query parameter");
+
+      const file = await getBrainFileEntry(req.query.path, dir);
+      reply.header("Cache-Control", "no-store");
+      reply.header("Content-Type", rawFileContentType(file.path));
+      reply.header("Content-Length", file.stat.size);
+      reply.header("Content-Disposition", `inline; filename="${headerFilename(file.path)}"`);
+      reply.header("X-Content-Type-Options", "nosniff");
+
+      return reply.send(createReadStream(file.absolutePath));
     } catch (err: unknown) {
       return reply.status(errorStatus(err)).send({ error: errorMessage(err, "Failed to read Brain file") });
     }

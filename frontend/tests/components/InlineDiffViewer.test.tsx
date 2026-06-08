@@ -23,7 +23,7 @@ vi.mock("@/hooks/useThemeType", () => ({
 
 vi.mock("@/components/FileViewer", () => ({
   FileViewer: ({ filePath }: { filePath: string }) => (
-    <div data-testid="image-file-preview">{filePath}</div>
+    <div data-testid="file-preview">{filePath}</div>
   ),
 }));
 
@@ -284,14 +284,21 @@ describe("InlineDiffViewer", () => {
     expect(screen.getByText("Empty file")).toBeInTheDocument();
   });
 
-  it("renders an image diff fallback with the current image preview", () => {
+  it("renders a binary preview diff fallback with the current file preview", () => {
     renderViewer({ filePath: "assets/logo.png" });
 
     expect(mocks.useDiff).toHaveBeenCalledWith("ws-1", "uncommitted", false);
     expect(
-      screen.getByText("Image files do not have text diffs. Previewing the current file."),
+      screen.getByText("This file does not have a text diff. Previewing the current file."),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("image-file-preview")).toHaveTextContent("assets/logo.png");
+    expect(screen.getByTestId("file-preview")).toHaveTextContent("assets/logo.png");
     expect(screen.queryByText("Click on line numbers to select code and add comments")).not.toBeInTheDocument();
+  });
+
+  it("uses the same fallback for PDF previews", () => {
+    renderViewer({ filePath: "docs/spec.pdf" });
+
+    expect(mocks.useDiff).toHaveBeenCalledWith("ws-1", "uncommitted", false);
+    expect(screen.getByTestId("file-preview")).toHaveTextContent("docs/spec.pdf");
   });
 });

@@ -67,8 +67,6 @@ export default function QuestionPanel({
   const currentDraft =
     currentQuestion ? (drafts.get(draftKey(currentQuestion)) ?? emptyDraft()) : emptyDraft();
 
-  const hasCustomText = currentDraft.customText.trim().length > 0;
-
   const updateDraft = useCallback(
     (patch: Partial<AnswerDraft>) => {
       if (!currentQuestion) return;
@@ -119,8 +117,12 @@ export default function QuestionPanel({
   };
 
   const answeredCount = flatQuestions.filter(hasAnswer).length;
+  const total = flatQuestions.length;
+  const canSubmit = total > 1 ? answeredCount === total : answeredCount > 0;
 
   const handleSubmit = useCallback(() => {
+    if (!canSubmit) return;
+
     const grouped = new Map<string, QuestionAnswer[]>();
     for (const fq of flatQuestions) {
       const d = drafts.get(draftKey(fq));
@@ -137,22 +139,19 @@ export default function QuestionPanel({
       answers,
     }));
     onBatchSubmit(responses);
-  }, [flatQuestions, drafts, onBatchSubmit]);
+  }, [canSubmit, flatQuestions, drafts, onBatchSubmit]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" && !e.shiftKey && answeredCount > 0) {
+      if (e.key === "Enter" && !e.shiftKey && canSubmit) {
         e.preventDefault();
         handleSubmit();
       }
     },
-    [answeredCount, handleSubmit],
+    [canSubmit, handleSubmit],
   );
 
   if (flatQuestions.length === 0) return null;
-
-  const total = flatQuestions.length;
-  const canSubmit = total > 1 ? answeredCount === total : answeredCount > 0;
 
   return (
     <div className="border-t border-border/30 px-3 py-3">
@@ -174,32 +173,37 @@ export default function QuestionPanel({
 
         {/* Options */}
         {currentQuestion.question.options.length > 0 && (
-          <div className="px-4 py-2 space-y-0.5">
+          <div className="space-y-1 px-4 py-2">
             {currentQuestion.question.options.map((opt, i) => {
               const isSelected = currentDraft.selectedOptions.includes(i);
+              const description = opt.description?.trim();
               return (
                 <button
                   key={i}
                   type="button"
                   onClick={() => toggleOption(i)}
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors",
+                    "block w-full rounded-md border px-2.5 py-2 text-left text-[13px] outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50",
                     isSelected
-                      ? "text-foreground bg-muted/60"
-                      : "text-foreground/80 hover:bg-muted/40",
+                      ? "border-primary/35 bg-primary/10 text-foreground"
+                      : "border-transparent text-foreground/85 hover:border-border/50 hover:bg-muted/35",
                   )}
                 >
-                  <span
-                    className={cn(
-                      "flex size-5 shrink-0 items-center justify-center rounded text-xs tabular-nums",
-                      isSelected
-                        ? "text-foreground font-medium"
-                        : "text-muted-foreground",
+                  <span className="min-w-0 flex-1 space-y-1">
+                    <span
+                      className={cn(
+                        "block text-[13px] font-medium leading-snug",
+                        isSelected ? "text-primary" : "text-foreground",
+                      )}
+                    >
+                      {opt.label}
+                    </span>
+                    {description && (
+                      <span className="block text-[12px] leading-snug text-muted-foreground">
+                        {description}
+                      </span>
                     )}
-                  >
-                    {i + 1}
                   </span>
-                  <span className="min-w-0 flex-1">{opt.label}</span>
                 </button>
               );
             })}
@@ -208,14 +212,6 @@ export default function QuestionPanel({
 
         {/* Custom text input + submit */}
         <div className="flex items-center gap-3 px-6 pt-1 pb-3">
-          <span
-            className={cn(
-              "flex size-5 shrink-0 items-center justify-center rounded text-xs tabular-nums",
-              hasCustomText ? "text-foreground font-medium" : "text-muted-foreground/30",
-            )}
-          >
-            0
-          </span>
           <input
             ref={inputRef}
             type="text"

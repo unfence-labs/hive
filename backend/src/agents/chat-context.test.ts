@@ -26,7 +26,12 @@ describe("resolveChatCwd", () => {
 
   it("returns the Brain repo path when a Brain is connected", async () => {
     await saveBrainState(
-      { exists: true, repoUrl: "git@github.com:test/brain.git", createdAt: "2026-06-05T00:00:00.000Z" },
+      {
+        exists: true,
+        repoUrl: "git@github.com:test/brain.git",
+        createdAt: "2026-06-05T00:00:00.000Z",
+        repoPath: brainRepoPath(dataDir),
+      },
       dataDir,
     );
     expect(await resolveChatCwd("brain", dataDir)).toBe(brainRepoPath(dataDir));

@@ -6,7 +6,14 @@ import {
   useRef,
   useState,
 } from "react";
-import { AlertTriangleIcon, ImageOffIcon, Loader2Icon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  FileTextIcon,
+  ImageOffIcon,
+  Loader2Icon,
+  MusicIcon,
+  VideoIcon,
+} from "lucide-react";
 import { highlightCode } from "@/lib/shiki";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MessageResponse } from "@/components/ai-elements/message";
@@ -14,7 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useThemeType } from "@/hooks/useThemeType";
 import { useFileContent } from "@/hooks/useFileContent";
 import { resolveImageSrc } from "@/lib/image-url";
-import { isImageFilePath, isMarkdownFilePath, workspaceFileRawPath } from "@/lib/file-preview";
+import { getFilePreviewKind, isMarkdownFilePath, workspaceFileRawPath } from "@/lib/file-preview";
 import { cn } from "@/lib/utils";
 
 /** Debounce (ms) before flushing edits to disk via the `onWriteToDisk` callback. */
@@ -133,6 +140,62 @@ function ImageFilePreview({ wsId, filePath }: { wsId: string; filePath: string }
   );
 }
 
+function PdfFilePreview({ wsId, filePath }: { wsId: string; filePath: string }) {
+  const src = `${workspaceFileRawPath(wsId, filePath)}#navpanes=0`;
+
+  return (
+    <div className="flex min-h-0 flex-1 bg-muted/20">
+      <object
+        data={src}
+        type="application/pdf"
+        className="min-h-0 flex-1 border-0 bg-background"
+        aria-label={`${basename(filePath)} PDF preview`}
+      >
+        <div className="flex flex-1 items-center justify-center p-4">
+          <div className="flex w-full max-w-sm items-center gap-2 rounded-md border border-border/50 bg-background/70 px-4 py-3 text-sm text-muted-foreground">
+            <FileTextIcon className="size-4 shrink-0" />
+            <span>PDF preview is not available in this environment.</span>
+          </div>
+        </div>
+      </object>
+    </div>
+  );
+}
+
+function MediaFilePreview({
+  wsId,
+  filePath,
+  kind,
+}: {
+  wsId: string;
+  filePath: string;
+  kind: "audio" | "video";
+}) {
+  const src = workspaceFileRawPath(wsId, filePath);
+  const name = basename(filePath);
+  const Icon = kind === "audio" ? MusicIcon : VideoIcon;
+
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-muted/20 p-4">
+      <div className="flex w-full max-w-3xl flex-col gap-3 rounded-md border border-border/50 bg-background p-4 shadow-sm dark:shadow-none">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Icon className="size-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 truncate">{name}</span>
+        </div>
+        {kind === "audio" ? (
+          <audio controls className="w-full" src={src}>
+            Audio preview is not available in this environment.
+          </audio>
+        ) : (
+          <video controls className="max-h-[70vh] w-full rounded-md bg-black" src={src}>
+            Video preview is not available in this environment.
+          </video>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export const FileViewer = forwardRef<FileViewerHandle, FileViewerProps>(function FileViewer({
   wsId,
   filePath,
@@ -142,7 +205,8 @@ export const FileViewer = forwardRef<FileViewerHandle, FileViewerProps>(function
 }, ref) {
   const theme = useThemeType();
   const shikiTheme = theme === "dark" ? "github-dark" : "github-light";
-  const isImageFile = isImageFilePath(filePath);
+  const previewKind = getFilePreviewKind(filePath);
+  const isRawPreviewFile = previewKind === "image" || previewKind === "pdf" || previewKind === "audio" || previewKind === "video";
   const isMarkdown = isMarkdownFilePath(filePath);
   const showRendered = renderMode === "rendered" && isMarkdown;
   const editableRef = useRef<EditableRawFileHandle>(null);
@@ -156,8 +220,8 @@ export const FileViewer = forwardRef<FileViewerHandle, FileViewerProps>(function
   );
 
   const { content, isLoading: contentLoading, error: contentError, truncated } = useFileContent(
-    isImageFile ? undefined : wsId,
-    isImageFile ? null : filePath,
+    isRawPreviewFile ? undefined : wsId,
+    isRawPreviewFile ? null : filePath,
   );
 
   // A truncated file holds only a prefix of the on-disk content, so it must
@@ -165,7 +229,7 @@ export const FileViewer = forwardRef<FileViewerHandle, FileViewerProps>(function
   const effectiveEditable = editable && !truncated;
 
   // Shiki HTML for the read-only raw view. Skipped when editing or rendering.
-  const skipHtml = isImageFile || showRendered || effectiveEditable;
+  const skipHtml = isRawPreviewFile || showRendered || effectiveEditable;
   const [html, setHtml] = useState("");
   useEffect(() => {
     if (skipHtml || content === undefined) {
@@ -181,8 +245,14 @@ export const FileViewer = forwardRef<FileViewerHandle, FileViewerProps>(function
     };
   }, [content, filePath, skipHtml, shikiTheme]);
 
-  if (isImageFile) {
+  if (previewKind === "image") {
     return <ImageFilePreview wsId={wsId} filePath={filePath} />;
+  }
+  if (previewKind === "pdf") {
+    return <PdfFilePreview wsId={wsId} filePath={filePath} />;
+  }
+  if (previewKind === "audio" || previewKind === "video") {
+    return <MediaFilePreview wsId={wsId} filePath={filePath} kind={previewKind} />;
   }
 
   const error = contentError?.message ?? null;

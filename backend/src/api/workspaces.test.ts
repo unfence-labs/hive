@@ -489,6 +489,29 @@ describe("GET /api/workspaces/:wsId/file", () => {
     expect(res.rawPayload).toEqual(image);
   });
 
+  it("streams raw workspace PDFs for file previews", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const ws = createRes.json();
+    const wsPath = join(dataDir, projectId, "workspaces", ws.name);
+    const pdf = Buffer.from("%PDF-1.4\n%%EOF\n", "utf-8");
+
+    await mkdir(join(wsPath, "docs"), { recursive: true });
+    await writeFile(join(wsPath, "docs", "spec.pdf"), pdf);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${ws.id}/file/raw?path=docs/spec.pdf`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("application/pdf");
+    expect(res.headers["content-disposition"]).toBe('inline; filename="spec.pdf"');
+    expect(res.rawPayload).toEqual(pdf);
+  });
+
   it("returns 404 for non-existent file", async () => {
     const createRes = await app.inject({
       method: "POST",
