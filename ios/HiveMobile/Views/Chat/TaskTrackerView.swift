@@ -188,7 +188,7 @@ struct TaskTrackerView: View {
             case .failed, .declined:
                 Image(systemName: "xmark.circle")
                     .font(.system(size: 11))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(WhisperColor.danger)
             }
         }
     }
@@ -212,10 +212,10 @@ struct TaskTrackerView: View {
             return WhisperColor.textMuted
         }
         switch status {
-        case .completed: WhisperColor.textMuted
-        case .inProgress: WhisperColor.text
-        case .pending: WhisperColor.textSecondary
-        case .failed, .declined: .red
+        case .completed: return WhisperColor.textMuted
+        case .inProgress: return WhisperColor.text
+        case .pending: return WhisperColor.textSecondary
+        case .failed, .declined: return WhisperColor.danger
         }
     }
 }
