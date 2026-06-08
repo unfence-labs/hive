@@ -1,14 +1,20 @@
 import SwiftUI
 
-/// Brain counterpart to `WorkspaceDashboardPanel`: a header plus a Save panel.
-/// The Brain has no git/PR data and no scripts, so this panel only surfaces the
-/// sync status (mirroring the web `BrainSyncSection`) and the Save action.
+private enum BrainDashboardMetrics {
+    static let rowMinHeight: CGFloat = 36
+}
+
+/// Brain counterpart to `WorkspaceDashboardPanel`: a header, working-tree
+/// summary, and Save panel. The Brain has no PR data or scripts.
 struct BrainDashboardPanel: View {
     let repoUrl: String?
     let syncState: BrainSyncState
     let pendingCount: Int
     let unpushedCommitCount: Int?
     let lastSyncedAt: String?
+    let diff: BrainDiffResponse?
+    let diffLoading: Bool
+    let diffError: Bool
     let isSaving: Bool
     let isStreaming: Bool
     let hasUnread: Bool
@@ -16,6 +22,15 @@ struct BrainDashboardPanel: View {
 
     private var canSave: Bool {
         (pendingCount > 0 || (unpushedCommitCount ?? 0) > 0) && !isSaving
+    }
+
+    private var workingTreeSummary: BrainWorkingTreeSummary {
+        BrainWorkingTreeSummary(
+            pendingCount: pendingCount,
+            diff: diff,
+            isLoading: diffLoading,
+            hasError: diffError
+        )
     }
 
     private var activityAccessibilityLabel: String {
@@ -27,6 +42,7 @@ struct BrainDashboardPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: HiveSpacing.lg) {
             header
+            gitBlock
             saveBlock
         }
         .padding(.horizontal, HiveSpacing.lg)
@@ -78,6 +94,20 @@ struct BrainDashboardPanel: View {
         }
         .frame(width: 18, height: 18)
         .accessibilityLabel(activityAccessibilityLabel)
+    }
+
+    private var gitBlock: some View {
+        VStack(alignment: .leading, spacing: HiveSpacing.sm) {
+            Text("GIT")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(WhisperColor.textMuted)
+
+            BrainWorkingTreeRow(summary: workingTreeSummary)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(WhisperColor.surfaceSubtle)
+                )
+        }
     }
 
     private var saveBlock: some View {
@@ -224,6 +254,110 @@ struct BrainDashboardPanel: View {
     }
 }
 
+private struct BrainWorkingTreeSummary {
+    let isLoaded: Bool
+    let hasError: Bool
+    let fileCount: Int
+    let additions: Int
+    let deletions: Int
+    let omittedFileCount: Int
+
+    var hasChanges: Bool {
+        isLoaded && fileCount > 0
+    }
+
+    var hasLineChanges: Bool {
+        hasChanges && (additions > 0 || deletions > 0)
+    }
+
+    var fileText: String {
+        if hasError { return "-" }
+        if !isLoaded { return "syncing" }
+        if !hasChanges { return "-" }
+        return "\(fileCount) file\(fileCount == 1 ? "" : "s")"
+    }
+
+    var fileColor: Color {
+        hasChanges ? WhisperColor.text : WhisperColor.textMuted
+    }
+
+    var statusText: String {
+        if hasError { return "unavailable" }
+        if !isLoaded { return "waiting" }
+        if omittedFileCount > 0 { return "+\(omittedFileCount) hidden" }
+        if hasChanges { return "changed" }
+        return "-"
+    }
+
+    var statusColor: Color {
+        hasError || omittedFileCount > 0 ? WhisperColor.warningForeground : WhisperColor.textMuted
+    }
+
+    init(pendingCount: Int, diff: BrainDiffResponse?, isLoading: Bool, hasError: Bool) {
+        self.isLoaded = diff != nil && !isLoading
+        self.hasError = hasError
+        self.fileCount = pendingCount
+        self.omittedFileCount = diff?.omittedFileCount ?? 0
+        let stats = parseDiffStats(diff?.diff ?? "")
+        self.additions = stats.added
+        self.deletions = stats.removed
+    }
+}
+
+private struct BrainWorkingTreeRow: View {
+    let summary: BrainWorkingTreeSummary
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: HiveSpacing.md) {
+            Text("Working tree")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .foregroundStyle(WhisperColor.textMuted)
+                .lineLimit(1)
+                .frame(width: 104, alignment: .leading)
+
+            Text(summary.fileText)
+                .font(.caption.monospacedDigit().weight(.medium))
+                .foregroundStyle(summary.fileColor)
+                .lineLimit(1)
+
+            Spacer(minLength: HiveSpacing.sm)
+
+            if summary.hasLineChanges {
+                BrainChangePair(additions: summary.additions, deletions: summary.deletions)
+            } else {
+                Text(summary.statusText)
+                    .font(.caption.monospacedDigit().weight(.medium))
+                    .foregroundStyle(summary.statusColor)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, HiveSpacing.md)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, minHeight: BrainDashboardMetrics.rowMinHeight, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct BrainChangePair: View {
+    let additions: Int
+    let deletions: Int
+
+    var body: some View {
+        HStack(spacing: HiveSpacing.sm) {
+            if additions > 0 {
+                Text("+\(additions)")
+                    .foregroundStyle(WhisperColor.success)
+            }
+            if deletions > 0 {
+                Text("-\(deletions)")
+                    .foregroundStyle(.red)
+            }
+        }
+        .font(.caption.monospacedDigit().weight(.medium))
+        .lineLimit(1)
+    }
+}
+
 private struct BrainSyncDot: View {
     let color: Color
     let pulsing: Bool
@@ -254,6 +388,9 @@ private struct BrainSyncDot: View {
             pendingCount: 3,
             unpushedCommitCount: 0,
             lastSyncedAt: "2026-06-08T10:00:00.000Z",
+            diff: BrainDiffResponse(diff: "+new\n-old", omittedFileCount: 0),
+            diffLoading: false,
+            diffError: false,
             isSaving: false,
             isStreaming: true,
             hasUnread: false,
@@ -265,6 +402,9 @@ private struct BrainSyncDot: View {
             pendingCount: 0,
             unpushedCommitCount: 0,
             lastSyncedAt: nil,
+            diff: BrainDiffResponse(diff: "", omittedFileCount: 0),
+            diffLoading: false,
+            diffError: false,
             isSaving: false,
             isStreaming: false,
             hasUnread: false,

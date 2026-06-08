@@ -193,6 +193,21 @@ struct BrainSyncStateTests {
     }
 
     @Test
+    func decodesBrainDiffResponse() throws {
+        let data = """
+        {
+          "diff": "diff --git a/a.md b/a.md\\n--- a/a.md\\n+++ b/a.md\\n@@ -1 +1,2 @@\\n-old\\n+new\\n+extra",
+          "omittedFileCount": 1
+        }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(BrainDiffResponse.self, from: data)
+
+        #expect(response.omittedFileCount == 1)
+        #expect(response.diff.contains("+extra"))
+    }
+
+    @Test
     func saveFailureMessagePrefersBackendError() {
         let response = BrainSaveResponse(
             committed: true,

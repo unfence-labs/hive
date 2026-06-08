@@ -219,6 +219,10 @@ final class APIClient {
         try await get(path: "/api/brain/status")
     }
 
+    func fetchBrainDiff() async throws -> BrainDiffResponse {
+        try await get(path: "/api/brain/diff")
+    }
+
     func saveBrain(message: String?) async throws -> BrainSaveResponse {
         struct SaveBody: Encodable { let message: String? }
         let body = try JSONEncoder().encode(SaveBody(message: message))

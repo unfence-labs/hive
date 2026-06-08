@@ -12,8 +12,11 @@ struct BrainConversationsView: View {
 
     @State private var brainState: BrainState?
     @State private var brainStatus: BrainStatusResponse?
+    @State private var brainDiff: BrainDiffResponse?
     @State private var statusLoading = true
     @State private var statusError = false
+    @State private var diffLoading = true
+    @State private var diffError = false
     @State private var hasLoadedStatusOnce = false
     @State private var saveIndicator: BrainSaveIndicator = .idle
     @State private var saveErrorMessage: String?
@@ -105,6 +108,9 @@ struct BrainConversationsView: View {
                 pendingCount: pendingCount,
                 unpushedCommitCount: unpushedCommitCount,
                 lastSyncedAt: lastSyncedAt,
+                diff: brainDiff,
+                diffLoading: diffLoading,
+                diffError: diffError,
                 isSaving: saveIndicator == .saving,
                 isStreaming: brainStreaming,
                 hasUnread: projectStore.statusMonitor.hasUnreadSessions(BRAIN_WORKSPACE_ID),
@@ -155,6 +161,8 @@ struct BrainConversationsView: View {
     private func loadStatus() async {
         guard brainState?.exists != false else { return }
         if !hasLoadedStatusOnce { statusLoading = true }
+        if !hasLoadedStatusOnce { diffLoading = true }
+
         do {
             brainStatus = try await api.fetchBrainStatus()
             statusError = false
@@ -164,6 +172,16 @@ struct BrainConversationsView: View {
             statusError = true
         }
         statusLoading = false
+
+        do {
+            brainDiff = try await api.fetchBrainDiff()
+            diffError = false
+        } catch is CancellationError {
+            return
+        } catch {
+            diffError = true
+        }
+        diffLoading = false
         hasLoadedStatusOnce = true
     }
 
@@ -185,6 +203,7 @@ struct BrainConversationsView: View {
                         lastSyncedAt: result.lastSyncedAt ?? brainStatus?.lastSyncedAt ?? brainState?.lastSyncedAt,
                         unpushedCommitCount: 0
                     )
+                    brainDiff = BrainDiffResponse(diff: "", omittedFileCount: 0)
                     if let lastSyncedAt = result.lastSyncedAt, let brainState {
                         self.brainState = BrainState(
                             exists: brainState.exists,

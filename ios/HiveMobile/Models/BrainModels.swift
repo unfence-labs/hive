@@ -44,6 +44,14 @@ struct BrainStatusResponse: Decodable {
     let unpushedCommitCount: Int?
 }
 
+// MARK: - Brain diff
+
+/// Result of `GET /api/brain/diff` — the Brain working-tree unified diff.
+struct BrainDiffResponse: Decodable {
+    let diff: String
+    let omittedFileCount: Int
+}
+
 // MARK: - Brain save
 
 /// Result of `POST /api/brain/save`. `committed == false` means nothing to
