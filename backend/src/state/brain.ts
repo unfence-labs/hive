@@ -15,8 +15,16 @@ export async function loadBrainState(dataDir = getDataDir()): Promise<BrainState
     const state = JSON.parse(raw) as BrainState;
     // Re-derive the local clone path on every read so it always reflects the
     // current data dir (and is present even for states persisted before the
-    // field existed) — the persisted value is never trusted.
-    return state.exists ? { ...state, repoPath: brainRepoPath(dataDir) } : state;
+    // field existed) — the persisted value is never trusted. Older Brain states
+    // predate lastSyncedAt; createdAt is the best available successful-sync
+    // timestamp because create/connect leave the clone aligned with upstream.
+    return state.exists
+      ? {
+          ...state,
+          lastSyncedAt: state.lastSyncedAt ?? state.createdAt,
+          repoPath: brainRepoPath(dataDir),
+        }
+      : state;
   } catch (err: unknown) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") return { exists: false };

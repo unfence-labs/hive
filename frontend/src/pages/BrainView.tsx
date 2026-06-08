@@ -29,6 +29,7 @@ import { Badge } from "@/components/ui/badge";
 import { wsTransport } from "@/lib/ws-transport";
 import { BRAIN_WORKSPACE_ID, brainFileQueryKey } from "@/lib/brain";
 import { isMarkdownFilePath } from "@/lib/file-preview";
+import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type {
   DiffFileStat,
@@ -88,6 +89,8 @@ export default function BrainView() {
   const { save, isSaving } = useBrainSave();
 
   const pendingCount = statusQuery.data?.count ?? 0;
+  const unpushedCommitCount = statusQuery.data?.unpushedCommitCount ?? 0;
+  const lastSyncedAt = statusQuery.data?.lastSyncedAt ?? (brain.exists ? brain.lastSyncedAt : undefined);
   const brainTree = useMemo(() => fileTreeQuery.data ?? [], [fileTreeQuery.data]);
   const fileTreeError = fileTreeQuery.error?.message ?? null;
 
@@ -262,6 +265,7 @@ export default function BrainView() {
     statusError: statusQuery.isError,
     saveIndicator,
     pendingCount,
+    unpushedCommitCount,
   });
 
   // ── File-tree actions ──
@@ -531,6 +535,8 @@ export default function BrainView() {
             {/* Sync: commit + push the whole working tree directly. */}
             <BrainSyncSection
               pendingCount={pendingCount}
+              unpushedCommitCount={unpushedCommitCount}
+              lastSyncedAt={lastSyncedAt}
               syncState={syncState}
               isSaving={isSaving}
               onSave={handleSave}
@@ -579,6 +585,7 @@ type BrainSyncState =
   | "push-failed"
   | "saved"
   | "pending"
+  | "unpushed"
   | "synced";
 
 /**
@@ -592,14 +599,16 @@ function deriveBrainSyncState(args: {
   statusError: boolean;
   saveIndicator: BrainSaveIndicator;
   pendingCount: number;
+  unpushedCommitCount: number | null;
 }): BrainSyncState {
-  const { statusLoading, statusError, saveIndicator, pendingCount } = args;
+  const { statusLoading, statusError, saveIndicator, pendingCount, unpushedCommitCount } = args;
   if (saveIndicator === "saving") return "saving";
   if (saveIndicator === "push-failed") return "push-failed";
   if (statusError) return "error";
   if (statusLoading) return "loading";
   if (saveIndicator === "saved") return "saved";
   if (pendingCount > 0) return "pending";
+  if ((unpushedCommitCount ?? 0) > 0) return "unpushed";
   return "synced";
 }
 
@@ -644,6 +653,11 @@ const BRAIN_SYNC_STATE_META: Record<
     dotClass: "bg-warning",
     textClass: "text-warning-foreground",
   },
+  unpushed: {
+    label: "Not pushed",
+    dotClass: "bg-warning",
+    textClass: "text-warning-foreground",
+  },
   synced: {
     label: "Up to date",
     dotClass: "bg-muted-foreground/60",
@@ -653,6 +667,8 @@ const BRAIN_SYNC_STATE_META: Record<
 
 interface BrainSyncSectionProps {
   pendingCount: number;
+  unpushedCommitCount: number | null;
+  lastSyncedAt?: string;
   syncState: BrainSyncState;
   isSaving: boolean;
   onSave: () => void;
@@ -664,35 +680,58 @@ interface BrainSyncSectionProps {
  * on the right — mirrors the workspace PR status line. Disabled while a save is
  * in flight or when there is nothing to commit.
  */
-function BrainSyncSection({ pendingCount, syncState, isSaving, onSave }: BrainSyncSectionProps) {
+function BrainSyncSection({
+  pendingCount,
+  unpushedCommitCount,
+  lastSyncedAt,
+  syncState,
+  isSaving,
+  onSave,
+}: BrainSyncSectionProps) {
   const meta = BRAIN_SYNC_STATE_META[syncState];
+  const canSave = pendingCount > 0 || (unpushedCommitCount ?? 0) > 0;
+  const lastSyncLabel = lastSyncedAt
+    ? `Last synced ${formatRelativeTime(lastSyncedAt)}`
+    : "Never synced";
+  const lastSyncTitle = lastSyncedAt
+    ? `Last successful sync: ${formatAbsoluteTime(lastSyncedAt)}`
+    : "No successful Brain sync recorded yet";
+
   return (
-    <div className="flex shrink-0 items-center gap-2 border-t border-border/50 px-3 py-2.5">
-      <span role="status" className={cn("flex items-center gap-1.5 text-xs font-medium", meta.textClass)}>
-        <span
-          className={cn("size-1.5 shrink-0 rounded-full", meta.dotClass, meta.pulse && "animate-pulse")}
-          aria-hidden="true"
-        />
-        {meta.label}
-      </span>
-      <button
-        type="button"
-        onClick={onSave}
-        disabled={pendingCount === 0 || isSaving}
-        className={cn(
-          "ml-auto flex shrink-0 cursor-pointer items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground",
-          // Dim the whole button (icon + label + count badge) together when disabled.
-          "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground",
-        )}
+    <div className="flex shrink-0 flex-col border-t border-border/50 px-3 py-2">
+      <div className="flex items-center gap-2">
+        <span role="status" className={cn("flex min-w-0 items-center gap-1.5 text-xs font-medium", meta.textClass)}>
+          <span
+            className={cn("size-1.5 shrink-0 rounded-full", meta.dotClass, meta.pulse && "animate-pulse")}
+            aria-hidden="true"
+          />
+          <span className="truncate">{meta.label}</span>
+        </span>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={!canSave || isSaving}
+          className={cn(
+            "ml-auto flex shrink-0 cursor-pointer items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground",
+            // Dim the whole button (icon + label + count badge) together when disabled.
+            "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground",
+          )}
+        >
+          <CloudUploadIcon className="size-3.5 shrink-0" aria-hidden="true" />
+          Save
+          {pendingCount > 0 && (
+            <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-[10px]">
+              {pendingCount}
+            </Badge>
+          )}
+        </button>
+      </div>
+      <div
+        className="mt-1 min-w-0 truncate pl-3 text-[11px] leading-none text-muted-foreground"
+        title={lastSyncTitle}
       >
-        <CloudUploadIcon className="size-3.5 shrink-0" aria-hidden="true" />
-        Save
-        {pendingCount > 0 && (
-          <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-[10px]">
-            {pendingCount}
-          </Badge>
-        )}
-      </button>
+        {lastSyncLabel}
+      </div>
     </div>
   );
 }

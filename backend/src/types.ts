@@ -89,6 +89,8 @@ export type BrainState =
       exists: true;
       repoUrl: string;
       createdAt: string;
+      /** Last successful push timestamp for the Brain clone. */
+      lastSyncedAt?: string;
       /** Absolute local clone path. Derived from the data dir on every read. */
       repoPath: string;
     };
@@ -116,12 +118,18 @@ export interface BrainStatusResponse {
   count: number;
   /** Upstream tracking ref (e.g. "origin/main"), or null when none is set. */
   upstream: string | null;
+  /** Last successful Brain push timestamp, when known. */
+  lastSyncedAt?: string;
+  /** Local commits not yet pushed to upstream, or null when no upstream exists. */
+  unpushedCommitCount: number | null;
 }
 
 /** Response of `POST /api/brain/save`: outcome of commit + push. */
 export interface BrainSaveResponse {
   committed: boolean;
   pushed: boolean;
+  /** Present when this save completed a successful push. */
+  lastSyncedAt?: string;
   error?: string;
 }
 

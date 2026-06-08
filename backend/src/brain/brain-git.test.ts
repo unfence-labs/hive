@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createFixtureRepo, createTempDir } from "../utils/test-helpers.js";
 import { git } from "../utils/git.js";
 import { brainRepoPath } from "../utils/paths.js";
+import { loadBrainState } from "../state/brain.js";
 import { connectBrain } from "./brain-repo.js";
 import { writeBrainFile } from "./brain-files.js";
 import { getBrainDiff, getBrainStatus, saveBrain } from "./brain-git.js";
@@ -38,6 +39,8 @@ describe("getBrainStatus", () => {
     const status = await getBrainStatus(dataDir);
     expect(status.files).toEqual([]);
     expect(status.count).toBe(0);
+    expect(status.lastSyncedAt).toBeTruthy();
+    expect(status.unpushedCommitCount).toBe(0);
     // A fresh clone tracks origin.
     expect(status.upstream).toMatch(/^origin\//);
   });
@@ -53,6 +56,7 @@ describe("getBrainStatus", () => {
     expect(byPath["README.md"]).toBe("modified");
     expect(byPath["new-note.md"]).toBe("untracked");
     expect(status.count).toBe(2);
+    expect(status.unpushedCommitCount).toBe(0);
   });
 });
 
@@ -111,14 +115,26 @@ describe("saveBrain", () => {
     await connectFixtureBrain();
     await writeBrainFile("saved.md", "to be saved\n", dataDir);
 
-    const result = await saveBrain("Add saved note", dataDir);
-    expect(result).toEqual({ committed: true, pushed: true });
+    const result = await saveBrain("Add saved note", dataDir, {
+      now: () => new Date("2026-06-06T10:00:00.000Z"),
+    });
+    expect(result).toEqual({
+      committed: true,
+      pushed: true,
+      lastSyncedAt: "2026-06-06T10:00:00.000Z",
+    });
 
     // The commit landed on the origin bare repo.
     const { stdout } = await git(["log", "-1", "--pretty=%s", "main"], origin);
     expect(stdout).toBe("Add saved note");
     // Working tree is clean again.
-    expect((await getBrainStatus(dataDir)).count).toBe(0);
+    const status = await getBrainStatus(dataDir);
+    expect(status.count).toBe(0);
+    expect(status.unpushedCommitCount).toBe(0);
+    await expect(loadBrainState(dataDir)).resolves.toMatchObject({
+      exists: true,
+      lastSyncedAt: "2026-06-06T10:00:00.000Z",
+    });
   });
 
   it("uses a default commit message when none is provided", async () => {
@@ -126,24 +142,55 @@ describe("saveBrain", () => {
     await writeBrainFile("auto.md", "auto\n", dataDir);
     const result = await saveBrain(undefined, dataDir);
     expect(result.committed).toBe(true);
+    expect(result.pushed).toBe(true);
+    expect(result.lastSyncedAt).toBeTruthy();
     const { stdout } = await git(["log", "-1", "--pretty=%s"], brainRepoPath(dataDir));
     expect(stdout).toMatch(/^Brain update /);
   });
 
   it("keeps the commit but reports pushed:false when push fails", async () => {
     await connectFixtureBrain();
+    const before = await loadBrainState(dataDir);
     // Break the remote so push fails but the local commit still succeeds.
     await rm(origin, { recursive: true, force: true });
     await writeBrainFile("note.md", "content\n", dataDir);
 
-    const result = await saveBrain("Will not push", dataDir);
+    const result = await saveBrain("Will not push", dataDir, {
+      now: () => new Date("2026-06-06T11:00:00.000Z"),
+    });
     expect(result.committed).toBe(true);
     expect(result.pushed).toBe(false);
     expect(result.error).toBeTruthy();
+    expect(result.lastSyncedAt).toBeUndefined();
+    await expect(loadBrainState(dataDir)).resolves.toEqual(before);
 
     // The commit exists locally.
     const { stdout } = await git(["log", "-1", "--pretty=%s"], brainRepoPath(dataDir));
     expect(stdout).toBe("Will not push");
+    expect((await getBrainStatus(dataDir)).unpushedCommitCount).toBe(1);
+  });
+
+  it("pushes existing local commits when there are no working-tree changes", async () => {
+    await connectFixtureBrain();
+    const repoPath = brainRepoPath(dataDir);
+    await writeBrainFile("local.md", "local commit\n", dataDir);
+    await git(["add", "local.md"], repoPath);
+    await git(["commit", "-m", "Local only"], repoPath);
+
+    expect((await getBrainStatus(dataDir)).unpushedCommitCount).toBe(1);
+
+    const result = await saveBrain(undefined, dataDir, {
+      now: () => new Date("2026-06-06T12:00:00.000Z"),
+    });
+
+    expect(result).toEqual({
+      committed: false,
+      pushed: true,
+      lastSyncedAt: "2026-06-06T12:00:00.000Z",
+    });
+    expect((await getBrainStatus(dataDir)).unpushedCommitCount).toBe(0);
+    const { stdout } = await git(["log", "-1", "--pretty=%s", "main"], origin);
+    expect(stdout).toBe("Local only");
   });
 
   it("throws 409 when the Brain is not connected", async () => {
