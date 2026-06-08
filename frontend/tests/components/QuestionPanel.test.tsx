@@ -149,6 +149,45 @@ describe("QuestionPanel", () => {
     expect(submit).toBeEnabled();
   });
 
+  it("requires every question to be answered before submitting a multi-question block", async () => {
+    const user = userEvent.setup();
+    const onBatchSubmit = vi.fn();
+    render(
+      <QuestionPanel
+        pendingToolInputs={[
+          askInput("ask-1", [
+            { question: "First question", options: [] },
+            { question: "Second question", options: [] },
+          ]),
+        ]}
+        onBatchSubmit={onBatchSubmit}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    await user.type(screen.getByPlaceholderText("Type something..."), "first answer");
+
+    const partialSubmit = screen.getByRole("button", { name: "Submit (1/2)" });
+    expect(partialSubmit).toBeDisabled();
+
+    await user.keyboard("{Enter}");
+    expect(onBatchSubmit).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Question 2" }));
+    await user.type(screen.getByPlaceholderText("Type something..."), "second answer");
+    await user.click(screen.getByRole("button", { name: "Submit (2/2)" }));
+
+    expect(onBatchSubmit).toHaveBeenCalledWith([
+      {
+        toolUseId: "ask-1",
+        answers: [
+          { questionIndex: 0, selectedOptions: [], customText: "first answer" },
+          { questionIndex: 1, selectedOptions: [], customText: "second answer" },
+        ],
+      },
+    ]);
+  });
+
   it("calls dismiss handler", async () => {
     const user = userEvent.setup();
     const onDismiss = vi.fn();

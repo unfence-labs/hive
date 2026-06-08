@@ -117,8 +117,12 @@ export default function QuestionPanel({
   };
 
   const answeredCount = flatQuestions.filter(hasAnswer).length;
+  const total = flatQuestions.length;
+  const canSubmit = total > 1 ? answeredCount === total : answeredCount > 0;
 
   const handleSubmit = useCallback(() => {
+    if (!canSubmit) return;
+
     const grouped = new Map<string, QuestionAnswer[]>();
     for (const fq of flatQuestions) {
       const d = drafts.get(draftKey(fq));
@@ -135,22 +139,19 @@ export default function QuestionPanel({
       answers,
     }));
     onBatchSubmit(responses);
-  }, [flatQuestions, drafts, onBatchSubmit]);
+  }, [canSubmit, flatQuestions, drafts, onBatchSubmit]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" && !e.shiftKey && answeredCount > 0) {
+      if (e.key === "Enter" && !e.shiftKey && canSubmit) {
         e.preventDefault();
         handleSubmit();
       }
     },
-    [answeredCount, handleSubmit],
+    [canSubmit, handleSubmit],
   );
 
   if (flatQuestions.length === 0) return null;
-
-  const total = flatQuestions.length;
-  const canSubmit = total > 1 ? answeredCount === total : answeredCount > 0;
 
   return (
     <div className="border-t border-border/30 px-3 py-3">
