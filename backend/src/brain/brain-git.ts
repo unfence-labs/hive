@@ -8,6 +8,7 @@ import type {
 import { git } from "../utils/git.js";
 import { buildDiffResponse, getUntrackedDiff } from "../utils/git-diff.js";
 import { getDataDir } from "../state/state.js";
+import { loadBrainState, saveBrainState } from "../state/brain.js";
 import { requireBrainRepo } from "./brain-files.js";
 
 /** Map a `git status --porcelain` XY code pair to a Brain status kind. */
@@ -17,6 +18,25 @@ function porcelainToStatus(x: string, y: string): BrainFileStatusKind {
   if (x === "A" || y === "A") return "added";
   if (x === "D" || y === "D") return "deleted";
   return "modified";
+}
+
+async function getUnpushedCommitCount(repoPath: string): Promise<number | null> {
+  try {
+    const { stdout } = await git(["rev-list", "--count", "@{u}..HEAD"], repoPath);
+    const count = Number.parseInt(stdout, 10);
+    return Number.isFinite(count) ? count : null;
+  } catch {
+    return null;
+  }
+}
+
+async function markBrainSynced(dataDir: string, now: () => Date): Promise<string> {
+  const lastSyncedAt = now().toISOString();
+  const state = await loadBrainState(dataDir);
+  if (state.exists) {
+    await saveBrainState({ ...state, lastSyncedAt }, dataDir);
+  }
+  return lastSyncedAt;
 }
 
 /**
@@ -30,7 +50,16 @@ export async function getBrainStatus(
   const repoPath = await requireBrainRepo(dataDir);
   // -z gives NUL-delimited records; renames emit an extra NUL-separated old path.
   // -uall lists individual untracked files instead of collapsing directories.
-  const { stdout } = await git(["status", "--porcelain", "-z", "-uall"], repoPath);
+  // Fetch the upstream tracking ref alongside the change set; the lookup throws
+  // when no tracking ref is set (normalized to null).
+  const [{ stdout }, upstream, unpushedCommitCount, state] = await Promise.all([
+    git(["status", "--porcelain", "-z", "-uall"], repoPath),
+    git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], repoPath)
+      .then((r) => r.stdout || null)
+      .catch(() => null),
+    getUnpushedCommitCount(repoPath),
+    loadBrainState(dataDir),
+  ]);
 
   const files: BrainFileStatus[] = [];
   const records = stdout.split("\0");
@@ -56,7 +85,13 @@ export async function getBrainStatus(
     files.push({ path, status });
   }
 
-  return { files, count: files.length };
+  return {
+    files,
+    count: files.length,
+    upstream,
+    lastSyncedAt: state.exists ? state.lastSyncedAt : undefined,
+    unpushedCommitCount,
+  };
 }
 
 /**
@@ -95,11 +130,24 @@ export async function getBrainDiff(
 export async function saveBrain(
   message: string | undefined,
   dataDir = getDataDir(),
+  options: { now?: () => Date } = {},
 ): Promise<BrainSaveResponse> {
   const repoPath = await requireBrainRepo(dataDir);
 
   const { count } = await getBrainStatus(dataDir);
   if (count === 0) {
+    const unpushedCommitCount = await getUnpushedCommitCount(repoPath);
+    if ((unpushedCommitCount ?? 0) > 0) {
+      try {
+        await git(["push"], repoPath);
+      } catch (err: unknown) {
+        const detail = err instanceof Error ? err.message : "Push failed";
+        return { committed: false, pushed: false, error: detail };
+      }
+
+      const lastSyncedAt = await markBrainSynced(dataDir, options.now ?? (() => new Date()));
+      return { committed: false, pushed: true, lastSyncedAt };
+    }
     return { committed: false, pushed: false };
   }
 
@@ -114,5 +162,6 @@ export async function saveBrain(
     return { committed: true, pushed: false, error: detail };
   }
 
-  return { committed: true, pushed: true };
+  const lastSyncedAt = await markBrainSynced(dataDir, options.now ?? (() => new Date()));
+  return { committed: true, pushed: true, lastSyncedAt };
 }

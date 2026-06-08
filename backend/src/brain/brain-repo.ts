@@ -51,10 +51,13 @@ function assertPathInsideBrain(dataDir: string, target: string): void {
 }
 
 async function persistBrain(repoUrl: string, dataDir: string, now: () => Date): Promise<PersistedBrainState> {
+  const timestamp = now().toISOString();
   const state: PersistedBrainState = {
     exists: true,
     repoUrl,
-    createdAt: now().toISOString(),
+    createdAt: timestamp,
+    lastSyncedAt: timestamp,
+    repoPath: brainRepoPath(dataDir),
   };
   await saveBrainState(state, dataDir);
   return state;

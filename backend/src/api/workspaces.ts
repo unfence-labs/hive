@@ -16,7 +16,7 @@ import { git } from "../utils/git.js";
 import { endSession } from "../agents/agent-manager.js";
 import { resolveChatCwd } from "../agents/chat-context.js";
 import { createReadStream } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { bareRepoPath, resolveDefaultBranch, workspacesDir } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
 import { BadRequestError, errorMessage, errorStatus } from "../utils/errors.js";
@@ -25,47 +25,10 @@ import { getBranchName } from "../services/git-sync.js";
 import { readHiveConfig } from "../utils/hive-config.js";
 import { startScript } from "../services/script-runner.js";
 import { broadcastToWorkspace } from "../ws/stream.js";
+import { headerFilename, rawFileContentType } from "../utils/raw-file.js";
 import type { BulkPrStatusResponse, DiffScope, PrStatusResponse } from "../types.js";
 
 const DIFF_SCOPES = new Set<DiffScope>(["combined", "committed", "uncommitted"]);
-
-const RAW_FILE_MIME_BY_EXT: Record<string, string> = {
-  apng: "image/apng",
-  avif: "image/avif",
-  avifs: "image/avif",
-  bmp: "image/bmp",
-  cur: "image/x-icon",
-  gif: "image/gif",
-  heic: "image/heic",
-  heics: "image/heic-sequence",
-  heif: "image/heif",
-  heifs: "image/heif-sequence",
-  ico: "image/x-icon",
-  jfif: "image/jpeg",
-  jif: "image/jpeg",
-  jp2: "image/jp2",
-  jpe: "image/jpeg",
-  jpeg: "image/jpeg",
-  jpg: "image/jpeg",
-  jxl: "image/jxl",
-  png: "image/png",
-  psd: "image/vnd.adobe.photoshop",
-  svg: "image/svg+xml",
-  svgz: "image/svg+xml",
-  tif: "image/tiff",
-  tiff: "image/tiff",
-  webp: "image/webp",
-  xcf: "image/x-xcf",
-};
-
-function rawFileContentType(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
-  return RAW_FILE_MIME_BY_EXT[ext] ?? "application/octet-stream";
-}
-
-function headerFilename(path: string): string {
-  return basename(path).replace(/[\r\n"]/g, "_");
-}
 
 function parseDiffScope(scope: unknown): DiffScope {
   if (scope === undefined) return "combined";

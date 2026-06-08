@@ -37,11 +37,11 @@ import { useTerminalApps } from "@/hooks/useTerminalApps";
 import { openTerminalSsh } from "@/lib/terminal";
 import { useLayoutContext } from "@/components/AppLayout";
 import { ResizeHandle } from "@/components/ResizeHandle";
-import { WorkspacePathCopyButton } from "@/components/WorkspacePathCopyButton";
+import { PathCopyButton } from "@/components/PathCopyButton";
 import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
-import { isImageFilePath, isMarkdownFilePath } from "@/lib/file-preview";
+import { isBinaryPreviewFilePath, isMarkdownFilePath } from "@/lib/file-preview";
 import { PlanActionBar } from "@/components/chat/PlanActionBar";
 import { useScripts } from "@/hooks/useScripts";
 import type { DiffFileStat, DiffScope, DiffStatResponse, FileMention, ImageAttachment, MessageOptions, Workspace, WorkspaceFileTreeNode } from "@/types";
@@ -255,7 +255,7 @@ export default function WorkspaceView() {
     handleDeleteSession,
   } = useConversationColumn(wsId, { onActivateSession, onLastSessionDeleted });
 
-  const openFileIsImage = openFile ? isImageFilePath(openFile) : false;
+  const openFileIsBinaryPreview = openFile ? isBinaryPreviewFilePath(openFile) : false;
   const supportsRendered = openFile ? isMarkdownFilePath(openFile) : false;
   const [renderMode, setRenderMode] = useState<"raw" | "rendered">("raw");
 
@@ -507,9 +507,10 @@ export default function WorkspaceView() {
               {workspace?.defaultBranch && (
                 <span className="truncate text-xs text-muted-foreground/60">{"> origin/"}{workspace.defaultBranch}</span>
               )}
-              <WorkspacePathCopyButton
+              <PathCopyButton
                 path={workspacePath}
                 disabledReason={copyWorkspacePathDisabledReason}
+                label="Workspace path"
               />
             </div>
             <div className="ml-auto" />
@@ -661,8 +662,8 @@ export default function WorkspaceView() {
                 onDiffStyleChange={handleDiffStyleChange}
                 commentCount={diffCommentCount}
                 onPasteToPrompt={handlePasteToPrompt}
-                sourceLabel={openFileIsImage ? "Preview" : "Source"}
-                supportsTextDiff={!openFileIsImage}
+                sourceLabel={openFileIsBinaryPreview ? "Preview" : "Source"}
+                supportsTextDiff={!openFileIsBinaryPreview}
                 renderMode={renderMode}
                 onRenderModeChange={setRenderMode}
                 supportsRendered={supportsRendered}

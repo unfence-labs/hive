@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   fileExtension,
+  getFilePreviewKind,
+  isBinaryPreviewFilePath,
   isImageFilePath,
   isMarkdownFilePath,
   workspaceFileRawPath,
@@ -39,6 +41,30 @@ describe("file-preview", () => {
   it("builds an encoded raw workspace file path", () => {
     expect(workspaceFileRawPath("ws 1", "assets/my logo.png")).toBe(
       "/api/workspaces/ws%201/file/raw?path=assets%2Fmy%20logo.png",
+    );
+  });
+
+  it("classifies browser-previewable files by kind", () => {
+    expect(getFilePreviewKind("README.md")).toBe("markdown");
+    expect(getFilePreviewKind("assets/logo.png")).toBe("image");
+    expect(getFilePreviewKind("docs/spec.PDF")).toBe("pdf");
+    expect(getFilePreviewKind("audio/voice.mp3")).toBe("audio");
+    expect(getFilePreviewKind("video/demo.webm")).toBe("video");
+    expect(getFilePreviewKind("src/app.tsx")).toBe("text");
+  });
+
+  it("classifies only non-text previews as binary preview files", () => {
+    expect(isBinaryPreviewFilePath("assets/logo.png")).toBe(true);
+    expect(isBinaryPreviewFilePath("docs/spec.pdf")).toBe(true);
+    expect(isBinaryPreviewFilePath("audio/voice.wav")).toBe(true);
+    expect(isBinaryPreviewFilePath("video/demo.mp4")).toBe(true);
+    expect(isBinaryPreviewFilePath("README.md")).toBe(false);
+    expect(isBinaryPreviewFilePath("src/app.ts")).toBe(false);
+  });
+
+  it("builds an encoded raw Brain file path", () => {
+    expect(workspaceFileRawPath("brain", "docs/spec.pdf")).toBe(
+      "/api/brain/file/raw?path=docs%2Fspec.pdf",
     );
   });
 });

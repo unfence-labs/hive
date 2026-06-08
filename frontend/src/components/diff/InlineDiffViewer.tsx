@@ -24,7 +24,7 @@ import { useThemeType } from "@/hooks/useThemeType";
 import { useDiff } from "@/hooks/useDiff";
 import { FileDiffCard } from "@/components/diff/FileDiffCard";
 import { FileViewer } from "@/components/FileViewer";
-import { isImageFilePath } from "@/lib/file-preview";
+import { isBinaryPreviewFilePath } from "@/lib/file-preview";
 import type { DiffScope } from "@/types";
 
 // ---------- Types ----------
@@ -123,12 +123,12 @@ const CommentInputBar = memo(function CommentInputBar({
   );
 });
 
-interface ImageDiffFallbackProps {
+interface BinaryPreviewDiffFallbackProps {
   wsId: string;
   filePath: string;
 }
 
-function ImageDiffFallback({ wsId, filePath }: ImageDiffFallbackProps) {
+function BinaryPreviewDiffFallback({ wsId, filePath }: BinaryPreviewDiffFallbackProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div
@@ -139,7 +139,7 @@ function ImageDiffFallback({ wsId, filePath }: ImageDiffFallbackProps) {
           <ImageIcon className="size-3.5" />
         </span>
         <span className="text-xs leading-5">
-          Image files do not have text diffs. Previewing the current file.
+          This file does not have a text diff. Previewing the current file.
         </span>
       </div>
       <FileViewer wsId={wsId} filePath={filePath} />
@@ -171,13 +171,13 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
     onCommentCountChange,
     onPasteToPrompt,
   }, ref) {
-  const isImageFile = isImageFilePath(filePath);
+  const isBinaryPreviewFile = isBinaryPreviewFilePath(filePath);
   const {
     patchFiles,
     omittedFileCount = 0,
     loading: isLoading,
     error,
-  } = useDiff(wsId, diffScope, !isImageFile);
+  } = useDiff(wsId, diffScope, !isBinaryPreviewFile);
   const themeType = useThemeType();
 
   const [comments, setComments] = useState<DiffComment[]>([]);
@@ -329,8 +329,8 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
     ) ?? null;
   }, [flattenedFiles, filePath]);
 
-  if (isImageFile) {
-    return <ImageDiffFallback wsId={wsId} filePath={filePath} />;
+  if (isBinaryPreviewFile) {
+    return <BinaryPreviewDiffFallback wsId={wsId} filePath={filePath} />;
   }
 
   // Loading
