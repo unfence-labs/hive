@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import { ClaudeProvider } from "./claude.js";
 import { CodexProvider } from "./codex.js";
 import { GeminiProvider } from "./gemini.js";
-import type { AgentProvider, ModelCatalogEntry, ModelCatalogResponse } from "./types.js";
+import type { AgentProvider, ModelCatalogEntry, ModelCatalogResponse, ProviderCapabilities } from "./types.js";
 
 const execFile = promisify(execFileCb);
 
@@ -41,6 +41,7 @@ const detectedVersions = new Map<string, string>();
 
 /** Provider IDs whose richer optional protocol surface was detected. */
 const appServerProviderIds = new Set<string>();
+const appServerGoalsProviderIds = new Set<string>();
 
 let providerDetectionCompleted = false;
 
@@ -61,6 +62,7 @@ export async function detectAvailableProviders(): Promise<void> {
   availableProviderIds.clear();
   detectedVersions.clear();
   appServerProviderIds.clear();
+  appServerGoalsProviderIds.clear();
   providerDetectionCompleted = false;
   for (const provider of ALL_PROVIDERS) {
     try {
@@ -70,8 +72,14 @@ export async function detectAvailableProviders(): Promise<void> {
       if (version) {
         detectedVersions.set(provider.id, version);
       }
-      if (provider.id === "codex" && await detectCodexAppServerSupport()) {
-        appServerProviderIds.add(provider.id);
+      if (provider.id === "codex") {
+        const appServerCapabilities = await detectCodexAppServerCapabilities();
+        if (appServerCapabilities.appServer) {
+          appServerProviderIds.add(provider.id);
+        }
+        if (appServerCapabilities.goals) {
+          appServerGoalsProviderIds.add(provider.id);
+        }
       }
     } catch {
       // CLI not found — provider won't appear in catalog
@@ -81,14 +89,20 @@ export async function detectAvailableProviders(): Promise<void> {
 }
 
 /** Mark a provider as available (used by preflight or tests). */
-export function markProviderAvailable(providerId: string, options?: { appServer?: boolean }): void {
+export function markProviderAvailable(providerId: string, options?: { appServer?: boolean; goals?: boolean }): void {
   providerDetectionCompleted = true;
   availableProviderIds.add(providerId);
   if (providerId === "codex") {
     if (options?.appServer === false) {
       appServerProviderIds.delete(providerId);
+      appServerGoalsProviderIds.delete(providerId);
     } else {
       appServerProviderIds.add(providerId);
+      if (options?.goals === true) {
+        appServerGoalsProviderIds.add(providerId);
+      } else {
+        appServerGoalsProviderIds.delete(providerId);
+      }
     }
   }
 }
@@ -97,6 +111,20 @@ export function providerSupportsAppServer(providerId: string): boolean {
   if (providerId !== "codex") return false;
   if (!providerDetectionCompleted) return true;
   return appServerProviderIds.has(providerId);
+}
+
+export function providerSupportsAppServerGoals(providerId: string): boolean {
+  if (providerId !== "codex") return false;
+  if (!providerDetectionCompleted) return false;
+  return appServerGoalsProviderIds.has(providerId);
+}
+
+function catalogCapabilitiesForProvider(provider: AgentProvider): ProviderCapabilities {
+  if (provider.id !== "codex") return provider.capabilities;
+  return {
+    ...provider.capabilities,
+    goals: providerSupportsAppServerGoals(provider.id),
+  };
 }
 
 /**
@@ -148,7 +176,7 @@ export function getModelCatalog(): ModelCatalogResponse {
         providerLabel,
         isDefault: model.isDefault,
         isNew: model.isNew,
-        capabilities: provider.capabilities,
+        capabilities: catalogCapabilitiesForProvider(provider),
         // This is keyed off provider.id ("codex"), not model.id. Catalog IDs are compound
         // values like "codex:gpt-5.5". We still hide Codex context windows here because
         // the CLI only exposes turn-level usage via turn.completed today, which can be
@@ -195,11 +223,17 @@ export function getAllProviderInfo(): AgentProviderInfo[] {
   }));
 }
 
-async function detectCodexAppServerSupport(): Promise<boolean> {
+async function detectCodexAppServerCapabilities(): Promise<{ appServer: boolean; goals: boolean }> {
   try {
     await execFile("codex", ["app-server", "--help"]);
-    return true;
   } catch {
-    return false;
+    return { appServer: false, goals: false };
+  }
+
+  try {
+    await execFile("codex", ["app-server", "--enable", "goals", "--help"]);
+    return { appServer: true, goals: true };
+  } catch {
+    return { appServer: true, goals: false };
   }
 }

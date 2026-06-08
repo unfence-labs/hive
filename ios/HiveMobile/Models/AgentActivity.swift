@@ -32,6 +32,7 @@ enum AgentActivity: Codable, Equatable, Identifiable {
     case commandExecution(CommandExecution)
     case fileChange(FileChange)
     case planUpdate(PlanUpdate)
+    case goalUpdate(GoalUpdate)
     case diagnostic(Diagnostic)
     case unknown(Unknown)
 
@@ -77,6 +78,19 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         let steps: [AgentActivityPlanStep]
     }
 
+    struct GoalUpdate: Codable, Equatable, Identifiable {
+        let id: String
+        let active: Bool
+        let threadId: String
+        let objective: String?
+        let status: String?
+        let tokenBudget: Int?
+        let tokensUsed: Int?
+        let timeUsedSeconds: Int?
+        let createdAt: Int?
+        let updatedAt: Int?
+    }
+
     struct Diagnostic: Codable, Equatable, Identifiable {
         let id: String
         let severity: AgentActivitySeverity
@@ -97,6 +111,7 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         case .commandExecution(let activity): activity.id
         case .fileChange(let activity): activity.id
         case .planUpdate(let activity): activity.id
+        case .goalUpdate(let activity): activity.id
         case .diagnostic(let activity): activity.id
         case .unknown(let activity): activity.id
         }
@@ -107,6 +122,7 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         case .commandExecution: "command_execution"
         case .fileChange: "file_change"
         case .planUpdate: "plan_update"
+        case .goalUpdate: "goal_update"
         case .diagnostic: "diagnostic"
         case .unknown(let activity): activity.kind
         }
@@ -117,6 +133,7 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         case command, cwd, status, output, exitCode, durationMs, commandActions
         case files
         case steps
+        case active, threadId, objective, tokenBudget, tokensUsed, timeUsedSeconds, createdAt, updatedAt
         case severity, title, message, source, method, details
     }
 
@@ -131,6 +148,8 @@ enum AgentActivity: Codable, Equatable, Identifiable {
             self = .fileChange(try FileChange(from: decoder))
         case "plan_update":
             self = .planUpdate(try PlanUpdate(from: decoder))
+        case "goal_update":
+            self = .goalUpdate(try GoalUpdate(from: decoder))
         case "diagnostic":
             self = .diagnostic(try Diagnostic(from: decoder))
         default:
@@ -160,6 +179,17 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         case .planUpdate(let activity):
             try container.encode(activity.id, forKey: .id)
             try container.encode(activity.steps, forKey: .steps)
+        case .goalUpdate(let activity):
+            try container.encode(activity.id, forKey: .id)
+            try container.encode(activity.active, forKey: .active)
+            try container.encode(activity.threadId, forKey: .threadId)
+            try container.encodeIfPresent(activity.objective, forKey: .objective)
+            try container.encodeIfPresent(activity.status, forKey: .status)
+            try container.encodeIfPresent(activity.tokenBudget, forKey: .tokenBudget)
+            try container.encodeIfPresent(activity.tokensUsed, forKey: .tokensUsed)
+            try container.encodeIfPresent(activity.timeUsedSeconds, forKey: .timeUsedSeconds)
+            try container.encodeIfPresent(activity.createdAt, forKey: .createdAt)
+            try container.encodeIfPresent(activity.updatedAt, forKey: .updatedAt)
         case .diagnostic(let activity):
             try container.encode(activity.id, forKey: .id)
             try container.encode(activity.severity, forKey: .severity)
@@ -210,7 +240,7 @@ extension AgentActivity {
                     parentToolUseId: nil
                 )
             }
-        case .planUpdate, .diagnostic, .unknown:
+        case .planUpdate, .goalUpdate, .diagnostic, .unknown:
             return []
         }
     }
@@ -227,7 +257,9 @@ enum VisibleAgentActivity: Equatable, Identifiable {
             self = .diagnostic(diagnostic)
         case .unknown(let unknown):
             self = .unknown(unknown)
-        case .commandExecution, .fileChange, .planUpdate:
+        case .commandExecution, .fileChange, .planUpdate, .goalUpdate:
+            // Goal updates drive the task tracker (like plan updates), not the
+            // inline activity list — keep them out of the visible feed.
             return nil
         }
     }
@@ -239,6 +271,10 @@ enum VisibleAgentActivity: Equatable, Identifiable {
         }
     }
 }
+
+/// The active Codex goal, mirroring `frontend/src/hooks/useGoalState.ts` where
+/// `GoalState` is the `goal_update` activity itself.
+typealias GoalState = AgentActivity.GoalUpdate
 
 private func toolCall(for activity: AgentActivity.CommandExecution) -> ToolCall {
     let classified = classifiedCommandAction(for: activity)

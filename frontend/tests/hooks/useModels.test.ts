@@ -20,7 +20,7 @@ const MOCK_CATALOG: ModelCatalogResponse = {
       provider: "claude",
       providerLabel: "Claude Code",
       isDefault: true,
-      capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true },
+      capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true, goals: false },
     },
     {
       id: "claude:sonnet-4-6",
@@ -28,7 +28,7 @@ const MOCK_CATALOG: ModelCatalogResponse = {
       provider: "claude",
       providerLabel: "Claude Code",
       isNew: true,
-      capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true },
+      capabilities: { thinkingLevels: ["low", "medium", "high", "xhigh", "max"], planMode: true, blockingTools: true, completions: true, goals: false },
     },
     {
       id: "codex:gpt-5.5",
@@ -36,7 +36,7 @@ const MOCK_CATALOG: ModelCatalogResponse = {
       provider: "codex",
       providerLabel: "Codex",
       isDefault: true,
-      capabilities: { thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"], planMode: false, blockingTools: false, completions: true },
+      capabilities: { thinkingLevels: ["none", "minimal", "low", "medium", "high", "xhigh"], planMode: false, blockingTools: false, completions: true, goals: true },
     },
   ],
   defaultModelId: "codex:gpt-5.5",
@@ -122,6 +122,7 @@ describe("useModels", () => {
       planMode: false,
       blockingTools: false,
       completions: true,
+      goals: true,
     });
 
     act(() => {
@@ -133,6 +134,7 @@ describe("useModels", () => {
       planMode: false,
       blockingTools: false,
       completions: true,
+      goals: true,
     });
   });
 
@@ -146,6 +148,7 @@ describe("useModels", () => {
       planMode: true,
       blockingTools: true,
       completions: true,
+      goals: false,
     });
   });
 

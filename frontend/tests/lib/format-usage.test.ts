@@ -9,23 +9,26 @@ describe("formatTokenCount", () => {
     expect(formatTokenCount(999)).toBe("999");
   });
 
-  it("formats thousands with one decimal for 1K–99.9K", () => {
-    expect(formatTokenCount(1_000)).toBe("1.0K");
-    expect(formatTokenCount(1_500)).toBe("1.5K");
-    expect(formatTokenCount(15_200)).toBe("15.2K");
-    expect(formatTokenCount(99_999)).toBe("100.0K");
+  it("formats thousands with one decimal for 1k–99.9k", () => {
+    expect(formatTokenCount(1_000)).toBe("1.0k");
+    expect(formatTokenCount(1_500)).toBe("1.5k");
+    expect(formatTokenCount(15_200)).toBe("15.2k");
+    expect(formatTokenCount(99_999)).toBe("100.0k");
   });
 
-  it("formats hundreds of thousands as rounded K", () => {
-    expect(formatTokenCount(100_000)).toBe("100K");
-    expect(formatTokenCount(123_456)).toBe("123K");
-    expect(formatTokenCount(999_999)).toBe("1000K");
+  it("formats hundreds of thousands as rounded k", () => {
+    expect(formatTokenCount(100_000)).toBe("100k");
+    expect(formatTokenCount(123_456)).toBe("123k");
+  });
+
+  it("rolls over to millions when rounding reaches 1000k", () => {
+    expect(formatTokenCount(999_999)).toBe("1.0m");
   });
 
   it("formats millions with one decimal", () => {
-    expect(formatTokenCount(1_000_000)).toBe("1.0M");
-    expect(formatTokenCount(1_500_000)).toBe("1.5M");
-    expect(formatTokenCount(10_000_000)).toBe("10.0M");
+    expect(formatTokenCount(1_000_000)).toBe("1.0m");
+    expect(formatTokenCount(1_500_000)).toBe("1.5m");
+    expect(formatTokenCount(10_000_000)).toBe("10.0m");
   });
 });
 

@@ -366,6 +366,7 @@ describe("useTasks", () => {
     expect(result.current.tasks.map((task) => task.status)).toEqual(["completed", "in_progress", "pending"]);
     expect(result.current.currentTask?.subject).toBe("Move plan to tracker");
     expect(result.current.counts).toEqual({ total: 3, completed: 1, inProgress: 1, pending: 1 });
+    expect(result.current.trackerStatus).toBe("unconfirmed");
   });
 
   it("uses active Codex plan updates over persisted plans", () => {
@@ -389,6 +390,25 @@ describe("useTasks", () => {
 
     expect(result.current.tasks.map((task) => task.subject)).toEqual(["Live implementation", "Run checks"]);
     expect(result.current.currentTask?.subject).toBe("Live implementation");
+    expect(result.current.trackerStatus).toBe("live");
+  });
+
+  it("keeps completed historical Codex plan updates live", () => {
+    const messages = [
+      msg([], [{
+        id: "codex-plan-history",
+        kind: "plan_update",
+        steps: [
+          { text: "Inspect", status: "completed" },
+          { text: "Patch", status: "completed" },
+        ],
+      }]),
+    ];
+
+    const { result } = renderHook(() => useTasks(messages, []));
+
+    expect(result.current.trackerStatus).toBe("live");
+    expect(result.current.counts).toEqual({ total: 2, completed: 2, inProgress: 0, pending: 0 });
   });
 
   it("preserves failed and declined Codex plan statuses", () => {
@@ -407,5 +427,6 @@ describe("useTasks", () => {
 
     expect(result.current.tasks.map((task) => task.status)).toEqual(["failed", "declined"]);
     expect(result.current.counts).toEqual({ total: 2, completed: 0, inProgress: 0, pending: 0 });
+    expect(result.current.trackerStatus).toBe("live");
   });
 });

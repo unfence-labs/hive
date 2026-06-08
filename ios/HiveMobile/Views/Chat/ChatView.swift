@@ -139,11 +139,17 @@ struct ChatView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: HiveSpacing.sm) {
                 let tasksState = store.tasksState
-                if !tasksState.tasks.isEmpty {
+                let goal = store.goalState
+                let agents = store.backgroundAgents
+                if goal != nil || !tasksState.tasks.isEmpty || !agents.agents.isEmpty {
                     TaskTrackerView(
+                        goal: goal,
                         tasks: tasksState.tasks,
                         currentTask: tasksState.currentTask,
                         counts: tasksState.counts,
+                        trackerStatus: tasksState.trackerStatus,
+                        backgroundAgents: agents.agents,
+                        backgroundRunningCount: agents.runningCount,
                         isStreaming: store.isStreaming
                     )
                 }

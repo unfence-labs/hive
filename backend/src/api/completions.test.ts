@@ -6,6 +6,7 @@ import { createFixtureRepo, createTempDir } from "../utils/test-helpers.js";
 import { projectRoutes } from "./projects.js";
 import { workspaceRoutes } from "./workspaces.js";
 import { completionRoutes } from "./completions.js";
+import { markProviderAvailable } from "../agents/providers/registry.js";
 
 let tempDir: string;
 let homeDir: string;
@@ -47,6 +48,7 @@ beforeEach(async () => {
 
   originalHome = process.env.HOME;
   process.env.HOME = homeDir;
+  markProviderAvailable("codex", { appServer: true, goals: false });
 
   fixtureRepoUrl = await createFixtureRepo(fixtureDir);
 
@@ -211,6 +213,40 @@ description: Fix CI failures
         }),
       ]),
     );
+  });
+
+  it("includes Codex /goal completion when App Server goals are supported", async () => {
+    markProviderAvailable("codex", { appServer: true, goals: true });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/completions?provider=codex`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "slash_command",
+          name: "goal",
+          label: "/goal",
+          source: "builtin",
+        }),
+      ]),
+    );
+  });
+
+  it("omits Codex /goal completion when App Server goals are unsupported", async () => {
+    markProviderAvailable("codex", { appServer: true, goals: false });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/completions?provider=codex`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().items.map((item: { label: string }) => item.label))
+      .not.toContain("/goal");
   });
 
   it("rejects unsupported completion providers", async () => {

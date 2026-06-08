@@ -124,6 +124,19 @@ beforeEach(() => {
 });
 
 describe("CodexAppServerSession request handling", () => {
+  it("spawns app-server with the goals feature enabled", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession({ enableGoals: true });
+    await initializeSession(session, proc);
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      "codex",
+      ["app-server", "--enable", "goals", "--listen", "stdio://"],
+      expect.objectContaining({ stdio: ["pipe", "pipe", "pipe"] }),
+    );
+  });
+
   it("auto-accepts known command and file approval requests", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
@@ -139,6 +152,28 @@ describe("CodexAppServerSession request handling", () => {
     await expect(waitForResponse(proc, 101)).resolves.toMatchObject({ id: 101, result: { decision: "accept" } });
     await expect(waitForResponse(proc, 102)).resolves.toMatchObject({ id: 102, result: { decision: "approved" } });
     await expect(waitForResponse(proc, 103)).resolves.toMatchObject({ id: 103, result: { decision: "approved" } });
+  });
+
+  it("emits native turn_started events with thread and turn ids", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("turn_started", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "turn/started",
+      params: {
+        threadId: "thread-1",
+        turn: { id: "turn-2" },
+      },
+    }) + "\n");
+
+    await waitForCondition(() => events.length === 1);
+    expect(events).toEqual([{ threadId: "thread-1", turnId: "turn-2" }]);
+    expect(session.capturedThreadId).toBe("thread-1");
+    expect(session.capturedTurnId).toBe("turn-2");
   });
 
   it("rejects known unsupported request paths with clear errors", async () => {
@@ -672,6 +707,75 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
+  it("preserves collab parent mapping across a turn boundary (goal continuation)", async () => {
+    // With goals, a single prompt spans several autonomous turns. A sub-agent
+    // spawned in one turn can emit live items in a later turn; the per-turn reset
+    // on turn/started must NOT wipe the collab parent map or those child tool
+    // calls would render top-level instead of nested under their Agent call.
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: unknown[] = [];
+    session.on("assistant", (event) => assistantEvents.push(event));
+    await initializeSession(session, proc);
+
+    // Turn 1: the collab sub-agent is spawned, mapping thread-child -> collab-1.
+    proc._stdout.push(JSON.stringify({
+      method: "turn/started",
+      params: { threadId: "thread-1", turn: { id: "turn-1" } },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "inProgress",
+          receiverThreadIds: ["thread-child"],
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+
+    // Turn 2 begins (new turnId) — this triggers the per-turn reset.
+    proc._stdout.push(JSON.stringify({
+      method: "turn/started",
+      params: { threadId: "thread-1", turn: { id: "turn-2" } },
+    }) + "\n");
+
+    // The sub-agent thread emits a live command in the NEW turn.
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "commandExecution",
+          id: "child-cmd-late",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "inProgress",
+        },
+      },
+    }) + "\n");
+
+    await waitForCondition(() =>
+      assistantEvents.some((event) =>
+        (event as { message?: { content?: Array<{ id?: string }> } }).message?.content?.some(
+          (block) => block.id === "child-cmd-late",
+        ),
+      ),
+    );
+
+    const lateChild = assistantEvents
+      .flatMap((event) => (event as { message?: { content?: Array<Record<string, unknown>> } }).message?.content ?? [])
+      .find((block) => block.id === "child-cmd-late");
+    expect(lateChild).toEqual(
+      expect.objectContaining({ id: "child-cmd-late", name: "Bash", parentToolUseId: "collab-1" }),
+    );
+  });
+
   it("emits Codex commandActions on command execution activity events", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
@@ -1104,6 +1208,66 @@ describe("CodexAppServerSession normalized events", () => {
         type: "plan_updated",
         id: "codex-plan-turn-1",
         steps: [{ text: "Run tests", status: "completed" }],
+      },
+    ]);
+  });
+
+  it("normalizes native Codex goal notifications", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/updated",
+      params: {
+        goal: {
+          threadId: "thread-1",
+          objective: "Implement the backend protocol foundation",
+          status: "active",
+          tokenBudget: null,
+          tokensUsed: 1234,
+          timeUsedSeconds: 45,
+          createdAt: 1_779_300_000,
+          updatedAt: 1_779_300_060,
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/cleared",
+      params: {
+        threadId: "thread-1",
+      },
+    }) + "\n");
+
+    expect(events).toEqual([
+      {
+        type: "goal_updated",
+        id: "codex-goal-thread-1",
+        active: true,
+        threadId: "thread-1",
+        objective: "Implement the backend protocol foundation",
+        status: "active",
+        tokenBudget: null,
+        tokensUsed: 1234,
+        timeUsedSeconds: 45,
+        createdAt: 1_779_300_000,
+        updatedAt: 1_779_300_060,
+      },
+      {
+        type: "goal_updated",
+        id: "codex-goal-thread-1",
+        active: false,
+        threadId: "thread-1",
+        objective: undefined,
+        status: undefined,
+        tokenBudget: undefined,
+        tokensUsed: undefined,
+        timeUsedSeconds: undefined,
+        createdAt: undefined,
+        updatedAt: undefined,
       },
     ]);
   });

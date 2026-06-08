@@ -240,6 +240,8 @@ export default function WorkspaceView() {
     tasks,
     currentTask,
     taskCounts,
+    taskTrackerStatus,
+    goal,
     backgroundAgents,
     backgroundRunningCount: bgRunningCount,
     // Queue + scroll
@@ -607,9 +609,11 @@ export default function WorkspaceView() {
             queuedMessage={queuedMessage}
             onClearQueue={() => setQueuedMessage(null)}
             scrollToBottomTrigger={scrollToBottomTrigger}
+            goal={goal}
             tasks={tasks}
             currentTask={currentTask}
             taskCounts={taskCounts}
+            taskTrackerStatus={taskTrackerStatus}
             backgroundAgents={backgroundAgents}
             backgroundRunningCount={bgRunningCount}
             onBatchAnswerQuestions={batchAnswerQuestions}

@@ -56,6 +56,19 @@ export type AgentActivity =
     }
   | {
       id: string;
+      kind: "goal_update";
+      active: boolean;
+      threadId: string;
+      objective?: string;
+      status?: string;
+      tokenBudget?: number | null;
+      tokensUsed?: number;
+      timeUsedSeconds?: number;
+      createdAt?: number;
+      updatedAt?: number;
+    }
+  | {
+      id: string;
       kind: "diagnostic";
       severity: "info" | "warning" | "error";
       title: string;

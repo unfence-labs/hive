@@ -9,6 +9,10 @@ import type { NormalizedAgentEvent } from "../agent-event-normalizer.js";
 import type { StreamParserEvent } from "../stream-parser.js";
 import type { ThinkingLevel } from "./types.js";
 import { buildWorkspaceEnv } from "../../utils/env.js";
+import { addBounded } from "../../utils/bounded-set.js";
+
+/** Cap for long-lived per-session turn-id dedup Sets to avoid unbounded growth. */
+const MAX_TRACKED_TURN_IDS = 256;
 
 type JsonObject = Record<string, unknown>;
 type JsonRpcId = number;
@@ -34,6 +38,7 @@ type JsonRpcMessage = JsonRpcResponse | JsonRpcRequest | JsonRpcNotification;
 
 type CodexAppServerEvent = StreamParserEvent & {
   agent_event: [event: NormalizedAgentEvent];
+  turn_started: [event: { threadId?: string; turnId?: string }];
 };
 
 type UserInput =
@@ -143,6 +148,10 @@ interface CodexAppServerTurnOptions {
   env?: Record<string, string>;
 }
 
+interface CodexAppServerSessionOptions {
+  enableGoals?: boolean;
+}
+
 const CLIENT_INFO = {
   name: "hive",
   title: "Hive",
@@ -152,6 +161,19 @@ const MAX_DIAGNOSTIC_DETAILS_LENGTH = 4000;
 const COLLAB_THREAD_REPLAY_TIMEOUT_MS = 1500;
 
 /**
+ * Canonical `codex app-server` CLI args. Single source of truth so the real spawn
+ * (CodexAppServerSession) and the runner factory's debug.args can never drift.
+ */
+export function buildCodexAppServerArgs(enableGoals: boolean): string[] {
+  return [
+    "app-server",
+    ...(enableGoals ? ["--enable", "goals"] : []),
+    "--listen",
+    "stdio://",
+  ];
+}
+
+/**
  * Per-chat-session bridge to `codex app-server`.
  *
  * The generated App Server schema is very large and changes with the installed
@@ -159,6 +181,7 @@ const COLLAB_THREAD_REPLAY_TIMEOUT_MS = 1500;
  * protocol fields Hive consumes and leaves unknown fields untouched.
  */
 export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
+  private readonly enableGoals: boolean;
   private proc: ChildProcessWithoutNullStreams | null = null;
   private initialized: Promise<void> | null = null;
   private buffer = "";
@@ -177,11 +200,17 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private emittedReasoningText = new Set<string>();
   private emittedDiagnostics = new Set<string>();
   private completedToolIds = new Set<string>();
+  private completedTurnIds = new Set<string>();
   private collabParentByThreadId = new Map<string, string>();
   private toolParentByItemId = new Map<string, string>();
   private pendingCollabReplays = new Set<Promise<void>>();
   private lastUsage: TokenUsage | undefined;
   private lastProtocolError: string | undefined;
+
+  constructor(options: CodexAppServerSessionOptions = {}) {
+    super();
+    this.enableGoals = options.enableGoals ?? false;
+  }
 
   get capturedThreadId(): string | undefined {
     return this.threadId;
@@ -246,7 +275,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private async ensureInitialized(env: Record<string, string> | undefined): Promise<void> {
     if (this.initialized) return this.initialized;
     this.initialized = (async () => {
-      this.proc = spawn("codex", ["app-server", "--listen", "stdio://"], {
+      this.proc = spawn("codex", buildCodexAppServerArgs(this.enableGoals), {
         stdio: ["pipe", "pipe", "pipe"],
         env: buildWorkspaceEnv(env),
       });
@@ -268,6 +297,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     })();
     return this.initialized;
   }
+
 
   private async ensureThread(options: CodexAppServerTurnOptions): Promise<string> {
     if (options.threadId) {
@@ -294,7 +324,21 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     return started.thread.id;
   }
 
+  /** Full reset, including cross-turn parent maps. Used at process init/teardown. */
   private resetTurnState(): void {
+    this.resetForNewTurn();
+    this.collabParentByThreadId.clear();
+    this.toolParentByItemId.clear();
+  }
+
+  /**
+   * Per-turn reset run on each `turn/started`. Clears turn-scoped dedup/accumulator
+   * state but deliberately PRESERVES the collab/tool parent maps: with goals a single
+   * prompt spans several autonomous turns, and a sub-agent thread spawned in one turn
+   * can emit live items in a later turn. Wiping the maps here would orphan those child
+   * tool calls (they'd render top-level instead of nested under their Agent tool call).
+   */
+  private resetForNewTurn(): void {
     this.activeTurnId = undefined;
     this.emittedToolIds.clear();
     this.commandOutputs.clear();
@@ -303,8 +347,6 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.emittedReasoningText.clear();
     this.emittedDiagnostics.clear();
     this.completedToolIds.clear();
-    this.collabParentByThreadId.clear();
-    this.toolParentByItemId.clear();
     this.pendingCollabReplays.clear();
     this.lastUsage = undefined;
     this.lastProtocolError = undefined;
@@ -436,7 +478,18 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       case "turn/started": {
         const turn = asRecord(data?.turn);
-        this.activeTurnId = asString(turn?.id) ?? this.activeTurnId;
+        const threadId = asString(data?.threadId) ?? this.threadId;
+        const turnId = asString(turn?.id);
+        if (threadId) {
+          this.threadId = threadId;
+        }
+        if (turnId && turnId !== this.activeTurnId) {
+          this.resetForNewTurn();
+          this.activeTurnId = turnId;
+        } else {
+          this.activeTurnId = turnId ?? this.activeTurnId;
+        }
+        this.emit("turn_started", { threadId, turnId });
         break;
       }
       case "thread/tokenUsage/updated":
@@ -510,6 +563,12 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       }
       case "turn/plan/updated":
         this.emitPlanUpdate(data);
+        break;
+      case "thread/goal/updated":
+        this.emitGoalUpdate(data, true);
+        break;
+      case "thread/goal/cleared":
+        this.emitGoalUpdate(data, false);
         break;
       case "warning":
         this.emitProtocolDiagnostic(method, data, "Codex warning", "warning");
@@ -796,6 +855,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private handleTurnCompleted(data: JsonObject | null): void {
     const turn = asRecord(data?.turn);
     const turnId = asString(turn?.id);
+    if (turnId && this.completedTurnIds.has(turnId)) return;
     const activeTurnId = this.activeTurnId;
     if (turnId && activeTurnId && turnId !== activeTurnId) return;
 
@@ -828,8 +888,14 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       duration_ms: durationMs,
       status,
       error,
+      turn_id: asString(turn?.id) ?? activeTurnId,
+      thread_id: this.threadId,
       usage: usageFromTokenUsage(this.lastUsage),
     });
+    const completedTurnId = asString(turn?.id) ?? activeTurnId;
+    if (completedTurnId) {
+      addBounded(this.completedTurnIds, completedTurnId, MAX_TRACKED_TURN_IDS);
+    }
     this.activeTurnId = undefined;
   }
 
@@ -912,6 +978,30 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       type: "plan_updated",
       id,
       steps: items,
+    });
+  }
+
+  private emitGoalUpdate(data: JsonObject | null, active: boolean): void {
+    const goal = asRecord(data?.goal);
+    const threadId = asString(goal?.threadId)
+      ?? asString(data?.threadId)
+      ?? asString(asRecord(data?.thread)?.id)
+      ?? this.threadId;
+    // A goal is scoped to a thread; without one we cannot key it stably for
+    // upsert/clear, and a shared "unknown" id would collide across threads.
+    if (!threadId) return;
+    this.emit("agent_event", {
+      type: "goal_updated",
+      id: `codex-goal-${threadId}`,
+      active,
+      threadId,
+      objective: asString(goal?.objective),
+      status: asString(goal?.status),
+      tokenBudget: asNullableProtocolNumber(goal?.tokenBudget),
+      tokensUsed: asNumber(goal?.tokensUsed),
+      timeUsedSeconds: asNumber(goal?.timeUsedSeconds),
+      createdAt: asNumber(goal?.createdAt),
+      updatedAt: asNumber(goal?.updatedAt),
     });
   }
 
@@ -1020,6 +1110,11 @@ function asString(value: unknown): string | undefined {
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+function asNullableProtocolNumber(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  return asNumber(value);
 }
 
 function asNullableNumber(value: number | null | undefined): number | undefined {

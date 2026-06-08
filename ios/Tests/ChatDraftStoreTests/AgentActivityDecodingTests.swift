@@ -246,6 +246,65 @@ struct AgentActivityDecodingTests {
         #expect(type == "future_event")
     }
 
+    @Test
+    func decodesGoalUpdateActivityAndKeepsItOutOfVisibleFeed() throws {
+        let message = try decodeMessage("""
+        {
+          "id": "msg-1",
+          "sessionId": "session-1",
+          "role": "assistant",
+          "content": "",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "agentActivities": [
+            {
+              "id": "codex-goal-thread-1",
+              "kind": "goal_update",
+              "active": true,
+              "threadId": "thread-1",
+              "objective": "Implement the backend protocol foundation",
+              "status": "active",
+              "tokenBudget": null,
+              "tokensUsed": 1234,
+              "timeUsedSeconds": 45,
+              "createdAt": 1779300000,
+              "updatedAt": 1779300060
+            }
+          ]
+        }
+        """)
+
+        let activities = try #require(message.agentActivities)
+        let first = try #require(activities.first)
+        guard case .goalUpdate(let goal) = first else {
+            Issue.record("Expected goal_update activity")
+            return
+        }
+        #expect(goal.active == true)
+        #expect(goal.threadId == "thread-1")
+        #expect(goal.objective == "Implement the backend protocol foundation")
+        #expect(goal.tokenBudget == nil)
+        #expect(goal.tokensUsed == 1234)
+        // Goal updates feed the task tracker, not the inline activity list.
+        #expect(first.toolCalls.isEmpty)
+        #expect(visibleAgentActivities(activities).isEmpty)
+    }
+
+    @Test
+    func decodesGoalCommandFlagOnUserMessage() throws {
+        let message = try decodeMessage("""
+        {
+          "id": "u-goal",
+          "sessionId": "session-1",
+          "role": "user",
+          "content": "/goal Ship the feature",
+          "goalCommand": true,
+          "timestamp": "2026-01-01T00:00:00Z"
+        }
+        """)
+
+        #expect(message.goalCommand == true)
+    }
+
     private func decodeHubEnvelope(_ json: String) throws -> HubOutgoing {
         let data = try #require(json.data(using: .utf8))
         return try JSONDecoder().decode(HubOutgoing.self, from: data)

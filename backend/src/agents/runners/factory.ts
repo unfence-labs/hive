@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { StreamParser } from "../stream-parser.js";
-import { providerSupportsAppServer } from "../providers/registry.js";
+import { providerSupportsAppServer, providerSupportsAppServerGoals } from "../providers/registry.js";
 import type { MessageOptions } from "../../types.js";
 import type { AgentProvider } from "../providers/types.js";
 import type { AgentRunner } from "./types.js";
 import { CodexAppServerRunner } from "./codex-app-server-runner.js";
+import { buildCodexAppServerArgs } from "../providers/codex-app-server.js";
 import { ProcessAgentRunner } from "./process-agent-runner.js";
 
 type SessionKind = "chat" | "automation" | "brain";
@@ -66,11 +67,14 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
   const supportsBlockingTools = provider?.capabilities.blockingTools ?? false;
 
   if (useCodexAppServer) {
+    const enableGoals = providerSupportsAppServerGoals(provider!.id);
     const env = {
       ...(provider!.buildEnv({ ...input.msgOptions, model: modelId }) ?? {}),
       ...(input.browserEnv ?? {}),
     };
-    const runner = (input.existingCodexAppServerRunner ?? new CodexAppServerRunner()) as CodexAppServerStartRunner;
+    const runner = (
+      input.existingCodexAppServerRunner ?? new CodexAppServerRunner(undefined, { enableGoals })
+    ) as CodexAppServerStartRunner;
     const model = provider!.models.find((m) => m.id === modelId);
     return {
       runner,
@@ -81,7 +85,7 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
       cachedCodexAppServerRunner: runner,
       debug: {
         command: "codex",
-        args: ["app-server", "--listen", "stdio://"],
+        args: buildCodexAppServerArgs(enableGoals),
       },
       start: () => runner.startTurn({
         cwd: input.cwd,

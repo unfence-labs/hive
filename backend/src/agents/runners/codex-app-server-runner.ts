@@ -21,24 +21,30 @@ interface CodexAppServerClient {
   on(eventName: "result", listener: (...args: AgentRunnerEvent["result"]) => void): this;
   on(eventName: "system", listener: (...args: AgentRunnerEvent["system"]) => void): this;
   on(eventName: "agent_event", listener: (...args: AgentRunnerEvent["agent_event"]) => void): this;
+  on(eventName: "turn_started", listener: (...args: AgentRunnerEvent["turn_started"]) => void): this;
   on(eventName: "error", listener: (...args: AgentRunnerEvent["error"]) => void): this;
   startTurn(turn: CodexAppServerRunnerTurn): Promise<void>;
   interruptActiveTurn(): void;
   close(): void;
 }
 
+interface CodexAppServerRunnerOptions {
+  enableGoals?: boolean;
+}
+
 export class CodexAppServerRunner extends EventEmitter<AgentRunnerEvent> implements AgentRunner {
   private readonly appServer: CodexAppServerClient;
   private interruptTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(appServer: CodexAppServerClient = new CodexAppServerSession()) {
+  constructor(appServer?: CodexAppServerClient, options: CodexAppServerRunnerOptions = {}) {
     super();
-    this.appServer = appServer;
+    this.appServer = appServer ?? new CodexAppServerSession({ enableGoals: options.enableGoals });
     this.appServer.on("assistant", (data) => this.emit("assistant", data));
     this.appServer.on("user", (data) => this.emit("user", data));
     this.appServer.on("result", (data) => this.emit("result", data));
     this.appServer.on("system", (data) => this.emit("system", data));
     this.appServer.on("agent_event", (data) => this.emit("agent_event", data));
+    this.appServer.on("turn_started", (event) => this.emit("turn_started", event));
     this.appServer.on("error", (err) => this.emit("error", err));
   }
 

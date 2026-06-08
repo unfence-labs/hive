@@ -111,3 +111,40 @@ private func stringValue(_ value: Any?) -> String? {
 private func normalizeStatus(_ status: String) -> String {
     status.replacingOccurrences(of: "_", with: "").lowercased()
 }
+
+// MARK: - Sub-Agent Metadata
+//
+// Port of `frontend/src/lib/sub-agent.ts` (`parseSubAgentInfo`, `buildChildrenMap`).
+
+struct SubAgentInfo {
+    let subagentType: String
+    let description: String
+    let prompt: String?
+    let runInBackground: Bool
+    let model: String?
+    let tool: String?
+}
+
+/// Parse sub-agent metadata from a Task/Agent tool's input JSON.
+func parseSubAgentInfo(_ tool: ToolCall) -> SubAgentInfo? {
+    guard tool.name == "Task" || tool.name == "Agent" else { return nil }
+    guard let input = jsonObject(from: tool.input) else { return nil }
+    return SubAgentInfo(
+        subagentType: (input["subagent_type"] as? String) ?? "Agent",
+        description: (input["description"] as? String) ?? "",
+        prompt: input["prompt"] as? String,
+        runInBackground: (input["run_in_background"] as? Bool) == true,
+        model: input["model"] as? String,
+        tool: input["tool"] as? String
+    )
+}
+
+/// Build a map of parentToolUseId → children for hierarchical rendering.
+func buildChildrenMap(_ tools: [ToolCall]) -> [String: [ToolCall]] {
+    var map: [String: [ToolCall]] = [:]
+    for tool in tools {
+        guard let parent = tool.parentToolUseId else { continue }
+        map[parent, default: []].append(tool)
+    }
+    return map
+}

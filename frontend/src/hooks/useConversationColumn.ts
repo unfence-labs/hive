@@ -4,6 +4,7 @@ import { useSessions } from "@/hooks/useSessions";
 import { useTabs, type UseTabsReturn } from "@/hooks/useTabs";
 import { useTasks, type TasksState } from "@/hooks/useTasks";
 import { useBackgroundAgents, type BackgroundAgentsState } from "@/hooks/useBackgroundAgents";
+import { useGoalState, type GoalState } from "@/hooks/useGoalState";
 import type { QueuedMessage, SessionMetadata } from "@/types";
 
 type ConversationApi = ReturnType<typeof useConversation>;
@@ -73,6 +74,8 @@ export interface ConversationColumn
   tasks: TasksState["tasks"];
   currentTask: TasksState["currentTask"];
   taskCounts: TasksState["counts"];
+  taskTrackerStatus: TasksState["trackerStatus"];
+  goal: GoalState | null;
   backgroundAgents: BackgroundAgentsState["agents"];
   backgroundRunningCount: number;
 
@@ -117,11 +120,12 @@ export function useConversationColumn(
   const tabs = useTabs(sessionId, wsId);
   const { activateTab } = tabs;
 
-  const { tasks, currentTask, counts: taskCounts } = useTasks(
+  const { tasks, currentTask, counts: taskCounts, trackerStatus: taskTrackerStatus } = useTasks(
     messages,
     activeToolCalls,
     activeAgentActivities,
   );
+  const goal = useGoalState(messages, activeAgentActivities);
   const { agents: backgroundAgents, runningCount: backgroundRunningCount } = useBackgroundAgents(
     messages,
     activeToolCalls,
@@ -224,6 +228,8 @@ export function useConversationColumn(
     tasks,
     currentTask,
     taskCounts,
+    taskTrackerStatus,
+    goal,
     backgroundAgents,
     backgroundRunningCount,
     // Queue + scroll

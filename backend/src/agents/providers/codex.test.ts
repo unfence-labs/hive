@@ -71,6 +71,10 @@ describe("CodexProvider", () => {
     expect(provider.capabilities.completions).toBe(true);
   });
 
+  it("defaults Codex goals capability to false before detection", () => {
+    expect(provider.capabilities.goals).toBe(false);
+  });
+
   // ── buildArgs ──────────────────────────────────────────────────────
 
   it("starts with 'exec' for first message", () => {

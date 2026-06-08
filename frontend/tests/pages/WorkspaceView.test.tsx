@@ -1113,11 +1113,12 @@ describe("WorkspaceView behavior", () => {
     renderWorkspace();
     await screen.findByText("tokyo");
 
-    expect(screen.getByText("Move plan into task tracker")).toBeInTheDocument();
+    expect(screen.getByText("1 task unconfirmed")).toBeInTheDocument();
     expect(screen.getByText("1/2")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /move plan into task tracker/i }));
+    await user.click(screen.getByRole("button", { name: /1 task unconfirmed/i }));
     expect(screen.getByText("Inspect Codex plan flow")).toBeInTheDocument();
+    expect(screen.getByText("Move plan into task tracker")).toBeInTheDocument();
   });
 
   it("prefers projectName in header and shows origin default branch when provided", async () => {

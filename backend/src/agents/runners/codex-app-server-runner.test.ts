@@ -73,4 +73,15 @@ describe("CodexAppServerRunner", () => {
 
     expect(appServer.close).not.toHaveBeenCalled();
   });
+
+  it("forwards native turn_started events", () => {
+    const appServer = new FakeAppServer();
+    const runner = new CodexAppServerRunner(appServer);
+    const events: unknown[] = [];
+    runner.on("turn_started", (event) => events.push(event));
+
+    appServer.emit("turn_started", { threadId: "thread-1", turnId: "turn-1" });
+
+    expect(events).toEqual([{ threadId: "thread-1", turnId: "turn-1" }]);
+  });
 });

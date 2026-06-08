@@ -216,6 +216,7 @@ export interface ChatMessage {
   fileMentions?: FileMention[];
   toolCalls?: ToolCall[];
   agentActivities?: AgentActivity[];
+  goalCommand?: boolean;
   thinkingContent?: string;
   timestamp: string;
   cancelled?: boolean;
@@ -344,6 +345,7 @@ export interface ProviderCapabilities {
   planMode: boolean;
   blockingTools: boolean;
   completions: boolean;
+  goals: boolean;
 }
 
 export interface ModelCatalogEntry {

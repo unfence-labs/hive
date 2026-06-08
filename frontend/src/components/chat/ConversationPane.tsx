@@ -3,8 +3,9 @@ import ChatConversation from "@/components/ChatConversation";
 import QuestionPanel from "@/components/chat/QuestionPanel";
 import { ConversationTabs } from "@/components/ConversationTabs";
 import TaskTracker from "@/components/TaskTracker";
+import type { GoalState } from "@/hooks/useGoalState";
 import type { FileViewMode } from "@/hooks/useTabs";
-import type { TaskCounts, TrackedTask } from "@/hooks/useTasks";
+import type { TaskCounts, TaskTrackerStatus, TrackedTask } from "@/hooks/useTasks";
 import type { BackgroundAgent } from "@/hooks/useBackgroundAgents";
 import type { PendingToolInput } from "@/hooks/useConversation";
 import type {
@@ -72,9 +73,11 @@ export interface ConversationPaneProps {
   emptyState?: ReactNode;
 
   // ── Tasks + background agents ──
+  goal?: GoalState | null;
   tasks: TrackedTask[];
   currentTask: TrackedTask | undefined;
   taskCounts: TaskCounts;
+  taskTrackerStatus?: TaskTrackerStatus;
   backgroundAgents: BackgroundAgent[];
   backgroundRunningCount: number;
 
@@ -125,9 +128,11 @@ export function ConversationPane({
   defaultBranch,
   fileCount,
   emptyState,
+  goal,
   tasks,
   currentTask,
   taskCounts,
+  taskTrackerStatus,
   backgroundAgents,
   backgroundRunningCount,
   onBatchAnswerQuestions,
@@ -180,11 +185,13 @@ export function ConversationPane({
           onClearQueue={onClearQueue}
           scrollToBottomTrigger={scrollToBottomTrigger}
         />
-        {(tasks.length > 0 || backgroundAgents.length > 0) && !showQuestion && (
+        {(goal || tasks.length > 0 || backgroundAgents.length > 0) && !showQuestion && (
           <TaskTracker
+            goal={goal}
             tasks={tasks}
             currentTask={currentTask}
             counts={taskCounts}
+            trackerStatus={taskTrackerStatus}
             isStreaming={isStreaming}
             backgroundAgents={backgroundAgents}
             backgroundRunningCount={backgroundRunningCount}

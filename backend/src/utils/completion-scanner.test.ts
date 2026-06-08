@@ -3,6 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir } from "./test-helpers.js";
 import { replaceCompletionAliases, scanCompletions } from "./completion-scanner.js";
+import { markProviderAvailable } from "../agents/providers/registry.js";
 
 const BUILTIN_LABELS = [
   "/add-dir",
@@ -62,10 +63,15 @@ const CODEX_BUILTIN_LABELS = [
   "/diff",
   "/review",
   "/debug-config",
-  "/goal",
   "/mcp",
   "/plan",
   "/ps",
+];
+
+const CODEX_BUILTIN_LABELS_WITH_GOAL = [
+  ...CODEX_BUILTIN_LABELS.slice(0, 7),
+  "/goal",
+  ...CODEX_BUILTIN_LABELS.slice(7),
 ];
 
 let tempDir: string;
@@ -108,6 +114,7 @@ beforeEach(async () => {
 
   originalHome = process.env.HOME;
   process.env.HOME = homeDir;
+  markProviderAvailable("codex", { appServer: true, goals: false });
 });
 
 afterEach(async () => {
@@ -429,6 +436,7 @@ name: stable
   });
 
   it("scans Codex builtins, skills, and agents from Codex paths", async () => {
+    markProviderAvailable("codex", { appServer: true, goals: true });
     await writeSkill(
       join(homeDir, ".agents", "skills"),
       "triage",
@@ -462,7 +470,8 @@ description = "Reviews changes"
 
     const items = await scanCompletions(workspaceCwd, { provider: "codex" });
 
-    expect(items.map((item) => item.label).slice(0, CODEX_BUILTIN_LABELS.length)).toEqual(CODEX_BUILTIN_LABELS);
+    expect(items.map((item) => item.label).slice(0, CODEX_BUILTIN_LABELS_WITH_GOAL.length))
+      .toEqual(CODEX_BUILTIN_LABELS_WITH_GOAL);
     expect(items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -496,6 +505,33 @@ description = "Reviews changes"
         }),
       ]),
     );
+  });
+
+  it("includes Codex /goal completion when App Server goals are supported", async () => {
+    markProviderAvailable("codex", { appServer: true, goals: true });
+
+    const items = await scanCompletions(workspaceCwd, { provider: "codex" });
+
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "slash_command",
+          name: "goal",
+          label: "/goal",
+          source: "builtin",
+        }),
+      ]),
+    );
+  });
+
+  it("omits Codex /goal completion when App Server goals are unsupported", async () => {
+    markProviderAvailable("codex", { appServer: true, goals: false });
+
+    const items = await scanCompletions(workspaceCwd, { provider: "codex" });
+
+    expect(items.map((item) => item.label)).not.toContain("/goal");
+    expect(items.map((item) => item.label).slice(0, CODEX_BUILTIN_LABELS.length))
+      .toEqual(CODEX_BUILTIN_LABELS);
   });
 
   it("replaces Codex skill slash aliases with native skill mentions", async () => {

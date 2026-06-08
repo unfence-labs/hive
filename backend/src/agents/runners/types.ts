@@ -9,8 +9,14 @@ export type RunnerStderrEvent = {
   classification: "diagnostic" | "error";
 };
 
+export type AgentRunnerTurnStartedEvent = {
+  threadId?: string;
+  turnId?: string;
+};
+
 export type AgentRunnerEvent = StreamParserEvent & {
   agent_event: [event: NormalizedAgentEvent];
+  turn_started: [event: AgentRunnerTurnStartedEvent];
   stderr: [event: RunnerStderrEvent];
   exit: [code: number, providerSessionId?: string];
 };

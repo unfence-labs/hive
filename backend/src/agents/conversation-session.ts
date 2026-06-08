@@ -5,11 +5,12 @@ import { commandExecutionActivityToToolCall } from "@hive/shared/agent-activity"
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { AgentEventNormalizer, type NormalizedAgentEvent } from "./agent-event-normalizer.js";
-import { resolveProvider } from "./providers/registry.js";
+import { providerSupportsAppServerGoals, resolveProvider } from "./providers/registry.js";
 import type { AgentProvider } from "./providers/types.js";
 import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js";
-import type { AgentRunner, StopReason } from "./runners/types.js";
+import type { AgentRunner, AgentRunnerTurnStartedEvent, StopReason } from "./runners/types.js";
 import { DEBUG_AGENT_LOGS } from "../utils/env.js";
+import { addBounded } from "../utils/bounded-set.js";
 import type {
   AgentActivity,
   AgentActivityFile,
@@ -41,6 +42,16 @@ function formatNormalizedExitCode(exitCode: number | undefined): string {
   return exitCode === undefined ? "" : `Exit code: ${exitCode}`;
 }
 
+/** Cap for the per-session finalized-turn dedup Set to avoid unbounded growth. */
+const MAX_FINALIZED_TURN_IDS = 256;
+
+function isCodexGoalCommand(content: string, providerId: string | undefined): boolean {
+  const trimmed = content.trim();
+  return providerId === "codex"
+    && providerSupportsAppServerGoals(providerId)
+    && (trimmed === "/goal" || trimmed.startsWith("/goal "));
+}
+
 function cloneAgentActivity(activity: AgentActivity): AgentActivity {
   switch (activity.kind) {
     case "command_execution":
@@ -49,6 +60,8 @@ function cloneAgentActivity(activity: AgentActivity): AgentActivity {
       return { ...activity, files: activity.files.map((file) => ({ ...file })) };
     case "plan_update":
       return { ...activity, steps: activity.steps.map((step) => ({ ...step })) };
+    case "goal_update":
+      return { ...activity };
     case "diagnostic":
       return { ...activity };
   }
@@ -123,6 +136,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private _streamToolCalls: ToolCall[] = [];
   private _streamAgentActivities: AgentActivity[] = [];
   private _agentPlanMode = false;
+  private finalizedCodexAppServerTurnIds = new Set<string>();
 
   constructor(config: ConversationSessionConfig) {
     super();
@@ -265,7 +279,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           !this.testCommand &&
           resolved?.provider.id === "codex" &&
           this.sessionKind === "chat";
-        this.emitUserMessage(content, urlImages, fileMentions);
+        this.emitUserMessage(content, urlImages, fileMentions, isCodexGoalCommand(content, resolved?.provider.id));
         this.startAgentTurn(
           useNativeCodexImages ? promptContent : this.buildPromptWithImages(promptContent, imagePaths),
           msgOptions,
@@ -278,12 +292,17 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         this.emit("error", err instanceof Error ? err : new Error(String(err)));
       });
     } else {
-      this.emitUserMessage(content, undefined, fileMentions);
+      this.emitUserMessage(content, undefined, fileMentions, isCodexGoalCommand(content, resolved?.provider.id));
       this.startAgentTurn(promptContent, msgOptions, resolved);
     }
   }
 
-  private emitUserMessage(content: string, images?: ImageAttachment[], fileMentions?: FileMention[]): void {
+  private emitUserMessage(
+    content: string,
+    images?: ImageAttachment[],
+    fileMentions?: FileMention[],
+    goalCommand?: boolean,
+  ): void {
     const userMsg: ChatMessage = {
       id: nanoid(12),
       sessionId: this.sessionId,
@@ -291,6 +310,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       content,
       images: images?.length ? images : undefined,
       fileMentions: fileMentions?.length ? fileMentions : undefined,
+      goalCommand: goalCommand || undefined,
       timestamp: new Date().toISOString(),
     };
     if (!this._metadata.title) {
@@ -346,6 +366,46 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       : `Please analyze the attached image(s). Use the Read tool to view them:\n${pathList}`;
   }
 
+  private resetStreamAccumulators(): void {
+    this._streamText = "";
+    this._streamThinking = "";
+    this._streamToolCalls = [];
+    this._streamAgentActivities = [];
+    this._agentPlanMode = false;
+  }
+
+  private beginSpontaneousCodexAppServerTurn(
+    runner: AgentRunner,
+    event: AgentRunnerTurnStartedEvent,
+  ): boolean {
+    if (this._status === "streaming") return false;
+
+    this._status = "streaming";
+    this._streamingStartedAt = Date.now();
+    this.stopReason = null;
+    this.runner = runner;
+    this.resetStreamAccumulators();
+
+    this.emit("message", {
+      type: "status",
+      status: "busy",
+      sessionId: this.sessionId,
+      streaming: true,
+      streamingStartedAt: this._streamingStartedAt,
+      lockedProvider: this._metadata.lockedProvider,
+    } as WsOutgoing);
+
+    if (DEBUG_AGENT_LOGS) {
+      console.log("[session] spontaneous Codex app-server turn started", {
+        sessionId: this.sessionId,
+        threadId: event.threadId,
+        turnId: event.turnId,
+      });
+    }
+
+    return true;
+  }
+
   /** Start a single agent turn, delegating protocol execution to the selected runner. */
   private startAgentTurn(
     content: string,
@@ -399,11 +459,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.runner = runner;
 
     // Reset in-progress streaming accumulators
-    this._streamText = "";
-    this._streamThinking = "";
-    this._streamToolCalls = [];
-    this._streamAgentActivities = [];
-    this._agentPlanMode = false;
+    this.resetStreamAccumulators();
     let resultDurationMs: number | undefined;
     let resultInputTokens: number | undefined;
     let resultOutputTokens: number | undefined;
@@ -412,9 +468,20 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let lastStderr: string | undefined;
     const emittedDiagnostics = new Set<string>();
 
-    const normalizer = new AgentEventNormalizer();
+    let normalizer = new AgentEventNormalizer();
     const blockingToolNames = new Set(["AskUserQuestion", "ExitPlanMode"]);
     let killedForBlockingTool = false;
+    const resetPerTurnState = () => {
+      resultDurationMs = undefined;
+      resultInputTokens = undefined;
+      resultOutputTokens = undefined;
+      resultContextUsedTokens = undefined;
+      resultContextWindowTokens = undefined;
+      lastStderr = undefined;
+      emittedDiagnostics.clear();
+      normalizer = new AgentEventNormalizer();
+      killedForBlockingTool = false;
+    };
 
     runner.on("assistant", (data) => {
       const blockTypes = data.message.content.map((b) => b.type);
@@ -493,10 +560,13 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     });
 
     if (useCodexAppServer) {
-      let finalized = false;
-      const finish = (exitCode: number, failureDetail?: string) => {
-        if (finalized) return;
-        finalized = true;
+      let currentTurnId: string | undefined = (runner as { capturedTurnId?: string }).capturedTurnId;
+      const finish = (exitCode: number, failureDetail?: string, completedTurnId?: string) => {
+        const turnId = completedTurnId ?? currentTurnId;
+        if (turnId) {
+          if (this.finalizedCodexAppServerTurnIds.has(turnId)) return;
+          addBounded(this.finalizedCodexAppServerTurnIds, turnId, MAX_FINALIZED_TURN_IDS);
+        }
         this.finalizeTurn({
           exitCode,
           killedForBlockingTool,
@@ -509,24 +579,41 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           resultContextWindowTokens,
           blockingToolNames,
         });
+        currentTurnId = undefined;
       };
 
-      runner.once("result", (data) => {
+      runner.on("turn_started", (event) => {
+        if (event.turnId && this.finalizedCodexAppServerTurnIds.has(event.turnId)) return;
+        currentTurnId = event.turnId;
+        if (event.threadId && !this.cliSessionId) {
+          this.setProviderSessionId(event.threadId);
+        }
+        if (this.beginSpontaneousCodexAppServerTurn(runner, event)) {
+          resetPerTurnState();
+        }
+      });
+
+      runner.on("result", (data) => {
+        const completedTurnId = data.turn_id ?? currentTurnId;
         const status = data.status ?? "completed";
+        if (data.session_id && !this.cliSessionId) {
+          this.setProviderSessionId(data.session_id);
+        }
         if (status === "completed") {
-          finish(this.stopReason ? 1 : 0);
+          finish(this.stopReason ? 1 : 0, undefined, completedTurnId);
           return;
         }
         if (status === "interrupted") {
           const failureDetail = this.stopReason
             ? undefined
             : (data.error ?? "Codex app-server turn was interrupted.");
-          finish(1, failureDetail);
+          finish(1, failureDetail, completedTurnId);
           return;
         }
-        finish(1, data.error ?? `Codex app-server turn ended with status "${status}".`);
+        finish(1, data.error ?? `Codex app-server turn ended with status "${status}".`, completedTurnId);
       });
-      runner.once("error", (err) => {
+      runner.on("error", (err) => {
+        if (this._status !== "streaming" && !currentTurnId) return;
         lastStderr = sanitizeErrorDetail(err.message);
         finish(1);
       });
@@ -620,6 +707,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         break;
       case "plan_updated":
         this.handlePlanUpdateEvent(event);
+        break;
+      case "goal_updated":
+        this.handleGoalUpdateEvent(event);
         break;
       case "diagnostic":
         this.handleDiagnosticEvent(event);
@@ -755,6 +845,22 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     });
   }
 
+  private handleGoalUpdateEvent(event: Extract<NormalizedAgentEvent, { type: "goal_updated" }>): void {
+    this.upsertAgentActivity({
+      id: event.id,
+      kind: "goal_update",
+      active: event.active,
+      threadId: event.threadId,
+      objective: event.objective,
+      status: event.status,
+      tokenBudget: event.tokenBudget,
+      tokensUsed: event.tokensUsed,
+      timeUsedSeconds: event.timeUsedSeconds,
+      createdAt: event.createdAt,
+      updatedAt: event.updatedAt,
+    });
+  }
+
   private handleDiagnosticEvent(event: Extract<NormalizedAgentEvent, { type: "diagnostic" }>): void {
     this.upsertAgentActivity({
       id: event.id,
@@ -844,11 +950,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       ? this._streamToolCalls.filter((tc) => blockingToolNames.has(tc.name))
       : [];
 
-    this._streamText = "";
-    this._streamThinking = "";
-    this._streamToolCalls = [];
-    this._streamAgentActivities = [];
-    this._agentPlanMode = false;
+    this.resetStreamAccumulators();
 
     const pendingToolName = unansweredBlockingTools.length > 0
       ? unansweredBlockingTools[0]!.name

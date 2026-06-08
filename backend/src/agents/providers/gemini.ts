@@ -19,6 +19,7 @@ const GEMINI_CAPABILITIES: ProviderCapabilities = {
   planMode: false,
   blockingTools: false,
   completions: false,
+  goals: false,
 };
 
 export class GeminiProvider implements AgentProvider {

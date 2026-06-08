@@ -17,6 +17,7 @@ const FALLBACK_CAPABILITIES: ProviderCapabilities = {
   planMode: true,
   blockingTools: true,
   completions: true,
+  goals: false,
 };
 
 export function useModels(lockedProvider?: string): UseModelsReturn {
