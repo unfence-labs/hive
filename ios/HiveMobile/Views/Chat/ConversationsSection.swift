@@ -12,6 +12,7 @@ struct ConversationsSection<Header: View>: View {
     let store: ConversationStore
     @Binding var navigationPath: NavigationPath
     let pollsPrStatus: Bool
+    let labels: ConversationsSectionLabels
     let onExtraRefresh: (() async -> Void)?
     let header: Header
 
@@ -20,6 +21,7 @@ struct ConversationsSection<Header: View>: View {
         store: ConversationStore,
         navigationPath: Binding<NavigationPath>,
         pollsPrStatus: Bool,
+        labels: ConversationsSectionLabels = .workspace,
         onExtraRefresh: (() async -> Void)? = nil,
         @ViewBuilder header: () -> Header
     ) {
@@ -27,6 +29,7 @@ struct ConversationsSection<Header: View>: View {
         self.store = store
         self._navigationPath = navigationPath
         self.pollsPrStatus = pollsPrStatus
+        self.labels = labels
         self.onExtraRefresh = onExtraRefresh
         self.header = header()
     }
@@ -79,7 +82,7 @@ struct ConversationsSection<Header: View>: View {
                 Task { await refreshContent() }
             }
         }
-        .alert("Workspace Error", isPresented: Binding(
+        .alert(labels.errorTitle, isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
@@ -146,10 +149,10 @@ struct ConversationsSection<Header: View>: View {
                 ProgressView()
             } else if sessions.isEmpty {
                 VStack(spacing: HiveSpacing.sm) {
-                    Text("No Conversations")
+                    Text(labels.emptyTitle)
                         .font(.headline)
                         .foregroundStyle(WhisperColor.text)
-                    Text("Create a conversation to start messaging in this workspace.")
+                    Text(labels.emptyDescription)
                         .font(.subheadline)
                         .foregroundStyle(WhisperColor.textSecondary)
                         .multilineTextAlignment(.center)

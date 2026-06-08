@@ -32,6 +32,7 @@ let package = Package(
             sources: [
                 "Models/AgentActivity.swift",
                 "Models/BrainModels.swift",
+                "Models/ConversationSurfaceModels.swift",
                 "Models/Models.swift",
                 "Models/WebSocketTypes.swift",
                 "Stores/BackgroundAgentDerivation.swift",

@@ -16,6 +16,7 @@ struct BrainConversationsView: View {
     @State private var statusError = false
     @State private var hasLoadedStatusOnce = false
     @State private var saveIndicator: BrainSaveIndicator = .idle
+    @State private var saveErrorMessage: String?
     @State private var savedResetTask: Task<Void, Never>?
 
     private let api = APIClient()
@@ -68,6 +69,16 @@ struct BrainConversationsView: View {
                 Task { await loadStatus() }
             }
         }
+        .alert("Brain Save Failed", isPresented: Binding(
+            get: { saveErrorMessage != nil },
+            set: { if !$0 { saveErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            if let saveErrorMessage {
+                Text(saveErrorMessage)
+            }
+        }
     }
 
     private var conversations: some View {
@@ -76,6 +87,7 @@ struct BrainConversationsView: View {
             store: store,
             navigationPath: $navigationPath,
             pollsPrStatus: false,
+            labels: .brain,
             onExtraRefresh: loadStatus
         ) {
             BrainDashboardPanel(
@@ -147,10 +159,12 @@ struct BrainConversationsView: View {
     private func save() async {
         savedResetTask?.cancel()
         saveIndicator = .saving
+        saveErrorMessage = nil
         do {
             let result = try await api.saveBrain(message: nil)
             if result.committed && !result.pushed {
                 saveIndicator = .pushFailed
+                saveErrorMessage = brainSaveFailureMessage(result: result)
             } else {
                 saveIndicator = .saved
                 savedResetTask = Task {
@@ -160,6 +174,7 @@ struct BrainConversationsView: View {
             }
         } catch {
             saveIndicator = .pushFailed
+            saveErrorMessage = brainSaveFailureMessage(fallbackErrorDescription: error.localizedDescription)
         }
         await loadStatus()
     }

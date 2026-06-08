@@ -144,4 +144,51 @@ struct BrainSyncStateTests {
         #expect(response.files[2].status == .renamed)
         #expect(response.files[2].renamedFrom == "older.md")
     }
+
+    @Test
+    func saveFailureMessagePrefersBackendError() {
+        let response = BrainSaveResponse(
+            committed: true,
+            pushed: false,
+            error: "permission denied"
+        )
+
+        let message = brainSaveFailureMessage(result: response)
+
+        #expect(message == "permission denied")
+    }
+
+    @Test
+    func saveFailureMessageExplainsLocalCommitWithoutBackendError() {
+        let response = BrainSaveResponse(
+            committed: true,
+            pushed: false,
+            error: nil
+        )
+
+        let message = brainSaveFailureMessage(result: response)
+
+        #expect(message == "Brain was saved locally, but push failed.")
+    }
+
+    @Test
+    func saveFailureMessageUsesThrownErrorFallback() {
+        let message = brainSaveFailureMessage(fallbackErrorDescription: "HTTP 409: Brain is not connected")
+
+        #expect(message == "HTTP 409: Brain is not connected")
+    }
+
+    @Test
+    func detectsBrainWorkspaceId() {
+        #expect(isBrainWorkspaceId("brain"))
+        #expect(!isBrainWorkspaceId("workspace-1"))
+    }
+
+    @Test
+    func conversationLabelsAreWorkspaceAndBrainSpecific() {
+        #expect(ConversationsSectionLabels.workspace.errorTitle == "Workspace Error")
+        #expect(ConversationsSectionLabels.workspace.emptyDescription.contains("workspace"))
+        #expect(ConversationsSectionLabels.brain.errorTitle == "Brain Error")
+        #expect(ConversationsSectionLabels.brain.emptyDescription.contains("Brain"))
+    }
 }
