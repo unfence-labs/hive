@@ -96,10 +96,13 @@ function formatCompactCount(value: number): string {
   if (value < 1_000) return String(value);
   if (value < 1_000_000) {
     const thousands = value / 1_000;
-    const formatted = thousands >= 10
-      ? String(Math.round(thousands))
-      : thousands.toFixed(1).replace(/\.0$/, "");
-    return `${formatted}k`;
+    if (thousands >= 10) {
+      const rounded = Math.round(thousands);
+      // Rounding can push e.g. 999_500 up to 1000k — roll over to millions.
+      if (rounded >= 1_000) return "1m";
+      return `${rounded}k`;
+    }
+    return `${thousands.toFixed(1).replace(/\.0$/, "")}k`;
   }
   const millions = value / 1_000_000;
   return `${millions.toFixed(1).replace(/\.0$/, "")}m`;

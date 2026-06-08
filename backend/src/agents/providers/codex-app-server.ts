@@ -9,6 +9,10 @@ import type { NormalizedAgentEvent } from "../agent-event-normalizer.js";
 import type { StreamParserEvent } from "../stream-parser.js";
 import type { ThinkingLevel } from "./types.js";
 import { buildWorkspaceEnv } from "../../utils/env.js";
+import { addBounded } from "../../utils/bounded-set.js";
+
+/** Cap for long-lived per-session turn-id dedup Sets to avoid unbounded growth. */
+const MAX_TRACKED_TURN_IDS = 256;
 
 type JsonObject = Record<string, unknown>;
 type JsonRpcId = number;
@@ -873,7 +877,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     });
     const completedTurnId = asString(turn?.id) ?? activeTurnId;
     if (completedTurnId) {
-      this.completedTurnIds.add(completedTurnId);
+      addBounded(this.completedTurnIds, completedTurnId, MAX_TRACKED_TURN_IDS);
     }
     this.activeTurnId = undefined;
   }
@@ -965,8 +969,10 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     const threadId = asString(goal?.threadId)
       ?? asString(data?.threadId)
       ?? asString(asRecord(data?.thread)?.id)
-      ?? this.threadId
-      ?? "unknown";
+      ?? this.threadId;
+    // A goal is scoped to a thread; without one we cannot key it stably for
+    // upsert/clear, and a shared "unknown" id would collide across threads.
+    if (!threadId) return;
     this.emit("agent_event", {
       type: "goal_updated",
       id: `codex-goal-${threadId}`,

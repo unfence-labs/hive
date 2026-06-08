@@ -10,6 +10,7 @@ import type { AgentProvider } from "./providers/types.js";
 import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js";
 import type { AgentRunner, AgentRunnerTurnStartedEvent, StopReason } from "./runners/types.js";
 import { DEBUG_AGENT_LOGS } from "../utils/env.js";
+import { addBounded } from "../utils/bounded-set.js";
 import type {
   AgentActivity,
   AgentActivityFile,
@@ -40,6 +41,9 @@ function buildCancellationErrorDetail(exitCode: number, lastStderr: string | und
 function formatNormalizedExitCode(exitCode: number | undefined): string {
   return exitCode === undefined ? "" : `Exit code: ${exitCode}`;
 }
+
+/** Cap for the per-session finalized-turn dedup Set to avoid unbounded growth. */
+const MAX_FINALIZED_TURN_IDS = 256;
 
 function isCodexGoalCommand(content: string, providerId: string | undefined): boolean {
   const trimmed = content.trim();
@@ -559,7 +563,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         const turnId = completedTurnId ?? currentTurnId;
         if (turnId) {
           if (this.finalizedCodexAppServerTurnIds.has(turnId)) return;
-          this.finalizedCodexAppServerTurnIds.add(turnId);
+          addBounded(this.finalizedCodexAppServerTurnIds, turnId, MAX_FINALIZED_TURN_IDS);
         }
         this.finalizeTurn({
           exitCode,

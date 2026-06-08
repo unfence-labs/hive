@@ -67,9 +67,24 @@ describe("TaskTracker", () => {
       />,
     );
 
-    expect(screen.getByText("Ship the Codex Goals UI")).toBeInTheDocument();
-    expect(screen.getByText(/active/)).toHaveTextContent("1.2k/10k");
-    expect(screen.getByText(/active/)).toHaveTextContent("2m 5s");
+    // Collapsed header shows the normalized status; the objective lives in the
+    // title attribute (and the expanded view), not the collapsed label.
+    expect(screen.getByText("Goal active")).toBeInTheDocument();
+    expect(screen.getByTitle("Ship the Codex Goals UI")).toBeInTheDocument();
+    expect(screen.getByText("1.2k/10k · 2m 5s")).toBeInTheDocument();
+  });
+
+  it("rolls compact token counts over to millions", () => {
+    render(
+      <TaskTracker
+        goal={goal({ tokensUsed: 999_500, tokenBudget: 2_000_000 })}
+        tasks={[]}
+        currentTask={undefined}
+        counts={{ total: 0, completed: 0, inProgress: 0, pending: 0 }}
+      />,
+    );
+
+    expect(screen.getByText("1m/2m")).toBeInTheDocument();
   });
 
   it("expands goal details", async () => {
@@ -83,18 +98,17 @@ describe("TaskTracker", () => {
       />,
     );
 
-    expect(screen.queryByText("Goal")).not.toBeInTheDocument();
+    expect(screen.queryByText("Investigate a narrow app-server regression")).not.toBeInTheDocument();
 
-    await user.click(screen.getByText("Investigate a narrow app-server regression"));
+    await user.click(screen.getByText("Goal blocked"));
 
-    expect(screen.getByText("Goal")).toBeInTheDocument();
-    expect(screen.getAllByText("blocked")).toHaveLength(2);
+    expect(screen.getByText("Investigate a narrow app-server regression")).toBeInTheDocument();
   });
 
   it.each([
-    ["usageLimited", "usage limited"],
-    ["budgetLimited", "budget limited"],
-  ])("formats camelCase goal status %s", (status, label) => {
+    ["usageLimited", "Goal usage limited"],
+    ["budgetLimited", "Goal budget limited"],
+  ])("formats camelCase goal status %s", (status, header) => {
     render(
       <TaskTracker
         goal={goal({ status })}
@@ -104,7 +118,7 @@ describe("TaskTracker", () => {
       />,
     );
 
-    expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.getByText(header)).toBeInTheDocument();
   });
 
   it("orders sections as goal, tasks, then background agents", () => {

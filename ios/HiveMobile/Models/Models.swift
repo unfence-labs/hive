@@ -7,6 +7,7 @@ struct ProviderCapabilities: Codable, Equatable {
     let planMode: Bool
     let blockingTools: Bool
     let completions: Bool
+    let goals: Bool?
 }
 
 struct ModelCatalogEntry: Codable, Identifiable, Equatable {
@@ -237,6 +238,7 @@ struct ChatMessage: Codable, Identifiable {
     let fileMentions: [FileMention]?
     let toolCalls: [ToolCall]?
     let agentActivities: [AgentActivity]?
+    let goalCommand: Bool?
     let thinkingContent: String?
     let timestamp: String
     let cancelled: Bool?
@@ -250,6 +252,7 @@ struct ChatMessage: Codable, Identifiable {
     init(id: String, sessionId: String, role: MessageRole, content: String,
          images: [ImageAttachment]?, fileMentions: [FileMention]? = nil,
          toolCalls: [ToolCall]?, agentActivities: [AgentActivity]? = nil,
+         goalCommand: Bool? = nil,
          thinkingContent: String?,
          timestamp: String, cancelled: Bool?, errorDetail: String? = nil,
          durationMs: Int?,
@@ -263,6 +266,7 @@ struct ChatMessage: Codable, Identifiable {
         self.fileMentions = fileMentions
         self.toolCalls = toolCalls
         self.agentActivities = agentActivities
+        self.goalCommand = goalCommand
         self.thinkingContent = thinkingContent
         self.timestamp = timestamp
         self.cancelled = cancelled
@@ -284,6 +288,7 @@ struct ChatMessage: Codable, Identifiable {
         fileMentions = try container.decodeIfPresent([FileMention].self, forKey: .fileMentions)
         toolCalls = try container.decodeIfPresent([ToolCall].self, forKey: .toolCalls)
         agentActivities = try container.decodeIfPresent([AgentActivity].self, forKey: .agentActivities)
+        goalCommand = try container.decodeIfPresent(Bool.self, forKey: .goalCommand)
         thinkingContent = try container.decodeIfPresent(String.self, forKey: .thinkingContent)
         timestamp = try container.decode(String.self, forKey: .timestamp)
         cancelled = try container.decodeIfPresent(Bool.self, forKey: .cancelled)
@@ -328,6 +333,7 @@ struct ChatMessage: Codable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, sessionId, role, content, images, fileMentions, toolCalls, agentActivities
+        case goalCommand
         case thinkingContent, timestamp, cancelled, errorDetail, durationMs
         case inputTokens, outputTokens, contextUsedTokens, contextWindowTokens
     }

@@ -32,6 +32,8 @@ struct MessageBubble: View {
 
                 messageContent
 
+                goalBadge
+
                 let tools = mergedToolCalls
                 if message.role == .assistant, !tools.isEmpty {
                     WhisperToolCallsBlock(
@@ -111,6 +113,25 @@ struct MessageBubble: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             }
+        }
+    }
+
+    // MARK: - Goal Badge
+
+    @ViewBuilder
+    private var goalBadge: some View {
+        if message.role == .user, message.goalCommand == true {
+            HStack(spacing: 4) {
+                Image(systemName: "target")
+                    .font(.system(size: 9))
+                Text("Sent with goal")
+                    .font(WhisperFont.mono(10))
+            }
+            .foregroundStyle(WhisperColor.textMuted)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(WhisperColor.surface))
+            .overlay(Capsule().stroke(hiveAccent.opacity(0.15), lineWidth: 1))
         }
     }
 
