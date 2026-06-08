@@ -209,6 +209,26 @@ final class APIClient {
         return try await post(path: "/api/workspaces/pr-status/bulk", body: body)
     }
 
+    // MARK: - Brain
+
+    func fetchBrain() async throws -> BrainState {
+        try await get(path: "/api/brain")
+    }
+
+    func fetchBrainStatus() async throws -> BrainStatusResponse {
+        try await get(path: "/api/brain/status")
+    }
+
+    func fetchBrainDiff() async throws -> BrainDiffResponse {
+        try await get(path: "/api/brain/diff")
+    }
+
+    func saveBrain(message: String?) async throws -> BrainSaveResponse {
+        struct SaveBody: Encodable { let message: String? }
+        let body = try JSONEncoder().encode(SaveBody(message: message))
+        return try await post(path: "/api/brain/save", body: body)
+    }
+
     func registerDeviceToken(_ token: String) async throws {
         let body = try JSONEncoder().encode(["token": token])
         try await requestVoid("POST", path: "/api/devices/apns", body: body)

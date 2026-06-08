@@ -91,12 +91,16 @@ struct ChatView: View {
                 Spacer()
             } else if store.displayMessages.isEmpty && !store.isStreaming {
                 Spacer()
-                SessionEmptyState(
-                    projectName: workspace.projectName ?? workspace.name,
-                    workspaceName: workspace.name,
-                    branch: store.branchInfo?.name ?? workspace.branch,
-                    defaultBranch: workspace.defaultBranch ?? "main"
-                )
+                if isBrainWorkspaceId(workspace.id) {
+                    BrainSessionEmptyState()
+                } else {
+                    SessionEmptyState(
+                        projectName: workspace.projectName ?? workspace.name,
+                        workspaceName: workspace.name,
+                        branch: store.branchInfo?.name ?? workspace.branch,
+                        defaultBranch: workspace.defaultBranch ?? "main"
+                    )
+                }
                 Spacer()
             } else {
                 ScrollViewReader { proxy in

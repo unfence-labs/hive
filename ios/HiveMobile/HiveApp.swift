@@ -9,6 +9,7 @@ struct HiveApp: App {
     @State private var modelCatalog = ModelCatalog()
     @State private var selectedTab: AppTab = .hub
     @State private var hubPath = NavigationPath()
+    @State private var brainPath = NavigationPath()
     @State private var backgroundedAt: Date?
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @AppStorage("hiveThemeMode") private var themeModeId = HiveThemeMode.system.rawValue
@@ -30,6 +31,14 @@ struct HiveApp: App {
     var body: some Scene {
         WindowGroup {
             TabView(selection: $selectedTab) {
+                Tab("Brain", systemImage: "brain", value: .brain) {
+                    NavigationStack(path: $brainPath) {
+                        BrainConversationsView(
+                            store: storeCache.getOrCreate(BRAIN_WORKSPACE_ID),
+                            navigationPath: $brainPath
+                        )
+                    }
+                }
                 Tab("Hub", systemImage: "square.grid.2x2.fill", value: .hub) {
                     NavigationStack(path: $hubPath) {
                         HubView()
@@ -99,5 +108,5 @@ struct HiveApp: App {
 }
 
 enum AppTab: Hashable {
-    case hub, settings
+    case brain, hub, settings
 }

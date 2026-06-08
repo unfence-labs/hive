@@ -32,6 +32,14 @@ final class ProjectStore {
     /// Whether the store has never successfully loaded data yet.
     var isInitialLoad: Bool { !hasFetchedOnce }
 
+    /// Sync the hub monitor with every workspace plus the synthetic Brain id, so
+    /// the Brain always stays subscribed (streaming/done events, send wiring) and
+    /// is never evicted by `sync`.
+    private func syncMonitoredWorkspaces() {
+        let ids = projects.flatMap(\.workspaces).map(\.id) + [BRAIN_WORKSPACE_ID]
+        statusMonitor.sync(workspaceIds: ids)
+    }
+
     func createWorkspace(in projectId: String) async {
         guard !creatingWorkspaceProjectIds.contains(projectId) else { return }
 
@@ -65,8 +73,7 @@ final class ProjectStore {
             }
 
             statusMonitor.seedLastActivityDates(from: [workspace])
-            let allWorkspaceIds = projects.flatMap(\.workspaces).map(\.id)
-            statusMonitor.sync(workspaceIds: allWorkspaceIds)
+            syncMonitoredWorkspaces()
             pendingNavigation = workspace
         } catch is CancellationError {
             // Ignore cancelled create requests when leaving the screen.
@@ -120,8 +127,7 @@ final class ProjectStore {
             statusMonitor.seedLastActivityDates(from: [workspace])
             projects.insert(newProject, at: 0)
 
-            let allWorkspaceIds = projects.flatMap(\.workspaces).map(\.id)
-            statusMonitor.sync(workspaceIds: allWorkspaceIds)
+            syncMonitoredWorkspaces()
             pendingNavigation = workspace
         } catch is CancellationError {
             // Ignore
@@ -139,8 +145,7 @@ final class ProjectStore {
             for i in projects.indices {
                 projects[i].workspaces.removeAll { $0.id == id }
             }
-            let allIds = projects.flatMap(\.workspaces).map(\.id)
-            statusMonitor.sync(workspaceIds: allIds)
+            syncMonitoredWorkspaces()
         } catch is CancellationError {
             // Ignore
         } catch {
@@ -170,8 +175,7 @@ final class ProjectStore {
             projects = fresh
             uiPreferences = preferences
             hasFetchedOnce = true
-            let allWorkspaceIds = fresh.flatMap(\.workspaces).map(\.id)
-            statusMonitor.sync(workspaceIds: allWorkspaceIds)
+            syncMonitoredWorkspaces()
         } catch is CancellationError {
             // View disappeared — ignore
         } catch {
