@@ -38,12 +38,21 @@ struct BrainConversationsView: View {
         brainStatus?.count ?? 0
     }
 
+    private var unpushedCommitCount: Int? {
+        brainStatus?.unpushedCommitCount
+    }
+
+    private var lastSyncedAt: String? {
+        brainStatus?.lastSyncedAt ?? brainState?.lastSyncedAt
+    }
+
     private var syncState: BrainSyncState {
         brainSyncState(
             statusLoading: statusLoading,
             statusError: statusError,
             saveIndicator: saveIndicator,
-            pendingCount: pendingCount
+            pendingCount: pendingCount,
+            unpushedCommitCount: unpushedCommitCount
         )
     }
 
@@ -94,6 +103,8 @@ struct BrainConversationsView: View {
                 repoUrl: brainState?.repoUrl,
                 syncState: syncState,
                 pendingCount: pendingCount,
+                unpushedCommitCount: unpushedCommitCount,
+                lastSyncedAt: lastSyncedAt,
                 isSaving: saveIndicator == .saving,
                 isStreaming: brainStreaming,
                 hasUnread: projectStore.statusMonitor.hasUnreadSessions(BRAIN_WORKSPACE_ID),
@@ -137,7 +148,7 @@ struct BrainConversationsView: View {
             // View disappeared.
         } catch {
             // Degrade to the empty state if the Brain state can't be fetched.
-            brainState = BrainState(exists: false, repoUrl: nil, createdAt: nil)
+            brainState = BrainState(exists: false, repoUrl: nil, createdAt: nil, lastSyncedAt: nil)
         }
     }
 
@@ -166,6 +177,23 @@ struct BrainConversationsView: View {
                 saveIndicator = .pushFailed
                 saveErrorMessage = brainSaveFailureMessage(result: result)
             } else {
+                if result.pushed {
+                    brainStatus = BrainStatusResponse(
+                        files: [],
+                        count: 0,
+                        upstream: brainStatus?.upstream,
+                        lastSyncedAt: result.lastSyncedAt ?? brainStatus?.lastSyncedAt ?? brainState?.lastSyncedAt,
+                        unpushedCommitCount: 0
+                    )
+                    if let lastSyncedAt = result.lastSyncedAt, let brainState {
+                        self.brainState = BrainState(
+                            exists: brainState.exists,
+                            repoUrl: brainState.repoUrl,
+                            createdAt: brainState.createdAt,
+                            lastSyncedAt: lastSyncedAt
+                        )
+                    }
+                }
                 saveIndicator = .saved
                 savedResetTask = Task {
                     try? await Task.sleep(for: .seconds(3))

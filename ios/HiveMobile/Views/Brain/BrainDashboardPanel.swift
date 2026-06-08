@@ -7,13 +7,15 @@ struct BrainDashboardPanel: View {
     let repoUrl: String?
     let syncState: BrainSyncState
     let pendingCount: Int
+    let unpushedCommitCount: Int?
+    let lastSyncedAt: String?
     let isSaving: Bool
     let isStreaming: Bool
     let hasUnread: Bool
     let onSave: () -> Void
 
     private var canSave: Bool {
-        pendingCount > 0 && !isSaving
+        (pendingCount > 0 || (unpushedCommitCount ?? 0) > 0) && !isSaving
     }
 
     private var activityAccessibilityLabel: String {
@@ -84,35 +86,60 @@ struct BrainDashboardPanel: View {
                 .font(.caption.monospacedDigit().weight(.semibold))
                 .foregroundStyle(WhisperColor.textMuted)
 
-            HStack(alignment: .center, spacing: HiveSpacing.md) {
-                HStack(spacing: 7) {
-                    BrainSyncDot(color: Self.dotColor(for: syncState), pulsing: Self.isPulsing(syncState))
-                    Text(syncState.label)
-                        .font(.caption.monospacedDigit().weight(.medium))
-                        .foregroundStyle(Self.dotColor(for: syncState))
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: HiveSpacing.sm)
-
-                Button(action: onSave) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "icloud.and.arrow.up")
-                            .imageScale(.small)
-                        Text(pendingCount > 0 ? "Save \(pendingCount)" : "Save")
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(alignment: .center, spacing: HiveSpacing.md) {
+                    HStack(spacing: 7) {
+                        BrainSyncDot(color: Self.dotColor(for: syncState), pulsing: Self.isPulsing(syncState))
+                        Text(syncState.label)
+                            .font(.caption.monospacedDigit().weight(.medium))
+                            .foregroundStyle(Self.dotColor(for: syncState))
+                            .lineLimit(1)
                     }
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(canSave ? Color.accentColor.opacity(0.16) : WhisperColor.surfaceSubtle)
-                    )
-                    .foregroundStyle(canSave ? Color.accentColor : WhisperColor.textMuted)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(syncState.label)
+
+                    Spacer(minLength: HiveSpacing.sm)
+
+                    Button(action: onSave) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "icloud.and.arrow.up")
+                                .imageScale(.small)
+                            Text("Save")
+                            if pendingCount > 0 {
+                                Text("\(pendingCount)")
+                                    .font(.caption2.monospacedDigit().weight(.semibold))
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(
+                                        Capsule(style: .continuous)
+                                            .fill(WhisperColor.surfaceSubtle)
+                                    )
+                            }
+                        }
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .frame(minWidth: 86, minHeight: 32)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(canSave ? Color.accentColor.opacity(0.16) : WhisperColor.surfaceSubtle)
+                        )
+                        .foregroundStyle(canSave ? Color.accentColor : WhisperColor.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSave)
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
+                    .accessibilityLabel(saveAccessibilityLabel)
                 }
-                .buttonStyle(.plain)
-                .disabled(!canSave)
-                .accessibilityLabel("Save Brain")
+
+                Text(lastSyncText)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(WhisperColor.textMuted)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .accessibilityLabel(lastSyncAccessibilityLabel)
             }
             .padding(.horizontal, HiveSpacing.md)
             .padding(.vertical, 10)
@@ -132,12 +159,68 @@ struct BrainDashboardPanel: View {
         case .pushFailed: return WhisperColor.warningForeground
         case .saved: return Color.accentColor
         case .pending: return WhisperColor.warningForeground
+        case .unpushed: return WhisperColor.warningForeground
         case .synced: return WhisperColor.textMuted
         }
     }
 
     private static func isPulsing(_ state: BrainSyncState) -> Bool {
         state == .saving || state == .loading
+    }
+
+    private var saveAccessibilityLabel: String {
+        if pendingCount > 0 { return "Save Brain, \(pendingCount) pending changes" }
+        if (unpushedCommitCount ?? 0) > 0 { return "Push Brain" }
+        return "Save Brain"
+    }
+
+    private var lastSyncText: String {
+        guard let lastSyncedAt, !lastSyncedAt.isEmpty else {
+            return "Never synced"
+        }
+        guard let date = Self.date(from: lastSyncedAt) else {
+            return "Last sync unknown"
+        }
+        return "Last synced \(Self.relativeFormatter.localizedString(for: date, relativeTo: Date()))"
+    }
+
+    private var lastSyncAccessibilityLabel: String {
+        guard let lastSyncedAt, !lastSyncedAt.isEmpty else {
+            return "No successful Brain sync recorded yet"
+        }
+        guard let date = Self.date(from: lastSyncedAt) else {
+            return "Last successful Brain sync time is unavailable"
+        }
+        return "Last successful Brain sync: \(Self.absoluteFormatter.string(from: date))"
+    }
+
+    private static let isoWithFractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter
+    }()
+
+    private static let absoluteFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private static func date(from value: String) -> Date? {
+        isoWithFractional.date(from: value) ?? iso.date(from: value)
     }
 }
 
@@ -169,6 +252,8 @@ private struct BrainSyncDot: View {
             repoUrl: "git@github.com:user/brain.git",
             syncState: .pending,
             pendingCount: 3,
+            unpushedCommitCount: 0,
+            lastSyncedAt: "2026-06-08T10:00:00.000Z",
             isSaving: false,
             isStreaming: true,
             hasUnread: false,
@@ -178,6 +263,8 @@ private struct BrainSyncDot: View {
             repoUrl: nil,
             syncState: .synced,
             pendingCount: 0,
+            unpushedCommitCount: 0,
+            lastSyncedAt: nil,
             isSaving: false,
             isStreaming: false,
             hasUnread: false,

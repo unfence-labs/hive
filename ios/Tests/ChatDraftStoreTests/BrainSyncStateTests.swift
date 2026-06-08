@@ -9,7 +9,8 @@ struct BrainSyncStateTests {
             statusLoading: true,
             statusError: true,
             saveIndicator: .saving,
-            pendingCount: 5
+            pendingCount: 5,
+            unpushedCommitCount: 2
         )
         #expect(state == .saving)
         #expect(state.label == "Saving…")
@@ -21,7 +22,8 @@ struct BrainSyncStateTests {
             statusLoading: true,
             statusError: true,
             saveIndicator: .pushFailed,
-            pendingCount: 0
+            pendingCount: 0,
+            unpushedCommitCount: 0
         )
         #expect(state == .pushFailed)
         #expect(state.label == "Push failed")
@@ -33,7 +35,8 @@ struct BrainSyncStateTests {
             statusLoading: true,
             statusError: true,
             saveIndicator: .idle,
-            pendingCount: 0
+            pendingCount: 0,
+            unpushedCommitCount: 0
         )
         #expect(state == .error)
         #expect(state.label == "Status unavailable")
@@ -45,7 +48,8 @@ struct BrainSyncStateTests {
             statusLoading: true,
             statusError: false,
             saveIndicator: .idle,
-            pendingCount: 3
+            pendingCount: 3,
+            unpushedCommitCount: 0
         )
         #expect(state == .loading)
     }
@@ -56,7 +60,8 @@ struct BrainSyncStateTests {
             statusLoading: false,
             statusError: false,
             saveIndicator: .saved,
-            pendingCount: 0
+            pendingCount: 0,
+            unpushedCommitCount: 1
         )
         #expect(state == .saved)
         #expect(state.label == "Saved")
@@ -68,7 +73,8 @@ struct BrainSyncStateTests {
             statusLoading: false,
             statusError: false,
             saveIndicator: .idle,
-            pendingCount: 2
+            pendingCount: 2,
+            unpushedCommitCount: 1
         )
         #expect(state == .pending)
         #expect(state.label == "Unsaved changes")
@@ -80,16 +86,35 @@ struct BrainSyncStateTests {
             statusLoading: false,
             statusError: false,
             saveIndicator: .idle,
-            pendingCount: 0
+            pendingCount: 0,
+            unpushedCommitCount: 0
         )
         #expect(state == .synced)
         #expect(state.label == "Up to date")
     }
 
     @Test
+    func unpushedWhenNoPendingChangesButLocalCommitsExist() {
+        let state = brainSyncState(
+            statusLoading: false,
+            statusError: false,
+            saveIndicator: .idle,
+            pendingCount: 0,
+            unpushedCommitCount: 2
+        )
+        #expect(state == .unpushed)
+        #expect(state.label == "Not pushed")
+    }
+
+    @Test
     func decodesConnectedBrainState() throws {
         let data = """
-        { "exists": true, "repoUrl": "git@github.com:user/brain.git", "createdAt": "2026-06-08T10:00:00.000Z" }
+        {
+          "exists": true,
+          "repoUrl": "git@github.com:user/brain.git",
+          "createdAt": "2026-06-08T10:00:00.000Z",
+          "lastSyncedAt": "2026-06-08T10:30:00.000Z"
+        }
         """.data(using: .utf8)!
 
         let state = try JSONDecoder().decode(BrainState.self, from: data)
@@ -97,6 +122,7 @@ struct BrainSyncStateTests {
         #expect(state.exists)
         #expect(state.repoUrl == "git@github.com:user/brain.git")
         #expect(state.createdAt == "2026-06-08T10:00:00.000Z")
+        #expect(state.lastSyncedAt == "2026-06-08T10:30:00.000Z")
     }
 
     @Test
@@ -108,6 +134,7 @@ struct BrainSyncStateTests {
         #expect(!state.exists)
         #expect(state.repoUrl == nil)
         #expect(state.createdAt == nil)
+        #expect(state.lastSyncedAt == nil)
     }
 
     @Test
@@ -120,7 +147,21 @@ struct BrainSyncStateTests {
 
         #expect(response.committed)
         #expect(!response.pushed)
+        #expect(response.lastSyncedAt == nil)
         #expect(response.error == "permission denied")
+    }
+
+    @Test
+    func decodesSaveResponseWithLastSync() throws {
+        let data = """
+        { "committed": true, "pushed": true, "lastSyncedAt": "2026-06-08T11:00:00.000Z" }
+        """.data(using: .utf8)!
+
+        let response = try JSONDecoder().decode(BrainSaveResponse.self, from: data)
+
+        #expect(response.committed)
+        #expect(response.pushed)
+        #expect(response.lastSyncedAt == "2026-06-08T11:00:00.000Z")
     }
 
     @Test
@@ -132,7 +173,10 @@ struct BrainSyncStateTests {
             { "path": "notes/b.md", "status": "modified" },
             { "path": "old.md", "status": "renamed", "renamedFrom": "older.md" }
           ],
-          "count": 3
+          "count": 3,
+          "upstream": "origin/main",
+          "lastSyncedAt": "2026-06-08T12:00:00.000Z",
+          "unpushedCommitCount": 2
         }
         """.data(using: .utf8)!
 
@@ -143,6 +187,9 @@ struct BrainSyncStateTests {
         #expect(response.files[0].status == .untracked)
         #expect(response.files[2].status == .renamed)
         #expect(response.files[2].renamedFrom == "older.md")
+        #expect(response.upstream == "origin/main")
+        #expect(response.lastSyncedAt == "2026-06-08T12:00:00.000Z")
+        #expect(response.unpushedCommitCount == 2)
     }
 
     @Test
@@ -150,6 +197,7 @@ struct BrainSyncStateTests {
         let response = BrainSaveResponse(
             committed: true,
             pushed: false,
+            lastSyncedAt: nil,
             error: "permission denied"
         )
 
@@ -163,6 +211,7 @@ struct BrainSyncStateTests {
         let response = BrainSaveResponse(
             committed: true,
             pushed: false,
+            lastSyncedAt: nil,
             error: nil
         )
 

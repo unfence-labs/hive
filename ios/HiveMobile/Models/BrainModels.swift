@@ -8,11 +8,12 @@ let BRAIN_WORKSPACE_ID = "brain"
 // MARK: - Brain state
 
 /// Result of `GET /api/brain`. The backend sends either `{ exists: false }`
-/// or `{ exists: true, repoUrl, createdAt }`.
+/// or `{ exists: true, repoUrl, createdAt, lastSyncedAt }`.
 struct BrainState: Decodable {
     let exists: Bool
     let repoUrl: String?
     let createdAt: String?
+    let lastSyncedAt: String?
 }
 
 // MARK: - Brain working-tree status
@@ -33,10 +34,14 @@ struct BrainFileStatus: Decodable, Identifiable {
     var id: String { path }
 }
 
-/// Result of `GET /api/brain/status` — pending working-tree changes.
+/// Result of `GET /api/brain/status` — pending working-tree changes plus sync
+/// metadata for the Brain clone.
 struct BrainStatusResponse: Decodable {
     let files: [BrainFileStatus]
     let count: Int
+    let upstream: String?
+    let lastSyncedAt: String?
+    let unpushedCommitCount: Int?
 }
 
 // MARK: - Brain save
@@ -47,6 +52,7 @@ struct BrainStatusResponse: Decodable {
 struct BrainSaveResponse: Decodable {
     let committed: Bool
     let pushed: Bool
+    let lastSyncedAt: String?
     let error: String?
 }
 
@@ -70,6 +76,7 @@ enum BrainSyncState {
     case pushFailed
     case saved
     case pending
+    case unpushed
     case synced
 
     var label: String {
@@ -80,6 +87,7 @@ enum BrainSyncState {
         case .pushFailed: return "Push failed"
         case .saved: return "Saved"
         case .pending: return "Unsaved changes"
+        case .unpushed: return "Not pushed"
         case .synced: return "Up to date"
         }
     }
@@ -91,7 +99,8 @@ func brainSyncState(
     statusLoading: Bool,
     statusError: Bool,
     saveIndicator: BrainSaveIndicator,
-    pendingCount: Int
+    pendingCount: Int,
+    unpushedCommitCount: Int?
 ) -> BrainSyncState {
     if saveIndicator == .saving { return .saving }
     if saveIndicator == .pushFailed { return .pushFailed }
@@ -99,5 +108,6 @@ func brainSyncState(
     if statusLoading { return .loading }
     if saveIndicator == .saved { return .saved }
     if pendingCount > 0 { return .pending }
+    if (unpushedCommitCount ?? 0) > 0 { return .unpushed }
     return .synced
 }
