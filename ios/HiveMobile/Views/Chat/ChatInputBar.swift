@@ -396,11 +396,11 @@ private extension ImageAttachment {
     let sampleModels: [ModelCatalogEntry] = [
         .init(id: "claude:opus-4-7", label: "Opus 4.7", provider: "claude", providerLabel: "Claude Code",
               isDefault: true, isNew: nil,
-              capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true),
+              capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true, goals: false),
               contextWindow: 1_000_000, supportsFastMode: true),
         .init(id: "claude:sonnet-4-6", label: "Sonnet 4.6", provider: "claude", providerLabel: "Claude Code",
               isDefault: nil, isNew: true,
-              capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true),
+              capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true, goals: false),
               contextWindow: 1_000_000, supportsFastMode: nil),
     ]
     let grouped = [ModelProviderGroup(provider: "claude", providerLabel: "Claude Code", models: sampleModels)]
@@ -419,7 +419,7 @@ private extension ImageAttachment {
             selectedModelId: "claude:opus-4-7",
             defaultModelId: "claude:opus-4-7",
             lockedProvider: nil,
-            capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true),
+            capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true, goals: false),
             onModelSelect: { _ in },
             contextUsage: ContextUsageData(inputTokens: 62_000, contextWindow: 200_000),
             onDraftAttachmentsChange: { _ in },
@@ -437,7 +437,7 @@ private extension ImageAttachment {
             selectedModelId: "claude:sonnet-4-6",
             defaultModelId: "claude:opus-4-7",
             lockedProvider: "claude",
-            capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true),
+            capabilities: .init(thinkingLevels: [.low, .medium, .high, .xhigh, .max], planMode: true, blockingTools: true, completions: true, goals: false),
             onModelSelect: { _ in },
             contextUsage: ContextUsageData(inputTokens: 170_000, contextWindow: 200_000),
             onDraftAttachmentsChange: { _ in },
