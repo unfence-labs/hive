@@ -87,6 +87,10 @@ function normalizeActivityFiles(
 
 type SessionKind = "chat" | "automation" | "brain";
 
+function isInteractiveSessionKind(sessionKind: SessionKind): boolean {
+  return sessionKind !== "automation";
+}
+
 export interface ConversationSessionConfig {
   cwd: string;
   dataDir: string;
@@ -278,7 +282,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         const useNativeCodexImages =
           !this.testCommand &&
           resolved?.provider.id === "codex" &&
-          this.sessionKind === "chat";
+          isInteractiveSessionKind(this.sessionKind);
         this.emitUserMessage(content, urlImages, fileMentions, isCodexGoalCommand(content, resolved?.provider.id));
         this.startAgentTurn(
           useNativeCodexImages ? promptContent : this.buildPromptWithImages(promptContent, imagePaths),

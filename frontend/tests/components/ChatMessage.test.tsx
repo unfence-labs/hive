@@ -249,14 +249,14 @@ describe("ChatMessage", () => {
 
   // ── Additional assistant message coverage ───────────────────────────
 
-  it("does not show duration or copy button when durationMs is absent", () => {
+  it("shows copy button when durationMs is absent", () => {
     render(
       <ChatMessage
         message={assistantMessage({ durationMs: undefined })}
       />,
     );
 
-    expect(screen.queryByTestId("copy-button")).not.toBeInTheDocument();
+    expect(screen.getByTestId("copy-button")).toHaveAttribute("data-content", "Assistant text");
   });
 
   it("shows duration and copy button when durationMs is set", () => {

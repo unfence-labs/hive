@@ -72,6 +72,7 @@ const ChatMessage = memo(function ChatMessage({
   const isUser = message.role === "user";
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const inlineAgentActivities = getInlineAgentActivities(message.agentActivities ?? []);
+  const showAssistantActions = !isUser && (message.durationMs != null || Boolean(message.content));
 
   if (!isUser) {
     const hasAssistantContent = Boolean(
@@ -177,11 +178,11 @@ const ChatMessage = memo(function ChatMessage({
               )}
             </div>
           )}
-          {message.durationMs != null && (
+          {showAssistantActions && (
             <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <span>{formatElapsed(message.durationMs)}</span>
-              <span>·</span>
-              <CopyButton content={message.content} className="mb-0.5" />
+              {message.durationMs != null && <span>{formatElapsed(message.durationMs)}</span>}
+              {message.durationMs != null && message.content && <span>·</span>}
+              {message.content && <CopyButton content={message.content} className="mb-0.5" />}
             </div>
           )}
         </div>

@@ -25,16 +25,7 @@ struct BrainConversationsView: View {
     private let api = APIClient()
 
     private var brainWorkspace: Workspace {
-        Workspace(
-            id: BRAIN_WORKSPACE_ID,
-            name: "Brain",
-            branch: "main",
-            status: .idle,
-            createdAt: brainState?.createdAt ?? "",
-            activeSessionId: nil,
-            projectName: "Brain",
-            defaultBranch: nil
-        )
+        makeBrainWorkspace(from: brainState)
     }
 
     private var pendingCount: Int {

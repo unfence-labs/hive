@@ -22,6 +22,19 @@ func isBrainWorkspaceId(_ workspaceId: String) -> Bool {
     workspaceId == BRAIN_WORKSPACE_ID
 }
 
+func makeBrainWorkspace(from state: BrainState?) -> Workspace {
+    Workspace(
+        id: BRAIN_WORKSPACE_ID,
+        name: "Brain",
+        branch: "main",
+        status: .idle,
+        createdAt: state?.createdAt ?? "",
+        activeSessionId: nil,
+        projectName: "Brain",
+        defaultBranch: nil
+    )
+}
+
 func brainSaveFailureMessage(
     result: BrainSaveResponse? = nil,
     fallbackErrorDescription: String? = nil
