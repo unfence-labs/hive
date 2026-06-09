@@ -8,7 +8,6 @@ import {
 } from "react";
 import {
   AlertTriangleIcon,
-  FileTextIcon,
   ImageOffIcon,
   Loader2Icon,
   MusicIcon,
@@ -20,7 +19,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useThemeType } from "@/hooks/useThemeType";
 import { useFileContent } from "@/hooks/useFileContent";
-import { resolveImageSrc } from "@/lib/image-url";
+import { resolveApiResourceSrc, resolveImageSrc } from "@/lib/image-url";
 import { getFilePreviewKind, isMarkdownFilePath, workspaceFileRawPath } from "@/lib/file-preview";
 import { cn } from "@/lib/utils";
 
@@ -141,23 +140,16 @@ function ImageFilePreview({ wsId, filePath }: { wsId: string; filePath: string }
 }
 
 function PdfFilePreview({ wsId, filePath }: { wsId: string; filePath: string }) {
-  const src = `${workspaceFileRawPath(wsId, filePath)}#navpanes=0`;
+  const src = `${resolveApiResourceSrc(workspaceFileRawPath(wsId, filePath))}#navpanes=0`;
 
   return (
     <div className="flex min-h-0 flex-1 bg-muted/20">
-      <object
-        data={src}
-        type="application/pdf"
+      <iframe
+        src={src}
+        title={`${basename(filePath)} PDF preview`}
         className="min-h-0 flex-1 border-0 bg-background"
         aria-label={`${basename(filePath)} PDF preview`}
-      >
-        <div className="flex flex-1 items-center justify-center p-4">
-          <div className="flex w-full max-w-sm items-center gap-2 rounded-md border border-border/50 bg-background/70 px-4 py-3 text-sm text-muted-foreground">
-            <FileTextIcon className="size-4 shrink-0" />
-            <span>PDF preview is not available in this environment.</span>
-          </div>
-        </div>
-      </object>
+      />
     </div>
   );
 }
@@ -171,7 +163,7 @@ function MediaFilePreview({
   filePath: string;
   kind: "audio" | "video";
 }) {
-  const src = workspaceFileRawPath(wsId, filePath);
+  const src = resolveApiResourceSrc(workspaceFileRawPath(wsId, filePath));
   const name = basename(filePath);
   const Icon = kind === "audio" ? MusicIcon : VideoIcon;
 
