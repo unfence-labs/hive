@@ -10,6 +10,10 @@ import { ProcessAgentRunner } from "./process-agent-runner.js";
 
 type SessionKind = "chat" | "automation" | "brain";
 
+function usesInteractiveRunner(sessionKind: SessionKind): boolean {
+  return sessionKind !== "automation";
+}
+
 export interface CreateAgentRunnerInput {
   cwd: string;
   content: string;
@@ -62,7 +66,7 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
   const useCodexAppServer =
     !input.testCommand &&
     provider!.id === "codex" &&
-    input.sessionKind === "chat" &&
+    usesInteractiveRunner(input.sessionKind) &&
     providerSupportsAppServer(provider!.id);
   const supportsBlockingTools = provider?.capabilities.blockingTools ?? false;
 

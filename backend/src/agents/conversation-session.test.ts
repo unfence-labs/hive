@@ -232,7 +232,7 @@ describe("ConversationSession", () => {
     providerRegistry.markProviderAvailable("codex", { appServer: true, goals: true });
   });
 
-  function createSession(opts?: { sessionId?: string; command?: string; skipPermissions?: boolean; sessionKind?: "chat" | "automation" }) {
+  function createSession(opts?: { sessionId?: string; command?: string; skipPermissions?: boolean; sessionKind?: "chat" | "automation" | "brain" }) {
     return new ConversationSession({
       cwd: "/tmp/test",
       dataDir: tempDir,
@@ -1363,6 +1363,26 @@ describe("ConversationSession", () => {
       sessionKind: "chat",
     });
 
+    expect(selection.debug).toEqual({
+      command: "codex",
+      args: ["app-server", "--enable", "goals", "--listen", "stdio://"],
+    });
+  });
+
+  it("uses Codex app-server for Brain chat sessions", () => {
+    const resolved = providerRegistry.resolveProvider("codex:gpt-5.5");
+
+    const selection = createAgentRunner({
+      cwd: "/tmp/brain",
+      content: "Hello Brain",
+      msgOptions: { model: "codex:gpt-5.5" },
+      resolved,
+      isFirstMessage: true,
+      skipPermissions: true,
+      sessionKind: "brain",
+    });
+
+    expect(selection.protocol).toBe("codex_app_server");
     expect(selection.debug).toEqual({
       command: "codex",
       args: ["app-server", "--enable", "goals", "--listen", "stdio://"],
