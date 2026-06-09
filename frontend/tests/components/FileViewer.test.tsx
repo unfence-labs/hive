@@ -56,6 +56,7 @@ async function getHighlightMock() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
 });
 
 describe("FileViewer", () => {
@@ -102,6 +103,23 @@ describe("FileViewer", () => {
       "/api/workspaces/ws-1/file/raw?path=assets%2Flogo.png",
     );
     expect(screen.getByText("Loading preview...")).toBeInTheDocument();
+    expect(apiMock).not.toHaveBeenCalled();
+    expect(highlightMock).not.toHaveBeenCalled();
+  });
+
+  it("renders PDF files in an iframe with the configured server URL", async () => {
+    const apiMock = await getApiMock();
+    const highlightMock = await getHighlightMock();
+    localStorage.setItem("hive-server-url", "http://127.0.0.1:9420");
+
+    renderFileViewer({ wsId: "brain", filePath: "crypto/bitcoin/bitcoin-whitepaper.pdf" });
+
+    const frame = screen.getByTitle("bitcoin-whitepaper.pdf PDF preview");
+    expect(frame.tagName).toBe("IFRAME");
+    expect(frame).toHaveAttribute(
+      "src",
+      "http://127.0.0.1:9420/api/brain/file/raw?path=crypto%2Fbitcoin%2Fbitcoin-whitepaper.pdf#navpanes=0",
+    );
     expect(apiMock).not.toHaveBeenCalled();
     expect(highlightMock).not.toHaveBeenCalled();
   });
