@@ -245,7 +245,7 @@ describe("ModelSelector", () => {
     expect(iconPath).toContain("M12 0C12 6.627");
   });
 
-  it("renders Anthropic asterisk icon for Claude", () => {
+  it("renders Claude icon for Claude", () => {
     render(
       <ModelSelector
         models={ALL_MODELS}
@@ -257,7 +257,7 @@ describe("ModelSelector", () => {
 
     const trigger = screen.getByRole("button", { name: /Model: Opus 4.7/i });
     const iconPath = trigger.querySelector("svg path")?.getAttribute("d");
-    expect(iconPath).toContain("M177.888 112.776");
+    expect(iconPath).toContain("M119 398.8");
   });
 
   it("falls back to Claude icon when selected model is missing", () => {
@@ -272,6 +272,6 @@ describe("ModelSelector", () => {
 
     const trigger = screen.getByRole("button", { name: /Model: Select model/i });
     const iconPath = trigger.querySelector("svg path")?.getAttribute("d");
-    expect(iconPath).toContain("M177.888 112.776");
+    expect(iconPath).toContain("M119 398.8");
   });
 });
