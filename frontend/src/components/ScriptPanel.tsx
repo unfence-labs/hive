@@ -215,6 +215,37 @@ export default function ScriptPanel({
     }
   };
 
+  const renderTabButton = (tab: TabInfo) => {
+    const tabStatus: ScriptStatusInfo = status[tab.key] ?? { state: "idle" };
+    const isActive = effectiveTab === tab.key;
+
+    return (
+      <button
+        key={tab.key}
+        type="button"
+        aria-label={tab.label}
+        title={tab.label}
+        className={cn(
+          "flex h-full shrink-0 items-center gap-1.5 whitespace-nowrap text-xs uppercase tracking-wide transition-colors",
+          isActive ? "font-semibold text-foreground" : "font-normal text-muted-foreground hover:text-foreground",
+        )}
+        onClick={() => setActiveTab(tab.key)}
+      >
+        {tab.isTerminal ? (
+          <>
+            {tabStatus.state === "running" && <ActivityWave size="small" decorative />}
+            <span>T1</span>
+          </>
+        ) : (
+          <>
+            <StatusIndicator status={tabStatus} isSetup={tab.isSetup} />
+            <span className="block max-w-28 truncate">{tab.label}</span>
+          </>
+        )}
+      </button>
+    );
+  };
+
   if (tabs.length === 0) {
     return (
       <div className="flex h-full min-h-0 flex-col">
@@ -238,42 +269,23 @@ export default function ScriptPanel({
     );
   }
 
+  const terminalTab = tabs.find((tab) => tab.isTerminal);
+  const scriptTabs = tabs.filter((tab) => !tab.isTerminal);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Tab bar */}
-      <div className="flex h-9 items-center gap-3 border-t border-border/50 px-3">
-        {tabs.map((tab) => {
-          const tabStatus: ScriptStatusInfo = status[tab.key] ?? { state: "idle" };
-          return (
-            <button
-              key={tab.key}
-              type="button"
-              aria-label={tab.label}
-              className={cn(
-                "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
-                effectiveTab === tab.key
-                  ? "font-semibold text-foreground"
-                  : "font-normal text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setActiveTab(tab.key)}
-            >
-              {tab.isTerminal ? (
-                <>
-                  {tabStatus.state === "running" && <ActivityWave size="small" decorative />}
-                  <span>T1</span>
-                </>
-              ) : (
-                <>
-                  <StatusIndicator status={tabStatus} isSetup={tab.isSetup} />
-                  {tab.label}
-                </>
-              )}
-            </button>
-          );
-        })}
+      <div className="flex h-9 min-w-0 items-center border-t border-border/50">
+        <div className="min-w-0 flex-1 self-stretch overflow-x-auto overflow-y-hidden">
+          <div className="flex h-full w-max min-w-full items-center gap-3 px-3">
+            {scriptTabs.map(renderTabButton)}
+          </div>
+        </div>
 
         {/* Action button */}
-        <div className="ml-auto">
+        <div className="flex h-full shrink-0 items-center gap-3 px-3">
+          <div className="h-4 w-px bg-border/70" aria-hidden="true" />
+          {terminalTab && renderTabButton(terminalTab)}
           {currentStatus.state === "running" ? (
             <Button variant="ghost" size="icon-xs" onClick={handleAction} title="Stop">
               <SquareIcon className="size-3 text-destructive" />
