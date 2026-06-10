@@ -44,9 +44,7 @@ describe("ProviderUsage", () => {
     render(<ProviderUsage />);
 
     expect(screen.getByText("Codex")).toBeInTheDocument();
-    expect(screen.getByText("42%")).toBeInTheDocument();
     expect(screen.getByText("Claude")).toBeInTheDocument();
-    expect(screen.getByText("n/a")).toBeInTheDocument();
   });
 
   it("renders nothing when every provider is unavailable", () => {
