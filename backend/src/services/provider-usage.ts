@@ -360,7 +360,7 @@ function parseCodexRateLimitBucket(bucket: CodexRateLimitBucket | null): Provide
   return {
     id,
     label: asString(bucket.limitName),
-    usedPercent: normalizePercent(primary.usedPercent ?? primary.usagePercent),
+    usedPercent: normalizeCodexPercent(primary),
     windowDurationMins: asNumber(primary.windowDurationMins),
     resetsAt: parseResetTimestamp(primary.resetsAt ?? primary.resetAt),
     planType: asString(bucket.planType),
@@ -369,17 +369,27 @@ function parseCodexRateLimitBucket(bucket: CodexRateLimitBucket | null): Provide
   };
 }
 
-function normalizePercent(value: unknown): number | null {
-  const num = asNumber(value);
-  if (num === null) return null;
-  const percent = num <= 1 ? num * 100 : num;
-  return Math.max(0, Math.min(100, Math.round(percent)));
+function normalizeCodexPercent(window: CodexRateLimitWindow): number | null {
+  if (window.usedPercent !== undefined) {
+    return normalizeWholePercent(window.usedPercent);
+  }
+  return normalizeFractionOrPercent(window.usagePercent);
 }
 
-function normalizeClaudePercent(value: unknown): number | null {
+function normalizeWholePercent(value: unknown): number | null {
   const num = asNumber(value);
   if (num === null) return null;
   return Math.max(0, Math.min(100, Math.round(num)));
+}
+
+function normalizeFractionOrPercent(value: unknown): number | null {
+  const num = asNumber(value);
+  if (num === null) return null;
+  return normalizeWholePercent(num <= 1 ? num * 100 : num);
+}
+
+function normalizeClaudePercent(value: unknown): number | null {
+  return normalizeWholePercent(value);
 }
 
 function parseResetTimestamp(value: unknown): number | null {
