@@ -2,11 +2,13 @@ import { memo, useState, type ReactNode } from "react";
 import {
   AlertTriangleIcon,
   ChevronRightIcon,
+  ImageIcon,
   XCircleIcon,
 } from "lucide-react";
 import { commandExecutionActivityToToolCall } from "@hive/shared/agent-activity";
 import type { AgentActivity, QuestionAnswer, ToolCall } from "@/types";
 import { cn } from "@/lib/utils";
+import { resolveImageSrc } from "@/lib/image-url";
 import { ContentPanel, ContentPanelBody } from "@/components/chat/ContentPanel";
 import ChatToolUse, { ToolExpandedContent } from "@/components/ChatToolUse";
 import { ToolCallList } from "@/components/chat/ToolCallList";
@@ -98,6 +100,8 @@ function activityToToolCalls(activity: InlineAgentActivity): ToolCall[] {
       return [commandActivityToToolCall(activity)];
     case "file_change":
       return fileChangeActivityToToolCalls(activity);
+    case "image_view":
+    case "image_generation":
     case "diagnostic":
       return [];
   }
@@ -126,6 +130,10 @@ const AgentActivityItem = memo(function AgentActivityItem({
           ))}
         </>
       );
+    case "image_view":
+      return <ImageViewActivity activity={activity} />;
+    case "image_generation":
+      return <ImageGenerationActivity activity={activity} showExecutingState={showExecutingState} />;
     case "diagnostic":
       return <DiagnosticActivity activity={activity} />;
   }
@@ -179,12 +187,102 @@ function ActivityShell({
   );
 }
 
-function DiagnosticActivity({ activity }: { activity: Extract<AgentActivity, { kind: "diagnostic" }> }) {
-  const detail = activity.method ? (
+const OUTSIDE_WORKSPACE_MESSAGE = "Image is outside the workspace and cannot be previewed.";
+
+function fileName(path: string): string {
+  return path.split("/").pop() || path;
+}
+
+function ActivityDetailChip({ text }: { text: string }) {
+  return (
     <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-      {activity.method}
+      {text}
     </code>
+  );
+}
+
+function ActivityImage({ src, alt }: { src: string; alt: string }) {
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      className="max-h-64 max-w-full rounded-md border border-border object-contain"
+    />
+  );
+}
+
+function ImageViewActivity({ activity }: { activity: Extract<AgentActivity, { kind: "image_view" }> }) {
+  const name = fileName(activity.path);
+  const expandedContent = activity.imageUrl ? (
+    <ActivityImage src={resolveImageSrc(activity.imageUrl)} alt={name} />
+  ) : activity.outsideWorkspace ? (
+    OUTSIDE_WORKSPACE_MESSAGE
+  ) : (
+    activity.path
+  );
+
+  return (
+    <ActivityShell
+      title="View image"
+      detail={<ActivityDetailChip text={name} />}
+      trailingIcon={<ImageIcon className="size-3.5" aria-label="Image" />}
+      expandedContent={expandedContent}
+    />
+  );
+}
+
+function ImageGenerationActivity({
+  activity,
+  showExecutingState,
+}: {
+  activity: Extract<AgentActivity, { kind: "image_generation" }>;
+  showExecutingState?: boolean;
+}) {
+  const generating = Boolean(showExecutingState && (!activity.status || activity.status === "inProgress"));
+  const src = imageGenerationSrc(activity);
+  const hasDetails = Boolean(src || activity.revisedPrompt || activity.savedPath);
+  const expandedContent = hasDetails ? (
+    <div className="space-y-2">
+      {activity.revisedPrompt && (
+        <p className="whitespace-pre-wrap text-muted-foreground">{activity.revisedPrompt}</p>
+      )}
+      {src ? (
+        <ActivityImage src={src} alt={activity.revisedPrompt ?? "Generated image"} />
+      ) : activity.savedPath ? (
+        <p className="text-muted-foreground">{OUTSIDE_WORKSPACE_MESSAGE}</p>
+      ) : null}
+    </div>
   ) : undefined;
+  const detail = generating
+    ? <span className="text-muted-foreground/70">generating…</span>
+    : activity.savedPath
+      ? <ActivityDetailChip text="Generated image" />
+      : undefined;
+
+  return (
+    <ActivityShell
+      title="Generate image"
+      detail={detail}
+      trailingIcon={<ImageIcon className="size-3.5" aria-label="Image" />}
+      expandedContent={expandedContent}
+      executing={generating}
+    />
+  );
+}
+
+/**
+ * Prefer the workspace raw-file URL; fall back to the inline base64 result for
+ * generations that were never saved to disk.
+ */
+function imageGenerationSrc(activity: Extract<AgentActivity, { kind: "image_generation" }>): string | undefined {
+  if (activity.imageUrl) return resolveImageSrc(activity.imageUrl);
+  if (!activity.result) return undefined;
+  return activity.result.startsWith("data:") ? activity.result : `data:image/png;base64,${activity.result}`;
+}
+
+function DiagnosticActivity({ activity }: { activity: Extract<AgentActivity, { kind: "diagnostic" }> }) {
+  const detail = activity.method ? <ActivityDetailChip text={activity.method} /> : undefined;
 
   return (
     <ActivityShell

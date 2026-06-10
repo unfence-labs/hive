@@ -33,6 +33,16 @@ export type NormalizedAgentEvent =
       commandActions?: AgentActivityCommandAction[];
     }
   | { type: "file_change_updated"; id: string; files?: AgentActivityFile[]; path?: string; diff?: string; status?: string; kind?: string }
+  | { type: "image_view_updated"; id: string; path: string; relativePath?: string; outsideWorkspace?: boolean }
+  | {
+      type: "image_generation_updated";
+      id: string;
+      status?: string;
+      revisedPrompt?: string;
+      result?: string;
+      savedPath?: string;
+      relativePath?: string;
+    }
   | { type: "plan_updated"; id: string; steps: Array<{ text: string; status: string }> }
   | {
       type: "goal_updated";

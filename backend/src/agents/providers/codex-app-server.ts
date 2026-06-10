@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { isAbsolute, relative, resolve } from "node:path";
 import {
   commandExecutionActivityToToolCall,
   normalizeAgentActivityCommandActions,
@@ -112,6 +113,15 @@ type ThreadItem =
       agentsStates?: Record<string, unknown>;
     }
   | { type: "webSearch"; id: string; query?: string; action?: unknown }
+  | { type: "imageView"; id: string; path?: string }
+  | {
+      type: "imageGeneration";
+      id: string;
+      status?: string;
+      revisedPrompt?: string | null;
+      result?: string;
+      savedPath?: string | null;
+    }
   | { type: string; id?: string; [key: string]: unknown };
 
 type FileUpdateChange = {
@@ -141,6 +151,8 @@ const CLIENT_INFO = {
   version: "0.1.0",
 };
 const MAX_DIAGNOSTIC_DETAILS_LENGTH = 4000;
+/** Keep persisted chat payloads bounded when an image generation result is inline base64. */
+const MAX_IMAGE_GENERATION_RESULT_LENGTH = 262_144;
 const COLLAB_THREAD_REPLAY_TIMEOUT_MS = 1500;
 
 /**
@@ -182,6 +194,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private pendingCollabReplays = new Set<Promise<void>>();
   private lastUsage: TokenUsage | undefined;
   private lastProtocolError: string | undefined;
+  private currentCwd: string | undefined;
 
   constructor(options: CodexAppServerSessionOptions = {}) {
     super();
@@ -207,6 +220,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   async startTurn(options: CodexAppServerTurnOptions): Promise<void> {
     await this.ensureInitialized(options.env);
     this.resetTurnState();
+    this.currentCwd = options.cwd;
     this.threadId = await this.ensureThread(options);
     const input: UserInput[] = [
       { type: "text", text: options.content, text_elements: [] },
@@ -699,6 +713,34 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         }
         break;
       }
+      case "imageView": {
+        const imageItem = item as Extract<ThreadItem, { type: "imageView" }>;
+        if (!imageItem.path) break;
+        this.emit("agent_event", {
+          type: "image_view_updated",
+          id: imageItem.id,
+          path: imageItem.path,
+          ...relativizeWorkspacePath(imageItem.path, this.currentCwd),
+        });
+        break;
+      }
+      case "imageGeneration": {
+        const generationItem = item as Extract<ThreadItem, { type: "imageGeneration" }>;
+        const savedPath = generationItem.savedPath ?? undefined;
+        const result = generationItem.result;
+        this.emit("agent_event", {
+          type: "image_generation_updated",
+          id: generationItem.id,
+          status: generationItem.status ?? (phase === "completed" ? "completed" : "inProgress"),
+          revisedPrompt: generationItem.revisedPrompt ?? undefined,
+          savedPath,
+          relativePath: savedPath
+            ? relativizeWorkspacePath(savedPath, this.currentCwd).relativePath
+            : undefined,
+          result: result && result.length <= MAX_IMAGE_GENERATION_RESULT_LENGTH ? result : undefined,
+        });
+        break;
+      }
       case "userMessage":
       case "hookPrompt":
         break;
@@ -1089,6 +1131,24 @@ function usageFromTokenUsage(value: TokenUsage | undefined): {
     context_used_tokens: usage.totalTokens,
     context_window: value?.modelContextWindow ?? undefined,
   };
+}
+
+/**
+ * Resolve an App Server absolute image path against the current turn cwd.
+ * Inside the workspace -> repo-relative path usable with the raw-file API
+ * (which enforces repo safety); outside -> flagged so the UI never builds a
+ * preview URL for arbitrary disk paths. Unknown cwd -> neither.
+ */
+function relativizeWorkspacePath(
+  path: string,
+  cwd: string | undefined,
+): { relativePath?: string; outsideWorkspace?: boolean } {
+  if (!cwd) return {};
+  const relativePath = relative(resolve(cwd), resolve(path));
+  if (!relativePath || relativePath.startsWith("..") || isAbsolute(relativePath)) {
+    return { outsideWorkspace: true };
+  }
+  return { relativePath };
 }
 
 function formatExitCode(exitCode: number | null | undefined): string {

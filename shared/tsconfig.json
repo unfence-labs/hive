@@ -4,5 +4,5 @@
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["agent-activity.ts", "project-env.ts", "sidebar-preferences.ts"]
+  "include": ["agent-activity.ts", "project-env.ts", "sidebar-preferences.ts", "workspace-files.ts"]
 }
