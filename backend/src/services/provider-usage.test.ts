@@ -163,6 +163,18 @@ describe("provider usage", () => {
         resetsAt: 1781542800,
       },
     ]);
+
+    expect(__providerUsageTestHooks.parseCodexRateLimitBuckets({
+      primary: {
+        usedPercent: 1,
+        windowDurationMins: 300,
+      },
+    })).toMatchObject([
+      {
+        id: "codex",
+        usedPercent: 1,
+      },
+    ]);
   });
 
   it("reads Codex usage through the App Server JSON-RPC endpoint", async () => {
@@ -190,7 +202,7 @@ describe("provider usage", () => {
           limitId: "primary",
           limitName: "Primary",
           primary: {
-            usedPercent: 0.25,
+            usedPercent: 25,
             windowDurationMins: 300,
             resetsAt: 1781110800,
           },
