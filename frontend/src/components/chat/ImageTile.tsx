@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
 import { ImageOffIcon } from "lucide-react";
+import { useImageLoadStatus } from "@/hooks/useImageLoadStatus";
 import { cn } from "@/lib/utils";
 
 interface ImageTileProps {
@@ -24,21 +24,7 @@ const TILE = "relative size-12 shrink-0 overflow-hidden rounded-md border border
  * Mirrors the loading/loaded/error pattern of `FileViewer`'s `ImageFilePreview`.
  */
 export function ImageTile({ src, alt, pending, noPreviewMessage, onOpenLightbox, className }: ImageTileProps) {
-  const imgRef = useRef<HTMLImageElement>(null);
-  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
-
-  // A cached image is already `complete` when React attaches the handler, so its
-  // `onLoad` never fires — resolve the state from the element to avoid a
-  // perpetual placeholder on images the user has already seen.
-  useEffect(() => {
-    const img = imgRef.current;
-    if (img?.complete) {
-      setStatus(img.naturalWidth > 0 ? "loaded" : "error");
-    } else {
-      setStatus("loading");
-    }
-  }, [src]);
-
+  const { status, imageRef, handleLoad, handleError } = useImageLoadStatus(src);
   const showImage = Boolean(src) && !pending && status === "loaded";
   const showError = Boolean(src) && !pending && status === "error";
   const decoding = Boolean(src) && !pending && status === "loading";
@@ -56,11 +42,11 @@ export function ImageTile({ src, alt, pending, noPreviewMessage, onOpenLightbox,
       */}
       {src && !pending && (
         <img
-          ref={imgRef}
+          ref={imageRef}
           src={src}
           alt={alt}
-          onLoad={() => setStatus("loaded")}
-          onError={() => setStatus("error")}
+          onLoad={handleLoad}
+          onError={handleError}
           className="size-full object-cover"
         />
       )}

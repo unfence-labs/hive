@@ -107,6 +107,29 @@ describe("FileViewer", () => {
     expect(highlightMock).not.toHaveBeenCalled();
   });
 
+  it("resolves cached image previews without waiting for onLoad", async () => {
+    const apiMock = await getApiMock();
+    const highlightMock = await getHighlightMock();
+    const completeSpy = vi.spyOn(window.HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+    const widthSpy = vi.spyOn(window.HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(64);
+
+    try {
+      renderFileViewer({ wsId: "ws-1", filePath: "assets/logo.png" });
+
+      const img = screen.getByRole("img", { name: "logo.png" });
+      expect(screen.queryByText("Loading preview...")).not.toBeInTheDocument();
+      expect(img).toHaveAttribute(
+        "src",
+        "/api/workspaces/ws-1/file/raw?path=assets%2Flogo.png",
+      );
+      expect(apiMock).not.toHaveBeenCalled();
+      expect(highlightMock).not.toHaveBeenCalled();
+    } finally {
+      completeSpy.mockRestore();
+      widthSpy.mockRestore();
+    }
+  });
+
   it("renders PDF files in an iframe with the configured server URL", async () => {
     const apiMock = await getApiMock();
     const highlightMock = await getHighlightMock();
