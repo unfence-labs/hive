@@ -339,6 +339,38 @@ describe("ScriptPanel", () => {
     expect(screen.getByRole("button", { name: "Terminal" })).toBeInTheDocument();
   });
 
+  it("keeps scripts scrollable while terminal controls stay fixed", () => {
+    renderPanel({
+      config: {
+        scripts: {
+          setup: "npm ci",
+          run: {
+            front: "npm run dev:front",
+            back: "npm run dev:back",
+            "back-full-dev": "npm run dev:back:full",
+            "reset-dev": "npm run reset:dev",
+          },
+        },
+      },
+      status: {},
+    });
+
+    const setupButton = screen.getByRole("button", { name: "Setup" });
+    const scrollContent = setupButton.parentElement;
+    const scrollContainer = scrollContent?.parentElement;
+    expect(scrollContainer).toHaveClass("min-w-0", "flex-1", "overflow-x-auto", "overflow-y-hidden");
+    expect(scrollContent?.firstElementChild).toBe(setupButton);
+
+    const longLabel = screen.getByText("Back-full-dev");
+    expect(longLabel).toHaveClass("block", "max-w-28", "truncate");
+
+    const fixedControls = scrollContainer?.nextElementSibling;
+    expect(fixedControls).toHaveClass("shrink-0");
+    expect(fixedControls?.querySelector('[aria-hidden="true"]')).toHaveClass("w-px");
+    expect(fixedControls).toContainElement(screen.getByRole("button", { name: "Terminal" }));
+    expect(fixedControls).toContainElement(screen.getByTitle("Run setup"));
+  });
+
   it("starts a named run script when selected", async () => {
     const { onStart } = renderPanel({
       config: {
