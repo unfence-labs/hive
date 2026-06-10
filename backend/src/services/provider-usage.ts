@@ -1,8 +1,11 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { buildCodexAppServerArgs } from "../agents/providers/codex-app-server.js";
+import {
+  JsonRpcStdioClient,
+  type JsonRpcRequest,
+} from "../agents/providers/json-rpc-stdio.js";
 import {
   getAllProviderInfo,
   providerSupportsAppServer,
@@ -36,29 +39,12 @@ export interface ProviderUsageResponse {
   generatedAt: string;
 }
 
-interface JsonRpcResponse {
-  id: number;
-  result?: unknown;
-  error?: { message?: string };
-}
-
-interface JsonRpcRequest {
-  id: number;
-  method: string;
-  params?: unknown;
-}
-
-interface JsonRpcNotification {
-  method: string;
-  params?: unknown;
-}
-
-type JsonRpcMessage = JsonRpcResponse | JsonRpcRequest | JsonRpcNotification;
-
 interface CodexRateLimitWindow {
   usedPercent?: unknown;
+  usagePercent?: unknown;
   windowDurationMins?: unknown;
   resetsAt?: unknown;
+  resetAt?: unknown;
 }
 
 interface CodexRateLimitBucket {
@@ -109,19 +95,25 @@ let claudeBackoffUntil = 0;
 export async function getProviderUsageSnapshot(): Promise<ProviderUsageResponse> {
   const providerInfo = getAllProviderInfo();
   const generatedAt = new Date().toISOString();
-  const providers: ProviderUsageEntry[] = [];
+  const providerTasks: Array<Promise<ProviderUsageEntry>> = [];
 
   const codex = providerInfo.find((provider) => provider.id === "codex");
   if (codex) {
-    providers.push(await getCodexUsage(codex.label, codex.installed));
+    providerTasks.push(getCodexUsage(codex.label, codex.installed));
   }
 
   const claude = providerInfo.find((provider) => provider.id === "claude");
   if (claude) {
-    providers.push(await getClaudeUsage(claude.label, claude.installed, claude.version));
+    providerTasks.push(getClaudeUsage(claude.label, claude.installed, claude.version));
   }
 
+  const providers = await Promise.all(providerTasks);
   return { providers, generatedAt };
+}
+
+export function stopProviderUsagePolling(): void {
+  codexClient?.close();
+  codexClient = null;
 }
 
 async function getCodexUsage(label: string, installed: boolean): Promise<ProviderUsageEntry> {
@@ -346,7 +338,11 @@ function parseCodexRateLimitBuckets(result: unknown): ProviderUsageBucket[] {
   const byLimitId = asRecord(record?.rateLimitsByLimitId);
   const source = byLimitId && Object.keys(byLimitId).length > 0
     ? Object.values(byLimitId)
-    : [record?.rateLimits];
+    : [
+        record?.rateLimits,
+        record?.rateLimit,
+        record,
+      ];
 
   return source
     .map((value) => parseCodexRateLimitBucket(asRecord(value) as CodexRateLimitBucket | null))
@@ -356,15 +352,15 @@ function parseCodexRateLimitBuckets(result: unknown): ProviderUsageBucket[] {
 function parseCodexRateLimitBucket(bucket: CodexRateLimitBucket | null): ProviderUsageBucket | null {
   if (!bucket) return null;
   const primary = asRecord(bucket.primary) as CodexRateLimitWindow | null;
-  const id = asString(bucket.limitId) ?? asString(bucket.limitName);
+  const id = asString(bucket.limitId) ?? asString(bucket.limitName) ?? (primary ? "codex" : null);
   if (!id || !primary) return null;
 
   return {
     id,
     label: asString(bucket.limitName),
-    usedPercent: normalizePercent(primary.usedPercent),
+    usedPercent: normalizePercent(primary.usedPercent ?? primary.usagePercent),
     windowDurationMins: asNumber(primary.windowDurationMins),
-    resetsAt: asNumber(primary.resetsAt),
+    resetsAt: parseResetTimestamp(primary.resetsAt ?? primary.resetAt),
     planType: asString(bucket.planType),
     credits: bucket.credits,
     rateLimitReachedType: asString(bucket.rateLimitReachedType),
@@ -440,144 +436,102 @@ class ClaudeUsageHttpError extends Error {
 }
 
 export const __providerUsageTestHooks = {
+  parseCodexRateLimitBuckets,
   parseClaudeUsageBuckets,
   parseResetTimestamp,
   resetProviderUsageCaches() {
     codexUsageCache = null;
     claudeUsageCache = null;
     claudeBackoffUntil = 0;
+    stopProviderUsagePolling();
   },
 };
 
 class CodexUsageClient {
-  private proc: ChildProcessWithoutNullStreams | null = null;
+  private rpc: JsonRpcStdioClient | null = null;
   private initialized: Promise<void> | null = null;
-  private buffer = "";
-  private nextId = 1;
-  private readonly pending = new Map<number, {
-    method: string;
-    timer: NodeJS.Timeout;
-    resolve: (value: unknown) => void;
-    reject: (err: Error) => void;
-  }>();
 
   async readRateLimits(): Promise<unknown> {
     await this.ensureInitialized();
-    return this.request("account/rateLimits/read");
+    return this.rpc?.request("account/rateLimits/read")
+      ?? Promise.reject(new Error("Codex app-server is not running"));
+  }
+
+  close(): void {
+    this.closeWithError(new Error("Codex usage polling stopped"));
+  }
+
+  private closeWithError(err: Error): void {
+    this.rpc?.close(err);
+    this.rpc = null;
+    this.initialized = null;
   }
 
   private async ensureInitialized(): Promise<void> {
     if (this.initialized) return this.initialized;
 
     this.initialized = (async () => {
-      this.proc = spawn("codex", buildCodexAppServerArgs(false), {
-        stdio: ["pipe", "pipe", "pipe"],
+      const rpc = new JsonRpcStdioClient({
+        command: "codex",
+        args: buildCodexAppServerArgs(false),
         env: buildWorkspaceEnv(),
+        requestTimeoutMs: CODEX_REQUEST_TIMEOUT_MS,
+        closeOnRequestTimeout: true,
       });
-      this.proc.stdout.on("data", (chunk: Buffer) => this.onStdout(chunk.toString("utf8")));
-      this.proc.stderr.on("data", () => {
+      this.rpc = rpc;
+      rpc.on("stderr", () => {
         // Account usage is best-effort. Stderr is intentionally not surfaced unless a request fails.
       });
-      this.proc.on("error", (err) => this.rejectAll(err));
-      this.proc.on("close", (code) => {
-        this.rejectAll(new Error(`Codex app-server exited with code ${code ?? 1}`));
-        this.proc = null;
-        this.initialized = null;
+      rpc.on("error", (err) => {
+        if (this.rpc === rpc) {
+          this.closeWithError(err);
+        }
       });
+      rpc.on("close", () => {
+        if (this.rpc === rpc) {
+          this.rpc = null;
+          this.initialized = null;
+        }
+      });
+      rpc.on("request", (request) => this.rejectUnsupportedRequest(request));
+      rpc.on("notification", (notification) => {
+        if (notification.method === "account/rateLimits/updated") {
+          this.cacheRateLimits(notification.params);
+        }
+      });
+      rpc.start();
 
-      await this.request("initialize", {
-        clientInfo: CLIENT_INFO,
-        capabilities: { experimentalApi: true },
-      });
-      this.notify("initialized");
+      try {
+        await rpc.request("initialize", {
+          clientInfo: CLIENT_INFO,
+          capabilities: { experimentalApi: true },
+        });
+        rpc.notify("initialized");
+      } catch (err) {
+        if (this.rpc === rpc) {
+          this.close();
+        }
+        throw err;
+      }
     })();
 
     return this.initialized;
   }
 
-  private request(method: string, params?: unknown): Promise<unknown> {
-    const proc = this.proc;
-    if (!proc || !proc.stdin.writable) {
-      return Promise.reject(new Error("Codex app-server is not running"));
-    }
-
-    const id = this.nextId++;
-    const payload = { id, method, ...(params !== undefined ? { params } : {}) };
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`${method} timed out`));
-      }, CODEX_REQUEST_TIMEOUT_MS);
-      this.pending.set(id, { method, timer, resolve, reject });
-      proc.stdin.write(`${JSON.stringify(payload)}\n`);
-    });
+  private rejectUnsupportedRequest(request: JsonRpcRequest): void {
+    this.rpc?.respondError(request.id, `${request.method} is not supported by Hive usage polling`);
   }
 
-  private notify(method: string, params?: unknown): void {
-    this.proc?.stdin.write(`${JSON.stringify({ method, ...(params !== undefined ? { params } : {}) })}\n`);
-  }
-
-  private onStdout(chunk: string): void {
-    this.buffer += chunk;
-    const lines = this.buffer.split("\n");
-    this.buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      this.handleMessage(trimmed);
+  private cacheRateLimits(params: unknown): void {
+    const entry = {
+      id: "codex",
+      label: "Codex",
+      status: "available" as const,
+      buckets: parseCodexRateLimitBuckets(params),
+      lastUpdatedAt: new Date().toISOString(),
+    };
+    if (entry.buckets.length > 0) {
+      codexUsageCache = { value: entry, expiresAt: Date.now() + CODEX_USAGE_CACHE_TTL_MS };
     }
-  }
-
-  private handleMessage(line: string): void {
-    let message: JsonRpcMessage;
-    try {
-      message = JSON.parse(line) as JsonRpcMessage;
-    } catch {
-      return;
-    }
-
-    if ("id" in message && "method" in message) {
-      this.respondError(message.id, `${message.method} is not supported by Hive usage polling`);
-      return;
-    }
-
-    if ("id" in message) {
-      const pending = this.pending.get(message.id);
-      if (!pending) return;
-      this.pending.delete(message.id);
-      clearTimeout(pending.timer);
-      if (message.error) {
-        pending.reject(new Error(message.error.message ?? `${pending.method} failed`));
-      } else {
-        pending.resolve(message.result);
-      }
-      return;
-    }
-
-    if ("method" in message && message.method === "account/rateLimits/updated") {
-      const entry = {
-        id: "codex",
-        label: "Codex",
-        status: "available" as const,
-        buckets: parseCodexRateLimitBuckets(message.params),
-        lastUpdatedAt: new Date().toISOString(),
-      };
-      if (entry.buckets.length > 0) {
-        codexUsageCache = { value: entry, expiresAt: Date.now() + CODEX_USAGE_CACHE_TTL_MS };
-      }
-    }
-  }
-
-  private respondError(id: number, message: string): void {
-    this.proc?.stdin.write(`${JSON.stringify({ id, error: { code: -32603, message } })}\n`);
-  }
-
-  private rejectAll(err: Error): void {
-    for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(err);
-    }
-    this.pending.clear();
   }
 }

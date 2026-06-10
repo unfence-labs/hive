@@ -32,7 +32,10 @@ export function ProviderUsage() {
     <TooltipProvider delayDuration={300}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="grid w-full cursor-default grid-cols-3 items-center gap-2.5">
+          <div
+            className="grid w-full cursor-default items-center gap-2.5"
+            style={{ gridTemplateColumns: `repeat(${summaries.length}, minmax(0, 1fr))` }}
+          >
             {summaries.map((summary) => (
               <ProviderUsageRow
                 key={summary.provider.id}

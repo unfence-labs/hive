@@ -1,4 +1,3 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import {
   commandExecutionActivityToToolCall,
@@ -10,31 +9,15 @@ import type { StreamParserEvent } from "../stream-parser.js";
 import type { ThinkingLevel } from "./types.js";
 import { buildWorkspaceEnv } from "../../utils/env.js";
 import { addBounded } from "../../utils/bounded-set.js";
+import {
+  JsonRpcStdioClient,
+  type JsonObject,
+  type JsonRpcId,
+  type JsonRpcRequest,
+} from "./json-rpc-stdio.js";
 
 /** Cap for long-lived per-session turn-id dedup Sets to avoid unbounded growth. */
 const MAX_TRACKED_TURN_IDS = 256;
-
-type JsonObject = Record<string, unknown>;
-type JsonRpcId = number;
-
-interface JsonRpcResponse {
-  id: JsonRpcId;
-  result?: unknown;
-  error?: { code?: number; message?: string; data?: unknown };
-}
-
-interface JsonRpcRequest {
-  id: JsonRpcId;
-  method: string;
-  params?: unknown;
-}
-
-interface JsonRpcNotification {
-  method: string;
-  params?: unknown;
-}
-
-type JsonRpcMessage = JsonRpcResponse | JsonRpcRequest | JsonRpcNotification;
 
 type CodexAppServerEvent = StreamParserEvent & {
   agent_event: [event: NormalizedAgentEvent];
@@ -182,15 +165,8 @@ export function buildCodexAppServerArgs(enableGoals: boolean): string[] {
  */
 export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private readonly enableGoals: boolean;
-  private proc: ChildProcessWithoutNullStreams | null = null;
+  private rpc: JsonRpcStdioClient | null = null;
   private initialized: Promise<void> | null = null;
-  private buffer = "";
-  private nextId = 1;
-  private readonly pending = new Map<JsonRpcId, {
-    method: string;
-    resolve: (value: unknown) => void;
-    reject: (err: Error) => void;
-  }>();
   private threadId: string | undefined;
   private activeTurnId: string | undefined;
   private emittedToolIds = new Set<string>();
@@ -258,15 +234,12 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
 
   close(): void {
     const hadActiveTurn = Boolean(this.activeTurnId);
-    for (const { reject } of this.pending.values()) {
-      reject(new Error("Codex app-server closed"));
-    }
-    this.pending.clear();
-    this.proc?.kill("SIGTERM");
-    this.proc = null;
+    const rpc = this.rpc;
+    this.rpc = null;
     this.initialized = null;
     this.activeTurnId = undefined;
     this.threadId = undefined;
+    rpc?.close(new Error("Codex app-server closed"));
     if (hadActiveTurn) {
       queueMicrotask(() => this.emit("error", new Error("Codex app-server closed")));
     }
@@ -275,19 +248,18 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private async ensureInitialized(env: Record<string, string> | undefined): Promise<void> {
     if (this.initialized) return this.initialized;
     this.initialized = (async () => {
-      this.proc = spawn("codex", buildCodexAppServerArgs(this.enableGoals), {
-        stdio: ["pipe", "pipe", "pipe"],
+      const rpc = new JsonRpcStdioClient({
+        command: "codex",
+        args: buildCodexAppServerArgs(this.enableGoals),
         env: buildWorkspaceEnv(env),
       });
-      this.proc.stdout.on("data", (chunk: Buffer) => this.onStdout(chunk.toString("utf-8")));
-      this.proc.stderr.on("data", (chunk: Buffer) => {
-        const text = chunk.toString("utf-8").trim();
-        if (text) this.emit("system", { type: "system", message: text, level: "debug" });
-      });
-      this.proc.on("error", (err) => this.rejectAll(err));
-      this.proc.on("close", (code) => {
-        this.rejectAll(new Error(`Codex app-server exited with code ${code ?? 1}`));
-      });
+      this.rpc = rpc;
+      rpc.on("stderr", (text) => this.emit("system", { type: "system", message: text, level: "debug" }));
+      rpc.on("error", (err) => this.emit("error", err));
+      rpc.on("close", (err) => this.onRpcClosed(err));
+      rpc.on("request", (request) => this.handleServerRequest(request));
+      rpc.on("notification", (notification) => this.handleNotification(notification.method, notification.params));
+      rpc.start();
 
       await this.request("initialize", {
         clientInfo: CLIENT_INFO,
@@ -353,68 +325,12 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   private request<T = unknown>(method: string, params?: unknown): Promise<T> {
-    const proc = this.proc;
-    if (!proc || !proc.stdin.writable) {
-      return Promise.reject(new Error("Codex app-server is not running"));
-    }
-
-    const id = this.nextId++;
-    const payload: JsonRpcRequest = { id, method, params };
-    return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, {
-        method,
-        resolve: (value) => resolve(value as T),
-        reject,
-      });
-      proc.stdin.write(`${JSON.stringify(payload)}\n`);
-    });
+    return this.rpc?.request<T>(method, params)
+      ?? Promise.reject(new Error("Codex app-server is not running"));
   }
 
   private notify(method: string, params?: unknown): void {
-    this.proc?.stdin.write(`${JSON.stringify({ method, ...(params !== undefined ? { params } : {}) })}\n`);
-  }
-
-  private onStdout(chunk: string): void {
-    this.buffer += chunk;
-    const lines = this.buffer.split("\n");
-    this.buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      this.handleMessage(trimmed);
-    }
-  }
-
-  private handleMessage(line: string): void {
-    let message: JsonRpcMessage;
-    try {
-      message = JSON.parse(line) as JsonRpcMessage;
-    } catch {
-      this.emit("error", new Error(`Malformed Codex app-server JSON line: ${line.slice(0, 200)}`));
-      return;
-    }
-
-    if ("id" in message && "method" in message) {
-      this.handleServerRequest(message);
-      return;
-    }
-
-    if ("id" in message) {
-      const pending = this.pending.get(message.id);
-      if (!pending) return;
-      this.pending.delete(message.id);
-      if ("error" in message && message.error) {
-        pending.reject(new Error(message.error.message ?? `${pending.method} failed`));
-      } else {
-        pending.resolve(message.result);
-      }
-      return;
-    }
-
-    if ("method" in message) {
-      this.handleNotification(message.method, message.params);
-    }
+    this.rpc?.notify(method, params);
   }
 
   private handleServerRequest(request: JsonRpcRequest): void {
@@ -450,11 +366,11 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   private respond(id: JsonRpcId, result: unknown): void {
-    this.proc?.stdin.write(`${JSON.stringify({ id, result })}\n`);
+    this.rpc?.respond(id, result);
   }
 
   private respondError(id: JsonRpcId, message: string): void {
-    this.proc?.stdin.write(`${JSON.stringify({ id, error: { code: -32603, message } })}\n`);
+    this.rpc?.respondError(id, message);
   }
 
   private rejectUnsupportedRequest(request: JsonRpcRequest, message: string): void {
@@ -1078,22 +994,14 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   private resolvePendingByMethod(method: string, result: unknown): void {
-    for (const [id, pending] of this.pending) {
-      if (pending.method !== method) continue;
-      this.pending.delete(id);
-      pending.resolve(result);
-    }
+    this.rpc?.resolvePendingByMethod(method, result);
   }
 
-  private rejectAll(err: Error): void {
-    for (const { reject } of this.pending.values()) {
-      reject(err);
-    }
-    this.pending.clear();
+  private onRpcClosed(err: Error): void {
     if (this.activeTurnId) {
       this.emit("error", err);
     }
-    this.proc = null;
+    this.rpc = null;
     this.initialized = null;
     this.activeTurnId = undefined;
     this.threadId = undefined;

@@ -20,6 +20,7 @@ import { GitSyncService } from "./services/git-sync.js";
 import { settingsRoutes } from "./api/settings.js";
 import { agentSettingsRoutes } from "./api/agents-settings.js";
 import { providerUsageRoutes } from "./api/provider-usage.js";
+import { stopProviderUsagePolling } from "./services/provider-usage.js";
 import { accountRoutes } from "./api/account.js";
 import { scriptRoutes } from "./api/scripts.js";
 import { scriptWsRoutes } from "./ws/script.js";
@@ -401,6 +402,7 @@ async function main() {
   app.addHook("onClose", () => {
     gitSync.stop();
     scheduler.stop();
+    stopProviderUsagePolling();
   });
   gitSync.start(BRANCH_SYNC_INTERVAL_MS);
   await scheduler.start();
