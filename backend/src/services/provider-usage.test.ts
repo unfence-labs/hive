@@ -301,6 +301,77 @@ describe("provider usage", () => {
     });
   });
 
+  it("closes the Codex usage App Server after the idle window", async () => {
+    vi.useFakeTimers();
+    const proc = createMockProcess();
+    mocks.spawn.mockReturnValue(proc);
+    mocks.providerSupportsAppServer.mockReturnValue(true);
+    mocks.getAllProviderInfo.mockReturnValue([
+      {
+        id: "codex",
+        label: "Codex",
+        npmPackage: "@openai/codex",
+        installed: true,
+        version: "1.0.0",
+      },
+    ]);
+
+    const resultPromise = getProviderUsageSnapshot();
+    const init = findMethod(proc, "initialize");
+    procRespond(proc, init.id, {});
+    await flushPromises();
+    const read = findMethod(proc, "account/rateLimits/read");
+    procRespond(proc, read.id, { primary: { usedPercent: 12 } });
+
+    await resultPromise;
+    expect(proc.kill).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(119_999);
+    expect(proc.kill).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
+  it("keeps the Codex usage App Server warm while cached snapshots continue", async () => {
+    vi.useFakeTimers();
+    const proc = createMockProcess();
+    mocks.spawn.mockReturnValue(proc);
+    mocks.providerSupportsAppServer.mockReturnValue(true);
+    mocks.getAllProviderInfo.mockReturnValue([
+      {
+        id: "codex",
+        label: "Codex",
+        npmPackage: "@openai/codex",
+        installed: true,
+        version: "1.0.0",
+      },
+    ]);
+
+    const firstResultPromise = getProviderUsageSnapshot();
+    const init = findMethod(proc, "initialize");
+    procRespond(proc, init.id, {});
+    await flushPromises();
+    const firstRead = findMethod(proc, "account/rateLimits/read");
+    procRespond(proc, firstRead.id, { primary: { usedPercent: 12 } });
+    await firstResultPromise;
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    const secondResult = await getProviderUsageSnapshot();
+    expect(secondResult.providers[0]).toMatchObject({
+      id: "codex",
+      buckets: [{ id: "codex", usedPercent: 12 }],
+    });
+    expect(parseWrites(proc).filter((entry) => entry.method === "account/rateLimits/read")).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(119_999);
+    expect(proc.kill).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+  });
+
   it("parses Claude OAuth usage windows", () => {
     expect(__providerUsageTestHooks.parseClaudeUsageBuckets({
       five_hour: { utilization: 42, resets_at: "2026-06-10T17:00:00Z" },

@@ -30,8 +30,8 @@ export function useProviderUsage() {
   return useQuery({
     queryKey: ["provider-usage"],
     queryFn: () => api.get<ProviderUsageResponse>("/api/provider-usage"),
-    refetchInterval: 60_000,
-    staleTime: 30_000,
+    refetchInterval: 120_000,
+    staleTime: 120_000,
     retry: 0,
   });
 }

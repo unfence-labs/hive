@@ -71,8 +71,9 @@ interface ClaudeUsageWindow {
   resets_at?: unknown;
 }
 
-const CODEX_USAGE_CACHE_TTL_MS = 30_000;
+const CODEX_USAGE_CACHE_TTL_MS = 120_000;
 const CODEX_REQUEST_TIMEOUT_MS = 5_000;
+const CODEX_USAGE_IDLE_TIMEOUT_MS = 120_000;
 const CLAUDE_USAGE_CACHE_TTL_MS = 180_000;
 const CLAUDE_REQUEST_TIMEOUT_MS = 5_000;
 const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
@@ -127,6 +128,7 @@ async function getCodexUsage(label: string, installed: boolean): Promise<Provide
 
   const now = Date.now();
   if (codexUsageCache && codexUsageCache.expiresAt > now) {
+    codexClient?.deferIdleClose();
     return codexUsageCache.value;
   }
 
@@ -450,21 +452,47 @@ export const __providerUsageTestHooks = {
 class CodexUsageClient {
   private rpc: JsonRpcStdioClient | null = null;
   private initialized: Promise<void> | null = null;
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
 
   async readRateLimits(): Promise<unknown> {
-    await this.ensureInitialized();
-    return this.rpc?.request("account/rateLimits/read")
-      ?? Promise.reject(new Error("Codex app-server is not running"));
+    this.clearIdleTimer();
+    try {
+      await this.ensureInitialized();
+      return await (this.rpc?.request("account/rateLimits/read")
+        ?? Promise.reject(new Error("Codex app-server is not running")));
+    } finally {
+      this.scheduleIdleClose();
+    }
   }
 
   close(): void {
     this.closeWithError(new Error("Codex usage polling stopped"));
   }
 
+  deferIdleClose(): void {
+    this.scheduleIdleClose();
+  }
+
   private closeWithError(err: Error): void {
+    this.clearIdleTimer();
     this.rpc?.close(err);
     this.rpc = null;
     this.initialized = null;
+  }
+
+  private scheduleIdleClose(): void {
+    if (!this.rpc) return;
+    this.clearIdleTimer();
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = null;
+      this.closeWithError(new Error("Codex usage polling idle timeout"));
+    }, CODEX_USAGE_IDLE_TIMEOUT_MS);
+  }
+
+  private clearIdleTimer(): void {
+    if (!this.idleTimer) return;
+    clearTimeout(this.idleTimer);
+    this.idleTimer = null;
   }
 
   private async ensureInitialized(): Promise<void> {
