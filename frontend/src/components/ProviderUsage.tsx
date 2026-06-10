@@ -43,7 +43,7 @@ export function ProviderUsage() {
         </TooltipTrigger>
         <TooltipContent
           side="top"
-          className="w-64 max-w-[calc(100vw-2rem)] bg-zinc-950 px-2.5 py-2 text-zinc-100 shadow-lg [&>svg]:!bg-zinc-950 [&>svg]:!fill-zinc-950"
+          className="w-64 max-w-[calc(100vw-2rem)] px-2.5 py-2 shadow-lg"
         >
           <div className="grid gap-1.5">
             {summaries.map((summary) => (
@@ -88,7 +88,7 @@ function ProviderUsageDetails({ summary }: { summary: ProviderUsageSummary }) {
 
   return (
     <div className="grid gap-1.5">
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-background/60">
         {provider.id === "claude" ? "Claude" : provider.label}
       </div>
       <div className="grid gap-1">
@@ -101,7 +101,7 @@ function ProviderUsageDetails({ summary }: { summary: ProviderUsageSummary }) {
         ))}
       </div>
       {provider.message ? (
-        <div className="max-w-full truncate text-[10px] leading-snug text-zinc-400">
+        <div className="max-w-full truncate text-[10px] leading-snug text-background/65">
           {provider.message}
         </div>
       ) : null}
@@ -119,11 +119,11 @@ function ProviderUsageBucketDetail({
   if (!bucket) {
     return (
       <div className="grid grid-cols-[5.5rem_1fr_2.25rem] items-center gap-2 text-[10px]">
-        <span className="truncate font-medium text-zinc-200">
+        <span className="truncate font-medium text-background">
           {provider.id === "claude" ? "Claude" : provider.label}
         </span>
-        <div className="h-1 overflow-hidden rounded-full bg-zinc-700" />
-        <span className="text-right tabular-nums text-zinc-400">
+        <div className="h-1 overflow-hidden rounded-full bg-background/25" />
+        <span className="text-right tabular-nums text-background/65">
           {statusLabel(provider.status)}
         </span>
       </div>
@@ -141,10 +141,10 @@ function ProviderUsageBucketDetail({
 
   return (
     <div className="grid grid-cols-[5.5rem_1fr_4rem] items-center gap-2 text-[10px]">
-      <span className="min-w-0 truncate font-medium text-zinc-200">
+      <span className="min-w-0 truncate font-medium text-background">
         {label}
       </span>
-      <div className="h-1 overflow-hidden rounded-full bg-zinc-700">
+      <div className="h-1 overflow-hidden rounded-full bg-background/25">
         <div
           className="h-full rounded-full"
           style={{
@@ -153,7 +153,7 @@ function ProviderUsageBucketDetail({
           }}
         />
       </div>
-      <span className="text-right tabular-nums text-zinc-400">
+      <span className="text-right tabular-nums text-background/65">
         {percent === null ? "n/a" : `${percent}%`}
         {reset ? ` ${reset}` : ""}
       </span>
