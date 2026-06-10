@@ -2966,6 +2966,29 @@ describe("ConversationSession", () => {
     expect(assistantMsg.durationMs).toBe(2500);
   });
 
+  it("persists fallback durationMs when result event omits duration", async () => {
+    const session = createSession({ sessionId: "duration-fallback" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Hi");
+    mockProc._stdout.push(assistantLine("Reply"));
+    mockProc._stdout.push(resultLine("s1"));
+    mockProc._emitClose(0);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const messagesPath = join(tempDir, "sessions", "duration-fallback", "messages.jsonl");
+    const raw = await readFile(messagesPath, "utf-8");
+    const lines = raw.split("\n").filter(Boolean);
+    expect(lines.length).toBe(2);
+    const assistantMsg = JSON.parse(lines[1]);
+    expect(assistantMsg.durationMs).toEqual(expect.any(Number));
+
+    const done = messages.find((msg) => msg.type === "done");
+    expect(done).toMatchObject({ type: "done", durationMs: expect.any(Number) });
+  });
+
   it("persists thinking content in assistant message", async () => {
     const session = createSession({ sessionId: "thinking-persist" });
 
