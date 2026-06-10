@@ -39,9 +39,9 @@ export function ImageTile({ src, alt, pending, noPreviewMessage, onOpenLightbox,
     }
   }, [src]);
 
-  const showImage = Boolean(src) && status === "loaded";
-  const showError = Boolean(src) && status === "error";
-  const decoding = Boolean(src) && status === "loading";
+  const showImage = Boolean(src) && !pending && status === "loaded";
+  const showError = Boolean(src) && !pending && status === "error";
+  const decoding = Boolean(src) && !pending && status === "loading";
   // Animated "generating" tile only for real pending generations; a decoding
   // real image gets a plain static box so it never looks like it's generating.
   const showPlaceholder = Boolean(pending) || decoding;
@@ -54,7 +54,7 @@ export function ImageTile({ src, alt, pending, noPreviewMessage, onOpenLightbox,
         loads and fires onLoad — a lazy + hidden image never intersects the
         viewport and would load forever. Placeholders sit on top until loaded.
       */}
-      {src && (
+      {src && !pending && (
         <img
           ref={imgRef}
           src={src}

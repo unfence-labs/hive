@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ImageIcon } from "lucide-react";
 import type { AgentActivity } from "@/types";
 import { resolveImageSrc } from "@/lib/image-url";
 import { ActivityShell, ActivityDetailChip } from "@/components/chat/ActivityShell";
@@ -89,11 +90,7 @@ export function ImageGenerationActivity({
   const src = imageGenerationSrc(activity);
   const alt = activity.revisedPrompt ?? "Generated image";
   const promptDetail = promptPreview(activity.revisedPrompt);
-  const detail = pending
-    ? <span className="text-muted-foreground/70">generating…</span>
-    : promptDetail
-      ? <ActivityDetailChip text={promptDetail} />
-      : undefined;
+  const detail = promptDetail ? <ActivityDetailChip text={promptDetail} /> : undefined;
   const imageTile = (
     <ImageTile
       src={src}
@@ -108,7 +105,9 @@ export function ImageGenerationActivity({
     <>
       <ActivityShell
         title="Proposed image"
+        icon={<ImageIcon className="size-3.5" />}
         detail={detail}
+        executing={pending}
         expandedContent={
           activity.revisedPrompt
             ? <p className="whitespace-pre-wrap text-muted-foreground">{activity.revisedPrompt}</p>

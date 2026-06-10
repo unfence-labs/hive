@@ -78,7 +78,8 @@ describe("ImageActivity", () => {
     }], true);
 
     expect(screen.getByText("Proposed image")).toBeInTheDocument();
-    expect(screen.getByText("generating…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Proposed image/ })).toHaveClass("animate-shimmer");
+    expect(screen.queryByText("generating…")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Generating image")).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
