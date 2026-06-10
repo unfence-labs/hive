@@ -1,4 +1,5 @@
 import { ServerMetrics } from "@/components/ServerMetrics";
+import { ProviderUsage } from "@/components/ProviderUsage";
 
 interface SidebarShellProps {
   children: React.ReactNode;
@@ -18,8 +19,8 @@ export function SidebarShell({ children, footerActions }: SidebarShellProps) {
 
       <div className="shrink-0 border-t border-border">
         {footerActions}
-        <div className="mx-2 border-t border-border" />
-        <div className="px-3 pb-2 pt-1.5">
+        <div className="grid gap-2 border-t border-border px-3 py-2">
+          <ProviderUsage />
           <ServerMetrics />
         </div>
       </div>

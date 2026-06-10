@@ -19,6 +19,8 @@ import { type SessionOptions, rebuildNotifier, stopAllSessions } from "./agents/
 import { GitSyncService } from "./services/git-sync.js";
 import { settingsRoutes } from "./api/settings.js";
 import { agentSettingsRoutes } from "./api/agents-settings.js";
+import { providerUsageRoutes } from "./api/provider-usage.js";
+import { stopProviderUsagePolling } from "./services/provider-usage.js";
 import { accountRoutes } from "./api/account.js";
 import { scriptRoutes } from "./api/scripts.js";
 import { scriptWsRoutes } from "./ws/script.js";
@@ -320,6 +322,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
   );
   await app.register((instance: FastifyInstance) => settingsRoutes(instance));
   await app.register((instance: FastifyInstance) => agentSettingsRoutes(instance));
+  await app.register((instance: FastifyInstance) => providerUsageRoutes(instance));
   await app.register((instance: FastifyInstance) => accountRoutes(instance));
   await app.register((instance: FastifyInstance) => scriptRoutes(instance));
   await app.register((instance: FastifyInstance) =>
@@ -399,6 +402,7 @@ async function main() {
   app.addHook("onClose", () => {
     gitSync.stop();
     scheduler.stop();
+    stopProviderUsagePolling();
   });
   gitSync.start(BRANCH_SYNC_INTERVAL_MS);
   await scheduler.start();
