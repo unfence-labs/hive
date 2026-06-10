@@ -3229,15 +3229,27 @@ describe("ConversationSession", () => {
   it("locks provider on first sendMessage based on model prefix", () => {
     const session = createSession({ sessionId: "lock-test" });
 
-    session.sendMessage("Hello", { model: "codex:gpt-5.3-codex" });
+    session.sendMessage("Hello", { model: "codex:gpt-5.3-codex", thinkingLevel: "low" });
     expect(session.metadata.lockedProvider).toBe("codex");
+    expect(session.metadata.lastRunOptions).toEqual({
+      model: "codex:gpt-5.3-codex",
+      planMode: false,
+      thinkingLevel: "low",
+      fastMode: false,
+    });
   });
 
   it("defaults to claude provider when model has no prefix", () => {
     const session = createSession({ sessionId: "lock-default" });
 
-    session.sendMessage("Hello", { model: "opus-4-7" });
+    session.sendMessage("Hello", { model: "opus-4-7", thinkingLevel: "low", fastMode: true });
     expect(session.metadata.lockedProvider).toBe("claude");
+    expect(session.metadata.lastRunOptions).toEqual({
+      model: "claude:opus-4-8",
+      planMode: false,
+      thinkingLevel: "low",
+      fastMode: true,
+    });
   });
 
   it("defaults to claude provider when no model specified", () => {
@@ -3310,6 +3322,12 @@ describe("ConversationSession", () => {
     const raw = await readFile(metaPath, "utf-8");
     const meta = JSON.parse(raw);
     expect(meta.lockedProvider).toBe("claude");
+    expect(meta.lastRunOptions).toEqual({
+      model: "claude:opus-4-8",
+      planMode: false,
+      thinkingLevel: "high",
+      fastMode: false,
+    });
   });
 
   // ── ExitPlanMode dismiss and reject responses ──────────────────────

@@ -16,19 +16,11 @@ final class ChatDraftStore {
 
     struct Draft {
         var text: String
-        var planModeEnabled: Bool
-        var thinkingLevel: ThinkingLevel
-        var fastModeEnabled: Bool
-        var selectedModelId: String?
         var attachments: [Attachment]
 
         var hasMeaningfulContent: Bool {
             !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !attachments.isEmpty
-                || planModeEnabled
-                || fastModeEnabled
-                || thinkingLevel != .high
-                || selectedModelId != nil
         }
     }
 

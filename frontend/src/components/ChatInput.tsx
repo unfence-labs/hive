@@ -35,6 +35,10 @@ interface ChatInputProps {
   wsId?: string;
   sessionId?: string;
   lockedProvider?: string;
+  /** Run options of the session's last sent message, used to seed the input
+   *  controls. Read once at mount — the parent remounts this component
+   *  (key={wsId:sessionId}) on session switch, so each session seeds cleanly. */
+  lastRunOptions?: MessageOptions;
   onSend: (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]) => boolean;
   onStop: () => void;
   disabled: boolean;
@@ -88,6 +92,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   wsId,
   sessionId,
   lockedProvider,
+  lastRunOptions,
   onSend,
   onStop,
   disabled,
@@ -100,9 +105,12 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   agentPlanMode,
 }, ref) {
   const [value, setValue] = useState("");
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(DEFAULT_THINKING_LEVEL);
-  const [planMode, setPlanMode] = useState(false);
-  const [fastMode, setFastMode] = useState(false);
+  // Seeded once at mount from the session's last run (see lastRunOptions prop).
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
+    () => lastRunOptions?.thinkingLevel ?? DEFAULT_THINKING_LEVEL,
+  );
+  const [planMode, setPlanMode] = useState(() => lastRunOptions?.planMode ?? false);
+  const [fastMode, setFastMode] = useState(() => lastRunOptions?.fastMode ?? false);
   const [fileCount, setFileCount] = useState(0);
   const [autocomplete, setAutocomplete] = useState<AutocompleteState | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -122,7 +130,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   const isInputDisabled = disabled || isDisconnected || hasQueuedMessage;
   const canSubmit = !isInputDisabled && (value.trim().length > 0 || fileCount > 0);
 
-  const { models, defaultModelId, selectedModelId, selectedModel, setSelectedModelId, capabilities } = useModels(lockedProvider);
+  const { models, selectedModelId, selectedModel, setSelectedModelId, capabilities } = useModels(lockedProvider, lastRunOptions?.model);
   const contextUsage = useContextUsage(messages, selectedModel);
   const completionProvider = lockedProvider ?? (selectedModelId ? selectedModelId.split(":")[0] : undefined);
 
@@ -147,18 +155,9 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
     wsId,
     sessionId,
     value,
-    planMode,
-    selectedModelId,
-    defaultModelId,
-    thinkingLevel,
-    fastMode,
     attachmentsRef,
     fileMentions,
     setValue,
-    setPlanMode,
-    setSelectedModelId,
-    setThinkingLevel,
-    setFastMode,
     setFileCount,
     setFileMentions,
   });

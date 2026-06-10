@@ -198,6 +198,8 @@ export interface SessionMetadata {
   messageCount: number;
   /** Provider ID locked on first message (e.g. "claude" or "codex"). */
   lockedProvider?: string;
+  /** Options from the last user message accepted for execution. */
+  lastRunOptions?: MessageOptions;
 }
 
 export interface ToolCall {

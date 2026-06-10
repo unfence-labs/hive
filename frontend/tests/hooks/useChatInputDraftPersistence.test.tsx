@@ -3,7 +3,7 @@ import { useRef, useState, type MutableRefObject, type RefObject } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileUIPart } from "ai";
 import type { AttachmentsContext } from "@/components/ai-elements/prompt-input";
-import type { FileMention, ThinkingLevel } from "@/types";
+import type { FileMention } from "@/types";
 import { useChatInputDraftPersistence } from "@/hooks/useChatInputDraftPersistence";
 
 type AttachmentFile = FileUIPart & { id: string };
@@ -42,12 +42,11 @@ function createAttachmentsContext(initialFiles: AttachmentFile[] = []): Attachme
   return context;
 }
 
+// The draft hook only owns text, files, and file mentions. Run options
+// (model, plan mode, thinking level, fast mode) are seeded from the session's
+// lastRunOptions in ChatInput, not persisted as drafts.
 function useDraftHarness({ wsId, sessionId }: { wsId?: string; sessionId?: string }) {
   const [value, setValue] = useState("");
-  const [planMode, setPlanMode] = useState(false);
-  const [selectedModelId, setSelectedModelId] = useState("");
-  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("high");
-  const [fastMode, setFastMode] = useState(false);
   const [fileCount, setFileCount] = useState(0);
   const [fileMentions, setFileMentions] = useState<FileMention[]>([]);
   const attachmentsRef = useRef<AttachmentsContext | null>(null);
@@ -66,35 +65,18 @@ function useDraftHarness({ wsId, sessionId }: { wsId?: string; sessionId?: strin
     wsId,
     sessionId,
     value,
-    planMode,
-    selectedModelId,
-    defaultModelId: "claude:opus-4-7",
-    thinkingLevel,
-    fastMode,
     attachmentsRef: attachmentsRef as MutableRefObject<AttachmentsContext | null>,
     fileMentions,
     setValue,
-    setPlanMode,
-    setSelectedModelId,
-    setThinkingLevel,
-    setFastMode,
     setFileCount,
     setFileMentions,
   });
 
   return {
     value,
-    planMode,
-    selectedModelId,
-    thinkingLevel,
-    fastMode,
     fileCount,
     fileMentions,
     setValue,
-    setPlanMode,
-    setSelectedModelId,
-    setThinkingLevel,
-    setFastMode,
     setFileMentions,
     setFiles,
     attachments: attachmentsRef.current,
@@ -125,7 +107,7 @@ afterEach(() => {
 });
 
 describe("useChatInputDraftPersistence", () => {
-  it("restores text, toggles, and files when returning to a session", () => {
+  it("restores text and files when returning to a session", () => {
     const wsId = nextId("ws");
     const sessionA = nextId("sess-a");
     const sessionB = nextId("sess-b");
@@ -139,21 +121,15 @@ describe("useChatInputDraftPersistence", () => {
 
     act(() => {
       result.current.setValue("draft A");
-      result.current.setThinkingLevel("low");
-      result.current.setPlanMode(true);
       result.current.setFiles([fileA]);
     });
 
     rerender({ currentSessionId: sessionB });
     expect(result.current.value).toBe("");
-    expect(result.current.thinkingLevel).toBe("high");
-    expect(result.current.planMode).toBe(false);
     expect(result.current.fileCount).toBe(0);
 
     rerender({ currentSessionId: sessionA });
     expect(result.current.value).toBe("draft A");
-    expect(result.current.thinkingLevel).toBe("low");
-    expect(result.current.planMode).toBe(true);
     expect(result.current.fileCount).toBe(1);
     expect(result.current.attachments?.files).toEqual([fileA]);
   });
@@ -183,7 +159,9 @@ describe("useChatInputDraftPersistence", () => {
     expect(result.current.value).toBe("workspace A draft");
   });
 
-  it("persists toggle-only drafts when plan mode is enabled", () => {
+  it("does not persist a toggle-only intent (no text/files/mentions)", () => {
+    // Run options are no longer drafted, so an empty input never persists,
+    // regardless of any control toggles the user flipped without typing.
     const wsId = nextId("ws");
     const sessionA = nextId("sess-a");
     const sessionB = nextId("sess-b");
@@ -194,62 +172,14 @@ describe("useChatInputDraftPersistence", () => {
       { initialProps: { currentSessionId: sessionA } },
     );
 
-    act(() => {
-      result.current.setPlanMode(true);
-    });
-
+    // No text typed.
     rerender({ currentSessionId: sessionB });
-    expect(result.current.planMode).toBe(false);
-
     rerender({ currentSessionId: sessionA });
-    expect(result.current.planMode).toBe(true);
+    expect(result.current.value).toBe("");
+    expect(result.current.fileCount).toBe(0);
   });
 
-  it("persists toggle-only drafts when thinking level differs from default", () => {
-    const wsId = nextId("ws");
-    const sessionA = nextId("sess-a");
-    const sessionB = nextId("sess-b");
-
-    const { result, rerender } = renderHook(
-      ({ currentSessionId }: { currentSessionId?: string }) =>
-        useDraftHarness({ wsId, sessionId: currentSessionId }),
-      { initialProps: { currentSessionId: sessionA } },
-    );
-
-    act(() => {
-      result.current.setThinkingLevel("low");
-    });
-
-    rerender({ currentSessionId: sessionB });
-    expect(result.current.thinkingLevel).toBe("high");
-
-    rerender({ currentSessionId: sessionA });
-    expect(result.current.thinkingLevel).toBe("low");
-  });
-
-  it("persists and restores fast mode per session", () => {
-    const wsId = nextId("ws");
-    const sessionA = nextId("sess-a");
-    const sessionB = nextId("sess-b");
-
-    const { result, rerender } = renderHook(
-      ({ currentSessionId }: { currentSessionId?: string }) =>
-        useDraftHarness({ wsId, sessionId: currentSessionId }),
-      { initialProps: { currentSessionId: sessionA } },
-    );
-
-    act(() => {
-      result.current.setFastMode(true);
-    });
-
-    rerender({ currentSessionId: sessionB });
-    expect(result.current.fastMode).toBe(false);
-
-    rerender({ currentSessionId: sessionA });
-    expect(result.current.fastMode).toBe(true);
-  });
-
-  it("deletes empty drafts after a switch when defaults are restored", () => {
+  it("deletes empty drafts after a switch", () => {
     const wsId = nextId("ws");
     const sessionA = nextId("sess-a");
     const sessionB = nextId("sess-b");
@@ -270,8 +200,6 @@ describe("useChatInputDraftPersistence", () => {
 
     act(() => {
       result.current.setValue("");
-      result.current.setThinkingLevel("high");
-      result.current.setPlanMode(false);
       result.current.setFiles([]);
     });
 

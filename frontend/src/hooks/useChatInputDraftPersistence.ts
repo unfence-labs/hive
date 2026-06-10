@@ -1,13 +1,9 @@
 import { useCallback, useEffect, useRef, type MutableRefObject, type Dispatch, type SetStateAction } from "react";
 import type { AttachmentsContext } from "@/components/ai-elements/prompt-input";
-import type { FileMention, ThinkingLevel } from "@/types";
+import type { FileMention } from "@/types";
 
 interface DraftState {
   value: string;
-  planMode: boolean;
-  selectedModelId: string;
-  thinkingLevel: ThinkingLevel;
-  fastMode: boolean;
   files: AttachmentsContext["files"];
   fileMentions: FileMention[];
 }
@@ -16,18 +12,9 @@ interface UseChatInputDraftPersistenceParams {
   wsId?: string;
   sessionId?: string;
   value: string;
-  planMode: boolean;
-  selectedModelId: string;
-  defaultModelId: string;
-  thinkingLevel: ThinkingLevel;
-  fastMode: boolean;
   attachmentsRef: MutableRefObject<AttachmentsContext | null>;
   fileMentions: FileMention[];
   setValue: (value: string) => void;
-  setPlanMode: (value: boolean) => void;
-  setSelectedModelId: (value: string) => void;
-  setThinkingLevel: (value: ThinkingLevel) => void;
-  setFastMode: (value: boolean) => void;
   setFileCount: (count: number) => void;
   setFileMentions: Dispatch<SetStateAction<FileMention[]>>;
 }
@@ -69,10 +56,7 @@ function hasPersistableDraft(draft: DraftState): boolean {
   return (
     draft.value.trim().length > 0 ||
     draft.files.length > 0 ||
-    draft.fileMentions.length > 0 ||
-    draft.planMode ||
-    draft.fastMode ||
-    draft.thinkingLevel !== "high"
+    draft.fileMentions.length > 0
   );
 }
 
@@ -102,18 +86,9 @@ export function useChatInputDraftPersistence({
   wsId,
   sessionId,
   value,
-  planMode,
-  selectedModelId,
-  defaultModelId,
-  thinkingLevel,
-  fastMode,
   attachmentsRef,
   fileMentions,
   setValue,
-  setPlanMode,
-  setSelectedModelId,
-  setThinkingLevel,
-  setFastMode,
   setFileCount,
   setFileMentions,
 }: UseChatInputDraftPersistenceParams) {
@@ -121,16 +96,6 @@ export function useChatInputDraftPersistence({
   const prevWsIdRef = useRef<string | undefined>(undefined);
   const valueRef = useRef(value);
   valueRef.current = value;
-  const planModeRef = useRef(planMode);
-  planModeRef.current = planMode;
-  const selectedModelIdRef = useRef(selectedModelId);
-  selectedModelIdRef.current = selectedModelId;
-  const thinkingLevelRef = useRef(thinkingLevel);
-  thinkingLevelRef.current = thinkingLevel;
-  const fastModeRef = useRef(fastMode);
-  fastModeRef.current = fastMode;
-  const defaultModelIdRef = useRef(defaultModelId);
-  defaultModelIdRef.current = defaultModelId;
   const fileMentionsRef = useRef(fileMentions);
   fileMentionsRef.current = fileMentions;
   const wsIdRef = useRef(wsId);
@@ -144,10 +109,6 @@ export function useChatInputDraftPersistence({
     const files = attachmentsRef.current?.files ?? [];
     upsertDraft(options?.targetWsId ?? wsIdRef.current, targetSessionId, {
       value: valueRef.current,
-      planMode: planModeRef.current,
-      selectedModelId: selectedModelIdRef.current,
-      thinkingLevel: thinkingLevelRef.current,
-      fastMode: fastModeRef.current,
       files: [...files],
       fileMentions: [...fileMentionsRef.current],
     }, options?.allowDelete ?? true);
@@ -175,19 +136,11 @@ export function useChatInputDraftPersistence({
       const draft = getWorkspaceDrafts(wsId).get(sessionId);
       if (draft) {
         setValue(draft.value);
-        setPlanMode(draft.planMode);
-        setSelectedModelId(draft.selectedModelId);
-        setThinkingLevel(draft.thinkingLevel);
-        setFastMode(draft.fastMode ?? false);
         attachmentsRef.current?.restore([...draft.files]);
         setFileCount(draft.files.length);
         setFileMentions(draft.fileMentions ?? []);
       } else {
         setValue("");
-        setPlanMode(false);
-        setThinkingLevel("high");
-        setFastMode(false);
-        if (defaultModelIdRef.current) setSelectedModelId(defaultModelIdRef.current);
         attachmentsRef.current?.restore([]);
         setFileCount(0);
         setFileMentions([]);
@@ -202,10 +155,6 @@ export function useChatInputDraftPersistence({
     saveDraftForSession,
     attachmentsRef,
     setValue,
-    setPlanMode,
-    setSelectedModelId,
-    setThinkingLevel,
-    setFastMode,
     setFileCount,
     setFileMentions,
   ]);

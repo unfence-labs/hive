@@ -41,6 +41,12 @@ struct ChatView: View {
     /// after the in-memory draft is gone (app relaunch). Mirrors the web's
     /// `useModels(lockedProvider)` seeding.
     private func initialModelId() -> String {
+        if let lastModelId = session.lastRunOptions?.model,
+           let match = modelCatalog.models.first(where: {
+               $0.id == lastModelId && (lockedProvider == nil || $0.provider == lockedProvider)
+           }) {
+            return match.id
+        }
         if let provider = lockedProvider {
             if let match = modelCatalog.models.first(where: { $0.provider == provider && $0.isDefault == true })
                 ?? modelCatalog.models.first(where: { $0.provider == provider }) {
@@ -48,6 +54,13 @@ struct ChatView: View {
             }
         }
         return modelCatalog.defaultModelId
+    }
+
+    private func applySessionRunOptions() {
+        selectedModelId = initialModelId()
+        planModeEnabled = session.lastRunOptions?.planMode ?? false
+        thinkingLevel = session.lastRunOptions?.thinkingLevel ?? .high
+        fastModeEnabled = session.lastRunOptions?.fastMode ?? false
     }
 
     private var selectedCapabilities: ProviderCapabilities? {
@@ -331,10 +344,6 @@ struct ChatView: View {
         let savedAttachments = draftAttachments
         let savedDraftState = ChatDraftStore.Draft(
             text: savedDraft,
-            planModeEnabled: planModeEnabled,
-            thinkingLevel: thinkingLevel,
-            fastModeEnabled: fastModeEnabled,
-            selectedModelId: selectedModelId.isEmpty ? nil : selectedModelId,
             attachments: savedAttachments.map(ChatDraftStore.Attachment.init)
         )
         draft = ""
@@ -433,10 +442,6 @@ struct ChatView: View {
             sessionId: session.sessionId,
             draft: .init(
                 text: draft,
-                planModeEnabled: planModeEnabled,
-                thinkingLevel: thinkingLevel,
-                fastModeEnabled: fastModeEnabled,
-                selectedModelId: selectedModelId.isEmpty ? nil : selectedModelId,
                 attachments: draftAttachments.map(ChatDraftStore.Attachment.init)
             )
         )
@@ -445,21 +450,12 @@ struct ChatView: View {
     private func restoreDraft(for sessionId: String) {
         if let saved = draftStore.restore(workspaceId: workspace.id, sessionId: sessionId) {
             draft = saved.text
-            planModeEnabled = saved.planModeEnabled
-            thinkingLevel = saved.thinkingLevel
-            fastModeEnabled = saved.fastModeEnabled
-            if let modelId = saved.selectedModelId {
-                selectedModelId = modelId
-            }
             draftAttachments = saved.attachments.map(ImageAttachment.init)
         } else {
             draft = ""
-            planModeEnabled = false
-            thinkingLevel = .high
-            fastModeEnabled = false
-            selectedModelId = initialModelId()
             draftAttachments = []
         }
+        applySessionRunOptions()
     }
 
     private static let bottomAnchorID = "chat-bottom-anchor"
