@@ -77,7 +77,7 @@ describe("ImageActivity", () => {
       status: "inProgress",
     }], true);
 
-    expect(screen.getByText("Generate image")).toBeInTheDocument();
+    expect(screen.getByText("Proposed image")).toBeInTheDocument();
     expect(screen.getByText("generating…")).toBeInTheDocument();
     expect(screen.getByLabelText("Generating image")).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
@@ -90,29 +90,34 @@ describe("ImageActivity", () => {
       status: "inProgress",
     }]);
 
-    expect(screen.getByText("Generate image")).toBeInTheDocument();
+    expect(screen.getByText("Proposed image")).toBeInTheDocument();
     expect(screen.queryByText("generating…")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Generating image")).not.toBeInTheDocument();
   });
 
   it("renders the generated image inline and exposes the revised prompt on expand", async () => {
     const user = userEvent.setup();
+    const prompt = "A hive logo in watercolor with clean hexagonal cells and a compact wordmark";
     renderActivities([{
       id: "gen-1",
       kind: "image_generation",
       status: "completed",
-      revisedPrompt: "A hive logo in watercolor",
+      revisedPrompt: prompt,
       savedPath: "/tmp/project/generated/logo.png",
       relativePath: "generated/logo.png",
       imageUrl: "/api/workspaces/ws-1/file/raw?path=generated%2Flogo.png",
     }]);
 
-    expect(screen.getByText("Generated image")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "A hive logo in watercolor" }))
+    expect(screen.getByText("A hive logo in watercolor with clean hexagonal cells and a compa..."))
+      .toBeInTheDocument();
+    const image = screen.getByRole("img", { name: prompt });
+    expect(image)
       .toHaveAttribute("src", expect.stringContaining("/api/workspaces/ws-1/file/raw"));
 
-    await user.click(screen.getByRole("button", { name: /Generate image/ }));
-    expect(screen.getByText("A hive logo in watercolor")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Proposed image/ }));
+    const description = screen.getByText(prompt);
+    expect(description).toBeInTheDocument();
+    expect(description.compareDocumentPosition(image) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("resolves a cached image without waiting for onLoad (old conversations)", () => {

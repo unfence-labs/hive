@@ -9,6 +9,7 @@ interface ActivityShellProps {
   detail?: ReactNode;
   trailingIcon?: ReactNode;
   expandedContent?: ReactNode;
+  belowContent?: ReactNode;
   defaultOpen?: boolean;
   executing?: boolean;
   /**
@@ -29,6 +30,7 @@ export function ActivityShell({
   detail,
   trailingIcon,
   expandedContent,
+  belowContent,
   defaultOpen = false,
   executing,
   leading,
@@ -65,6 +67,7 @@ export function ActivityShell({
           </ContentPanelBody>
         </ContentPanel>
       )}
+      {belowContent}
     </div>
   );
 }

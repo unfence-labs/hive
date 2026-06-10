@@ -11,6 +11,12 @@ function fileName(path: string): string {
   return path.split("/").pop() || path;
 }
 
+function promptPreview(prompt: string | undefined): string | undefined {
+  const normalized = prompt?.replace(/\s+/g, " ").trim();
+  if (!normalized) return undefined;
+  return normalized.length > 64 ? `${normalized.slice(0, 64)}...` : normalized;
+}
+
 /** Resolved browser src for a viewed image, or undefined when there's no preview. */
 function resolveImageViewSrc(activity: Extract<AgentActivity, { kind: "image_view" }>): string | undefined {
   return activity.imageUrl ? resolveImageSrc(activity.imageUrl) : undefined;
@@ -82,30 +88,33 @@ export function ImageGenerationActivity({
   const pending = isGenerationPending(activity, showExecutingState);
   const src = imageGenerationSrc(activity);
   const alt = activity.revisedPrompt ?? "Generated image";
+  const promptDetail = promptPreview(activity.revisedPrompt);
   const detail = pending
     ? <span className="text-muted-foreground/70">generating…</span>
-    : activity.savedPath
-      ? <ActivityDetailChip text="Generated image" />
+    : promptDetail
+      ? <ActivityDetailChip text={promptDetail} />
       : undefined;
+  const imageTile = (
+    <ImageTile
+      src={src}
+      alt={alt}
+      pending={pending}
+      className="mt-2 size-20 max-w-full"
+      onOpenLightbox={src ? () => setLightboxOpen(true) : undefined}
+    />
+  );
 
   return (
     <>
       <ActivityShell
-        title="Generate image"
+        title="Proposed image"
         detail={detail}
-        leading={
-          <ImageTile
-            src={src}
-            alt={alt}
-            pending={pending}
-            onOpenLightbox={src ? () => setLightboxOpen(true) : undefined}
-          />
-        }
         expandedContent={
           activity.revisedPrompt
             ? <p className="whitespace-pre-wrap text-muted-foreground">{activity.revisedPrompt}</p>
             : undefined
         }
+        belowContent={imageTile}
       />
       {src && <ImageLightbox src={src} alt={alt} open={lightboxOpen} onClose={() => setLightboxOpen(false)} />}
     </>
