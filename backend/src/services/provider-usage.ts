@@ -330,7 +330,7 @@ function parseClaudeUsageBucket(
   window: ClaudeUsageWindow | null,
 ): ProviderUsageBucket | null {
   if (!window) return null;
-  const usedPercent = normalizePercent(window.utilization);
+  const usedPercent = normalizeClaudePercent(window.utilization);
   if (usedPercent === null) return null;
   return {
     id,
@@ -376,6 +376,12 @@ function normalizePercent(value: unknown): number | null {
   if (num === null) return null;
   const percent = num <= 1 ? num * 100 : num;
   return Math.max(0, Math.min(100, Math.round(percent)));
+}
+
+function normalizeClaudePercent(value: unknown): number | null {
+  const num = asNumber(value);
+  if (num === null) return null;
+  return Math.max(0, Math.min(100, Math.round(num)));
 }
 
 function parseResetTimestamp(value: unknown): number | null {

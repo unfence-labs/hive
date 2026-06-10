@@ -59,8 +59,9 @@ describe("provider usage", () => {
 
   it("parses Claude OAuth usage windows", () => {
     expect(__providerUsageTestHooks.parseClaudeUsageBuckets({
-      five_hour: { utilization: 0.42, resets_at: "2026-06-10T17:00:00Z" },
+      five_hour: { utilization: 42, resets_at: "2026-06-10T17:00:00Z" },
       seven_day: { utilization: 61, resets_at: "2026-06-15T17:00:00Z" },
+      seven_day_sonnet: { utilization: 1, resets_at: "2026-06-15T17:00:00Z" },
       seven_day_opus: null,
       extra_usage: { utilization: null },
     })).toEqual([
@@ -78,13 +79,20 @@ describe("provider usage", () => {
         windowDurationMins: 10080,
         resetsAt: 1781542800,
       },
+      {
+        id: "seven_day_sonnet",
+        label: "7d Sonnet",
+        usedPercent: 1,
+        windowDurationMins: 10080,
+        resetsAt: 1781542800,
+      },
     ]);
   });
 
   it("reads Claude usage from the OAuth usage endpoint", async () => {
     mockFetchJson(200, {
-      five_hour: { utilization: 0.25, resets_at: "2026-06-10T17:00:00Z" },
-      seven_day_sonnet: { utilization: 0.04, resets_at: "2026-06-15T17:00:00Z" },
+      five_hour: { utilization: 25, resets_at: "2026-06-10T17:00:00Z" },
+      seven_day_sonnet: { utilization: 4, resets_at: "2026-06-15T17:00:00Z" },
     });
 
     const result = await getProviderUsageSnapshot();
