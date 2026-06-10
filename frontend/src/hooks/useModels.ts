@@ -20,34 +20,73 @@ const FALLBACK_CAPABILITIES: ProviderCapabilities = {
   goals: false,
 };
 
-export function useModels(lockedProvider?: string): UseModelsReturn {
-  const [models, setModels] = useState<ModelCatalogEntry[]>([]);
-  const [defaultModelId, setDefaultModelId] = useState("");
-  const [selectedModelId, setSelectedModelId] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
+// Module-level catalog cache. The model catalog is global and effectively
+// static for a session, so caching it lets ChatInput be remounted per session
+// (key={wsId:sessionId}) without re-fetching /api/models or flashing an empty
+// model selector — the states below seed synchronously from the cache.
+let catalogCache: ModelCatalogResponse | null = null;
+let catalogPromise: Promise<ModelCatalogResponse> | null = null;
 
-  // Track latest lockedProvider so the API callback reads the current value,
-  // not the one captured at mount time (which is often undefined).
+/** Test-only: clear the module-level catalog cache so cases stay isolated. */
+export function __resetModelCatalogCacheForTests(): void {
+  catalogCache = null;
+  catalogPromise = null;
+}
+
+function loadCatalog(): Promise<ModelCatalogResponse> {
+  if (!catalogPromise) {
+    catalogPromise = api.get<ModelCatalogResponse>("/api/models")
+      .then((data) => { catalogCache = data; return data; })
+      .catch((err) => { catalogPromise = null; throw err; });
+  }
+  return catalogPromise;
+}
+
+/** Pick the initial model: caller's preferred id (if valid for the locked
+ *  provider), else the locked provider's default, else the global default. */
+function seedModelId(
+  catalog: ModelCatalogResponse,
+  lockedProvider: string | undefined,
+  preferredModelId: string | undefined,
+): string {
+  if (preferredModelId) {
+    const match = catalog.models.find(
+      (m) => m.id === preferredModelId && (!lockedProvider || m.provider === lockedProvider),
+    );
+    if (match) return match.id;
+  }
+  if (lockedProvider) {
+    const providerDefault = catalog.models.find((m) => m.provider === lockedProvider && m.isDefault)
+      ?? catalog.models.find((m) => m.provider === lockedProvider);
+    if (providerDefault) return providerDefault.id;
+  }
+  return catalog.defaultModelId;
+}
+
+export function useModels(lockedProvider?: string, preferredModelId?: string): UseModelsReturn {
+  const [models, setModels] = useState<ModelCatalogEntry[]>(() => catalogCache?.models ?? []);
+  const [defaultModelId, setDefaultModelId] = useState(() => catalogCache?.defaultModelId ?? "");
+  const [selectedModelId, setSelectedModelId] = useState(() =>
+    catalogCache ? seedModelId(catalogCache, lockedProvider, preferredModelId) : "");
+  const [isLoading, setIsLoading] = useState(!catalogCache);
+
+  // Track latest values so the async seed reads current props, not the ones
+  // captured at mount time (lockedProvider is often undefined on first render).
   const lockedProviderRef = useRef(lockedProvider);
   lockedProviderRef.current = lockedProvider;
+  const preferredModelIdRef = useRef(preferredModelId);
+  preferredModelIdRef.current = preferredModelId;
 
   useEffect(() => {
+    if (catalogCache) return; // already seeded synchronously from cache
     let cancelled = false;
-    api.get<ModelCatalogResponse>("/api/models")
+    loadCatalog()
       .then((data) => {
         if (cancelled) return;
         setModels(data.models);
         setDefaultModelId(data.defaultModelId);
-        setSelectedModelId((prev) => {
-          if (prev) return prev;
-          const lp = lockedProviderRef.current;
-          if (lp) {
-            const providerDefault = data.models.find((m) => m.provider === lp && m.isDefault)
-              ?? data.models.find((m) => m.provider === lp);
-            if (providerDefault) return providerDefault.id;
-          }
-          return data.defaultModelId;
-        });
+        setSelectedModelId((prev) =>
+          prev || seedModelId(data, lockedProviderRef.current, preferredModelIdRef.current));
         setIsLoading(false);
       })
       .catch(() => {

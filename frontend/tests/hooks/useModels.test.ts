@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor, act } from "@testing-library/react";
-import { useModels } from "@/hooks/useModels";
+import { useModels, __resetModelCatalogCacheForTests } from "@/hooks/useModels";
 import { api } from "@/hooks/useApi";
 import type { ModelCatalogResponse } from "@/types";
 
@@ -44,6 +44,7 @@ const MOCK_CATALOG: ModelCatalogResponse = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetModelCatalogCacheForTests();
 });
 
 afterEach(() => {
@@ -207,5 +208,46 @@ describe("useModels", () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
+  });
+
+  it("seeds preferredModelId when it exists in the catalog", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    const { result } = renderHook(() => useModels(undefined, "claude:sonnet-4-6"));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.selectedModelId).toBe("claude:sonnet-4-6");
+  });
+
+  it("ignores preferredModelId that conflicts with lockedProvider", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    // Prefer a claude model but the session is locked to codex.
+    const { result } = renderHook(() => useModels("codex", "claude:sonnet-4-6"));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
+  });
+
+  it("falls back to default when preferredModelId is not in the catalog", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    const { result } = renderHook(() => useModels(undefined, "claude:removed-model"));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.selectedModelId).toBe("codex:gpt-5.5");
+  });
+
+  it("seeds synchronously from the cache on a remount (no second fetch)", async () => {
+    mockApi.get.mockResolvedValue(MOCK_CATALOG);
+    const first = renderHook(() => useModels());
+    await waitFor(() => expect(first.result.current.isLoading).toBe(false));
+    expect(mockApi.get).toHaveBeenCalledTimes(1);
+
+    // Simulate a fresh mount (e.g. ChatInput remounted on session switch).
+    const second = renderHook(() => useModels(undefined, "claude:sonnet-4-6"));
+    expect(second.result.current.isLoading).toBe(false);
+    expect(second.result.current.selectedModelId).toBe("claude:sonnet-4-6");
+    expect(mockApi.get).toHaveBeenCalledTimes(1); // still cached
   });
 });

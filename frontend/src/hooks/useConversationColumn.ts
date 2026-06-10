@@ -69,6 +69,9 @@ export interface ConversationColumn
   deleteSession: (sessionId: string) => Promise<boolean>;
   refreshSessions: () => void;
   effectiveLockedProvider: string | undefined;
+  activeSession: SessionMetadata | undefined;
+  /** True while the sessions list is still loading (no cached data yet). */
+  sessionsLoading: boolean;
 
   // Tasks + background agents
   tasks: TasksState["tasks"];
@@ -109,13 +112,14 @@ export function useConversationColumn(
     switchSession,
   } = conversation;
 
-  const { sessions, createSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
+  const { sessions, loading: sessionsLoading, createSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
 
   // Mirror iOS: fall back to session metadata when WS hasn't delivered
   // lockedProvider yet.
+  const activeSession = sessions.find((s) => s.sessionId === sessionId);
   const effectiveLockedProvider =
     conversation.lockedProvider ??
-    sessions.find((s) => s.sessionId === sessionId)?.lockedProvider;
+    activeSession?.lockedProvider;
 
   const tabs = useTabs(sessionId, wsId);
   const { activateTab } = tabs;
@@ -224,6 +228,8 @@ export function useConversationColumn(
     deleteSession,
     refreshSessions,
     effectiveLockedProvider,
+    activeSession,
+    sessionsLoading,
     // Tasks + background agents
     tasks,
     currentTask,

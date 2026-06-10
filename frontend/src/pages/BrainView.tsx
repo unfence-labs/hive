@@ -166,6 +166,8 @@ export default function BrainView() {
     // Sessions
     sessions,
     effectiveLockedProvider,
+    activeSession,
+    sessionsLoading,
     // Tasks + background agents
     tasks,
     currentTask,
@@ -408,11 +410,17 @@ export default function BrainView() {
               onBatchAnswerQuestions={batchAnswerQuestions}
               onDismissQuestion={() => rejectToolInput("[question_dismissed]")}
               chatInput={
+                // Mount only once sessions have settled so lastRunOptions can
+                // seed the controls; key by session so each switch remounts and
+                // re-seeds cleanly (no syncing effect).
+                sessionsLoading ? null : (
                 <ChatInput
+                  key={`${BRAIN_WORKSPACE_ID}:${sessionId ?? "new"}`}
                   ref={chatInputRef}
                   wsId={BRAIN_WORKSPACE_ID}
                   sessionId={sessionId}
                   lockedProvider={effectiveLockedProvider}
+                  lastRunOptions={activeSession?.lastRunOptions}
                   onSend={handleSend}
                   onStop={stopStreaming}
                   disabled={false}
@@ -426,6 +434,7 @@ export default function BrainView() {
                   }}
                   agentPlanMode={agentPlanMode}
                 />
+                )
               }
             />
             {isFileTabActive && openFile && (

@@ -202,6 +202,35 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     };
   }
 
+  private normalizeRunOptions(
+    msgOptions: MessageOptions | undefined,
+    resolved: { provider: AgentProvider; modelId: string },
+  ): MessageOptions {
+    const { provider, modelId } = resolved;
+    const model = provider.models.find((m) => m.id === modelId)
+      ?? provider.models.find((m) => m.isDefault)
+      ?? provider.models[0];
+    const thinkingLevels = provider.capabilities.thinkingLevels;
+    const thinkingLevel = thinkingLevels.length > 0
+      ? (msgOptions?.thinkingLevel && thinkingLevels.includes(msgOptions.thinkingLevel)
+          ? msgOptions.thinkingLevel
+          : (thinkingLevels.includes("high") ? "high" : thinkingLevels[0]))
+      : undefined;
+
+    return {
+      model: `${provider.id}:${model?.id ?? modelId}`,
+      planMode: provider.capabilities.planMode ? msgOptions?.planMode === true : false,
+      ...(thinkingLevel ? { thinkingLevel } : {}),
+      fastMode: !!msgOptions?.fastMode && !!model?.supportsFastMode,
+    };
+  }
+
+  private enqueueMetadataPersist(): void {
+    this.persistQueue = this.persistQueue
+      .then(() => this.saveMetadata())
+      .catch((err) => console.error("[session] Persist metadata failed:", err));
+  }
+
   /** Load a session from disk. Returns the session in idle state with history available. */
   static async load(config: ConversationSessionConfig): Promise<ConversationSession> {
     const session = new ConversationSession(config);
@@ -262,6 +291,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       } else if (this._metadata.lockedProvider !== resolved.provider.id) {
         throw new Error(`Provider mismatch: session locked to "${this._metadata.lockedProvider}"`);
       }
+      this._metadata.lastRunOptions = this.normalizeRunOptions(msgOptions, resolved);
+      this._metadata.updatedAt = new Date().toISOString();
+      this.enqueueMetadataPersist();
     }
 
     this._status = "streaming";
@@ -948,9 +980,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     this._metadata.messageCount = this.messageCount;
     this._metadata.updatedAt = new Date().toISOString();
-    this.persistQueue = this.persistQueue
-      .then(() => this.saveMetadata())
-      .catch((err) => console.error("[session] Persist metadata failed:", err));
+    this.enqueueMetadataPersist();
 
     const unansweredBlockingTools = killedForBlockingTool
       ? this._streamToolCalls.filter((tc) => blockingToolNames.has(tc.name))
@@ -1081,9 +1111,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   setTitle(title: string): void {
     this._metadata.title = title;
     this._metadata.updatedAt = new Date().toISOString();
-    this.persistQueue = this.persistQueue
-      .then(() => this.saveMetadata())
-      .catch((err) => console.error("[session] Persist metadata failed:", err));
+    this.enqueueMetadataPersist();
   }
 
   private async appendMessage(msg: ChatMessage): Promise<void> {

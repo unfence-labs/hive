@@ -194,32 +194,39 @@ describe("ChatInput draft persistence", () => {
     expect(inputValue()).toBe("draft from ws-a");
   });
 
-  it("persists thinking/plan toggles per session", async () => {
+  // Run options (plan/thinking/fast/model) are no longer drafted; they are
+  // seeded once at mount from the session's lastRunOptions. The parent remounts
+  // ChatInput per session (key={wsId:sessionId}), so each session seeds cleanly.
+  it("seeds plan mode and thinking level from lastRunOptions at mount", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn(() => true);
-    const { a: sessionA, b: sessionB } = makeSessionIds();
-    const { rerender } = renderChatInput(sessionA, undefined, onSend);
+    render(
+      <ChatInput
+        {...chatInputProps({ sessionId: nextId("sess"), onSend })}
+        lastRunOptions={{ planMode: true, thinkingLevel: "xhigh", fastMode: false }}
+      />,
+    );
 
-    // Default "high" + one click -> "xhigh"
-    await user.click(screen.getByRole("button", { name: /^Thinking:/ }));
-    await user.click(screen.getByRole("button", { name: "Toggle plan mode" }));
-
-    rerenderChatInput(rerender, { sessionId: sessionB, onSend });
-    await user.type(getInput(), "session b");
+    await user.type(getInput(), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(onSend).toHaveBeenLastCalledWith("session b", undefined, {
-      planMode: false,
-      thinkingLevel: "high",
-    }, undefined);
-
-    rerenderChatInput(rerender, { sessionId: sessionA, onSend });
-    await user.type(getInput(), "session a");
-    await user.click(screen.getByRole("button", { name: "Send" }));
-
-    expect(onSend).toHaveBeenLastCalledWith("session a", undefined, {
+    expect(onSend).toHaveBeenLastCalledWith("hello", undefined, {
       planMode: true,
       thinkingLevel: "xhigh",
+    }, undefined);
+  });
+
+  it("seeds defaults when the session has no lastRunOptions", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn(() => true);
+    render(<ChatInput {...chatInputProps({ sessionId: nextId("sess"), onSend })} />);
+
+    await user.type(getInput(), "hi");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(onSend).toHaveBeenLastCalledWith("hi", undefined, {
+      planMode: false,
+      thinkingLevel: "high",
     }, undefined);
   });
 

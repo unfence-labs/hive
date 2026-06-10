@@ -236,6 +236,8 @@ export default function WorkspaceView() {
     createSession,
     refreshSessions,
     effectiveLockedProvider,
+    activeSession,
+    sessionsLoading,
     // Tasks + background agents
     tasks,
     currentTask,
@@ -630,11 +632,17 @@ export default function WorkspaceView() {
               ) : undefined
             }
             chatInput={
+              // Mount only once the sessions list has settled so lastRunOptions
+              // is available to seed the controls; key by session so each
+              // switch remounts and re-seeds cleanly (no syncing effect).
+              sessionsLoading ? null : (
               <ChatInput
+                key={`${wsId}:${sessionId ?? "new"}`}
                 ref={chatInputRef}
                 wsId={wsId}
                 sessionId={sessionId}
                 lockedProvider={effectiveLockedProvider}
+                lastRunOptions={activeSession?.lastRunOptions}
                 onSend={handleSend}
                 onStop={stopStreaming}
                 disabled={false}
@@ -646,6 +654,7 @@ export default function WorkspaceView() {
                 onQueue={(msg) => { setQueuedMessage(msg); bumpScrollToBottom(); }}
                 agentPlanMode={agentPlanMode}
               />
+              )
             }
           />
           {isFileTabActive && openFile && wsId && (

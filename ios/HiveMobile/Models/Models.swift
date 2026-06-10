@@ -177,8 +177,33 @@ struct SessionMetadata: Codable, Hashable, Identifiable {
     let updatedAt: String
     let messageCount: Int
     let lockedProvider: String?
+    let lastRunOptions: MessageOptions?
 
     var id: String { sessionId }
+
+    init(
+        sessionId: String,
+        providerSessionId: String?,
+        claudeSessionId: String?,
+        workspaceId: String,
+        title: String?,
+        createdAt: String,
+        updatedAt: String,
+        messageCount: Int,
+        lockedProvider: String?,
+        lastRunOptions: MessageOptions? = nil
+    ) {
+        self.sessionId = sessionId
+        self.providerSessionId = providerSessionId
+        self.claudeSessionId = claudeSessionId
+        self.workspaceId = workspaceId
+        self.title = title
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.messageCount = messageCount
+        self.lockedProvider = lockedProvider
+        self.lastRunOptions = lastRunOptions
+    }
 }
 
 struct ImageAttachment: Codable, Equatable {
@@ -440,7 +465,7 @@ enum ThinkingLevel: String, Codable, CaseIterable {
     }
 }
 
-struct MessageOptions: Codable {
+struct MessageOptions: Codable, Hashable {
     let planMode: Bool?
     let model: String?
     let thinkingLevel: ThinkingLevel?

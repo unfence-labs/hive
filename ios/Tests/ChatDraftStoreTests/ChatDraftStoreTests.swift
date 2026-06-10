@@ -19,17 +19,12 @@ struct ChatDraftStoreTests {
             sessionId: sessionId,
             draft: .init(
                 text: "hello",
-                planModeEnabled: true,
-                thinkingLevel: .low,
-                selectedModelId: nil,
                 attachments: [attachment]
             )
         )
 
         let restored = ChatDraftStore.shared.restore(workspaceId: workspaceId, sessionId: sessionId)
         #expect(restored?.text == "hello")
-        #expect(restored?.thinkingLevel == .low)
-        #expect(restored?.planModeEnabled == true)
         #expect(restored?.attachments == [attachment])
 
         ChatDraftStore.shared.remove(workspaceId: workspaceId, sessionId: sessionId)
@@ -45,9 +40,6 @@ struct ChatDraftStoreTests {
             sessionId: sessionId,
             draft: .init(
                 text: "   ",
-                planModeEnabled: false,
-                thinkingLevel: .high,
-                selectedModelId: nil,
                 attachments: []
             )
         )
@@ -65,9 +57,6 @@ struct ChatDraftStoreTests {
             sessionId: sessionId,
             draft: .init(
                 text: "persist me",
-                planModeEnabled: false,
-                thinkingLevel: .high,
-                selectedModelId: nil,
                 attachments: []
             )
         )

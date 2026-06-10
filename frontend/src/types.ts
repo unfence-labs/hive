@@ -210,6 +210,8 @@ export interface SessionMetadata {
   updatedAt: string;
   messageCount: number;
   lockedProvider?: string;
+  /** Options from the last user message accepted for execution. */
+  lastRunOptions?: MessageOptions;
 }
 
 export interface ToolCall {
