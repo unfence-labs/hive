@@ -909,6 +909,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     const cancellationErrorDetail = shouldSurfaceCancelled
       ? buildCancellationErrorDetail(exitCode, lastStderr)
       : undefined;
+    const effectiveDurationMs = resultDurationMs
+      ?? (capturedStreamingStart ? Date.now() - capturedStreamingStart : undefined);
 
     this._status = (exitCode === 0 || killedForBlockingTool) ? "idle" : "error";
     this._streamingStartedAt = null;
@@ -935,7 +937,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         timestamp: new Date().toISOString(),
         cancelled: shouldSurfaceCancelled || undefined,
         errorDetail: cancellationErrorDetail,
-        durationMs: resultDurationMs,
+        durationMs: effectiveDurationMs,
         inputTokens: resultInputTokens,
         outputTokens: resultOutputTokens,
         contextUsedTokens: resultContextUsedTokens,
@@ -964,14 +966,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       try {
         await this.persistQueue;
         if (shouldSurfaceCancelled) {
-          const cancelDurationMs = resultDurationMs
-            ?? (capturedStreamingStart ? Date.now() - capturedStreamingStart : undefined);
           this.emit("message", {
             type: "cancelled",
             sessionId: this.sessionId,
             errorDetail: cancellationErrorDetail,
             userInitiated: capturedStopReason === "user",
-            durationMs: cancelDurationMs,
+            durationMs: effectiveDurationMs,
           });
         } else if (failureDetail) {
           this.emit("message", {
@@ -983,7 +983,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           this.emit("message", {
             type: "done",
             sessionId: this.sessionId,
-            durationMs: resultDurationMs,
+            durationMs: effectiveDurationMs,
             inputTokens: resultInputTokens,
             outputTokens: resultOutputTokens,
             contextUsedTokens: resultContextUsedTokens,
