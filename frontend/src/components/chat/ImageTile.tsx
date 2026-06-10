@@ -1,8 +1,10 @@
 import { ImageOffIcon } from "lucide-react";
+import { useState } from "react";
 import { useImageLoadStatus } from "@/hooks/useImageLoadStatus";
 import { cn } from "@/lib/utils";
+import { ImageLightbox } from "@/components/chat/ImageLightbox";
 
-interface ImageTileProps {
+export interface ImageTileProps {
   /** Resolved, browser-loadable src. undefined => nothing to load. */
   src?: string;
   alt: string;
@@ -79,5 +81,26 @@ export function ImageTile({ src, alt, pending, noPreviewMessage, onOpenLightbox,
         />
       )}
     </div>
+  );
+}
+
+interface ImageTileWithLightboxProps extends Omit<ImageTileProps, "onOpenLightbox"> {
+  src?: string;
+  alt: string;
+}
+
+export function ImageTileWithLightbox({ src, alt, ...tileProps }: ImageTileWithLightboxProps) {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+
+  return (
+    <>
+      <ImageTile
+        {...tileProps}
+        src={src}
+        alt={alt}
+        onOpenLightbox={src ? () => setLightboxOpen(true) : undefined}
+      />
+      {src && <ImageLightbox src={src} alt={alt} open={lightboxOpen} onClose={() => setLightboxOpen(false)} />}
+    </>
   );
 }

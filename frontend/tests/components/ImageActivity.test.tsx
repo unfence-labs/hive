@@ -121,6 +121,27 @@ describe("ImageActivity", () => {
     expect(description.compareDocumentPosition(image) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("opens a generated image lightbox when the generated tile is clicked", async () => {
+    const user = userEvent.setup();
+    const prompt = "A precise dashboard preview with compact charts";
+    renderActivities([{
+      id: "gen-1",
+      kind: "image_generation",
+      status: "completed",
+      revisedPrompt: prompt,
+      savedPath: "/tmp/project/generated/dashboard.png",
+      relativePath: "generated/dashboard.png",
+      imageUrl: "/api/workspaces/ws-1/file/raw?path=generated%2Fdashboard.png",
+    }]);
+
+    const image = screen.getByRole("img", { name: prompt });
+    fireEvent.load(image);
+    await user.click(screen.getByRole("button", { name: "Open image" }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("img", { name: prompt })).toBeInTheDocument();
+  });
+
   it("resolves a cached image without waiting for onLoad (old conversations)", () => {
     // A cached image is already `complete` on mount and never fires onLoad.
     const completeSpy = vi.spyOn(window.HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);

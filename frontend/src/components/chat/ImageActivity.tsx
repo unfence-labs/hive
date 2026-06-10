@@ -1,10 +1,8 @@
-import { useState } from "react";
 import { ImageIcon } from "lucide-react";
 import type { AgentActivity } from "@/types";
 import { resolveImageSrc } from "@/lib/image-url";
 import { ActivityShell, ActivityDetailChip } from "@/components/chat/ActivityShell";
-import { ImageTile } from "@/components/chat/ImageTile";
-import { ImageLightbox } from "@/components/chat/ImageLightbox";
+import { ImageTileWithLightbox } from "@/components/chat/ImageTile";
 
 const OUTSIDE_WORKSPACE_MESSAGE = "Image is outside the workspace and cannot be previewed.";
 
@@ -49,7 +47,6 @@ function isGenerationPending(
 }
 
 export function ImageViewActivity({ activity }: { activity: Extract<AgentActivity, { kind: "image_view" }> }) {
-  const [lightboxOpen, setLightboxOpen] = useState(false);
   const name = fileName(activity.path);
   const src = resolveImageViewSrc(activity);
   const expandedContent = activity.outsideWorkspace
@@ -59,22 +56,18 @@ export function ImageViewActivity({ activity }: { activity: Extract<AgentActivit
       : activity.path;
 
   return (
-    <>
-      <ActivityShell
-        title="View image"
-        detail={<ActivityDetailChip text={name} />}
-        leading={
-          <ImageTile
-            src={src}
-            alt={name}
-            noPreviewMessage={activity.outsideWorkspace ? OUTSIDE_WORKSPACE_MESSAGE : undefined}
-            onOpenLightbox={src ? () => setLightboxOpen(true) : undefined}
-          />
-        }
-        expandedContent={expandedContent}
-      />
-      {src && <ImageLightbox src={src} alt={name} open={lightboxOpen} onClose={() => setLightboxOpen(false)} />}
-    </>
+    <ActivityShell
+      title="View image"
+      detail={<ActivityDetailChip text={name} />}
+      leading={
+        <ImageTileWithLightbox
+          src={src}
+          alt={name}
+          noPreviewMessage={activity.outsideWorkspace ? OUTSIDE_WORKSPACE_MESSAGE : undefined}
+        />
+      }
+      expandedContent={expandedContent}
+    />
   );
 }
 
@@ -85,37 +78,32 @@ export function ImageGenerationActivity({
   activity: Extract<AgentActivity, { kind: "image_generation" }>;
   showExecutingState?: boolean;
 }) {
-  const [lightboxOpen, setLightboxOpen] = useState(false);
   const pending = isGenerationPending(activity, showExecutingState);
   const src = imageGenerationSrc(activity);
   const alt = activity.revisedPrompt ?? "Generated image";
   const promptDetail = promptPreview(activity.revisedPrompt);
   const detail = promptDetail ? <ActivityDetailChip text={promptDetail} /> : undefined;
   const imageTile = (
-    <ImageTile
+    <ImageTileWithLightbox
       src={src}
       alt={alt}
       pending={pending}
       className="mt-2 size-20 max-w-full"
-      onOpenLightbox={src ? () => setLightboxOpen(true) : undefined}
     />
   );
 
   return (
-    <>
-      <ActivityShell
-        title="Proposed image"
-        icon={<ImageIcon className="size-3.5" />}
-        detail={detail}
-        executing={pending}
-        expandedContent={
-          activity.revisedPrompt
-            ? <p className="whitespace-pre-wrap text-muted-foreground">{activity.revisedPrompt}</p>
-            : undefined
-        }
-        belowContent={imageTile}
-      />
-      {src && <ImageLightbox src={src} alt={alt} open={lightboxOpen} onClose={() => setLightboxOpen(false)} />}
-    </>
+    <ActivityShell
+      title="Proposed image"
+      icon={<ImageIcon className="size-3.5" />}
+      detail={detail}
+      executing={pending}
+      expandedContent={
+        activity.revisedPrompt
+          ? <p className="whitespace-pre-wrap text-muted-foreground">{activity.revisedPrompt}</p>
+          : undefined
+      }
+      belowContent={imageTile}
+    />
   );
 }
