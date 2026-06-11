@@ -1057,6 +1057,29 @@ describe("ConversationSession", () => {
     expect(session.metadata.providerSessionId).toBe("thread-goal-1");
   });
 
+  it("rejects overlong Codex /goal objectives before creating a thread", async () => {
+    const session = createSession({ sessionId: "goal-command-overlong-session" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage(`/goal ${"a".repeat(4001)}`, { model: "codex:gpt-5.5" });
+
+    const errors = await waitForMessages(messages, "error");
+    expect(errors).toEqual([
+      {
+        type: "error",
+        sessionId: "goal-command-overlong-session",
+        message: "Codex goal objective must be 4,000 characters or fewer.",
+      },
+    ]);
+    expect(countStdinMethod(mockProc, "thread/start")).toBe(0);
+    expect(countStdinMethod(mockProc, "thread/resume")).toBe(0);
+    expect(countStdinMethod(mockProc, "thread/goal/set")).toBe(0);
+    expect(session.metadata.providerSessionId).toBeUndefined();
+    const userMessage = (await session.getMessages()).find((msg) => msg.role === "user");
+    expect(userMessage?.goalCommand).toBe(true);
+  });
+
   it("emits a single terminal event when stopped during a pending /goal request", async () => {
     const session = createSession({ sessionId: "goal-stop-command-session" });
     const messages: WsOutgoing[] = [];

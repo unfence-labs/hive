@@ -46,6 +46,7 @@ function formatNormalizedExitCode(exitCode: number | undefined): string {
 
 /** Cap for the per-session finalized-turn dedup Set to avoid unbounded growth. */
 const MAX_FINALIZED_TURN_IDS = 256;
+const CODEX_GOAL_OBJECTIVE_MAX_LENGTH = 4000;
 
 /**
  * Cap for copying a Codex-generated image into session attachments. Generated
@@ -711,6 +712,16 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     msgOptions: MessageOptions | undefined,
     resolved: { provider: AgentProvider; modelId: string },
   ): void {
+    if (command.type === "set" && command.objective.length > CODEX_GOAL_OBJECTIVE_MAX_LENGTH) {
+      this.finalizeTurn({
+        exitCode: 1,
+        killedForBlockingTool: false,
+        failureDetail: `Codex goal objective must be ${CODEX_GOAL_OBJECTIVE_MAX_LENGTH.toLocaleString("en-US")} characters or fewer.`,
+        blockingToolNames: new Set(),
+      });
+      return;
+    }
+
     if (goalCommandRequiresExistingThread(command) && !this.cliSessionId) {
       this.finalizeTurn({
         exitCode: 1,
