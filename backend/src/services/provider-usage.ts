@@ -13,6 +13,7 @@ import {
 import { buildWorkspaceEnv } from "../utils/env.js";
 
 type UsageStatus = "available" | "unavailable" | "unknown" | "error";
+type UsagePercentScale = "percent" | "fraction";
 
 export interface ProviderUsageBucket {
   id: string;
@@ -42,6 +43,8 @@ export interface ProviderUsageResponse {
 interface CodexRateLimitWindow {
   usedPercent?: unknown;
   usagePercent?: unknown;
+  usedFraction?: unknown;
+  usageFraction?: unknown;
   windowDurationMins?: unknown;
   resetsAt?: unknown;
   resetAt?: unknown;
@@ -371,25 +374,30 @@ function parseCodexRateLimitBucket(bucket: CodexRateLimitBucket | null): Provide
 
 function normalizeCodexPercent(window: CodexRateLimitWindow): number | null {
   if (window.usedPercent !== undefined) {
-    return normalizeWholePercent(window.usedPercent);
+    return normalizeUsagePercent(window.usedPercent, "percent");
   }
-  return normalizeFractionOrPercent(window.usagePercent);
-}
-
-function normalizeWholePercent(value: unknown): number | null {
-  const num = asNumber(value);
-  if (num === null) return null;
-  return Math.max(0, Math.min(100, Math.round(num)));
-}
-
-function normalizeFractionOrPercent(value: unknown): number | null {
-  const num = asNumber(value);
-  if (num === null) return null;
-  return normalizeWholePercent(num <= 1 ? num * 100 : num);
+  if (window.usagePercent !== undefined) {
+    return normalizeUsagePercent(window.usagePercent, "percent");
+  }
+  return normalizeUsagePercent(window.usedFraction ?? window.usageFraction, "fraction");
 }
 
 function normalizeClaudePercent(value: unknown): number | null {
-  return normalizeWholePercent(value);
+  return normalizeUsagePercent(value, "percent");
+}
+
+function normalizeUsagePercent(value: unknown, scale: UsagePercentScale): number | null {
+  const num = asNumber(value);
+  if (num === null) return null;
+  return normalizePercentNumber(scale === "fraction" ? num * 100 : num);
+}
+
+function normalizePercentNumber(value: number): number {
+  const clamped = Math.max(0, Math.min(100, value));
+  if (clamped > 0 && clamped < 10) {
+    return Math.round(clamped * 10) / 10;
+  }
+  return Math.round(clamped);
 }
 
 function parseResetTimestamp(value: unknown): number | null {
