@@ -240,23 +240,49 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
 
   interruptActiveTurn(): void {
     if (!this.threadId || !this.activeTurnId) return;
-    void this.request("turn/interrupt", {
-      threadId: this.threadId,
-      turnId: this.activeTurnId,
-    }).catch((err) => this.emit("error", err));
+    const threadId = this.threadId;
+    const turnId = this.activeTurnId;
+    void this.request("turn/interrupt", { threadId, turnId }).catch(() => {
+      // Codex rejects interrupts for turns it no longer tracks (e.g. a missed
+      // turn/completed left a stale active turn id). The user asked to stop:
+      // treat the turn as over so the session finalizes instead of staying
+      // "running" forever with a turn Codex already forgot.
+      if (this.activeTurnId !== turnId || this.threadId !== threadId) return;
+      this.activeTurnId = undefined;
+      addBounded(this.completedTurnIds, turnId, MAX_TRACKED_TURN_IDS);
+      this.emitInterruptedResult(turnId);
+    });
   }
 
   close(): void {
-    const hadActiveTurn = Boolean(this.activeTurnId);
+    const interruptedTurnId = this.activeTurnId;
     const rpc = this.rpc;
     this.rpc = null;
     this.initialized = null;
     this.activeTurnId = undefined;
     this.threadId = undefined;
     rpc?.close(new Error("Codex app-server closed"));
-    if (hadActiveTurn) {
-      queueMicrotask(() => this.emit("error", new Error("Codex app-server closed")));
+    if (interruptedTurnId) {
+      // Closing with a live turn is a cancellation, not an error: emit a
+      // terminal result so the conversation layer always finalizes. (This used
+      // to emit "error", which crashed the process as an unhandled EventEmitter
+      // error when no WS client was subscribed to the session.)
+      addBounded(this.completedTurnIds, interruptedTurnId, MAX_TRACKED_TURN_IDS);
+      queueMicrotask(() => this.emitInterruptedResult(interruptedTurnId));
     }
+  }
+
+  /** Emit a terminal interrupted result for a turn that will never complete normally.
+   *  Deliberately carries no session/thread id: a synthetic termination must not
+   *  persist provider continuity (e.g. a force-closed thread should not be resumed). */
+  private emitInterruptedResult(turnId: string): void {
+    this.emit("result", {
+      type: "result",
+      session_id: "",
+      status: "interrupted",
+      turn_id: turnId,
+      usage: usageFromTokenUsage(this.lastUsage),
+    });
   }
 
   private async ensureInitialized(env: Record<string, string> | undefined): Promise<void> {
@@ -815,7 +841,12 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     const turnId = asString(turn?.id);
     if (turnId && this.completedTurnIds.has(turnId)) return;
     const activeTurnId = this.activeTurnId;
-    if (turnId && activeTurnId && turnId !== activeTurnId) return;
+    if (turnId && activeTurnId && turnId !== activeTurnId) {
+      // Stale completion for a turn we no longer track; record it so the same
+      // turn id can never linger as "active" state elsewhere.
+      addBounded(this.completedTurnIds, turnId, MAX_TRACKED_TURN_IDS);
+      return;
+    }
 
     if (this.pendingCollabReplays.size === 0) {
       this.emitTurnCompletion(data, activeTurnId);
@@ -834,7 +865,13 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   private emitTurnCompletion(data: JsonObject | null, activeTurnId: string | undefined): void {
-    if (activeTurnId && this.activeTurnId !== activeTurnId) return;
+    if (activeTurnId && this.activeTurnId !== activeTurnId) {
+      // A newer turn started while we waited for collab replays; the dropped
+      // completion will never be re-delivered, so record it for dedup hygiene.
+      const staleTurnId = asString(asRecord(data?.turn)?.id) ?? activeTurnId;
+      addBounded(this.completedTurnIds, staleTurnId, MAX_TRACKED_TURN_IDS);
+      return;
+    }
     const turn = asRecord(data?.turn);
     const durationMs = asNumber(turn?.durationMs);
     const status = asTurnStatus(turn?.status);

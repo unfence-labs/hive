@@ -177,6 +177,13 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       updatedAt: new Date().toISOString(),
       messageCount: 0,
     };
+
+    // Node crashes the whole process on emit("error") with zero listeners.
+    // WS subscribers come and go (none are attached when no client watches the
+    // workspace), so keep a permanent listener that only logs.
+    this.on("error", (err) => {
+      console.error(`[session] ${this.sessionId} error:`, err.message);
+    });
   }
 
   get status() {
