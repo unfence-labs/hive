@@ -6,16 +6,31 @@ import Foundation
 /// decoded inline (handled by the loader, not here), while `/api/...` paths get
 /// the configured server base and the auth token appended as a query param.
 enum ChatImageResolver {
+    private static let tokenQueryAllowed: CharacterSet = {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-_.~")
+        return allowed
+    }()
+
     static func apiURL(for source: String) -> URL? {
         guard source.hasPrefix("/api/") else { return nil }
         let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
         let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
         let token = UserDefaults.standard.string(forKey: "authToken") ?? ""
-        var urlString = "http://\(host):\(port)\(source)"
-        if !token.isEmpty {
-            let separator = source.contains("?") ? "&" : "?"
-            urlString += "\(separator)token=\(token)"
+        guard var components = URLComponents(string: "http://\(host):\(port)\(source)") else {
+            return nil
         }
-        return URL(string: urlString)
+        if !token.isEmpty {
+            guard let encodedToken = token.addingPercentEncoding(withAllowedCharacters: tokenQueryAllowed) else {
+                return nil
+            }
+            let tokenItem = "token=\(encodedToken)"
+            if let query = components.percentEncodedQuery, !query.isEmpty {
+                components.percentEncodedQuery = "\(query)&\(tokenItem)"
+            } else {
+                components.percentEncodedQuery = tokenItem
+            }
+        }
+        return components.url
     }
 }

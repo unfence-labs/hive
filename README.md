@@ -534,9 +534,9 @@ $DATA_DIR/
 - Frontend tests: `frontend/tests/**/*.test.ts(x)`
 - iOS Swift package tests: `ios/Tests/**/*.swift`
 - Frameworks: Vitest for backend/frontend, Swift Testing for iOS store/model tests
-- CI (`.github/workflows/ci.yml`) runs lint, typecheck, build, and tests on push/PR to `main`
+- CI (`.github/workflows/ci.yml`) runs Node lint, typecheck, build, tests, iOS Swift package tests, and an iOS app compile on push/PR to `main`
 - CI sets `NODE_ENV=test` explicitly (React 19 only exports `act()` in development bundle)
-- Current GitHub CI covers the Node workspaces. Run `cd ios && swift test` and an Xcode simulator build before merging iOS changes.
+- For iOS changes, also run `cd ios && swift test` and an Xcode simulator build locally before merging when Swift/Xcode is available.
 
 ## License
 

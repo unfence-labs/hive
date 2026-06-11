@@ -409,7 +409,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Use `SessionOptions.command = "bash"` in backend tests to avoid local Claude CLI dependency.
 - WS tests use Fastify's `injectWS()` (not raw `new WebSocket()`) for deterministic message ordering.
 - CI sets `NODE_ENV=test` explicitly to ensure React 19 exports `act()` in its development bundle.
-- Current GitHub CI covers Node workspaces; iOS test/build validation is local unless the workflow is extended.
+- GitHub CI covers Node checks, iOS Swift package tests, and an iOS app compile. For iOS changes, still run `cd ios && swift test` and an Xcode simulator build locally when Swift/Xcode is available.
 
 ## Tauri Desktop App
 
