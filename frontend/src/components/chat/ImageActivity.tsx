@@ -1,3 +1,4 @@
+import { type ReactNode } from "react";
 import { ImageIcon } from "lucide-react";
 import type { AgentActivity } from "@/types";
 import { resolveImageSrc } from "@/lib/image-url";
@@ -46,6 +47,43 @@ function isGenerationPending(
   return Boolean(showExecutingState) && !terminal;
 }
 
+function ImageActivityShell({
+  title,
+  detail,
+  expandedContent,
+  src,
+  alt,
+  pending,
+  noPreviewMessage,
+}: {
+  title: string;
+  detail?: ReactNode;
+  expandedContent?: ReactNode;
+  src?: string;
+  alt: string;
+  pending?: boolean;
+  noPreviewMessage?: string;
+}) {
+  return (
+    <ActivityShell
+      title={title}
+      icon={<ImageIcon className="size-3.5" />}
+      detail={detail}
+      executing={pending}
+      expandedContent={expandedContent}
+      belowContent={
+        <ImageTileWithLightbox
+          src={src}
+          alt={alt}
+          pending={pending}
+          noPreviewMessage={noPreviewMessage}
+          className="mt-2 size-20 max-w-full"
+        />
+      }
+    />
+  );
+}
+
 export function ImageViewActivity({ activity }: { activity: Extract<AgentActivity, { kind: "image_view" }> }) {
   const name = fileName(activity.path);
   const src = resolveImageViewSrc(activity);
@@ -56,16 +94,12 @@ export function ImageViewActivity({ activity }: { activity: Extract<AgentActivit
       : activity.path;
 
   return (
-    <ActivityShell
+    <ImageActivityShell
       title="View image"
       detail={<ActivityDetailChip text={name} />}
-      leading={
-        <ImageTileWithLightbox
-          src={src}
-          alt={name}
-          noPreviewMessage={activity.outsideWorkspace ? OUTSIDE_WORKSPACE_MESSAGE : undefined}
-        />
-      }
+      src={src}
+      alt={name}
+      noPreviewMessage={activity.outsideWorkspace ? OUTSIDE_WORKSPACE_MESSAGE : undefined}
       expandedContent={expandedContent}
     />
   );
@@ -83,27 +117,19 @@ export function ImageGenerationActivity({
   const alt = activity.revisedPrompt ?? "Generated image";
   const promptDetail = promptPreview(activity.revisedPrompt);
   const detail = promptDetail ? <ActivityDetailChip text={promptDetail} /> : undefined;
-  const imageTile = (
-    <ImageTileWithLightbox
+
+  return (
+    <ImageActivityShell
+      title="Proposed image"
+      detail={detail}
       src={src}
       alt={alt}
       pending={pending}
-      className="mt-2 size-20 max-w-full"
-    />
-  );
-
-  return (
-    <ActivityShell
-      title="Proposed image"
-      icon={<ImageIcon className="size-3.5" />}
-      detail={detail}
-      executing={pending}
       expandedContent={
         activity.revisedPrompt
           ? <p className="whitespace-pre-wrap text-muted-foreground">{activity.revisedPrompt}</p>
           : undefined
       }
-      belowContent={imageTile}
     />
   );
 }
