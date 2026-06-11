@@ -33,7 +33,7 @@ interface SidebarProjectItemProps {
   activeWsId?: string;
   liveData: Record<string, WorkspaceLiveData>;
   prStatuses: Record<string, PrStatusResponse>;
-  prLoading: boolean;
+  prLoadingByWorkspace: Record<string, boolean>;
   creatingProjectId: string | null;
   archivingWsId: string | null;
   draggingProjectId: string | null;
@@ -67,7 +67,7 @@ export function SidebarProjectItem({
   activeWsId,
   liveData,
   prStatuses,
-  prLoading,
+  prLoadingByWorkspace,
   creatingProjectId,
   archivingWsId,
   draggingProjectId,
@@ -190,7 +190,7 @@ export function SidebarProjectItem({
                                   </span>
                                 );
                               })()
-                            ) : prLoading ? (
+                            ) : prLoadingByWorkspace[ws.id] ? (
                               <span className="text-muted-foreground">Loading…</span>
                             ) : prStatus?.error ? (
                               <span className="text-muted-foreground">Error fetching PR</span>

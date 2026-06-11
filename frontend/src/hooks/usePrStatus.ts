@@ -12,6 +12,8 @@ import type { BulkPrStatusResponse, PrStatusResponse } from "@/types";
 export const prStatusKey = (wsId: string) => ["pr-status", wsId] as const;
 
 const PR_GC_TIME = 5 * 60_000;
+const PR_REFETCH_INTERVAL = 60_000;
+const PR_STALE_TIME = 45_000;
 
 function readPrStatusFromCache(
   queryClient: ReturnType<typeof useQueryClient>,
@@ -94,14 +96,25 @@ export function useBulkPrStatus(wsIds: string[]) {
       return data;
     },
     enabled: wsIds.length > 0,
-    refetchInterval: 15_000,
-    staleTime: 10_000,
+    refetchInterval: PR_REFETCH_INTERVAL,
+    staleTime: PR_STALE_TIME,
     gcTime: PR_GC_TIME,
     placeholderData: keepPreviousData,
   });
 
+  const loadingByWorkspace = useMemo(() => {
+    const loading: Record<string, boolean> = {};
+    if (query.isFetching) {
+      for (const wsId of wsIds) {
+        if (!readPrStatusFromCache(queryClient, wsId)) loading[wsId] = true;
+      }
+    }
+    return loading;
+  }, [query.isFetching, queryClient, wsIds]);
+
   return {
     results: query.data?.results ?? emptyResults,
     loading: query.isLoading,
+    loadingByWorkspace,
   };
 }

@@ -5,11 +5,14 @@ import type { PullRequestInfo } from "../types.js";
 const execFile = promisify(execFileCb);
 
 const GH_RETRY_COOLDOWN_MS = 60_000;
+const GH_RATE_LIMIT_COOLDOWN_MS = 5 * 60_000;
+const GH_RATE_LIMIT_MESSAGE = "GitHub rate limit reached — PR status refresh is paused briefly";
 
 // After ENOENT, skip `gh` calls until cooldown expires.
 let ghAvailable: boolean | null = null;
 let ghUnavailableReason = "";
 let ghUnavailableAt = 0;
+let ghRateLimitedUntil = 0;
 
 export type RepositoryVisibility = "public" | "private";
 
@@ -48,6 +51,10 @@ function formatGhFailure(err: unknown): string {
     return "GitHub CLI is not authenticated. Run `gh auth login` and try again.";
   }
   return detail ? `GitHub CLI failed: ${detail}` : "GitHub CLI failed.";
+}
+
+function isGhRateLimitError(message: string | undefined): boolean {
+  return /\brate limit\b/i.test(message ?? "");
 }
 
 export function parseGitHubRepo(
@@ -263,6 +270,10 @@ export async function fetchPrForBranch(
     return { pr: null, error: ghUnavailableReason };
   }
 
+  if (Date.now() < ghRateLimitedUntil) {
+    return { pr: null, error: GH_RATE_LIMIT_MESSAGE };
+  }
+
   try {
     const { stdout } = await gh([
       "pr",
@@ -318,6 +329,9 @@ export async function fetchPrForBranch(
     if (stderr?.includes("auth login")) {
       return { pr: null, error: "gh not authenticated — run `gh auth login`" };
     }
+    if (isGhRateLimitError(stderr)) {
+      ghRateLimitedUntil = Date.now() + GH_RATE_LIMIT_COOLDOWN_MS;
+    }
 
     return { pr: null, error: `gh error: ${stderr}` };
   }
@@ -328,4 +342,5 @@ export function _resetGhState(): void {
   ghAvailable = null;
   ghUnavailableReason = "";
   ghUnavailableAt = 0;
+  ghRateLimitedUntil = 0;
 }
