@@ -807,8 +807,8 @@ describe("AutomationScheduler", () => {
         "system-prompt.txt",
       );
       const persisted = await readFile(promptPath, "utf-8");
-      expect(persisted).toBe("You are strict.");
-      expect(persisted).not.toContain("## Summary");
+      expect(persisted).toContain("You are strict.");
+      expect(persisted).toContain("## Summary");
 
       scheduler.stop();
     });

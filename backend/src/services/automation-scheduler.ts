@@ -216,6 +216,8 @@ export class AutomationScheduler {
       });
     }
 
+    const resolvedSystemPrompt = systemPrompt ? systemPrompt + SUMMARY_INSTRUCTION : undefined;
+
     // Create session
     const autoDir = join(this.dataDir, "automations", autoId);
     const session = new ConversationSession({
@@ -223,7 +225,7 @@ export class AutomationScheduler {
       dataDir: autoDir,
       workspaceId: autoId,
       sessionId: run.sessionId,
-      systemPrompt: systemPrompt ? systemPrompt + SUMMARY_INSTRUCTION : undefined,
+      systemPrompt: resolvedSystemPrompt,
       skipPermissions: true,
       sessionKind: "automation",
     });
@@ -231,10 +233,10 @@ export class AutomationScheduler {
     this.activeRuns.set(autoId, { run, session });
 
     // Persist resolved system prompt for run log viewer
-    if (systemPrompt) {
+    if (resolvedSystemPrompt) {
       const sessDir = join(autoDir, "sessions", run.sessionId);
       await mkdir(sessDir, { recursive: true });
-      await writeFile(join(sessDir, "system-prompt.txt"), systemPrompt, "utf-8")
+      await writeFile(join(sessDir, "system-prompt.txt"), resolvedSystemPrompt, "utf-8")
         .catch((err) => console.error("[scheduler] Persist system prompt failed:", err));
     }
 
