@@ -253,6 +253,8 @@ struct ChatImageTileWithLightbox: View {
             onOpenLightbox: hasSource ? present : nil
         )
         .background(TileFrameProbeView(probe: tileFrameProbe))
+        .opacity(lightboxPresentation == nil ? 1 : 0)
+        .allowsHitTesting(lightboxPresentation == nil)
         .fullScreenCover(item: $lightboxPresentation) { presentation in
             ChatImageLightboxHost(presentation: presentation) {
                 lightboxPresentation = nil
@@ -347,8 +349,8 @@ private extension CGRect {
 
 // MARK: - Lightbox
 
-/// Full-screen single-image lightbox. Tapping the backdrop, the image, or the
-/// close button dismisses it. Shared by chat attachments and image activities.
+/// Full-screen single-image lightbox. Tapping the backdrop or image dismisses
+/// it. Shared by chat attachments and image activities.
 /// Mirrors `frontend/src/components/chat/ImageLightbox.tsx`.
 struct ChatImageLightbox: View {
     let source: String
@@ -386,9 +388,6 @@ struct ChatImageLightbox: View {
                     .ignoresSafeArea()
 
                 heroImage(screen: geo.size)
-
-                closeButton
-                    .opacity(backdropOpacity)
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .contentShape(Rectangle())
@@ -463,24 +462,6 @@ struct ChatImageLightbox: View {
         }
         let scale = min(bounds.width / image.size.width, bounds.height / image.size.height)
         return CGSize(width: image.size.width * scale, height: image.size.height * scale)
-    }
-
-    private var closeButton: some View {
-        VStack {
-            HStack {
-                Spacer()
-                Button { close() } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(WhisperColor.text)
-                        .padding(10)
-                        .background(WhisperColor.imageControlBg, in: Circle())
-                }
-                .padding(.top, 8)
-                .padding(.trailing, 16)
-            }
-            Spacer()
-        }
     }
 
     private var dragGesture: some Gesture {
