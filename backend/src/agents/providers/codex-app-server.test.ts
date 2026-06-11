@@ -552,6 +552,73 @@ describe("CodexAppServerSession normalized events", () => {
     }]);
   });
 
+  it("keeps sub-agent image views and generations out of the main stream", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "inProgress",
+          receiverThreadIds: ["thread-child"],
+          prompt: "Inspect assets",
+        },
+      },
+    }) + "\n");
+    // The sub-agent views the same image the parent will also view: without
+    // the parent filter both rendered as identical top-level tiles.
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "imageView",
+          id: "child-image-1",
+          path: "/tmp/project/assets/logo.png",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "imageGeneration",
+          id: "child-gen-1",
+          status: "completed",
+          savedPath: "/tmp/project/assets/generated.png",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "imageView",
+          id: "main-image-1",
+          path: "/tmp/project/assets/logo.png",
+        },
+      },
+    }) + "\n");
+
+    const imageEvents = events.filter((event) =>
+      ["image_view_updated", "image_generation_updated"].includes((event as { type: string }).type),
+    );
+    expect(imageEvents).toEqual([
+      expect.objectContaining({ type: "image_view_updated", id: "main-image-1" }),
+    ]);
+  });
+
   it("flags image views outside the workspace without a relative path", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

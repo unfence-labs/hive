@@ -771,6 +771,10 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       }
       case "imageView": {
+        // Sub-agent image views stay out of the main stream (like sub-agent
+        // text/reasoning); otherwise they render as unattributed top-level
+        // duplicates of the parent's own views.
+        if (parentToolUseId) break;
         const imageItem = item as Extract<ThreadItem, { type: "imageView" }>;
         if (!imageItem.path) break;
         this.emit("agent_event", {
@@ -782,6 +786,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       }
       case "imageGeneration": {
+        if (parentToolUseId) break;
         const generationItem = item as Extract<ThreadItem, { type: "imageGeneration" }>;
         const savedPath = generationItem.savedPath ?? undefined;
         const result = generationItem.result;
