@@ -1,4 +1,4 @@
-import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
+export { workspaceFileRawPath } from "@hive/shared/workspace-files";
 
 export type FilePreviewKind = "text" | "markdown" | "image" | "pdf" | "audio" | "video";
 
@@ -62,11 +62,4 @@ export function getFilePreviewKind(filePath: string): FilePreviewKind {
 export function isBinaryPreviewFilePath(filePath: string): boolean {
   const kind = getFilePreviewKind(filePath);
   return kind === "image" || kind === "pdf" || kind === "audio" || kind === "video";
-}
-
-export function workspaceFileRawPath(wsId: string, filePath: string): string {
-  if (wsId === BRAIN_WORKSPACE_ID) {
-    return `/api/brain/file/raw?path=${encodeURIComponent(filePath)}`;
-  }
-  return `/api/workspaces/${encodeURIComponent(wsId)}/file/raw?path=${encodeURIComponent(filePath)}`;
 }

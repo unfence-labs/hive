@@ -1,7 +1,8 @@
 import { EventEmitter } from "node:events";
-import { mkdir, readFile, writeFile, open } from "node:fs/promises";
-import { join } from "node:path";
+import { copyFile, mkdir, readFile, stat, writeFile, open } from "node:fs/promises";
+import { extname, join } from "node:path";
 import { commandExecutionActivityToToolCall } from "@hive/shared/agent-activity";
+import { workspaceFileRawPath } from "@hive/shared/workspace-files";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { AgentEventNormalizer, type NormalizedAgentEvent } from "./agent-event-normalizer.js";
@@ -45,6 +46,13 @@ function formatNormalizedExitCode(exitCode: number | undefined): string {
 /** Cap for the per-session finalized-turn dedup Set to avoid unbounded growth. */
 const MAX_FINALIZED_TURN_IDS = 256;
 
+/**
+ * Cap for copying a Codex-generated image into session attachments. Generated
+ * images are normal-sized PNGs; anything larger is almost certainly not a
+ * preview-worthy result and is skipped rather than copied wholesale.
+ */
+const MAX_GENERATED_IMAGE_COPY_BYTES = 25 * 1024 * 1024;
+
 function isCodexGoalCommand(content: string, providerId: string | undefined): boolean {
   const trimmed = content.trim();
   return providerId === "codex"
@@ -61,6 +69,10 @@ function cloneAgentActivity(activity: AgentActivity): AgentActivity {
     case "plan_update":
       return { ...activity, steps: activity.steps.map((step) => ({ ...step })) };
     case "goal_update":
+      return { ...activity };
+    case "image_view":
+      return { ...activity };
+    case "image_generation":
       return { ...activity };
     case "diagnostic":
       return { ...activity };
@@ -141,6 +153,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private _streamAgentActivities: AgentActivity[] = [];
   private _agentPlanMode = false;
   private finalizedCodexAppServerTurnIds = new Set<string>();
+  private copiedGeneratedImageIds = new Set<string>();
+  private pendingImageAttachments: Promise<void>[] = [];
 
   constructor(config: ConversationSessionConfig) {
     super();
@@ -308,7 +322,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         const urlImages = saved.map((s, i) => ({
           name: images[i].name,
           mediaType: images[i].mediaType,
-          dataUrl: `/api/workspaces/${this.workspaceId}/sessions/${this.sessionId}/attachments/${s.filename}`,
+          dataUrl: this.attachmentUrl(s.filename),
         }));
         const imagePaths = saved.map((s) => s.path);
         const useNativeCodexImages =
@@ -741,6 +755,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       case "file_change_updated":
         this.handleFileChangeEvent(event);
         break;
+      case "image_view_updated":
+        this.handleImageViewEvent(event);
+        break;
+      case "image_generation_updated":
+        this.handleImageGenerationEvent(event);
+        break;
       case "plan_updated":
         this.handlePlanUpdateEvent(event);
         break;
@@ -873,6 +893,93 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     }
   }
 
+  private handleImageViewEvent(event: Extract<NormalizedAgentEvent, { type: "image_view_updated" }>): void {
+    this.upsertAgentActivity({
+      id: event.id,
+      kind: "image_view",
+      path: event.path,
+      relativePath: event.relativePath,
+      imageUrl: event.relativePath ? workspaceFileRawPath(this.workspaceId, event.relativePath) : undefined,
+      outsideWorkspace: event.outsideWorkspace,
+    });
+  }
+
+  private handleImageGenerationEvent(
+    event: Extract<NormalizedAgentEvent, { type: "image_generation_updated" }>,
+  ): void {
+    const existingActivity = this._streamAgentActivities.find(
+      (activity): activity is Extract<AgentActivity, { kind: "image_generation" }> =>
+        activity.id === event.id && activity.kind === "image_generation",
+    );
+    const relativePath = event.relativePath ?? existingActivity?.relativePath;
+    const savedPath = event.savedPath ?? existingActivity?.savedPath;
+    // In-workspace files are served straight from the repo; everything else
+    // (Codex writes generated images to its own cache outside the workspace) is
+    // copied into session attachments so it can be previewed without exposing an
+    // arbitrary disk path.
+    const imageUrl = relativePath
+      ? workspaceFileRawPath(this.workspaceId, relativePath)
+      : existingActivity?.imageUrl;
+    this.upsertAgentActivity({
+      id: event.id,
+      kind: "image_generation",
+      status: event.status ?? existingActivity?.status,
+      revisedPrompt: event.revisedPrompt ?? existingActivity?.revisedPrompt,
+      result: event.result ?? existingActivity?.result,
+      savedPath,
+      relativePath,
+      imageUrl,
+    });
+
+    if (!relativePath && savedPath && !this.copiedGeneratedImageIds.has(event.id)) {
+      this.copiedGeneratedImageIds.add(event.id);
+      // Capture the live array reference so the deferred copy still resolves the
+      // activity after the per-turn accumulators have been reset.
+      const activities = this._streamAgentActivities;
+      this.pendingImageAttachments.push(this.attachGeneratedImage(activities, event.id, savedPath));
+    }
+  }
+
+  /**
+   * Copy a Codex-generated image (saved outside the workspace) into the session
+   * attachments dir and re-emit the activity with a served preview URL. Best
+   * effort: a failed copy leaves the activity without a preview rather than
+   * surfacing an error. `finalizeTurn` awaits these before persisting so the URL
+   * lands in the saved message.
+   */
+  private async attachGeneratedImage(
+    activities: AgentActivity[],
+    activityId: string,
+    savedPath: string,
+  ): Promise<void> {
+    try {
+      const info = await stat(savedPath);
+      if (!info.isFile() || info.size > MAX_GENERATED_IMAGE_COPY_BYTES) return;
+      const attachmentsDir = join(this.sessionDir, "attachments");
+      await mkdir(attachmentsDir, { recursive: true });
+      const ext = extname(savedPath) || ".png";
+      const filename = `gen-${nanoid(8)}${ext}`;
+      await copyFile(savedPath, join(attachmentsDir, filename));
+
+      const activity = activities.find(
+        (item): item is Extract<AgentActivity, { kind: "image_generation" }> =>
+          item.id === activityId && item.kind === "image_generation",
+      );
+      if (!activity) return;
+      // Mutate in place: the same object is referenced by the captured array and
+      // the message persisted in finalizeTurn, so this URL reaches both.
+      activity.imageUrl = this.attachmentUrl(filename);
+      this.emit("message", { type: "agent_activity", sessionId: this.sessionId, activity: cloneAgentActivity(activity) });
+    } catch {
+      // Preview is optional — keep the activity as-is when the copy fails.
+    }
+  }
+
+  /** API path serving a session attachment (image previews, generated images). */
+  private attachmentUrl(filename: string): string {
+    return `/api/workspaces/${this.workspaceId}/sessions/${this.sessionId}/attachments/${filename}`;
+  }
+
   private handlePlanUpdateEvent(event: Extract<NormalizedAgentEvent, { type: "plan_updated" }>): void {
     this.upsertAgentActivity({
       id: event.id,
@@ -949,41 +1056,22 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.stopReason = null;
     this.runner = null;
 
-    if (
-      this._streamText ||
-      this._streamToolCalls.length > 0 ||
-      this._streamAgentActivities.length > 0 ||
-      this._streamThinking ||
-      shouldSurfaceCancelled
-    ) {
-      const assistantMsg: ChatMessage = {
-        id: nanoid(12),
-        sessionId: this.sessionId,
-        role: "assistant",
-        content: this._streamText || (shouldSurfaceCancelled ? CANCELLED_NO_OUTPUT_MESSAGE : ""),
-        toolCalls: this._streamToolCalls.length > 0 ? this._streamToolCalls : undefined,
-        agentActivities: this._streamAgentActivities.length > 0
-          ? this._streamAgentActivities.map(cloneAgentActivity)
-          : undefined,
-        thinkingContent: this._streamThinking || undefined,
-        timestamp: new Date().toISOString(),
-        cancelled: shouldSurfaceCancelled || undefined,
-        errorDetail: cancellationErrorDetail,
-        durationMs: effectiveDurationMs,
-        inputTokens: resultInputTokens,
-        outputTokens: resultOutputTokens,
-        contextUsedTokens: resultContextUsedTokens,
-        contextWindowTokens: resultContextWindowTokens,
-      };
-      void this.enqueuePersist(assistantMsg);
-    }
+    // Capture per-turn accumulators (and any pending generated-image copies)
+    // before resetting, so the deferred persist below still sees this turn's
+    // content even though new arrays are installed synchronously.
+    const streamText = this._streamText;
+    const streamThinking = this._streamThinking;
+    const streamToolCalls = this._streamToolCalls;
+    const streamAgentActivities = this._streamAgentActivities;
+    const pendingImageAttachments = this.pendingImageAttachments;
+    this.pendingImageAttachments = [];
 
     this._metadata.messageCount = this.messageCount;
     this._metadata.updatedAt = new Date().toISOString();
     this.enqueueMetadataPersist();
 
     const unansweredBlockingTools = killedForBlockingTool
-      ? this._streamToolCalls.filter((tc) => blockingToolNames.has(tc.name))
+      ? streamToolCalls.filter((tc) => blockingToolNames.has(tc.name))
       : [];
 
     this.resetStreamAccumulators();
@@ -994,6 +1082,41 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     void (async () => {
       try {
+        // Wait for generated-image copies so their served preview URLs are baked
+        // into the persisted activities before the message is written.
+        if (pendingImageAttachments.length > 0) {
+          await Promise.allSettled(pendingImageAttachments);
+        }
+
+        if (
+          streamText ||
+          streamToolCalls.length > 0 ||
+          streamAgentActivities.length > 0 ||
+          streamThinking ||
+          shouldSurfaceCancelled
+        ) {
+          const assistantMsg: ChatMessage = {
+            id: nanoid(12),
+            sessionId: this.sessionId,
+            role: "assistant",
+            content: streamText || (shouldSurfaceCancelled ? CANCELLED_NO_OUTPUT_MESSAGE : ""),
+            toolCalls: streamToolCalls.length > 0 ? streamToolCalls : undefined,
+            agentActivities: streamAgentActivities.length > 0
+              ? streamAgentActivities.map(cloneAgentActivity)
+              : undefined,
+            thinkingContent: streamThinking || undefined,
+            timestamp: new Date().toISOString(),
+            cancelled: shouldSurfaceCancelled || undefined,
+            errorDetail: cancellationErrorDetail,
+            durationMs: effectiveDurationMs,
+            inputTokens: resultInputTokens,
+            outputTokens: resultOutputTokens,
+            contextUsedTokens: resultContextUsedTokens,
+            contextWindowTokens: resultContextWindowTokens,
+          };
+          void this.enqueuePersist(assistantMsg);
+        }
+
         await this.persistQueue;
         if (shouldSurfaceCancelled) {
           this.emit("message", {

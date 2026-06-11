@@ -33,6 +33,8 @@ enum AgentActivity: Codable, Equatable, Identifiable {
     case fileChange(FileChange)
     case planUpdate(PlanUpdate)
     case goalUpdate(GoalUpdate)
+    case imageView(ImageView)
+    case imageGeneration(ImageGeneration)
     case diagnostic(Diagnostic)
     case unknown(Unknown)
 
@@ -91,6 +93,24 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         let updatedAt: Int?
     }
 
+    struct ImageView: Codable, Equatable, Identifiable {
+        let id: String
+        let path: String
+        let relativePath: String?
+        let imageUrl: String?
+        let outsideWorkspace: Bool?
+    }
+
+    struct ImageGeneration: Codable, Equatable, Identifiable {
+        let id: String
+        let status: String?
+        let revisedPrompt: String?
+        let result: String?
+        let savedPath: String?
+        let relativePath: String?
+        let imageUrl: String?
+    }
+
     struct Diagnostic: Codable, Equatable, Identifiable {
         let id: String
         let severity: AgentActivitySeverity
@@ -112,6 +132,8 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         case .fileChange(let activity): activity.id
         case .planUpdate(let activity): activity.id
         case .goalUpdate(let activity): activity.id
+        case .imageView(let activity): activity.id
+        case .imageGeneration(let activity): activity.id
         case .diagnostic(let activity): activity.id
         case .unknown(let activity): activity.id
         }
@@ -123,6 +145,8 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         case .fileChange: "file_change"
         case .planUpdate: "plan_update"
         case .goalUpdate: "goal_update"
+        case .imageView: "image_view"
+        case .imageGeneration: "image_generation"
         case .diagnostic: "diagnostic"
         case .unknown(let activity): activity.kind
         }
@@ -134,6 +158,7 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         case files
         case steps
         case active, threadId, objective, tokenBudget, tokensUsed, timeUsedSeconds, createdAt, updatedAt
+        case path, relativePath, imageUrl, outsideWorkspace, revisedPrompt, result, savedPath
         case severity, title, message, source, method, details
     }
 
@@ -150,6 +175,10 @@ enum AgentActivity: Codable, Equatable, Identifiable {
             self = .planUpdate(try PlanUpdate(from: decoder))
         case "goal_update":
             self = .goalUpdate(try GoalUpdate(from: decoder))
+        case "image_view":
+            self = .imageView(try ImageView(from: decoder))
+        case "image_generation":
+            self = .imageGeneration(try ImageGeneration(from: decoder))
         case "diagnostic":
             self = .diagnostic(try Diagnostic(from: decoder))
         default:
@@ -190,6 +219,20 @@ enum AgentActivity: Codable, Equatable, Identifiable {
             try container.encodeIfPresent(activity.timeUsedSeconds, forKey: .timeUsedSeconds)
             try container.encodeIfPresent(activity.createdAt, forKey: .createdAt)
             try container.encodeIfPresent(activity.updatedAt, forKey: .updatedAt)
+        case .imageView(let activity):
+            try container.encode(activity.id, forKey: .id)
+            try container.encode(activity.path, forKey: .path)
+            try container.encodeIfPresent(activity.relativePath, forKey: .relativePath)
+            try container.encodeIfPresent(activity.imageUrl, forKey: .imageUrl)
+            try container.encodeIfPresent(activity.outsideWorkspace, forKey: .outsideWorkspace)
+        case .imageGeneration(let activity):
+            try container.encode(activity.id, forKey: .id)
+            try container.encodeIfPresent(activity.status, forKey: .status)
+            try container.encodeIfPresent(activity.revisedPrompt, forKey: .revisedPrompt)
+            try container.encodeIfPresent(activity.result, forKey: .result)
+            try container.encodeIfPresent(activity.savedPath, forKey: .savedPath)
+            try container.encodeIfPresent(activity.relativePath, forKey: .relativePath)
+            try container.encodeIfPresent(activity.imageUrl, forKey: .imageUrl)
         case .diagnostic(let activity):
             try container.encode(activity.id, forKey: .id)
             try container.encode(activity.severity, forKey: .severity)
@@ -240,19 +283,25 @@ extension AgentActivity {
                     parentToolUseId: nil
                 )
             }
-        case .planUpdate, .goalUpdate, .diagnostic, .unknown:
+        case .planUpdate, .goalUpdate, .imageView, .imageGeneration, .diagnostic, .unknown:
             return []
         }
     }
 }
 
 enum VisibleAgentActivity: Equatable, Identifiable {
+    case imageView(AgentActivity.ImageView)
+    case imageGeneration(AgentActivity.ImageGeneration)
     case diagnostic(AgentActivity.Diagnostic)
     case unknown(AgentActivity.Unknown)
 
     init?(_ activity: AgentActivity) {
         guard activity.toolCalls.isEmpty else { return nil }
         switch activity {
+        case .imageView(let image):
+            self = .imageView(image)
+        case .imageGeneration(let image):
+            self = .imageGeneration(image)
         case .diagnostic(let diagnostic):
             self = .diagnostic(diagnostic)
         case .unknown(let unknown):
@@ -266,10 +315,60 @@ enum VisibleAgentActivity: Equatable, Identifiable {
 
     var id: String {
         switch self {
+        case .imageView(let activity): activity.id
+        case .imageGeneration(let activity): activity.id
         case .diagnostic(let activity): activity.id
         case .unknown(let activity): activity.id
         }
     }
+}
+
+// MARK: - Image Activity Logic
+
+/// Pure helpers mirroring `frontend/src/components/chat/ImageActivity.tsx` so the
+/// view layer stays declarative and the resolution rules stay testable.
+
+extension AgentActivity.ImageView {
+    /// Resolved source for the viewed image, or nil when there is no preview
+    /// (outside the workspace). Mirrors `resolveImageViewSrc`.
+    var resolvedSource: String? {
+        guard let url = imageUrl, !url.isEmpty else { return nil }
+        return url
+    }
+}
+
+extension AgentActivity.ImageGeneration {
+    /// Resolved source for a generated image: prefer the workspace raw-file URL,
+    /// fall back to the inline base64 result. Mirrors `imageGenerationSrc`.
+    var resolvedSource: String? {
+        if let url = imageUrl, !url.isEmpty { return url }
+        guard let result, !result.isEmpty else { return nil }
+        return result.hasPrefix("data:") ? result : "data:image/png;base64,\(result)"
+    }
+
+    /// A generation is pending while a turn is live (`showExecutingState`), its
+    /// status is non-terminal, and no image is resolvable yet. Mirrors
+    /// `isGenerationPending`.
+    func isPending(showExecutingState: Bool) -> Bool {
+        if resolvedSource != nil { return false }
+        let status = status?.lowercased()
+        let terminal = status == "completed" || status == "failed" || status == "error"
+        return showExecutingState && !terminal
+    }
+}
+
+/// Last path component of an image path. Mirrors `fileName`.
+func imageActivityFileName(_ path: String) -> String {
+    (path as NSString).lastPathComponent
+}
+
+/// Whitespace-collapsed, 64-char prompt preview. Mirrors `promptPreview`.
+func imagePromptPreview(_ prompt: String?) -> String? {
+    let normalized = prompt?
+        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let normalized, !normalized.isEmpty else { return nil }
+    return normalized.count > 64 ? String(normalized.prefix(64)) + "..." : normalized
 }
 
 /// The active Codex goal, mirroring `frontend/src/hooks/useGoalState.ts` where

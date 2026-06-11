@@ -1,15 +1,11 @@
-import { memo, useState, type ReactNode } from "react";
-import {
-  AlertTriangleIcon,
-  ChevronRightIcon,
-  XCircleIcon,
-} from "lucide-react";
+import { memo } from "react";
+import { AlertTriangleIcon, XCircleIcon } from "lucide-react";
 import { commandExecutionActivityToToolCall } from "@hive/shared/agent-activity";
 import type { AgentActivity, QuestionAnswer, ToolCall } from "@/types";
-import { cn } from "@/lib/utils";
-import { ContentPanel, ContentPanelBody } from "@/components/chat/ContentPanel";
-import ChatToolUse, { ToolExpandedContent } from "@/components/ChatToolUse";
+import ChatToolUse from "@/components/ChatToolUse";
 import { ToolCallList } from "@/components/chat/ToolCallList";
+import { ActivityShell, ActivityDetailChip } from "@/components/chat/ActivityShell";
+import { ImageViewActivity, ImageGenerationActivity } from "@/components/chat/ImageActivity";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
 
 type InlineAgentActivity = Exclude<AgentActivity, { kind: "plan_update" } | { kind: "goal_update" }>;
@@ -98,6 +94,8 @@ function activityToToolCalls(activity: InlineAgentActivity): ToolCall[] {
       return [commandActivityToToolCall(activity)];
     case "file_change":
       return fileChangeActivityToToolCalls(activity);
+    case "image_view":
+    case "image_generation":
     case "diagnostic":
       return [];
   }
@@ -126,65 +124,17 @@ const AgentActivityItem = memo(function AgentActivityItem({
           ))}
         </>
       );
+    case "image_view":
+      return <ImageViewActivity activity={activity} />;
+    case "image_generation":
+      return <ImageGenerationActivity activity={activity} showExecutingState={showExecutingState} />;
     case "diagnostic":
       return <DiagnosticActivity activity={activity} />;
   }
 });
 
-function ActivityShell({
-  title,
-  detail,
-  trailingIcon,
-  expandedContent,
-  defaultOpen = false,
-  executing,
-}: {
-  title: string;
-  detail?: ReactNode;
-  trailingIcon?: ReactNode;
-  expandedContent?: ReactNode;
-  defaultOpen?: boolean;
-  executing?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  const canOpen = Boolean(expandedContent);
-
-  return (
-    <div className="my-0.5">
-      <button
-        type="button"
-        className={cn(
-          "inline-flex w-fit max-w-full items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground",
-          executing && "animate-shimmer",
-        )}
-        onClick={() => canOpen && setOpen(!open)}
-        aria-expanded={canOpen ? open : undefined}
-      >
-        {canOpen && (
-          <ChevronRightIcon className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
-        )}
-        <span>{title}</span>
-        {detail}
-        {trailingIcon && <span className="shrink-0">{trailingIcon}</span>}
-        {executing && <span className="inline-block size-1.5 animate-pulse rounded-full bg-primary" />}
-      </button>
-      {open && expandedContent && (
-        <ContentPanel>
-          <ContentPanelBody>
-            <ToolExpandedContent content={expandedContent} />
-          </ContentPanelBody>
-        </ContentPanel>
-      )}
-    </div>
-  );
-}
-
 function DiagnosticActivity({ activity }: { activity: Extract<AgentActivity, { kind: "diagnostic" }> }) {
-  const detail = activity.method ? (
-    <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-      {activity.method}
-    </code>
-  ) : undefined;
+  const detail = activity.method ? <ActivityDetailChip text={activity.method} /> : undefined;
 
   return (
     <ActivityShell

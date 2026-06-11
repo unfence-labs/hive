@@ -317,6 +317,15 @@
   animation: shimmer 2s ease-in-out infinite;
 }
 
+/* Sweeping highlight for image-generation placeholder tiles. */
+@keyframes sheen {
+  100% { transform: translateX(200%); }
+}
+
+.animate-sheen {
+  animation: sheen 1.5s ease-in-out infinite;
+}
+
 @keyframes pixel-thinking-h {
   0% {
     opacity: 0.38;

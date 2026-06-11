@@ -69,6 +69,24 @@ export type AgentActivity =
     }
   | {
       id: string;
+      kind: "image_view";
+      path: string;
+      relativePath?: string;
+      imageUrl?: string;
+      outsideWorkspace?: boolean;
+    }
+  | {
+      id: string;
+      kind: "image_generation";
+      status?: string;
+      revisedPrompt?: string;
+      result?: string;
+      savedPath?: string;
+      relativePath?: string;
+      imageUrl?: string;
+    }
+  | {
+      id: string;
       kind: "diagnostic";
       severity: "info" | "warning" | "error";
       title: string;
