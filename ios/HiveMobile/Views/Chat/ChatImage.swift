@@ -98,6 +98,10 @@ final class ChatImageLoader {
         return "\(base)@\(Int(maxSize.width))x\(Int(maxSize.height))"
     }
 
+    static func cachedImage(source: String, maxSize: CGSize?) -> UIImage? {
+        ImageCache.shared.image(forKey: cacheKey(source: source, maxSize: maxSize))
+    }
+
     nonisolated private static func decode(source: String) async -> UIImage? {
         if source.hasPrefix("data:") {
             guard let range = source.range(of: ";base64,") else { return nil }
@@ -234,50 +238,110 @@ struct ChatImageTileWithLightbox: View {
     var cornerRadius: CGFloat = 6
     var noPreviewMessage: String? = nil
 
-    @State private var showLightbox = false
-    @State private var sourceFrame: CGRect = .zero
+    @State private var tileFrameProbe = TileFrameProbe()
+    @State private var lightboxPresentation: LightboxPresentation?
 
     private var hasSource: Bool { !(source?.isEmpty ?? true) }
 
     var body: some View {
-        // A GeometryReader sized to the tile lets us read the tile's true
-        // on-screen rect at tap time — reliable even before any scroll, unlike
-        // onAppear/onGeometryChange which may not deliver the frame until a
-        // layout change occurs.
-        GeometryReader { proxy in
-            ChatImageTile(
-                source: source,
-                pending: pending,
-                size: size,
-                cornerRadius: cornerRadius,
-                noPreviewMessage: noPreviewMessage,
-                onOpenLightbox: hasSource ? { present(from: proxy.frame(in: .global)) } : nil
-            )
-        }
-        .frame(width: size.width, height: size.height)
-        .fullScreenCover(isPresented: $showLightbox) {
-            if let source, hasSource {
-                ChatImageLightbox(
-                    source: source,
-                    isPresented: $showLightbox,
-                    sourceFrame: sourceFrame,
-                    sourceSize: size,
-                    sourceCornerRadius: cornerRadius
-                )
-                // Transparent so the lightbox owns its own dim backdrop and
-                // we never see the opaque system cover behind it.
-                .presentationBackground(.clear)
+        ChatImageTile(
+            source: source,
+            pending: pending,
+            size: size,
+            cornerRadius: cornerRadius,
+            noPreviewMessage: noPreviewMessage,
+            onOpenLightbox: hasSource ? present : nil
+        )
+        .background(TileFrameProbeView(probe: tileFrameProbe))
+        .fullScreenCover(item: $lightboxPresentation) { presentation in
+            ChatImageLightboxHost(presentation: presentation) {
+                lightboxPresentation = nil
             }
         }
     }
 
-    // Capture the tapped tile's rect, then present without the system slide so
-    // the lightbox runs its own zoom from that rect.
-    private func present(from frame: CGRect) {
-        sourceFrame = frame
+    // Read the UIKit view's window rect at tap time. SwiftUI GeometryProxy
+    // values captured before the first scroll can still be the initial zero
+    // layout; UIKit conversion reflects the view that actually received the tap.
+    private func present() {
+        guard let source, hasSource else { return }
+
+        let frame = tileFrameProbe.frameInWindow() ?? .zero
+        let initialImage = ChatImageLoader.cachedImage(source: source, maxSize: size)
+        let presentation = LightboxPresentation(
+            source: source,
+            sourceFrame: frame,
+            sourceSize: size,
+            sourceCornerRadius: cornerRadius,
+            initialImage: initialImage
+        )
         var transaction = Transaction()
         transaction.disablesAnimations = true
-        withTransaction(transaction) { showLightbox = true }
+        withTransaction(transaction) {
+            lightboxPresentation = presentation
+        }
+    }
+}
+
+private struct ChatImageLightboxHost: View {
+    let presentation: LightboxPresentation
+    let dismiss: () -> Void
+
+    var body: some View {
+        ChatImageLightbox(
+            source: presentation.source,
+            isPresented: Binding(
+                get: { true },
+                set: { if !$0 { dismiss() } }
+            ),
+            sourceFrame: presentation.sourceFrame,
+            sourceSize: presentation.sourceSize,
+            sourceCornerRadius: presentation.sourceCornerRadius,
+            initialImage: presentation.initialImage
+        )
+        // Transparent so the lightbox owns its own dim backdrop and we never
+        // see the opaque system cover behind it.
+        .presentationBackground(.clear)
+    }
+}
+
+private struct LightboxPresentation: Identifiable {
+    let id = UUID()
+    let source: String
+    let sourceFrame: CGRect
+    let sourceSize: CGSize
+    let sourceCornerRadius: CGFloat
+    let initialImage: UIImage?
+}
+
+private final class TileFrameProbe {
+    weak var view: UIView?
+
+    func frameInWindow() -> CGRect? {
+        guard let view, let window = view.window, view.bounds.hasUsableSize else { return nil }
+        return view.convert(view.bounds, to: window)
+    }
+}
+
+private struct TileFrameProbeView: UIViewRepresentable {
+    let probe: TileFrameProbe
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
+        probe.view = view
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        probe.view = uiView
+    }
+}
+
+private extension CGRect {
+    var hasUsableSize: Bool {
+        width > 0 && height > 0
     }
 }
 
@@ -292,6 +356,7 @@ struct ChatImageLightbox: View {
     let sourceFrame: CGRect
     let sourceSize: CGSize
     let sourceCornerRadius: CGFloat
+    let initialImage: UIImage?
 
     @State private var loader = ChatImageLoader()
     @State private var revealed = false
@@ -331,7 +396,7 @@ struct ChatImageLightbox: View {
             .onTapGesture { close() }
         }
         // Span the safe areas so the GeometryReader's local space matches the
-        // tile's `.global` frame, keeping the zoom origin pixel-accurate.
+        // tile's window-space rect, keeping the zoom origin pixel-accurate.
         .ignoresSafeArea()
         .task(id: source) { await loader.loadFull(source: source, previewSize: sourceSize) }
         .onAppear {
@@ -370,7 +435,7 @@ struct ChatImageLightbox: View {
 
     @ViewBuilder
     private var imageContent: some View {
-        if let image = loader.loadedImage {
+        if let image = loader.loadedImage ?? initialImage {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFill()
@@ -393,7 +458,7 @@ struct ChatImageLightbox: View {
     /// inset bounds until it loads.
     private func expandedSize(screen: CGSize) -> CGSize {
         let bounds = CGSize(width: max(screen.width - 24, 1), height: max(screen.height - 48, 1))
-        guard let image = loader.loadedImage, image.size.width > 0, image.size.height > 0 else {
+        guard let image = loader.loadedImage ?? initialImage, image.size.width > 0, image.size.height > 0 else {
             return bounds
         }
         let scale = min(bounds.width / image.size.width, bounds.height / image.size.height)
