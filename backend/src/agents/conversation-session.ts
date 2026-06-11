@@ -559,6 +559,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let normalizer = new AgentEventNormalizer();
     const blockingToolNames = new Set(["AskUserQuestion", "ExitPlanMode"]);
     let killedForBlockingTool = false;
+    let finalized = false;
     let currentTurnId: string | undefined = options?.useCapturedTurnId === false
       ? undefined
       : (runner as { capturedTurnId?: string }).capturedTurnId;
@@ -572,6 +573,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       lastStderr = undefined;
       normalizer = new AgentEventNormalizer();
       killedForBlockingTool = false;
+      finalized = false;
     };
 
     const finish = (exitCode: number, failureDetail?: string, completedTurnId?: string) => {
@@ -579,7 +581,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       if (turnId) {
         if (this.finalizedCodexAppServerTurnIds.has(turnId)) return;
         addBounded(this.finalizedCodexAppServerTurnIds, turnId, MAX_FINALIZED_TURN_IDS);
+      } else if (finalized) {
+        // No turn id to dedup against (e.g. a /goal command that never starts a
+        // turn): the runner event handlers and the goal-request promise can both
+        // reach finish() — guard against a second finalizeTurn that would emit a
+        // duplicate terminal event (e.g. a ghost `error` after a `cancelled`).
+        return;
       }
+      finalized = true;
       this.finalizeTurn({
         exitCode,
         killedForBlockingTool,

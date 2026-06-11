@@ -458,6 +458,11 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.resetForNewTurn();
     this.collabParentByThreadId.clear();
     this.toolParentByItemId.clear();
+    // A pending goal-echo key only exists to swallow the single notification that
+    // echoes a just-issued goal response. A new user turn is a context boundary:
+    // drop it so a later genuine identical-state thread/goal/updated (e.g. the
+    // goal cycling back to a previously-read state) is not silently suppressed.
+    this.pendingGoalNotificationEchoKeys.clear();
   }
 
   private resetForThreadBoundary(): void {

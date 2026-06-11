@@ -421,6 +421,47 @@ describe("CodexAppServerSession request handling", () => {
     expect(parseWrites(proc).filter((write) => write.method === "turn/start")).toHaveLength(0);
   });
 
+  it("does not suppress a genuine identical-state goal notification after a new turn", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession({ enableGoals: true });
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    const goal = {
+      threadId: "thread-goal-turnreset",
+      objective: "Keep the UI current",
+      status: "active" as const,
+    };
+
+    const read = session.getGoal({ cwd: "/tmp/project", model: "gpt-5.5" });
+    const initialize = await waitForMethod(proc, "initialize");
+    proc._stdout.push(appServerResponse(initialize.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+    const threadStart = await waitForMethod(proc, "thread/start");
+    proc._stdout.push(appServerResponse(threadStart.id, { thread: { id: "thread-goal-turnreset" } }));
+    const goalGet = await waitForMethod(proc, "thread/goal/get");
+    proc._stdout.push(appServerResponse(goalGet.id, { goal }));
+    await expect(read).resolves.toEqual({ threadId: "thread-goal-turnreset", goal });
+    expect(events).toHaveLength(1);
+
+    // A new user turn is a context boundary: it must drop the read's pending
+    // echo key so the next genuine same-state notification is not swallowed.
+    const turn = session.startTurn({ cwd: "/tmp/project", content: "carry on", model: "gpt-5.5" });
+    const turnStart = await waitForMethod(proc, "turn/start");
+    proc._stdout.push(appServerResponse(turnStart.id, { turn: { id: "turn-after-read" } }));
+    await turn;
+
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/updated",
+      params: { goal },
+    }) + "\n");
+    expect(events).toHaveLength(2);
+  });
+
   it("auto-accepts known command and file approval requests", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

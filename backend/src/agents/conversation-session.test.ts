@@ -1057,6 +1057,28 @@ describe("ConversationSession", () => {
     expect(session.metadata.providerSessionId).toBe("thread-goal-1");
   });
 
+  it("emits a single terminal event when stopped during a pending /goal request", async () => {
+    const session = createSession({ sessionId: "goal-stop-command-session" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("/goal Ship backend support", { model: "codex:gpt-5.5" });
+
+    await respondToAppServerThreadStart(mockProc, "thread-goal-stop");
+    // Wait until the goal request is in flight, then stop before it resolves.
+    await waitForStdinMethod(mockProc, "thread/goal/set");
+
+    session.stop();
+
+    const cancelled = await waitForMessages(messages, "cancelled");
+    // Let the rejected goal-request promise's .catch run: without the no-turn
+    // finalize guard it would finalize a second time and emit a ghost error.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(cancelled).toHaveLength(1);
+    expect(messages.filter((msg) => msg.type === "error")).toHaveLength(0);
+    expect(messages.filter((msg) => msg.type === "done")).toHaveLength(0);
+  });
+
   it("refuses fresh Codex /goal without creating a provider thread", async () => {
     await expectFreshGoalManagementCommandRejected("goal-fresh-get-command-session", "/goal");
   });
