@@ -454,6 +454,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       case "remoteControl/status/changed":
       case "account/rateLimits/updated":
       case "turn/diff/updated":
+      case "thread/settings/updated":
         break;
       case "mcpServer/startupStatus/updated":
         if (isNotificationStatus(data, "failed", "cancelled")) {

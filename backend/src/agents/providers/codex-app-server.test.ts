@@ -343,6 +343,19 @@ describe("CodexAppServerSession normalized events", () => {
       method: "turn/diff/updated",
       params: { threadId: "thread-1", turnId: "turn-1", diff: "diff --git a/app.ts b/app.ts" },
     }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "thread/settings/updated",
+      params: {
+        threadId: "thread-1",
+        threadSettings: {
+          cwd: "/tmp/workspace",
+          approvalPolicy: "never",
+          sandboxPolicy: { type: "dangerFullAccess" },
+          model: "gpt-5.5",
+          effort: "high",
+        },
+      },
+    }) + "\n");
 
     expect(events).toEqual([]);
   });
