@@ -6,7 +6,7 @@ import { workspaceFileRawPath } from "@hive/shared/workspace-files";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { AgentEventNormalizer, type NormalizedAgentEvent } from "./agent-event-normalizer.js";
-import type { CodexGoalResult, CodexGoalSetParams } from "./providers/codex-app-server.js";
+import type { CodexGoalResult, CodexGoalSetParams, CodexGoalStatus } from "./providers/codex-app-server.js";
 import { providerSupportsAppServerGoals, resolveProvider } from "./providers/registry.js";
 import type { AgentProvider } from "./providers/types.js";
 import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js";
@@ -56,7 +56,7 @@ const MAX_GENERATED_IMAGE_COPY_BYTES = 25 * 1024 * 1024;
 
 type CodexGoalCommand =
   | { type: "set"; objective: string }
-  | { type: "set_status"; status: "active" | "paused" }
+  | { type: "set_status"; status: CodexGoalStatus }
   | { type: "clear" }
   | { type: "get" };
 
@@ -81,10 +81,32 @@ function parseCodexGoalCommand(content: string): CodexGoalCommand | null {
 
   const argument = trimmed.slice("/goal ".length).trim();
   if (!argument) return { type: "get" };
-  if (argument === "clear") return { type: "clear" };
-  if (argument === "pause") return { type: "set_status", status: "paused" };
-  if (argument === "resume") return { type: "set_status", status: "active" };
+  switch (argument) {
+    case "clear":
+      return { type: "clear" };
+    case "pause":
+    case "paused":
+      return { type: "set_status", status: "paused" };
+    case "resume":
+    case "active":
+      return { type: "set_status", status: "active" };
+    case "blocked":
+      return { type: "set_status", status: "blocked" };
+    case "complete":
+    case "completed":
+      return { type: "set_status", status: "complete" };
+    case "usage-limited":
+    case "usageLimited":
+      return { type: "set_status", status: "usageLimited" };
+    case "budget-limited":
+    case "budgetLimited":
+      return { type: "set_status", status: "budgetLimited" };
+  }
   return { type: "set", objective: argument };
+}
+
+function goalCommandRequiresExistingThread(command: CodexGoalCommand): boolean {
+  return command.type === "get" || command.type === "clear" || command.type === "set_status";
 }
 
 function canHandleCodexGoalCommand(
@@ -523,6 +545,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private attachCodexAppServerRunnerHandlers(
     runner: AgentRunner,
     supportsBlockingTools: boolean,
+    options?: { useCapturedTurnId?: boolean },
   ): { finishWithoutTurn: (exitCode: number, failureDetail?: string) => void; hasActiveTurn: () => boolean } {
     this.resetStreamAccumulators();
 
@@ -536,7 +559,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let normalizer = new AgentEventNormalizer();
     const blockingToolNames = new Set(["AskUserQuestion", "ExitPlanMode"]);
     let killedForBlockingTool = false;
-    let currentTurnId: string | undefined = (runner as { capturedTurnId?: string }).capturedTurnId;
+    let currentTurnId: string | undefined = options?.useCapturedTurnId === false
+      ? undefined
+      : (runner as { capturedTurnId?: string }).capturedTurnId;
 
     const resetPerTurnState = () => {
       resultDurationMs = undefined;
@@ -677,6 +702,16 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     msgOptions: MessageOptions | undefined,
     resolved: { provider: AgentProvider; modelId: string },
   ): void {
+    if (goalCommandRequiresExistingThread(command) && !this.cliSessionId) {
+      this.finalizeTurn({
+        exitCode: 1,
+        killedForBlockingTool: false,
+        failureDetail: "No Codex thread exists yet. Send a message or set a goal objective first.",
+        blockingToolNames: new Set(),
+      });
+      return;
+    }
+
     const isFirstMessage = this.messageCount === 1;
     const runnerSelection = this.runnerFactory({
       cwd: this.cwd,
@@ -700,7 +735,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     runner.removeAllListeners();
     this.runner = runner;
 
-    const controller = this.attachCodexAppServerRunnerHandlers(runner, runnerSelection.supportsBlockingTools);
+    const controller = this.attachCodexAppServerRunnerHandlers(
+      runner,
+      runnerSelection.supportsBlockingTools,
+      { useCapturedTurnId: false },
+    );
     if (runnerSelection.protocol !== "codex_app_server" || !isCodexGoalRunner(runner)) {
       controller.finishWithoutTurn(1, "Codex app-server goal commands are unavailable.");
       return;

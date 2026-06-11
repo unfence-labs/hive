@@ -279,6 +279,82 @@ describe("ConversationSession", () => {
     });
   }
 
+  async function expectFreshGoalManagementCommandRejected(sessionId: string, command: string): Promise<void> {
+    const session = createSession({ sessionId });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage(command, { model: "codex:gpt-5.5" });
+
+    const errors = await waitForMessages(messages, "error");
+    expect(errors[0]).toMatchObject({
+      sessionId,
+      message: "No Codex thread exists yet. Send a message or set a goal objective first.",
+    });
+    expect(mockSpawn).not.toHaveBeenCalled();
+    expect(countStdinMethod(mockProc, "thread/start")).toBe(0);
+    expect(countStdinMethod(mockProc, "thread/goal/get")).toBe(0);
+    expect(countStdinMethod(mockProc, "thread/goal/clear")).toBe(0);
+    expect(countStdinMethod(mockProc, "thread/goal/set")).toBe(0);
+    expect(session.metadata.providerSessionId).toBeUndefined();
+
+    const userEvent = messages.find(
+      (msg): msg is Extract<WsOutgoing, { type: "user_message" }> => msg.type === "user_message",
+    );
+    expect(userEvent?.message.goalCommand).toBe(true);
+    const userMessage = (await session.getMessages()).find((msg) => msg.role === "user");
+    expect(userMessage?.goalCommand).toBe(true);
+  }
+
+  async function establishCodexThread(
+    session: ConversationSession,
+    messages: WsOutgoing[],
+    threadId: string,
+    turnId: string,
+  ): Promise<void> {
+    session.sendMessage("Start thread", { model: "codex:gpt-5.5" });
+    await completeAppServerTurn(mockProc, threadId, turnId);
+    await waitForMessages(messages, "done");
+    expect(session.metadata.providerSessionId).toBe(threadId);
+  }
+
+  async function resumeCodexGoalThread(threadId: string, occurrence = 1): Promise<void> {
+    const threadResume = await waitForStdinMethod(mockProc, "thread/resume", occurrence);
+    expect(threadResume.params).toMatchObject({ threadId });
+    mockProc._stdout.push(appServerResponse(threadResume.id, { thread: { id: threadId } }));
+  }
+
+  async function expectExistingGoalStatusCommand(
+    sessionId: string,
+    command: string,
+    expectedStatus: string,
+  ): Promise<void> {
+    const session = createSession({ sessionId });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+    const threadId = `${sessionId}-thread`;
+
+    await establishCodexThread(session, messages, threadId, `${sessionId}-turn`);
+
+    session.sendMessage(command, { model: "codex:gpt-5.5" });
+
+    await resumeCodexGoalThread(threadId);
+    const goalSet = await waitForStdinMethod(mockProc, "thread/goal/set");
+    expect(goalSet.params).toEqual({
+      threadId,
+      status: expectedStatus,
+    });
+    mockProc._stdout.push(appServerResponse(goalSet.id, {
+      goal: {
+        threadId,
+        status: expectedStatus,
+      },
+    }));
+
+    await waitForMessages(messages, "done", 2);
+    expect(countStdinMethod(mockProc, "turn/start")).toBe(1);
+  }
+
   it("survives emit(\"error\") with no external listeners attached", () => {
     const session = createSession({ command: "bash" });
     // Node throws (and would crash the process) on an unhandled "error" event;
@@ -981,80 +1057,72 @@ describe("ConversationSession", () => {
     expect(session.metadata.providerSessionId).toBe("thread-goal-1");
   });
 
-  it("routes Codex /goal clear through thread/goal/clear without starting a turn", async () => {
+  it("refuses fresh Codex /goal without creating a provider thread", async () => {
+    await expectFreshGoalManagementCommandRejected("goal-fresh-get-command-session", "/goal");
+  });
+
+  it("refuses fresh Codex /goal clear without creating a provider thread", async () => {
+    await expectFreshGoalManagementCommandRejected("goal-fresh-clear-command-session", "/goal clear");
+  });
+
+  it("refuses fresh Codex /goal complete without treating complete as an objective", async () => {
+    await expectFreshGoalManagementCommandRejected("goal-fresh-complete-command-session", "/goal complete");
+  });
+
+  it("routes existing Codex /goal clear through thread/goal/clear without starting a turn", async () => {
     const session = createSession({ sessionId: "goal-clear-command-session" });
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
+    await establishCodexThread(session, messages, "thread-goal-clear", "turn-goal-clear");
+
     session.sendMessage("/goal clear", { model: "codex:gpt-5.5" });
 
-    await respondToAppServerThreadStart(mockProc, "thread-goal-clear");
+    await resumeCodexGoalThread("thread-goal-clear");
     const goalClear = await waitForStdinMethod(mockProc, "thread/goal/clear");
     expect(goalClear.params).toEqual({ threadId: "thread-goal-clear" });
     mockProc._stdout.push(appServerResponse(goalClear.id, {}));
 
-    await waitForMessages(messages, "done");
-    expect(countStdinMethod(mockProc, "turn/start")).toBe(0);
-    const userMessage = (await session.getMessages()).find((msg) => msg.role === "user");
+    await waitForMessages(messages, "done", 2);
+    expect(countStdinMethod(mockProc, "turn/start")).toBe(1);
+    const userMessage = (await session.getMessages()).find((msg) => msg.role === "user" && msg.content === "/goal clear");
     expect(userMessage?.goalCommand).toBe(true);
   });
 
-  it("routes Codex /goal pause through thread/goal/set with paused status", async () => {
-    const session = createSession({ sessionId: "goal-pause-command-session" });
-    const messages: WsOutgoing[] = [];
-    session.on("message", (msg) => messages.push(msg));
-
-    session.sendMessage("/goal pause", { model: "codex:gpt-5.5" });
-
-    await respondToAppServerThreadStart(mockProc, "thread-goal-pause");
-    const goalSet = await waitForStdinMethod(mockProc, "thread/goal/set");
-    expect(goalSet.params).toEqual({
-      threadId: "thread-goal-pause",
-      status: "paused",
-    });
-    mockProc._stdout.push(appServerResponse(goalSet.id, {
-      goal: {
-        threadId: "thread-goal-pause",
-        status: "paused",
-      },
-    }));
-
-    await waitForMessages(messages, "done");
-    expect(countStdinMethod(mockProc, "turn/start")).toBe(0);
+  it("routes existing Codex /goal pause through thread/goal/set with paused status", async () => {
+    await expectExistingGoalStatusCommand("goal-pause-command-session", "/goal pause", "paused");
   });
 
-  it("routes Codex /goal resume through thread/goal/set with active status", async () => {
-    const session = createSession({ sessionId: "goal-resume-command-session" });
-    const messages: WsOutgoing[] = [];
-    session.on("message", (msg) => messages.push(msg));
-
-    session.sendMessage("/goal resume", { model: "codex:gpt-5.5" });
-
-    await respondToAppServerThreadStart(mockProc, "thread-goal-resume");
-    const goalSet = await waitForStdinMethod(mockProc, "thread/goal/set");
-    expect(goalSet.params).toEqual({
-      threadId: "thread-goal-resume",
-      status: "active",
-    });
-    mockProc._stdout.push(appServerResponse(goalSet.id, {
-      goal: {
-        threadId: "thread-goal-resume",
-        status: "active",
-      },
-    }));
-
-    await waitForMessages(messages, "done");
-    expect(countStdinMethod(mockProc, "turn/start")).toBe(0);
+  it("routes existing Codex /goal resume through thread/goal/set with active status", async () => {
+    await expectExistingGoalStatusCommand("goal-resume-command-session", "/goal resume", "active");
   });
 
-  it("routes bare Codex /goal through thread/goal/get without starting a turn", async () => {
+  it("routes existing Codex /goal complete through thread/goal/set with complete status", async () => {
+    await expectExistingGoalStatusCommand("goal-complete-command-session", "/goal complete", "complete");
+  });
+
+  it("routes existing Codex /goal blocked through thread/goal/set with blocked status", async () => {
+    await expectExistingGoalStatusCommand("goal-blocked-command-session", "/goal blocked", "blocked");
+  });
+
+  it("routes existing Codex /goal usage-limited through thread/goal/set with usageLimited status", async () => {
+    await expectExistingGoalStatusCommand("goal-usage-limited-command-session", "/goal usage-limited", "usageLimited");
+  });
+
+  it("routes existing Codex /goal budget-limited through thread/goal/set with budgetLimited status", async () => {
+    await expectExistingGoalStatusCommand("goal-budget-limited-command-session", "/goal budget-limited", "budgetLimited");
+  });
+
+  it("routes existing bare Codex /goal through thread/goal/get without starting a turn", async () => {
     const session = createSession({ sessionId: "goal-get-command-session" });
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
+    await establishCodexThread(session, messages, "thread-goal-get", "turn-goal-get");
+
     session.sendMessage("/goal", { model: "codex:gpt-5.5" });
 
-    await respondToAppServerThreadStart(mockProc, "thread-goal-get");
+    await resumeCodexGoalThread("thread-goal-get");
     const goalGet = await waitForStdinMethod(mockProc, "thread/goal/get");
     expect(goalGet.params).toEqual({ threadId: "thread-goal-get" });
     mockProc._stdout.push(appServerResponse(goalGet.id, {
@@ -1065,9 +1133,9 @@ describe("ConversationSession", () => {
       },
     }));
 
-    await waitForMessages(messages, "done");
-    expect(countStdinMethod(mockProc, "turn/start")).toBe(0);
-    const userMessage = (await session.getMessages()).find((msg) => msg.role === "user");
+    await waitForMessages(messages, "done", 2);
+    expect(countStdinMethod(mockProc, "turn/start")).toBe(1);
+    const userMessage = (await session.getMessages()).find((msg) => msg.role === "user" && msg.content === "/goal");
     expect(userMessage?.goalCommand).toBe(true);
   });
 
