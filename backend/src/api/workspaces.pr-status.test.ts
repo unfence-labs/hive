@@ -316,6 +316,39 @@ describe("GET /api/workspaces/:wsId/pr-status", () => {
 });
 
 describe("POST /api/workspaces/pr-status/bulk", () => {
+  it("limits concurrent GitHub PR status fetches", async () => {
+    const workspaces = Array.from({ length: 6 }, (_, index): Workspace => ({
+      ...workspace,
+      id: `ws-${index + 1}`,
+      name: `city-${index + 1}`,
+      branch: `workspace/city-${index + 1}`,
+    }));
+    mocks.getWorkspace.mockImplementation(async (wsId: string) => {
+      const found = workspaces.find((entry) => entry.id === wsId);
+      return found ? { workspace: found, projectState: { ...projectState, workspaces } } : null;
+    });
+
+    let active = 0;
+    let maxActive = 0;
+    mocks.fetchPrForBranch.mockImplementation(async () => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active--;
+      return { pr: makePr() };
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/workspaces/pr-status/bulk",
+      payload: { workspaceIds: workspaces.map((entry) => entry.id) },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(mocks.fetchPrForBranch).toHaveBeenCalledTimes(6);
+    expect(maxActive).toBeLessThanOrEqual(3);
+  });
+
   it("returns PR status for multiple workspaces", async () => {
     const ws2: Workspace = { ...workspace, id: "ws-2", name: "paris", branch: "workspace/paris" };
     const ps2: ProjectState = { ...projectState, workspaces: [ws2] };

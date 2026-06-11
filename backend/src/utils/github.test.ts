@@ -616,6 +616,32 @@ describe("fetchPrForBranch", () => {
     expect(error).toContain("API rate limit exceeded");
   });
 
+  it("pauses PR status refresh after a gh rate-limit error", async () => {
+    const execFileMock = await getExecFileMock();
+    let now = 100_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    execFileMock.mockImplementationOnce(
+      mockExecFileError({ stderr: "API rate limit exceeded" }),
+    );
+
+    const first = await fetchPrForBranch("acme", "widget", "rate-limited");
+    expect(first.error).toContain("API rate limit exceeded");
+
+    execFileMock.mockClear();
+    const second = await fetchPrForBranch("acme", "widget", "skipped");
+    expect(second.pr).toBeNull();
+    expect(second.error).toContain("GitHub rate limit reached");
+    expect(execFileMock).not.toHaveBeenCalled();
+
+    now += 5 * 60_000 + 1;
+    execFileMock.mockImplementationOnce(mockExecFileSuccess("[]"));
+    const third = await fetchPrForBranch("acme", "widget", "retry");
+    expect(third.error).toBeUndefined();
+    expect(execFileMock).toHaveBeenCalled();
+
+    nowSpy.mockRestore();
+  });
+
   it("keeps retrying after non-ENOENT errors (not permanently disabled)", async () => {
     const execFileMock = await getExecFileMock();
 

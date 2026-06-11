@@ -28,7 +28,7 @@ import { useWorkspaceLiveDataContext } from "@/contexts/WorkspaceLiveDataContext
 import { useProjects } from "@/hooks/useProjects";
 import { useBrain } from "@/hooks/useBrain";
 import { useBulkPrStatus, usePrStatusMap } from "@/hooks/usePrStatus";
-import { useSidebarProjectFolders } from "@/hooks/useSidebarProjectFolders";
+import { useSidebarProjectFolders, type SidebarProjectFolderView } from "@/hooks/useSidebarProjectFolders";
 import { api } from "@/hooks/useApi";
 import {
   automationSortKey,
@@ -72,6 +72,44 @@ type ProjectOrderDropTarget = {
   projectId: string;
   position: "before" | "after";
 };
+
+export function collectVisiblePrWorkspaceIds({
+  folders,
+  rootProjects,
+  expandedProjects,
+  activeProjectId,
+  activeWsId,
+  isFolderExpanded,
+}: {
+  folders: SidebarProjectFolderView[];
+  rootProjects: Project[];
+  expandedProjects: Record<string, boolean>;
+  activeProjectId?: string;
+  activeWsId?: string;
+  isFolderExpanded: (folderId: string) => boolean;
+}): string[] {
+  const visible = new Set<string>();
+  const isProjectExpanded = (projectId: string) => {
+    const expanded = expandedProjects[projectId];
+    if (typeof expanded === "boolean") return expanded;
+    return activeProjectId === projectId;
+  };
+  const addProjectWorkspaces = (project: Project) => {
+    if (!isProjectExpanded(project.id)) return;
+    for (const workspace of project.workspaces ?? []) {
+      visible.add(workspace.id);
+    }
+  };
+
+  for (const folder of folders) {
+    if (!isFolderExpanded(folder.id)) continue;
+    for (const project of folder.projects) addProjectWorkspaces(project);
+  }
+  for (const project of rootProjects) addProjectWorkspaces(project);
+  if (activeWsId) visible.add(activeWsId);
+
+  return [...visible];
+}
 
 const sidebarPanelScrollClassName =
   "[&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!min-w-full [&_[data-slot=scroll-area-viewport]>div]:!w-full";
@@ -135,16 +173,6 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     (project.workspaces ?? []).some((workspace) => workspace.id === activeWsId),
   )?.id;
 
-  const allWsIds = useMemo(
-    () => projects.flatMap((p) => (p.workspaces ?? []).map((ws) => ws.id)),
-    [projects],
-  );
-  const { loading: prLoading } = useBulkPrStatus(allWsIds);
-  const prStatuses = usePrStatusMap(allWsIds);
-  const sortedAutomations = useMemo(() => {
-    if (!automations) return [];
-    return [...automations].sort((a, b) => automationSortKey(a) - automationSortKey(b));
-  }, [automations]);
   const {
     folders,
     rootProjects,
@@ -159,6 +187,23 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     setFolderExpanded,
     getFolderIdForProject,
   } = useSidebarProjectFolders(projects, projectsReady);
+  const visiblePrWorkspaceIds = useMemo(
+    () => collectVisiblePrWorkspaceIds({
+      folders,
+      rootProjects,
+      expandedProjects,
+      activeProjectId,
+      activeWsId,
+      isFolderExpanded,
+    }),
+    [activeProjectId, activeWsId, expandedProjects, folders, isFolderExpanded, rootProjects],
+  );
+  const { loadingByWorkspace: prLoadingByWorkspace } = useBulkPrStatus(visiblePrWorkspaceIds);
+  const prStatuses = usePrStatusMap(visiblePrWorkspaceIds);
+  const sortedAutomations = useMemo(() => {
+    if (!automations) return [];
+    return [...automations].sort((a, b) => automationSortKey(a) - automationSortKey(b));
+  }, [automations]);
   const projectsAppearIncomplete = projectsReady
     && projects.length === 0
     && folders.some((folder) => folder.projectIds.length > folder.projects.length);
@@ -436,7 +481,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
         activeWsId={activeWsId}
         liveData={liveData}
         prStatuses={prStatuses}
-        prLoading={prLoading}
+        prLoadingByWorkspace={prLoadingByWorkspace}
         creatingProjectId={creatingProjectId}
         archivingWsId={archivingWsId}
         canReorder={hasInitialHydration}

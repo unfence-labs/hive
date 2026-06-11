@@ -36,6 +36,7 @@ final class HubStatusMonitor {
     private var bulkPrPollTask: Task<Void, Never>?
     private var prPollingIds: Set<String> = []
     private let apiClient = APIClient()
+    private let prPollInterval: Duration = .seconds(15)
     private let isoFormatter = ISO8601DateFormatter()
     private let fractionalIsoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -194,13 +195,8 @@ final class HubStatusMonitor {
 
     /// Start/stop PR status polling to match the given workspace IDs.
     /// Uses a single bulk request instead of per-workspace polling.
-    func syncPrPolling(visibleWorkspaceIds: [String]) {
-        let desired = Set(visibleWorkspaceIds)
-
-        // Clean up removed workspaces
-        for id in prPollingIds.subtracting(desired) {
-            workspacePrStatus.removeValue(forKey: id)
-        }
+    func syncPrPolling(workspaceIds: [String]) {
+        let desired = Set(workspaceIds)
 
         prPollingIds = desired
 
@@ -225,9 +221,13 @@ final class HubStatusMonitor {
                 } catch {
                     // Silently ignore — cards show stale or "No PR"
                 }
-                try? await Task.sleep(for: .seconds(15))
+                try? await Task.sleep(for: self.prPollInterval)
             }
         }
+    }
+
+    func syncPrPolling(visibleWorkspaceIds: [String]) {
+        syncPrPolling(workspaceIds: visibleWorkspaceIds)
     }
 
     // MARK: - Called by HubConnection
