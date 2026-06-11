@@ -249,12 +249,12 @@ struct ChatImageTileWithLightbox: View {
             onOpenLightbox: hasSource ? { present() } : nil
         )
         // Track the tile's on-screen rect so the lightbox can zoom from it.
-        .background {
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear { sourceFrame = proxy.frame(in: .global) }
-                    .onChange(of: proxy.frame(in: .global)) { sourceFrame = $1 }
-            }
+        // onGeometryChange delivers the real frame once layout settles (even
+        // with no scroll), unlike onAppear which can fire before layout.
+        .onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .global)
+        } action: { newFrame in
+            sourceFrame = newFrame
         }
         .fullScreenCover(isPresented: $showLightbox) {
             if let source, hasSource {
@@ -334,7 +334,7 @@ struct ChatImageLightbox: View {
         .ignoresSafeArea()
         .task(id: source) { await loader.loadFull(source: source, previewSize: sourceSize) }
         .onAppear {
-            withAnimation(.spring(response: 0.36, dampingFraction: 0.86)) {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
                 revealed = true
             }
         }
@@ -432,7 +432,7 @@ struct ChatImageLightbox: View {
     /// Reverse the zoom back into the tile (frame/position/radius) while the
     /// backdrop fades out, then remove the cover without the system slide.
     private func close() {
-        withAnimation(.easeInOut(duration: 0.26)) {
+        withAnimation(.easeInOut(duration: 0.2)) {
             revealed = false
             drag = .zero
         } completion: {
