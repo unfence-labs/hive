@@ -207,7 +207,6 @@ struct ChatImageTileWithLightbox: View {
     var noPreviewMessage: String? = nil
 
     @State private var showLightbox = false
-    @Namespace private var transitionNamespace
 
     private var hasSource: Bool { !(source?.isEmpty ?? true) }
 
@@ -218,17 +217,23 @@ struct ChatImageTileWithLightbox: View {
             size: size,
             cornerRadius: cornerRadius,
             noPreviewMessage: noPreviewMessage,
-            onOpenLightbox: hasSource ? { showLightbox = true } : nil
+            onOpenLightbox: hasSource ? { present() } : nil
         )
-        // Zoom transition (iOS 18+): the lightbox expands from the tile's
-        // position instead of the default modal slide-up.
-        .matchedTransitionSource(id: "image", in: transitionNamespace)
         .fullScreenCover(isPresented: $showLightbox) {
             if let source, hasSource {
-                ChatImageLightbox(source: source)
-                    .navigationTransition(.zoom(sourceID: "image", in: transitionNamespace))
+                ChatImageLightbox(source: source, isPresented: $showLightbox)
+                    // Transparent so the lightbox owns its own dim backdrop and
+                    // we never see the opaque system cover behind it.
+                    .presentationBackground(.clear)
             }
         }
+    }
+
+    // Present without the system slide; the lightbox runs its own fade/zoom in.
+    private func present() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { showLightbox = true }
     }
 }
 
@@ -239,48 +244,115 @@ struct ChatImageTileWithLightbox: View {
 /// Mirrors `frontend/src/components/chat/ImageLightbox.tsx`.
 struct ChatImageLightbox: View {
     let source: String
+    @Binding var isPresented: Bool
 
-    @Environment(\.dismiss) private var dismiss
     @State private var loader = ChatImageLoader()
+    @State private var revealed = false
+    @State private var drag: CGSize = .zero
+
+    /// Drag distance (pts) at which the backdrop reaches 0; release past
+    /// `dismissThreshold` dismisses, otherwise the image springs back.
+    private let dismissDistance: CGFloat = 220
+    private let dismissThreshold: CGFloat = 110
+
+    private var dragAmount: CGFloat { hypot(drag.width, drag.height) }
+    private var dragProgress: CGFloat { min(dragAmount / dismissDistance, 1) }
+
+    /// Backdrop opacity is coupled to both the enter/exit reveal and the live
+    /// drag, so it is ~0 whenever the image is small/near the tile and 1 only
+    /// when the image sits full-screen — the Telegram-style behavior.
+    private var backdropOpacity: Double {
+        guard revealed else { return 0 }
+        return Double(1 - dragProgress)
+    }
+
+    private var imageScale: CGFloat {
+        guard revealed else { return 0.82 }
+        return 1 - dragProgress * 0.3
+    }
 
     var body: some View {
         ZStack {
-            if let image = loader.loadedImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .padding()
-            } else if loader.isError {
-                Image(systemName: "photo")
-                    .font(.system(size: 44))
-                    .foregroundStyle(.white.opacity(0.5))
-            } else {
-                ProgressView().tint(.white)
-            }
+            Color.black
+                .opacity(backdropOpacity)
+                .ignoresSafeArea()
 
-            VStack {
-                HStack {
-                    Spacer()
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(WhisperColor.text)
-                            .padding(10)
-                            .background(WhisperColor.imageControlBg, in: Circle())
-                    }
-                    .padding(.top, 8)
-                    .padding(.trailing, 16)
-                }
-                Spacer()
-            }
+            imageContent
+                .scaleEffect(imageScale)
+                .offset(drag)
+                .opacity(revealed ? 1 : 0)
+
+            closeButton
+                .opacity(backdropOpacity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
-        .onTapGesture { dismiss() }
+        .gesture(dragGesture)
+        .onTapGesture { close(translation: drag) }
         .task(id: source) { await loader.load(source: source, maxSize: nil) }
-        // The dim backdrop is a presentation-level layer (not part of the
-        // zoomed content), so it fades on present/dismiss instead of scaling
-        // with the morph — which is what caused the black-box glitch.
-        .presentationBackground(Color.black.opacity(0.92))
+        .onAppear {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+                revealed = true
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var imageContent: some View {
+        if let image = loader.loadedImage {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .padding()
+        } else if loader.isError {
+            Image(systemName: "photo")
+                .font(.system(size: 44))
+                .foregroundStyle(.white.opacity(0.5))
+        } else {
+            ProgressView().tint(.white)
+        }
+    }
+
+    private var closeButton: some View {
+        VStack {
+            HStack {
+                Spacer()
+                Button { close(translation: .zero) } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(WhisperColor.text)
+                        .padding(10)
+                        .background(WhisperColor.imageControlBg, in: Circle())
+                }
+                .padding(.top, 8)
+                .padding(.trailing, 16)
+            }
+            Spacer()
+        }
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture()
+            .onChanged { drag = $0.translation }
+            .onEnded { value in
+                if hypot(value.translation.width, value.translation.height) > dismissThreshold {
+                    close(translation: value.translation)
+                } else {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) { drag = .zero }
+                }
+            }
+    }
+
+    /// Shrink + fade the image (continuing any drag) while the backdrop fades
+    /// out, then remove the cover without the system slide.
+    private func close(translation: CGSize) {
+        withAnimation(.easeOut(duration: 0.24)) {
+            revealed = false
+            drag = translation
+        } completion: {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { isPresented = false }
+        }
     }
 }
