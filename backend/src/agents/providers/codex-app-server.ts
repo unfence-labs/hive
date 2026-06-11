@@ -474,6 +474,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       }
       case "thread/tokenUsage/updated":
+        if (this.isForeignThread(asString(data?.threadId))) break;
         this.lastUsage = asRecord(data?.tokenUsage) as TokenUsage | undefined;
         break;
       case "remoteControl/status/changed":
