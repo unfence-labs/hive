@@ -36,7 +36,7 @@ final class HubStatusMonitor {
     private var bulkPrPollTask: Task<Void, Never>?
     private var prPollingIds: Set<String> = []
     private let apiClient = APIClient()
-    private let prPollInterval: Duration = .seconds(60)
+    private let prPollInterval: Duration = .seconds(15)
     private let isoFormatter = ISO8601DateFormatter()
     private let fractionalIsoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()

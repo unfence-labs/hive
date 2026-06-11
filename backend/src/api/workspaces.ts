@@ -29,7 +29,7 @@ import { headerFilename, rawFileContentType } from "../utils/raw-file.js";
 import type { BulkPrStatusResponse, DiffScope, PrStatusResponse } from "../types.js";
 
 const DIFF_SCOPES = new Set<DiffScope>(["combined", "committed", "uncommitted"]);
-const PR_TTL = 60_000;
+const PR_TTL = 15_000;
 const PR_BULK_CONCURRENCY = 3;
 
 function parseDiffScope(scope: unknown): DiffScope {

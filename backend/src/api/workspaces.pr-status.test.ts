@@ -224,7 +224,7 @@ describe("GET /api/workspaces/:wsId/pr-status", () => {
       method: "GET",
       url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,
     });
-    now += 60_001;
+    now += 15_001;
     const second = await app.inject({
       method: "GET",
       url: `/api/workspaces/${WORKSPACE_ID}/pr-status`,

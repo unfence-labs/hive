@@ -12,8 +12,8 @@ import type { BulkPrStatusResponse, PrStatusResponse } from "@/types";
 export const prStatusKey = (wsId: string) => ["pr-status", wsId] as const;
 
 const PR_GC_TIME = 5 * 60_000;
-const PR_REFETCH_INTERVAL = 60_000;
-const PR_STALE_TIME = 45_000;
+const PR_REFETCH_INTERVAL = 15_000;
+const PR_STALE_TIME = 10_000;
 
 function readPrStatusFromCache(
   queryClient: ReturnType<typeof useQueryClient>,
