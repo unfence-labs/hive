@@ -759,11 +759,12 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         if (parentToolUseId && this.isCollabAgentSelfReference(collabItem, context.threadId)) {
           break;
         }
-        // Only spawnAgent owns its receiver threads. wait/closeAgent reference
-        // the same threads but must not steal the children: their live items
-        // and replay catch-ups belong under the original Agent card.
+        // spawnAgent owns receiver threads when observed. wait/closeAgent only
+        // become fallback owners for threads whose spawn was missed.
         if (collabItem.tool === "spawnAgent") {
           this.rememberCollabAgentReceivers(collabItem);
+        } else {
+          this.rememberFallbackCollabAgentReceivers(collabItem);
         }
         this.emitToolUse(collabItem.id, "Agent", JSON.stringify(collabAgentToolInput(collabItem)), parentToolUseId);
         if (phase === "completed") {
@@ -856,6 +857,14 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private rememberCollabAgentReceivers(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): void {
     for (const threadId of collabAgentReceiverThreadIds(item)) {
       this.collabParentByThreadId.set(threadId, item.id);
+    }
+  }
+
+  private rememberFallbackCollabAgentReceivers(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): void {
+    for (const threadId of collabAgentReceiverThreadIds(item)) {
+      if (!this.collabParentByThreadId.has(threadId)) {
+        this.collabParentByThreadId.set(threadId, item.id);
+      }
     }
   }
 

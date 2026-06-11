@@ -1266,6 +1266,53 @@ describe("CodexAppServerSession normalized events", () => {
     expect(lateChild).toEqual(expect.objectContaining({ parentToolUseId: "collab-1" }));
   });
 
+  it("keeps live receiver-thread tools under a fallback closeAgent card when spawn was missed", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: Array<{ message: { content: Array<Record<string, unknown>> } }> = [];
+    session.on("assistant", (event) => assistantEvents.push(event as never));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-close-1",
+          tool: "closeAgent",
+          status: "completed",
+          receiverThreadIds: ["thread-child"],
+        },
+      },
+    }) + "\n");
+    const read = await waitForMethod(proc, "thread/read");
+    proc._stdout.push(appServerResponse(read.id, { thread: { id: "thread-child", turns: [] } }));
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "commandExecution",
+          id: "child-cmd-late",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "inProgress",
+        },
+      },
+    }) + "\n");
+
+    await waitForCondition(() =>
+      assistantEvents.some((event) => event.message.content.some((block) => block.id === "child-cmd-late")),
+    );
+    const lateChild = assistantEvents
+      .flatMap((event) => event.message.content)
+      .find((block) => block.id === "child-cmd-late");
+    expect(lateChild).toEqual(expect.objectContaining({ parentToolUseId: "collab-close-1" }));
+  });
+
   it("preserves collab parent mapping across a turn boundary (goal continuation)", async () => {
     // With goals, a single prompt spans several autonomous turns. A sub-agent
     // spawned in one turn can emit live items in a later turn; the per-turn reset
