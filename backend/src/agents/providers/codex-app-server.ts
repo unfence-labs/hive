@@ -430,9 +430,16 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     const data = asRecord(params);
     switch (method) {
       case "thread/started":
-        this.threadId = asString(asRecord(data?.thread)?.id) ?? this.threadId;
+        // Only adopt a thread id when we do not own one yet: the App Server
+        // auto-attaches this connection to spawned sub-agent threads, and a
+        // foreign id here would corrupt turn tracking for the main thread.
+        this.threadId ??= asString(asRecord(data?.thread)?.id);
         break;
       case "turn/started": {
+        // Sub-agent (collab) threads emit their own turn lifecycle. Tracking
+        // them as the active turn would make the main thread's turn/completed
+        // look stale and get dropped, leaving the session streaming forever.
+        if (this.isForeignThread(asString(data?.threadId))) break;
         const turn = asRecord(data?.turn);
         const threadId = asString(data?.threadId) ?? this.threadId;
         const turnId = asString(turn?.id);
@@ -792,6 +799,12 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     return Boolean(threadId && collabAgentReceiverThreadIds(item).includes(threadId));
   }
 
+  /** True when a notification belongs to another thread (a spawned sub-agent
+   *  thread the App Server auto-attached us to), not the session's own thread. */
+  private isForeignThread(threadId: string | undefined): boolean {
+    return Boolean(threadId && this.threadId && threadId !== this.threadId);
+  }
+
   private parentToolUseIdForThread(threadId: string | undefined): string | undefined {
     return threadId ? this.collabParentByThreadId.get(threadId) : undefined;
   }
@@ -838,6 +851,9 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   private handleTurnCompleted(data: JsonObject | null): void {
+    // Turn completions for sub-agent threads end that sub-thread's turn, not
+    // ours; only the main thread's turn/completed may finalize the session turn.
+    if (this.isForeignThread(asString(data?.threadId))) return;
     const turn = asRecord(data?.turn);
     const turnId = asString(turn?.id);
     if (turnId && this.completedTurnIds.has(turnId)) return;

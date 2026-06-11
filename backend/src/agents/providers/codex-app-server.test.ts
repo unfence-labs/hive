@@ -176,6 +176,62 @@ describe("CodexAppServerSession request handling", () => {
     expect(session.capturedTurnId).toBe("turn-2");
   });
 
+  it("ignores turn lifecycle notifications from sub-agent threads", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const turnStartedEvents: unknown[] = [];
+    const resultEvents: Array<Record<string, unknown>> = [];
+    session.on("turn_started", (event) => turnStartedEvents.push(event));
+    session.on("result", (event) => resultEvents.push(event as unknown as Record<string, unknown>));
+    await initializeSession(session, proc);
+
+    // The App Server auto-attaches the client to spawned sub-agent threads and
+    // forwards their turn lifecycle too. Those must never hijack active-turn
+    // tracking: before this guard, the sub-thread's turn/started overwrote
+    // activeTurnId and the main turn/completed was dropped as stale (ghost turn).
+    proc._stdout.push(JSON.stringify({
+      method: "turn/started",
+      params: { threadId: "thread-child", turn: { id: "turn-child" } },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "turn/completed",
+      params: { threadId: "thread-child", turn: { id: "turn-child", status: "completed" } },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "turn/completed",
+      params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed", durationMs: 42 } },
+    }) + "\n");
+
+    await waitForCondition(() => resultEvents.length === 1);
+    expect(turnStartedEvents).toEqual([]);
+    expect(session.capturedThreadId).toBe("thread-1");
+    expect(resultEvents).toEqual([
+      expect.objectContaining({
+        type: "result",
+        status: "completed",
+        turn_id: "turn-1",
+        session_id: "thread-1",
+        duration_ms: 42,
+      }),
+    ]);
+  });
+
+  it("does not adopt foreign thread ids from thread/started notifications", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "thread/started",
+      params: { thread: { id: "thread-child" } },
+    }) + "\n");
+
+    await waitForCondition(() => parseWrites(proc).length > 0);
+    expect(session.capturedThreadId).toBe("thread-1");
+  });
+
   it("rejects known unsupported request paths with clear errors", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
