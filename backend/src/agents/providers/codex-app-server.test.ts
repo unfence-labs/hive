@@ -155,21 +155,338 @@ describe("CodexAppServerSession request handling", () => {
     );
   });
 
+  it("sets a goal on a materialized thread without starting a turn", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession({ enableGoals: true });
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+
+    const pending = session.setGoal(
+      { objective: "Ship backend support", status: "active" },
+      { cwd: "/tmp/project", model: "gpt-5.5" },
+    );
+
+    const initialize = await waitForMethod(proc, "initialize");
+    proc._stdout.push(appServerResponse(initialize.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForMethod(proc, "thread/start");
+    proc._stdout.push(appServerResponse(threadStart.id, { thread: { id: "thread-goal" } }));
+
+    const goalSet = await waitForMethod(proc, "thread/goal/set");
+    const goalSetWrite = parseWrites(proc).find((write) => write.method === "thread/goal/set");
+    expect(goalSetWrite).toMatchObject({
+      params: {
+        threadId: "thread-goal",
+        objective: "Ship backend support",
+        status: "active",
+      },
+    });
+    proc._stdout.push(appServerResponse(goalSet.id, {
+      goal: {
+        threadId: "thread-goal",
+        objective: "Ship backend support",
+        status: "active",
+      },
+    }));
+
+    await expect(pending).resolves.toEqual({
+      threadId: "thread-goal",
+      goal: {
+        threadId: "thread-goal",
+        objective: "Ship backend support",
+        status: "active",
+      },
+    });
+    expect(parseWrites(proc).filter((write) => write.method === "turn/start")).toHaveLength(0);
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "goal_updated",
+        active: true,
+        threadId: "thread-goal",
+        objective: "Ship backend support",
+        status: "active",
+      }),
+    ]);
+
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/updated",
+      params: {
+        goal: {
+          threadId: "thread-goal",
+          objective: "Ship backend support",
+          status: "active",
+        },
+      },
+    }) + "\n");
+    expect(events).toHaveLength(1);
+
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/updated",
+      params: {
+        goal: {
+          threadId: "thread-goal",
+          objective: "Ship backend support",
+          status: "active",
+          tokensUsed: 10,
+        },
+      },
+    }) + "\n");
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "goal_updated",
+        active: true,
+        threadId: "thread-goal",
+        objective: "Ship backend support",
+        status: "active",
+      }),
+      expect.objectContaining({
+        type: "goal_updated",
+        active: true,
+        threadId: "thread-goal",
+        objective: "Ship backend support",
+        status: "active",
+        tokensUsed: 10,
+      }),
+    ]);
+  });
+
+  it("clears a goal on a materialized thread without starting a turn", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession({ enableGoals: true });
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+
+    const pending = session.clearGoal({ cwd: "/tmp/project", model: "gpt-5.5" });
+
+    const initialize = await waitForMethod(proc, "initialize");
+    proc._stdout.push(appServerResponse(initialize.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+    const threadStart = await waitForMethod(proc, "thread/start");
+    proc._stdout.push(appServerResponse(threadStart.id, { thread: { id: "thread-goal-clear" } }));
+    const goalClear = await waitForMethod(proc, "thread/goal/clear");
+    const goalClearWrite = parseWrites(proc).find((write) => write.method === "thread/goal/clear");
+    expect(goalClearWrite).toMatchObject({
+      params: { threadId: "thread-goal-clear" },
+    });
+    proc._stdout.push(appServerResponse(goalClear.id, {}));
+
+    await expect(pending).resolves.toEqual({ threadId: "thread-goal-clear", goal: null });
+    expect(parseWrites(proc).filter((write) => write.method === "turn/start")).toHaveLength(0);
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "goal_updated",
+        active: false,
+        threadId: "thread-goal-clear",
+      }),
+    ]);
+
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/cleared",
+      params: {
+        threadId: "thread-goal-clear",
+      },
+    }) + "\n");
+    expect(events).toHaveLength(1);
+  });
+
+  it("emits goal state from get responses without waiting for notifications", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession({ enableGoals: true });
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+
+    const first = session.getGoal({ cwd: "/tmp/project", model: "gpt-5.5" });
+
+    const initialize = await waitForMethod(proc, "initialize");
+    proc._stdout.push(appServerResponse(initialize.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+    const threadStart = await waitForMethod(proc, "thread/start");
+    proc._stdout.push(appServerResponse(threadStart.id, { thread: { id: "thread-goal-get" } }));
+    const firstGoalGet = await waitForMethod(proc, "thread/goal/get");
+    proc._stdout.push(appServerResponse(firstGoalGet.id, {
+      goal: {
+        threadId: "thread-goal-get",
+        objective: "Keep the UI current",
+        status: "active",
+      },
+    }));
+
+    await expect(first).resolves.toEqual({
+      threadId: "thread-goal-get",
+      goal: {
+        threadId: "thread-goal-get",
+        objective: "Keep the UI current",
+        status: "active",
+      },
+    });
+
+    const second = session.getGoal({ cwd: "/tmp/project", model: "gpt-5.5" });
+    const secondGoalGet = await waitForNthMethod(proc, "thread/goal/get", 2);
+    proc._stdout.push(appServerResponse(secondGoalGet.id, { goal: null }));
+
+    await expect(second).resolves.toEqual({ threadId: "thread-goal-get", goal: null });
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "goal_updated",
+        active: true,
+        threadId: "thread-goal-get",
+        objective: "Keep the UI current",
+        status: "active",
+      }),
+      expect.objectContaining({
+        type: "goal_updated",
+        active: false,
+        threadId: "thread-goal-get",
+      }),
+    ]);
+    expect(parseWrites(proc).filter((write) => write.method === "turn/start")).toHaveLength(0);
+  });
+
+  it("emits repeated explicit goal reads when the goal state is unchanged", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession({ enableGoals: true });
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    const goal = {
+      threadId: "thread-goal-repeat",
+      objective: "Keep the UI current",
+      status: "active",
+    };
+
+    const first = session.getGoal({ cwd: "/tmp/project", model: "gpt-5.5" });
+
+    const initialize = await waitForMethod(proc, "initialize");
+    proc._stdout.push(appServerResponse(initialize.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+    const threadStart = await waitForMethod(proc, "thread/start");
+    proc._stdout.push(appServerResponse(threadStart.id, { thread: { id: "thread-goal-repeat" } }));
+    const firstGoalGet = await waitForMethod(proc, "thread/goal/get");
+    proc._stdout.push(appServerResponse(firstGoalGet.id, { goal }));
+
+    await expect(first).resolves.toEqual({ threadId: "thread-goal-repeat", goal });
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/updated",
+      params: { goal },
+    }) + "\n");
+    expect(events).toHaveLength(1);
+
+    const second = session.getGoal({ cwd: "/tmp/project", model: "gpt-5.5" });
+    const secondGoalGet = await waitForNthMethod(proc, "thread/goal/get", 2);
+    proc._stdout.push(appServerResponse(secondGoalGet.id, { goal }));
+
+    await expect(second).resolves.toEqual({ threadId: "thread-goal-repeat", goal });
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "goal_updated",
+        active: true,
+        threadId: "thread-goal-repeat",
+        objective: "Keep the UI current",
+        status: "active",
+      }),
+      expect.objectContaining({
+        type: "goal_updated",
+        active: true,
+        threadId: "thread-goal-repeat",
+        objective: "Keep the UI current",
+        status: "active",
+      }),
+    ]);
+
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/updated",
+      params: { goal },
+    }) + "\n");
+    expect(events).toHaveLength(2);
+    expect(parseWrites(proc).filter((write) => write.method === "turn/start")).toHaveLength(0);
+  });
+
+  it("does not suppress a genuine identical-state goal notification after a new turn", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession({ enableGoals: true });
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    const goal = {
+      threadId: "thread-goal-turnreset",
+      objective: "Keep the UI current",
+      status: "active" as const,
+    };
+
+    const read = session.getGoal({ cwd: "/tmp/project", model: "gpt-5.5" });
+    const initialize = await waitForMethod(proc, "initialize");
+    proc._stdout.push(appServerResponse(initialize.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+    const threadStart = await waitForMethod(proc, "thread/start");
+    proc._stdout.push(appServerResponse(threadStart.id, { thread: { id: "thread-goal-turnreset" } }));
+    const goalGet = await waitForMethod(proc, "thread/goal/get");
+    proc._stdout.push(appServerResponse(goalGet.id, { goal }));
+    await expect(read).resolves.toEqual({ threadId: "thread-goal-turnreset", goal });
+    expect(events).toHaveLength(1);
+
+    // A new user turn is a context boundary: it must drop the read's pending
+    // echo key so the next genuine same-state notification is not swallowed.
+    const turn = session.startTurn({ cwd: "/tmp/project", content: "carry on", model: "gpt-5.5" });
+    const turnStart = await waitForMethod(proc, "turn/start");
+    proc._stdout.push(appServerResponse(turnStart.id, { turn: { id: "turn-after-read" } }));
+    await turn;
+
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/updated",
+      params: { goal },
+    }) + "\n");
+    expect(events).toHaveLength(2);
+  });
+
   it("auto-accepts known command and file approval requests", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
     const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
     await initializeSession(session, proc);
 
     proc._stdout.push(appServerRequest(100, "item/commandExecution/requestApproval"));
+    await expect(waitForResponse(proc, 100)).resolves.toMatchObject({ id: 100, result: { decision: "accept" } });
+
+    proc._stdout.push(JSON.stringify({
+      method: "serverRequest/resolved",
+      params: { threadId: "thread-1", requestId: "100" },
+    }) + "\n");
+    expect(events).toEqual([]);
+
     proc._stdout.push(appServerRequest(101, "item/fileChange/requestApproval"));
     proc._stdout.push(appServerRequest(102, "execCommandApproval"));
     proc._stdout.push(appServerRequest(103, "applyPatchApproval"));
 
-    await expect(waitForResponse(proc, 100)).resolves.toMatchObject({ id: 100, result: { decision: "accept" } });
     await expect(waitForResponse(proc, 101)).resolves.toMatchObject({ id: 101, result: { decision: "accept" } });
     await expect(waitForResponse(proc, 102)).resolves.toMatchObject({ id: 102, result: { decision: "approved" } });
     await expect(waitForResponse(proc, 103)).resolves.toMatchObject({ id: 103, result: { decision: "approved" } });
+    expect(events).toEqual([]);
   });
 
   it("emits native turn_started events with thread and turn ids", async () => {
@@ -429,6 +746,10 @@ describe("CodexAppServerSession normalized events", () => {
           effort: "high",
         },
       },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "serverRequest/resolved",
+      params: { threadId: "thread-1", requestId: "req-1" },
     }) + "\n");
 
     expect(events).toEqual([]);
@@ -995,6 +1316,68 @@ describe("CodexAppServerSession normalized events", () => {
         }),
       }),
     ]);
+  });
+
+  it("parents live receiver-thread tools under documented Codex collab tool calls", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: unknown[] = [];
+    const diagnostics: unknown[] = [];
+    session.on("assistant", (event) => assistantEvents.push(event));
+    session.on("agent_event", (event) => diagnostics.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "inProgress",
+          receiverThreadId: "thread-child",
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "commandExecution",
+          id: "child-cmd-1",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "inProgress",
+        },
+      },
+    }) + "\n");
+
+    expect(assistantEvents).toEqual([
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({ type: "tool_use", id: "collab-1", name: "Agent" }),
+          ],
+        }),
+      }),
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({
+              type: "tool_use",
+              id: "child-cmd-1",
+              name: "Bash",
+              parentToolUseId: "collab-1",
+            }),
+          ],
+        }),
+      }),
+    ]);
+    expect(diagnostics).not.toContainEqual(expect.objectContaining({ method: "item/collabToolCall" }));
   });
 
   it("does not re-emit a previous turn's sub-agent tools when closeAgent replays later", async () => {
@@ -1663,6 +2046,88 @@ describe("CodexAppServerSession normalized events", () => {
     expect(resultEvents).toEqual([
       expect.objectContaining({ type: "result", status: "completed", duration_ms: 123 }),
     ]);
+  });
+
+  it("replays documented Codex collab tool call receiver-thread tools under the spawning parent", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: unknown[] = [];
+    const diagnostics: unknown[] = [];
+    session.on("assistant", (event) => assistantEvents.push(event));
+    session.on("agent_event", (event) => diagnostics.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "completed",
+          receiverThreadId: "thread-child",
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabToolCall",
+          id: "collab-wait-1",
+          tool: "wait",
+          status: "completed",
+          receiverThreadId: "thread-child",
+        },
+      },
+    }) + "\n");
+
+    const read = await waitForMethod(proc, "thread/read");
+    expect(parseWrites(proc).find((write) => write.id === read.id)).toMatchObject({
+      method: "thread/read",
+      params: { threadId: "thread-child", includeTurns: true },
+    });
+    proc._stdout.push(appServerResponse(read.id, {
+      thread: {
+        id: "thread-child",
+        turns: [{
+          id: "turn-child",
+          items: [{
+            type: "commandExecution",
+            id: "child-cmd-1",
+            command: "npm test",
+            cwd: "/tmp/project",
+            status: "completed",
+            aggregatedOutput: "ok",
+            exitCode: 0,
+          }],
+        }],
+      },
+    }));
+
+    await waitForCondition(() =>
+      assistantEvents.some((event) =>
+        JSON.stringify(event).includes("child-cmd-1")),
+    );
+    expect(assistantEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({
+              type: "tool_use",
+              id: "child-cmd-1",
+              name: "Bash",
+              parentToolUseId: "collab-1",
+            }),
+          ],
+        }),
+      }),
+    ]));
+    expect(diagnostics).not.toContainEqual(expect.objectContaining({ method: "item/collabToolCall" }));
   });
 
   it("does not replay receiver threads when spawnAgent completes", async () => {

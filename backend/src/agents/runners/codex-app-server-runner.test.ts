@@ -5,6 +5,9 @@ import { CodexAppServerRunner } from "./codex-app-server-runner.js";
 class FakeAppServer extends EventEmitter {
   capturedTurnId: string | undefined;
   startTurn = vi.fn(async () => {});
+  setGoal = vi.fn(async () => ({ threadId: "thread-1", goal: null }));
+  getGoal = vi.fn(async () => ({ threadId: "thread-1", goal: null }));
+  clearGoal = vi.fn(async () => ({ threadId: "thread-1", goal: null }));
   interruptActiveTurn = vi.fn();
   close = vi.fn(() => {
     this.capturedTurnId = undefined;
@@ -96,5 +99,22 @@ describe("CodexAppServerRunner", () => {
     appServer.emit("turn_started", { threadId: "thread-1", turnId: "turn-1" });
 
     expect(events).toEqual([{ threadId: "thread-1", turnId: "turn-1" }]);
+  });
+
+  it("forwards goal commands to the app-server client", async () => {
+    const appServer = new FakeAppServer();
+    const runner = new CodexAppServerRunner(appServer);
+    const options = { cwd: "/tmp/project", model: "gpt-5.5" };
+
+    await runner.setGoal({ objective: "Ship backend support", status: "active" }, options);
+    await runner.getGoal(options);
+    await runner.clearGoal(options);
+
+    expect(appServer.setGoal).toHaveBeenCalledWith(
+      { objective: "Ship backend support", status: "active" },
+      options,
+    );
+    expect(appServer.getGoal).toHaveBeenCalledWith(options);
+    expect(appServer.clearGoal).toHaveBeenCalledWith(options);
   });
 });

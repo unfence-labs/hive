@@ -43,6 +43,40 @@ type TurnStartResponse = {
   turn: { id: string };
 };
 
+export type CodexGoalStatus =
+  | "active"
+  | "paused"
+  | "blocked"
+  | "usageLimited"
+  | "budgetLimited"
+  | "complete";
+
+export type CodexGoal = {
+  threadId: string;
+  objective?: string;
+  status?: CodexGoalStatus;
+  tokenBudget?: number | null;
+  tokensUsed?: number;
+  timeUsedSeconds?: number;
+  createdAt?: number;
+  updatedAt?: number;
+};
+
+export type CodexGoalSetParams = {
+  objective?: string;
+  status?: CodexGoalStatus;
+  tokenBudget?: number | null;
+};
+
+export type CodexGoalResult = {
+  threadId: string;
+  goal?: CodexGoal | null;
+};
+
+type ThreadGoalResponse = {
+  goal?: CodexGoal | null;
+};
+
 type TurnStatus = "completed" | "interrupted" | "failed" | "inProgress";
 
 type TokenUsage = {
@@ -100,20 +134,7 @@ type ThreadItem =
       contentItems?: unknown[] | null;
       success?: boolean | null;
     }
-  | {
-      type: "collabAgentToolCall";
-      id: string;
-      tool?: string;
-      status?: string;
-      senderThreadId?: string;
-      receiverThreadId?: string;
-      newThreadId?: string;
-      receiverThreadIds?: string[];
-      prompt?: string | null;
-      model?: string | null;
-      reasoningEffort?: string | null;
-      agentsStates?: Record<string, unknown>;
-    }
+  | CollabToolCallItem
   | { type: "webSearch"; id: string; query?: string; action?: unknown }
   | { type: "imageView"; id: string; path?: string }
   | {
@@ -126,21 +147,39 @@ type ThreadItem =
     }
   | { type: string; id?: string; [key: string]: unknown };
 
+type CollabToolCallItem = {
+  type: "collabAgentToolCall" | "collabToolCall";
+  id: string;
+  tool?: string;
+  status?: string;
+  senderThreadId?: string;
+  receiverThreadId?: string;
+  newThreadId?: string;
+  receiverThreadIds?: string[];
+  prompt?: string | null;
+  model?: string | null;
+  reasoningEffort?: string | null;
+  agentsStates?: Record<string, unknown>;
+};
+
 type FileUpdateChange = {
   path?: string;
   diff?: string;
   kind?: unknown;
 };
 
-interface CodexAppServerTurnOptions {
+interface CodexAppServerThreadOptions {
   cwd: string;
-  content: string;
-  imagePaths?: string[];
   model?: string;
-  thinkingLevel?: ThinkingLevel;
   systemPrompt?: string;
   threadId?: string;
   env?: Record<string, string>;
+}
+
+interface CodexAppServerTurnOptions extends CodexAppServerThreadOptions {
+  content: string;
+  imagePaths?: string[];
+  thinkingLevel?: ThinkingLevel;
 }
 
 interface CodexAppServerSessionOptions {
@@ -201,6 +240,9 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private pendingCollabReplays = new Set<Promise<void>>();
   private lastUsage: TokenUsage | undefined;
   private lastProtocolError: string | undefined;
+  private activeGoalRequestCount = 0;
+  private pendingGoalNotificationEchoKeys = new Set<string>();
+  private goalNotificationKeysDuringRequest = new Set<string>();
   private currentCwd: string | undefined;
 
   constructor(options: CodexAppServerSessionOptions = {}) {
@@ -248,6 +290,36 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       ...(options.thinkingLevel ? { effort: options.thinkingLevel } : {}),
     });
     this.activeTurnId = response.turn.id;
+  }
+
+  async setGoal(params: CodexGoalSetParams, options: CodexAppServerThreadOptions): Promise<CodexGoalResult> {
+    return this.runGoalRequest(async () => {
+      const threadId = await this.prepareGoalThread(options);
+      const response = await this.request<ThreadGoalResponse>("thread/goal/set", {
+        threadId,
+        ...params,
+      });
+      this.emitGoalResponse(threadId, response, true);
+      return { threadId, goal: response.goal };
+    });
+  }
+
+  async getGoal(options: CodexAppServerThreadOptions): Promise<CodexGoalResult> {
+    return this.runGoalRequest(async () => {
+      const threadId = await this.prepareGoalThread(options);
+      const response = await this.request<ThreadGoalResponse>("thread/goal/get", { threadId });
+      this.emitGoalResponse(threadId, response, Boolean(response.goal));
+      return { threadId, goal: response.goal };
+    });
+  }
+
+  async clearGoal(options: CodexAppServerThreadOptions): Promise<CodexGoalResult> {
+    return this.runGoalRequest(async () => {
+      const threadId = await this.prepareGoalThread(options);
+      await this.request("thread/goal/clear", { threadId });
+      this.emitGoalUpdate({ threadId }, false, "response");
+      return { threadId, goal: null };
+    });
   }
 
   interruptActiveTurn(): void {
@@ -324,7 +396,20 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
 
-  private async ensureThread(options: CodexAppServerTurnOptions): Promise<string> {
+  private async prepareGoalThread(options: CodexAppServerThreadOptions): Promise<string> {
+    await this.ensureInitialized(options.env);
+    const previousThreadId = this.threadId;
+    this.resetForUserTurn();
+    this.currentCwd = options.cwd;
+    const threadId = await this.ensureThread(options);
+    if (threadId !== previousThreadId) {
+      this.resetForThreadBoundary();
+    }
+    this.threadId = threadId;
+    return threadId;
+  }
+
+  private async ensureThread(options: CodexAppServerThreadOptions): Promise<string> {
     if (options.threadId) {
       const resumed = await this.request<ThreadResumeResponse>("thread/resume", {
         threadId: options.threadId,
@@ -349,16 +434,43 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     return started.thread.id;
   }
 
+  private emitGoalResponse(threadId: string, response: ThreadGoalResponse, active: boolean): void {
+    this.emitGoalUpdate(response.goal ? { goal: response.goal, threadId } : { threadId }, active, "response");
+  }
+
+  private async runGoalRequest<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.activeGoalRequestCount === 0) {
+      this.pendingGoalNotificationEchoKeys.clear();
+      this.goalNotificationKeysDuringRequest.clear();
+    }
+    this.activeGoalRequestCount += 1;
+    try {
+      return await operation();
+    } finally {
+      this.activeGoalRequestCount = Math.max(0, this.activeGoalRequestCount - 1);
+      if (this.activeGoalRequestCount === 0) {
+        this.goalNotificationKeysDuringRequest.clear();
+      }
+    }
+  }
+
   private resetForUserTurn(): void {
     this.resetForNewTurn();
     this.collabParentByThreadId.clear();
     this.toolParentByItemId.clear();
+    // A pending goal-echo key only exists to swallow the single notification that
+    // echoes a just-issued goal response. A new user turn is a context boundary:
+    // drop it so a later genuine identical-state thread/goal/updated (e.g. the
+    // goal cycling back to a previously-read state) is not silently suppressed.
+    this.pendingGoalNotificationEchoKeys.clear();
   }
 
   private resetForThreadBoundary(): void {
     this.collabParentByThreadId.clear();
     this.toolParentByItemId.clear();
     this.completedCollabItemIds.clear();
+    this.pendingGoalNotificationEchoKeys.clear();
+    this.goalNotificationKeysDuringRequest.clear();
   }
 
   /**
@@ -481,6 +593,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       case "account/rateLimits/updated":
       case "turn/diff/updated":
       case "thread/settings/updated":
+      case "serverRequest/resolved":
         break;
       case "mcpServer/startupStatus/updated":
         if (isNotificationStatus(data, "failed", "cancelled")) {
@@ -551,10 +664,10 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         this.emitPlanUpdate(data);
         break;
       case "thread/goal/updated":
-        this.emitGoalUpdate(data, true);
+        this.emitGoalUpdate(data, true, "notification");
         break;
       case "thread/goal/cleared":
-        this.emitGoalUpdate(data, false);
+        this.emitGoalUpdate(data, false, "notification");
         break;
       case "warning":
         this.emitProtocolDiagnostic(method, data, "Codex warning", "warning");
@@ -758,8 +871,9 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         }
         break;
       }
-      case "collabAgentToolCall": {
-        const collabItem = item as Extract<ThreadItem, { type: "collabAgentToolCall" }>;
+      case "collabAgentToolCall":
+      case "collabToolCall": {
+        const collabItem = item as CollabToolCallItem;
         if (parentToolUseId && this.isCollabAgentSelfReference(collabItem, context.threadId)) {
           break;
         }
@@ -842,7 +956,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   private isCollabAgentSelfReference(
-    item: Extract<ThreadItem, { type: "collabAgentToolCall" }>,
+    item: CollabToolCallItem,
     threadId: string | undefined,
   ): boolean {
     return Boolean(threadId && collabAgentReceiverThreadIds(item).includes(threadId));
@@ -858,13 +972,13 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     return threadId ? this.collabParentByThreadId.get(threadId) : undefined;
   }
 
-  private rememberCollabAgentReceivers(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): void {
+  private rememberCollabAgentReceivers(item: CollabToolCallItem): void {
     for (const threadId of collabAgentReceiverThreadIds(item)) {
       this.collabParentByThreadId.set(threadId, item.id);
     }
   }
 
-  private rememberFallbackCollabAgentReceivers(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): void {
+  private rememberFallbackCollabAgentReceivers(item: CollabToolCallItem): void {
     for (const threadId of collabAgentReceiverThreadIds(item)) {
       if (!this.collabParentByThreadId.has(threadId)) {
         this.collabParentByThreadId.set(threadId, item.id);
@@ -872,7 +986,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     }
   }
 
-  private queueCollabAgentReplay(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): void {
+  private queueCollabAgentReplay(item: CollabToolCallItem): void {
     const threadIds = collabAgentReceiverThreadIds(item);
     if (threadIds.length === 0) return;
     // Catch-up items nest under the spawning Agent card when known; the
@@ -1054,7 +1168,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     });
   }
 
-  private emitGoalUpdate(data: JsonObject | null, active: boolean): void {
+  private emitGoalUpdate(data: JsonObject | null, active: boolean, source: "response" | "notification"): void {
     const goal = asRecord(data?.goal);
     const threadId = asString(goal?.threadId)
       ?? asString(data?.threadId)
@@ -1063,7 +1177,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     // A goal is scoped to a thread; without one we cannot key it stably for
     // upsert/clear, and a shared "unknown" id would collide across threads.
     if (!threadId) return;
-    this.emit("agent_event", {
+    const event: Extract<NormalizedAgentEvent, { type: "goal_updated" }> = {
       type: "goal_updated",
       id: `codex-goal-${threadId}`,
       active,
@@ -1075,7 +1189,31 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       timeUsedSeconds: asNumber(goal?.timeUsedSeconds),
       createdAt: asNumber(goal?.createdAt),
       updatedAt: asNumber(goal?.updatedAt),
-    });
+    };
+    const key = JSON.stringify([
+      event.threadId,
+      event.active,
+      event.objective,
+      event.status,
+      event.tokenBudget,
+      event.tokensUsed,
+      event.timeUsedSeconds,
+      event.createdAt,
+      event.updatedAt,
+    ], (_key, value) => value === undefined ? { __hiveType: "undefined" } : value);
+    if (source === "notification") {
+      if (this.pendingGoalNotificationEchoKeys.delete(key)) return;
+      if (this.activeGoalRequestCount > 0) {
+        this.goalNotificationKeysDuringRequest.add(key);
+      }
+    } else {
+      if (this.goalNotificationKeysDuringRequest.delete(key)) {
+        this.pendingGoalNotificationEchoKeys.add(key);
+        return;
+      }
+      this.pendingGoalNotificationEchoKeys.add(key);
+    }
+    this.emit("agent_event", event);
   }
 
   private emitFileChangeEvents(itemId: string, changes: FileUpdateChange[], status?: string): void {
@@ -1287,7 +1425,7 @@ function formatUnknown(value: unknown): string {
   }
 }
 
-function collabAgentToolInput(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): JsonObject {
+function collabAgentToolInput(item: CollabToolCallItem): JsonObject {
   return {
     subagent_type: collabAgentLabel(item),
     description: collabAgentDescription(item),
@@ -1303,7 +1441,7 @@ function collabAgentToolInput(item: Extract<ThreadItem, { type: "collabAgentTool
   };
 }
 
-function collabAgentReceiverThreadIds(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): string[] {
+function collabAgentReceiverThreadIds(item: CollabToolCallItem): string[] {
   return [
     ...(item.receiverThreadIds ?? []),
     item.receiverThreadId,
@@ -1311,17 +1449,17 @@ function collabAgentReceiverThreadIds(item: Extract<ThreadItem, { type: "collabA
   ].filter((threadId): threadId is string => Boolean(threadId));
 }
 
-function collabAgentDescription(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): string {
+function collabAgentDescription(item: CollabToolCallItem): string {
   const prompt = item.prompt?.trim().split("\n").find((line) => line.trim());
   if (prompt) return prompt.trim();
   return item.tool === "spawnAgent" ? "Agent" : "";
 }
 
-function collabAgentLabel(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): string {
+function collabAgentLabel(item: CollabToolCallItem): string {
   return item.tool === "spawnAgent" ? "Agent" : formatCollabAgentTool(item.tool);
 }
 
-function collabAgentToolResult(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): string {
+function collabAgentToolResult(item: CollabToolCallItem): string {
   return JSON.stringify([{
     type: "text",
     text: formatUnknown({

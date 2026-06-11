@@ -1,17 +1,24 @@
 import { EventEmitter } from "node:events";
-import { CodexAppServerSession } from "../providers/codex-app-server.js";
+import {
+  CodexAppServerSession,
+  type CodexGoalResult,
+  type CodexGoalSetParams,
+} from "../providers/codex-app-server.js";
 import type { ThinkingLevel } from "../providers/types.js";
 import type { AgentRunner, AgentRunnerEvent, StopReason } from "./types.js";
 
-interface CodexAppServerRunnerTurn {
+interface CodexAppServerRunnerThread {
   cwd: string;
-  content: string;
-  imagePaths?: string[];
   model?: string;
-  thinkingLevel?: ThinkingLevel;
   systemPrompt?: string;
   threadId?: string;
   env?: Record<string, string>;
+}
+
+interface CodexAppServerRunnerTurn extends CodexAppServerRunnerThread {
+  content: string;
+  imagePaths?: string[];
+  thinkingLevel?: ThinkingLevel;
 }
 
 interface CodexAppServerClient {
@@ -24,6 +31,9 @@ interface CodexAppServerClient {
   on(eventName: "turn_started", listener: (...args: AgentRunnerEvent["turn_started"]) => void): this;
   on(eventName: "error", listener: (...args: AgentRunnerEvent["error"]) => void): this;
   startTurn(turn: CodexAppServerRunnerTurn): Promise<void>;
+  setGoal(params: CodexGoalSetParams, options: CodexAppServerRunnerThread): Promise<CodexGoalResult>;
+  getGoal(options: CodexAppServerRunnerThread): Promise<CodexGoalResult>;
+  clearGoal(options: CodexAppServerRunnerThread): Promise<CodexGoalResult>;
   interruptActiveTurn(): void;
   close(): void;
 }
@@ -57,6 +67,21 @@ export class CodexAppServerRunner extends EventEmitter<AgentRunnerEvent> impleme
     void this.appServer.startTurn(turn).catch((err: unknown) => {
       this.emit("error", err instanceof Error ? err : new Error(String(err)));
     });
+  }
+
+  async setGoal(params: CodexGoalSetParams, options: CodexAppServerRunnerThread): Promise<CodexGoalResult> {
+    this.clearInterruptTimer();
+    return this.appServer.setGoal(params, options);
+  }
+
+  async getGoal(options: CodexAppServerRunnerThread): Promise<CodexGoalResult> {
+    this.clearInterruptTimer();
+    return this.appServer.getGoal(options);
+  }
+
+  async clearGoal(options: CodexAppServerRunnerThread): Promise<CodexGoalResult> {
+    this.clearInterruptTimer();
+    return this.appServer.clearGoal(options);
   }
 
   start(): void {
