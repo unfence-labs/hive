@@ -545,6 +545,9 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       }
       case "turn/plan/updated":
+        // Sub-agent threads maintain their own plan; without this filter their
+        // steps would surface as a parasitic card in the main task tracker.
+        if (this.isForeignThread(asString(data?.threadId))) break;
         this.emitPlanUpdate(data);
         break;
       case "thread/goal/updated":

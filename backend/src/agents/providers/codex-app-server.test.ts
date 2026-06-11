@@ -1956,6 +1956,43 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
+  it("ignores plan updates from sub-agent threads", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    // A sub-agent maintaining its own plan must not surface as a parasitic card
+    // in the main task tracker; only the main thread's plan is emitted.
+    proc._stdout.push(JSON.stringify({
+      method: "turn/plan/updated",
+      params: {
+        threadId: "thread-child",
+        turnId: "turn-child",
+        plan: [{ step: "Child step", status: "inProgress" }],
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "turn/plan/updated",
+      params: {
+        threadId: "thread-1",
+        turnId: "turn-1",
+        plan: [{ step: "Run tests", status: "completed" }],
+      },
+    }) + "\n");
+
+    const planEvents = events.filter((event) => (event as { type: string }).type === "plan_updated");
+    expect(planEvents).toEqual([
+      {
+        type: "plan_updated",
+        id: "codex-plan-turn-1",
+        steps: [{ text: "Run tests", status: "completed" }],
+      },
+    ]);
+  });
+
   it("emits an interrupted result instead of an error when closed mid-turn", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
