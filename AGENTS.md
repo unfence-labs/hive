@@ -325,7 +325,10 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `HiveMobile/Views/Chat/ChatView.swift`: single-session conversation UI + provider locking + model selection + per-session plan mode
 - `HiveMobile/Views/Chat/ChatInputBar.swift`: input bar with provider-adaptive controls (thinking-level cycler) + context ring
 - `HiveMobile/Views/Chat/MessageBubble.swift`: message + tool call rendering + `#file`/`@agent` mention highlighting + copy-to-clipboard button
-- `HiveMobile/Views/Chat/AgentActivityList.swift`: SwiftUI renderer for visible `agent_activity` diagnostics and unknown activities; command/file activities are rendered as tool calls and plan updates feed the task tracker
+- `HiveMobile/Views/Chat/AgentActivityList.swift`: SwiftUI renderer for visible `agent_activity` rows — image views/generations, diagnostics, and unknown activities; command/file activities are rendered as tool calls and plan updates feed the task tracker. All rows reuse the shared `ActivityDisclosureRow` (collapsible toggle + optional `leading`/`below` slots) from `ChatActivityChrome.swift`, mirroring the web `ActivityShell`
+- `HiveMobile/Views/Chat/ImageActivity.swift`: `image_view`/`image_generation` row renderers (mirror `frontend/src/components/chat/ImageActivity.tsx`). View rows show a leading thumbnail; generation rows show a thumbnail below plus the revised prompt on expand, animating only while the turn is live. Pure resolution/pending logic lives on `AgentActivity.ImageView`/`ImageGeneration` in the core module (`resolvedSource`, `isPending`, `imageActivityFileName`, `imagePromptPreview`) so it stays testable
+- `HiveMobile/Views/Chat/ChatImage.swift`: shared image stack — `ChatImageLoader` (`@Observable`, data-URL/`/api` loading with thumbnail-vs-full caching via `ImageCache`), `ChatImageTile` (fixed-size states: generating sheen, decode, loaded/tappable, error, no-preview), `ChatImageTileWithLightbox`, and `ChatImageLightbox` (full-screen `fullScreenCover`, tap/X to dismiss). Reused by image activities and chat message attachments
+- `HiveMobile/Services/ChatImageResolver.swift`: builds a fetchable URL from an `/api/...` image path (server base + auth token), mirroring the web `resolveImageSrc`
 - `HiveMobile/Views/Chat/DiffRendering.swift`: shared chat diff line parsing/rendering used by tool-call diffs and agent file-change activities
 - `HiveMobile/Views/Chat/ChatActivityChrome.swift`: shared chat activity content panel primitives
 - `HiveMobile/Views/Chat/ChatFormatting.swift`: shared chat formatting helpers
@@ -354,9 +357,10 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - **Turn-completed/unread badges**: `HubStatusMonitor.completedWorkspaces` tracks background `done` events at workspace level, while `unreadSessions` tracks per-session unread `done` and failed background `cancelled` events. Hub workspace rows show an accent unread dot when either workspace completion or unread sessions exist. Conversation rows show per-session streaming/unread state. `viewingWorkspaceId`/`viewingSessionId` prevent false positives when the relevant screen is visible.
 - Tool rendering mirrors the frontend: same tool names, same icon mapping, same hierarchical display (parentToolUseId).
 - Codex App Server `agent_activity` events are decoded and stored per streaming session. Activities are upserted by id, persisted into finalized `ChatMessage.agentActivities`, and routed to tool-call rendering, `TaskTracker`, or `AgentActivityList` depending on kind.
+- `image_view`/`image_generation` activities render at 1:1 parity with the web: an inline thumbnail tile that opens a full-screen lightbox on tap, an outside-workspace/no-preview state for image views, and an animated "generating" sheen tile for live generations (gated on `showExecutingState` + non-terminal status + no resolvable image, so history never animates a stale record). Chat message image attachments reuse the same tile + lightbox.
 - Compatibility `tool_use` / `tool_result` events remain supported on iOS, but `MessageBubble` filters tool calls whose ids are already represented by an `AgentActivity` to avoid duplicate command/file rows.
 - Late live fragments after `done`/`cancelled` must not recreate a ghost stream; `ConversationStore` only accepts live text/thinking/tool/activity/plan events when a stream slot already exists, and ignores late `tool_input_required` after a terminal assistant message.
-- Unknown WS event types decode to `.unknown` instead of visible chat errors. Unknown agent activity kinds render as an unsupported activity row.
+- Unknown WS event types decode to `.unknown` instead of visible chat errors. Unknown agent activity kinds (kinds added after this build) render as an unsupported activity row.
 - AskUserQuestion renders as a paginated form sheet with multi-select support. Dismissed questions show "CANCELLED" badge.
 - ExitPlanMode renders as a markdown preview with approve/reject actions.
 - Chat drafts are persisted in memory per-workspace/session while the app is running (includes `selectedModelId`, `thinkingLevel`, `fastModeEnabled`); they are intentionally lost on app termination.
@@ -429,7 +433,6 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - No manual workspace rename/alias UI (auto-naming exists via `naming.ts`).
 - No explicit light/dark theme toggle in settings (only accent color picker).
 - iOS app has no file viewer/diff viewer (tool output shown as raw text).
-- iOS has no dedicated rendering for `image_view`/`image_generation` activities yet (they decode to the `.unknown` fallback row).
 - VS Code remote SSH opening is Tauri-desktop only (not available in web or iOS).
 - `redacted_thinking` blocks are logged as `[redacted]` but not visually distinguished from regular thinking in the UI.
 - Codex/Gemini provider integrations are functional but less battle-tested than Claude. Stream adapter edge cases may surface.

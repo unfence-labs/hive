@@ -154,3 +154,63 @@ struct ToolContentPanel<Content: View>: View {
             .padding(.top, 2)
     }
 }
+
+/// Collapsible activity row: a toggle label (icon/chevron + title + detail +
+/// trailing icon) with an optional expanded panel, plus optional non-interactive
+/// `leading` (e.g. an image thumbnail) and `below` slots. The expand affordance
+/// is only shown/clickable when `expanded` is provided. Shared by image and
+/// diagnostic activities — mirrors `frontend/src/components/chat/ActivityShell.tsx`.
+struct ActivityDisclosureRow: View {
+    var icon: String? = nil
+    let title: String
+    var detail: String? = nil
+    var trailingIcon: String? = nil
+    var trailingIconColor: Color = WhisperColor.textMuted
+    var executing: Bool = false
+    var leading: AnyView? = nil
+    var expanded: AnyView? = nil
+    var below: AnyView? = nil
+
+    @State private var isExpanded = false
+
+    private var canExpand: Bool { expanded != nil }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 8) {
+                if let leading {
+                    leading
+                }
+
+                Button {
+                    guard canExpand else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+                } label: {
+                    ChatActivityRowLabel(
+                        icon: icon,
+                        label: title,
+                        detail: detail,
+                        trailingIcon: trailingIcon,
+                        trailingIconColor: trailingIconColor,
+                        // Show the chevron only when there is no leading icon and
+                        // the row can expand — matches the web's `icon ? icon : chevron`.
+                        isExpanded: (icon == nil && canExpand) ? isExpanded : nil,
+                        executing: executing
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Spacer(minLength: 0)
+            }
+
+            if canExpand, isExpanded, let expanded {
+                ToolContentPanel { expanded }
+                    .transition(.opacity)
+            }
+
+            if let below {
+                below
+            }
+        }
+    }
+}
