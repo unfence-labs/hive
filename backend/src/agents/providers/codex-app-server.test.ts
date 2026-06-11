@@ -912,6 +912,170 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
+  it("does not re-emit a previous turn's sub-agent tools when closeAgent replays later", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: Array<{ message: { content: Array<Record<string, unknown>> } }> = [];
+    session.on("assistant", (event) => assistantEvents.push(event as never));
+    await initializeSession(session, proc);
+
+    // Turn 1: spawn a sub-agent and stream one of its commands live.
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "inProgress",
+          receiverThreadIds: ["thread-child"],
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "commandExecution",
+          id: "child-cmd-1",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "completed",
+          aggregatedOutput: "ok",
+          exitCode: 0,
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "turn/completed",
+      params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } },
+    }) + "\n");
+
+    // Turn 2: the model closes the sub-agent; Hive replays the child thread.
+    proc._stdout.push(JSON.stringify({
+      method: "turn/started",
+      params: { threadId: "thread-1", turn: { id: "turn-2" } },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-close-1",
+          tool: "closeAgent",
+          status: "completed",
+          receiverThreadIds: ["thread-child"],
+        },
+      },
+    }) + "\n");
+    const read = await waitForMethod(proc, "thread/read");
+    proc._stdout.push(appServerResponse(read.id, {
+      thread: {
+        id: "thread-child",
+        turns: [{
+          id: "turn-child",
+          items: [{
+            type: "commandExecution",
+            id: "child-cmd-1",
+            command: "npm test",
+            cwd: "/tmp/project",
+            status: "completed",
+            aggregatedOutput: "ok",
+            exitCode: 0,
+          }, {
+            type: "commandExecution",
+            id: "child-cmd-2",
+            command: "npm run lint",
+            cwd: "/tmp/project",
+            status: "completed",
+            aggregatedOutput: "clean",
+            exitCode: 0,
+          }],
+        }],
+      },
+    }));
+
+    // The never-seen item is caught up, nested under the ORIGINAL Agent card.
+    await waitForCondition(() =>
+      assistantEvents.some((event) => event.message.content.some((block) => block.id === "child-cmd-2")),
+    );
+    const blocks = assistantEvents.flatMap((event) => event.message.content);
+    expect(blocks.find((block) => block.id === "child-cmd-2")).toEqual(
+      expect.objectContaining({ parentToolUseId: "collab-1" }),
+    );
+    // The previous turn's tool is NOT re-emitted (it used to duplicate here),
+    // and nothing nests under the Close Agent card.
+    expect(blocks.filter((block) => block.id === "child-cmd-1")).toHaveLength(1);
+    expect(blocks.filter((block) => block.parentToolUseId === "collab-close-1")).toHaveLength(0);
+  });
+
+  it("keeps live receiver-thread tools under the spawning Agent card after a wait completes", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: Array<{ message: { content: Array<Record<string, unknown>> } }> = [];
+    session.on("assistant", (event) => assistantEvents.push(event as never));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "inProgress",
+          receiverThreadIds: ["thread-child"],
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+    // A completed wait used to re-parent thread-child onto the Wait card.
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-wait-1",
+          tool: "wait",
+          status: "completed",
+          receiverThreadIds: ["thread-child"],
+        },
+      },
+    }) + "\n");
+    const read = await waitForMethod(proc, "thread/read");
+    proc._stdout.push(appServerResponse(read.id, { thread: { id: "thread-child", turns: [] } }));
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "commandExecution",
+          id: "child-cmd-late",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "inProgress",
+        },
+      },
+    }) + "\n");
+
+    await waitForCondition(() =>
+      assistantEvents.some((event) => event.message.content.some((block) => block.id === "child-cmd-late")),
+    );
+    const lateChild = assistantEvents
+      .flatMap((event) => event.message.content)
+      .find((block) => block.id === "child-cmd-late");
+    expect(lateChild).toEqual(expect.objectContaining({ parentToolUseId: "collab-1" }));
+  });
+
   it("preserves collab parent mapping across a turn boundary (goal continuation)", async () => {
     // With goals, a single prompt spans several autonomous turns. A sub-agent
     // spawned in one turn can emit live items in a later turn; the per-turn reset

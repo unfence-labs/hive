@@ -19,6 +19,8 @@ import {
 
 /** Cap for long-lived per-session turn-id dedup Sets to avoid unbounded growth. */
 const MAX_TRACKED_TURN_IDS = 256;
+/** Cap for the cross-turn sub-agent item dedup Set (items are far more numerous than turns). */
+const MAX_TRACKED_COLLAB_ITEM_IDS = 1024;
 
 type CodexAppServerEvent = StreamParserEvent & {
   agent_event: [event: NormalizedAgentEvent];
@@ -191,6 +193,11 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private completedTurnIds = new Set<string>();
   private collabParentByThreadId = new Map<string, string>();
   private toolParentByItemId = new Map<string, string>();
+  /** Sub-agent item ids already rendered, across turns. Collab replays on
+   *  wait/closeAgent re-deliver a child thread's full history; once the
+   *  per-turn dedup sets are reset (next turn), only this set prevents the
+   *  previous turn's child tools from re-emitting as duplicates. */
+  private completedCollabItemIds = new Set<string>();
   private pendingCollabReplays = new Set<Promise<void>>();
   private lastUsage: TokenUsage | undefined;
   private lastProtocolError: string | undefined;
@@ -341,6 +348,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.resetForNewTurn();
     this.collabParentByThreadId.clear();
     this.toolParentByItemId.clear();
+    this.completedCollabItemIds.clear();
   }
 
   /**
@@ -629,6 +637,16 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   ): void {
     if (!item?.type || !item.id) return;
     const parentToolUseId = context.parentToolUseId ?? this.parentToolUseIdForThread(context.threadId);
+    if (parentToolUseId) {
+      // Cross-turn dedup: a child item completed in an earlier turn (per-turn
+      // emitted sets reset since) must not re-emit when a later wait/closeAgent
+      // replay re-delivers it. Same-turn re-delivery still flows through and is
+      // handled by the per-turn dedup sets.
+      if (this.completedCollabItemIds.has(item.id) && !this.emittedToolIds.has(item.id)) return;
+      if (phase === "completed") {
+        addBounded(this.completedCollabItemIds, item.id, MAX_TRACKED_COLLAB_ITEM_IDS);
+      }
+    }
 
     switch (item.type) {
       case "agentMessage": {
@@ -731,7 +749,12 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         if (parentToolUseId && this.isCollabAgentSelfReference(collabItem, context.threadId)) {
           break;
         }
-        this.rememberCollabAgentReceivers(collabItem);
+        // Only spawnAgent owns its receiver threads. wait/closeAgent reference
+        // the same threads but must not steal the children: their live items
+        // and replay catch-ups belong under the original Agent card.
+        if (collabItem.tool === "spawnAgent") {
+          this.rememberCollabAgentReceivers(collabItem);
+        }
         this.emitToolUse(collabItem.id, "Agent", JSON.stringify(collabAgentToolInput(collabItem)), parentToolUseId);
         if (phase === "completed") {
           this.emitToolResult(collabItem.id, collabAgentToolResult(collabItem));
@@ -818,7 +841,11 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private queueCollabAgentReplay(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): void {
     const threadIds = collabAgentReceiverThreadIds(item);
     if (threadIds.length === 0) return;
-    const replay = Promise.all(threadIds.map((threadId) => this.replayCollabAgentThread(threadId, item.id)))
+    // Catch-up items nest under the spawning Agent card when known; the
+    // triggering wait/closeAgent card is only a fallback for threads whose
+    // spawn was never observed (e.g. resumed session).
+    const replay = Promise.all(threadIds.map((threadId) =>
+      this.replayCollabAgentThread(threadId, this.collabParentByThreadId.get(threadId) ?? item.id)))
       .then(() => undefined)
       .catch((err: unknown) => {
         if (isUnmaterializedThreadReadError(err)) return;
