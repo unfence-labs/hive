@@ -1050,10 +1050,16 @@ describe("Sidebar", () => {
 
     const input = await screen.findByLabelText("Rename folder");
     await user.clear(input);
-    await user.type(input, "Renamed folder{Enter}");
+    await user.type(input, "Renamed folder");
 
-    expect(await screen.findByRole("button", { name: "Renamed folder" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Old name" })).not.toBeInTheDocument();
+    const renameForm = input.closest("form");
+    expect(renameForm).not.toBeNull();
+    fireEvent.submit(renameForm!);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Renamed folder" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Old name" })).not.toBeInTheDocument();
+    });
   });
 
   it("cancels folder rename when Escape is pressed", async () => {
