@@ -362,17 +362,27 @@ describe("CodexAppServerSession request handling", () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
     const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
     await initializeSession(session, proc);
 
     proc._stdout.push(appServerRequest(100, "item/commandExecution/requestApproval"));
+    await expect(waitForResponse(proc, 100)).resolves.toMatchObject({ id: 100, result: { decision: "accept" } });
+
+    proc._stdout.push(JSON.stringify({
+      method: "serverRequest/resolved",
+      params: { threadId: "thread-1", requestId: "100" },
+    }) + "\n");
+    expect(events).toEqual([]);
+
     proc._stdout.push(appServerRequest(101, "item/fileChange/requestApproval"));
     proc._stdout.push(appServerRequest(102, "execCommandApproval"));
     proc._stdout.push(appServerRequest(103, "applyPatchApproval"));
 
-    await expect(waitForResponse(proc, 100)).resolves.toMatchObject({ id: 100, result: { decision: "accept" } });
     await expect(waitForResponse(proc, 101)).resolves.toMatchObject({ id: 101, result: { decision: "accept" } });
     await expect(waitForResponse(proc, 102)).resolves.toMatchObject({ id: 102, result: { decision: "approved" } });
     await expect(waitForResponse(proc, 103)).resolves.toMatchObject({ id: 103, result: { decision: "approved" } });
+    expect(events).toEqual([]);
   });
 
   it("emits native turn_started events with thread and turn ids", async () => {
@@ -632,6 +642,10 @@ describe("CodexAppServerSession normalized events", () => {
           effort: "high",
         },
       },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "serverRequest/resolved",
+      params: { threadId: "thread-1", requestId: "req-1" },
     }) + "\n");
 
     expect(events).toEqual([]);
