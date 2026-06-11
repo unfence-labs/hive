@@ -207,6 +207,7 @@ struct ChatImageTileWithLightbox: View {
     var noPreviewMessage: String? = nil
 
     @State private var showLightbox = false
+    @Namespace private var transitionNamespace
 
     private var hasSource: Bool { !(source?.isEmpty ?? true) }
 
@@ -219,9 +220,13 @@ struct ChatImageTileWithLightbox: View {
             noPreviewMessage: noPreviewMessage,
             onOpenLightbox: hasSource ? { showLightbox = true } : nil
         )
+        // Zoom transition (iOS 18+): the lightbox expands from the tile's
+        // position instead of the default modal slide-up.
+        .matchedTransitionSource(id: "image", in: transitionNamespace)
         .fullScreenCover(isPresented: $showLightbox) {
             if let source, hasSource {
                 ChatImageLightbox(source: source)
+                    .navigationTransition(.zoom(sourceID: "image", in: transitionNamespace))
             }
         }
     }
