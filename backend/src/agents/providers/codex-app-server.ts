@@ -240,7 +240,9 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private pendingCollabReplays = new Set<Promise<void>>();
   private lastUsage: TokenUsage | undefined;
   private lastProtocolError: string | undefined;
-  private lastGoalUpdateKey: string | undefined;
+  private activeGoalRequestCount = 0;
+  private pendingGoalNotificationEchoKeys = new Set<string>();
+  private goalNotificationKeysDuringRequest = new Set<string>();
   private currentCwd: string | undefined;
 
   constructor(options: CodexAppServerSessionOptions = {}) {
@@ -291,27 +293,33 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   async setGoal(params: CodexGoalSetParams, options: CodexAppServerThreadOptions): Promise<CodexGoalResult> {
-    const threadId = await this.prepareGoalThread(options);
-    const response = await this.request<ThreadGoalResponse>("thread/goal/set", {
-      threadId,
-      ...params,
+    return this.runGoalRequest(async () => {
+      const threadId = await this.prepareGoalThread(options);
+      const response = await this.request<ThreadGoalResponse>("thread/goal/set", {
+        threadId,
+        ...params,
+      });
+      this.emitGoalResponse(threadId, response, true);
+      return { threadId, goal: response.goal };
     });
-    this.emitGoalResponse(threadId, response, true);
-    return { threadId, goal: response.goal };
   }
 
   async getGoal(options: CodexAppServerThreadOptions): Promise<CodexGoalResult> {
-    const threadId = await this.prepareGoalThread(options);
-    const response = await this.request<ThreadGoalResponse>("thread/goal/get", { threadId });
-    this.emitGoalResponse(threadId, response, Boolean(response.goal));
-    return { threadId, goal: response.goal };
+    return this.runGoalRequest(async () => {
+      const threadId = await this.prepareGoalThread(options);
+      const response = await this.request<ThreadGoalResponse>("thread/goal/get", { threadId });
+      this.emitGoalResponse(threadId, response, Boolean(response.goal));
+      return { threadId, goal: response.goal };
+    });
   }
 
   async clearGoal(options: CodexAppServerThreadOptions): Promise<CodexGoalResult> {
-    const threadId = await this.prepareGoalThread(options);
-    await this.request("thread/goal/clear", { threadId });
-    this.emitGoalUpdate({ threadId }, false);
-    return { threadId, goal: null };
+    return this.runGoalRequest(async () => {
+      const threadId = await this.prepareGoalThread(options);
+      await this.request("thread/goal/clear", { threadId });
+      this.emitGoalUpdate({ threadId }, false, "response");
+      return { threadId, goal: null };
+    });
   }
 
   interruptActiveTurn(): void {
@@ -427,7 +435,23 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   private emitGoalResponse(threadId: string, response: ThreadGoalResponse, active: boolean): void {
-    this.emitGoalUpdate(response.goal ? { goal: response.goal, threadId } : { threadId }, active);
+    this.emitGoalUpdate(response.goal ? { goal: response.goal, threadId } : { threadId }, active, "response");
+  }
+
+  private async runGoalRequest<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.activeGoalRequestCount === 0) {
+      this.pendingGoalNotificationEchoKeys.clear();
+      this.goalNotificationKeysDuringRequest.clear();
+    }
+    this.activeGoalRequestCount += 1;
+    try {
+      return await operation();
+    } finally {
+      this.activeGoalRequestCount = Math.max(0, this.activeGoalRequestCount - 1);
+      if (this.activeGoalRequestCount === 0) {
+        this.goalNotificationKeysDuringRequest.clear();
+      }
+    }
   }
 
   private resetForUserTurn(): void {
@@ -440,7 +464,8 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.collabParentByThreadId.clear();
     this.toolParentByItemId.clear();
     this.completedCollabItemIds.clear();
-    this.lastGoalUpdateKey = undefined;
+    this.pendingGoalNotificationEchoKeys.clear();
+    this.goalNotificationKeysDuringRequest.clear();
   }
 
   /**
@@ -634,10 +659,10 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         this.emitPlanUpdate(data);
         break;
       case "thread/goal/updated":
-        this.emitGoalUpdate(data, true);
+        this.emitGoalUpdate(data, true, "notification");
         break;
       case "thread/goal/cleared":
-        this.emitGoalUpdate(data, false);
+        this.emitGoalUpdate(data, false, "notification");
         break;
       case "warning":
         this.emitProtocolDiagnostic(method, data, "Codex warning", "warning");
@@ -1138,7 +1163,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     });
   }
 
-  private emitGoalUpdate(data: JsonObject | null, active: boolean): void {
+  private emitGoalUpdate(data: JsonObject | null, active: boolean, source: "response" | "notification"): void {
     const goal = asRecord(data?.goal);
     const threadId = asString(goal?.threadId)
       ?? asString(data?.threadId)
@@ -1171,8 +1196,18 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       event.createdAt,
       event.updatedAt,
     ], (_key, value) => value === undefined ? { __hiveType: "undefined" } : value);
-    if (key === this.lastGoalUpdateKey) return;
-    this.lastGoalUpdateKey = key;
+    if (source === "notification") {
+      if (this.pendingGoalNotificationEchoKeys.delete(key)) return;
+      if (this.activeGoalRequestCount > 0) {
+        this.goalNotificationKeysDuringRequest.add(key);
+      }
+    } else {
+      if (this.goalNotificationKeysDuringRequest.delete(key)) {
+        this.pendingGoalNotificationEchoKeys.add(key);
+        return;
+      }
+      this.pendingGoalNotificationEchoKeys.add(key);
+    }
     this.emit("agent_event", event);
   }
 

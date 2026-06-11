@@ -130,6 +130,8 @@ struct SettingsView: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Accent color: \(option.label)")
+                        .accessibilityValue(option.rawValue == accentId ? "Selected" : "")
                     }
                 }
             }

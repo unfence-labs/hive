@@ -358,6 +358,69 @@ describe("CodexAppServerSession request handling", () => {
     expect(parseWrites(proc).filter((write) => write.method === "turn/start")).toHaveLength(0);
   });
 
+  it("emits repeated explicit goal reads when the goal state is unchanged", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession({ enableGoals: true });
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    const goal = {
+      threadId: "thread-goal-repeat",
+      objective: "Keep the UI current",
+      status: "active",
+    };
+
+    const first = session.getGoal({ cwd: "/tmp/project", model: "gpt-5.5" });
+
+    const initialize = await waitForMethod(proc, "initialize");
+    proc._stdout.push(appServerResponse(initialize.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+    const threadStart = await waitForMethod(proc, "thread/start");
+    proc._stdout.push(appServerResponse(threadStart.id, { thread: { id: "thread-goal-repeat" } }));
+    const firstGoalGet = await waitForMethod(proc, "thread/goal/get");
+    proc._stdout.push(appServerResponse(firstGoalGet.id, { goal }));
+
+    await expect(first).resolves.toEqual({ threadId: "thread-goal-repeat", goal });
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/updated",
+      params: { goal },
+    }) + "\n");
+    expect(events).toHaveLength(1);
+
+    const second = session.getGoal({ cwd: "/tmp/project", model: "gpt-5.5" });
+    const secondGoalGet = await waitForNthMethod(proc, "thread/goal/get", 2);
+    proc._stdout.push(appServerResponse(secondGoalGet.id, { goal }));
+
+    await expect(second).resolves.toEqual({ threadId: "thread-goal-repeat", goal });
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "goal_updated",
+        active: true,
+        threadId: "thread-goal-repeat",
+        objective: "Keep the UI current",
+        status: "active",
+      }),
+      expect.objectContaining({
+        type: "goal_updated",
+        active: true,
+        threadId: "thread-goal-repeat",
+        objective: "Keep the UI current",
+        status: "active",
+      }),
+    ]);
+
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/updated",
+      params: { goal },
+    }) + "\n");
+    expect(events).toHaveLength(2);
+    expect(parseWrites(proc).filter((write) => write.method === "turn/start")).toHaveLength(0);
+  });
+
   it("auto-accepts known command and file approval requests", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
