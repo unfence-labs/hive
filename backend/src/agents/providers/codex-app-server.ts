@@ -43,6 +43,40 @@ type TurnStartResponse = {
   turn: { id: string };
 };
 
+export type CodexGoalStatus =
+  | "active"
+  | "paused"
+  | "blocked"
+  | "usageLimited"
+  | "budgetLimited"
+  | "complete";
+
+export type CodexGoal = {
+  threadId: string;
+  objective?: string;
+  status?: CodexGoalStatus;
+  tokenBudget?: number | null;
+  tokensUsed?: number;
+  timeUsedSeconds?: number;
+  createdAt?: number;
+  updatedAt?: number;
+};
+
+export type CodexGoalSetParams = {
+  objective?: string;
+  status?: CodexGoalStatus;
+  tokenBudget?: number | null;
+};
+
+export type CodexGoalResult = {
+  threadId: string;
+  goal?: CodexGoal | null;
+};
+
+type ThreadGoalResponse = {
+  goal?: CodexGoal | null;
+};
+
 type TurnStatus = "completed" | "interrupted" | "failed" | "inProgress";
 
 type TokenUsage = {
@@ -132,15 +166,18 @@ type FileUpdateChange = {
   kind?: unknown;
 };
 
-interface CodexAppServerTurnOptions {
+interface CodexAppServerThreadOptions {
   cwd: string;
-  content: string;
-  imagePaths?: string[];
   model?: string;
-  thinkingLevel?: ThinkingLevel;
   systemPrompt?: string;
   threadId?: string;
   env?: Record<string, string>;
+}
+
+interface CodexAppServerTurnOptions extends CodexAppServerThreadOptions {
+  content: string;
+  imagePaths?: string[];
+  thinkingLevel?: ThinkingLevel;
 }
 
 interface CodexAppServerSessionOptions {
@@ -250,6 +287,30 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.activeTurnId = response.turn.id;
   }
 
+  async setGoal(params: CodexGoalSetParams, options: CodexAppServerThreadOptions): Promise<CodexGoalResult> {
+    const threadId = await this.prepareGoalThread(options);
+    const response = await this.request<ThreadGoalResponse>("thread/goal/set", {
+      threadId,
+      ...params,
+    });
+    this.emitGoalResponse(threadId, response, true);
+    return { threadId, goal: response.goal };
+  }
+
+  async getGoal(options: CodexAppServerThreadOptions): Promise<CodexGoalResult> {
+    const threadId = await this.prepareGoalThread(options);
+    const response = await this.request<ThreadGoalResponse>("thread/goal/get", { threadId });
+    this.emitGoalResponse(threadId, response, Boolean(response.goal));
+    return { threadId, goal: response.goal };
+  }
+
+  async clearGoal(options: CodexAppServerThreadOptions): Promise<CodexGoalResult> {
+    const threadId = await this.prepareGoalThread(options);
+    await this.request("thread/goal/clear", { threadId });
+    this.emitGoalUpdate({ threadId }, false);
+    return { threadId, goal: null };
+  }
+
   interruptActiveTurn(): void {
     if (!this.threadId || !this.activeTurnId) return;
     const threadId = this.threadId;
@@ -324,7 +385,20 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
 
-  private async ensureThread(options: CodexAppServerTurnOptions): Promise<string> {
+  private async prepareGoalThread(options: CodexAppServerThreadOptions): Promise<string> {
+    await this.ensureInitialized(options.env);
+    const previousThreadId = this.threadId;
+    this.resetForUserTurn();
+    this.currentCwd = options.cwd;
+    const threadId = await this.ensureThread(options);
+    if (threadId !== previousThreadId) {
+      this.resetForThreadBoundary();
+    }
+    this.threadId = threadId;
+    return threadId;
+  }
+
+  private async ensureThread(options: CodexAppServerThreadOptions): Promise<string> {
     if (options.threadId) {
       const resumed = await this.request<ThreadResumeResponse>("thread/resume", {
         threadId: options.threadId,
@@ -347,6 +421,10 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       ...(options.systemPrompt ? { developerInstructions: options.systemPrompt } : {}),
     });
     return started.thread.id;
+  }
+
+  private emitGoalResponse(threadId: string, response: ThreadGoalResponse, active: boolean): void {
+    this.emitGoalUpdate(response.goal ? { goal: response.goal, threadId } : { threadId }, active);
   }
 
   private resetForUserTurn(): void {

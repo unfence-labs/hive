@@ -6,6 +6,7 @@ import { workspaceFileRawPath } from "@hive/shared/workspace-files";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { AgentEventNormalizer, type NormalizedAgentEvent } from "./agent-event-normalizer.js";
+import type { CodexGoalResult, CodexGoalSetParams } from "./providers/codex-app-server.js";
 import { providerSupportsAppServerGoals, resolveProvider } from "./providers/registry.js";
 import type { AgentProvider } from "./providers/types.js";
 import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js";
@@ -53,11 +54,57 @@ const MAX_FINALIZED_TURN_IDS = 256;
  */
 const MAX_GENERATED_IMAGE_COPY_BYTES = 25 * 1024 * 1024;
 
-function isCodexGoalCommand(content: string, providerId: string | undefined): boolean {
+type CodexGoalCommand =
+  | { type: "set"; objective: string }
+  | { type: "set_status"; status: "active" | "paused" }
+  | { type: "clear" }
+  | { type: "get" };
+
+type CodexGoalRunner = AgentRunner & {
+  setGoal(params: CodexGoalSetParams, options: CodexGoalRunnerOptions): Promise<CodexGoalResult>;
+  getGoal(options: CodexGoalRunnerOptions): Promise<CodexGoalResult>;
+  clearGoal(options: CodexGoalRunnerOptions): Promise<CodexGoalResult>;
+};
+
+type CodexGoalRunnerOptions = {
+  cwd: string;
+  model?: string;
+  systemPrompt?: string;
+  threadId?: string;
+  env?: Record<string, string>;
+};
+
+function parseCodexGoalCommand(content: string): CodexGoalCommand | null {
   const trimmed = content.trim();
-  return providerId === "codex"
-    && providerSupportsAppServerGoals(providerId)
-    && (trimmed === "/goal" || trimmed.startsWith("/goal "));
+  if (trimmed === "/goal") return { type: "get" };
+  if (!trimmed.startsWith("/goal ")) return null;
+
+  const argument = trimmed.slice("/goal ".length).trim();
+  if (!argument) return { type: "get" };
+  if (argument === "clear") return { type: "clear" };
+  if (argument === "pause") return { type: "set_status", status: "paused" };
+  if (argument === "resume") return { type: "set_status", status: "active" };
+  return { type: "set", objective: argument };
+}
+
+function canHandleCodexGoalCommand(
+  command: CodexGoalCommand | null,
+  providerId: string | undefined,
+  sessionKind: SessionKind,
+  testCommand: string | undefined,
+): command is CodexGoalCommand {
+  return command !== null
+    && !testCommand
+    && isInteractiveSessionKind(sessionKind)
+    && providerId === "codex"
+    && providerSupportsAppServerGoals(providerId);
+}
+
+function isCodexGoalRunner(runner: AgentRunner): runner is CodexGoalRunner {
+  const candidate = runner as Partial<CodexGoalRunner>;
+  return typeof candidate.setGoal === "function"
+    && typeof candidate.getGoal === "function"
+    && typeof candidate.clearGoal === "function";
 }
 
 function cloneAgentActivity(activity: AgentActivity): AgentActivity {
@@ -317,12 +364,22 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       this.enqueueMetadataPersist();
     }
 
+    const promptContent = cliContent ?? content;
+    const goalCommand = images?.length ? null : parseCodexGoalCommand(content);
+    if (resolved && canHandleCodexGoalCommand(goalCommand, resolved.provider.id, this.sessionKind, this.testCommand)) {
+      this._status = "streaming";
+      this._streamingStartedAt = Date.now();
+      this.stopReason = null;
+      this._lastPlanMode = false;
+      this.emitUserMessage(content, undefined, fileMentions, true);
+      this.startCodexGoalCommand(goalCommand, msgOptions, resolved);
+      return;
+    }
+
     this._status = "streaming";
     this._streamingStartedAt = Date.now();
     this.stopReason = null;
     this._lastPlanMode = msgOptions?.planMode ?? false;
-
-    const promptContent = cliContent ?? content;
 
     if (images?.length) {
       void this.saveImagesToDisk(images).then((saved) => {
@@ -336,7 +393,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           !this.testCommand &&
           resolved?.provider.id === "codex" &&
           isInteractiveSessionKind(this.sessionKind);
-        this.emitUserMessage(content, urlImages, fileMentions, isCodexGoalCommand(content, resolved?.provider.id));
+        this.emitUserMessage(content, urlImages, fileMentions);
         this.startAgentTurn(
           useNativeCodexImages ? promptContent : this.buildPromptWithImages(promptContent, imagePaths),
           msgOptions,
@@ -349,7 +406,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         this.emit("error", err instanceof Error ? err : new Error(String(err)));
       });
     } else {
-      this.emitUserMessage(content, undefined, fileMentions, isCodexGoalCommand(content, resolved?.provider.id));
+      this.emitUserMessage(content, undefined, fileMentions);
       this.startAgentTurn(promptContent, msgOptions, resolved);
     }
   }
@@ -463,6 +520,237 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     return true;
   }
 
+  private attachCodexAppServerRunnerHandlers(
+    runner: AgentRunner,
+    supportsBlockingTools: boolean,
+  ): { finishWithoutTurn: (exitCode: number, failureDetail?: string) => void; hasActiveTurn: () => boolean } {
+    this.resetStreamAccumulators();
+
+    let resultDurationMs: number | undefined;
+    let resultInputTokens: number | undefined;
+    let resultOutputTokens: number | undefined;
+    let resultContextUsedTokens: number | undefined;
+    let resultContextWindowTokens: number | undefined;
+    let lastStderr: string | undefined;
+
+    let normalizer = new AgentEventNormalizer();
+    const blockingToolNames = new Set(["AskUserQuestion", "ExitPlanMode"]);
+    let killedForBlockingTool = false;
+    let currentTurnId: string | undefined = (runner as { capturedTurnId?: string }).capturedTurnId;
+
+    const resetPerTurnState = () => {
+      resultDurationMs = undefined;
+      resultInputTokens = undefined;
+      resultOutputTokens = undefined;
+      resultContextUsedTokens = undefined;
+      resultContextWindowTokens = undefined;
+      lastStderr = undefined;
+      normalizer = new AgentEventNormalizer();
+      killedForBlockingTool = false;
+    };
+
+    const finish = (exitCode: number, failureDetail?: string, completedTurnId?: string) => {
+      const turnId = completedTurnId ?? currentTurnId;
+      if (turnId) {
+        if (this.finalizedCodexAppServerTurnIds.has(turnId)) return;
+        addBounded(this.finalizedCodexAppServerTurnIds, turnId, MAX_FINALIZED_TURN_IDS);
+      }
+      this.finalizeTurn({
+        exitCode,
+        killedForBlockingTool,
+        lastStderr,
+        failureDetail,
+        resultDurationMs,
+        resultInputTokens,
+        resultOutputTokens,
+        resultContextUsedTokens,
+        resultContextWindowTokens,
+        blockingToolNames,
+      });
+      currentTurnId = undefined;
+    };
+
+    runner.on("assistant", (data) => {
+      const blockTypes = data.message.content.map((b) => b.type);
+      if (DEBUG_AGENT_LOGS) {
+        console.log("[session] assistant blocks:", blockTypes, JSON.stringify(data.message.content).slice(0, 500));
+      }
+      for (const event of normalizer.handleAssistant(data)) {
+        const usage = this.handleNormalizedAgentEvent(event, { supportsBlockingTools, blockingToolNames });
+        if (usage) {
+          resultInputTokens = usage.inputTokens;
+          resultOutputTokens = usage.outputTokens;
+        }
+        if (
+          event.type === "tool_started" &&
+          supportsBlockingTools &&
+          blockingToolNames.has(event.rawName) &&
+          this.runner?.forceKill?.()
+        ) {
+          killedForBlockingTool = true;
+          this._lastBlockingToolUseId = event.id;
+        }
+      }
+    });
+
+    runner.on("user", (data) => {
+      for (const event of normalizer.handleUser(data)) {
+        this.handleNormalizedAgentEvent(event, { supportsBlockingTools, blockingToolNames });
+      }
+    });
+
+    runner.on("agent_event", (event) => {
+      const usage = this.handleNormalizedAgentEvent(event, { supportsBlockingTools, blockingToolNames });
+      if (usage) {
+        resultInputTokens = usage.inputTokens;
+        resultOutputTokens = usage.outputTokens;
+      }
+    });
+
+    runner.on("result", (data) => {
+      if (data.session_id && !this.cliSessionId) {
+        this.setProviderSessionId(data.session_id);
+      }
+      if (data.duration_ms != null) {
+        resultDurationMs = data.duration_ms;
+      }
+      if (data.usage && resultInputTokens === undefined) {
+        resultInputTokens =
+          data.usage.input_tokens +
+          (data.usage.cache_creation_input_tokens ?? 0) +
+          (data.usage.cache_read_input_tokens ?? 0);
+        resultOutputTokens = data.usage.output_tokens;
+      }
+      if (data.usage?.context_used_tokens != null) {
+        resultContextUsedTokens = data.usage.context_used_tokens;
+      }
+      if (data.usage?.context_window != null) {
+        resultContextWindowTokens = data.usage.context_window;
+      }
+
+      const completedTurnId = data.turn_id ?? currentTurnId;
+      const status = data.status ?? "completed";
+      if (status === "completed") {
+        finish(this.stopReason ? 1 : 0, undefined, completedTurnId);
+        return;
+      }
+      if (status === "interrupted") {
+        const failureDetail = this.stopReason
+          ? undefined
+          : (data.error ?? "Codex app-server turn was interrupted.");
+        finish(1, failureDetail, completedTurnId);
+        return;
+      }
+      finish(1, data.error ?? `Codex app-server turn ended with status "${status}".`, completedTurnId);
+    });
+
+    runner.on("system", () => {
+      // System messages — no action needed
+    });
+
+    runner.on("turn_started", (event) => {
+      if (event.turnId && this.finalizedCodexAppServerTurnIds.has(event.turnId)) return;
+      currentTurnId = event.turnId;
+      if (event.threadId && !this.cliSessionId) {
+        this.setProviderSessionId(event.threadId);
+      }
+      if (this.beginSpontaneousCodexAppServerTurn(runner, event)) {
+        resetPerTurnState();
+      }
+    });
+
+    runner.on("error", (err) => {
+      this.emit("error", err);
+      if (this._status !== "streaming" && !currentTurnId) return;
+      lastStderr = sanitizeErrorDetail(err.message);
+      finish(1);
+    });
+
+    return {
+      finishWithoutTurn: (exitCode, failureDetail) => finish(exitCode, failureDetail),
+      hasActiveTurn: () => Boolean(currentTurnId),
+    };
+  }
+
+  private startCodexGoalCommand(
+    command: CodexGoalCommand,
+    msgOptions: MessageOptions | undefined,
+    resolved: { provider: AgentProvider; modelId: string },
+  ): void {
+    const isFirstMessage = this.messageCount === 1;
+    const runnerSelection = this.runnerFactory({
+      cwd: this.cwd,
+      content: "",
+      msgOptions,
+      resolved,
+      testCommand: this.testCommand,
+      isFirstMessage,
+      systemPrompt: this.systemPrompt,
+      skipPermissions: this.skipPermissions,
+      browserEnv: this.browserEnv,
+      sessionKind: this.sessionKind,
+      providerSessionId: this.cliSessionId,
+      existingCodexAppServerRunner: this.codexAppServerRunner,
+    });
+    if (runnerSelection.cachedCodexAppServerRunner) {
+      this.codexAppServerRunner = runnerSelection.cachedCodexAppServerRunner;
+    }
+
+    const runner = runnerSelection.runner;
+    runner.removeAllListeners();
+    this.runner = runner;
+
+    const controller = this.attachCodexAppServerRunnerHandlers(runner, runnerSelection.supportsBlockingTools);
+    if (runnerSelection.protocol !== "codex_app_server" || !isCodexGoalRunner(runner)) {
+      controller.finishWithoutTurn(1, "Codex app-server goal commands are unavailable.");
+      return;
+    }
+
+    const model = resolved.provider.models.find((m) => m.id === resolved.modelId);
+    const env = {
+      ...(resolved.provider.buildEnv({ ...msgOptions, model: resolved.modelId }) ?? {}),
+      ...(this.browserEnv ?? {}),
+    };
+    const goalOptions: CodexGoalRunnerOptions = {
+      cwd: this.cwd,
+      model: model?.cliValue ?? resolved.modelId,
+      systemPrompt: this.systemPrompt,
+      threadId: this.cliSessionId,
+      env,
+    };
+
+    const execute = async (): Promise<CodexGoalResult> => {
+      switch (command.type) {
+        case "set":
+          return runner.setGoal({ objective: command.objective, status: "active" }, goalOptions);
+        case "set_status":
+          return runner.setGoal({ status: command.status }, goalOptions);
+        case "clear":
+          return runner.clearGoal(goalOptions);
+        case "get":
+          return runner.getGoal(goalOptions);
+      }
+    };
+
+    void execute()
+      .then((result) => {
+        if (result.threadId) {
+          this.setProviderSessionId(result.threadId);
+        }
+        if (!controller.hasActiveTurn()) {
+          controller.finishWithoutTurn(0);
+        }
+      })
+      .catch((err: unknown) => {
+        const detail = sanitizeErrorDetail(err instanceof Error ? err.message : String(err));
+        if (!controller.hasActiveTurn()) {
+          controller.finishWithoutTurn(1, detail);
+          return;
+        }
+        this.emit("error", err instanceof Error ? err : new Error(String(err)));
+      });
+  }
+
   /** Start a single agent turn, delegating protocol execution to the selected runner. */
   private startAgentTurn(
     content: string,
@@ -517,6 +805,12 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     // Reset in-progress streaming accumulators
     this.resetStreamAccumulators();
+    if (useCodexAppServer) {
+      this.attachCodexAppServerRunnerHandlers(runner, supportsBlockingTools);
+      runnerSelection.start();
+      return;
+    }
+
     let resultDurationMs: number | undefined;
     let resultInputTokens: number | undefined;
     let resultOutputTokens: number | undefined;
@@ -525,20 +819,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let lastStderr: string | undefined;
     const emittedDiagnostics = new Set<string>();
 
-    let normalizer = new AgentEventNormalizer();
+    const normalizer = new AgentEventNormalizer();
     const blockingToolNames = new Set(["AskUserQuestion", "ExitPlanMode"]);
     let killedForBlockingTool = false;
-    const resetPerTurnState = () => {
-      resultDurationMs = undefined;
-      resultInputTokens = undefined;
-      resultOutputTokens = undefined;
-      resultContextUsedTokens = undefined;
-      resultContextWindowTokens = undefined;
-      lastStderr = undefined;
-      emittedDiagnostics.clear();
-      normalizer = new AgentEventNormalizer();
-      killedForBlockingTool = false;
-    };
 
     runner.on("assistant", (data) => {
       const blockTypes = data.message.content.map((b) => b.type);
@@ -615,68 +898,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       }
       this.emit("error", err);
     });
-
-    if (useCodexAppServer) {
-      let currentTurnId: string | undefined = (runner as { capturedTurnId?: string }).capturedTurnId;
-      const finish = (exitCode: number, failureDetail?: string, completedTurnId?: string) => {
-        const turnId = completedTurnId ?? currentTurnId;
-        if (turnId) {
-          if (this.finalizedCodexAppServerTurnIds.has(turnId)) return;
-          addBounded(this.finalizedCodexAppServerTurnIds, turnId, MAX_FINALIZED_TURN_IDS);
-        }
-        this.finalizeTurn({
-          exitCode,
-          killedForBlockingTool,
-          lastStderr,
-          failureDetail,
-          resultDurationMs,
-          resultInputTokens,
-          resultOutputTokens,
-          resultContextUsedTokens,
-          resultContextWindowTokens,
-          blockingToolNames,
-        });
-        currentTurnId = undefined;
-      };
-
-      runner.on("turn_started", (event) => {
-        if (event.turnId && this.finalizedCodexAppServerTurnIds.has(event.turnId)) return;
-        currentTurnId = event.turnId;
-        if (event.threadId && !this.cliSessionId) {
-          this.setProviderSessionId(event.threadId);
-        }
-        if (this.beginSpontaneousCodexAppServerTurn(runner, event)) {
-          resetPerTurnState();
-        }
-      });
-
-      runner.on("result", (data) => {
-        const completedTurnId = data.turn_id ?? currentTurnId;
-        const status = data.status ?? "completed";
-        if (data.session_id && !this.cliSessionId) {
-          this.setProviderSessionId(data.session_id);
-        }
-        if (status === "completed") {
-          finish(this.stopReason ? 1 : 0, undefined, completedTurnId);
-          return;
-        }
-        if (status === "interrupted") {
-          const failureDetail = this.stopReason
-            ? undefined
-            : (data.error ?? "Codex app-server turn was interrupted.");
-          finish(1, failureDetail, completedTurnId);
-          return;
-        }
-        finish(1, data.error ?? `Codex app-server turn ended with status "${status}".`, completedTurnId);
-      });
-      runner.on("error", (err) => {
-        if (this._status !== "streaming" && !currentTurnId) return;
-        lastStderr = sanitizeErrorDetail(err.message);
-        finish(1);
-      });
-      runnerSelection.start();
-      return;
-    }
 
     runner.on("stderr", ({ text, classification }) => {
       const stderrLine = `stderr: ${sanitizeErrorDetail(text)}`;

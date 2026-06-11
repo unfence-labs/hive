@@ -155,6 +155,93 @@ describe("CodexAppServerSession request handling", () => {
     );
   });
 
+  it("sets a goal on a materialized thread without starting a turn", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession({ enableGoals: true });
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+
+    const pending = session.setGoal(
+      { objective: "Ship backend support", status: "active" },
+      { cwd: "/tmp/project", model: "gpt-5.5" },
+    );
+
+    const initialize = await waitForMethod(proc, "initialize");
+    proc._stdout.push(appServerResponse(initialize.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+
+    const threadStart = await waitForMethod(proc, "thread/start");
+    proc._stdout.push(appServerResponse(threadStart.id, { thread: { id: "thread-goal" } }));
+
+    const goalSet = await waitForMethod(proc, "thread/goal/set");
+    const goalSetWrite = parseWrites(proc).find((write) => write.method === "thread/goal/set");
+    expect(goalSetWrite).toMatchObject({
+      params: {
+        threadId: "thread-goal",
+        objective: "Ship backend support",
+        status: "active",
+      },
+    });
+    proc._stdout.push(appServerResponse(goalSet.id, {
+      goal: {
+        threadId: "thread-goal",
+        objective: "Ship backend support",
+        status: "active",
+      },
+    }));
+
+    await expect(pending).resolves.toEqual({
+      threadId: "thread-goal",
+      goal: {
+        threadId: "thread-goal",
+        objective: "Ship backend support",
+        status: "active",
+      },
+    });
+    expect(parseWrites(proc).filter((write) => write.method === "turn/start")).toHaveLength(0);
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "goal_updated",
+        active: true,
+        threadId: "thread-goal",
+        objective: "Ship backend support",
+        status: "active",
+      }),
+    ]);
+  });
+
+  it("clears a goal on a materialized thread without starting a turn", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession({ enableGoals: true });
+
+    const pending = session.clearGoal({ cwd: "/tmp/project", model: "gpt-5.5" });
+
+    const initialize = await waitForMethod(proc, "initialize");
+    proc._stdout.push(appServerResponse(initialize.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+    const threadStart = await waitForMethod(proc, "thread/start");
+    proc._stdout.push(appServerResponse(threadStart.id, { thread: { id: "thread-goal-clear" } }));
+    const goalClear = await waitForMethod(proc, "thread/goal/clear");
+    const goalClearWrite = parseWrites(proc).find((write) => write.method === "thread/goal/clear");
+    expect(goalClearWrite).toMatchObject({
+      params: { threadId: "thread-goal-clear" },
+    });
+    proc._stdout.push(appServerResponse(goalClear.id, {}));
+
+    await expect(pending).resolves.toEqual({ threadId: "thread-goal-clear", goal: null });
+    expect(parseWrites(proc).filter((write) => write.method === "turn/start")).toHaveLength(0);
+  });
+
   it("auto-accepts known command and file approval requests", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
