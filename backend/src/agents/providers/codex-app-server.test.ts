@@ -65,6 +65,24 @@ async function waitForMethod(proc: ReturnType<typeof createMockProcess>, method:
   throw new Error(`Timed out waiting for ${method}`);
 }
 
+async function waitForNthMethod(
+  proc: ReturnType<typeof createMockProcess>,
+  method: string,
+  occurrence: number,
+): Promise<{ id: number }> {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    const writes = parseWrites(proc).filter(
+      (write): write is { id: number; method: string } => write.method === method && typeof write.id === "number",
+    );
+    if (writes.length >= occurrence) {
+      return { id: writes[occurrence - 1].id };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for ${method} occurrence ${occurrence}`);
+}
+
 async function waitForResponse(proc: ReturnType<typeof createMockProcess>, id: number): Promise<Record<string, unknown>> {
   const deadline = Date.now() + 1000;
   while (Date.now() < deadline) {
@@ -1079,6 +1097,111 @@ describe("CodexAppServerSession normalized events", () => {
     // and nothing nests under the Close Agent card.
     expect(blocks.filter((block) => block.id === "child-cmd-1")).toHaveLength(1);
     expect(blocks.filter((block) => block.parentToolUseId === "collab-close-1")).toHaveLength(0);
+  });
+
+  it("does not re-emit a previous user turn's sub-agent tools when closeAgent replays later", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: Array<{ message: { content: Array<Record<string, unknown>> } }> = [];
+    const resultEvents: unknown[] = [];
+    session.on("assistant", (event) => assistantEvents.push(event as never));
+    session.on("result", (event) => resultEvents.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "inProgress",
+          receiverThreadIds: ["thread-child"],
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "commandExecution",
+          id: "child-cmd-1",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "completed",
+          aggregatedOutput: "ok",
+          exitCode: 0,
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "turn/completed",
+      params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } },
+    }) + "\n");
+    await waitForCondition(() => resultEvents.length === 1);
+
+    const secondStarted = session.startTurn({
+      cwd: "/tmp/project",
+      content: "follow up",
+      model: "gpt-5.5",
+    });
+    const secondTurnStart = await waitForNthMethod(proc, "turn/start", 2);
+    expect(parseWrites(proc).filter((write) => write.method === "thread/start")).toHaveLength(1);
+    proc._stdout.push(appServerResponse(secondTurnStart.id, { turn: { id: "turn-2" } }));
+    await secondStarted;
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-close-1",
+          tool: "closeAgent",
+          status: "completed",
+          receiverThreadIds: ["thread-child"],
+        },
+      },
+    }) + "\n");
+    const read = await waitForMethod(proc, "thread/read");
+    proc._stdout.push(appServerResponse(read.id, {
+      thread: {
+        id: "thread-child",
+        turns: [{
+          id: "turn-child",
+          items: [{
+            type: "commandExecution",
+            id: "child-cmd-1",
+            command: "npm test",
+            cwd: "/tmp/project",
+            status: "completed",
+            aggregatedOutput: "ok",
+            exitCode: 0,
+          }, {
+            type: "commandExecution",
+            id: "child-cmd-2",
+            command: "npm run lint",
+            cwd: "/tmp/project",
+            status: "completed",
+            aggregatedOutput: "clean",
+            exitCode: 0,
+          }],
+        }],
+      },
+    }));
+
+    await waitForCondition(() =>
+      assistantEvents.some((event) => event.message.content.some((block) => block.id === "child-cmd-2")),
+    );
+    const toolUseBlocks = assistantEvents
+      .flatMap((event) => event.message.content)
+      .filter((block) => block.type === "tool_use");
+    expect(toolUseBlocks.filter((block) => block.id === "child-cmd-1")).toHaveLength(1);
+    expect(toolUseBlocks.filter((block) => block.id === "child-cmd-2")).toHaveLength(1);
   });
 
   it("keeps live receiver-thread tools under the spawning Agent card after a wait completes", async () => {

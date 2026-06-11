@@ -226,9 +226,14 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
 
   async startTurn(options: CodexAppServerTurnOptions): Promise<void> {
     await this.ensureInitialized(options.env);
-    this.resetTurnState();
+    const previousThreadId = this.threadId;
+    this.resetForUserTurn();
     this.currentCwd = options.cwd;
-    this.threadId = await this.ensureThread(options);
+    const threadId = await this.ensureThread(options);
+    if (threadId !== previousThreadId) {
+      this.resetForThreadBoundary();
+    }
+    this.threadId = threadId;
     const input: UserInput[] = [
       { type: "text", text: options.content, text_elements: [] },
       ...(options.imagePaths ?? []).map((path) => ({ type: "localImage" as const, path })),
@@ -268,6 +273,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.initialized = null;
     this.activeTurnId = undefined;
     this.threadId = undefined;
+    this.resetForThreadBoundary();
     rpc?.close(new Error("Codex app-server closed"));
     if (interruptedTurnId) {
       // Closing with a live turn is a cancellation, not an error: emit a
@@ -343,9 +349,13 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     return started.thread.id;
   }
 
-  /** Full reset, including cross-turn parent maps. Used at process init/teardown. */
-  private resetTurnState(): void {
+  private resetForUserTurn(): void {
     this.resetForNewTurn();
+    this.collabParentByThreadId.clear();
+    this.toolParentByItemId.clear();
+  }
+
+  private resetForThreadBoundary(): void {
     this.collabParentByThreadId.clear();
     this.toolParentByItemId.clear();
     this.completedCollabItemIds.clear();
@@ -1139,6 +1149,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.initialized = null;
     this.activeTurnId = undefined;
     this.threadId = undefined;
+    this.resetForThreadBoundary();
   }
 }
 
