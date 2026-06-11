@@ -240,22 +240,21 @@ struct ChatImageTileWithLightbox: View {
     private var hasSource: Bool { !(source?.isEmpty ?? true) }
 
     var body: some View {
-        ChatImageTile(
-            source: source,
-            pending: pending,
-            size: size,
-            cornerRadius: cornerRadius,
-            noPreviewMessage: noPreviewMessage,
-            onOpenLightbox: hasSource ? { present() } : nil
-        )
-        // Track the tile's on-screen rect so the lightbox can zoom from it.
-        // onGeometryChange delivers the real frame once layout settles (even
-        // with no scroll), unlike onAppear which can fire before layout.
-        .onGeometryChange(for: CGRect.self) { proxy in
-            proxy.frame(in: .global)
-        } action: { newFrame in
-            sourceFrame = newFrame
+        // A GeometryReader sized to the tile lets us read the tile's true
+        // on-screen rect at tap time — reliable even before any scroll, unlike
+        // onAppear/onGeometryChange which may not deliver the frame until a
+        // layout change occurs.
+        GeometryReader { proxy in
+            ChatImageTile(
+                source: source,
+                pending: pending,
+                size: size,
+                cornerRadius: cornerRadius,
+                noPreviewMessage: noPreviewMessage,
+                onOpenLightbox: hasSource ? { present(from: proxy.frame(in: .global)) } : nil
+            )
         }
+        .frame(width: size.width, height: size.height)
         .fullScreenCover(isPresented: $showLightbox) {
             if let source, hasSource {
                 ChatImageLightbox(
@@ -272,8 +271,10 @@ struct ChatImageTileWithLightbox: View {
         }
     }
 
-    // Present without the system slide; the lightbox runs its own zoom in.
-    private func present() {
+    // Capture the tapped tile's rect, then present without the system slide so
+    // the lightbox runs its own zoom from that rect.
+    private func present(from frame: CGRect) {
+        sourceFrame = frame
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) { showLightbox = true }
