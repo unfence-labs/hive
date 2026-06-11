@@ -98,7 +98,7 @@ async function waitForMessages(
     if (matches.length >= count) return matches;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  return messages.filter((msg) => msg.type === type);
+  throw new Error(`Timed out waiting for ${count} "${type}" message(s)`);
 }
 
 async function waitForCondition(predicate: () => boolean): Promise<void> {
@@ -2159,8 +2159,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);
 
-    // Allow async persistence to settle
-    await new Promise((r) => setTimeout(r, 50));
+    await session.drain();
 
     const doneMsgs = messages.filter((m) => m.type === "done");
     expect(doneMsgs).toHaveLength(1);
@@ -2183,7 +2182,7 @@ describe("ConversationSession", () => {
 
     mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);
-    await new Promise((r) => setTimeout(r, 50));
+    await session.drain();
 
     expect(session.status).toBe("idle");
     expect(session.streamingStartedAt).toBeNull();
@@ -2199,7 +2198,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(assistantLine("Partial..."));
     mockProc._emitClose(1);
 
-    await new Promise((r) => setTimeout(r, 50));
+    await session.drain();
 
     const cancelledMsgs = messages.filter((m) => m.type === "cancelled");
     expect(cancelledMsgs).toHaveLength(1);
@@ -2222,7 +2221,7 @@ describe("ConversationSession", () => {
     session.stop("park");
     mockProc._emitClose(1);
 
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     expect(messages.some((m) => m.type === "cancelled")).toBe(false);
     expect(messages.some((m) => m.type === "done")).toBe(false);
@@ -2453,7 +2452,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(assistantLine("Partial response"));
     mockProc._emitClose(1); // non-zero = cancelled
 
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const messagesPath = join(tempDir, "sessions", "cancel-persist", "messages.jsonl");
     const raw = await readFile(messagesPath, "utf-8");
@@ -2470,7 +2469,7 @@ describe("ConversationSession", () => {
     session.sendMessage("Hi");
     mockProc._emitClose(1); // non-zero = cancelled
 
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const messagesPath = join(tempDir, "sessions", "cancel-no-output", "messages.jsonl");
     const raw = await readFile(messagesPath, "utf-8");
@@ -2493,7 +2492,7 @@ describe("ConversationSession", () => {
     mockProc._stderr.push("permission denied");
     mockProc._emitClose(1); // non-zero = cancelled
 
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const messagesPath = join(tempDir, "sessions", "cancel-with-stderr", "messages.jsonl");
     const raw = await readFile(messagesPath, "utf-8");
@@ -2516,8 +2515,7 @@ describe("ConversationSession", () => {
     session.sendMessage("Hello");
     mockProc._emitClose(0);
 
-    // Wait for async persistence
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const messagesPath = join(tempDir, "sessions", "persist-test", "messages.jsonl");
     const raw = await readFile(messagesPath, "utf-8");
@@ -2538,7 +2536,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(resultLine("claude-s1"));
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const messagesPath = join(tempDir, "sessions", "persist-asst", "messages.jsonl");
     const raw = await readFile(messagesPath, "utf-8");
@@ -2563,7 +2561,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(resultLine(preGeneratedId));
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const metaPath = join(tempDir, "sessions", "meta-test", "metadata.json");
     const raw = await readFile(metaPath, "utf-8");
@@ -2582,7 +2580,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const messages = await session.getMessages();
     expect(messages).toHaveLength(2);
@@ -2606,7 +2604,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(assistantLine("World"));
     mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     // Manually inject a corrupted line into the JSONL file
     const messagesPath = join(tempDir, "sessions", sessionId, "messages.jsonl");
@@ -2636,7 +2634,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(assistantLine("Reply"));
     mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     // Simulate an interrupted write: append truncated JSON without trailing newline
     const messagesPath = join(tempDir, "sessions", sessionId, "messages.jsonl");
@@ -2655,7 +2653,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(assistantLine("Reply2"));
     mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);
-    await new Promise((r) => setTimeout(r, 100));
+    await session2.drain();
 
     const messages = await session2.getMessages();
     // 2 from first turn + corrupted line skipped + 2 from second turn = 4
@@ -2679,7 +2677,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(assistantLine("Hey"));
     mockProc._stdout.push(resultLine(preGeneratedId));
     mockProc._emitClose(0);
-    await new Promise((r) => setTimeout(r, 100));
+    await session1.drain();
 
     // Load from disk
     const session2 = await ConversationSession.load({
@@ -2744,7 +2742,7 @@ describe("ConversationSession", () => {
     );
 
     mockProc._emitClose(137);
-    await new Promise((r) => setTimeout(r, 50));
+    await session.drain();
 
     const required = messages.find((m) => m.type === "tool_input_required");
     expect(required).toBeDefined();
@@ -2858,10 +2856,7 @@ describe("ConversationSession", () => {
     ];
     session.sendMessage("Analyze this", undefined, images);
 
-    // Images are saved to disk before emitting — wait for the async save
-    await new Promise((r) => setTimeout(r, 200));
-
-    const userEvents = messages.filter((m) => m.type === "user_message");
+    const userEvents = await waitForMessages(messages, "user_message");
     expect(userEvents).toHaveLength(1);
     if (userEvents[0].type === "user_message") {
       expect(userEvents[0].message.content).toBe("Analyze this");
@@ -2916,8 +2911,7 @@ describe("ConversationSession", () => {
 
     session.sendMessage("Look at this", undefined, images);
 
-    // Wait for async image save + spawnCli
-    await new Promise((r) => setTimeout(r, 200));
+    await waitForCondition(() => mockSpawn.mock.calls.length === 1);
 
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     const args = mockSpawn.mock.calls[0][1] as string[];
@@ -2982,7 +2976,7 @@ describe("ConversationSession", () => {
     ];
 
     session.sendMessage("", undefined, images);
-    await new Promise((r) => setTimeout(r, 200));
+    await waitForCondition(() => mockSpawn.mock.calls.length === 1);
 
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     const args = mockSpawn.mock.calls[0][1] as string[];
@@ -2999,7 +2993,7 @@ describe("ConversationSession", () => {
     ];
 
     session.sendMessage("Check this", undefined, images);
-    await new Promise((r) => setTimeout(r, 200));
+    await waitForCondition(() => mockSpawn.mock.calls.length === 1);
 
     // spawnCli still called but no file paths in the prompt since image was skipped
     expect(mockSpawn).toHaveBeenCalledTimes(1);
@@ -3020,7 +3014,7 @@ describe("ConversationSession", () => {
     ];
 
     session.sendMessage("Photo", undefined, images);
-    await new Promise((r) => setTimeout(r, 200));
+    await waitForCondition(() => mockSpawn.mock.calls.length === 1);
 
     const attachmentsDir = join(tempDir, "sessions", "img-ext", "attachments");
     const files = await readdir(attachmentsDir);
@@ -3039,7 +3033,7 @@ describe("ConversationSession", () => {
     ];
 
     session.sendMessage("Two images", undefined, images);
-    await new Promise((r) => setTimeout(r, 200));
+    await waitForCondition(() => mockSpawn.mock.calls.length === 1);
 
     const attachmentsDir = join(tempDir, "sessions", "img-multi", "attachments");
     const files = await readdir(attachmentsDir);
@@ -3055,7 +3049,9 @@ describe("ConversationSession", () => {
     ];
 
     session.sendMessage("With image", undefined, images);
-    await new Promise((r) => setTimeout(r, 200));
+    await waitForCondition(() => mockSpawn.mock.calls.length === 1);
+    mockProc._emitClose(0);
+    await session.drain();
 
     const messagesPath = join(tempDir, "sessions", "img-persist", "messages.jsonl");
     const raw = await readFile(messagesPath, "utf-8");
@@ -3084,7 +3080,7 @@ describe("ConversationSession", () => {
     ];
 
     session.sendMessage("Match test", undefined, images);
-    await new Promise((r) => setTimeout(r, 200));
+    await waitForMessages(messages, "user_message");
 
     const attachmentsDir = join(tempDir, "sessions", "img-url-match", "attachments");
     const files = await readdir(attachmentsDir);
@@ -3107,7 +3103,7 @@ describe("ConversationSession", () => {
     );
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const messagesPath = join(tempDir, "sessions", "duration-persist", "messages.jsonl");
     const raw = await readFile(messagesPath, "utf-8");
@@ -3127,7 +3123,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(resultLine("s1"));
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const messagesPath = join(tempDir, "sessions", "duration-fallback", "messages.jsonl");
     const raw = await readFile(messagesPath, "utf-8");
@@ -3148,7 +3144,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const messagesPath = join(tempDir, "sessions", "thinking-persist", "messages.jsonl");
     const raw = await readFile(messagesPath, "utf-8");
@@ -3169,7 +3165,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const messagesPath = join(tempDir, "sessions", "toolcall-persist", "messages.jsonl");
     const raw = await readFile(messagesPath, "utf-8");
@@ -3193,7 +3189,7 @@ describe("ConversationSession", () => {
     expect(mockProc.kill).toHaveBeenCalledWith("SIGKILL");
 
     mockProc._emitClose(137);
-    await new Promise((r) => setTimeout(r, 50));
+    await session.drain();
 
     const requiredEvents = messages.filter((m) => m.type === "tool_input_required");
     expect(requiredEvents).toHaveLength(1);
@@ -3220,7 +3216,7 @@ describe("ConversationSession", () => {
     );
 
     mockProc._emitClose(137);
-    await new Promise((r) => setTimeout(r, 50));
+    await session.drain();
 
     const planModeEvents = messages.filter((m) => m.type === "plan_mode_changed");
     expect(planModeEvents).toMatchObject([
@@ -3274,7 +3270,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const metaPath = join(tempDir, "sessions", "title-persist", "metadata.json");
     const raw = await readFile(metaPath, "utf-8");
@@ -3327,7 +3323,7 @@ describe("ConversationSession", () => {
 
     // Wait for persistence
     mockProc._emitClose(0);
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const metaPath = join(tempDir, "sessions", "set-title", "metadata.json");
     const raw = await readFile(metaPath, "utf-8");
@@ -3467,7 +3463,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const metaPath = join(tempDir, "sessions", "lock-persist", "metadata.json");
     const raw = await readFile(metaPath, "utf-8");
@@ -3489,10 +3485,10 @@ describe("ConversationSession", () => {
     session.sendMessage("Plan this");
     mockProc._stdout.push(assistantLine("Planning"));
     mockProc._emitClose(0);
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     session.respondToToolInput("ExitPlanMode", { type: "dismiss", message: "OK got it" });
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const messagesPath = join(tempDir, "sessions", "plan-dismiss", "messages.jsonl");
     const raw = await readFile(messagesPath, "utf-8");
@@ -3571,9 +3567,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(resultLine("sess-123"));
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
-
-    const doneMsgs = messages.filter((m) => m.type === "done");
+    const doneMsgs = await waitForMessages(messages, "done");
     expect(doneMsgs).toHaveLength(1);
     expect(doneMsgs[0]).toMatchObject({
       type: "done",
@@ -3632,9 +3626,7 @@ describe("ConversationSession", () => {
     );
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
-
-    const doneMsgs = messages.filter((m) => m.type === "done");
+    const doneMsgs = await waitForMessages(messages, "done");
     expect(doneMsgs[0]).toMatchObject({
       inputTokens: 2000,
       outputTokens: 150,
@@ -3670,9 +3662,7 @@ describe("ConversationSession", () => {
     );
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
-
-    const doneMsgs = messages.filter((m) => m.type === "done");
+    const doneMsgs = await waitForMessages(messages, "done");
     expect(doneMsgs[0]).toMatchObject({
       inputTokens: 1000,
       outputTokens: 50,
@@ -3836,9 +3826,7 @@ describe("ConversationSession", () => {
     );
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
-
-    const doneMsgs = messages.filter((m) => m.type === "done");
+    const doneMsgs = await waitForMessages(messages, "done");
     // Must show the last sub-call (174K), NOT the cumulative 434K
     expect(doneMsgs[0]).toMatchObject({
       inputTokens: 174_000,
@@ -3872,9 +3860,7 @@ describe("ConversationSession", () => {
     );
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
-
-    const doneMsgs = messages.filter((m) => m.type === "done");
+    const doneMsgs = await waitForMessages(messages, "done");
     // 0 is a defined value — result should NOT override
     expect(doneMsgs[0]).toMatchObject({
       inputTokens: 0,
@@ -3904,9 +3890,7 @@ describe("ConversationSession", () => {
     );
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
-
-    const doneMsgs = messages.filter((m) => m.type === "done");
+    const doneMsgs = await waitForMessages(messages, "done");
     expect(doneMsgs[0]).toMatchObject({
       inputTokens: 1400, // 800 + 400 + 200
       outputTokens: 60,
@@ -3973,7 +3957,7 @@ describe("ConversationSession", () => {
     );
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const messagesPath = join(tempDir, "sessions", "tok-persist-priority", "messages.jsonl");
     const raw = await readFile(messagesPath, "utf-8");
@@ -4002,7 +3986,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
+    await session.drain();
 
     const messagesPath = join(tempDir, "sessions", "tok-persist", "messages.jsonl");
     const raw = await readFile(messagesPath, "utf-8");
@@ -4024,9 +4008,7 @@ describe("ConversationSession", () => {
     mockProc._stdout.push(resultLine());
     mockProc._emitClose(0);
 
-    await new Promise((r) => setTimeout(r, 100));
-
-    const doneMsgs = messages.filter((m) => m.type === "done");
+    const doneMsgs = await waitForMessages(messages, "done");
     expect(doneMsgs).toHaveLength(1);
     if (doneMsgs[0].type === "done") {
       expect(doneMsgs[0].inputTokens).toBeUndefined();
