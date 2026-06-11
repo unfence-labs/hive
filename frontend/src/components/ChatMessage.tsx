@@ -7,7 +7,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { ThinkingBlock } from "@/components/chat/ThinkingBlock";
 import { AgentActivityList, getInlineAgentActivities } from "@/components/chat/AgentActivityList";
 import { CopyButton } from "@/components/chat/CopyButton";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { ImageLightbox } from "@/components/chat/ImageLightbox";
 import { FileIcon, TargetIcon } from "lucide-react";
 import type { PlanStatus } from "@/components/chat/PlanProposal";
 import { AT_MENTION_RE, splitByAllMentions } from "@/lib/file-mentions";
@@ -107,27 +107,14 @@ const ChatMessage = memo(function ChatMessage({
                   </button>
                 ))}
               </div>
-              <Dialog
-                open={lightboxIndex !== null}
-                onOpenChange={(open) => { if (!open) setLightboxIndex(null); }}
-              >
-                <DialogContent
-                  showCloseButton={false}
-                  overlayClassName="bg-black/80 backdrop-blur-sm"
-                  className="flex items-center justify-center border-none bg-transparent p-0 shadow-none sm:max-w-[90vw]"
-                  onClick={() => setLightboxIndex(null)}
-                >
-                  <DialogTitle className="sr-only">Image preview</DialogTitle>
-                  <DialogDescription className="sr-only">Full size image preview</DialogDescription>
-                  {lightboxIndex !== null && message.images[lightboxIndex] && (
-                    <img
-                      src={resolveImageSrc(message.images[lightboxIndex].dataUrl)}
-                      alt={message.images[lightboxIndex].name}
-                      className="mx-auto max-h-[85vh] w-auto rounded-lg object-contain"
-                    />
-                  )}
-                </DialogContent>
-              </Dialog>
+              {lightboxIndex !== null && message.images[lightboxIndex] && (
+                <ImageLightbox
+                  src={resolveImageSrc(message.images[lightboxIndex].dataUrl)}
+                  alt={message.images[lightboxIndex].name}
+                  open
+                  onClose={() => setLightboxIndex(null)}
+                />
+              )}
             </>
           )}
           {message.content && (

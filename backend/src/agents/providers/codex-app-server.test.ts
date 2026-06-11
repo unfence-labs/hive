@@ -438,9 +438,8 @@ describe("CodexAppServerSession normalized events", () => {
       method: "item/started",
       params: {
         item: {
-          type: "imageView",
-          id: "image-1",
-          path: "/tmp/screenshot.png",
+          type: "mysteryItem",
+          id: "mystery-1",
         },
       },
     }) + "\n");
@@ -450,9 +449,146 @@ describe("CodexAppServerSession normalized events", () => {
         type: "diagnostic",
         severity: "info",
         title: "Unsupported App Server item",
-        message: "Hive does not render Codex item type \"imageView\" yet.",
+        message: "Hive does not render Codex item type \"mysteryItem\" yet.",
         source: "codex_app_server",
-        method: "item/imageView",
+        method: "item/mysteryItem",
+      }),
+    ]);
+  });
+
+  it("emits image view activities with workspace-relative paths", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        item: {
+          type: "imageView",
+          id: "image-1",
+          path: "/tmp/project/assets/screenshot.png",
+        },
+      },
+    }) + "\n");
+
+    expect(events).toEqual([{
+      type: "image_view_updated",
+      id: "image-1",
+      path: "/tmp/project/assets/screenshot.png",
+      relativePath: "assets/screenshot.png",
+    }]);
+  });
+
+  it("flags image views outside the workspace without a relative path", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        item: {
+          type: "imageView",
+          id: "image-1",
+          path: "/var/data/elsewhere.png",
+        },
+      },
+    }) + "\n");
+
+    expect(events).toEqual([{
+      type: "image_view_updated",
+      id: "image-1",
+      path: "/var/data/elsewhere.png",
+      outsideWorkspace: true,
+    }]);
+  });
+
+  it("emits image generation progress and completion", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        item: {
+          type: "imageGeneration",
+          id: "gen-1",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        item: {
+          type: "imageGeneration",
+          id: "gen-1",
+          status: "completed",
+          revisedPrompt: "A hive logo in watercolor",
+          result: "aGVsbG8=",
+          savedPath: "/tmp/project/generated/logo.png",
+        },
+      },
+    }) + "\n");
+
+    expect(events).toEqual([
+      {
+        type: "image_generation_updated",
+        id: "gen-1",
+        status: "inProgress",
+        revisedPrompt: undefined,
+        result: undefined,
+        savedPath: undefined,
+        relativePath: undefined,
+      },
+      {
+        type: "image_generation_updated",
+        id: "gen-1",
+        status: "completed",
+        revisedPrompt: "A hive logo in watercolor",
+        result: "aGVsbG8=",
+        savedPath: "/tmp/project/generated/logo.png",
+        relativePath: "generated/logo.png",
+      },
+    ]);
+  });
+
+  it("drops oversized inline image generation results", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        item: {
+          type: "imageGeneration",
+          id: "gen-1",
+          status: "completed",
+          result: "a".repeat(300_000),
+        },
+      },
+    }) + "\n");
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "image_generation_updated",
+        id: "gen-1",
+        status: "completed",
+        result: undefined,
       }),
     ]);
   });

@@ -589,6 +589,146 @@ describe("ConversationSession", () => {
     expect(toolInput.files).toHaveLength(2);
   });
 
+  it("builds raw-file preview URLs for image activities and merges generation updates", async () => {
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "image_view_updated",
+        id: "image-1",
+        path: "/tmp/test/assets/screenshot.png",
+        relativePath: "assets/screenshot.png",
+      });
+      fakeRunner.emit("agent_event", {
+        type: "image_generation_updated",
+        id: "gen-1",
+        status: "inProgress",
+        revisedPrompt: "A hive logo",
+      });
+      fakeRunner.emit("agent_event", {
+        type: "image_generation_updated",
+        id: "gen-1",
+        status: "completed",
+        savedPath: "/tmp/test/generated/logo.png",
+        relativePath: "generated/logo.png",
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-image" });
+      fakeRunner.emit("exit", 0, "provider-image");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-image",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "image-activity-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Show images");
+
+    await waitForMessages(messages, "done");
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    expect(assistant?.agentActivities).toEqual([
+      {
+        id: "image-1",
+        kind: "image_view",
+        path: "/tmp/test/assets/screenshot.png",
+        relativePath: "assets/screenshot.png",
+        imageUrl: "/api/workspaces/ws-test/file/raw?path=assets%2Fscreenshot.png",
+        outsideWorkspace: undefined,
+      },
+      {
+        id: "gen-1",
+        kind: "image_generation",
+        status: "completed",
+        revisedPrompt: "A hive logo",
+        result: undefined,
+        savedPath: "/tmp/test/generated/logo.png",
+        relativePath: "generated/logo.png",
+        imageUrl: "/api/workspaces/ws-test/file/raw?path=generated%2Flogo.png",
+      },
+    ]);
+  });
+
+  it("copies an out-of-workspace generated image into session attachments for preview", async () => {
+    const os = await import("node:os");
+    const fs = await import("node:fs/promises");
+    const generatedDir = await fs.mkdtemp(join(os.tmpdir(), "hive-codex-gen-"));
+    const generatedPath = join(generatedDir, "ig_logo.png");
+    await fs.writeFile(generatedPath, Buffer.from("fake-png-bytes"));
+
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "image_generation_updated",
+        id: "gen-1",
+        status: "completed",
+        revisedPrompt: "A hive logo",
+        savedPath: generatedPath,
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-gen" });
+      fakeRunner.emit("exit", 0, "provider-gen");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-gen",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "image-gen-copy-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Generate a logo");
+
+    await waitForMessages(messages, "done");
+
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    const activity = assistant?.agentActivities?.[0];
+    expect(activity).toMatchObject({
+      id: "gen-1",
+      kind: "image_generation",
+      savedPath: generatedPath,
+    });
+    const generation = activity as Extract<typeof activity, { kind: "image_generation" }> & { imageUrl?: string };
+    expect(generation.imageUrl).toMatch(
+      /^\/api\/workspaces\/ws-test\/sessions\/image-gen-copy-session\/attachments\/gen-[\w-]+\.png$/,
+    );
+    const filename = generation.imageUrl!.split("/").pop()!;
+    const copied = await readFile(
+      join(tempDir, "sessions", "image-gen-copy-session", "attachments", filename),
+    );
+    expect(copied.toString()).toBe("fake-png-bytes");
+
+    await rm(generatedDir, { recursive: true, force: true });
+  });
+
   it("streams and persists plan update activities", async () => {
     const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
     fakeRunner.start = vi.fn(() => {

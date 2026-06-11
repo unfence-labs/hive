@@ -290,6 +290,150 @@ struct AgentActivityDecodingTests {
     }
 
     @Test
+    func decodesImageViewActivity() throws {
+        let message = try decodeMessage("""
+        {
+          "id": "msg-1",
+          "sessionId": "session-1",
+          "role": "assistant",
+          "content": "",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "agentActivities": [
+            {
+              "id": "image-1",
+              "kind": "image_view",
+              "path": "/tmp/test/assets/screenshot.png",
+              "relativePath": "assets/screenshot.png",
+              "imageUrl": "/api/workspaces/ws-1/file/raw?path=assets%2Fscreenshot.png"
+            }
+          ]
+        }
+        """)
+
+        let activity = try #require(message.agentActivities?.first)
+        guard case .imageView(let image) = activity else {
+            Issue.record("Expected image_view activity")
+            return
+        }
+        #expect(image.path == "/tmp/test/assets/screenshot.png")
+        #expect(image.relativePath == "assets/screenshot.png")
+        #expect(image.resolvedSource == "/api/workspaces/ws-1/file/raw?path=assets%2Fscreenshot.png")
+        #expect(imageActivityFileName(image.path) == "screenshot.png")
+        // Image activities never become tool calls; they stay in the visible feed.
+        #expect(activity.toolCalls.isEmpty)
+        #expect(visibleAgentActivities([activity]).map(\.id) == ["image-1"])
+    }
+
+    @Test
+    func imageViewOutsideWorkspaceHasNoPreview() throws {
+        let message = try decodeMessage("""
+        {
+          "id": "msg-1",
+          "sessionId": "session-1",
+          "role": "assistant",
+          "content": "",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "agentActivities": [
+            {
+              "id": "image-out",
+              "kind": "image_view",
+              "path": "/etc/hosts",
+              "outsideWorkspace": true
+            }
+          ]
+        }
+        """)
+
+        let activity = try #require(message.agentActivities?.first)
+        guard case .imageView(let image) = activity else {
+            Issue.record("Expected image_view activity")
+            return
+        }
+        #expect(image.outsideWorkspace == true)
+        #expect(image.resolvedSource == nil)
+    }
+
+    @Test
+    func decodesImageGenerationActivityWithSavedFile() throws {
+        let message = try decodeMessage("""
+        {
+          "id": "msg-1",
+          "sessionId": "session-1",
+          "role": "assistant",
+          "content": "",
+          "timestamp": "2026-01-01T00:00:00Z",
+          "agentActivities": [
+            {
+              "id": "gen-1",
+              "kind": "image_generation",
+              "status": "completed",
+              "revisedPrompt": "A neon city skyline at dusk",
+              "relativePath": "generated/skyline.png",
+              "imageUrl": "/api/workspaces/ws-1/file/raw?path=generated%2Fskyline.png"
+            }
+          ]
+        }
+        """)
+
+        let activity = try #require(message.agentActivities?.first)
+        guard case .imageGeneration(let image) = activity else {
+            Issue.record("Expected image_generation activity")
+            return
+        }
+        #expect(image.status == "completed")
+        #expect(image.revisedPrompt == "A neon city skyline at dusk")
+        #expect(image.resolvedSource == "/api/workspaces/ws-1/file/raw?path=generated%2Fskyline.png")
+        // A resolvable image is never pending, even mid-stream.
+        #expect(image.isPending(showExecutingState: true) == false)
+        #expect(activity.toolCalls.isEmpty)
+        #expect(visibleAgentActivities([activity]).map(\.id) == ["gen-1"])
+    }
+
+    @Test
+    func imageGenerationInlineBase64ResultResolvesToDataURL() {
+        let withRawBase64 = AgentActivity.ImageGeneration(
+            id: "gen-2", status: "completed", revisedPrompt: nil,
+            result: "iVBORw0KGgo=", savedPath: nil, relativePath: nil, imageUrl: nil
+        )
+        #expect(withRawBase64.resolvedSource == "data:image/png;base64,iVBORw0KGgo=")
+
+        let withDataURL = AgentActivity.ImageGeneration(
+            id: "gen-3", status: "completed", revisedPrompt: nil,
+            result: "data:image/png;base64,iVBORw0KGgo=", savedPath: nil, relativePath: nil, imageUrl: nil
+        )
+        #expect(withDataURL.resolvedSource == "data:image/png;base64,iVBORw0KGgo=")
+    }
+
+    @Test
+    func imageGenerationPendingOnlyWhileStreamingAndNonTerminal() {
+        let streaming = AgentActivity.ImageGeneration(
+            id: "gen-4", status: "inProgress", revisedPrompt: "wip",
+            result: nil, savedPath: nil, relativePath: nil, imageUrl: nil
+        )
+        #expect(streaming.isPending(showExecutingState: true) == true)
+        // History renders (no streaming flag) never animate a stale record.
+        #expect(streaming.isPending(showExecutingState: false) == false)
+
+        let failed = AgentActivity.ImageGeneration(
+            id: "gen-5", status: "failed", revisedPrompt: nil,
+            result: nil, savedPath: nil, relativePath: nil, imageUrl: nil
+        )
+        #expect(failed.isPending(showExecutingState: true) == false)
+    }
+
+    @Test
+    func imagePromptPreviewCollapsesWhitespaceAndTruncates() throws {
+        #expect(imagePromptPreview(nil) == nil)
+        #expect(imagePromptPreview("   ") == nil)
+        #expect(imagePromptPreview("  a   neon\n  city  ") == "a neon city")
+
+        let long = String(repeating: "x", count: 100)
+        let preview = try #require(imagePromptPreview(long))
+        #expect(preview.count == 67) // 64 chars + "..."
+        #expect(preview.hasSuffix("..."))
+    }
+
+    @Test
     func decodesGoalCommandFlagOnUserMessage() throws {
         let message = try decodeMessage("""
         {

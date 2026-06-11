@@ -135,7 +135,7 @@ describe("provider usage", () => {
       {
         id: "codex",
         label: null,
-        usedPercent: 42,
+        usedPercent: 0.4,
         windowDurationMins: 300,
         resetsAt: 1781110800,
         planType: null,
@@ -173,6 +173,28 @@ describe("provider usage", () => {
       {
         id: "codex",
         usedPercent: 1,
+      },
+    ]);
+
+    expect(__providerUsageTestHooks.parseCodexRateLimitBuckets({
+      primary: {
+        usagePercent: 1,
+      },
+    })).toMatchObject([
+      {
+        id: "codex",
+        usedPercent: 1,
+      },
+    ]);
+
+    expect(__providerUsageTestHooks.parseCodexRateLimitBuckets({
+      primary: {
+        usageFraction: 0.42,
+      },
+    })).toMatchObject([
+      {
+        id: "codex",
+        usedPercent: 42,
       },
     ]);
   });
@@ -389,7 +411,7 @@ describe("provider usage", () => {
       five_hour: { utilization: 42, resets_at: "2026-06-10T17:00:00Z" },
       seven_day: { utilization: 61, resets_at: "2026-06-15T17:00:00Z" },
       seven_day_sonnet: { utilization: 1, resets_at: "2026-06-15T17:00:00Z" },
-      seven_day_opus: null,
+      seven_day_opus: { utilization: 0.42, resets_at: "2026-06-15T17:00:00Z" },
       extra_usage: { utilization: null },
     })).toEqual([
       {
@@ -410,6 +432,13 @@ describe("provider usage", () => {
         id: "seven_day_sonnet",
         label: "7d Sonnet",
         usedPercent: 1,
+        windowDurationMins: 10080,
+        resetsAt: 1781542800,
+      },
+      {
+        id: "seven_day_opus",
+        label: "7d Opus",
+        usedPercent: 0.4,
         windowDurationMins: 10080,
         resetsAt: 1781542800,
       },

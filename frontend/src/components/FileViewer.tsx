@@ -19,6 +19,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useThemeType } from "@/hooks/useThemeType";
 import { useFileContent } from "@/hooks/useFileContent";
+import { useImageLoadStatus } from "@/hooks/useImageLoadStatus";
 import { resolveApiResourceSrc, resolveImageSrc } from "@/lib/image-url";
 import { getFilePreviewKind, isMarkdownFilePath, workspaceFileRawPath } from "@/lib/file-preview";
 import { cn } from "@/lib/utils";
@@ -94,13 +95,9 @@ interface FileViewerProps {
 }
 
 function ImageFilePreview({ wsId, filePath }: { wsId: string; filePath: string }) {
-  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
   const src = resolveImageSrc(workspaceFileRawPath(wsId, filePath));
   const name = basename(filePath);
-
-  useEffect(() => {
-    setStatus("loading");
-  }, [src]);
+  const { status, imageRef, handleLoad, handleError } = useImageLoadStatus(src);
 
   return (
     <div className="file-viewer-image min-h-0 flex-1 overflow-auto bg-muted/20 p-4">
@@ -125,14 +122,15 @@ function ImageFilePreview({ wsId, filePath }: { wsId: string; filePath: string }
           </div>
         )}
         <img
+          ref={imageRef}
           src={src}
           alt={name}
           className={cn(
             "max-h-full max-w-full rounded-md border border-border/50 bg-background object-contain shadow-sm dark:shadow-none",
             status !== "loaded" && "hidden",
           )}
-          onLoad={() => setStatus("loaded")}
-          onError={() => setStatus("error")}
+          onLoad={handleLoad}
+          onError={handleError}
         />
       </div>
     </div>

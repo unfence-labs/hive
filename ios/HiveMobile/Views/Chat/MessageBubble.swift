@@ -46,7 +46,7 @@ struct MessageBubble: View {
 
                 let activities = visibleActivities
                 if message.role == .assistant, !activities.isEmpty {
-                    AgentActivityList(activities: activities)
+                    AgentActivityList(activities: activities, showExecutingState: message.id == "streaming")
                 }
 
                 messageFooter
@@ -58,8 +58,8 @@ struct MessageBubble: View {
 
     // MARK: - Message Content
 
-    fileprivate static let thumbSize = CGSize(width: 80, height: 60)
-    fileprivate static let thumbRadius: CGFloat = 10
+    private static let thumbSize = CGSize(width: 80, height: 60)
+    private static let thumbRadius: CGFloat = 10
 
     @ViewBuilder
     private var messageContent: some View {
@@ -67,7 +67,11 @@ struct MessageBubble: View {
         if message.role == .user, let images = message.images, !images.isEmpty {
             HStack(spacing: 6) {
                 ForEach(Array(images.enumerated()), id: \.offset) { _, img in
-                    ImageThumb(attachment: img, resolveURL: resolveImageURL)
+                    ChatImageTileWithLightbox(
+                        source: img.dataUrl,
+                        size: Self.thumbSize,
+                        cornerRadius: Self.thumbRadius
+                    )
                 }
             }
         }
@@ -189,21 +193,6 @@ struct MessageBubble: View {
         }
     }
 
-    // MARK: - Helpers
-
-    private func resolveImageURL(_ dataUrl: String) -> URL? {
-        guard dataUrl.hasPrefix("/api/") else { return nil }
-        let host = UserDefaults.standard.string(forKey: "serverHost") ?? "localhost"
-        let port = UserDefaults.standard.string(forKey: "serverPort") ?? "3000"
-        let token = UserDefaults.standard.string(forKey: "authToken") ?? ""
-        var urlString = "http://\(host):\(port)\(dataUrl)"
-        if !token.isEmpty {
-            let sep = dataUrl.contains("?") ? "&" : "?"
-            urlString += "\(sep)token=\(token)"
-        }
-        return URL(string: urlString)
-    }
-
     // MARK: - Mention Highlighting
 
     @Environment(\.self) private var environment
@@ -258,80 +247,6 @@ struct MessageBubble: View {
         return display.string(from: date)
     }
 
-}
-
-// MARK: - Image Thumbnail
-
-private struct ImageThumb: View {
-    let attachment: ImageAttachment
-    let resolveURL: (String) -> URL?
-    @State private var image: UIImage?
-    @State private var failed = false
-
-    private static let size = MessageBubble.thumbSize
-    private static let radius = MessageBubble.thumbRadius
-
-    init(attachment: ImageAttachment, resolveURL: @escaping (String) -> URL?) {
-        self.attachment = attachment
-        self.resolveURL = resolveURL
-        let key = ImageCache.key(for: attachment.dataUrl)
-        _image = State(initialValue: ImageCache.shared.image(forKey: key))
-    }
-
-    var body: some View {
-        WhisperColor.toolIconBg
-            .frame(width: Self.size.width, height: Self.size.height)
-            .overlay {
-                if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                } else if failed {
-                    Image(systemName: "photo")
-                        .foregroundStyle(WhisperColor.textMuted)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: Self.radius))
-            .task { await loadImage() }
-    }
-
-    private func loadImage() async {
-        guard image == nil else { return }
-        let key = ImageCache.key(for: attachment.dataUrl)
-
-        if attachment.dataUrl.hasPrefix("data:") {
-            guard let range = attachment.dataUrl.range(of: ";base64,") else {
-                failed = true
-                return
-            }
-            let base64 = String(attachment.dataUrl[range.upperBound...])
-            guard let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters),
-                  let decoded = UIImage(data: data) else {
-                failed = true
-                return
-            }
-            ImageCache.shared.storeThumbnail(decoded, forKey: key, maxSize: Self.size)
-            image = ImageCache.shared.image(forKey: key)
-            return
-        }
-
-        guard let url = resolveURL(attachment.dataUrl) else {
-            failed = true
-            return
-        }
-
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            guard let decoded = UIImage(data: data) else {
-                failed = true
-                return
-            }
-            ImageCache.shared.storeThumbnail(decoded, forKey: key, maxSize: Self.size)
-            image = ImageCache.shared.image(forKey: key)
-        } catch {
-            failed = true
-        }
-    }
 }
 
 // MARK: - Tool Display Helpers
