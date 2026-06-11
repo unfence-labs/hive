@@ -1214,6 +1214,68 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
+  it("parents live receiver-thread tools under documented Codex collab tool calls", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: unknown[] = [];
+    const diagnostics: unknown[] = [];
+    session.on("assistant", (event) => assistantEvents.push(event));
+    session.on("agent_event", (event) => diagnostics.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "inProgress",
+          receiverThreadId: "thread-child",
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/started",
+      params: {
+        threadId: "thread-child",
+        item: {
+          type: "commandExecution",
+          id: "child-cmd-1",
+          command: "npm test",
+          cwd: "/tmp/project",
+          status: "inProgress",
+        },
+      },
+    }) + "\n");
+
+    expect(assistantEvents).toEqual([
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({ type: "tool_use", id: "collab-1", name: "Agent" }),
+          ],
+        }),
+      }),
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({
+              type: "tool_use",
+              id: "child-cmd-1",
+              name: "Bash",
+              parentToolUseId: "collab-1",
+            }),
+          ],
+        }),
+      }),
+    ]);
+    expect(diagnostics).not.toContainEqual(expect.objectContaining({ method: "item/collabToolCall" }));
+  });
+
   it("does not re-emit a previous turn's sub-agent tools when closeAgent replays later", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
@@ -1880,6 +1942,88 @@ describe("CodexAppServerSession normalized events", () => {
     expect(resultEvents).toEqual([
       expect.objectContaining({ type: "result", status: "completed", duration_ms: 123 }),
     ]);
+  });
+
+  it("replays documented Codex collab tool call receiver-thread tools under the spawning parent", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const assistantEvents: unknown[] = [];
+    const diagnostics: unknown[] = [];
+    session.on("assistant", (event) => assistantEvents.push(event));
+    session.on("agent_event", (event) => diagnostics.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "completed",
+          receiverThreadId: "thread-child",
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabToolCall",
+          id: "collab-wait-1",
+          tool: "wait",
+          status: "completed",
+          receiverThreadId: "thread-child",
+        },
+      },
+    }) + "\n");
+
+    const read = await waitForMethod(proc, "thread/read");
+    expect(parseWrites(proc).find((write) => write.id === read.id)).toMatchObject({
+      method: "thread/read",
+      params: { threadId: "thread-child", includeTurns: true },
+    });
+    proc._stdout.push(appServerResponse(read.id, {
+      thread: {
+        id: "thread-child",
+        turns: [{
+          id: "turn-child",
+          items: [{
+            type: "commandExecution",
+            id: "child-cmd-1",
+            command: "npm test",
+            cwd: "/tmp/project",
+            status: "completed",
+            aggregatedOutput: "ok",
+            exitCode: 0,
+          }],
+        }],
+      },
+    }));
+
+    await waitForCondition(() =>
+      assistantEvents.some((event) =>
+        JSON.stringify(event).includes("child-cmd-1")),
+    );
+    expect(assistantEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
+            expect.objectContaining({
+              type: "tool_use",
+              id: "child-cmd-1",
+              name: "Bash",
+              parentToolUseId: "collab-1",
+            }),
+          ],
+        }),
+      }),
+    ]));
+    expect(diagnostics).not.toContainEqual(expect.objectContaining({ method: "item/collabToolCall" }));
   });
 
   it("does not replay receiver threads when spawnAgent completes", async () => {

@@ -134,20 +134,7 @@ type ThreadItem =
       contentItems?: unknown[] | null;
       success?: boolean | null;
     }
-  | {
-      type: "collabAgentToolCall";
-      id: string;
-      tool?: string;
-      status?: string;
-      senderThreadId?: string;
-      receiverThreadId?: string;
-      newThreadId?: string;
-      receiverThreadIds?: string[];
-      prompt?: string | null;
-      model?: string | null;
-      reasoningEffort?: string | null;
-      agentsStates?: Record<string, unknown>;
-    }
+  | CollabToolCallItem
   | { type: "webSearch"; id: string; query?: string; action?: unknown }
   | { type: "imageView"; id: string; path?: string }
   | {
@@ -159,6 +146,21 @@ type ThreadItem =
       savedPath?: string | null;
     }
   | { type: string; id?: string; [key: string]: unknown };
+
+type CollabToolCallItem = {
+  type: "collabAgentToolCall" | "collabToolCall";
+  id: string;
+  tool?: string;
+  status?: string;
+  senderThreadId?: string;
+  receiverThreadId?: string;
+  newThreadId?: string;
+  receiverThreadIds?: string[];
+  prompt?: string | null;
+  model?: string | null;
+  reasoningEffort?: string | null;
+  agentsStates?: Record<string, unknown>;
+};
 
 type FileUpdateChange = {
   path?: string;
@@ -839,8 +841,9 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         }
         break;
       }
-      case "collabAgentToolCall": {
-        const collabItem = item as Extract<ThreadItem, { type: "collabAgentToolCall" }>;
+      case "collabAgentToolCall":
+      case "collabToolCall": {
+        const collabItem = item as CollabToolCallItem;
         if (parentToolUseId && this.isCollabAgentSelfReference(collabItem, context.threadId)) {
           break;
         }
@@ -923,7 +926,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   private isCollabAgentSelfReference(
-    item: Extract<ThreadItem, { type: "collabAgentToolCall" }>,
+    item: CollabToolCallItem,
     threadId: string | undefined,
   ): boolean {
     return Boolean(threadId && collabAgentReceiverThreadIds(item).includes(threadId));
@@ -939,13 +942,13 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     return threadId ? this.collabParentByThreadId.get(threadId) : undefined;
   }
 
-  private rememberCollabAgentReceivers(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): void {
+  private rememberCollabAgentReceivers(item: CollabToolCallItem): void {
     for (const threadId of collabAgentReceiverThreadIds(item)) {
       this.collabParentByThreadId.set(threadId, item.id);
     }
   }
 
-  private rememberFallbackCollabAgentReceivers(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): void {
+  private rememberFallbackCollabAgentReceivers(item: CollabToolCallItem): void {
     for (const threadId of collabAgentReceiverThreadIds(item)) {
       if (!this.collabParentByThreadId.has(threadId)) {
         this.collabParentByThreadId.set(threadId, item.id);
@@ -953,7 +956,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     }
   }
 
-  private queueCollabAgentReplay(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): void {
+  private queueCollabAgentReplay(item: CollabToolCallItem): void {
     const threadIds = collabAgentReceiverThreadIds(item);
     if (threadIds.length === 0) return;
     // Catch-up items nest under the spawning Agent card when known; the
@@ -1382,7 +1385,7 @@ function formatUnknown(value: unknown): string {
   }
 }
 
-function collabAgentToolInput(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): JsonObject {
+function collabAgentToolInput(item: CollabToolCallItem): JsonObject {
   return {
     subagent_type: collabAgentLabel(item),
     description: collabAgentDescription(item),
@@ -1398,7 +1401,7 @@ function collabAgentToolInput(item: Extract<ThreadItem, { type: "collabAgentTool
   };
 }
 
-function collabAgentReceiverThreadIds(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): string[] {
+function collabAgentReceiverThreadIds(item: CollabToolCallItem): string[] {
   return [
     ...(item.receiverThreadIds ?? []),
     item.receiverThreadId,
@@ -1406,17 +1409,17 @@ function collabAgentReceiverThreadIds(item: Extract<ThreadItem, { type: "collabA
   ].filter((threadId): threadId is string => Boolean(threadId));
 }
 
-function collabAgentDescription(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): string {
+function collabAgentDescription(item: CollabToolCallItem): string {
   const prompt = item.prompt?.trim().split("\n").find((line) => line.trim());
   if (prompt) return prompt.trim();
   return item.tool === "spawnAgent" ? "Agent" : "";
 }
 
-function collabAgentLabel(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): string {
+function collabAgentLabel(item: CollabToolCallItem): string {
   return item.tool === "spawnAgent" ? "Agent" : formatCollabAgentTool(item.tool);
 }
 
-function collabAgentToolResult(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): string {
+function collabAgentToolResult(item: CollabToolCallItem): string {
   return JSON.stringify([{
     type: "text",
     text: formatUnknown({
