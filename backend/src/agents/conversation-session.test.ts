@@ -244,6 +244,13 @@ describe("ConversationSession", () => {
     });
   }
 
+  it("survives emit(\"error\") with no external listeners attached", () => {
+    const session = createSession({ command: "bash" });
+    // Node throws (and would crash the process) on an unhandled "error" event;
+    // the constructor's default listener must absorb it.
+    expect(() => session.emit("error", new Error("boom"))).not.toThrow();
+  });
+
   it("can orchestrate a turn with an injected fake runner", async () => {
     const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
     fakeRunner.start = vi.fn(() => {
@@ -1829,8 +1836,12 @@ describe("ConversationSession", () => {
 
     vi.useFakeTimers();
     try {
+      // Forced close now finalizes the turn as a cancellation (terminal result)
+      // instead of emitting an "error" event.
       const forcedClose = new Promise<void>((resolve) => {
-        session.on("error", () => resolve());
+        session.on("message", (msg) => {
+          if (msg.type === "cancelled") resolve();
+        });
       });
       session.stop();
       await vi.advanceTimersByTimeAsync(5000);

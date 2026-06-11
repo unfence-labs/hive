@@ -26,6 +26,19 @@ describe("CodexAppServerRunner", () => {
     expect(appServer.close).toHaveBeenCalledTimes(1);
   });
 
+  it("emits an interrupted result when stopped without a turn to interrupt", () => {
+    const appServer = new FakeAppServer();
+    const runner = new CodexAppServerRunner(appServer);
+    const results: unknown[] = [];
+    runner.on("result", (event) => results.push(event));
+
+    runner.stop("user");
+
+    expect(results).toEqual([
+      { type: "result", session_id: "", status: "interrupted" },
+    ]);
+  });
+
   it("interrupts an active turn and waits for completion on user stop", () => {
     vi.useFakeTimers();
     const appServer = new FakeAppServer();

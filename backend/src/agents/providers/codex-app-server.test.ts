@@ -1212,6 +1212,62 @@ describe("CodexAppServerSession normalized events", () => {
     ]);
   });
 
+  it("emits an interrupted result instead of an error when closed mid-turn", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const results: unknown[] = [];
+    const errors: Error[] = [];
+    session.on("result", (event) => results.push(event));
+    session.on("error", (err) => errors.push(err));
+    await initializeSession(session, proc);
+
+    session.close();
+
+    await waitForCondition(() => results.length === 1);
+    expect(errors).toEqual([]);
+    expect(results[0]).toMatchObject({
+      type: "result",
+      status: "interrupted",
+      turn_id: "turn-1",
+      session_id: "",
+    });
+    expect(session.capturedTurnId).toBeUndefined();
+  });
+
+  it("finalizes the turn when Codex rejects the interrupt for a turn it no longer tracks", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const results: unknown[] = [];
+    const errors: Error[] = [];
+    session.on("result", (event) => results.push(event));
+    session.on("error", (err) => errors.push(err));
+    await initializeSession(session, proc);
+
+    session.interruptActiveTurn();
+    const interrupt = await waitForMethod(proc, "turn/interrupt");
+    proc._stdout.push(appServerError(interrupt.id, "no turn to stop"));
+
+    await waitForCondition(() => results.length === 1);
+    expect(errors).toEqual([]);
+    expect(results[0]).toMatchObject({
+      type: "result",
+      status: "interrupted",
+      turn_id: "turn-1",
+      session_id: "",
+    });
+    expect(session.capturedTurnId).toBeUndefined();
+
+    // A late turn/completed for the same turn must not double-finalize.
+    proc._stdout.push(JSON.stringify({
+      method: "turn/completed",
+      params: { turn: { id: "turn-1", status: "completed" } },
+    }) + "\n");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(results).toHaveLength(1);
+  });
+
   it("normalizes native Codex goal notifications", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

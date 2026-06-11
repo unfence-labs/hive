@@ -68,6 +68,10 @@ export class CodexAppServerRunner extends EventEmitter<AgentRunnerEvent> impleme
     this.clearInterruptTimer();
     if (!turnId) {
       this.close();
+      // The bridge has no turn to interrupt, but the session may still believe
+      // it is streaming (e.g. a turn/completed that never reached us). Emit a
+      // terminal result so the conversation always converges to a final state.
+      this.emit("result", { type: "result", session_id: "", status: "interrupted" });
       return;
     }
 
