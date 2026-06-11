@@ -11,10 +11,6 @@ struct SettingsView: View {
     @State private var healthStatus: HealthStatus = .disconnected
     @State private var pollingTask: Task<Void, Never>?
     @State private var debouncedCheckTask: Task<Void, Never>?
-    private let accentColumns = [
-        GridItem(.adaptive(minimum: 54), spacing: HiveSpacing.md)
-    ]
-
     private enum Field: Hashable {
         case host, port, token
     }
@@ -94,7 +90,7 @@ struct SettingsView: View {
                     .font(.subheadline)
                     .foregroundStyle(WhisperColor.textSecondary)
 
-                LazyVGrid(columns: accentColumns, alignment: .leading, spacing: HiveSpacing.md) {
+                HStack(spacing: HiveSpacing.xs) {
                     ForEach(AccentOption.allCases) { option in
                         Button {
                             withAnimation(.easeInOut(duration: 0.2)) {
@@ -105,7 +101,7 @@ struct SettingsView: View {
                                 ZStack {
                                     Circle()
                                         .fill(option.color)
-                                        .frame(width: 36, height: 36)
+                                        .frame(width: 32, height: 32)
 
                                     if option.rawValue == accentId {
                                         Image(systemName: "checkmark")
@@ -116,7 +112,7 @@ struct SettingsView: View {
                                     if option.rawValue == accentId {
                                         Circle()
                                             .strokeBorder(option.color, lineWidth: 1.5)
-                                            .frame(width: 44, height: 44)
+                                            .frame(width: 40, height: 40)
                                     }
                                 }
                                 .shadow(
@@ -127,9 +123,16 @@ struct SettingsView: View {
                                 Text(option.label)
                                     .font(.caption2)
                                     .foregroundStyle(option.rawValue == accentId ? WhisperColor.text : WhisperColor.textSecondary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.82)
+                                    .allowsTightening(true)
                             }
+                            .frame(minWidth: 44, maxWidth: .infinity, minHeight: 58)
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Accent color: \(option.label)")
+                        .accessibilityValue(option.rawValue == accentId ? "Selected" : "")
                     }
                 }
             }
