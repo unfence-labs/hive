@@ -64,6 +64,34 @@ final class ChatImageLoader {
         loadedKey = key
     }
 
+    /// Full-resolution load that first shows the tile's cached thumbnail (if any)
+    /// so a hero zoom has an image to animate from the very first frame, then
+    /// swaps to the full image without ever flashing a blank/loading state.
+    func loadFull(source: String, previewSize: CGSize) async {
+        let thumbKey = Self.cacheKey(source: source, maxSize: previewSize)
+        if loadedImage == nil, let thumb = ImageCache.shared.image(forKey: thumbKey) {
+            state = .loaded(thumb)
+            loadedKey = thumbKey
+        }
+
+        let fullKey = Self.cacheKey(source: source, maxSize: nil)
+        if loadedKey == fullKey, case .loaded = state { return }
+        if let cached = ImageCache.shared.image(forKey: fullKey) {
+            state = .loaded(cached)
+            loadedKey = fullKey
+            return
+        }
+
+        if loadedImage == nil { state = .loading }
+        guard let decoded = await Self.decode(source: source) else {
+            if loadedImage == nil { state = .failed }
+            return
+        }
+        ImageCache.shared.store(decoded, forKey: fullKey)
+        state = .loaded(decoded)
+        loadedKey = fullKey
+    }
+
     private static func cacheKey(source: String, maxSize: CGSize?) -> String {
         let base = ImageCache.key(for: source)
         guard let maxSize else { return base }
@@ -207,6 +235,7 @@ struct ChatImageTileWithLightbox: View {
     var noPreviewMessage: String? = nil
 
     @State private var showLightbox = false
+    @State private var sourceFrame: CGRect = .zero
 
     private var hasSource: Bool { !(source?.isEmpty ?? true) }
 
@@ -219,17 +248,31 @@ struct ChatImageTileWithLightbox: View {
             noPreviewMessage: noPreviewMessage,
             onOpenLightbox: hasSource ? { present() } : nil
         )
+        // Track the tile's on-screen rect so the lightbox can zoom from it.
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { sourceFrame = proxy.frame(in: .global) }
+                    .onChange(of: proxy.frame(in: .global)) { sourceFrame = $1 }
+            }
+        }
         .fullScreenCover(isPresented: $showLightbox) {
             if let source, hasSource {
-                ChatImageLightbox(source: source, isPresented: $showLightbox)
-                    // Transparent so the lightbox owns its own dim backdrop and
-                    // we never see the opaque system cover behind it.
-                    .presentationBackground(.clear)
+                ChatImageLightbox(
+                    source: source,
+                    isPresented: $showLightbox,
+                    sourceFrame: sourceFrame,
+                    sourceSize: size,
+                    sourceCornerRadius: cornerRadius
+                )
+                // Transparent so the lightbox owns its own dim backdrop and
+                // we never see the opaque system cover behind it.
+                .presentationBackground(.clear)
             }
         }
     }
 
-    // Present without the system slide; the lightbox runs its own fade/zoom in.
+    // Present without the system slide; the lightbox runs its own zoom in.
     private func present() {
         var transaction = Transaction()
         transaction.disablesAnimations = true
@@ -245,6 +288,9 @@ struct ChatImageTileWithLightbox: View {
 struct ChatImageLightbox: View {
     let source: String
     @Binding var isPresented: Bool
+    let sourceFrame: CGRect
+    let sourceSize: CGSize
+    let sourceCornerRadius: CGFloat
 
     @State private var loader = ChatImageLoader()
     @State private var revealed = false
@@ -266,35 +312,59 @@ struct ChatImageLightbox: View {
         return Double(1 - dragProgress)
     }
 
-    private var imageScale: CGFloat {
-        guard revealed else { return 0.82 }
-        return 1 - dragProgress * 0.3
-    }
-
     var body: some View {
-        ZStack {
-            Color.black
-                .opacity(backdropOpacity)
-                .ignoresSafeArea()
+        GeometryReader { geo in
+            ZStack {
+                Color.black
+                    .opacity(backdropOpacity)
+                    .ignoresSafeArea()
 
-            imageContent
-                .scaleEffect(imageScale)
-                .offset(drag)
-                .opacity(revealed ? 1 : 0)
+                heroImage(screen: geo.size)
 
-            closeButton
-                .opacity(backdropOpacity)
+                closeButton
+                    .opacity(backdropOpacity)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .contentShape(Rectangle())
+            .gesture(dragGesture)
+            .onTapGesture { close() }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .gesture(dragGesture)
-        .onTapGesture { close(translation: drag) }
-        .task(id: source) { await loader.load(source: source, maxSize: nil) }
+        // Span the safe areas so the GeometryReader's local space matches the
+        // tile's `.global` frame, keeping the zoom origin pixel-accurate.
+        .ignoresSafeArea()
+        .task(id: source) { await loader.loadFull(source: source, previewSize: sourceSize) }
         .onAppear {
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+            withAnimation(.spring(response: 0.36, dampingFraction: 0.86)) {
                 revealed = true
             }
         }
+    }
+
+    /// The image, animating its frame/position/corner-radius between the tile's
+    /// rect (collapsed) and the centered fitted rect (expanded). `scaledToFill`
+    /// matches the tile's crop while collapsed and shows the whole image once
+    /// the expanded frame carries the image's own aspect ratio.
+    @ViewBuilder
+    private func heroImage(screen: CGSize) -> some View {
+        let expanded = expandedSize(screen: screen)
+        let collapsedSize = sourceFrame.size == .zero ? sourceSize : sourceFrame.size
+        let curSize = revealed ? expanded : collapsedSize
+
+        let expandedCenter = CGPoint(x: screen.width / 2, y: screen.height / 2)
+        let collapsedCenter = sourceFrame == .zero
+            ? expandedCenter
+            : CGPoint(x: sourceFrame.midX, y: sourceFrame.midY)
+        let baseCenter = revealed ? expandedCenter : collapsedCenter
+        let center = CGPoint(x: baseCenter.x + drag.width, y: baseCenter.y + drag.height)
+
+        let radius = revealed ? 0 : sourceCornerRadius
+        let dragScale = revealed ? (1 - dragProgress * 0.25) : 1
+
+        imageContent
+            .frame(width: curSize.width, height: curSize.height)
+            .clipShape(RoundedRectangle(cornerRadius: radius))
+            .scaleEffect(dragScale)
+            .position(center)
     }
 
     @ViewBuilder
@@ -302,22 +372,38 @@ struct ChatImageLightbox: View {
         if let image = loader.loadedImage {
             Image(uiImage: image)
                 .resizable()
-                .scaledToFit()
-                .padding()
+                .scaledToFill()
         } else if loader.isError {
-            Image(systemName: "photo")
-                .font(.system(size: 44))
-                .foregroundStyle(.white.opacity(0.5))
+            ZStack {
+                Color.black.opacity(0.3)
+                Image(systemName: "photo")
+                    .font(.system(size: 44))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
         } else {
-            ProgressView().tint(.white)
+            ZStack {
+                Color.black.opacity(0.2)
+                ProgressView().tint(.white)
+            }
         }
+    }
+
+    /// Aspect-fit the loaded image into the screen (inset a little), or fill the
+    /// inset bounds until it loads.
+    private func expandedSize(screen: CGSize) -> CGSize {
+        let bounds = CGSize(width: max(screen.width - 24, 1), height: max(screen.height - 48, 1))
+        guard let image = loader.loadedImage, image.size.width > 0, image.size.height > 0 else {
+            return bounds
+        }
+        let scale = min(bounds.width / image.size.width, bounds.height / image.size.height)
+        return CGSize(width: image.size.width * scale, height: image.size.height * scale)
     }
 
     private var closeButton: some View {
         VStack {
             HStack {
                 Spacer()
-                Button { close(translation: .zero) } label: {
+                Button { close() } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(WhisperColor.text)
@@ -336,19 +422,19 @@ struct ChatImageLightbox: View {
             .onChanged { drag = $0.translation }
             .onEnded { value in
                 if hypot(value.translation.width, value.translation.height) > dismissThreshold {
-                    close(translation: value.translation)
+                    close()
                 } else {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) { drag = .zero }
                 }
             }
     }
 
-    /// Shrink + fade the image (continuing any drag) while the backdrop fades
-    /// out, then remove the cover without the system slide.
-    private func close(translation: CGSize) {
-        withAnimation(.easeOut(duration: 0.24)) {
+    /// Reverse the zoom back into the tile (frame/position/radius) while the
+    /// backdrop fades out, then remove the cover without the system slide.
+    private func close() {
+        withAnimation(.easeInOut(duration: 0.26)) {
             revealed = false
-            drag = translation
+            drag = .zero
         } completion: {
             var transaction = Transaction()
             transaction.disablesAnimations = true
