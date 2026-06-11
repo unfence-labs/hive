@@ -245,8 +245,6 @@ struct ChatImageLightbox: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.92).ignoresSafeArea()
-
             if let image = loader.loadedImage {
                 Image(uiImage: image)
                     .resizable()
@@ -276,8 +274,13 @@ struct ChatImageLightbox: View {
                 Spacer()
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .onTapGesture { dismiss() }
         .task(id: source) { await loader.load(source: source, maxSize: nil) }
+        // The dim backdrop is a presentation-level layer (not part of the
+        // zoomed content), so it fades on present/dismiss instead of scaling
+        // with the morph — which is what caused the black-box glitch.
+        .presentationBackground(Color.black.opacity(0.92))
     }
 }
