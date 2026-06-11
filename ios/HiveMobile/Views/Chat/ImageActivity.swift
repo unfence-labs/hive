@@ -2,12 +2,10 @@ import SwiftUI
 
 private let outsideWorkspaceMessage = "Image is outside the workspace and cannot be previewed."
 
-/// `image_view` activity: a small thumbnail beside a "View image" toggle.
+/// `image_view` activity: a "View image" toggle with the thumbnail below.
 /// Mirrors `ImageViewActivity` in `frontend/src/components/chat/ImageActivity.tsx`.
 struct ImageViewActivityRow: View {
     let activity: AgentActivity.ImageView
-
-    private static let tileSize = CGSize(width: 48, height: 48)
 
     private var name: String { imageActivityFileName(activity.path) }
     private var source: String? { activity.resolvedSource }
@@ -20,16 +18,11 @@ struct ImageViewActivityRow: View {
     }
 
     var body: some View {
-        ActivityDisclosureRow(
+        ImageActivityShell(
             title: "View image",
             detail: name,
-            leading: AnyView(
-                ChatImageTileWithLightbox(
-                    source: source,
-                    size: Self.tileSize,
-                    noPreviewMessage: activity.outsideWorkspace == true ? outsideWorkspaceMessage : nil
-                )
-            ),
+            source: source,
+            noPreviewMessage: activity.outsideWorkspace == true ? outsideWorkspaceMessage : nil,
             expanded: expandedContent
         )
     }
@@ -42,8 +35,6 @@ struct ImageGenerationActivityRow: View {
     let activity: AgentActivity.ImageGeneration
     var showExecutingState = false
 
-    private static let tileSize = CGSize(width: 80, height: 80)
-
     private var source: String? { activity.resolvedSource }
     private var pending: Bool { activity.isPending(showExecutingState: showExecutingState) }
     private var promptDetail: String? { imagePromptPreview(activity.revisedPrompt) }
@@ -54,17 +45,39 @@ struct ImageGenerationActivityRow: View {
     }
 
     var body: some View {
-        ActivityDisclosureRow(
-            icon: "photo",
+        ImageActivityShell(
             title: "Proposed image",
             detail: promptDetail,
+            source: source,
             executing: pending,
-            expanded: expandedContent,
+            expanded: expandedContent
+        )
+    }
+}
+
+private struct ImageActivityShell: View {
+    private static let tileSize = CGSize(width: 80, height: 80)
+
+    let title: String
+    var detail: String?
+    let source: String?
+    var executing = false
+    var noPreviewMessage: String?
+    var expanded: AnyView?
+
+    var body: some View {
+        ActivityDisclosureRow(
+            icon: "photo",
+            title: title,
+            detail: detail,
+            executing: executing,
+            expanded: expanded,
             below: AnyView(
                 ChatImageTileWithLightbox(
                     source: source,
-                    pending: pending,
-                    size: Self.tileSize
+                    pending: executing,
+                    size: Self.tileSize,
+                    noPreviewMessage: noPreviewMessage
                 )
                 .padding(.top, 6)
             )
