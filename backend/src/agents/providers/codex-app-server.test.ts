@@ -1411,6 +1411,19 @@ describe("CodexAppServerSession normalized events", () => {
         },
       },
     }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-wait-1",
+          tool: "wait",
+          status: "completed",
+          receiverThreadIds: ["thread-child"],
+        },
+      },
+    }) + "\n");
 
     const read = await waitForMethod(proc, "thread/read");
     proc._stdout.push(appServerResponse(read.id, {
@@ -1460,6 +1473,13 @@ describe("CodexAppServerSession normalized events", () => {
       expect.objectContaining({
         message: expect.objectContaining({
           content: [
+            expect.objectContaining({ type: "tool_use", id: "collab-wait-1", name: "Agent" }),
+          ],
+        }),
+      }),
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: [
             expect.objectContaining({
               type: "tool_use",
               id: "child-cmd-1",
@@ -1473,6 +1493,39 @@ describe("CodexAppServerSession normalized events", () => {
     expect(resultEvents).toEqual([
       expect.objectContaining({ type: "result", status: "completed", duration_ms: 123 }),
     ]);
+  });
+
+  it("does not replay receiver threads when spawnAgent completes", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const resultEvents: unknown[] = [];
+    session.on("result", (event) => resultEvents.push(event));
+    await initializeSession(session, proc);
+
+    // spawnAgent completes at thread creation; the child has no history yet,
+    // so reading it is useless and races Codex's rollout flush.
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-1",
+          tool: "spawnAgent",
+          status: "completed",
+          receiverThreadIds: ["thread-child"],
+          prompt: "Inspect auth",
+        },
+      },
+    }) + "\n");
+    proc._stdout.push(JSON.stringify({
+      method: "turn/completed",
+      params: { turn: { id: "turn-1", status: "completed" } },
+    }) + "\n");
+
+    await waitForCondition(() => resultEvents.length === 1);
+    expect(parseWrites(proc).filter((write) => write.method === "thread/read")).toHaveLength(0);
   });
 
   it("emits context-window usage from token usage updates", async () => {
@@ -1529,7 +1582,7 @@ describe("CodexAppServerSession normalized events", () => {
     });
   });
 
-  it("does not surface unmaterialized receiver-thread replay errors", async () => {
+  it("does not surface benign too-young-thread replay errors", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
     const session = new CodexAppServerSession();
@@ -1545,19 +1598,39 @@ describe("CodexAppServerSession normalized events", () => {
         threadId: "thread-1",
         item: {
           type: "collabAgentToolCall",
-          id: "collab-1",
-          tool: "spawnAgent",
+          id: "collab-wait-1",
+          tool: "wait",
           status: "completed",
           receiverThreadIds: ["thread-child"],
-          prompt: "Inspect auth",
         },
       },
     }) + "\n");
-
-    const read = await waitForMethod(proc, "thread/read");
+    const firstRead = await waitForMethod(proc, "thread/read");
     proc._stdout.push(appServerError(
-      read.id,
+      firstRead.id,
       "thread thread-child is not materialized yet; includeTurns is unavailable before first user message",
+    ));
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        threadId: "thread-1",
+        item: {
+          type: "collabAgentToolCall",
+          id: "collab-close-1",
+          tool: "closeAgent",
+          status: "completed",
+          receiverThreadIds: ["thread-child"],
+        },
+      },
+    }) + "\n");
+    await waitForCondition(() =>
+      parseWrites(proc).filter((write) => write.method === "thread/read").length === 2,
+    );
+    const secondRead = parseWrites(proc).filter((write) => write.method === "thread/read")[1] as { id: number };
+    proc._stdout.push(appServerError(
+      secondRead.id,
+      "failed to read thread: thread-store internal error: failed to read thread /tmp/rollout-x.jsonl: rollout at /tmp/rollout-x.jsonl is empty",
     ));
     proc._stdout.push(JSON.stringify({
       method: "turn/completed",

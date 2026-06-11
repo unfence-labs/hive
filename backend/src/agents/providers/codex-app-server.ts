@@ -758,7 +758,13 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         this.emitToolUse(collabItem.id, "Agent", JSON.stringify(collabAgentToolInput(collabItem)), parentToolUseId);
         if (phase === "completed") {
           this.emitToolResult(collabItem.id, collabAgentToolResult(collabItem));
-          this.queueCollabAgentReplay(collabItem);
+          // spawnAgent completes at thread creation: the child has no history
+          // yet, and reading it races Codex's rollout flush ("rollout is
+          // empty"). Catch-up replays only make sense once the child has run,
+          // i.e. when a wait/closeAgent on it completes.
+          if (collabItem.tool !== "spawnAgent") {
+            this.queueCollabAgentReplay(collabItem);
+          }
         }
         break;
       }
@@ -1327,10 +1333,16 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   });
 }
 
+/** Both variants mean the child thread is too young to be read: it was created
+ *  but has not run (or Codex has not flushed its rollout to disk) yet. Nothing
+ *  to catch up — not worth a user-facing warning. */
 function isUnmaterializedThreadReadError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
-  return message.includes("not materialized yet") &&
-    message.includes("includeTurns is unavailable before first user message");
+  return (
+    (message.includes("not materialized yet") &&
+      message.includes("includeTurns is unavailable before first user message")) ||
+    (message.includes("rollout") && message.includes("is empty"))
+  );
 }
 
 function diagnosticId(prefix: string, method: string): string {
