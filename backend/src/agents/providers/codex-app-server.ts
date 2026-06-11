@@ -19,6 +19,8 @@ import {
 
 /** Cap for long-lived per-session turn-id dedup Sets to avoid unbounded growth. */
 const MAX_TRACKED_TURN_IDS = 256;
+/** Cap for the cross-turn sub-agent item dedup Set (items are far more numerous than turns). */
+const MAX_TRACKED_COLLAB_ITEM_IDS = 1024;
 
 type CodexAppServerEvent = StreamParserEvent & {
   agent_event: [event: NormalizedAgentEvent];
@@ -191,6 +193,11 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private completedTurnIds = new Set<string>();
   private collabParentByThreadId = new Map<string, string>();
   private toolParentByItemId = new Map<string, string>();
+  /** Sub-agent item ids already rendered, across turns. Collab replays on
+   *  wait/closeAgent re-deliver a child thread's full history; once the
+   *  per-turn dedup sets are reset (next turn), only this set prevents the
+   *  previous turn's child tools from re-emitting as duplicates. */
+  private completedCollabItemIds = new Set<string>();
   private pendingCollabReplays = new Set<Promise<void>>();
   private lastUsage: TokenUsage | undefined;
   private lastProtocolError: string | undefined;
@@ -219,9 +226,14 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
 
   async startTurn(options: CodexAppServerTurnOptions): Promise<void> {
     await this.ensureInitialized(options.env);
-    this.resetTurnState();
+    const previousThreadId = this.threadId;
+    this.resetForUserTurn();
     this.currentCwd = options.cwd;
-    this.threadId = await this.ensureThread(options);
+    const threadId = await this.ensureThread(options);
+    if (threadId !== previousThreadId) {
+      this.resetForThreadBoundary();
+    }
+    this.threadId = threadId;
     const input: UserInput[] = [
       { type: "text", text: options.content, text_elements: [] },
       ...(options.imagePaths ?? []).map((path) => ({ type: "localImage" as const, path })),
@@ -261,6 +273,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.initialized = null;
     this.activeTurnId = undefined;
     this.threadId = undefined;
+    this.resetForThreadBoundary();
     rpc?.close(new Error("Codex app-server closed"));
     if (interruptedTurnId) {
       // Closing with a live turn is a cancellation, not an error: emit a
@@ -336,11 +349,16 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     return started.thread.id;
   }
 
-  /** Full reset, including cross-turn parent maps. Used at process init/teardown. */
-  private resetTurnState(): void {
+  private resetForUserTurn(): void {
     this.resetForNewTurn();
     this.collabParentByThreadId.clear();
     this.toolParentByItemId.clear();
+  }
+
+  private resetForThreadBoundary(): void {
+    this.collabParentByThreadId.clear();
+    this.toolParentByItemId.clear();
+    this.completedCollabItemIds.clear();
   }
 
   /**
@@ -430,9 +448,16 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     const data = asRecord(params);
     switch (method) {
       case "thread/started":
-        this.threadId = asString(asRecord(data?.thread)?.id) ?? this.threadId;
+        // Only adopt a thread id when we do not own one yet: the App Server
+        // auto-attaches this connection to spawned sub-agent threads, and a
+        // foreign id here would corrupt turn tracking for the main thread.
+        this.threadId ??= asString(asRecord(data?.thread)?.id);
         break;
       case "turn/started": {
+        // Sub-agent (collab) threads emit their own turn lifecycle. Tracking
+        // them as the active turn would make the main thread's turn/completed
+        // look stale and get dropped, leaving the session streaming forever.
+        if (this.isForeignThread(asString(data?.threadId))) break;
         const turn = asRecord(data?.turn);
         const threadId = asString(data?.threadId) ?? this.threadId;
         const turnId = asString(turn?.id);
@@ -449,6 +474,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       }
       case "thread/tokenUsage/updated":
+        if (this.isForeignThread(asString(data?.threadId))) break;
         this.lastUsage = asRecord(data?.tokenUsage) as TokenUsage | undefined;
         break;
       case "remoteControl/status/changed":
@@ -519,6 +545,9 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       }
       case "turn/plan/updated":
+        // Sub-agent threads maintain their own plan; without this filter their
+        // steps would surface as a parasitic card in the main task tracker.
+        if (this.isForeignThread(asString(data?.threadId))) break;
         this.emitPlanUpdate(data);
         break;
       case "thread/goal/updated":
@@ -622,6 +651,16 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   ): void {
     if (!item?.type || !item.id) return;
     const parentToolUseId = context.parentToolUseId ?? this.parentToolUseIdForThread(context.threadId);
+    if (parentToolUseId) {
+      // Cross-turn dedup: a child item completed in an earlier turn (per-turn
+      // emitted sets reset since) must not re-emit when a later wait/closeAgent
+      // replay re-delivers it. Same-turn re-delivery still flows through and is
+      // handled by the per-turn dedup sets.
+      if (this.completedCollabItemIds.has(item.id) && !this.emittedToolIds.has(item.id)) return;
+      if (phase === "completed") {
+        addBounded(this.completedCollabItemIds, item.id, MAX_TRACKED_COLLAB_ITEM_IDS);
+      }
+    }
 
     switch (item.type) {
       case "agentMessage": {
@@ -724,11 +763,23 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         if (parentToolUseId && this.isCollabAgentSelfReference(collabItem, context.threadId)) {
           break;
         }
-        this.rememberCollabAgentReceivers(collabItem);
+        // spawnAgent owns receiver threads when observed. wait/closeAgent only
+        // become fallback owners for threads whose spawn was missed.
+        if (collabItem.tool === "spawnAgent") {
+          this.rememberCollabAgentReceivers(collabItem);
+        } else {
+          this.rememberFallbackCollabAgentReceivers(collabItem);
+        }
         this.emitToolUse(collabItem.id, "Agent", JSON.stringify(collabAgentToolInput(collabItem)), parentToolUseId);
         if (phase === "completed") {
           this.emitToolResult(collabItem.id, collabAgentToolResult(collabItem));
-          this.queueCollabAgentReplay(collabItem);
+          // spawnAgent completes at thread creation: the child has no history
+          // yet, and reading it races Codex's rollout flush ("rollout is
+          // empty"). Catch-up replays only make sense once the child has run,
+          // i.e. when a wait/closeAgent on it completes.
+          if (collabItem.tool !== "spawnAgent") {
+            this.queueCollabAgentReplay(collabItem);
+          }
         }
         break;
       }
@@ -741,6 +792,10 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       }
       case "imageView": {
+        // Sub-agent image views stay out of the main stream (like sub-agent
+        // text/reasoning); otherwise they render as unattributed top-level
+        // duplicates of the parent's own views.
+        if (parentToolUseId) break;
         const imageItem = item as Extract<ThreadItem, { type: "imageView" }>;
         if (!imageItem.path) break;
         this.emit("agent_event", {
@@ -752,6 +807,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         break;
       }
       case "imageGeneration": {
+        if (parentToolUseId) break;
         const generationItem = item as Extract<ThreadItem, { type: "imageGeneration" }>;
         const savedPath = generationItem.savedPath ?? undefined;
         const result = generationItem.result;
@@ -792,6 +848,12 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     return Boolean(threadId && collabAgentReceiverThreadIds(item).includes(threadId));
   }
 
+  /** True when a notification belongs to another thread (a spawned sub-agent
+   *  thread the App Server auto-attached us to), not the session's own thread. */
+  private isForeignThread(threadId: string | undefined): boolean {
+    return Boolean(threadId && this.threadId && threadId !== this.threadId);
+  }
+
   private parentToolUseIdForThread(threadId: string | undefined): string | undefined {
     return threadId ? this.collabParentByThreadId.get(threadId) : undefined;
   }
@@ -802,10 +864,22 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     }
   }
 
+  private rememberFallbackCollabAgentReceivers(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): void {
+    for (const threadId of collabAgentReceiverThreadIds(item)) {
+      if (!this.collabParentByThreadId.has(threadId)) {
+        this.collabParentByThreadId.set(threadId, item.id);
+      }
+    }
+  }
+
   private queueCollabAgentReplay(item: Extract<ThreadItem, { type: "collabAgentToolCall" }>): void {
     const threadIds = collabAgentReceiverThreadIds(item);
     if (threadIds.length === 0) return;
-    const replay = Promise.all(threadIds.map((threadId) => this.replayCollabAgentThread(threadId, item.id)))
+    // Catch-up items nest under the spawning Agent card when known; the
+    // triggering wait/closeAgent card is only a fallback for threads whose
+    // spawn was never observed (e.g. resumed session).
+    const replay = Promise.all(threadIds.map((threadId) =>
+      this.replayCollabAgentThread(threadId, this.collabParentByThreadId.get(threadId) ?? item.id)))
       .then(() => undefined)
       .catch((err: unknown) => {
         if (isUnmaterializedThreadReadError(err)) return;
@@ -838,6 +912,9 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   private handleTurnCompleted(data: JsonObject | null): void {
+    // Turn completions for sub-agent threads end that sub-thread's turn, not
+    // ours; only the main thread's turn/completed may finalize the session turn.
+    if (this.isForeignThread(asString(data?.threadId))) return;
     const turn = asRecord(data?.turn);
     const turnId = asString(turn?.id);
     if (turnId && this.completedTurnIds.has(turnId)) return;
@@ -1085,6 +1162,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.initialized = null;
     this.activeTurnId = undefined;
     this.threadId = undefined;
+    this.resetForThreadBoundary();
   }
 }
 
@@ -1279,10 +1357,16 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   });
 }
 
+/** Both variants mean the child thread is too young to be read: it was created
+ *  but has not run (or Codex has not flushed its rollout to disk) yet. Nothing
+ *  to catch up — not worth a user-facing warning. */
 function isUnmaterializedThreadReadError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
-  return message.includes("not materialized yet") &&
-    message.includes("includeTurns is unavailable before first user message");
+  return (
+    (message.includes("not materialized yet") &&
+      message.includes("includeTurns is unavailable before first user message")) ||
+    (message.includes("rollout") && message.includes("is empty"))
+  );
 }
 
 function diagnosticId(prefix: string, method: string): string {
