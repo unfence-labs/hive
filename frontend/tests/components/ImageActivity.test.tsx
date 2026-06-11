@@ -20,8 +20,11 @@ describe("ImageActivity", () => {
 
     expect(screen.getByText("View image")).toBeInTheDocument();
     expect(screen.getByText("screenshot.png")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "screenshot.png" }))
+    const button = screen.getByRole("button", { name: /View image/ });
+    const image = screen.getByRole("img", { name: "screenshot.png" });
+    expect(image)
       .toHaveAttribute("src", expect.stringContaining("/api/workspaces/ws-1/file/raw"));
+    expect(button.compareDocumentPosition(image) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("opens a full-screen lightbox when the thumbnail is clicked", async () => {
