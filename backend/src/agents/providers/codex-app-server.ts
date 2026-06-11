@@ -238,6 +238,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   private pendingCollabReplays = new Set<Promise<void>>();
   private lastUsage: TokenUsage | undefined;
   private lastProtocolError: string | undefined;
+  private lastGoalUpdateKey: string | undefined;
   private currentCwd: string | undefined;
 
   constructor(options: CodexAppServerSessionOptions = {}) {
@@ -437,6 +438,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     this.collabParentByThreadId.clear();
     this.toolParentByItemId.clear();
     this.completedCollabItemIds.clear();
+    this.lastGoalUpdateKey = undefined;
   }
 
   /**
@@ -1141,7 +1143,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     // A goal is scoped to a thread; without one we cannot key it stably for
     // upsert/clear, and a shared "unknown" id would collide across threads.
     if (!threadId) return;
-    this.emit("agent_event", {
+    const event: Extract<NormalizedAgentEvent, { type: "goal_updated" }> = {
       type: "goal_updated",
       id: `codex-goal-${threadId}`,
       active,
@@ -1153,7 +1155,21 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       timeUsedSeconds: asNumber(goal?.timeUsedSeconds),
       createdAt: asNumber(goal?.createdAt),
       updatedAt: asNumber(goal?.updatedAt),
-    });
+    };
+    const key = JSON.stringify([
+      event.threadId,
+      event.active,
+      event.objective,
+      event.status,
+      event.tokenBudget,
+      event.tokensUsed,
+      event.timeUsedSeconds,
+      event.createdAt,
+      event.updatedAt,
+    ], (_key, value) => value === undefined ? { __hiveType: "undefined" } : value);
+    if (key === this.lastGoalUpdateKey) return;
+    this.lastGoalUpdateKey = key;
+    this.emit("agent_event", event);
   }
 
   private emitFileChangeEvents(itemId: string, changes: FileUpdateChange[], status?: string): void {

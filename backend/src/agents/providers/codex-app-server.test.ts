@@ -213,12 +213,55 @@ describe("CodexAppServerSession request handling", () => {
         status: "active",
       }),
     ]);
+
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/updated",
+      params: {
+        goal: {
+          threadId: "thread-goal",
+          objective: "Ship backend support",
+          status: "active",
+        },
+      },
+    }) + "\n");
+    expect(events).toHaveLength(1);
+
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/updated",
+      params: {
+        goal: {
+          threadId: "thread-goal",
+          objective: "Ship backend support",
+          status: "active",
+          tokensUsed: 10,
+        },
+      },
+    }) + "\n");
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "goal_updated",
+        active: true,
+        threadId: "thread-goal",
+        objective: "Ship backend support",
+        status: "active",
+      }),
+      expect.objectContaining({
+        type: "goal_updated",
+        active: true,
+        threadId: "thread-goal",
+        objective: "Ship backend support",
+        status: "active",
+        tokensUsed: 10,
+      }),
+    ]);
   });
 
   it("clears a goal on a materialized thread without starting a turn", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
     const session = new CodexAppServerSession({ enableGoals: true });
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
 
     const pending = session.clearGoal({ cwd: "/tmp/project", model: "gpt-5.5" });
 
@@ -239,6 +282,79 @@ describe("CodexAppServerSession request handling", () => {
     proc._stdout.push(appServerResponse(goalClear.id, {}));
 
     await expect(pending).resolves.toEqual({ threadId: "thread-goal-clear", goal: null });
+    expect(parseWrites(proc).filter((write) => write.method === "turn/start")).toHaveLength(0);
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "goal_updated",
+        active: false,
+        threadId: "thread-goal-clear",
+      }),
+    ]);
+
+    proc._stdout.push(JSON.stringify({
+      method: "thread/goal/cleared",
+      params: {
+        threadId: "thread-goal-clear",
+      },
+    }) + "\n");
+    expect(events).toHaveLength(1);
+  });
+
+  it("emits goal state from get responses without waiting for notifications", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession({ enableGoals: true });
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+
+    const first = session.getGoal({ cwd: "/tmp/project", model: "gpt-5.5" });
+
+    const initialize = await waitForMethod(proc, "initialize");
+    proc._stdout.push(appServerResponse(initialize.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+    const threadStart = await waitForMethod(proc, "thread/start");
+    proc._stdout.push(appServerResponse(threadStart.id, { thread: { id: "thread-goal-get" } }));
+    const firstGoalGet = await waitForMethod(proc, "thread/goal/get");
+    proc._stdout.push(appServerResponse(firstGoalGet.id, {
+      goal: {
+        threadId: "thread-goal-get",
+        objective: "Keep the UI current",
+        status: "active",
+      },
+    }));
+
+    await expect(first).resolves.toEqual({
+      threadId: "thread-goal-get",
+      goal: {
+        threadId: "thread-goal-get",
+        objective: "Keep the UI current",
+        status: "active",
+      },
+    });
+
+    const second = session.getGoal({ cwd: "/tmp/project", model: "gpt-5.5" });
+    const secondGoalGet = await waitForNthMethod(proc, "thread/goal/get", 2);
+    proc._stdout.push(appServerResponse(secondGoalGet.id, { goal: null }));
+
+    await expect(second).resolves.toEqual({ threadId: "thread-goal-get", goal: null });
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: "goal_updated",
+        active: true,
+        threadId: "thread-goal-get",
+        objective: "Keep the UI current",
+        status: "active",
+      }),
+      expect.objectContaining({
+        type: "goal_updated",
+        active: false,
+        threadId: "thread-goal-get",
+      }),
+    ]);
     expect(parseWrites(proc).filter((write) => write.method === "turn/start")).toHaveLength(0);
   });
 
