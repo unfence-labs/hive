@@ -141,7 +141,7 @@ struct ChatInputBar: View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(attachedImages) { item in
-                    AttachmentChip(image: item.image) {
+                    AttachmentChip(source: item.attachment.dataUrl) {
                         withAnimation(.spring(duration: 0.25)) {
                             attachedImages.removeAll { $0.id == item.id }
                         }
@@ -237,7 +237,7 @@ struct ChatInputBar: View {
                     guard let attachment = ImageAttachment.makeFromDraftImage(uiImage) else { return }
                     DispatchQueue.main.async {
                         withAnimation(.spring(duration: 0.25)) {
-                            attachedImages.append(AttachedImage(image: uiImage, attachment: attachment))
+                            attachedImages.append(AttachedImage(attachment: attachment))
                         }
                         onDraftAttachmentsChange(attachedImages.map(\.attachment))
                     }
@@ -252,8 +252,8 @@ struct ChatInputBar: View {
         guard normalized != current else { return }
 
         attachedImages = attachments.compactMap { attachment in
-            guard let uiImage = attachment.decodedImage else { return nil }
-            return AttachedImage(image: uiImage, attachment: attachment)
+            guard attachment.decodedImage != nil else { return nil }
+            return AttachedImage(attachment: attachment)
         }
         if attachedImages.count != attachments.count {
             onDraftAttachmentsChange(attachedImages.map(\.attachment))
@@ -265,7 +265,6 @@ struct ChatInputBar: View {
 
 private struct AttachedImage: Identifiable {
     let id = UUID()
-    let image: UIImage
     let attachment: ImageAttachment
 }
 
@@ -330,16 +329,18 @@ private struct LevelCycleButton: View {
 // MARK: - Attachment Chip
 
 private struct AttachmentChip: View {
-    let image: UIImage
+    private static let size = CGSize(width: 52, height: 52)
+
+    let source: String
     let onRemove: () -> Void
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 52, height: 52)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+            ChatImageTile(
+                source: source,
+                size: Self.size,
+                cornerRadius: 8
+            )
 
             Button {
                 onRemove()
