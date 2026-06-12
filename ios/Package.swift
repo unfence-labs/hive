@@ -10,9 +10,6 @@ let package = Package(
     products: [
         .library(name: "HiveMobileStoresCore", targets: ["HiveMobileStoresCore"])
     ],
-    dependencies: [
-        .package(url: "https://github.com/swiftlang/swift-testing.git", from: "0.7.0")
-    ],
     targets: [
         .target(
             name: "HiveMobileStoresCore",
@@ -50,8 +47,7 @@ let package = Package(
         .testTarget(
             name: "HiveMobileStoresCoreTests",
             dependencies: [
-                "HiveMobileStoresCore",
-                .product(name: "Testing", package: "swift-testing")
+                "HiveMobileStoresCore"
             ],
             path: "Tests/ChatDraftStoreTests"
         )
