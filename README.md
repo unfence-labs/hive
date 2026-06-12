@@ -63,7 +63,7 @@ It manages:
 **Integrations**
 - GitHub OAuth device flow for `gh` CLI authentication and git credential setup.
 - Telegram notifications: turn complete (with duration + summary), needs input, proposed plan, agent failed, automation run complete.
-- Local in-app notifications use Sonner toasts in the bottom-right corner; done/fail toasts auto-expire, while action-required toasts (question/plan) stay visible — even across navigation — until the question is answered or dismissed on any client, the session completes, or the user closes them.
+- Local in-app notifications use Sonner toasts in the bottom-left corner; done/fail toasts auto-expire, while action-required toasts (question/plan) stay visible — even across navigation — until the question is answered or dismissed on any client, the session completes, or the user closes them.
 - Apple Push Notifications (APNs): zero-dependency HTTP/2 + ES256 JWT channel with auto token pruning. Suppressed in foreground.
 - Preflight dependency checks on startup (git, claude, gh required; codex, gemini optional).
 
@@ -456,7 +456,7 @@ Frontend key modules:
 - `frontend/src/pages/AutomationDetail.tsx` automation config + run history + run log
 - `frontend/src/pages/settings/` settings pages (Appearance, Connection, Account, Notifications, CLI Agents, Custom Agents, Prompts, Instructions, Skills, ProjectDetail)
 - `frontend/src/components/settings/` shared settings list/editor/status primitives used by instructions, skills, and custom agents
-- `frontend/src/components/ui/toaster.tsx` centralized Sonner toast styling, theme binding, semantic icons, and bottom-right placement
+- `frontend/src/components/ui/toaster.tsx` centralized Sonner toast styling, theme binding, semantic icons, and bottom-left placement
 - `frontend/src/contexts/WorkspaceLiveDataContext.tsx` WS live data context + unread tracking
 - `frontend/src/hooks/useConversation.ts` reducer-driven conversation state + tool responses + lockedProvider
 - `frontend/src/hooks/useSessions.ts` multi-session operations (max 4)

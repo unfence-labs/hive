@@ -90,10 +90,10 @@ export function HiveToaster() {
       gap={10}
       mobileOffset={16}
       offset={18}
-      position="bottom-right"
+      position="bottom-left"
       theme={theme}
       visibleToasts={3}
-      swipeDirections={["right"]}
+      swipeDirections={["left"]}
       // Toasts are rendered as fully custom <HiveToast> nodes, so the sonner
       // wrapper must stay bare (no default card chrome around our component).
       toastOptions={{ unstyled: true }}
