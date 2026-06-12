@@ -165,4 +165,64 @@ struct ConversationStoreSessionTests {
         #expect(store.messages.count == 1)
         #expect(store.sessionStreams["session-2"] == nil)
     }
+
+    @Test @MainActor
+    func statusStreamingClearsPendingToolInputs() {
+        let store = ConversationStore()
+        store.handle(.status(
+            status: .idle,
+            sessionId: "session-1",
+            streaming: false,
+            streamingStartedAt: nil,
+            lockedProvider: nil
+        ))
+        store.handle(.toolInputRequired(
+            sessionId: "session-1",
+            requestId: "req-1",
+            toolName: "AskUserQuestion",
+            toolUseId: "tool-1",
+            input: "{}"
+        ))
+        #expect(store.pendingToolInputs.count == 1)
+
+        // The question was answered on another client; the turn resumes streaming.
+        store.handle(.status(
+            status: .busy,
+            sessionId: "session-1",
+            streaming: true,
+            streamingStartedAt: nil,
+            lockedProvider: nil
+        ))
+
+        #expect(store.pendingToolInputs.isEmpty)
+        #expect(store.isStreaming == true)
+    }
+
+    @Test @MainActor
+    func toolInputResolvedClearsPendingToolInputs() throws {
+        let store = ConversationStore()
+        store.handle(.status(
+            status: .idle,
+            sessionId: "session-1",
+            streaming: false,
+            streamingStartedAt: nil,
+            lockedProvider: nil
+        ))
+        store.handle(.toolInputRequired(
+            sessionId: "session-1",
+            requestId: "req-1",
+            toolName: "AskUserQuestion",
+            toolUseId: "tool-1",
+            input: "{}"
+        ))
+        #expect(store.pendingToolInputs.count == 1)
+
+        // Decode from raw JSON so the wire format is covered too.
+        let json = Data(#"{"type":"tool_input_resolved","sessionId":"session-1"}"#.utf8)
+        let event = try JSONDecoder().decode(WsOutgoing.self, from: json)
+        store.handle(event)
+
+        #expect(store.pendingToolInputs.isEmpty)
+        #expect(store.isStreaming == false)
+    }
 }

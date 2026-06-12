@@ -175,6 +175,10 @@ final class ConversationStore {
                 toolName: toolName, toolUseId: toolUseId, input: input
             ))
 
+        case .toolInputResolved(let sid):
+            // A client (possibly another device) answered or dismissed the question.
+            sessionStreams[sid]?.pendingToolInputs = []
+
         case .done(let sid, let durationMs, let inputTokens, let outputTokens,
                    let contextUsedTokens, let contextWindowTokens, _):
             finalizeMessage(sessionId: sid, durationMs: durationMs, cancelled: false,
@@ -207,6 +211,9 @@ final class ConversationStore {
                     ensureStream(for: sid)
                     if var stream = sessionStreams[sid] {
                         stream.isStreaming = true
+                        // A (re)starting turn means any pending question was
+                        // answered, possibly on another client (e.g. web).
+                        stream.pendingToolInputs = []
                         // Prefer backend start time so iOS/web timers stay aligned.
                         if let startedAt {
                             stream.streamingStartedAt = parseStartedAt(startedAt)

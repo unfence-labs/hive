@@ -132,7 +132,8 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Session continuity: Claude uses `--session-id` and `--resume`; interactive Codex chat persists the App Server thread id as `providerSessionId` and resumes with `thread/resume`; Codex exec automations use `--thread-id`; Gemini uses `-r <sessionId>`.
 - Provider is locked per session after the first message (`lockedProvider`). Subsequent messages validate against it. The lock is broadcast via WS status events.
 - Pre-multi-model sessions (created before provider support) default to `"claude"` when they have messages but no `lockedProvider`.
-- Blocking tools (`AskUserQuestion`, `ExitPlanMode`) are intercepted and surfaced as `tool_input_required`. Only providers with `blockingTools` capability support this.
+- Blocking tools (`AskUserQuestion`, `ExitPlanMode`) are intercepted and surfaced as `tool_input_required`. Only providers with `blockingTools` capability support this. The turn ends with `done.pendingToolName` set (clients must not treat it as a real completion).
+- Every routed `tool_input_response` (answer, approve, reject, dismiss) triggers a `tool_input_resolved` broadcast so all clients clear pending-question UI (QuestionPanel, toasts); non-dismiss responses additionally broadcast `status busy/streaming: true` for the resumed turn.
 - Session tool responses are session-scoped; dismiss/approve/reject are routed back to the correct session.
 - `getOrCreateSession()` recovers stale `busy` workspaces lazily (on access).
 - On first message, a lightweight Claude subprocess generates a branch name and session title (`naming.ts`), then renames the branch via `git branch -m`.
@@ -198,6 +199,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/hooks/useConversationColumn.ts`: shared conversation-column orchestration reused by `WorkspaceView` + `BrainView` — aggregates `useConversation`/`useSessions`/`useTabs`/`useTasks`/`useBackgroundAgents` into one object, computes `effectiveLockedProvider`, owns the per-session message queue (keyed `wsId:sessionId`, auto-dequeue on idle) + `scrollToBottomTrigger`, and exposes shared `handleCreateSession`/`handleActivateSession`/`handleDeleteSession`. Page divergences ride on `opts.onActivateSession` (unread clear) and `opts.onLastSessionDeleted` (cache cleanup). Plan logic, file-mention handlers, and ChatInput's `onSend` stay per-page.
 - `frontend/src/hooks/useSessions.ts`: list/create/activate/delete sessions (max 4)
 - `frontend/src/hooks/useWorkspaceLiveData.ts`: live status/branch/diff/script data from WS + per-session unread tracking (`unreadBySession`)
+- `frontend/src/hooks/useNotificationToasts.tsx`: global WS listener turning hub events into local Sonner toasts (done/fail/error + sticky action-required), with Brain routing (`/brain`) and per-session sticky-toast lifecycle
 - `frontend/src/hooks/useModels.ts`: model catalog fetch, selection, provider-aware locking
 - `frontend/src/hooks/usePrStatus.ts`: reads from TanStack Query cache seeded by `useBulkPrStatus` (no independent polling timer)
 - `frontend/src/hooks/useScripts.ts`: script start/stop/status + interactive terminal start/stop
@@ -232,6 +234,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/lib/pr-display.ts`: `computePrDisplay()` / `computePrDisplayCompact()` — 13-state priority ladder to icons/colors/labels
 - `frontend/src/lib/cron.ts`: `getNextRuns()`, `getNextRun()`, `formatTimeUntil()` via croner
 - `frontend/src/lib/format-usage.ts`: `formatTokenCount()`, `usageStrokeColor()` for context ring display
+- `frontend/src/lib/toast-config.ts`: local toast duration policy (`done`/`error` auto-expire, `actionRequired: Infinity`)
 - `frontend/src/lib/file-mentions.ts`: `#file` and `@agent` mention parsing + splitting
 - `frontend/src/lib/fuzzy-match.ts`: fuzzy file matching with 5-tier scoring for autocomplete
 - `frontend/src/lib/clipboard.ts`: `copyToClipboard()` with `execCommand` fallback for HTTP contexts
@@ -239,6 +242,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `frontend/src/lib/open-external.ts`: VS Code remote SSH URI builder + external app launcher
 - `frontend/src/components/Sidebar.tsx`: project/workspace nav + org/repo two-tone headers + resizable workspace/automation panels + sidebar collapse + bulk PR status + unread badges + dashed active border. The pinned Brain entry overlays a `SidebarActivityDot` on its icon, driven by `workspaceActivityState(liveData["brain"])` (streaming ping / unread dot), so background Brain turns surface in the sidebar like workspaces.
 - `frontend/src/components/PathCopyButton.tsx`: ghost icon button copying an absolute path to the clipboard with tooltip and transient copied state; reused by the Workspace and Brain headers
+- `frontend/src/components/ui/toaster.tsx`: `HiveToast` (custom toast card: status dot, mono status word, ghost action, hover close) + `HiveToaster` (bare Sonner wrapper, bottom-right)
 - `frontend/src/components/ChatInput.tsx`: message input with provider-adaptive controls, `#` file autocomplete with `MentionHighlightOverlay`, Commit & Push quick action, context ring, message queue display, `appendText` ref for paste-from-diff
 - `frontend/src/components/ChatConversation.tsx`: conversation display with hydration flash fix (visibility:hidden + double-rAF settle)
 - `frontend/src/components/chat/ConversationPane.tsx`: shared chat-body layout reused by `WorkspaceView` + `BrainView` — renders `ConversationTabs` + a body (hidden, not unmounted, while a file tab is active) with `ChatConversation`, an optional `TaskTracker` (gated on tasks/agents present and no pending question), and a footer that switches between `QuestionPanel` (when an `AskUserQuestion` is pending) and the input. The page-built `<ChatInput>` and optional `<PlanActionBar>` are passed as `chatInput`/`planActionBar` slots inside a shared `relative` footer wrapper.
@@ -281,6 +285,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Sidebar: org/repo two-tone project headers (lowercase), build/automation tabs, dashed primary border for active workspace, sidebar collapse via toggle or Cmd/Ctrl+B, workspace count/add button toggle on hover.
 - PR status: single polling source — `useBulkPrStatus` polls and seeds per-workspace TanStack Query cache; `usePrStatus` reads from cache only (no independent timer), eliminating drift.
 - Unread badges: `done`/`cancelled` WS events mark the session as unread. Session tab and sidebar workspace dot reflect unread state. Cleared per-session (not per-workspace).
+- Local toasts (`useNotificationToasts`): done/fail/error toasts auto-expire and are suppressed while viewing the workspace; `done` with `pendingToolName` shows nothing (the waiting toast follows). Action-required toasts (question/plan) are sticky: they survive navigation and CTA clicks, and are dismissed only on `tool_input_resolved`, a `status streaming: true` for the session, turn end, or manual close. Pending question state (`pendingToolInputs` in `useConversation` and iOS `ConversationStore`) is cleared by the same signals, so answering on one client closes the QuestionPanel and toast everywhere.
 - Context ring shows usage fraction (green <50%, yellow <80%, red >=80%) from the last assistant message token data.
 - Inline diff viewer replaces the old diff modal. Clicking a modified file opens it inline in diff mode; clicking in file tree opens source mode. Supports split/unified, line selection, diff comments, and paste-to-prompt.
 - File viewer uses Shiki syntax highlighting with github-dark theme and line numbers.
@@ -361,6 +366,7 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - `image_view`/`image_generation` activities render at 1:1 parity with the web: an inline thumbnail tile that opens a full-screen lightbox on tap, an outside-workspace/no-preview state for image views, and an animated "generating" sheen tile for live generations (gated on `showExecutingState` + non-terminal status + no resolvable image, so history never animates a stale record). Chat message image attachments reuse the same tile + lightbox.
 - Compatibility `tool_use` / `tool_result` events remain supported on iOS, but `MessageBubble` filters tool calls whose ids are already represented by an `AgentActivity` to avoid duplicate command/file rows.
 - Late live fragments after `done`/`cancelled` must not recreate a ghost stream; `ConversationStore` only accepts live text/thinking/tool/activity/plan events when a stream slot already exists, and ignores late `tool_input_required` after a terminal assistant message.
+- Pending tool inputs are cleared cross-client: `tool_input_resolved` and `status streaming: true` events empty the session's `pendingToolInputs`, so a question answered or dismissed on web also closes the iOS sheet.
 - Unknown WS event types decode to `.unknown` instead of visible chat errors. Unknown agent activity kinds (kinds added after this build) render as an unsupported activity row.
 - AskUserQuestion renders as a paginated form sheet with multi-select support. Dismissed questions show "CANCELLED" badge.
 - ExitPlanMode renders as a markdown preview with approve/reject actions.
@@ -427,7 +433,6 @@ One session is active per workspace, but multiple sessions can coexist (max 4) a
 - Merge conflict API payload is not structured yet (merge failures still return generic errors).
 - Fetch and merge actions are available in API but not exposed in frontend controls.
 - No global React error boundary yet.
-- No toast/notification system for transient UI feedback yet.
 - No startup reconciliation sweep for all persisted workspaces on backend boot.
 - No graceful SIGTERM/SIGINT shutdown flow that drains active sessions.
 - Completion scanner does not yet include plugin commands (`~/.claude/plugins`).

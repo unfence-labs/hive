@@ -607,6 +607,56 @@ describe("useConversation", () => {
     expect(result.current.pendingToolInputs).toEqual([]);
   });
 
+  it("clears pending tool inputs on tool_input_resolved (dismissed on another client)", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-1" });
+      __wsMock.emit("ws-1", {
+        type: "tool_input_required",
+        sessionId: "sess-1",
+        requestId: "req-1",
+        toolName: "AskUserQuestion",
+        toolUseId: "tool-1",
+        input: { questions: [{ question: "Q1", options: [{ label: "A" }] }] },
+      });
+    });
+    expect(result.current.pendingToolInputs).toHaveLength(1);
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "tool_input_resolved", sessionId: "sess-1" });
+    });
+
+    expect(result.current.pendingToolInputs).toEqual([]);
+    expect(__wsMock.sendMock).not.toHaveBeenCalled();
+  });
+
+  it("clears pending tool inputs when the session resumes streaming (answered on another client)", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-1" });
+      __wsMock.emit("ws-1", {
+        type: "tool_input_required",
+        sessionId: "sess-1",
+        requestId: "req-1",
+        toolName: "AskUserQuestion",
+        toolUseId: "tool-1",
+        input: { questions: [{ question: "Q1", options: [{ label: "A" }] }] },
+      });
+    });
+    expect(result.current.pendingToolInputs).toHaveLength(1);
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
+    });
+
+    expect(result.current.pendingToolInputs).toEqual([]);
+    expect(__wsMock.sendMock).not.toHaveBeenCalled();
+  });
+
   it("sends approval shortcut message", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));

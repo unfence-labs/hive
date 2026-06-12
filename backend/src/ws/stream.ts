@@ -553,6 +553,12 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
           attachSessionListeners(wsId, channel, targetSession);
           targetSession.respondToToolInput(incoming.toolName, incoming.result);
+          // Tell every client (answers and dismissals alike) that the pending
+          // question is gone, so stale question panels/toasts clear everywhere.
+          broadcastToChannel(channel, wsId, {
+            type: "tool_input_resolved",
+            sessionId: targetSession.sessionId,
+          });
           if (incoming.result.type !== "dismiss") {
             broadcastToChannel(channel, wsId, {
               type: "status",

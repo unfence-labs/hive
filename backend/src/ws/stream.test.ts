@@ -697,6 +697,7 @@ describe("WS /ws/hub", () => {
       throw new Error("Expected busy status after tool input response");
     }
     expect(typeof busy.streamingStartedAt).toBe("number");
+    expect(messages.some((m) => m.type === "tool_input_resolved")).toBe(true);
 
     ws.close();
     await endSession(wsId, dataDir).catch(() => {});
@@ -745,7 +746,13 @@ describe("WS /ws/hub", () => {
       sessionId: oldSession.sessionId,
     }));
 
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) => m.type === "tool_input_resolved" && m.sessionId === oldSession.sessionId,
+        ),
+    );
 
     expect(oldRespondSpy).toHaveBeenCalledWith(
       "ExitPlanMode",
