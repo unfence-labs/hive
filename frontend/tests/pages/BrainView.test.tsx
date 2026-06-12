@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   useBrain: vi.fn(),
   useBrainFileTree: vi.fn(),
   useBrainFileMutations: vi.fn(),
+  useBrainRefresh: vi.fn(),
   useBrainStatus: vi.fn(),
   useBrainSave: vi.fn(),
   save: vi.fn(),
@@ -31,6 +32,7 @@ vi.mock("@/hooks/useBrain", () => ({ useBrain: mocks.useBrain }));
 vi.mock("@/hooks/useBrainFiles", () => ({
   useBrainFileTree: mocks.useBrainFileTree,
   useBrainFileMutations: mocks.useBrainFileMutations,
+  useBrainRefresh: mocks.useBrainRefresh,
 }));
 vi.mock("@/hooks/useBrainGit", () => ({
   useBrainStatus: mocks.useBrainStatus,
@@ -122,6 +124,7 @@ describe("BrainView", () => {
     mocks.useBrainFileMutations.mockReturnValue({
       upsertFile: vi.fn().mockResolvedValue(undefined),
     });
+    mocks.useBrainRefresh.mockReturnValue(vi.fn());
     mocks.useBrainStatus.mockReturnValue({ data: { files: [{ path: "a.md", status: "modified" }], count: 1 } });
     mocks.useBrainSave.mockReturnValue({ save: mocks.save, isSaving: false });
     mocks.flushFileViewer.mockResolvedValue(undefined);

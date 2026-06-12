@@ -16,6 +16,21 @@ export function useBrainFileTree() {
 }
 
 /**
+ * Returns a callback that force-refreshes the Brain working-tree views: the
+ * file tree, the git status badge, and the parsed diff. Used by the manual
+ * refresh button so files that appear for reasons Hive can't observe (e.g. the
+ * user adding one directly in the Brain clone) show up without a page reload.
+ */
+export function useBrainRefresh(): () => void {
+  const queryClient = useQueryClient();
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: BRAIN_FILES_QUERY_KEY });
+    void queryClient.invalidateQueries({ queryKey: BRAIN_STATUS_QUERY_KEY });
+    void queryClient.invalidateQueries({ queryKey: BRAIN_PARSED_DIFF_QUERY_KEY });
+  };
+}
+
+/**
  * Mutations for Brain file operations (upsert). The mutation invalidates the
  * file tree, the git status badge, and the parsed diff after success so the
  * Modified tab and any open diff stay fresh.

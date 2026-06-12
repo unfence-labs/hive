@@ -6,6 +6,7 @@ import { useBrain } from "@/hooks/useBrain";
 import {
   useBrainFileMutations,
   useBrainFileTree,
+  useBrainRefresh,
 } from "@/hooks/useBrainFiles";
 import { useBrainSave, useBrainStatus } from "@/hooks/useBrainGit";
 import { useBrainChatRefresh } from "@/hooks/useBrainChatRefresh";
@@ -21,6 +22,8 @@ import { FileViewer, type FileViewerHandle } from "@/components/FileViewer";
 import { FileContentToolbar } from "@/components/FileContentToolbar";
 import { FileTree, renderFileTreeNodes } from "@/components/ai-elements/file-tree";
 import { PathCopyButton } from "@/components/PathCopyButton";
+import { OpenTargetDropdown } from "@/components/OpenTargetDropdown";
+import { FileBrowserHeader } from "@/components/FileBrowserHeader";
 import { BranchLabel } from "@/components/BranchLabel";
 import { InlineDiffViewer, type InlineDiffViewerHandle } from "@/components/diff/InlineDiffViewer";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
@@ -87,6 +90,8 @@ export default function BrainView() {
   const statusQuery = useBrainStatus();
   const { upsertFile } = useBrainFileMutations();
   const { save, isSaving } = useBrainSave();
+  const refreshBrain = useBrainRefresh();
+  const isRefreshingFiles = fileTreeQuery.isFetching || statusQuery.isFetching;
 
   const pendingCount = statusQuery.data?.count ?? 0;
   const unpushedCommitCount = statusQuery.data?.unpushedCommitCount ?? 0;
@@ -484,37 +489,13 @@ export default function BrainView() {
 
         <Panel id="brain-tree" minSize={220} maxSize={480} defaultSize="25%" className="bg-sidebar">
           <div className="flex h-full flex-col">
-            <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4" data-tauri-drag-region>
-              <button
-                type="button"
-                className={cn(
-                  "text-xs uppercase tracking-wide transition-colors",
-                  sidebarTab === "all"
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                onClick={() => setSidebarTab("all")}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
-                  sidebarTab === "modified"
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                onClick={() => setSidebarTab("modified")}
-              >
-                Modified
-                {pendingCount > 0 && (
-                  <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-                    {pendingCount}
-                  </Badge>
-                )}
-              </button>
-            </div>
+            <FileBrowserHeader
+              activeTab={sidebarTab}
+              onTabChange={setSidebarTab}
+              modifiedCount={pendingCount}
+              onRefresh={refreshBrain}
+              isRefreshing={isRefreshingFiles}
+            />
             <div className="min-h-0 flex-1 overflow-auto p-3">
               {sidebarTab === "modified" && (
                 <ModifiedFileList
@@ -584,6 +565,12 @@ function BrainHeader({
           path={path ?? ""}
           disabledReason="Brain path unavailable. Connect a Brain repository first."
           label="Brain path"
+        />
+      </div>
+      <div className="ml-auto">
+        <OpenTargetDropdown
+          path={path}
+          pathUnavailableReason="Brain path unavailable. Connect a Brain repository first."
         />
       </div>
     </div>

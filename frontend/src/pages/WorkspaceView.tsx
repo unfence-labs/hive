@@ -2,8 +2,6 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
-import { ChevronDownIcon, TerminalIcon } from "lucide-react";
-import { VscodeIcon, Iterm2Icon } from "@/components/icons/software-icons";
 import { api } from "@/hooks/useApi";
 import { useConversationColumn } from "@/hooks/useConversationColumn";
 import { useWorkspaceLiveDataContext, useClearUnread } from "@/contexts/WorkspaceLiveDataContext";
@@ -19,26 +17,12 @@ import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { PrStatusSection } from "@/components/PrStatusSection";
 import { BrowserPanel } from "@/components/BrowserPanel";
 import ScriptPanel from "@/components/ScriptPanel";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { openExternal, buildVscodeRemoteUri } from "@/lib/open-external";
-import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
-import { useServerUrl } from "@/hooks/useServerUrl";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useTerminalApps } from "@/hooks/useTerminalApps";
-import { openTerminalSsh } from "@/lib/terminal";
+import { OpenTargetDropdown } from "@/components/OpenTargetDropdown";
+import { FileBrowserHeader } from "@/components/FileBrowserHeader";
 import { useLayoutContext } from "@/components/AppLayout";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { PathCopyButton } from "@/components/PathCopyButton";
-import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
 import { isBinaryPreviewFilePath, isMarkdownFilePath } from "@/lib/file-preview";
@@ -77,9 +61,6 @@ function matchesDiffStat(filePath: string | null | undefined, stat: DiffFileStat
 export default function WorkspaceView() {
   const { wsId } = useParams();
   const { collapsed } = useLayoutContext();
-  const { ip: tailscaleIp, sshUser } = useTailscaleConfig();
-  const { serverUrl } = useServerUrl();
-  const terminalApps = useTerminalApps();
   const queryClient = useQueryClient();
 
   // Server data via TanStack Query
@@ -119,30 +100,14 @@ export default function WorkspaceView() {
 
   const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
 
-  // VS Code Remote SSH
-  const backendHost = useMemo(() => {
-    if (!serverUrl) return "";
-    try {
-      const normalized = serverUrl.includes("://") ? serverUrl : `http://${serverUrl}`;
-      return new URL(normalized).hostname;
-    } catch {
-      return "";
-    }
-  }, [serverUrl]);
-  const fallbackWindowHost = typeof window !== "undefined" ? window.location.hostname : "";
-  const sshBaseHost = tailscaleIp || backendHost || fallbackWindowHost;
-  const sshHost = sshUser && sshBaseHost ? `${sshUser}@${sshBaseHost}` : sshBaseHost;
-  const vscodeUri = workspace?.worktreePath && sshHost
-    ? buildVscodeRemoteUri(sshHost, workspace.worktreePath)
-    : null;
-  const vscodeDisabledReason = !sshBaseHost
-    ? "Configure SSH host in Settings first"
-    : !workspace?.worktreePath
-      ? "Workspace path unavailable. Restart backend and reload this workspace."
-      : null;
-  const canOpenVscode = vscodeUri !== null;
-  const canSsh = !!sshHost && !!workspace?.worktreePath;
   const copyWorkspacePathDisabledReason = "Workspace path unavailable. Restart backend and reload this workspace.";
+
+  // Manual file-browser refresh: reload the tree + diff stats on demand.
+  const handleRefreshFiles = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["files", wsId] });
+    void queryClient.invalidateQueries({ queryKey: ["diff-stat", wsId] });
+  }, [queryClient, wsId]);
+  const isRefreshingFiles = filesQuery.isFetching || diffStatQuery.isFetching;
 
   // Diff stats from WebSocket polling
   const diffCommitted = useMemo(
@@ -516,66 +481,10 @@ export default function WorkspaceView() {
               />
             </div>
             <div className="ml-auto" />
-            {terminalApps.length > 0 ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="xs" className="ml-2 text-muted-foreground hover:text-foreground">
-                    <TerminalIcon className="size-3.5" />
-                    Open
-                    <ChevronDownIcon className="ml-0.5 size-3" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-[140px]">
-                  <DropdownMenuItem
-                    disabled={!canOpenVscode}
-                    onSelect={() => { if (vscodeUri) void openExternal(vscodeUri); }}
-                  >
-                    <VscodeIcon className="size-3.5" />
-                    VS Code
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  {terminalApps.map((t) => {
-                    const Icon = t.id === "iterm2" ? Iterm2Icon : TerminalIcon;
-                    return (
-                      <DropdownMenuItem
-                        key={t.id}
-                        disabled={!canSsh}
-                        onSelect={() => {
-                          if (canSsh && workspace?.worktreePath) {
-                            void openTerminalSsh(t.id, sshHost, workspace.worktreePath);
-                          }
-                        }}
-                      >
-                        <Icon className="size-3.5" />
-                        {t.name} (SSH)
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        className="ml-2 text-muted-foreground hover:text-foreground"
-                        onClick={() => { if (vscodeUri) void openExternal(vscodeUri); }}
-                        disabled={!canOpenVscode}
-                      >
-                        <VscodeIcon className="mr-1.5 size-3.5" />
-                        VS Code
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  {vscodeDisabledReason && (
-                    <TooltipContent>{vscodeDisabledReason}</TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
-            )}
+            <OpenTargetDropdown
+              path={workspace?.worktreePath}
+              pathUnavailableReason={copyWorkspacePathDisabledReason}
+            />
           </div>
           <ConversationPane
             sessions={sessions}
@@ -708,37 +617,13 @@ export default function WorkspaceView() {
           className="bg-sidebar"
         >
           <div className="flex h-full flex-col">
-            <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4" data-tauri-drag-region>
-              <button
-                type="button"
-                className={cn(
-                  "text-xs uppercase tracking-wide transition-colors",
-                  sidebarTab === "all"
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                onClick={() => setSidebarTab("all")}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
-                  sidebarTab === "modified"
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                onClick={() => setSidebarTab("modified")}
-              >
-                Modified
-                {diffTotalCount > 0 && (
-                  <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-                    {diffTotalCount}
-                  </Badge>
-                )}
-              </button>
-            </div>
+            <FileBrowserHeader
+              activeTab={sidebarTab}
+              onTabChange={setSidebarTab}
+              modifiedCount={diffTotalCount}
+              onRefresh={handleRefreshFiles}
+              isRefreshing={isRefreshingFiles}
+            />
             <Group
               orientation="vertical"
               defaultLayout={splitLayout}
