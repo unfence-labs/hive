@@ -1,7 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { Toaster } from "sileo";
-import "sileo/styles.css";
 import AppLayout from "@/components/AppLayout";
 import WorkspaceView from "@/pages/WorkspaceView";
 import AccountSettings from "@/pages/settings/AccountSettings";
@@ -19,8 +17,8 @@ import type { Project } from "@/types";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
 import { useNotificationToasts } from "@/hooks/useNotificationToasts";
-import { useThemeType } from "@/hooks/useThemeType";
 import { wsTransport } from "@/lib/ws-transport";
+import { HiveToaster } from "@/components/ui/toaster";
 
 const AutomationDetail = lazy(() => import("@/pages/AutomationDetail"));
 const PromptTemplatesSettings = lazy(() => import("@/pages/settings/PromptTemplatesSettings"));
@@ -38,8 +36,6 @@ export default function App() {
   const { projects, loading, fetchProjects, createProjectWithWorkspace, createNewProjectWithWorkspace } = useProjects();
   const [showAddProject, setShowAddProject] = useState(false);
   const [showAddAutomation, setShowAddAutomation] = useState(false);
-  const themeType = useThemeType();
-  const isDark = themeType === "dark";
   const workspaceIds = useMemo(
     () =>
       Array.from(
@@ -66,33 +62,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <WorkspaceLiveDataProvider workspaceIds={workspaceIds}>
-        <Toaster
-          position="top-right"
-          theme={isDark ? "dark" : "light"}
-          options={
-            isDark
-              ? {
-                  fill: "#16161e",
-                  styles: {
-                    title: "text-[oklch(0.93_0.005_260)]!",
-                    description: "text-[oklch(0.707_0.022_261.325)]!",
-                    badge: "bg-[#262636]!",
-                    button:
-                      "bg-[#262636]! text-[oklch(0.93_0.005_260)]! hover:bg-[#2e2e40]!",
-                  },
-                }
-              : {
-                  fill: "#ffffff",
-                  styles: {
-                    title: "text-[oklch(0.145_0_0)]!",
-                    description: "text-[oklch(0.556_0_0)]!",
-                    badge: "bg-[oklch(0.97_0_0)]!",
-                    button:
-                      "bg-[oklch(0.97_0_0)]! text-[oklch(0.145_0_0)]! hover:bg-[oklch(0.94_0_0)]!",
-                  },
-                }
-          }
-        />
+        <HiveToaster />
         <NotificationToastsBridge projects={projects} />
         <AddProjectDialog
           open={showAddProject}

@@ -1,7 +1,11 @@
 import { act, renderHook } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useNotificationToasts } from "@/hooks/useNotificationToasts";
+import type { HiveToastProps } from "@/components/ui/toaster";
 import type { Project, WsOutgoing } from "@/types";
+
+type CustomRender = (id: string | number) => ReactElement<HiveToastProps>;
 
 const mocks = vi.hoisted(() => ({
   onGlobalMessage: vi.fn(),
@@ -9,9 +13,7 @@ const mocks = vi.hoisted(() => ({
   globalHandler: null as ((workspaceId: string, msg: WsOutgoing) => void) | null,
   getLocalToastsEnabled: vi.fn(() => true),
   setSavedSession: vi.fn(),
-  success: vi.fn(() => "toast-success"),
-  error: vi.fn(() => "toast-error"),
-  warning: vi.fn(() => "toast-warning"),
+  custom: vi.fn(),
   dismiss: vi.fn(),
   navigate: vi.fn(),
   pathname: "/projects",
@@ -35,11 +37,11 @@ vi.mock("@/hooks/useConversation", () => ({
   setSavedSession: mocks.setSavedSession,
 }));
 
-vi.mock("sileo", () => ({
-  sileo: {
-    success: mocks.success,
-    error: mocks.error,
-    warning: mocks.warning,
+vi.mock("sonner", () => ({
+  // HiveToaster is never rendered in these tests, only HiveToast is read.
+  Toaster: () => null,
+  toast: {
+    custom: mocks.custom,
     dismiss: mocks.dismiss,
   },
 }));
@@ -76,15 +78,23 @@ function emit(workspaceId: string, msg: WsOutgoing) {
   });
 }
 
+/** Read the props of the most recently emitted <HiveToast> custom toast. */
+function lastToast(): { props: HiveToastProps; options: { id?: string | number; duration?: number }; id: string | number } {
+  const calls = mocks.custom.mock.calls;
+  expect(calls.length).toBeGreaterThan(0);
+  const [render, options] = calls[calls.length - 1] as [CustomRender, { id?: string | number; duration?: number }];
+  const id = options?.id ?? "auto-id";
+  return { props: render(id).props, options: options ?? {}, id };
+}
+
 describe("useNotificationToasts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.globalHandler = null;
     mocks.pathname = "/projects";
     mocks.getLocalToastsEnabled.mockReturnValue(true);
-    mocks.success.mockReturnValue("toast-success");
-    mocks.error.mockReturnValue("toast-error");
-    mocks.warning.mockReturnValue("toast-warning");
+    // Mirror sonner: toast.custom returns the explicit id when provided.
+    mocks.custom.mockImplementation((_render, options) => options?.id ?? "toast-custom");
   });
 
   it("subscribes on mount and unsubscribes on unmount", () => {
@@ -101,9 +111,7 @@ describe("useNotificationToasts", () => {
 
     emit("ws-1", { type: "done", sessionId: "sess-1" });
 
-    expect(mocks.success).not.toHaveBeenCalled();
-    expect(mocks.error).not.toHaveBeenCalled();
-    expect(mocks.warning).not.toHaveBeenCalled();
+    expect(mocks.custom).not.toHaveBeenCalled();
   });
 
   it("suppresses toasts for the workspace currently open", () => {
@@ -112,7 +120,7 @@ describe("useNotificationToasts", () => {
 
     emit("ws-1", { type: "done", sessionId: "sess-1" });
 
-    expect(mocks.success).not.toHaveBeenCalled();
+    expect(mocks.custom).not.toHaveBeenCalled();
   });
 
   it("shows a success toast for done events and navigates to the targeted session", () => {
@@ -120,20 +128,21 @@ describe("useNotificationToasts", () => {
 
     emit("ws-1", { type: "done", sessionId: "sess-1", durationMs: 5000 });
 
-    const payload = mocks.success.mock.calls[0]?.[0];
-    expect(payload).toEqual(expect.objectContaining({
+    const { props, options } = lastToast();
+    expect(props).toMatchObject({
+      variant: "success",
       title: "Alpha · feature/toasts",
+      status: "Done",
       description: "Turn complete in 5.0s",
-      button: expect.objectContaining({ title: "View", onClick: expect.any(Function) }),
-    }));
-
-    act(() => {
-      payload.button.onClick();
+      actionLabel: "View",
     });
+    expect(options.duration).toBe(5000);
 
-    expect(mocks.dismiss).toHaveBeenCalledWith("toast-success");
+    act(() => props.onAction?.());
+
     expect(mocks.setSavedSession).toHaveBeenCalledWith("ws-1", "sess-1");
     expect(mocks.navigate).toHaveBeenCalledWith("/workspaces/ws-1");
+    expect(mocks.dismiss).toHaveBeenCalled();
   });
 
   it("uses workspace id fallback label when project/workspace lookup misses", () => {
@@ -141,9 +150,7 @@ describe("useNotificationToasts", () => {
 
     emit("abcdef123456", { type: "done", sessionId: "sess-1" });
 
-    expect(mocks.success).toHaveBeenCalledWith(expect.objectContaining({
-      title: "abcdef12",
-    }));
+    expect(lastToast().props.title).toBe("abcdef12");
   });
 
   it("ignores user-initiated cancellations", () => {
@@ -151,7 +158,7 @@ describe("useNotificationToasts", () => {
 
     emit("ws-1", { type: "cancelled", sessionId: "sess-1", userInitiated: true });
 
-    expect(mocks.error).not.toHaveBeenCalled();
+    expect(mocks.custom).not.toHaveBeenCalled();
   });
 
   it("shows error toast for agent-side cancellation failures", () => {
@@ -164,11 +171,15 @@ describe("useNotificationToasts", () => {
       errorDetail: "Tool crashed",
     });
 
-    expect(mocks.error).toHaveBeenCalledWith(expect.objectContaining({
+    const { props, options } = lastToast();
+    expect(props).toMatchObject({
+      variant: "error",
       title: "Alpha · feature/toasts",
+      status: "Failed",
       description: "Tool crashed",
-      button: expect.objectContaining({ title: "View", onClick: expect.any(Function) }),
-    }));
+      actionLabel: "View",
+    });
+    expect(options.duration).toBe(10000);
   });
 
   it("shows warning toast for plan reviews with a Review CTA", () => {
@@ -183,10 +194,15 @@ describe("useNotificationToasts", () => {
       input: { questions: [] },
     });
 
-    expect(mocks.warning).toHaveBeenCalledWith(expect.objectContaining({
+    const { props, options } = lastToast();
+    expect(options.id).toBe("hive-action-toast:ws-1:sess-9");
+    expect(options.duration).toBe(Infinity);
+    expect(props).toMatchObject({
+      variant: "warning",
+      status: "Plan",
       description: "Plan ready for review",
-      button: expect.objectContaining({ title: "Review" }),
-    }));
+      actionLabel: "Review",
+    });
   });
 
   it("shows warning toast for generic input requests with a Respond CTA", () => {
@@ -201,10 +217,226 @@ describe("useNotificationToasts", () => {
       input: { question: "Continue?" },
     });
 
-    expect(mocks.warning).toHaveBeenCalledWith(expect.objectContaining({
+    const { props, options } = lastToast();
+    expect(options.id).toBe("hive-action-toast:ws-1:sess-9");
+    expect(options.duration).toBe(Infinity);
+    expect(props).toMatchObject({
+      variant: "warning",
+      status: "Input",
       description: "Agent needs input",
-      button: expect.objectContaining({ title: "Respond" }),
-    }));
+      actionLabel: "Respond",
+    });
+  });
+
+  it("dismisses sticky action toasts when the session completes", () => {
+    renderHook(() => useNotificationToasts(makeProjects()));
+
+    emit("ws-1", {
+      type: "tool_input_required",
+      sessionId: "sess-9",
+      requestId: "req-1",
+      toolName: "ExitPlanMode",
+      toolUseId: "tool-1",
+      input: { questions: [] },
+    });
+    emit("ws-1", { type: "done", sessionId: "sess-9" });
+
+    expect(mocks.dismiss).toHaveBeenCalledWith("hive-action-toast:ws-1:sess-9");
+    expect(lastToast().props).toMatchObject({
+      variant: "success",
+      description: "Turn complete",
+    });
+  });
+
+  it("does not show a Done toast when the turn pauses on a blocking tool", () => {
+    renderHook(() => useNotificationToasts(makeProjects()));
+
+    emit("ws-1", {
+      type: "tool_input_required",
+      sessionId: "sess-9",
+      requestId: "req-1",
+      toolName: "AskUserQuestion",
+      toolUseId: "tool-1",
+      input: { questions: [] },
+    });
+    mocks.custom.mockClear();
+    mocks.dismiss.mockClear();
+
+    emit("ws-1", { type: "done", sessionId: "sess-9", pendingToolName: "AskUserQuestion" });
+
+    expect(mocks.custom).not.toHaveBeenCalled();
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+  });
+
+  it("keeps sticky action toasts when the workspace is opened manually", () => {
+    const { rerender } = renderHook(
+      ({ projects }) => useNotificationToasts(projects),
+      { initialProps: { projects: makeProjects() } },
+    );
+
+    emit("ws-1", {
+      type: "tool_input_required",
+      sessionId: "sess-9",
+      requestId: "req-1",
+      toolName: "AskUser",
+      toolUseId: "tool-1",
+      input: { question: "Continue?" },
+    });
+
+    mocks.pathname = "/workspaces/ws-1";
+    rerender({ projects: makeProjects() });
+
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+  });
+
+  it("keeps sticky action toasts when their CTA is clicked", () => {
+    renderHook(() => useNotificationToasts(makeProjects()));
+
+    emit("ws-1", {
+      type: "tool_input_required",
+      sessionId: "sess-9",
+      requestId: "req-1",
+      toolName: "AskUser",
+      toolUseId: "tool-1",
+      input: { question: "Continue?" },
+    });
+
+    const { props } = lastToast();
+    act(() => props.onAction?.());
+
+    expect(mocks.setSavedSession).toHaveBeenCalledWith("ws-1", "sess-9");
+    expect(mocks.navigate).toHaveBeenCalledWith("/workspaces/ws-1");
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+  });
+
+  it("shows sticky action toasts even while viewing the workspace", () => {
+    mocks.pathname = "/workspaces/ws-1";
+    renderHook(() => useNotificationToasts(makeProjects()));
+
+    emit("ws-1", {
+      type: "tool_input_required",
+      sessionId: "sess-9",
+      requestId: "req-1",
+      toolName: "AskUser",
+      toolUseId: "tool-1",
+      input: { question: "Continue?" },
+    });
+
+    expect(lastToast().options.id).toBe("hive-action-toast:ws-1:sess-9");
+  });
+
+  it("dismisses sticky action toasts when the session resumes streaming", () => {
+    renderHook(() => useNotificationToasts(makeProjects()));
+
+    emit("ws-1", {
+      type: "tool_input_required",
+      sessionId: "sess-9",
+      requestId: "req-1",
+      toolName: "AskUser",
+      toolUseId: "tool-1",
+      input: { question: "Continue?" },
+    });
+
+    emit("ws-1", { type: "status", status: "busy", sessionId: "sess-9", streaming: true });
+
+    expect(mocks.dismiss).toHaveBeenCalledWith("hive-action-toast:ws-1:sess-9");
+  });
+
+  it("dismisses sticky action toasts on tool_input_resolved", () => {
+    renderHook(() => useNotificationToasts(makeProjects()));
+
+    emit("ws-1", {
+      type: "tool_input_required",
+      sessionId: "sess-9",
+      requestId: "req-1",
+      toolName: "AskUser",
+      toolUseId: "tool-1",
+      input: { question: "Continue?" },
+    });
+
+    emit("ws-1", { type: "tool_input_resolved", sessionId: "sess-9" });
+
+    expect(mocks.dismiss).toHaveBeenCalledWith("hive-action-toast:ws-1:sess-9");
+  });
+
+  it("dismisses sticky action toasts on tool_input_resolved when local toasts are disabled", () => {
+    renderHook(() => useNotificationToasts(makeProjects()));
+
+    emit("ws-1", {
+      type: "tool_input_required",
+      sessionId: "sess-9",
+      requestId: "req-1",
+      toolName: "AskUser",
+      toolUseId: "tool-1",
+      input: { question: "Continue?" },
+    });
+    mocks.dismiss.mockClear();
+    mocks.getLocalToastsEnabled.mockReturnValue(false);
+
+    emit("ws-1", { type: "tool_input_resolved", sessionId: "sess-9" });
+
+    expect(mocks.dismiss).toHaveBeenCalledWith("hive-action-toast:ws-1:sess-9");
+  });
+
+  it("dismisses sticky action toasts on terminal done when local toasts are disabled without creating completion toasts", () => {
+    renderHook(() => useNotificationToasts(makeProjects()));
+
+    emit("ws-1", {
+      type: "tool_input_required",
+      sessionId: "sess-9",
+      requestId: "req-1",
+      toolName: "AskUser",
+      toolUseId: "tool-1",
+      input: { question: "Continue?" },
+    });
+    mocks.custom.mockClear();
+    mocks.dismiss.mockClear();
+    mocks.getLocalToastsEnabled.mockReturnValue(false);
+
+    emit("ws-1", { type: "done", sessionId: "sess-9" });
+
+    expect(mocks.dismiss).toHaveBeenCalledWith("hive-action-toast:ws-1:sess-9");
+    expect(mocks.custom).not.toHaveBeenCalled();
+  });
+
+  it("keeps sticky action toasts on non-streaming status events", () => {
+    renderHook(() => useNotificationToasts(makeProjects()));
+
+    emit("ws-1", {
+      type: "tool_input_required",
+      sessionId: "sess-9",
+      requestId: "req-1",
+      toolName: "AskUser",
+      toolUseId: "tool-1",
+      input: { question: "Continue?" },
+    });
+
+    emit("ws-1", { type: "status", status: "idle", sessionId: "sess-9", streaming: false });
+
+    expect(mocks.dismiss).not.toHaveBeenCalled();
+  });
+
+  it("labels Brain toasts and navigates to /brain on action", () => {
+    renderHook(() => useNotificationToasts(makeProjects()));
+
+    emit("brain", { type: "done", sessionId: "sess-1" });
+
+    const { props } = lastToast();
+    expect(props.title).toBe("Brain");
+
+    act(() => props.onAction?.());
+
+    expect(mocks.setSavedSession).toHaveBeenCalledWith("brain", "sess-1");
+    expect(mocks.navigate).toHaveBeenCalledWith("/brain");
+  });
+
+  it("suppresses Brain toasts while viewing /brain", () => {
+    mocks.pathname = "/brain";
+    renderHook(() => useNotificationToasts(makeProjects()));
+
+    emit("brain", { type: "done", sessionId: "sess-1" });
+
+    expect(mocks.custom).not.toHaveBeenCalled();
   });
 
   it("navigates on error toasts without seeding session when session id is missing", () => {
@@ -212,12 +444,11 @@ describe("useNotificationToasts", () => {
 
     emit("ws-1", { type: "error", message: "Backend unreachable" });
 
-    const payload = mocks.error.mock.calls[0]?.[0];
-    act(() => {
-      payload.button.onClick();
-    });
+    const { props } = lastToast();
+    expect(props).toMatchObject({ variant: "error", status: "Error", description: "Backend unreachable" });
 
-    expect(mocks.dismiss).toHaveBeenCalledWith("toast-error");
+    act(() => props.onAction?.());
+
     expect(mocks.setSavedSession).not.toHaveBeenCalled();
     expect(mocks.navigate).toHaveBeenCalledWith("/workspaces/ws-1");
   });
@@ -230,13 +461,11 @@ describe("useNotificationToasts", () => {
 
     rerender({ projects: makeProjects() });
     emit("ws-1", { type: "done", sessionId: "sess-1" });
-    expect(mocks.success).toHaveBeenLastCalledWith(expect.objectContaining({
-      title: "Alpha · feature/toasts",
-    }));
+    expect(lastToast().props.title).toBe("Alpha · feature/toasts");
 
     mocks.pathname = "/workspaces/ws-1";
     rerender({ projects: makeProjects() });
     emit("ws-1", { type: "done", sessionId: "sess-2" });
-    expect(mocks.success).toHaveBeenCalledTimes(1);
+    expect(mocks.custom).toHaveBeenCalledTimes(1);
   });
 });

@@ -319,6 +319,9 @@ function reducer(state: ConversationState, action: Action): ConversationState {
             [sid]: {
               ...existing,
               isStreaming: true,
+              // A (re)starting turn means any pending question was answered,
+              // possibly on another client (e.g. iOS).
+              pendingToolInputs: [],
               // Prefer backend-provided start time so all clients show the same timer.
               streamingStartedAt: backendStartedAt ?? existing.streamingStartedAt ?? Date.now(),
             },
@@ -413,6 +416,13 @@ function reducer(state: ConversationState, action: Action): ConversationState {
           },
         },
       };
+    }
+
+    case "tool_input_resolved": {
+      // A client (possibly another device) answered or dismissed the question.
+      const stream = state.sessionStreams[action.sessionId];
+      if (!stream || stream.pendingToolInputs.length === 0) return state;
+      return updateStream(state, action.sessionId, { pendingToolInputs: [] });
     }
 
     case "plan_mode_changed": {

@@ -113,6 +113,7 @@ enum WsOutgoing: Decodable {
     case toolResult(sessionId: String, toolUseId: String, output: String)
     case agentActivity(sessionId: String, activity: AgentActivity)
     case toolInputRequired(sessionId: String, requestId: String, toolName: String, toolUseId: String, input: String)
+    case toolInputResolved(sessionId: String)
     case done(sessionId: String, durationMs: Int?, inputTokens: Int?, outputTokens: Int?, contextUsedTokens: Int?, contextWindowTokens: Int?, pendingToolName: String?)
     case error(message: String, sessionId: String?)
     case cancelled(sessionId: String, errorDetail: String?, userInitiated: Bool?, durationMs: Int?)
@@ -187,6 +188,10 @@ enum WsOutgoing: Decodable {
             self = .toolInputRequired(
                 sessionId: sessionId, requestId: requestId,
                 toolName: toolName, toolUseId: toolUseId, input: inputString
+            )
+        case "tool_input_resolved":
+            self = .toolInputResolved(
+                sessionId: try container.decode(String.self, forKey: .sessionId)
             )
         case "done":
             let doneSessionId = try container.decode(String.self, forKey: .sessionId)

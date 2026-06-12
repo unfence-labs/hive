@@ -402,6 +402,7 @@ export type WsOutgoing =
   | { type: "tool_result"; sessionId: string; toolUseId: string; output: string }
   | { type: "agent_activity"; sessionId: string; activity: AgentActivity }
   | { type: "tool_input_required"; sessionId: string; requestId: string; toolName: string; toolUseId: string; input: unknown }
+  | { type: "tool_input_resolved"; sessionId: string }
   | {
       type: "done";
       sessionId: string;

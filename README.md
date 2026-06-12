@@ -63,6 +63,7 @@ It manages:
 **Integrations**
 - GitHub OAuth device flow for `gh` CLI authentication and git credential setup.
 - Telegram notifications: turn complete (with duration + summary), needs input, proposed plan, agent failed, automation run complete.
+- Local in-app notifications use Sonner toasts in the top-left corner; done/fail toasts auto-expire, while action-required toasts (question/plan) stay visible — even across navigation — until the question is answered or dismissed on any client, the session completes, or the user closes them.
 - Apple Push Notifications (APNs): zero-dependency HTTP/2 + ES256 JWT channel with auto token pruning. Suppressed in foreground.
 - Preflight dependency checks on startup (git, claude, gh required; codex, gemini optional).
 
@@ -455,6 +456,7 @@ Frontend key modules:
 - `frontend/src/pages/AutomationDetail.tsx` automation config + run history + run log
 - `frontend/src/pages/settings/` settings pages (Appearance, Connection, Account, Notifications, CLI Agents, Custom Agents, Prompts, Instructions, Skills, ProjectDetail)
 - `frontend/src/components/settings/` shared settings list/editor/status primitives used by instructions, skills, and custom agents
+- `frontend/src/components/ui/toaster.tsx` centralized Sonner toast styling, theme binding, semantic icons, and top-left placement
 - `frontend/src/contexts/WorkspaceLiveDataContext.tsx` WS live data context + unread tracking
 - `frontend/src/hooks/useConversation.ts` reducer-driven conversation state + tool responses + lockedProvider
 - `frontend/src/hooks/useSessions.ts` multi-session operations (max 4)
@@ -470,6 +472,7 @@ Frontend key modules:
 - `frontend/src/hooks/useFileCompletions.ts` `#` file mention completions
 - `frontend/src/hooks/useSidebarCollapsed.ts` sidebar collapse state + keyboard shortcut
 - `frontend/src/hooks/useWsCacheInvalidation.ts` centralized WS-driven query invalidation
+- `frontend/src/hooks/useNotificationToasts.tsx` global WS listener for local in-app toasts; sticky action-required toasts cleared on `tool_input_resolved` or turn resume
 - `frontend/src/hooks/useProjects.ts` project/workspace state
 - `frontend/src/hooks/useScripts.ts` script start/stop/status + terminal
 - `frontend/src/hooks/useAutomations.ts` automation CRUD + trigger + run history + run messages
@@ -480,6 +483,7 @@ Frontend key modules:
 - `frontend/src/lib/pr-display.ts` PR state -> icon/color/label mapping
 - `frontend/src/lib/cron.ts` cron utilities (next runs, countdown formatting)
 - `frontend/src/lib/format-usage.ts` token count formatting + usage colors
+- `frontend/src/lib/toast-config.ts` shared local toast duration policy
 - `frontend/src/lib/file-mentions.ts` `#file`/`@agent` mention parsing
 - `frontend/src/lib/fuzzy-match.ts` fuzzy file matching for autocomplete
 - `frontend/src/components/Sidebar.tsx` project/workspace nav + build/automation tabs + collapse + unread + PR status
