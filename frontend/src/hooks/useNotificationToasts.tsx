@@ -97,8 +97,6 @@ export function useNotificationToasts(projects: Project[]): void {
 
   useEffect(() => {
     return wsTransport.onGlobalMessage((workspaceId, msg) => {
-      if (!getLocalToastsEnabled()) return;
-
       // The pending question was answered or dismissed (possibly on another
       // client), or a turn (re)started streaming — either way it is gone.
       if (msg.type === "tool_input_resolved") {
@@ -112,22 +110,26 @@ export function useNotificationToasts(projects: Project[]): void {
         return;
       }
 
-      const viewing = getOpenWorkspaceId(locationRef.current) === workspaceId;
+      const getToastContext = () => {
+        const viewing = getOpenWorkspaceId(locationRef.current) === workspaceId;
 
-      // Resolve project name + branch for the toast title
-      let label = workspaceId === BRAIN_WORKSPACE_ID ? "Brain" : workspaceId.slice(0, 8);
-      for (const p of projectsRef.current) {
-        const w = (p.workspaces ?? []).find((w: Workspace) => w.id === workspaceId);
-        if (w) {
-          const branch = w.branch?.replace(/^workspace\//, "") ?? w.name;
-          label = `${p.name} · ${branch}`;
-          break;
+        // Resolve project name + branch for the toast title
+        let label = workspaceId === BRAIN_WORKSPACE_ID ? "Brain" : workspaceId.slice(0, 8);
+        for (const p of projectsRef.current) {
+          const w = (p.workspaces ?? []).find((w: Workspace) => w.id === workspaceId);
+          if (w) {
+            const branch = w.branch?.replace(/^workspace\//, "") ?? w.name;
+            label = `${p.name} · ${branch}`;
+            break;
+          }
         }
-      }
 
-      const go = (sessionId?: string) => {
-        if (sessionId) setSavedSession(workspaceId, sessionId);
-        navigateRef.current(workspacePath(workspaceId));
+        const go = (sessionId?: string) => {
+          if (sessionId) setSavedSession(workspaceId, sessionId);
+          navigateRef.current(workspacePath(workspaceId));
+        };
+
+        return { viewing, label, go };
       };
 
       if (msg.type === "done" && msg.sessionId) {
@@ -136,6 +138,8 @@ export function useNotificationToasts(projects: Project[]): void {
         if (msg.pendingToolName) return;
         const sid = msg.sessionId;
         dismissActionToastsForSession(actionToastsRef.current, workspaceId, sid);
+        if (!getLocalToastsEnabled()) return;
+        const { viewing, label, go } = getToastContext();
         if (viewing) return;
         const duration = msg.durationMs ? ` in ${formatElapsed(msg.durationMs)}` : "";
         showWorkspaceToast({
@@ -150,6 +154,8 @@ export function useNotificationToasts(projects: Project[]): void {
       } else if (msg.type === "cancelled" && msg.sessionId) {
         const sid = msg.sessionId;
         dismissActionToastsForSession(actionToastsRef.current, workspaceId, sid);
+        if (!getLocalToastsEnabled()) return;
+        const { viewing, label, go } = getToastContext();
         if (msg.userInitiated || viewing) return;
         showWorkspaceToast({
           variant: "error",
@@ -167,6 +173,8 @@ export function useNotificationToasts(projects: Project[]): void {
         } else {
           dismissActionToastsForWorkspace(actionToastsRef.current, workspaceId);
         }
+        if (!getLocalToastsEnabled()) return;
+        const { viewing, label, go } = getToastContext();
         if (viewing) return;
         showWorkspaceToast({
           variant: "error",
@@ -178,6 +186,8 @@ export function useNotificationToasts(projects: Project[]): void {
           onAction: () => go(sid),
         });
       } else if (msg.type === "tool_input_required" && msg.sessionId) {
+        if (!getLocalToastsEnabled()) return;
+        const { label, go } = getToastContext();
         // Sticky: stays visible (even while viewing the conversation) until
         // the question is answered, the turn ends, or the user closes it.
         const sid = msg.sessionId;

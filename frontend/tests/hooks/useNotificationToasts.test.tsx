@@ -359,6 +359,46 @@ describe("useNotificationToasts", () => {
     expect(mocks.dismiss).toHaveBeenCalledWith("hive-action-toast:ws-1:sess-9");
   });
 
+  it("dismisses sticky action toasts on tool_input_resolved when local toasts are disabled", () => {
+    renderHook(() => useNotificationToasts(makeProjects()));
+
+    emit("ws-1", {
+      type: "tool_input_required",
+      sessionId: "sess-9",
+      requestId: "req-1",
+      toolName: "AskUser",
+      toolUseId: "tool-1",
+      input: { question: "Continue?" },
+    });
+    mocks.dismiss.mockClear();
+    mocks.getLocalToastsEnabled.mockReturnValue(false);
+
+    emit("ws-1", { type: "tool_input_resolved", sessionId: "sess-9" });
+
+    expect(mocks.dismiss).toHaveBeenCalledWith("hive-action-toast:ws-1:sess-9");
+  });
+
+  it("dismisses sticky action toasts on terminal done when local toasts are disabled without creating completion toasts", () => {
+    renderHook(() => useNotificationToasts(makeProjects()));
+
+    emit("ws-1", {
+      type: "tool_input_required",
+      sessionId: "sess-9",
+      requestId: "req-1",
+      toolName: "AskUser",
+      toolUseId: "tool-1",
+      input: { question: "Continue?" },
+    });
+    mocks.custom.mockClear();
+    mocks.dismiss.mockClear();
+    mocks.getLocalToastsEnabled.mockReturnValue(false);
+
+    emit("ws-1", { type: "done", sessionId: "sess-9" });
+
+    expect(mocks.dismiss).toHaveBeenCalledWith("hive-action-toast:ws-1:sess-9");
+    expect(mocks.custom).not.toHaveBeenCalled();
+  });
+
   it("keeps sticky action toasts on non-streaming status events", () => {
     renderHook(() => useNotificationToasts(makeProjects()));
 
