@@ -67,7 +67,7 @@ function basename(filePath: string): string {
   return filePath.split("/").pop() ?? filePath;
 }
 
-type FileWriteCallback = (path: string, content: string) => Promise<unknown> | void;
+export type FileWriteCallback = (path: string, content: string) => Promise<unknown> | void;
 
 export interface FileViewerHandle {
   flushPendingWrite: () => Promise<void>;

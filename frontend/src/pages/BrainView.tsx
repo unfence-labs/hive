@@ -18,20 +18,19 @@ import {
 import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 import { ConversationPane } from "@/components/chat/ConversationPane";
 import { BrainWelcome } from "@/components/BrainWelcome";
-import { FileViewer, type FileViewerHandle } from "@/components/FileViewer";
-import { FileContentToolbar } from "@/components/FileContentToolbar";
+import { type FileViewerHandle } from "@/components/FileViewer";
+import { FileTabView } from "@/components/FileTabView";
 import { FileTree, renderFileTreeNodes } from "@/components/ai-elements/file-tree";
 import { PathCopyButton } from "@/components/PathCopyButton";
 import { OpenTargetDropdown } from "@/components/OpenTargetDropdown";
 import { FileBrowserHeader } from "@/components/FileBrowserHeader";
 import { BranchLabel } from "@/components/BranchLabel";
-import { InlineDiffViewer, type InlineDiffViewerHandle } from "@/components/diff/InlineDiffViewer";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { Badge } from "@/components/ui/badge";
 import { wsTransport } from "@/lib/ws-transport";
 import { BRAIN_WORKSPACE_ID, brainFileQueryKey } from "@/lib/brain";
-import { isMarkdownFilePath } from "@/lib/file-preview";
+import { buildInitialExpanded, countFiles, DEFAULT_EXPANDED } from "@/lib/file-tree";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type {
@@ -40,7 +39,6 @@ import type {
   FileMention,
   ImageAttachment,
   MessageOptions,
-  WorkspaceFileTreeNode,
 } from "@/types";
 
 /** Outcome indicator for the last git save. */
@@ -50,30 +48,9 @@ type BrainSaveIndicator = "idle" | "saving" | "saved" | "push-failed";
 const BRAIN_DIFF_SCOPE: DiffScope = "uncommitted";
 const BRAIN_DIFF_SCOPES: DiffScope[] = [BRAIN_DIFF_SCOPE];
 
-const DEFAULT_EXPANDED = new Set<string>();
-
-/** Recursively count the file (non-directory) nodes in a Brain file tree. */
-function countFiles(nodes: WorkspaceFileTreeNode[]): number {
-  return nodes.reduce(
-    (acc, node) =>
-      node.type === "file"
-        ? acc + 1
-        : acc + (node.children ? countFiles(node.children) : 0),
-    0,
-  );
-}
-
-/** Expand the first top-level directory so the tree isn't fully collapsed on load. */
-function buildInitialExpanded(nodes: WorkspaceFileTreeNode[]): Set<string> {
-  const expanded = new Set(DEFAULT_EXPANDED);
-  const firstDirectory = nodes.find((node) => node.type === "directory");
-  if (firstDirectory) expanded.add(firstDirectory.path);
-  return expanded;
-}
-
 /**
  * Brain page. Mirrors the Workspace layout: a main column (agent chat with a
- * file-tab takeover via the shared {@link FileViewer} / {@link InlineDiffViewer})
+ * file-tab takeover via the shared {@link FileTabView})
  * on the left and a shared file browser on the right with "All" (tree) and
  * "Modified" (pending-change list) tabs — the same components WorkspaceView uses.
  * Clicking a note opens it in a source tab; clicking a modified file opens a
@@ -203,7 +180,6 @@ export default function BrainView() {
     }
   }, [isFileTabActive, sessionId, liveData, clearUnread]);
 
-  const supportsRendered = openFile ? isMarkdownFilePath(openFile) : false;
   // Default to Rendered: notes are for reading; switching to Raw enables editing.
   const [renderMode, setRenderMode] = useState<"raw" | "rendered">("rendered");
 
@@ -224,21 +200,10 @@ export default function BrainView() {
     setExpandedPaths(buildInitialExpanded(fileTreeQuery.data));
   }, [fileTreeQuery.data]);
 
-  // Refs for the inline diff → chat input bridge.
+  // Refs shared with the chat input (diff paste) and the editable note viewer
+  // (Save flushes its pending debounced write before committing).
   const chatInputRef = useRef<ChatInputHandle>(null);
-  const diffViewerRef = useRef<InlineDiffViewerHandle>(null);
   const fileViewerRef = useRef<FileViewerHandle>(null);
-
-  // Inline diff state — reuse the same persisted style key as WorkspaceView.
-  const [diffStyle, setDiffStyle] = useState<"split" | "unified">(() => {
-    const stored = localStorage.getItem("diff-style");
-    return stored === "split" ? "split" : "unified";
-  });
-  const handleDiffStyleChange = useCallback((style: "split" | "unified") => {
-    setDiffStyle(style);
-    localStorage.setItem("diff-style", style);
-  }, []);
-  const [diffCommentCount, setDiffCommentCount] = useState(0);
 
   // ── Save flow (commit + push directly, no review modal) ──
   const [saveIndicator, setSaveIndicator] = useState<BrainSaveIndicator>("idle");
@@ -334,17 +299,9 @@ export default function BrainView() {
     [setDiffScope, setFileViewMode],
   );
 
-  const handlePasteToPrompt = useCallback(() => {
-    diffViewerRef.current?.pasteToPrompt();
-  }, []);
-
-  const handleDiffPasteText = useCallback(
-    (text: string) => {
-      if (sessionId) activateTab(`session:${sessionId}`);
-      requestAnimationFrame(() => chatInputRef.current?.appendText(text));
-    },
-    [sessionId, activateTab],
-  );
+  const handleFocusConversation = useCallback(() => {
+    if (sessionId) activateTab(`session:${sessionId}`);
+  }, [sessionId, activateTab]);
 
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: "hive-brain",
@@ -443,44 +400,23 @@ export default function BrainView() {
               }
             />
             {isFileTabActive && openFile && (
-              <div className="flex min-h-0 flex-1 flex-col">
-                <FileContentToolbar
-                  filePath={openFile}
-                  mode={fileViewMode}
-                  onModeChange={handleFileViewModeChange}
-                  isModified={isFileModified}
-                  diffScope={BRAIN_DIFF_SCOPE}
-                  availableDiffScopes={BRAIN_DIFF_SCOPES}
-                  onDiffScopeChange={setDiffScope}
-                  diffStyle={diffStyle}
-                  onDiffStyleChange={handleDiffStyleChange}
-                  commentCount={diffCommentCount}
-                  onPasteToPrompt={handlePasteToPrompt}
-                  supportsRendered={supportsRendered}
-                  renderMode={renderMode}
-                  onRenderModeChange={setRenderMode}
-                />
-                {fileViewMode === "source" ? (
-                  <FileViewer
-                    ref={fileViewerRef}
-                    wsId={BRAIN_WORKSPACE_ID}
-                    filePath={openFile}
-                    renderMode={renderMode}
-                    editable
-                    onWriteToDisk={handleWriteToDisk}
-                  />
-                ) : (
-                  <InlineDiffViewer
-                    ref={diffViewerRef}
-                    wsId={BRAIN_WORKSPACE_ID}
-                    filePath={openFile}
-                    diffScope={diffScope}
-                    diffStyle={diffStyle}
-                    onCommentCountChange={setDiffCommentCount}
-                    onPasteToPrompt={handleDiffPasteText}
-                  />
-                )}
-              </div>
+              <FileTabView
+                wsId={BRAIN_WORKSPACE_ID}
+                filePath={openFile}
+                fileViewMode={fileViewMode}
+                onFileViewModeChange={handleFileViewModeChange}
+                isModified={isFileModified}
+                diffScope={diffScope}
+                availableDiffScopes={BRAIN_DIFF_SCOPES}
+                onDiffScopeChange={setDiffScope}
+                renderMode={renderMode}
+                onRenderModeChange={setRenderMode}
+                chatInputRef={chatInputRef}
+                onFocusConversation={handleFocusConversation}
+                editable
+                onWriteToDisk={handleWriteToDisk}
+                fileViewerRef={fileViewerRef}
+              />
             )}
           </div>
         </Panel>

@@ -9,10 +9,8 @@ import { useWorkspaceLiveDataContext, useClearUnread } from "@/contexts/Workspac
 import { FileTree, renderFileTreeNodes } from "@/components/ai-elements/file-tree";
 import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 import { ConversationPane } from "@/components/chat/ConversationPane";
-import { FileViewer } from "@/components/FileViewer";
-import { FileContentToolbar } from "@/components/FileContentToolbar";
+import { FileTabView } from "@/components/FileTabView";
 import { BranchLabel } from "@/components/BranchLabel";
-import { InlineDiffViewer, type InlineDiffViewerHandle } from "@/components/diff/InlineDiffViewer";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { PrStatusSection } from "@/components/PrStatusSection";
 import { BrowserPanel } from "@/components/BrowserPanel";
@@ -25,34 +23,10 @@ import { ResizeHandle } from "@/components/ResizeHandle";
 import { PathCopyButton } from "@/components/PathCopyButton";
 import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
-import { isBinaryPreviewFilePath, isMarkdownFilePath } from "@/lib/file-preview";
+import { buildInitialExpanded, countFiles, DEFAULT_EXPANDED, findFirstFilePath } from "@/lib/file-tree";
 import { PlanActionBar } from "@/components/chat/PlanActionBar";
 import { useScripts } from "@/hooks/useScripts";
 import type { DiffFileStat, DiffScope, DiffStatResponse, FileMention, ImageAttachment, MessageOptions, Workspace, WorkspaceFileTreeNode } from "@/types";
-
-const DEFAULT_EXPANDED = new Set<string>();
-
-function findFirstFilePath(nodes: WorkspaceFileTreeNode[]): string | null {
-  for (const node of nodes) {
-    if (node.type === "file") {
-      return node.path;
-    }
-    if (node.children?.length) {
-      const nestedFile = findFirstFilePath(node.children);
-      if (nestedFile) return nestedFile;
-    }
-  }
-  return null;
-}
-
-function buildInitialExpanded(nodes: WorkspaceFileTreeNode[]): Set<string> {
-  const expanded = new Set(DEFAULT_EXPANDED);
-  const firstDirectory = nodes.find((node) => node.type === "directory");
-  if (firstDirectory) {
-    expanded.add(firstDirectory.path);
-  }
-  return expanded;
-}
 
 function matchesDiffStat(filePath: string | null | undefined, stat: DiffFileStat): boolean {
   return !!filePath && (stat.file === filePath || filePath.endsWith(`/${stat.file}`));
@@ -131,15 +105,7 @@ export default function WorkspaceView() {
     return files.size;
   }, [diffCommitted, diffUncommitted]);
 
-  const fileCount = useMemo(() => {
-    function count(nodes: WorkspaceFileTreeNode[]): number {
-      return nodes.reduce((acc, node) => {
-        if (node.type === "file") return acc + 1;
-        return acc + (node.children ? count(node.children) : 0);
-      }, 0);
-    }
-    return count(fileTree);
-  }, [fileTree]);
+  const fileCount = useMemo(() => countFiles(fileTree), [fileTree]);
 
   // Initialize expanded paths and selected file when file tree first loads for a wsId
   const initializedWsRef = useRef<string | undefined>(undefined);
@@ -222,8 +188,6 @@ export default function WorkspaceView() {
     handleDeleteSession,
   } = useConversationColumn(wsId, { onActivateSession, onLastSessionDeleted });
 
-  const openFileIsBinaryPreview = openFile ? isBinaryPreviewFilePath(openFile) : false;
-  const supportsRendered = openFile ? isMarkdownFilePath(openFile) : false;
   const [renderMode, setRenderMode] = useState<"raw" | "rendered">("raw");
 
   // Clear unread only when the active conversation is actually visible.
@@ -377,18 +341,6 @@ export default function WorkspaceView() {
 
   // Refs for inline diff → chat input bridge
   const chatInputRef = useRef<ChatInputHandle>(null);
-  const diffViewerRef = useRef<InlineDiffViewerHandle>(null);
-
-  // Inline diff state
-  const [diffStyle, setDiffStyle] = useState<"split" | "unified">(() => {
-    const stored = localStorage.getItem("diff-style");
-    return stored === "split" ? "split" : "unified";
-  });
-  const handleDiffStyleChange = useCallback((style: "split" | "unified") => {
-    setDiffStyle(style);
-    localStorage.setItem("diff-style", style);
-  }, []);
-  const [diffCommentCount, setDiffCommentCount] = useState(0);
 
   const fileHasUncommittedChanges = useMemo(
     () => diffUncommitted.some((stat) => matchesDiffStat(openFile, stat)),
@@ -422,13 +374,8 @@ export default function WorkspaceView() {
     setFileViewMode(mode);
   }, [availableDiffScopes, defaultDiffScope, diffScope, setDiffScope, setFileViewMode]);
 
-  const handlePasteToPrompt = useCallback(() => {
-    diffViewerRef.current?.pasteToPrompt();
-  }, []);
-
-  const handleDiffPasteText = useCallback((text: string) => {
+  const handleFocusConversation = useCallback(() => {
     if (sessionId) activateTab(`session:${sessionId}`);
-    requestAnimationFrame(() => chatInputRef.current?.appendText(text));
   }, [sessionId, activateTab]);
 
   // Full skeleton on initial load
@@ -567,39 +514,20 @@ export default function WorkspaceView() {
             }
           />
           {isFileTabActive && openFile && wsId && (
-            <div className="flex min-h-0 flex-1 flex-col">
-              <FileContentToolbar
-                filePath={openFile}
-                mode={fileViewMode}
-                onModeChange={handleFileViewModeChange}
-                isModified={isFileModified}
-                diffScope={diffScope}
-                availableDiffScopes={availableDiffScopes}
-                onDiffScopeChange={setDiffScope}
-                diffStyle={diffStyle}
-                onDiffStyleChange={handleDiffStyleChange}
-                commentCount={diffCommentCount}
-                onPasteToPrompt={handlePasteToPrompt}
-                sourceLabel={openFileIsBinaryPreview ? "Preview" : "Source"}
-                supportsTextDiff={!openFileIsBinaryPreview}
-                renderMode={renderMode}
-                onRenderModeChange={setRenderMode}
-                supportsRendered={supportsRendered}
-              />
-              {fileViewMode === "source" ? (
-                <FileViewer wsId={wsId} filePath={openFile} renderMode={renderMode} />
-              ) : (
-                <InlineDiffViewer
-                  ref={diffViewerRef}
-                  wsId={wsId}
-                  filePath={openFile}
-                  diffScope={diffScope}
-                  diffStyle={diffStyle}
-                  onCommentCountChange={setDiffCommentCount}
-                  onPasteToPrompt={handleDiffPasteText}
-                />
-              )}
-            </div>
+            <FileTabView
+              wsId={wsId}
+              filePath={openFile}
+              fileViewMode={fileViewMode}
+              onFileViewModeChange={handleFileViewModeChange}
+              isModified={isFileModified}
+              diffScope={diffScope}
+              availableDiffScopes={availableDiffScopes}
+              onDiffScopeChange={setDiffScope}
+              renderMode={renderMode}
+              onRenderModeChange={setRenderMode}
+              chatInputRef={chatInputRef}
+              onFocusConversation={handleFocusConversation}
+            />
           )}
         </div>
         </Panel>
