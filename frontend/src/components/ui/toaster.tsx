@@ -6,10 +6,19 @@ import { useThemeType } from "@/hooks/useThemeType";
 
 export type HiveToastVariant = "success" | "error" | "warning";
 
-const VARIANT_COLOR: Record<HiveToastVariant, string> = {
-  success: "var(--success)",
-  error: "var(--destructive)",
-  warning: "var(--warning)",
+const VARIANT_COLORS: Record<HiveToastVariant, { accent: string; statusText: string }> = {
+  success: {
+    accent: "var(--success)",
+    statusText: "var(--success-foreground)",
+  },
+  error: {
+    accent: "var(--destructive)",
+    statusText: "var(--destructive)",
+  },
+  warning: {
+    accent: "var(--warning)",
+    statusText: "var(--warning-foreground)",
+  },
 };
 
 export interface HiveToastProps {
@@ -37,15 +46,15 @@ export function HiveToast({
   onAction,
   onClose,
 }: HiveToastProps) {
-  const color = VARIANT_COLOR[variant];
+  const colors = VARIANT_COLORS[variant];
 
   return (
     <div className="group pointer-events-auto relative flex w-[min(380px,calc(100vw-2rem))] items-start gap-3 rounded-lg border border-border bg-popover px-4 py-3.5 text-popover-foreground shadow-lg shadow-black/10 dark:shadow-black/30">
       <span
         className="mt-1.5 size-2 shrink-0 rounded-full"
         style={{
-          background: color,
-          boxShadow: `0 0 0 3px color-mix(in oklch, ${color} 18%, transparent)`,
+          background: colors.accent,
+          boxShadow: `0 0 0 3px color-mix(in oklch, ${colors.accent} 18%, transparent)`,
         }}
       />
       <div className="min-w-0 flex-1 pr-5">
@@ -53,7 +62,7 @@ export function HiveToast({
           <span className="truncate text-sm font-medium leading-5 text-foreground">{title}</span>
           <span
             className="shrink-0 font-mono text-[10px] font-medium uppercase tracking-wider"
-            style={{ color }}
+            style={{ color: colors.statusText }}
           >
             {status}
           </span>
