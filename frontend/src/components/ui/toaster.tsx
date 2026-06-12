@@ -90,7 +90,7 @@ export function HiveToaster() {
       gap={10}
       mobileOffset={16}
       offset={18}
-      position="bottom-left"
+      position="top-left"
       theme={theme}
       visibleToasts={3}
       swipeDirections={["left"]}
