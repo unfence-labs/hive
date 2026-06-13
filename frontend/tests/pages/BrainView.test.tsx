@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   useClearUnread: vi.fn(),
   useTasks: vi.fn(),
   useBackgroundAgents: vi.fn(),
+  useTerminalApps: vi.fn(),
   flushFileViewer: vi.fn(),
 }));
 
@@ -50,6 +51,9 @@ vi.mock("@/contexts/WorkspaceLiveDataContext", () => ({
 }));
 vi.mock("@/hooks/useTasks", () => ({ useTasks: mocks.useTasks }));
 vi.mock("@/hooks/useBackgroundAgents", () => ({ useBackgroundAgents: mocks.useBackgroundAgents }));
+vi.mock("@/hooks/useTerminalApps", () => ({
+  useTerminalApps: mocks.useTerminalApps,
+}));
 vi.mock("@/components/ChatConversation", () => ({
   default: () => <div data-testid="chat-conversation">chat</div>,
 }));
@@ -139,6 +143,7 @@ describe("BrainView", () => {
     mocks.useClearUnread.mockReturnValue(vi.fn());
     mocks.useTasks.mockReturnValue({ tasks: [], currentTask: null, counts: {} });
     mocks.useBackgroundAgents.mockReturnValue({ agents: [], runningCount: 0 });
+    mocks.useTerminalApps.mockReturnValue([]);
   });
 
   it("shows the not-connected state when no Brain exists", () => {
