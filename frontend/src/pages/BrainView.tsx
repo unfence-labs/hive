@@ -204,12 +204,21 @@ export default function BrainView() {
   const chatInputRef = useRef<ChatInputHandle>(null);
   const fileViewerRef = useRef<FileViewerHandle>(null);
   const refreshBrain = useBrainRefresh(isFileTabActive ? openFile : null);
+  const refreshBrainWorkingTree = useBrainRefresh(null);
   const handleRefreshBrain = useCallback(() => {
     void (async () => {
-      await fileViewerRef.current?.flushPendingWrite();
-      refreshBrain();
+      // A failed disk flush must not block the explicit refresh the user asked
+      // for, nor surface as an unhandled rejection. Do not refresh the open file
+      // content after a failed flush: refetching it can replace unsaved editor text.
+      try {
+        await fileViewerRef.current?.flushPendingWrite();
+        refreshBrain();
+      } catch (error) {
+        console.error("Failed to flush pending Brain note write before refresh", error);
+        refreshBrainWorkingTree();
+      }
     })();
-  }, [refreshBrain]);
+  }, [refreshBrain, refreshBrainWorkingTree]);
 
   // ── Save flow (commit + push directly, no review modal) ──
   const [saveIndicator, setSaveIndicator] = useState<BrainSaveIndicator>("idle");

@@ -85,7 +85,13 @@ export default function WorkspaceView() {
     void queryClient.invalidateQueries({ queryKey: ["file-completions", wsId] });
 
     const result = await diffStatQuery.refetch();
-    if (result.data) setManualDiffStats(result.data);
+    if (result.data) {
+      setManualDiffStats(result.data);
+    } else if (result.error) {
+      // Refetch resolves (does not throw) on failure; without fresh data the
+      // view keeps the last live/initial stats, so log so it isn't fully silent.
+      console.error("Failed to refresh workspace diff stats", result.error);
+    }
   }, [diffStatQuery, queryClient, wsId]);
   const isRefreshingFiles = filesQuery.isFetching || diffStatQuery.isFetching;
 

@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import {
   BRAIN_FILES_QUERY_KEY,
@@ -7,6 +8,18 @@ import {
   brainFileQueryKey,
 } from "@/lib/brain";
 import type { BrainFileContent, WorkspaceFileTreeNode } from "@/types";
+
+/**
+ * Invalidate the Brain working-tree views — the file tree, the git status
+ * badge, and the parsed diff — so the "All"/"Modified" tabs and any open diff
+ * stay fresh. Shared by the refresh callback and the upsert mutation so the
+ * invalidation set lives in one place.
+ */
+function invalidateBrainWorkingTree(queryClient: QueryClient) {
+  void queryClient.invalidateQueries({ queryKey: BRAIN_FILES_QUERY_KEY });
+  void queryClient.invalidateQueries({ queryKey: BRAIN_STATUS_QUERY_KEY });
+  void queryClient.invalidateQueries({ queryKey: BRAIN_PARSED_DIFF_QUERY_KEY });
+}
 
 /** Query the recursive Brain file tree. */
 export function useBrainFileTree() {
@@ -24,14 +37,12 @@ export function useBrainFileTree() {
  */
 export function useBrainRefresh(openFilePath?: string | null): () => void {
   const queryClient = useQueryClient();
-  return () => {
-    void queryClient.invalidateQueries({ queryKey: BRAIN_FILES_QUERY_KEY });
-    void queryClient.invalidateQueries({ queryKey: BRAIN_STATUS_QUERY_KEY });
-    void queryClient.invalidateQueries({ queryKey: BRAIN_PARSED_DIFF_QUERY_KEY });
+  return useCallback(() => {
+    invalidateBrainWorkingTree(queryClient);
     if (openFilePath) {
       void queryClient.invalidateQueries({ queryKey: brainFileQueryKey(openFilePath) });
     }
-  };
+  }, [queryClient, openFilePath]);
 }
 
 /**
@@ -45,16 +56,10 @@ export function useBrainRefresh(openFilePath?: string | null): () => void {
 export function useBrainFileMutations() {
   const queryClient = useQueryClient();
 
-  const invalidateTreeAndStatus = () => {
-    void queryClient.invalidateQueries({ queryKey: BRAIN_FILES_QUERY_KEY });
-    void queryClient.invalidateQueries({ queryKey: BRAIN_STATUS_QUERY_KEY });
-    void queryClient.invalidateQueries({ queryKey: BRAIN_PARSED_DIFF_QUERY_KEY });
-  };
-
   const upsertFile = useMutation({
     mutationFn: ({ path, content }: { path: string; content: string }) =>
       api.put<BrainFileContent>("/api/brain/file", { path, content }),
-    onSuccess: invalidateTreeAndStatus,
+    onSuccess: () => invalidateBrainWorkingTree(queryClient),
   });
 
   return {

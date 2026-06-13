@@ -297,4 +297,29 @@ describe("BrainView", () => {
     await waitFor(() => expect(refresh).toHaveBeenCalled());
     expect(order).toEqual(["flush", "refresh"]);
   });
+
+  it("does not refresh the open file content when flushing before refresh fails", async () => {
+    const user = userEvent.setup();
+    const refreshOpenFile = vi.fn();
+    const refreshWorkingTree = vi.fn();
+    const flushError = new Error("flush failed");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.useBrainRefresh.mockImplementation((openFilePath?: string | null) =>
+      openFilePath ? refreshOpenFile : refreshWorkingTree,
+    );
+    mocks.flushFileViewer.mockRejectedValue(flushError);
+    renderBrain();
+
+    await user.click(screen.getByText("a.md"));
+    await screen.findByTestId("file-viewer");
+    await user.click(screen.getByRole("button", { name: /Refresh files/i }));
+
+    await waitFor(() => expect(refreshWorkingTree).toHaveBeenCalled());
+    expect(refreshOpenFile).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      "Failed to flush pending Brain note write before refresh",
+      flushError,
+    );
+    consoleError.mockRestore();
+  });
 });
