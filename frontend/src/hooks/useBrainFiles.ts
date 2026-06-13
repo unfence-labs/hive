@@ -4,6 +4,7 @@ import {
   BRAIN_FILES_QUERY_KEY,
   BRAIN_PARSED_DIFF_QUERY_KEY,
   BRAIN_STATUS_QUERY_KEY,
+  brainFileQueryKey,
 } from "@/lib/brain";
 import type { BrainFileContent, WorkspaceFileTreeNode } from "@/types";
 
@@ -21,12 +22,15 @@ export function useBrainFileTree() {
  * refresh button so files that appear for reasons Hive can't observe (e.g. the
  * user adding one directly in the Brain clone) show up without a page reload.
  */
-export function useBrainRefresh(): () => void {
+export function useBrainRefresh(openFilePath?: string | null): () => void {
   const queryClient = useQueryClient();
   return () => {
     void queryClient.invalidateQueries({ queryKey: BRAIN_FILES_QUERY_KEY });
     void queryClient.invalidateQueries({ queryKey: BRAIN_STATUS_QUERY_KEY });
     void queryClient.invalidateQueries({ queryKey: BRAIN_PARSED_DIFF_QUERY_KEY });
+    if (openFilePath) {
+      void queryClient.invalidateQueries({ queryKey: brainFileQueryKey(openFilePath) });
+    }
   };
 }
 

@@ -67,7 +67,6 @@ export default function BrainView() {
   const statusQuery = useBrainStatus();
   const { upsertFile } = useBrainFileMutations();
   const { save, isSaving } = useBrainSave();
-  const refreshBrain = useBrainRefresh();
   const isRefreshingFiles = fileTreeQuery.isFetching || statusQuery.isFetching;
 
   const pendingCount = statusQuery.data?.count ?? 0;
@@ -204,6 +203,13 @@ export default function BrainView() {
   // (Save flushes its pending debounced write before committing).
   const chatInputRef = useRef<ChatInputHandle>(null);
   const fileViewerRef = useRef<FileViewerHandle>(null);
+  const refreshBrain = useBrainRefresh(isFileTabActive ? openFile : null);
+  const handleRefreshBrain = useCallback(() => {
+    void (async () => {
+      await fileViewerRef.current?.flushPendingWrite();
+      refreshBrain();
+    })();
+  }, [refreshBrain]);
 
   // ── Save flow (commit + push directly, no review modal) ──
   const [saveIndicator, setSaveIndicator] = useState<BrainSaveIndicator>("idle");
@@ -429,7 +435,7 @@ export default function BrainView() {
               activeTab={sidebarTab}
               onTabChange={setSidebarTab}
               modifiedCount={pendingCount}
-              onRefresh={refreshBrain}
+              onRefresh={handleRefreshBrain}
               isRefreshing={isRefreshingFiles}
             />
             <div className="min-h-0 flex-1 overflow-auto p-3">

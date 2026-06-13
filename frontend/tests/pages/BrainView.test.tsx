@@ -272,4 +272,24 @@ describe("BrainView", () => {
     await waitFor(() => expect(mocks.save).toHaveBeenCalled());
     expect(order).toEqual(["flush", "save"]);
   });
+
+  it("flushes an open raw file before refreshing files", async () => {
+    const user = userEvent.setup();
+    const order: string[] = [];
+    const refresh = vi.fn(() => {
+      order.push("refresh");
+    });
+    mocks.flushFileViewer.mockImplementation(async () => {
+      order.push("flush");
+    });
+    mocks.useBrainRefresh.mockReturnValue(refresh);
+    renderBrain();
+
+    await user.click(screen.getByText("a.md"));
+    await screen.findByTestId("file-viewer");
+    await user.click(screen.getByRole("button", { name: /Refresh files/i }));
+
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(order).toEqual(["flush", "refresh"]);
+  });
 });

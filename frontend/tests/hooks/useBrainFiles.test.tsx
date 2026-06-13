@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   useBrainFileMutations,
   useBrainFileTree,
+  useBrainRefresh,
 } from "@/hooks/useBrainFiles";
 import { api } from "@/hooks/useApi";
 import { createWrapper } from "../test-utils";
@@ -44,5 +45,32 @@ describe("useBrainFiles", () => {
     expect(api.put).toHaveBeenCalledWith("/api/brain/file", { path: "a.md", content: "body" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["brain", "files"] });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["brain", "status"] });
+  });
+
+  it("refresh invalidates tree, status, parsed diff, and the open file", () => {
+    const { wrapper, queryClient } = createWrapper();
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useBrainRefresh("notes/topic.md"), { wrapper });
+
+    act(() => {
+      result.current();
+    });
+
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["brain", "files"] });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["brain", "status"] });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["brain", "diff", "parsed"] });
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["brain", "file", "notes/topic.md"] });
+  });
+
+  it("refresh does not invalidate a null open-file key", () => {
+    const { wrapper, queryClient } = createWrapper();
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useBrainRefresh(null), { wrapper });
+
+    act(() => {
+      result.current();
+    });
+
+    expect(spy).not.toHaveBeenCalledWith({ queryKey: ["brain", "file", null] });
   });
 });
