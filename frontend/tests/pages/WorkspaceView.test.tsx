@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import WorkspaceView from "@/pages/WorkspaceView";
-import type { Workspace, WorkspaceFileTreeNode } from "@/types";
+import type { DiffFileStat, DiffStatResponse, Workspace, WorkspaceFileTreeNode } from "@/types";
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -260,7 +260,19 @@ vi.mock("@/components/diff/InlineDiffViewer", () => ({
 }));
 
 vi.mock("@/components/diff/ModifiedFileList", () => ({
-  ModifiedFileList: () => <div data-testid="modified-file-list">modified-file-list</div>,
+  ModifiedFileList: ({
+    committed,
+    uncommitted,
+  }: {
+    committed: DiffFileStat[];
+    uncommitted: DiffFileStat[];
+  }) => (
+    <div data-testid="modified-file-list">
+      {[...committed, ...uncommitted].map((stat) => (
+        <div key={stat.file}>{stat.file}</div>
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock("@/components/ai-elements/file-tree", () => {
@@ -1165,6 +1177,49 @@ describe("WorkspaceView behavior", () => {
     await screen.findByText("tokyo");
 
     expect(mocks.apiGet).toHaveBeenCalledWith("/api/workspaces/ws-1/diff/stat");
+  });
+
+  it("shows manually refreshed diff stats when live workspace data is stale", async () => {
+    const user = userEvent.setup();
+    const staleDiffStats: DiffStatResponse = {
+      committed: [],
+      uncommitted: [{ file: "old.md", additions: 1, deletions: 0, status: "modified" }],
+    };
+    const freshDiffStats: DiffStatResponse = {
+      committed: [],
+      uncommitted: [{ file: "new.md", additions: 2, deletions: 0, status: "added" }],
+    };
+    let diffStatsResponse = staleDiffStats;
+
+    mocks.useWorkspaceLiveData.mockReturnValue({
+      liveData: {
+        "ws-1": { diffStats: staleDiffStats },
+      },
+      clearUnread: vi.fn(),
+    });
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      const workspaceMatch = url.match(/^\/api\/workspaces\/([^/]+)$/);
+      const filesMatch = url.match(/^\/api\/workspaces\/([^/]+)\/files$/);
+      const diffStatsMatch = url.match(/^\/api\/workspaces\/([^/]+)\/diff\/stat$/);
+      if (workspaceMatch) return WORKSPACES[workspaceMatch[1]] ?? null;
+      if (filesMatch) return FILE_TREE;
+      if (diffStatsMatch) return diffStatsResponse;
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+
+    renderWorkspace();
+
+    await screen.findByText("tokyo");
+    await user.click(screen.getByRole("button", { name: /Modified/ }));
+    expect(await screen.findByText("old.md")).toBeInTheDocument();
+
+    diffStatsResponse = freshDiffStats;
+    await user.click(screen.getByRole("button", { name: "Refresh files" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("new.md")).toBeInTheDocument();
+      expect(screen.queryByText("old.md")).not.toBeInTheDocument();
+    });
   });
 
   it("fetches diff stats again after switching workspace", async () => {

@@ -62,6 +62,7 @@ export default function WorkspaceView() {
 
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(DEFAULT_EXPANDED);
   const [selectedPath, setSelectedPath] = useState("");
+  const [manualDiffStats, setManualDiffStats] = useState<DiffStatResponse | null>(null);
 
   // Sidebar tab state
   const [sidebarTab, setSidebarTab] = useState<"all" | "modified">("all");
@@ -69,7 +70,7 @@ export default function WorkspaceView() {
   // Live data via WebSocket (branch + diff stats)
   const liveData = useWorkspaceLiveDataContext();
   const clearUnread = useClearUnread();
-
+  const liveDiffStats = wsId ? liveData[wsId]?.diffStats : undefined;
 
 
   const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
@@ -77,26 +78,41 @@ export default function WorkspaceView() {
   const copyWorkspacePathDisabledReason = "Workspace path unavailable. Restart backend and reload this workspace.";
 
   // Manual file-browser refresh: reload the tree + diff stats on demand.
-  const handleRefreshFiles = useCallback(() => {
+  const handleRefreshFiles = useCallback(async () => {
+    if (!wsId) return;
+
     void queryClient.invalidateQueries({ queryKey: ["files", wsId] });
-    void queryClient.invalidateQueries({ queryKey: ["diff-stat", wsId] });
-  }, [queryClient, wsId]);
+    void queryClient.invalidateQueries({ queryKey: ["file-completions", wsId] });
+
+    const result = await diffStatQuery.refetch();
+    if (result.data) setManualDiffStats(result.data);
+  }, [diffStatQuery, queryClient, wsId]);
   const isRefreshingFiles = filesQuery.isFetching || diffStatQuery.isFetching;
+
+  useEffect(() => {
+    setManualDiffStats(null);
+  }, [wsId]);
+
+  useEffect(() => {
+    if (liveDiffStats) setManualDiffStats(null);
+  }, [liveDiffStats]);
 
   // Diff stats from WebSocket polling
   const diffCommitted = useMemo(
     () =>
-      (wsId ? liveData[wsId]?.diffStats?.committed : undefined) ??
+      manualDiffStats?.committed ??
+      liveDiffStats?.committed ??
       initialDiffStats?.committed ??
       [],
-    [wsId, liveData, initialDiffStats],
+    [manualDiffStats, liveDiffStats, initialDiffStats],
   );
   const diffUncommitted = useMemo(
     () =>
-      (wsId ? liveData[wsId]?.diffStats?.uncommitted : undefined) ??
+      manualDiffStats?.uncommitted ??
+      liveDiffStats?.uncommitted ??
       initialDiffStats?.uncommitted ??
       [],
-    [wsId, liveData, initialDiffStats],
+    [manualDiffStats, liveDiffStats, initialDiffStats],
   );
   const diffTotalCount = useMemo(() => {
     const files = new Set<string>();
