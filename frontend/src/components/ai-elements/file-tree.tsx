@@ -22,6 +22,9 @@ import {
 } from "react";
 import type { WorkspaceFileTreeNode } from "@/types";
 
+const fileTreeRowClass =
+  "relative grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-x-1 rounded py-1 pr-2 text-left transition-colors hover:bg-muted/50";
+
 interface FileTreeContextType {
   expandedPaths: Set<string>;
   togglePath: (path: string) => void;
@@ -142,12 +145,12 @@ export const FileTreeFolder = ({
         >
           <CollapsibleTrigger asChild>
             <button
-              className="flex w-full items-center gap-1 rounded px-2 py-1 text-left transition-colors hover:bg-muted/50"
+              className={cn("-ml-5 w-[calc(100%+1.25rem)] pl-7", fileTreeRowClass)}
               type="button"
             >
               <ChevronRightIcon
                 className={cn(
-                  "size-4 shrink-0 text-muted-foreground transition-transform",
+                  "absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground transition-transform",
                   isExpanded && "rotate-90"
                 )}
               />
@@ -212,7 +215,9 @@ export const FileTreeFile = ({
     <FileTreeFileContext.Provider value={fileContextValue}>
       <div
         className={cn(
-          "flex cursor-pointer items-center gap-1 rounded px-2 py-1 transition-colors hover:bg-muted/50",
+          "cursor-pointer",
+          fileTreeRowClass,
+          "pl-2",
           isSelected && "bg-muted",
           className
         )}
@@ -224,8 +229,6 @@ export const FileTreeFile = ({
       >
         {children ?? (
           <>
-            {/* Spacer for alignment */}
-            <span className="size-4" />
             <FileTreeIcon>
               {icon ?? <SymbolFileIcon fileName={name} autoAssign className="size-4" />}
             </FileTreeIcon>
@@ -244,7 +247,13 @@ export const FileTreeIcon = ({
   children,
   ...props
 }: FileTreeIconProps) => (
-  <span className={cn("shrink-0", className)} {...props}>
+  <span
+    className={cn(
+      "flex size-4 shrink-0 items-center justify-center overflow-hidden [&>svg]:size-4 [&>svg]:shrink-0",
+      className
+    )}
+    {...props}
+  >
     {children}
   </span>
 );
@@ -256,7 +265,7 @@ export const FileTreeName = ({
   children,
   ...props
 }: FileTreeNameProps) => (
-  <span className={cn("truncate", className)} {...props}>
+  <span className={cn("min-w-0 truncate", className)} {...props}>
     {children}
   </span>
 );
