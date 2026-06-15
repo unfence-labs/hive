@@ -93,6 +93,17 @@ describe("ChatInput", () => {
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
   });
 
+  it("disables native text replacement suggestions in the message input", () => {
+    renderChatInput();
+
+    const input = screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands");
+
+    expect(input).toHaveAttribute("autocapitalize", "off");
+    expect(input).toHaveAttribute("autocomplete", "off");
+    expect(input).toHaveAttribute("autocorrect", "off");
+    expect(input).toHaveAttribute("spellcheck", "false");
+  });
+
   it("appends text through the imperative ref API", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },

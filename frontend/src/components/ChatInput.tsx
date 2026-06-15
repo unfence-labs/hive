@@ -151,7 +151,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
         : (thinkingLevels.includes(DEFAULT_THINKING_LEVEL) ? DEFAULT_THINKING_LEVEL : thinkingLevels[0]))
     : thinkingLevel;
 
-  useChatInputDraftPersistence({
+  const { discardCurrentDraft } = useChatInputDraftPersistence({
     wsId,
     sessionId,
     value,
@@ -340,8 +340,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
       const sent = onSend(trimmed, images, options, mentions);
       if (!sent) throw new Error("Message send failed");
     }
-    setValue("");
-    setFileMentions([]);
+    discardCurrentDraft();
     setAutocomplete(null);
   };
 
@@ -389,6 +388,10 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
             ref={textareaRef}
             className="min-h-[100px] max-h-40 bg-transparent text-sm placeholder:text-muted-foreground/40"
             placeholder={isDisconnected ? "Reconnecting..." : (customPlaceholder ?? "Send message, #mention files, @call agents, run /commands")}
+            autoCapitalize="off"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             value={value}
             onChange={handleChange}
             onKeyDown={handleKeyDown}

@@ -19,6 +19,10 @@ interface UseChatInputDraftPersistenceParams {
   setFileMentions: Dispatch<SetStateAction<FileMention[]>>;
 }
 
+interface UseChatInputDraftPersistenceResult {
+  discardCurrentDraft: () => void;
+}
+
 const DEFAULT_WORKSPACE_DRAFT_KEY = "__workspace_default__";
 const draftStore = new Map<string, Map<string, DraftState>>();
 
@@ -34,6 +38,10 @@ function getWorkspaceDrafts(wsId?: string): Map<string, DraftState> {
     draftStore.set(workspaceKey, drafts);
   }
   return drafts;
+}
+
+function getStoredDraft(wsId: string | undefined, sessionId: string): DraftState | undefined {
+  return draftStore.get(getWorkspaceDraftKey(wsId))?.get(sessionId);
 }
 
 function revokeRemovedFileUrls(
@@ -64,7 +72,6 @@ function upsertDraft(
   wsId: string | undefined,
   sessionId: string,
   draft: DraftState,
-  allowDelete = true,
 ) {
   const drafts = getWorkspaceDrafts(wsId);
   const prevDraft = drafts.get(sessionId);
@@ -77,7 +84,7 @@ function upsertDraft(
 
   if (shouldPersist) {
     drafts.set(sessionId, draft);
-  } else if (allowDelete) {
+  } else {
     drafts.delete(sessionId);
   }
 }
@@ -91,7 +98,7 @@ export function useChatInputDraftPersistence({
   setValue,
   setFileCount,
   setFileMentions,
-}: UseChatInputDraftPersistenceParams) {
+}: UseChatInputDraftPersistenceParams): UseChatInputDraftPersistenceResult {
   const prevSessionIdRef = useRef<string | undefined>(undefined);
   const prevWsIdRef = useRef<string | undefined>(undefined);
   const valueRef = useRef(value);
@@ -100,10 +107,12 @@ export function useChatInputDraftPersistence({
   fileMentionsRef.current = fileMentions;
   const wsIdRef = useRef(wsId);
   wsIdRef.current = wsId;
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
 
   const saveDraftForSession = useCallback((
     targetSessionId: string | undefined,
-    options?: { allowDelete?: boolean; targetWsId?: string },
+    options?: { targetWsId?: string },
   ) => {
     if (!targetSessionId) return;
     const files = attachmentsRef.current?.files ?? [];
@@ -111,8 +120,42 @@ export function useChatInputDraftPersistence({
       value: valueRef.current,
       files: [...files],
       fileMentions: [...fileMentionsRef.current],
-    }, options?.allowDelete ?? true);
+    });
   }, [attachmentsRef]);
+
+  const restoreDraftState = useCallback((draft: DraftState | undefined) => {
+    const nextValue = draft?.value ?? "";
+    const nextFiles = draft ? [...draft.files] : [];
+    const nextFileMentions = draft?.fileMentions ?? [];
+
+    valueRef.current = nextValue;
+    fileMentionsRef.current = nextFileMentions;
+
+    setValue(nextValue);
+    attachmentsRef.current?.restore(nextFiles);
+    setFileCount(nextFiles.length);
+    setFileMentions(nextFileMentions);
+  }, [attachmentsRef, setValue, setFileCount, setFileMentions]);
+
+  const discardCurrentDraft = useCallback(() => {
+    const currentSessionId = sessionIdRef.current;
+
+    valueRef.current = "";
+    fileMentionsRef.current = [];
+    attachmentsRef.current?.clear();
+
+    setValue("");
+    setFileCount(0);
+    setFileMentions([]);
+
+    if (!currentSessionId) return;
+
+    upsertDraft(wsIdRef.current, currentSessionId, {
+      value: "",
+      files: [],
+      fileMentions: [],
+    });
+  }, [attachmentsRef, setValue, setFileCount, setFileMentions]);
 
   // Merged save/restore effect — handles both workspace and session transitions
   // in a single pass, using the PREVIOUS wsId for saves to avoid the race where
@@ -133,18 +176,7 @@ export function useChatInputDraftPersistence({
     // Restore incoming session's draft from the CURRENT workspace.
     // Skip when sessionId is undefined (transient workspace-switch state).
     if (sessionId && (wsChanged || sessionChanged)) {
-      const draft = getWorkspaceDrafts(wsId).get(sessionId);
-      if (draft) {
-        setValue(draft.value);
-        attachmentsRef.current?.restore([...draft.files]);
-        setFileCount(draft.files.length);
-        setFileMentions(draft.fileMentions ?? []);
-      } else {
-        setValue("");
-        attachmentsRef.current?.restore([]);
-        setFileCount(0);
-        setFileMentions([]);
-      }
+      restoreDraftState(getStoredDraft(wsId, sessionId));
     }
 
     prevWsIdRef.current = wsId;
@@ -153,19 +185,18 @@ export function useChatInputDraftPersistence({
     wsId,
     sessionId,
     saveDraftForSession,
-    attachmentsRef,
-    setValue,
-    setFileCount,
-    setFileMentions,
+    restoreDraftState,
   ]);
 
-  // Unmount cleanup: persist current draft without deleting.
+  // Unmount cleanup: persist the current input exactly, including an empty
+  // draft after the user clears or sends it.
   useEffect(() => {
     return () => {
       saveDraftForSession(prevSessionIdRef.current, {
-        allowDelete: false,
         targetWsId: prevWsIdRef.current,
       });
     };
   }, [saveDraftForSession]);
+
+  return { discardCurrentDraft };
 }

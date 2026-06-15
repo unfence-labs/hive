@@ -61,7 +61,7 @@ function useDraftHarness({ wsId, sessionId }: { wsId?: string; sessionId?: strin
     }
   };
 
-  useChatInputDraftPersistence({
+  const draftPersistence = useChatInputDraftPersistence({
     wsId,
     sessionId,
     value,
@@ -80,6 +80,7 @@ function useDraftHarness({ wsId, sessionId }: { wsId?: string; sessionId?: strin
     setFileMentions,
     setFiles,
     attachments: attachmentsRef.current,
+    discardCurrentDraft: draftPersistence.discardCurrentDraft,
   };
 }
 
@@ -208,6 +209,44 @@ describe("useChatInputDraftPersistence", () => {
     expect(result.current.value).toBe("");
   });
 
+  it("discards a restored draft after it is sent", () => {
+    const wsId = nextId("ws");
+    const sessionA = nextId("sess-a");
+    const sessionB = nextId("sess-b");
+    const fileA = makeAttachment();
+
+    const { result, rerender } = renderHook(
+      ({ currentSessionId }: { currentSessionId?: string }) =>
+        useDraftHarness({ wsId, sessionId: currentSessionId }),
+      { initialProps: { currentSessionId: sessionA } },
+    );
+
+    act(() => {
+      result.current.setValue("send this");
+      result.current.setFiles([fileA]);
+      result.current.setFileMentions([{ displayName: "note.md", relativePath: "notes/note.md" }]);
+    });
+
+    rerender({ currentSessionId: sessionB });
+    rerender({ currentSessionId: sessionA });
+    expect(result.current.value).toBe("send this");
+    expect(result.current.fileCount).toBe(1);
+
+    act(() => {
+      result.current.discardCurrentDraft();
+    });
+
+    expect(result.current.value).toBe("");
+    expect(result.current.fileCount).toBe(0);
+    expect(result.current.fileMentions).toEqual([]);
+    expect(result.current.attachments?.clear).toHaveBeenCalled();
+
+    rerender({ currentSessionId: sessionB });
+    rerender({ currentSessionId: sessionA });
+    expect(result.current.value).toBe("");
+    expect(result.current.fileCount).toBe(0);
+  });
+
   it("revokes blob URLs when saved attachments are removed from a draft", () => {
     const wsId = nextId("ws");
     const sessionA = nextId("sess-a");
@@ -239,7 +278,7 @@ describe("useChatInputDraftPersistence", () => {
     expect(URL.revokeObjectURL).not.toHaveBeenCalledWith("blob:second");
   });
 
-  it("does not delete existing persisted draft on unmount", () => {
+  it("deletes a restored draft when the current input is empty on unmount", () => {
     const wsId = nextId("ws");
     const sessionA = nextId("sess-a");
     const sessionB = nextId("sess-b");
@@ -267,6 +306,6 @@ describe("useChatInputDraftPersistence", () => {
       useDraftHarness({ wsId, sessionId: sessionA }),
     );
 
-    expect(secondRender.result.current.value).toBe("keep on unmount");
+    expect(secondRender.result.current.value).toBe("");
   });
 });

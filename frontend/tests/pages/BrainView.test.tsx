@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   useBrain: vi.fn(),
   useBrainFileTree: vi.fn(),
   useBrainFileMutations: vi.fn(),
+  useBrainRefresh: vi.fn(),
   useBrainStatus: vi.fn(),
   useBrainSave: vi.fn(),
   save: vi.fn(),
@@ -24,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   useClearUnread: vi.fn(),
   useTasks: vi.fn(),
   useBackgroundAgents: vi.fn(),
+  useTerminalApps: vi.fn(),
   flushFileViewer: vi.fn(),
 }));
 
@@ -31,6 +33,7 @@ vi.mock("@/hooks/useBrain", () => ({ useBrain: mocks.useBrain }));
 vi.mock("@/hooks/useBrainFiles", () => ({
   useBrainFileTree: mocks.useBrainFileTree,
   useBrainFileMutations: mocks.useBrainFileMutations,
+  useBrainRefresh: mocks.useBrainRefresh,
 }));
 vi.mock("@/hooks/useBrainGit", () => ({
   useBrainStatus: mocks.useBrainStatus,
@@ -48,6 +51,9 @@ vi.mock("@/contexts/WorkspaceLiveDataContext", () => ({
 }));
 vi.mock("@/hooks/useTasks", () => ({ useTasks: mocks.useTasks }));
 vi.mock("@/hooks/useBackgroundAgents", () => ({ useBackgroundAgents: mocks.useBackgroundAgents }));
+vi.mock("@/hooks/useTerminalApps", () => ({
+  useTerminalApps: mocks.useTerminalApps,
+}));
 vi.mock("@/components/ChatConversation", () => ({
   default: () => <div data-testid="chat-conversation">chat</div>,
 }));
@@ -122,6 +128,7 @@ describe("BrainView", () => {
     mocks.useBrainFileMutations.mockReturnValue({
       upsertFile: vi.fn().mockResolvedValue(undefined),
     });
+    mocks.useBrainRefresh.mockReturnValue(vi.fn());
     mocks.useBrainStatus.mockReturnValue({ data: { files: [{ path: "a.md", status: "modified" }], count: 1 } });
     mocks.useBrainSave.mockReturnValue({ save: mocks.save, isSaving: false });
     mocks.flushFileViewer.mockResolvedValue(undefined);
@@ -136,6 +143,7 @@ describe("BrainView", () => {
     mocks.useClearUnread.mockReturnValue(vi.fn());
     mocks.useTasks.mockReturnValue({ tasks: [], currentTask: null, counts: {} });
     mocks.useBackgroundAgents.mockReturnValue({ agents: [], runningCount: 0 });
+    mocks.useTerminalApps.mockReturnValue([]);
   });
 
   it("shows the not-connected state when no Brain exists", () => {
@@ -268,5 +276,50 @@ describe("BrainView", () => {
 
     await waitFor(() => expect(mocks.save).toHaveBeenCalled());
     expect(order).toEqual(["flush", "save"]);
+  });
+
+  it("flushes an open raw file before refreshing files", async () => {
+    const user = userEvent.setup();
+    const order: string[] = [];
+    const refresh = vi.fn(() => {
+      order.push("refresh");
+    });
+    mocks.flushFileViewer.mockImplementation(async () => {
+      order.push("flush");
+    });
+    mocks.useBrainRefresh.mockReturnValue(refresh);
+    renderBrain();
+
+    await user.click(screen.getByText("a.md"));
+    await screen.findByTestId("file-viewer");
+    await user.click(screen.getByRole("button", { name: /Refresh files/i }));
+
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(order).toEqual(["flush", "refresh"]);
+  });
+
+  it("does not refresh the open file content when flushing before refresh fails", async () => {
+    const user = userEvent.setup();
+    const refreshOpenFile = vi.fn();
+    const refreshWorkingTree = vi.fn();
+    const flushError = new Error("flush failed");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.useBrainRefresh.mockImplementation((openFilePath?: string | null) =>
+      openFilePath ? refreshOpenFile : refreshWorkingTree,
+    );
+    mocks.flushFileViewer.mockRejectedValue(flushError);
+    renderBrain();
+
+    await user.click(screen.getByText("a.md"));
+    await screen.findByTestId("file-viewer");
+    await user.click(screen.getByRole("button", { name: /Refresh files/i }));
+
+    await waitFor(() => expect(refreshWorkingTree).toHaveBeenCalled());
+    expect(refreshOpenFile).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      "Failed to flush pending Brain note write before refresh",
+      flushError,
+    );
+    consoleError.mockRestore();
   });
 });

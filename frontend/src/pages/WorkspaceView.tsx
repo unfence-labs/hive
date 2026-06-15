@@ -2,8 +2,6 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
-import { ChevronDownIcon, TerminalIcon } from "lucide-react";
-import { VscodeIcon, Iterm2Icon } from "@/components/icons/software-icons";
 import { api } from "@/hooks/useApi";
 import { useConversationColumn } from "@/hooks/useConversationColumn";
 import { useWorkspaceLiveDataContext, useClearUnread } from "@/contexts/WorkspaceLiveDataContext";
@@ -11,64 +9,24 @@ import { useWorkspaceLiveDataContext, useClearUnread } from "@/contexts/Workspac
 import { FileTree, renderFileTreeNodes } from "@/components/ai-elements/file-tree";
 import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 import { ConversationPane } from "@/components/chat/ConversationPane";
-import { FileViewer } from "@/components/FileViewer";
-import { FileContentToolbar } from "@/components/FileContentToolbar";
+import { FileTabView } from "@/components/FileTabView";
 import { BranchLabel } from "@/components/BranchLabel";
-import { InlineDiffViewer, type InlineDiffViewerHandle } from "@/components/diff/InlineDiffViewer";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
 import { PrStatusSection } from "@/components/PrStatusSection";
 import { BrowserPanel } from "@/components/BrowserPanel";
 import ScriptPanel from "@/components/ScriptPanel";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { openExternal, buildVscodeRemoteUri } from "@/lib/open-external";
-import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
-import { useServerUrl } from "@/hooks/useServerUrl";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useTerminalApps } from "@/hooks/useTerminalApps";
-import { openTerminalSsh } from "@/lib/terminal";
+import { OpenTargetDropdown } from "@/components/OpenTargetDropdown";
+import { FileBrowserHeader } from "@/components/FileBrowserHeader";
 import { useLayoutContext } from "@/components/AppLayout";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { PathCopyButton } from "@/components/PathCopyButton";
-import { cn } from "@/lib/utils";
 import { wsTransport } from "@/lib/ws-transport";
 import { hasPendingExitPlanModeInput, isPlanAwaitingUserInput, findPlanContent } from "@/lib/plan-state";
-import { isBinaryPreviewFilePath, isMarkdownFilePath } from "@/lib/file-preview";
+import { buildInitialExpanded, countFiles, DEFAULT_EXPANDED, findFirstFilePath } from "@/lib/file-tree";
 import { PlanActionBar } from "@/components/chat/PlanActionBar";
 import { useScripts } from "@/hooks/useScripts";
 import type { DiffFileStat, DiffScope, DiffStatResponse, FileMention, ImageAttachment, MessageOptions, Workspace, WorkspaceFileTreeNode } from "@/types";
-
-const DEFAULT_EXPANDED = new Set<string>();
-
-function findFirstFilePath(nodes: WorkspaceFileTreeNode[]): string | null {
-  for (const node of nodes) {
-    if (node.type === "file") {
-      return node.path;
-    }
-    if (node.children?.length) {
-      const nestedFile = findFirstFilePath(node.children);
-      if (nestedFile) return nestedFile;
-    }
-  }
-  return null;
-}
-
-function buildInitialExpanded(nodes: WorkspaceFileTreeNode[]): Set<string> {
-  const expanded = new Set(DEFAULT_EXPANDED);
-  const firstDirectory = nodes.find((node) => node.type === "directory");
-  if (firstDirectory) {
-    expanded.add(firstDirectory.path);
-  }
-  return expanded;
-}
 
 function matchesDiffStat(filePath: string | null | undefined, stat: DiffFileStat): boolean {
   return !!filePath && (stat.file === filePath || filePath.endsWith(`/${stat.file}`));
@@ -77,9 +35,6 @@ function matchesDiffStat(filePath: string | null | undefined, stat: DiffFileStat
 export default function WorkspaceView() {
   const { wsId } = useParams();
   const { collapsed } = useLayoutContext();
-  const { ip: tailscaleIp, sshUser } = useTailscaleConfig();
-  const { serverUrl } = useServerUrl();
-  const terminalApps = useTerminalApps();
   const queryClient = useQueryClient();
 
   // Server data via TanStack Query
@@ -107,6 +62,7 @@ export default function WorkspaceView() {
 
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(DEFAULT_EXPANDED);
   const [selectedPath, setSelectedPath] = useState("");
+  const [manualDiffStats, setManualDiffStats] = useState<DiffStatResponse | null>(null);
 
   // Sidebar tab state
   const [sidebarTab, setSidebarTab] = useState<"all" | "modified">("all");
@@ -114,50 +70,55 @@ export default function WorkspaceView() {
   // Live data via WebSocket (branch + diff stats)
   const liveData = useWorkspaceLiveDataContext();
   const clearUnread = useClearUnread();
-
+  const liveDiffStats = wsId ? liveData[wsId]?.diffStats : undefined;
 
 
   const displayBranch = (wsId && liveData[wsId]?.branch) || workspace?.branch;
 
-  // VS Code Remote SSH
-  const backendHost = useMemo(() => {
-    if (!serverUrl) return "";
-    try {
-      const normalized = serverUrl.includes("://") ? serverUrl : `http://${serverUrl}`;
-      return new URL(normalized).hostname;
-    } catch {
-      return "";
-    }
-  }, [serverUrl]);
-  const fallbackWindowHost = typeof window !== "undefined" ? window.location.hostname : "";
-  const sshBaseHost = tailscaleIp || backendHost || fallbackWindowHost;
-  const sshHost = sshUser && sshBaseHost ? `${sshUser}@${sshBaseHost}` : sshBaseHost;
-  const vscodeUri = workspace?.worktreePath && sshHost
-    ? buildVscodeRemoteUri(sshHost, workspace.worktreePath)
-    : null;
-  const vscodeDisabledReason = !sshBaseHost
-    ? "Configure SSH host in Settings first"
-    : !workspace?.worktreePath
-      ? "Workspace path unavailable. Restart backend and reload this workspace."
-      : null;
-  const canOpenVscode = vscodeUri !== null;
-  const canSsh = !!sshHost && !!workspace?.worktreePath;
   const copyWorkspacePathDisabledReason = "Workspace path unavailable. Restart backend and reload this workspace.";
+
+  // Manual file-browser refresh: reload the tree + diff stats on demand.
+  const handleRefreshFiles = useCallback(async () => {
+    if (!wsId) return;
+
+    void queryClient.invalidateQueries({ queryKey: ["files", wsId] });
+    void queryClient.invalidateQueries({ queryKey: ["file-completions", wsId] });
+
+    const result = await diffStatQuery.refetch();
+    if (result.data) {
+      setManualDiffStats(result.data);
+    } else if (result.error) {
+      // Refetch resolves (does not throw) on failure; without fresh data the
+      // view keeps the last live/initial stats, so log so it isn't fully silent.
+      console.error("Failed to refresh workspace diff stats", result.error);
+    }
+  }, [diffStatQuery, queryClient, wsId]);
+  const isRefreshingFiles = filesQuery.isFetching || diffStatQuery.isFetching;
+
+  useEffect(() => {
+    setManualDiffStats(null);
+  }, [wsId]);
+
+  useEffect(() => {
+    if (liveDiffStats) setManualDiffStats(null);
+  }, [liveDiffStats]);
 
   // Diff stats from WebSocket polling
   const diffCommitted = useMemo(
     () =>
-      (wsId ? liveData[wsId]?.diffStats?.committed : undefined) ??
+      manualDiffStats?.committed ??
+      liveDiffStats?.committed ??
       initialDiffStats?.committed ??
       [],
-    [wsId, liveData, initialDiffStats],
+    [manualDiffStats, liveDiffStats, initialDiffStats],
   );
   const diffUncommitted = useMemo(
     () =>
-      (wsId ? liveData[wsId]?.diffStats?.uncommitted : undefined) ??
+      manualDiffStats?.uncommitted ??
+      liveDiffStats?.uncommitted ??
       initialDiffStats?.uncommitted ??
       [],
-    [wsId, liveData, initialDiffStats],
+    [manualDiffStats, liveDiffStats, initialDiffStats],
   );
   const diffTotalCount = useMemo(() => {
     const files = new Set<string>();
@@ -166,15 +127,7 @@ export default function WorkspaceView() {
     return files.size;
   }, [diffCommitted, diffUncommitted]);
 
-  const fileCount = useMemo(() => {
-    function count(nodes: WorkspaceFileTreeNode[]): number {
-      return nodes.reduce((acc, node) => {
-        if (node.type === "file") return acc + 1;
-        return acc + (node.children ? count(node.children) : 0);
-      }, 0);
-    }
-    return count(fileTree);
-  }, [fileTree]);
+  const fileCount = useMemo(() => countFiles(fileTree), [fileTree]);
 
   // Initialize expanded paths and selected file when file tree first loads for a wsId
   const initializedWsRef = useRef<string | undefined>(undefined);
@@ -257,8 +210,6 @@ export default function WorkspaceView() {
     handleDeleteSession,
   } = useConversationColumn(wsId, { onActivateSession, onLastSessionDeleted });
 
-  const openFileIsBinaryPreview = openFile ? isBinaryPreviewFilePath(openFile) : false;
-  const supportsRendered = openFile ? isMarkdownFilePath(openFile) : false;
   const [renderMode, setRenderMode] = useState<"raw" | "rendered">("raw");
 
   // Clear unread only when the active conversation is actually visible.
@@ -412,18 +363,6 @@ export default function WorkspaceView() {
 
   // Refs for inline diff → chat input bridge
   const chatInputRef = useRef<ChatInputHandle>(null);
-  const diffViewerRef = useRef<InlineDiffViewerHandle>(null);
-
-  // Inline diff state
-  const [diffStyle, setDiffStyle] = useState<"split" | "unified">(() => {
-    const stored = localStorage.getItem("diff-style");
-    return stored === "split" ? "split" : "unified";
-  });
-  const handleDiffStyleChange = useCallback((style: "split" | "unified") => {
-    setDiffStyle(style);
-    localStorage.setItem("diff-style", style);
-  }, []);
-  const [diffCommentCount, setDiffCommentCount] = useState(0);
 
   const fileHasUncommittedChanges = useMemo(
     () => diffUncommitted.some((stat) => matchesDiffStat(openFile, stat)),
@@ -457,13 +396,8 @@ export default function WorkspaceView() {
     setFileViewMode(mode);
   }, [availableDiffScopes, defaultDiffScope, diffScope, setDiffScope, setFileViewMode]);
 
-  const handlePasteToPrompt = useCallback(() => {
-    diffViewerRef.current?.pasteToPrompt();
-  }, []);
-
-  const handleDiffPasteText = useCallback((text: string) => {
+  const handleFocusConversation = useCallback(() => {
     if (sessionId) activateTab(`session:${sessionId}`);
-    requestAnimationFrame(() => chatInputRef.current?.appendText(text));
   }, [sessionId, activateTab]);
 
   // Full skeleton on initial load
@@ -516,66 +450,10 @@ export default function WorkspaceView() {
               />
             </div>
             <div className="ml-auto" />
-            {terminalApps.length > 0 ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="xs" className="ml-2 text-muted-foreground hover:text-foreground">
-                    <TerminalIcon className="size-3.5" />
-                    Open
-                    <ChevronDownIcon className="ml-0.5 size-3" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-[140px]">
-                  <DropdownMenuItem
-                    disabled={!canOpenVscode}
-                    onSelect={() => { if (vscodeUri) void openExternal(vscodeUri); }}
-                  >
-                    <VscodeIcon className="size-3.5" />
-                    VS Code
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  {terminalApps.map((t) => {
-                    const Icon = t.id === "iterm2" ? Iterm2Icon : TerminalIcon;
-                    return (
-                      <DropdownMenuItem
-                        key={t.id}
-                        disabled={!canSsh}
-                        onSelect={() => {
-                          if (canSsh && workspace?.worktreePath) {
-                            void openTerminalSsh(t.id, sshHost, workspace.worktreePath);
-                          }
-                        }}
-                      >
-                        <Icon className="size-3.5" />
-                        {t.name} (SSH)
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        className="ml-2 text-muted-foreground hover:text-foreground"
-                        onClick={() => { if (vscodeUri) void openExternal(vscodeUri); }}
-                        disabled={!canOpenVscode}
-                      >
-                        <VscodeIcon className="mr-1.5 size-3.5" />
-                        VS Code
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  {vscodeDisabledReason && (
-                    <TooltipContent>{vscodeDisabledReason}</TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
-            )}
+            <OpenTargetDropdown
+              path={workspace?.worktreePath}
+              pathUnavailableReason={copyWorkspacePathDisabledReason}
+            />
           </div>
           <ConversationPane
             sessions={sessions}
@@ -658,39 +536,20 @@ export default function WorkspaceView() {
             }
           />
           {isFileTabActive && openFile && wsId && (
-            <div className="flex min-h-0 flex-1 flex-col">
-              <FileContentToolbar
-                filePath={openFile}
-                mode={fileViewMode}
-                onModeChange={handleFileViewModeChange}
-                isModified={isFileModified}
-                diffScope={diffScope}
-                availableDiffScopes={availableDiffScopes}
-                onDiffScopeChange={setDiffScope}
-                diffStyle={diffStyle}
-                onDiffStyleChange={handleDiffStyleChange}
-                commentCount={diffCommentCount}
-                onPasteToPrompt={handlePasteToPrompt}
-                sourceLabel={openFileIsBinaryPreview ? "Preview" : "Source"}
-                supportsTextDiff={!openFileIsBinaryPreview}
-                renderMode={renderMode}
-                onRenderModeChange={setRenderMode}
-                supportsRendered={supportsRendered}
-              />
-              {fileViewMode === "source" ? (
-                <FileViewer wsId={wsId} filePath={openFile} renderMode={renderMode} />
-              ) : (
-                <InlineDiffViewer
-                  ref={diffViewerRef}
-                  wsId={wsId}
-                  filePath={openFile}
-                  diffScope={diffScope}
-                  diffStyle={diffStyle}
-                  onCommentCountChange={setDiffCommentCount}
-                  onPasteToPrompt={handleDiffPasteText}
-                />
-              )}
-            </div>
+            <FileTabView
+              wsId={wsId}
+              filePath={openFile}
+              fileViewMode={fileViewMode}
+              onFileViewModeChange={handleFileViewModeChange}
+              isModified={isFileModified}
+              diffScope={diffScope}
+              availableDiffScopes={availableDiffScopes}
+              onDiffScopeChange={setDiffScope}
+              renderMode={renderMode}
+              onRenderModeChange={setRenderMode}
+              chatInputRef={chatInputRef}
+              onFocusConversation={handleFocusConversation}
+            />
           )}
         </div>
         </Panel>
@@ -708,37 +567,13 @@ export default function WorkspaceView() {
           className="bg-sidebar"
         >
           <div className="flex h-full flex-col">
-            <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4" data-tauri-drag-region>
-              <button
-                type="button"
-                className={cn(
-                  "text-xs uppercase tracking-wide transition-colors",
-                  sidebarTab === "all"
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                onClick={() => setSidebarTab("all")}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                className={cn(
-                  "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
-                  sidebarTab === "modified"
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                onClick={() => setSidebarTab("modified")}
-              >
-                Modified
-                {diffTotalCount > 0 && (
-                  <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-                    {diffTotalCount}
-                  </Badge>
-                )}
-              </button>
-            </div>
+            <FileBrowserHeader
+              activeTab={sidebarTab}
+              onTabChange={setSidebarTab}
+              modifiedCount={diffTotalCount}
+              onRefresh={handleRefreshFiles}
+              isRefreshing={isRefreshingFiles}
+            />
             <Group
               orientation="vertical"
               defaultLayout={splitLayout}

@@ -245,6 +245,30 @@ describe("ChatInput draft persistence", () => {
     expect(inputValue()).toBe("");
   });
 
+  it("does not restore a persisted draft after successful send and remount", async () => {
+    const user = userEvent.setup();
+    const { a: sessionA, b: sessionB } = makeSessionIds();
+    const wsId = nextId("ws");
+    const onSend = vi.fn(() => true);
+    const { rerender, unmount } = renderChatInput(sessionA, wsId, onSend);
+
+    setInputValue("send this draft");
+    rerenderChatInput(rerender, { wsId, sessionId: sessionB, onSend });
+    rerenderChatInput(rerender, { wsId, sessionId: sessionA, onSend });
+    expect(inputValue()).toBe("send this draft");
+
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(onSend).toHaveBeenCalledWith("send this draft", undefined, {
+      planMode: false,
+      thinkingLevel: "high",
+    }, undefined);
+    expect(inputValue()).toBe("");
+
+    unmount();
+    renderChatInput(sessionA, wsId, onSend);
+    expect(inputValue()).toBe("");
+  });
+
   it("keeps draft when wsId changes before sessionId (multi-render-cycle)", () => {
     const sessA = nextId("sess-a");
     const sessB = nextId("sess-b");
