@@ -1,120 +1,54 @@
 # Hive
 
-Hive is an orchestrator for running multiple AI agent conversations (Claude, Codex, Gemini) in parallel across isolated Git workspaces. It can run locally or as a remote backend with a Tauri desktop client connected over Tailscale.
+Hive orchestrates AI coding agents across isolated git workspaces. It manages projects as bare repositories, creates workspaces as worktrees and branches, and stores each agent conversation as a resumable session.
 
-It manages:
-- projects as bare repositories,
-- workspaces as Git worktrees/branches,
-- sessions as persistent agent conversations with WebSocket streaming.
+Hive can run as a local web app, a Tauri desktop app connected to a local or remote backend, and a SwiftUI iOS client connected to the same backend.
 
 ## Current Capabilities
 
-**Core**
-- Project import (`git clone --bare`) with repository URL validation and remote fetch.
-- Workspace lifecycle (create, list, delete, archive, merge) with auto-naming via dedicated Claude subprocess.
-- Multi-session support per workspace (create, list, activate, delete, switch, replay history; max 4 sessions).
-- Conversation WebSocket with session focus, history replay, buffered event replay, and per-session streaming status.
-- Interactive Claude tool loop for `AskUserQuestion` and `ExitPlanMode` with plan proposal cards, floating action bar, and hand-off to new session.
-- Image attachments resized via sharp (max 1568px, JPEG q80) and persisted per session.
-- SSH terminal access via external terminal apps (replaces previous in-app terminal).
-- Interactive terminal tab (PTY shell) in workspace panel, no `hive.json` config needed.
-- File tree + file content viewer with Shiki syntax highlighting.
-- Inline diff viewer (`@pierre/diffs/react`) with split/unified modes, line selection, diff comments, and paste-to-prompt.
-- Context window usage ring (green/yellow/red thresholds) in chat input footer.
-- Sub-agent tracking: Task tool calls rendered as collapsible nodes with nested child tools, background agents tracked in status bar.
-- Task tracker: collapsible bar showing task progress from Claude task tools and Codex native todo lists.
-- Unread badges per-session in sidebar and session tabs.
-- Message queue: type and submit one follow-up while the agent is streaming.
-- `#file` mention autocomplete with fuzzy matching in chat input.
-- Commit & Push quick-action button in chat input.
+**Agent workspaces**
+- Clone or create git-backed projects, then create isolated workspaces from them.
+- Run Claude, Codex, and Gemini sessions with provider-aware model selection and per-session provider locking.
+- Keep up to 4 sessions per workspace, with history replay, queued follow-up messages, unread indicators, and interrupt/stop handling.
+- Stream assistant text, thinking, tool calls, file changes, diagnostics, tasks, images, plan updates, branch info, diff stats, and script status over the multiplexed hub WebSocket.
+- Attach images to chat messages; backend resizes and stores attachments per session.
+- Browse workspace files, preview raw files, inspect inline diffs, paste selected diff comments into prompts, and use `#file`, `/command`, and `@agent` autocomplete.
 
-**Multi-provider support**
-- Provider abstraction layer: `AgentProvider` interface with CLI arg building, env config, and stream adapters.
-- Claude provider (streaming JSON), Codex provider (JSONL with stream adapter), Gemini provider (NDJSON with tool name mapping).
-- Interactive Codex chat uses `codex app-server` for long-lived thread/turn streaming; Codex automations stay on `codex exec --json`.
-- Codex App Server stream events are normalized into Hive `AgentActivity` records for command execution, file changes, plan updates, and diagnostics.
-- Codex App Server token-usage updates feed the existing context ring with provider-reported context-used and context-window values.
-- Unsupported Codex App Server notifications/requests are surfaced as diagnostic activities so missing protocol coverage is visible and incremental.
-- Codex stream normalization for native todo lists, file-change summaries, cached token usage, and non-fatal diagnostic events.
-- Model catalog API (`GET /api/models`) for frontend/iOS model discovery, grouped by provider.
-- Model selector UI with provider icons, default badges, and NEW indicators.
-- Provider locked per session after first message — prevents mid-conversation provider switches.
-- Provider-aware controls: thinking toggle (Claude) vs thinking level cycling (Codex), plan mode gating, completions gating.
-- Agent settings page: per-provider version display with npm update check.
+**Brain**
+- Maintain one normal git clone as the Brain knowledge base.
+- Create/connect/delete the Brain repository, edit Markdown notes, review working-tree changes, and Save by committing and pushing.
+- Chat with the Brain through the same session stack as workspaces using the synthetic workspace id `brain`.
+- Refresh Brain files, status, and open notes after agent writes.
 
-**Live sync**
-- Real-time branch name and diff-stat snapshots via background git polling over WebSocket.
-- PR status via bulk REST endpoint (`POST /api/workspaces/bulk-pr-status`) seeding per-workspace cache, eliminating duplicate polling.
-- Enriched PR display: review state (approved/changes_requested), checks counts (passed/total), mergeable state (13-state priority ladder including draft, closed, blocked, unstable).
-- Script execution status broadcasting (`script_status` WS messages).
+**Providers**
+- Claude uses streaming JSON from the Claude CLI.
+- Interactive Codex chat uses `codex app-server`; Codex automations use `codex exec --json`.
+- Gemini uses NDJSON output with Hive's stream adapter.
+- Codex App Server command execution, file changes, plan updates, goals, diagnostics, image views/generations, token usage, and collaborative agent tool calls are normalized into Hive events.
 
 **Automation**
-- Scheduled agent automations with cron expressions (croner), per-project or global.
-- Prompt template library: CRUD with YAML frontmatter `.md` files, system/user types, deletion guard when referenced by automation.
-- Base prompt editor: customizable system prompt with `{PROJECT}`, `{DIR}`, `{DEFAULT_BRANCH}` template variables (CodeMirror 6 with variable highlighting).
-- Prompt flow explainer: interactive diagram showing how system prompt is assembled.
-- Automation run log viewer: slide-over sheet with full agent conversation + system prompt banner.
-- Automation editing: inline config modification via creation dialog in edit mode.
-- Git context injection into automation system prompts for project-linked automations.
-- Cron preview (next 3 runs) and next-run countdown in sidebar and detail view.
-- Workspace setup/run scripts via `hive.json` with PTY execution and live terminal output.
-- Provider-aware slash-command / agent autocomplete scanning from Claude and Codex user/project directories.
+- Schedule cron-based agent runs for a project or a standalone directory.
+- Build automation prompts from prompt templates, inline prompts, base prompts, and git context.
+- Store run history, messages, resolved system prompts, summaries, status, duration, and errors.
+- Trigger runs manually and send completion/failure notifications.
 
-**Integrations**
-- GitHub OAuth device flow for `gh` CLI authentication and git credential setup.
-- Telegram notifications: turn complete (with duration + summary), needs input, proposed plan, agent failed, automation run complete.
-- Local in-app notifications use Sonner toasts in the top-left corner; done/fail toasts auto-expire, while action-required toasts (question/plan) stay visible — even across navigation — until the question is answered or dismissed on any client, the session completes, or the user closes them.
-- Apple Push Notifications (APNs): zero-dependency HTTP/2 + ES256 JWT channel with auto token pruning. Suppressed in foreground.
-- Preflight dependency checks on startup (git, claude, gh required; codex, gemini optional).
-
-**Settings**
-- Tailscale connection config (IP + port) with health check indicator.
-- Appearance settings (accent color picker).
-- Account settings (GitHub connect/disconnect with profile display).
-- Notification settings (Telegram + APNs, instant-apply toggles, test message).
-- Agent settings (installed providers, versions, update availability).
-- Prompt settings (base prompt editor, template library, prompt flow explainer).
-- Global custom agents settings (validated provider-native Claude Markdown and Codex TOML, explicit counterpart creation).
-- Global skills settings (single view over Claude/Codex skills, `.agents/skills` canonical storage, Claude symlink sync).
-- Global instructions settings (single editor for Claude/Codex instruction files, `.codex/AGENTS.md` canonical storage, Claude symlink sync, override visibility).
-- Per-repository detail view with deletion controls and CodeMirror-powered project `.env` editing.
-
-**Desktop**
-- Tauri v2 desktop app (macOS `.dmg`, Windows `.exe`) with native titlebar integration.
-- macOS traffic light positioning, drag regions, and App Transport Security exceptions for Tailscale HTTP.
-- Sidebar collapse toggle (Cmd/Ctrl+B) with CSS transition and fullscreen detection.
-- VS Code remote SSH workspace opening via `vscode://vscode-remote/ssh-remote+` URIs.
-- Workspace header action for copying the current worktree path.
-
-**iOS**
-- Native SwiftUI app with workspace conversation lists, chat, model selection, session switching (max 4), and push notifications (APNs).
-- Dynamic model catalog from API with provider-grouped picker and session locking.
-- SwiftUI `NavigationStack` routing for workspaces and conversations.
-- PR status bulk polling with shared enriched display mapping for Hub rows and the workspace dashboard.
-- Push notifications with foreground suppression and cold-start bridging via `CompletedWorkspacesStore`.
-- Foreground reconnect (2s debounce) with background stream catchup.
-- Context window usage ring matching frontend thresholds.
-- Task tracker with collapsible task list, including Codex native todo lists and Codex App Server plan updates.
-- Codex App Server `AgentActivity` rendering for command execution, file changes, diagnostics, and unknown activity fallback.
-- Shared chat diff rendering for Claude/Gemini edit tools and Codex file-change activities.
-- `#file` and `@agent` mention highlighting in messages.
-- Copy-to-clipboard on agent messages.
-- Per-session plan mode state and CANCELLED badge for dismissed questions.
-
-**Security**
-- Optional auth token + in-memory request rate limiting.
-- File content API with path traversal protection and 1 MB size cap.
+**Apps and integrations**
+- React 19 + Vite frontend with Tauri v2 desktop packaging.
+- Native SwiftUI iOS client with Brain, workspace conversations, session switching, chat, model selection, PR status, scripts, push notifications, task tracker, and Codex activity rendering.
+- GitHub OAuth device flow through `gh`, PR status enrichment, project `.env` management, global instructions, skills, custom agents, prompt resources, theme/accent settings, Telegram notifications, APNs, Tailscale-friendly connection settings, external terminal opening, and VS Code remote SSH opening from Tauri.
 
 ## Prerequisites
 
 - Node.js >= 20
-- Git >= 2.20
-- Claude CLI installed and authenticated (`claude` command)
-- Optional: GitHub CLI (`gh`) for PR status in the UI
+- Git >= 2.17
+- Claude CLI installed and authenticated (`claude`)
+- GitHub CLI installed and authenticated when using GitHub-backed flows (`gh`)
 - Optional: Codex CLI (`codex`) for OpenAI model support
 - Optional: Gemini CLI (`gemini`) for Google model support
-- Optional (desktop app): Rust >= 1.77 for Tauri builds
-- Optional (remote setup): Tailscale for secure backend connectivity
+- Optional desktop build: Rust >= 1.77 for Tauri
+- Optional remote setup: Tailscale
+
+The backend preflight requires `git`, `claude`, and `gh`. `codex` and `gemini` are optional and only affect their provider features.
 
 ## Installation
 
@@ -126,16 +60,12 @@ npm install
 
 ## Local Development
 
-Run in two terminals.
-
-Terminal 1 (backend):
+Run backend and frontend in separate terminals:
 
 ```bash
 cd backend
 npm run dev
 ```
-
-Terminal 2 (frontend):
 
 ```bash
 cd frontend
@@ -143,58 +73,29 @@ npm run dev
 ```
 
 Defaults:
+
 - Backend: `http://127.0.0.1:3000`
 - Frontend: `http://localhost:5173`
 
-### Tauri Desktop App
-
-The frontend can be run as a native desktop app using Tauri:
+Run the desktop app:
 
 ```bash
 cd frontend
 npm run tauri dev
 ```
 
-To build a distributable `.dmg` / `.exe`:
+Build the desktop app:
 
 ```bash
 cd frontend
 npm run tauri build
 ```
 
-See [GETTING_STARTED.md](GETTING_STARTED.md) for remote backend setup with Tailscale.
-
-### Production Deployment (pm2)
-
-The backend includes a pm2 ecosystem config at `backend/ecosystem.config.cjs` with two environments:
-
-| Environment | Host | Port | Data Dir |
-|---|---|---|---|
-| `production` | `0.0.0.0` | `9420` | `~/.hive` |
-| `development` | `127.0.0.1` | `3000` | `~/.hive-dev` |
-
-```bash
-cd backend
-npm run build
-
-# Start
-pm2 start ecosystem.config.cjs --env production
-pm2 start ecosystem.config.cjs --env development
-
-# Manage
-pm2 logs hive-backend        # stream logs
-pm2 restart hive-backend     # restart
-pm2 stop hive-backend        # stop
-pm2 delete hive-backend      # remove from pm2
-
-# Persist across reboots
-pm2 save
-pm2 startup
-```
+Remote backend and Tauri setup lives in [GETTING_STARTED.md](GETTING_STARTED.md).
 
 ## Scripts
 
-From repo root:
+From the repository root:
 
 ```bash
 npm run lint
@@ -218,329 +119,214 @@ npm run build
 npm run lint
 npm run typecheck
 npm test
+npm run tauri dev
+npm run tauri build
 
 cd ../ios
 swift test
 ```
 
-## Codex App Server Notes
+## Production Backend
 
-Known Codex App Server limitations and intentionally unsupported protocol paths
-live in [`doc/codex-app-server-limitations.md`](doc/codex-app-server-limitations.md).
+The backend includes `backend/ecosystem.config.cjs` for pm2:
 
-## Environment Variables
+| Environment | Host | Port | Data dir |
+|---|---:|---:|---|
+| `production` | `0.0.0.0` | `9420` | `~/.hive` |
+| `development` | `127.0.0.1` | `3000` | `~/.hive-dev` |
 
-### Backend
+```bash
+cd backend
+npm run build
+pm2 start ecosystem.config.cjs --env production
+pm2 logs hive-backend
+pm2 restart hive-backend
+pm2 stop hive-backend
+```
+
+## Configuration
+
+Backend:
 
 | Variable | Default | Description |
 |---|---|---|
 | `HOST` | `127.0.0.1` | Backend bind address |
 | `PORT` | `3000` | Backend HTTP port |
-| `DATA_DIR` | `~/.hive` | Root storage for prompts/projects/workspaces/sessions |
-| `HIVE_AUTH_TOKEN` | _(unset)_ | If set, requires auth for API + WS (`/health` stays public) |
-| `HIVE_RATE_LIMIT_MAX` | `120` | Max requests per IP within one window |
-| `HIVE_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window in ms |
+| `DATA_DIR` | `~/.hive` | Root storage for projects, workspaces, sessions, prompts, Brain, config, and automations |
+| `HIVE_AUTH_TOKEN` | unset | Requires bearer/token auth for API and WS when set; `/health` remains public |
+| `HIVE_RATE_LIMIT_MAX` | `120` | Max requests per IP per window |
+| `HIVE_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window in milliseconds |
 | `HIVE_CLAUDE_SKIP_PERMISSIONS` | `true` | Controls Claude `--dangerously-skip-permissions` |
-| `GITHUB_CLIENT_ID` | _(built-in)_ | Override GitHub OAuth App client ID |
+| `GITHUB_CLIENT_ID` | built in | Override GitHub OAuth app client id |
 
-### Frontend
+Frontend:
 
 | Variable | Default | Description |
 |---|---|---|
-| `VITE_WS_URL` | _(derived from browser location)_ | Override WS base URL |
-| `VITE_HIVE_AUTH_TOKEN` | _(unset)_ | Bearer token for API and `token` query for WS |
+| `VITE_WS_URL` | derived from browser location | Override WS base URL |
+| `VITE_HIVE_AUTH_TOKEN` | unset | Bearer token for API and `token` query for WS |
 
-## HTTP API
-
-### Projects
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/projects` | Create project (clone bare repo) |
-| `GET` | `/api/projects` | List projects |
-| `GET` | `/api/projects/:id` | Get project |
-| `DELETE` | `/api/projects/:id` | Delete project (must have zero active workspaces) |
-| `POST` | `/api/projects/:id/fetch` | Fetch remote updates |
-| `GET` | `/api/projects/:id/env` | Get project-managed `.env` |
-| `PUT` | `/api/projects/:id/env` | Save project-managed `.env` |
-| `DELETE` | `/api/projects/:id/env` | Delete project-managed `.env` |
-
-### Workspaces
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/projects/:id/workspaces` | Create workspace |
-| `GET` | `/api/projects/:id/workspaces` | List project workspaces |
-| `GET` | `/api/workspaces/:wsId` | Get workspace details + default branch |
-| `DELETE` | `/api/workspaces/:wsId` | Delete workspace |
-| `GET` | `/api/workspaces/:wsId/diff?scope=combined\|committed\|uncommitted` | Unified diff; defaults to combined committed + uncommitted + untracked |
-| `GET` | `/api/workspaces/:wsId/diff/stat` | Diff stats (`committed` + `uncommitted`) |
-| `GET` | `/api/workspaces/:wsId/files` | Workspace file tree |
-| `GET` | `/api/workspaces/:wsId/file?path=<file>` | Read workspace file content |
-| `GET` | `/api/workspaces/:wsId/file-completions` | File paths for `#` mention autocomplete |
-| `POST` | `/api/workspaces/:wsId/merge` | Merge workspace branch into default branch |
-| `POST` | `/api/workspaces/:wsId/archive` | Archive workspace and remove worktree |
-| `GET` | `/api/workspaces/:wsId/completions?provider=claude\|codex` | Provider-aware completion items for `/` and `@` autocomplete |
-| `GET` | `/api/workspaces/:wsId/pr-status` | PR status (state, checks, reviews, mergeable) with 15s cache |
-| `POST` | `/api/workspaces/bulk-pr-status` | Bulk PR status for multiple workspaces |
-| `POST` | `/api/workspaces/:wsId/terminal/start` | Start interactive terminal PTY |
-| `DELETE` | `/api/workspaces/:wsId/terminal/stop` | Stop interactive terminal |
-
-### Models
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/models` | Model catalog (providers, capabilities, contextWindow, defaults) |
-
-### Sessions
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/workspaces/:wsId/session` | Get or create active session |
-| `GET` | `/api/workspaces/:wsId/session` | Get active session metadata |
-| `GET` | `/api/workspaces/:wsId/session/messages` | Get latest persisted messages |
-| `DELETE` | `/api/workspaces/:wsId/session` | End active session |
-| `GET` | `/api/workspaces/:wsId/sessions` | List all workspace sessions |
-| `POST` | `/api/workspaces/:wsId/sessions` | Create new session |
-| `POST` | `/api/workspaces/:wsId/sessions/:sessionId/activate` | Activate specific session |
-| `DELETE` | `/api/workspaces/:wsId/sessions/:sessionId` | Hard-delete a session |
-| `GET` | `/api/workspaces/:wsId/sessions/:sessionId/messages` | Get messages for a specific session |
-
-### Automations
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/automations` | List automations |
-| `POST` | `/api/automations` | Create automation |
-| `GET` | `/api/automations/:id` | Get automation |
-| `PUT` | `/api/automations/:id` | Update automation |
-| `DELETE` | `/api/automations/:id` | Delete automation |
-| `POST` | `/api/automations/:id/trigger` | Manually trigger automation |
-| `GET` | `/api/automations/:id/runs` | List automation runs |
-| `GET` | `/api/automations/:id/runs/:runId/messages` | Get run messages + system prompt |
-
-### Prompt Templates
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/prompts/templates` | List templates |
-| `POST` | `/api/prompts/templates` | Create template |
-| `GET` | `/api/prompts/templates/:id` | Get template |
-| `PUT` | `/api/prompts/templates/:id` | Update template |
-| `DELETE` | `/api/prompts/templates/:id` | Delete template (blocked if referenced by automation) |
-
-### Base Prompt
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/prompts/base` | Get base prompt (content, isDefault, defaultContent) |
-| `PUT` | `/api/prompts/base` | Update base prompt |
-| `DELETE` | `/api/prompts/base` | Reset base prompt to default |
-
-### Settings
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/settings/notifications` | Get notification config (Telegram + APNs) |
-| `PUT` | `/api/settings/notifications` | Update notification config |
-| `POST` | `/api/settings/notifications/test` | Send a test notification |
-| `POST` | `/api/settings/apns-token` | Register APNs device token |
-| `GET` | `/api/settings/agents` | Provider versions + update availability |
-| `GET` | `/api/settings/instructions` | Get global Claude/Codex instructions, sync status, and Codex override state |
-| `PUT` | `/api/settings/instructions` | Save instructions to `.codex/AGENTS.md` and sync the Claude symlink |
-| `DELETE` | `/api/settings/instructions` | Delete global Claude/Codex instructions without touching `AGENTS.override.md` |
-| `POST` | `/api/settings/instructions/sync` | Sync existing global instructions into canonical storage |
-| `GET` | `/api/settings/skills` | List global Claude/Codex skills and sync status |
-| `POST` | `/api/settings/skills` | Create a new global skill in `.agents/skills` and add the Claude symlink |
-| `GET` | `/api/settings/skills/:id` | Get a global skill detail (`SKILL.md`) |
-| `PUT` | `/api/settings/skills/:id` | Save `SKILL.md`, canonicalize into `.agents/skills`, and sync Claude symlink |
-| `DELETE` | `/api/settings/skills/:id` | Delete a global skill from Claude and Codex |
-| `POST` | `/api/settings/skills/:id/sync` | Sync one skill into canonical storage |
-| `POST` | `/api/settings/skills/sync-missing` | Sync Claude-only, Codex-only, and matching duplicate global skills |
-| `GET` | `/api/settings/custom-agents` | List global Claude/Codex custom agents and provider presence |
-| `POST` | `/api/settings/custom-agents` | Create a provider-native global custom agent |
-| `GET` | `/api/settings/custom-agents/:id` | Get a custom agent detail with provider-native file contents |
-| `PUT` | `/api/settings/custom-agents/:id/providers/:provider` | Save one provider copy (`claude` Markdown or `codex` TOML) |
-| `DELETE` | `/api/settings/custom-agents/:id/providers/:provider` | Delete one provider copy |
-| `POST` | `/api/settings/custom-agents/:id/providers/:provider/counterpart` | Create an explicit provider-native counterpart from the other provider |
-
-### Account
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/account/status` | GitHub CLI install + auth status + user profile |
-| `POST` | `/api/account/connect` | Start GitHub OAuth device flow |
-| `POST` | `/api/account/connect/poll` | Poll for device flow completion |
-| `POST` | `/api/account/disconnect` | Logout from GitHub CLI |
-
-### Scripts
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/workspaces/:wsId/scripts` | Get `hive.json` config + script statuses |
-| `POST` | `/api/workspaces/:wsId/scripts/:type/start` | Start setup or run script |
-| `POST` | `/api/workspaces/:wsId/scripts/:type/stop` | Stop a running script |
-
-## WebSocket API
-
-### Hub (multiplexed)
-
-- Endpoint: `ws://<host>/ws/hub`
-- Auth: `Authorization: Bearer <token>`, `x-hive-token`, or `?token=<token>`
-
-Client -> server:
-- `{ "type": "sync_workspaces", "workspaceIds": ["..."] }`
-- `{ "type": "user_message", "content": "...", "images": [...], "options": { "planMode": boolean, "thinkingEnabled": boolean, "thinkingLevel": "low"|"medium"|"high"|"xhigh", "modelId": "provider:model" }, "sessionId": "...", "workspaceId": "..." }`
-- `{ "type": "stop", "sessionId": "...", "workspaceId": "..." }`
-- `{ "type": "tool_input_response", "requestId": "...", "toolName": "AskUserQuestion|ExitPlanMode", "result": ..., "sessionId": "...", "workspaceId": "..." }`
-
-Server -> client (wrapped in `HubOutgoing` envelopes `{ workspaceId, event }`):
-- `status` (includes `lockedProvider`), `history`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `agent_activity`, `tool_input_required`, `done` (with `durationMs`, `pendingToolName`), `cancelled` (with `errorDetail`, `userInitiated`), `error`, `branch_info`, `diff_stats`, `script_status`, `plan_mode_changed`
-
-### Script stream
-
-- Endpoint: `ws://<host>/ws/script/:wsId/:type`
-- Binary frames: PTY output bytes from the running script
-- Server control messages: `ready`, `exit`, `error`
+Connection host/port, Telegram, APNs, theme, accent color, prompt resources, instructions, skills, and custom agents are configured in the UI.
 
 ## Architecture
 
-Hierarchy:
-- **Project**: bare Git repo
-- **Workspace**: worktree + branch (`workspace/<city-name>`)
-- **Session**: agent conversation persisted under the project
+Monorepo layout:
 
-Backend key modules:
-- `backend/src/api/projects.ts` project CRUD + fetch
-- `backend/src/api/workspaces.ts` workspace CRUD + diff/stat + files + merge + archive + PR status + file-completions + terminal
-- `backend/src/api/agents.ts` session routes (single + multi-session)
-- `backend/src/api/completions.ts` provider-aware completion scanning endpoint
-- `backend/src/api/models.ts` model catalog endpoint
-- `backend/src/api/settings.ts` notification config CRUD + APNs token registration
-- `backend/src/api/account.ts` GitHub OAuth device flow + CLI integration
-- `backend/src/api/scripts.ts` setup/run script lifecycle
-- `backend/src/api/agents-settings.ts` provider version check + npm update detection
-- `backend/src/api/base-prompt.ts` base system prompt CRUD
-- `backend/src/api/automations.ts` automation CRUD + trigger + run history + run messages
-- `backend/src/api/prompt-templates.ts` prompt template CRUD
-- `backend/src/api/agent-instructions.ts` global instruction settings + Claude/Codex sync
-- `backend/src/api/skills.ts` global skill settings + Claude/Codex sync
-- `backend/src/api/custom-agents.ts` provider-native global custom agent CRUD + explicit counterpart creation
-- `backend/src/ws/stream.ts` multiplexed hub WebSocket protocol
-- `backend/src/ws/script.ts` script execution WebSocket
-- `backend/src/agents/agent-manager.ts` in-memory session registry, persistence, switching
-- `backend/src/agents/conversation-session.ts` agent process lifecycle per turn (provider-aware)
-- `backend/src/agents/agent-event-normalizer.ts` provider event normalization into Hive stream events and activity updates
-- `backend/src/agents/runners/` process and Codex App Server runner abstraction
-- `backend/src/agents/system-prompt.ts` system prompt construction (base prompt loading, template vars, git context)
-- `backend/src/agents/naming.ts` branch + session auto-naming via dedicated Claude subprocess
-- `backend/src/agents/providers/` provider abstraction (types, registry, claude, codex, codex-app-server, codex-stream-adapter, gemini, gemini-stream-adapter)
-- `backend/src/services/git-sync.ts` branch/diff polling and workspace broadcasts
-- `backend/src/services/script-runner.ts` PTY-based script execution + interactive terminal
-- `backend/src/services/automation-scheduler.ts` cron scheduling, ConversationSession execution, git context injection
-- `backend/src/notifications/` notification channels (Telegram, APNs) + event dispatcher + types
-- `backend/src/state/state.ts` JSON persistence + per-project locks
-- `backend/src/state/config.ts` file-based app config (`config.json`)
-- `backend/src/state/automations.ts` automation + run persistence
-- `backend/src/state/prompt-templates.ts` template persistence
-- `backend/src/state/base-prompt.ts` base prompt persistence
-- `backend/src/state/agent-instructions.ts` global instruction discovery/canonicalization (`.codex/AGENTS.md`, `.claude/CLAUDE.md`, override visibility)
-- `backend/src/state/skills.ts` global skill discovery/canonicalization (`.agents/skills` + `.claude/skills` symlinks)
-- `backend/src/state/custom-agents.ts` global custom agent discovery (`.claude/agents/*.md`, `.codex/agents/*.toml`) without automatic cross-provider sync
-- `backend/src/utils/preflight.ts` startup dependency checks (git, claude, gh; codex/gemini optional)
-- `backend/src/utils/github.ts` GitHub URL parsing, `gh` CLI wrapper, PR status fetching
-- `backend/src/utils/hive-config.ts` `hive.json` parser for workspace scripts
+- `backend/`: Fastify REST API, WebSocket hub, provider runners, git/worktree management, Brain, automation scheduler, notifications, and state persistence.
+- `frontend/`: React app, Vite build, Tauri shell, shared chat/file/diff components, settings, and hooks.
+- `ios/`: SwiftUI app using the same REST and hub protocols.
+- `shared/`: TypeScript helpers shared by backend and frontend.
 
-Frontend key modules:
-- `frontend/src/pages/WorkspaceView.tsx` main chat/inline diff/file tree/scripts/PR status UI
-- `frontend/src/pages/AutomationDetail.tsx` automation config + run history + run log
-- `frontend/src/pages/settings/` settings pages (Appearance, Connection, Account, Notifications, CLI Agents, Custom Agents, Prompts, Instructions, Skills, ProjectDetail)
-- `frontend/src/components/settings/` shared settings list/editor/status primitives used by instructions, skills, and custom agents
-- `frontend/src/components/ui/toaster.tsx` centralized Sonner toast styling, theme binding, semantic icons, and top-left placement
-- `frontend/src/contexts/WorkspaceLiveDataContext.tsx` WS live data context + unread tracking
-- `frontend/src/hooks/useConversation.ts` reducer-driven conversation state + tool responses + lockedProvider
-- `frontend/src/hooks/useSessions.ts` multi-session operations (max 4)
-- `frontend/src/hooks/useWorkspaceLiveData.ts` live status/branch/diff/script data + unread tracking
-- `frontend/src/hooks/useModels.ts` model catalog fetch + selection + provider lock
-- `frontend/src/hooks/usePrStatus.ts` PR status (reads from bulk-seeded cache, no independent timer)
-- `frontend/src/hooks/useTabs.ts` multi-tab state with workspace snapshot cache, source/diff modes
-- `frontend/src/hooks/useTasks.ts` task progress from TaskCreate/TaskUpdate tool calls, Codex TodoList events, and Codex App Server plan updates
-- `frontend/src/hooks/useBackgroundAgents.ts` background Task agent tracking
-- `frontend/src/hooks/useContextUsage.ts` context window usage calculation from provider-reported context fields with assistant-token fallback
-- `frontend/src/hooks/useBasePrompt.ts` base prompt CRUD
-- `frontend/src/hooks/useDiff.ts` diff fetching for inline viewer
-- `frontend/src/hooks/useFileCompletions.ts` `#` file mention completions
-- `frontend/src/hooks/useSidebarCollapsed.ts` sidebar collapse state + keyboard shortcut
-- `frontend/src/hooks/useWsCacheInvalidation.ts` centralized WS-driven query invalidation
-- `frontend/src/hooks/useNotificationToasts.tsx` global WS listener for local in-app toasts; sticky action-required toasts cleared on `tool_input_resolved` or turn resume
-- `frontend/src/hooks/useProjects.ts` project/workspace state
-- `frontend/src/hooks/useScripts.ts` script start/stop/status + terminal
-- `frontend/src/hooks/useAutomations.ts` automation CRUD + trigger + run history + run messages
-- `frontend/src/hooks/usePromptTemplates.ts` prompt template CRUD
-- `frontend/src/lib/ws-transport.ts` resilient WS transport + replay buffer
-- `frontend/src/lib/plan-state.ts` plan mode logic (detection, content extraction)
-- `frontend/src/lib/sub-agent.ts` Task tool parsing + children map
-- `frontend/src/lib/pr-display.ts` PR state -> icon/color/label mapping
-- `frontend/src/lib/cron.ts` cron utilities (next runs, countdown formatting)
-- `frontend/src/lib/format-usage.ts` token count formatting + usage colors
-- `frontend/src/lib/toast-config.ts` shared local toast duration policy
-- `frontend/src/lib/file-mentions.ts` `#file`/`@agent` mention parsing
-- `frontend/src/lib/fuzzy-match.ts` fuzzy file matching for autocomplete
-- `frontend/src/components/Sidebar.tsx` project/workspace nav + build/automation tabs + collapse + unread + PR status
-- `frontend/src/components/ChatInput.tsx` message input + file autocomplete + context ring + quick actions
-- `frontend/src/components/TaskTracker.tsx` task list + Codex plan updates + background agents status bar
-- `frontend/src/components/diff/InlineDiffViewer.tsx` inline diff with split/unified + comments + paste-to-prompt
-- `frontend/src/components/chat/SubAgentNode.tsx` collapsible Task tool rendering
-- `frontend/src/components/chat/PlanActionBar.tsx` plan approval floating bar
-- `frontend/src/components/chat/ContextRing.tsx` SVG usage ring
-- `frontend/src/components/chat/ModelSelector.tsx` provider-grouped model picker
-- `frontend/src/components/PromptEditor.tsx` CodeMirror 6 editor with template variable highlighting
-- `frontend/src-tauri/` Tauri v2 desktop app (Rust shell, config, icons)
+Core domain:
+
+- **Project**: a bare git repository.
+- **Workspace**: a git worktree and branch under a project.
+- **Session**: a persisted agent conversation for a workspace.
+- **Brain**: a singleton normal git clone addressed through workspace id `brain`.
+
+Important backend areas:
+
+- `backend/src/index.ts`: app wiring, auth/rate limiting, route registration, startup checks, git sync, scheduler, shutdown.
+- `backend/src/api/`: REST route groups.
+- `backend/src/ws/`: hub, script, and browser WebSockets.
+- `backend/src/agents/`: session lifecycle, providers, runners, stream normalization, system prompts, session dispatch.
+- `backend/src/brain/`: Brain repository, file, git, and Save operations.
+- `backend/src/workspaces/`: project workspace lifecycle, diffs, merge/archive, file reads.
+- `backend/src/services/`: git sync, automation scheduling, script runner, provider usage, browser session support.
+- `backend/src/state/`: JSON and file-backed persisted state.
+- `backend/src/utils/`: git wrapper, path safety, raw-file serving, GitHub integration, preflight, prompt/config parsing.
+
+Important frontend areas:
+
+- `frontend/src/App.tsx`: routing and global hub subscription.
+- `frontend/src/pages/WorkspaceView.tsx`: workspace chat, file tabs, diffs, scripts, browser panel, PR status.
+- `frontend/src/pages/BrainView.tsx`: Brain chat, notes tree, file tabs, modified list, Save flow.
+- `frontend/src/pages/settings/`: settings surfaces.
+- `frontend/src/components/chat/`: shared conversation, provider, task, question, plan, image, and activity rendering.
+- `frontend/src/hooks/`: API, WS, conversation, sessions, files, Brain, automations, provider usage, preferences, and settings hooks.
+- `frontend/src/lib/ws-transport.ts`: single multiplexed hub transport.
+
+Important iOS areas:
+
+- `ios/HiveMobile/HiveApp.swift`: app entry, tabs, navigation stacks.
+- `ios/HiveMobile/Services/APIClient.swift`: REST client.
+- `ios/HiveMobile/Stores/HubStatusMonitor.swift`: single hub WebSocket, workspace subscriptions, PR status polling, unread/streaming state.
+- `ios/HiveMobile/Stores/ConversationStore.swift`: chat state and WS event handling.
+- `ios/HiveMobile/Views/Brain/` and `ios/HiveMobile/Views/Chat/`: Brain, workspace, conversation, dashboard, task, tool, image, and activity UI.
 
 ## Data Layout
 
 ```text
 $DATA_DIR/
-├── config.json
-├── automations.json
-├── prompts/
-│   ├── base.md
-│   └── <template-id>.md
-├── automations/
-│   └── <auto-id>/
-│       ├── runs/
-│       │   └── <run-id>/
-│       │       ├── messages.jsonl
-│       │       └── system-prompt.md
-│       └── workspace/
-└── proj-<id>/
-    ├── state.json
-    ├── env/
-    │   └── .env
-    ├── repo.git/
-    ├── workspaces/
-    │   └── <workspace-name>/
-    ├── sessions/
-    │   └── <session-id>/
-    │       ├── metadata.json
-    │       ├── messages.jsonl
-    │       └── attachments/
-    ├── archive/
-    │   └── <ws-id>/
-    │       ├── workspace.json
-    │       └── sessions/
-    └── logs/
+|-- config.json
+|-- ui-preferences.json
+|-- automations.json
+|-- prompts/
+|   |-- base.md
+|   |-- brain.md
+|   `-- <template-id>.md
+|-- brain/
+|   |-- state.json
+|   |-- repo/
+|   `-- sessions/
+|-- automations/
+|   `-- <automation-id>/
+|       |-- runs/
+|       |   `-- <run-id>/
+|       |       |-- messages.jsonl
+|       |       `-- system-prompt.md
+|       `-- workspace/
+`-- proj-<id>/
+    |-- state.json
+    |-- env/
+    |   `-- .env
+    |-- repo.git/
+    |-- workspaces/
+    |   `-- <workspace-name>/
+    |-- sessions/
+    |   `-- <session-id>/
+    |       |-- metadata.json
+    |       |-- messages.jsonl
+    |       `-- attachments/
+    |-- archive/
+    `-- logs/
 ```
+
+## HTTP API
+
+This is the public backend surface exposed by route modules under `backend/src/api/`.
+
+| Area | Endpoints |
+|---|---|
+| Health | `GET /health` |
+| Projects | `GET/POST /api/projects`, `GET/DELETE /api/projects/:id`, `POST /api/projects/:id/fetch`, `GET /api/projects/:id/favicon`, `GET/PUT /api/projects/:id/env` |
+| Workspaces | `GET/POST /api/projects/:id/workspaces`, `GET/DELETE /api/workspaces/:wsId`, `GET /api/workspaces/:wsId/files`, `GET /api/workspaces/:wsId/file`, `GET /api/workspaces/:wsId/file/raw`, `GET /api/workspaces/:wsId/file-completions`, `GET /api/workspaces/:wsId/diff`, `GET /api/workspaces/:wsId/diff/stat`, `POST /api/workspaces/:wsId/merge`, `POST /api/workspaces/:wsId/archive`, `GET /api/workspaces/:wsId/pr-status`, `POST /api/workspaces/pr-status/bulk` |
+| Sessions | `GET/POST/DELETE /api/workspaces/:wsId/session`, `GET /api/workspaces/:wsId/session/messages`, `GET/POST /api/workspaces/:wsId/sessions`, `DELETE /api/workspaces/:wsId/sessions/:sessionId`, `GET /api/workspaces/:wsId/sessions/:sessionId/messages`, `GET /api/workspaces/:wsId/sessions/:sessionId/attachments/:filename` |
+| Brain | `GET/POST/DELETE /api/brain`, `GET /api/brain/files`, `GET/PUT /api/brain/file`, `GET /api/brain/file/raw`, `GET /api/brain/status`, `GET /api/brain/diff`, `POST /api/brain/save` |
+| Models and provider usage | `GET /api/models`, `GET /api/provider-usage` |
+| Completions | `GET /api/workspaces/:wsId/completions?provider=claude\|codex\|gemini` |
+| Automations | `GET/POST /api/automations`, `GET/PUT/DELETE /api/automations/:id`, `POST /api/automations/:id/trigger`, `GET /api/automations/:id/runs`, `GET /api/automations/:id/runs/:runId/messages` |
+| Prompts | `GET/POST /api/prompt-templates`, `PUT/DELETE /api/prompt-templates/:id`, `GET/PUT/DELETE /api/prompts/base`, `GET/PUT/DELETE /api/prompts/brain` |
+| Settings | `GET/PUT /api/settings/notifications`, `POST /api/settings/notifications/test`, `POST /api/settings/notifications/test-apns`, `POST /api/devices/apns`, `GET /api/settings/agents`, `GET/PUT/DELETE /api/settings/instructions`, `POST /api/settings/instructions/sync`, `GET/POST /api/settings/skills`, `GET/PUT/DELETE /api/settings/skills/:id`, `POST /api/settings/skills/:id/sync`, `POST /api/settings/skills/sync-missing`, `GET/POST /api/settings/custom-agents`, `GET /api/settings/custom-agents/:id`, `PUT/DELETE /api/settings/custom-agents/:id/providers/:provider`, `POST /api/settings/custom-agents/:id/providers/:provider/counterpart` |
+| Account | `GET /api/account/status`, `POST /api/account/connect`, `POST /api/account/connect/poll`, `POST /api/account/disconnect` |
+| Scripts and preferences | `GET /api/workspaces/:wsId/scripts`, `POST /api/workspaces/:wsId/scripts/:type/start`, `POST /api/workspaces/:wsId/scripts/:type/stop`, `POST /api/workspaces/:wsId/terminal/start`, `POST /api/workspaces/:wsId/terminal/stop`, `GET/PUT /api/ui-preferences` |
+
+`wsId=brain` is valid for session and hub routes through the shared session dispatcher.
+
+## WebSocket API
+
+Hub:
+
+- Endpoint: `ws://<host>/ws/hub`
+- Auth: `Authorization: Bearer <token>`, `x-hive-token`, or `?token=<token>`
+- Client sends `sync_workspaces`, `user_message`, `stop`, and `tool_input_response`.
+- Server wraps events as `{ workspaceId, event }`.
+- Current server events include `status`, `history`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `agent_activity`, `tool_input_required`, `tool_input_resolved`, `done`, `cancelled`, `error`, `branch_info`, `diff_stats`, `script_status`, and `plan_mode_changed`.
+
+Script stream:
+
+- Endpoint: `ws://<host>/ws/script/:wsId?type=<scriptType>`
+- Binary frames are PTY bytes; JSON control messages include `ready`, `exit`, and `error`.
+
+Browser stream:
+
+- Endpoint: `ws://<host>/ws/browser/:wsId/:sessionId`
+- Proxies `agent-browser` screencast output and viewport resize messages.
 
 ## Testing and CI
 
 - Backend tests: `backend/src/**/*.test.ts`
 - Frontend tests: `frontend/tests/**/*.test.ts(x)`
-- iOS Swift package tests: `ios/Tests/**/*.swift`
-- Frameworks: Vitest for backend/frontend, Swift Testing for iOS store/model tests
-- CI (`.github/workflows/ci.yml`) runs Node lint, typecheck, build, tests, iOS Swift package tests, and an iOS app compile on push/PR to `main`
-- CI sets `NODE_ENV=test` explicitly (React 19 only exports `act()` in development bundle)
-- For iOS changes, also run `cd ios && swift test` and an Xcode simulator build locally before merging when Swift/Xcode is available.
+- iOS tests: `ios/Tests/**/*.swift`
+- Backend/frontend use Vitest.
+- iOS uses Swift Testing.
+- CI runs Node lint, typecheck, build, tests, iOS Swift package tests, and an iOS app compile on push/PR to `main`.
+- CI sets `NODE_ENV=test` so React 19 exports `act()` from the development bundle.
+
+Run the narrowest relevant checks during development, then run the root checks before broad changes are considered done. For iOS changes, also run `cd ios && swift test` and an Xcode simulator build when available.
+
+## Backlog
+
+This section is the single approved place for documented remaining work. Do not add TODO, roadmap, "future", or "not yet" notes to `AGENTS.md`, `GETTING_STARTED.md`, or standalone docs.
+
+**Workspace and git UX**
+- Structure merge-conflict API responses instead of returning generic merge errors.
+- Expose project fetch and workspace merge actions in the frontend.
+- Add manual workspace rename/alias support.
+
+**Provider and protocol polish**
+- Visually distinguish `redacted_thinking` from normal thinking blocks.
+- Harden Codex App Server resume verification after process loss or forced interruption.
+- Continue promoting useful Codex App Server diagnostics into richer UI when a product surface is clear.
+
+**Automation**
+- Add GitHub event automations with webhook validation, PR/issue context enrichment, prompt variables, and GitHub comment/review output.
+- Add script automations that run configured commands and capture output for notifications.
+- Add automation chaining, concurrency limits, retry policy, and live hub streaming for automation runs.
+
+**iOS**
+- Add iOS UI for automations and prompt template management.
+- Add repository file browsing and richer diff inspection on iOS beyond dashboard summaries and chat-rendered diffs.
 
 ## License
 
