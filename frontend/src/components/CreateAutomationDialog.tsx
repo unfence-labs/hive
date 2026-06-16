@@ -281,8 +281,8 @@ export default function AutomationDialog({ open, onOpenChange, automation }: Aut
                 value={userPromptInline}
                 onChange={(e) => setUserPromptInline(e.target.value)}
                 placeholder="What should the agent do?"
-                rows={4}
-                className="mt-2 flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                rows={6}
+                className="mt-2 flex min-h-[140px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             )}
           </Field>

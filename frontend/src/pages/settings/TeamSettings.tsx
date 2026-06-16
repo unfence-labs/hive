@@ -11,8 +11,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { PromptEditor } from "@/components/PromptEditor";
 import { SettingsHeader } from "@/components/AppLayout";
 import { SettingsActionButton } from "@/components/settings/ProviderSync";
+import { TEMPLATE_VARIABLES } from "@/lib/prompt-variables";
 import {
   SettingsEmptySelection,
   SettingsResourceEmptyList,
@@ -215,16 +217,21 @@ function FormFields({
   const models = catalog?.models ?? [];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
-      {/* Name */}
-      <Field label="Name">
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Code Auditor"
-          className="text-sm"
-        />
-      </Field>
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {/* Name + Model */}
+      <div className="grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field label="Name">
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Code Auditor"
+            className="text-sm"
+          />
+        </Field>
+        <Field label="Model">
+          <ModelSelect value={modelId} onChange={setModelId} models={models} />
+        </Field>
+      </div>
 
       {/* Description */}
       <Field label="Description (optional)">
@@ -236,24 +243,32 @@ function FormFields({
         />
       </Field>
 
-      {/* Model */}
-      <Field label="Model">
-        <ModelSelect value={modelId} onChange={setModelId} models={models} />
-      </Field>
-
-      {/* System prompt */}
-      <Field label="System Prompt">
-        <textarea
-          value={systemPrompt}
-          onChange={(e) => setSystemPrompt(e.target.value)}
-          placeholder="You are a code auditor..."
-          rows={10}
-          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        />
-      </Field>
+      {/* System prompt — fills the remaining height */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <label className="mb-1.5 block shrink-0 text-xs font-medium text-muted-foreground">
+          System Prompt
+        </label>
+        <div className="min-h-0 flex-1">
+          <PromptEditor
+            value={systemPrompt}
+            onChange={setSystemPrompt}
+            maxHeight="100%"
+            placeholder="You are a code auditor..."
+          />
+        </div>
+        <div className="mt-2 flex shrink-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/70">
+          <span className="font-medium text-muted-foreground">Variables:</span>
+          {TEMPLATE_VARIABLES.map((v) => (
+            <span key={v.token}>
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">{v.token}</code>{" "}
+              <span className="text-muted-foreground/50">{v.desc}</span>
+            </span>
+          ))}
+        </div>
+      </div>
 
       {/* Flags */}
-      <div className="space-y-2">
+      <div className="shrink-0 space-y-2">
         <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
           <input
             type="checkbox"

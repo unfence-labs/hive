@@ -606,13 +606,13 @@ function NewCustomAgentPanel({
 
   return (
     <SettingsEditorFrame
-      title="New Custom Agent"
+      title="New Subagent"
       badge={
         <Badge variant="secondary" className="bg-primary/10 text-[10px] text-primary">
           Unsaved
         </Badge>
       }
-      description={`${PROVIDER_LABELS[draft.provider]} global agent`}
+      description={`${PROVIDER_LABELS[draft.provider]} global subagent`}
       providers={
         <ProviderSelector
           value={draft.provider}

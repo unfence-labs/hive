@@ -50,6 +50,7 @@ import {
 } from "@/hooks/useBrainPrompt";
 import { PromptEditor } from "@/components/PromptEditor";
 import { PromptFlowExplainer } from "@/components/PromptFlowExplainer";
+import { TEMPLATE_VARIABLES } from "@/lib/prompt-variables";
 import { cn } from "@/lib/utils";
 import type { BasePromptData, PromptTemplate } from "@/types";
 
@@ -61,14 +62,6 @@ type Selection =
   | { kind: "template"; id: string }
   | { kind: "create" }
   | null;
-
-// ── Constants ──────────────────────────────────────────────────────────
-
-const TEMPLATE_VARIABLES = [
-  { token: "{DIR}", desc: "workspace path" },
-  { token: "{DEFAULT_BRANCH}", desc: "target branch" },
-  { token: "{PROJECT}", desc: "project name" },
-] as const;
 
 // ── Main page ──────────────────────────────────────────────────────────
 
