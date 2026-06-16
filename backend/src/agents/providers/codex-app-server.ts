@@ -416,6 +416,16 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   private async ensureThread(options: CodexAppServerThreadOptions): Promise<string> {
+    // The sandbox is derived from the CURRENT run's readOnly and applied to both
+    // thread/start and thread/resume. Codex does NOT pin the sandbox to a thread's
+    // creation policy — per the app-server protocol, thread/resume "accepts the same
+    // permission override rules as thread/start", so the resume sandbox is honored.
+    // This is correct for our model: readOnly is a per-run property (the agent's
+    // current setting), automations use a fresh thread per run (start, not resume),
+    // and interactive chat never sets readOnly. So a thread is never resumed with a
+    // *changed* readOnly today. If a future swarm shares one long-lived thread across
+    // turns with differing readOnly intents, decide explicitly whether to pin to the
+    // creation policy or keep re-applying the current value here.
     const sandbox = options.readOnly ? "read-only" : "danger-full-access";
     if (options.threadId) {
       const resumed = await this.request<ThreadResumeResponse>("thread/resume", {
