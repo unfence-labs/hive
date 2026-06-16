@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 import { loadAgents, saveAgents, withAgentsLock } from "../state/agents.js";
 import { loadAutomations } from "../state/automations.js";
 import { getDataDir } from "../state/state.js";
+import { isKnownModelId } from "../agents/providers/registry.js";
 import type { Agent, CreateAgentRequest, UpdateAgentRequest } from "../types.js";
 
 interface AgentRoutesOptions {
@@ -33,6 +34,9 @@ export async function agentRoutes(
     if (!modelId?.trim()) {
       return reply.status(400).send({ error: "Model is required" });
     }
+    if (!isKnownModelId(modelId.trim())) {
+      return reply.status(400).send({ error: `Unknown model: ${modelId.trim()}` });
+    }
 
     const now = new Date().toISOString();
     const agent: Agent = {
@@ -62,6 +66,22 @@ export async function agentRoutes(
     async (req, reply) => {
       const { id } = req.params;
       const updates = req.body;
+
+      // Required fields, when provided, must not be blanked out — mirrors the
+      // create-time validation so an edit cannot leave an agent without a name,
+      // system prompt, or model.
+      if (updates.name !== undefined && !updates.name.trim()) {
+        return reply.status(400).send({ error: "Name cannot be empty" });
+      }
+      if (updates.systemPrompt !== undefined && !updates.systemPrompt.trim()) {
+        return reply.status(400).send({ error: "System prompt cannot be empty" });
+      }
+      if (updates.modelId !== undefined && !updates.modelId.trim()) {
+        return reply.status(400).send({ error: "Model cannot be empty" });
+      }
+      if (updates.modelId !== undefined && !isKnownModelId(updates.modelId.trim())) {
+        return reply.status(400).send({ error: `Unknown model: ${updates.modelId.trim()}` });
+      }
 
       const updated = await withAgentsLock(async () => {
         const agents = await loadAgents(dataDir);

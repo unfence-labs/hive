@@ -353,7 +353,8 @@ describe("Automation API - extended validation", () => {
       expect(res.json().trigger.expression).toBe("0 2 * * *");
     });
 
-    it("merges action fields", async () => {
+    it("replaces the action with a new (existing) agent", async () => {
+      await saveAgents([makeAgent(), makeAgent({ id: "agent-2", name: "Second" })], dataDir);
       await saveAutomations([makeAutomation()], dataDir);
       const res = await app.inject({
         method: "PUT",
@@ -362,7 +363,29 @@ describe("Automation API - extended validation", () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json().action.agentId).toBe("agent-2");
-      expect(res.json().action.userPromptInline).toBe("Do something"); // preserved
+      expect(res.json().action.userPromptInline).toBe("Do something");
+    });
+
+    it("rejects updating the action to a non-existent agent (400)", async () => {
+      await saveAutomations([makeAutomation()], dataDir);
+      const res = await app.inject({
+        method: "PUT",
+        url: "/api/automations/auto-1",
+        payload: { action: { type: "agent", agentId: "ghost", userPromptInline: "Do something" } },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("agent not found");
+    });
+
+    it("rejects updating the action to a non-existent user prompt template (400)", async () => {
+      await saveAutomations([makeAutomation()], dataDir);
+      const res = await app.inject({
+        method: "PUT",
+        url: "/api/automations/auto-1",
+        payload: { action: { type: "agent", agentId: "agent-1", userPromptId: "ghost-tpl" } },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("user prompt template not found");
     });
 
     it("updates notification settings", async () => {

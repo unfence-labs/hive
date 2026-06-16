@@ -155,6 +155,22 @@ export function getProvider(providerId: string): AgentProvider | undefined {
   return providerMap.get(providerId);
 }
 
+/**
+ * Whether a compound model id ("provider:model") refers to a model that exists
+ * in the static provider definitions. Availability-independent — it does NOT
+ * depend on whether the provider CLI is currently detected — so it is safe for
+ * write-time validation of stored model ids (e.g. agent definitions), unlike
+ * {@link getModelCatalog} which only lists available providers.
+ */
+export function isKnownModelId(compoundModelId: string): boolean {
+  try {
+    const { provider, modelId } = resolveProvider(compoundModelId);
+    return provider.models.some((m) => m.id === modelId);
+  } catch {
+    return false;
+  }
+}
+
 /** Build the model catalog for the frontend, only including available providers. */
 export function getModelCatalog(): ModelCatalogResponse {
   const models: ModelCatalogEntry[] = [];

@@ -18,7 +18,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     name: "Code Auditor",
     description: "Reviews code",
     systemPrompt: "You are a code reviewer.",
-    modelId: "claude-sonnet",
+    modelId: "claude:sonnet-4-6",
     injectGitContext: true,
     readOnly: true,
     createdAt: "2026-01-01T00:00:00Z",
@@ -63,7 +63,7 @@ describe("POST /api/agents", () => {
         name: "My Agent",
         description: "Does things",
         systemPrompt: "You are helpful.",
-        modelId: "claude-sonnet",
+        modelId: "claude:sonnet-4-6",
         injectGitContext: false,
         readOnly: true,
       },
@@ -102,6 +102,22 @@ describe("POST /api/agents", () => {
     });
     expect(res.statusCode).toBe(400);
   });
+
+  it("rejects an unknown modelId (400)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/agents",
+      payload: {
+        name: "X",
+        systemPrompt: "p",
+        modelId: "claude:does-not-exist",
+        injectGitContext: true,
+        readOnly: false,
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("Unknown model");
+  });
 });
 
 describe("PATCH /api/agents/:id", () => {
@@ -125,6 +141,29 @@ describe("PATCH /api/agents/:id", () => {
       payload: { name: "X" },
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  it("rejects blanking a required field (400)", async () => {
+    await saveAgents([makeAgent()], dataDir);
+    for (const field of ["name", "systemPrompt", "modelId"]) {
+      const res = await app.inject({
+        method: "PATCH",
+        url: "/api/agents/agent-1",
+        payload: { [field]: "   " },
+      });
+      expect(res.statusCode).toBe(400);
+    }
+  });
+
+  it("rejects updating to an unknown modelId (400)", async () => {
+    await saveAgents([makeAgent()], dataDir);
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/agents/agent-1",
+      payload: { modelId: "claude:does-not-exist" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("Unknown model");
   });
 });
 

@@ -17,6 +17,7 @@ import { getDataDir } from "../state/state.js";
 import type { AutomationScheduler } from "../services/automation-scheduler.js";
 import type {
   Automation,
+  AutomationAction,
   CreateAutomationRequest,
   UpdateAutomationRequest,
 } from "../types.js";
@@ -24,6 +25,45 @@ import type {
 interface AutomationRoutesOptions {
   scheduler?: AutomationScheduler;
   dataDir?: string;
+}
+
+/**
+ * Validate an automation action and return its normalized form (a whole-object
+ * value with only the recognized fields). Shared by create and update so both
+ * paths enforce the same agent/template existence and prompt rules. Returns an
+ * error message (always a 400) instead of the normalized action on failure.
+ */
+async function validateAction(
+  action: AutomationAction | undefined,
+  dataDir: string,
+): Promise<{ error: string } | { action: AutomationAction }> {
+  if (!action?.agentId) {
+    return { error: "An agent is required (agentId)" };
+  }
+  if (action.userPromptId && action.userPromptInline) {
+    return { error: "Provide either userPromptId or userPromptInline, not both" };
+  }
+  if (!action.userPromptId && !action.userPromptInline) {
+    return { error: "A user prompt is required (userPromptId or userPromptInline)" };
+  }
+  const agents = await loadAgents(dataDir);
+  if (!agents.find((a) => a.id === action.agentId)) {
+    return { error: "Referenced agent not found" };
+  }
+  if (action.userPromptId) {
+    const templates = await loadPromptTemplates(dataDir);
+    if (!templates.find((t) => t.id === action.userPromptId)) {
+      return { error: "Referenced user prompt template not found" };
+    }
+  }
+  return {
+    action: {
+      type: action.type ?? "agent",
+      agentId: action.agentId,
+      userPromptId: action.userPromptId,
+      userPromptInline: action.userPromptInline,
+    },
+  };
 }
 
 export async function automationRoutes(
@@ -61,27 +101,9 @@ export async function automationRoutes(
     } catch {
       return reply.status(400).send({ error: "Invalid cron expression" });
     }
-    if (!action?.agentId) {
-      return reply.status(400).send({ error: "An agent is required (agentId)" });
-    }
-    if (action.userPromptId && action.userPromptInline) {
-      return reply.status(400).send({ error: "Provide either userPromptId or userPromptInline, not both" });
-    }
-    // Must have at least a user prompt
-    if (!action.userPromptId && !action.userPromptInline) {
-      return reply.status(400).send({ error: "A user prompt is required (userPromptId or userPromptInline)" });
-    }
-    // Validate the referenced agent exists
-    const agents = await loadAgents(dataDir);
-    if (!agents.find((a) => a.id === action.agentId)) {
-      return reply.status(400).send({ error: "Referenced agent not found" });
-    }
-    // Validate the referenced user prompt template exists
-    if (action.userPromptId) {
-      const templates = await loadPromptTemplates(dataDir);
-      if (!templates.find((t) => t.id === action.userPromptId)) {
-        return reply.status(400).send({ error: "Referenced user prompt template not found" });
-      }
+    const actionResult = await validateAction(action, dataDir);
+    if ("error" in actionResult) {
+      return reply.status(400).send({ error: actionResult.error });
     }
 
     const now = new Date().toISOString();
@@ -91,12 +113,7 @@ export async function automationRoutes(
       enabled: true,
       projectId: projectId || undefined,
       trigger: { type: trigger.type ?? "cron", expression: trigger.expression },
-      action: {
-        type: action.type ?? "agent",
-        agentId: action.agentId,
-        userPromptId: action.userPromptId,
-        userPromptInline: action.userPromptInline,
-      },
+      action: actionResult.action,
       notification: {
         onComplete: notification?.onComplete ?? true,
         onFailure: notification?.onFailure ?? true,
@@ -133,32 +150,48 @@ export async function automationRoutes(
         }
       }
 
-      const updated = await withAutomationsLock(async () => {
+      const result = await withAutomationsLock(async () => {
         const automations = await loadAutomations(dataDir);
         const idx = automations.findIndex((a) => a.id === id);
-        if (idx === -1) return null;
+        if (idx === -1) return { status: 404 as const, error: "Automation not found" };
 
         const auto = automations[idx];
+
+        // When the action changes, validate it the same way create does and
+        // store it as a whole replacement. Clients always send a complete
+        // action, so a blind merge would only carry over stale prompt fields
+        // and skip the agent/template existence checks the POST path enforces.
+        let nextAction = auto.action;
+        if (updates.action) {
+          const actionResult = await validateAction(updates.action, dataDir);
+          if ("error" in actionResult) {
+            return { status: 400 as const, error: actionResult.error };
+          }
+          nextAction = actionResult.action;
+        }
+
         automations[idx] = {
           ...auto,
           ...(updates.name !== undefined && { name: updates.name.trim() }),
           ...(updates.enabled !== undefined && { enabled: updates.enabled }),
           ...(updates.trigger && { trigger: updates.trigger }),
-          ...(updates.action && { action: { ...auto.action, ...updates.action } }),
+          ...(updates.action && { action: nextAction }),
           ...(updates.notification && { notification: updates.notification }),
           updatedAt: new Date().toISOString(),
         };
         await saveAutomations(automations, dataDir);
-        return automations[idx];
+        return { status: 200 as const, auto: automations[idx] };
       });
 
-      if (!updated) return reply.status(404).send({ error: "Automation not found" });
-
-      if (opts.scheduler) {
-        await opts.scheduler.onAutomationUpdated(updated);
+      if (result.status !== 200) {
+        return reply.status(result.status).send({ error: result.error });
       }
 
-      return updated;
+      if (opts.scheduler) {
+        await opts.scheduler.onAutomationUpdated(result.auto);
+      }
+
+      return result.auto;
     },
   );
 
