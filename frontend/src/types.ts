@@ -448,9 +448,7 @@ export interface AutomationTrigger {
 
 export interface AutomationAction {
   type: AutomationActionType;
-  modelId: string;
-  systemPromptId?: string;
-  systemPromptInline?: string;
+  agentId: string;
   userPromptId?: string;
   userPromptInline?: string;
 }
@@ -491,10 +489,42 @@ export interface AutomationRun {
 export interface PromptTemplate {
   id: string;
   name: string;
-  type: "system" | "user";
+  type: "user";
   content: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// ── Agent entity ─────────────────────────────────────────────────────
+
+export interface Agent {
+  id: string;
+  name: string;
+  description?: string;
+  systemPrompt: string;
+  modelId: string;
+  injectGitContext: boolean;
+  readOnly: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateAgentRequest {
+  name: string;
+  description?: string;
+  systemPrompt: string;
+  modelId: string;
+  injectGitContext: boolean;
+  readOnly: boolean;
+}
+
+export interface UpdateAgentRequest {
+  name?: string;
+  description?: string;
+  systemPrompt?: string;
+  modelId?: string;
+  injectGitContext?: boolean;
+  readOnly?: boolean;
 }
 
 export interface BasePromptData {

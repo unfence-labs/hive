@@ -16,9 +16,9 @@ let app: FastifyInstance;
 function makeTemplate(overrides: Partial<PromptTemplate> = {}): PromptTemplate {
   return {
     id: "tpl-1",
-    name: "System Prompt",
-    type: "system",
-    content: "You are helpful.",
+    name: "Task Prompt",
+    type: "user",
+    content: "Run the tests.",
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -71,7 +71,7 @@ describe("POST /api/prompt-templates", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/prompt-templates",
-      payload: { type: "system", content: "text" },
+      payload: { type: "user", content: "text" },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -85,11 +85,20 @@ describe("POST /api/prompt-templates", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("rejects the removed 'system' type (400)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/prompt-templates",
+      payload: { name: "X", type: "system", content: "text" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("rejects missing content (400)", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/prompt-templates",
-      payload: { name: "X", type: "system" },
+      payload: { name: "X", type: "user" },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -136,7 +145,7 @@ describe("DELETE /api/prompt-templates/:id", () => {
       name: "Test",
       enabled: true,
       trigger: { type: "cron", expression: "0 * * * *" },
-      action: { type: "agent", modelId: "m", systemPromptId: "tpl-1", userPromptInline: "test" },
+      action: { type: "agent", agentId: "agent-1", userPromptId: "tpl-1" },
       notification: { onComplete: true, onFailure: true },
       createdAt: "2026-01-01T00:00:00Z",
       updatedAt: "2026-01-01T00:00:00Z",

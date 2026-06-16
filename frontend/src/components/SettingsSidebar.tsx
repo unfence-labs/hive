@@ -13,6 +13,7 @@ import {
   GitFork,
   Paintbrush,
   Sparkles,
+  Users,
   Wifi,
 } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
@@ -107,6 +108,12 @@ export default function SettingsSidebar() {
               label="Instructions"
               icon={<BookOpen className="h-4 w-4" />}
               active={pathname === "/settings/instructions"}
+            />
+            <NavItem
+              to="/settings/user-agents"
+              label="Agents"
+              icon={<Users className="h-4 w-4" />}
+              active={pathname === "/settings/user-agents"}
             />
             <NavItem
               to="/settings/prompt-templates"

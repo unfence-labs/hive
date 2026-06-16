@@ -10,7 +10,8 @@ import {
   saveRuns,
 } from "../state/automations.js";
 import { savePromptTemplates } from "../state/prompt-templates.js";
-import type { Automation, AutomationRun, PromptTemplate } from "../types.js";
+import { saveAgents } from "../state/agents.js";
+import type { Agent, Automation, AutomationRun, PromptTemplate } from "../types.js";
 
 // ── Mock heavy dependencies ─────────────────────────────────────────
 // ConversationSession is a complex beast that spawns child processes.
@@ -18,6 +19,8 @@ import type { Automation, AutomationRun, PromptTemplate } from "../types.js";
 
 // Track constructor calls to inspect systemPrompt passed to sessions
 const sessionConstructorCalls: Array<Record<string, unknown>> = [];
+// Track sendMessage calls to inspect the model (owned by the agent).
+const sessionSendCalls: Array<{ content: string; options?: Record<string, unknown> }> = [];
 
 vi.mock("../agents/conversation-session.js", async () => {
   const { EventEmitter } = await import("node:events");
@@ -36,6 +39,7 @@ vi.mock("../agents/conversation-session.js", async () => {
     sendMessage(msg: string, opts?: Record<string, unknown>) {
       this.sentMessage = msg;
       this.sendOptions = opts;
+      sessionSendCalls.push({ content: msg, options: opts });
       // Emit "done" on next tick to simulate completion
       process.nextTick(() => this.emit("message", { type: "done" }));
     }
@@ -99,13 +103,27 @@ vi.mock("../agents/system-prompt.js", () => ({
 let tmpDir: string;
 let dataDir: string;
 
+function makeAgent(overrides: Partial<Agent> = {}): Agent {
+  return {
+    id: "agent-1",
+    name: "Reviewer",
+    systemPrompt: "You are a reviewer.",
+    modelId: "claude:opus-4-8",
+    injectGitContext: true,
+    readOnly: false,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
 function makeAutomation(overrides: Partial<Automation> = {}): Automation {
   return {
     id: "auto-1",
     name: "Test Automation",
     enabled: true,
     trigger: { type: "cron", expression: "0 * * * *" },
-    action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "Review code" },
+    action: { type: "agent", agentId: "agent-1", userPromptInline: "Review code" },
     notification: { onComplete: true, onFailure: true },
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -128,7 +146,11 @@ beforeEach(async () => {
   tmpDir = await createTempDir();
   dataDir = join(tmpDir, "data");
   sessionConstructorCalls.length = 0;
+  sessionSendCalls.length = 0;
   vi.clearAllMocks();
+  // Default agent referenced by makeAutomation(). Tests needing a different
+  // system prompt / model / readOnly re-save via saveAgents().
+  await saveAgents([makeAgent()], dataDir);
 });
 
 afterEach(async () => {
@@ -341,7 +363,7 @@ describe("AutomationScheduler", () => {
       const auto = makeAutomation({
         action: {
           type: "agent",
-          modelId: "claude:opus-4-7",
+          agentId: "agent-1",
           userPromptId: "tpl-1",
         },
       });
@@ -359,7 +381,7 @@ describe("AutomationScheduler", () => {
       const auto = makeAutomation({
         action: {
           type: "agent",
-          modelId: "claude:opus-4-7",
+          agentId: "agent-1",
           userPromptId: "nonexistent-tpl",
         },
       });
@@ -647,10 +669,7 @@ describe("AutomationScheduler", () => {
       const { loadProject } = await import("../state/state.js");
       vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" } as never);
 
-      const auto = makeAutomation({
-        projectId: "proj-1",
-        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "Review code", systemPromptInline: "You are a reviewer." },
-      });
+      const auto = makeAutomation({ projectId: "proj-1" });
       await saveAutomations([auto], dataDir);
 
       const scheduler = new AutomationScheduler(dataDir);
@@ -666,14 +685,12 @@ describe("AutomationScheduler", () => {
       scheduler.stop();
     });
 
-    it("uses git context as sole system prompt when no system prompt is configured", async () => {
+    it("omits git context when the agent has injectGitContext disabled", async () => {
       const { loadProject } = await import("../state/state.js");
       vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" } as never);
 
-      const auto = makeAutomation({
-        projectId: "proj-1",
-        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "Review code" },
-      });
+      await saveAgents([makeAgent({ injectGitContext: false })], dataDir);
+      const auto = makeAutomation({ projectId: "proj-1" });
       await saveAutomations([auto], dataDir);
 
       const scheduler = new AutomationScheduler(dataDir);
@@ -681,9 +698,10 @@ describe("AutomationScheduler", () => {
 
       const lastCall = sessionConstructorCalls[sessionConstructorCalls.length - 1];
       const sysPrompt = lastCall.systemPrompt as string;
-      expect(sysPrompt).toContain("# Git Context");
+      expect(sysPrompt).toContain("You are a reviewer.");
+      expect(sysPrompt).not.toContain("# Git Context");
       expect(sysPrompt).toContain("## Summary");
-      // Should NOT start with \n\n (no empty prefix from missing base prompt)
+      // Should NOT start with \n\n (no empty prefix)
       expect(sysPrompt).not.toMatch(/^\n/);
 
       scheduler.stop();
@@ -693,10 +711,8 @@ describe("AutomationScheduler", () => {
       const { loadProject } = await import("../state/state.js");
       vi.mocked(loadProject).mockResolvedValue(null as never);
 
-      const auto = makeAutomation({
-        projectId: undefined,
-        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "Do stuff", systemPromptInline: "You are helpful." },
-      });
+      await saveAgents([makeAgent({ systemPrompt: "You are helpful." })], dataDir);
+      const auto = makeAutomation({ projectId: undefined });
       await saveAutomations([auto], dataDir);
 
       const scheduler = new AutomationScheduler(dataDir);
@@ -714,15 +730,8 @@ describe("AutomationScheduler", () => {
       const { loadProject } = await import("../state/state.js");
       vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "My App", repoUrl: "https://github.com/test/repo" } as never);
 
-      const auto = makeAutomation({
-        projectId: "proj-1",
-        action: {
-          type: "agent",
-          modelId: "claude:opus-4-7",
-          userPromptInline: "Review code",
-          systemPromptInline: "Project={PROJECT}\nDir={DIR}\nBranch={DEFAULT_BRANCH}",
-        },
-      });
+      await saveAgents([makeAgent({ systemPrompt: "Project={PROJECT}\nDir={DIR}\nBranch={DEFAULT_BRANCH}" })], dataDir);
+      const auto = makeAutomation({ projectId: "proj-1" });
       await saveAutomations([auto], dataDir);
 
       const scheduler = new AutomationScheduler(dataDir);
@@ -784,15 +793,8 @@ describe("AutomationScheduler", () => {
       const { loadProject } = await import("../state/state.js");
       vi.mocked(loadProject).mockResolvedValue(null as never);
 
-      const auto = makeAutomation({
-        projectId: undefined,
-        action: {
-          type: "agent",
-          modelId: "claude:opus-4-7",
-          userPromptInline: "Do stuff",
-          systemPromptInline: "You are strict.",
-        },
-      });
+      await saveAgents([makeAgent({ systemPrompt: "You are strict." })], dataDir);
+      const auto = makeAutomation({ projectId: undefined });
       await saveAutomations([auto], dataDir);
 
       const scheduler = new AutomationScheduler(dataDir);
@@ -812,33 +814,43 @@ describe("AutomationScheduler", () => {
 
       scheduler.stop();
     });
+  });
 
-    it("does not persist system prompt file when no system prompt is resolved", async () => {
-      const { loadProject } = await import("../state/state.js");
-      vi.mocked(loadProject).mockResolvedValue(null as never);
-
+  describe("agent resolution and enforcement", () => {
+    it("fails the run when the referenced agent is missing", async () => {
       const auto = makeAutomation({
-        projectId: undefined,
-        action: {
-          type: "agent",
-          modelId: "claude:opus-4-7",
-          userPromptInline: "Do stuff",
-        },
+        action: { type: "agent", agentId: "ghost-agent", userPromptInline: "Review code" },
+        notification: { onComplete: false, onFailure: false },
       });
       await saveAutomations([auto], dataDir);
 
       const scheduler = new AutomationScheduler(dataDir);
       const run = await scheduler.triggerNow("auto-1");
 
-      const promptPath = join(
-        dataDir,
-        "automations",
-        "auto-1",
-        "sessions",
-        run.sessionId,
-        "system-prompt.txt",
-      );
-      await expect(readFile(promptPath, "utf-8")).rejects.toMatchObject({ code: "ENOENT" });
+      expect(run.status).toBe("failure");
+      expect(run.error).toContain("ghost-agent");
+      expect(run.error).toContain("not found");
+
+      scheduler.stop();
+    });
+
+    it("uses the agent's model and threads enforcement intent into the session", async () => {
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject).mockResolvedValue(null as never);
+
+      await saveAgents([makeAgent({ modelId: "claude:sonnet-4-6", readOnly: true })], dataDir);
+      const auto = makeAutomation({ projectId: undefined });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.triggerNow("auto-1");
+
+      const lastCall = sessionConstructorCalls[sessionConstructorCalls.length - 1];
+      expect(lastCall.disableInteractiveTools).toBe(true);
+      expect(lastCall.readOnly).toBe(true);
+
+      const lastSend = sessionSendCalls[sessionSendCalls.length - 1];
+      expect(lastSend.options?.model).toBe("claude:sonnet-4-6");
 
       scheduler.stop();
     });

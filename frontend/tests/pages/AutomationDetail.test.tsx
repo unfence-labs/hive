@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   useDeleteAutomation: vi.fn(),
   useTriggerAutomation: vi.fn(),
   usePromptTemplates: vi.fn(),
+  useAgents: vi.fn(),
   useProjects: vi.fn(),
   getNextRun: vi.fn(),
   formatTimeUntil: vi.fn(),
@@ -29,6 +30,10 @@ vi.mock("@/hooks/useAutomations", () => ({
 
 vi.mock("@/hooks/usePromptTemplates", () => ({
   usePromptTemplates: mocks.usePromptTemplates,
+}));
+
+vi.mock("@/hooks/useAgents", () => ({
+  useAgents: mocks.useAgents,
 }));
 
 vi.mock("@/hooks/useProjects", () => ({
@@ -66,7 +71,7 @@ function makeAutomation(overrides: Partial<Automation> = {}): Automation {
     trigger: { type: "cron", expression: "0 2 * * *" },
     action: {
       type: "agent",
-      modelId: "claude:opus-4-7",
+      agentId: "agent-1",
       userPromptInline: "Review changes",
     },
     notification: { onComplete: true, onFailure: true },
@@ -105,6 +110,7 @@ describe("AutomationDetail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.usePromptTemplates.mockReturnValue({ data: [] });
+    mocks.useAgents.mockReturnValue({ data: [] });
     mocks.useProjects.mockReturnValue({ projects: [] });
     mocks.useUpdateAutomation.mockReturnValue({ mutate: vi.fn(), isPending: false });
     mocks.useDeleteAutomation.mockReturnValue({ mutateAsync: vi.fn(), isPending: false });

@@ -32,8 +32,8 @@ export async function promptTemplateRoutes(
     if (!name?.trim()) {
       return reply.status(400).send({ error: "Name is required" });
     }
-    if (type !== "system" && type !== "user") {
-      return reply.status(400).send({ error: "Type must be 'system' or 'user'" });
+    if (type !== "user") {
+      return reply.status(400).send({ error: "Type must be 'user'" });
     }
     if (!content?.trim()) {
       return reply.status(400).send({ error: "Content is required" });
@@ -89,9 +89,7 @@ export async function promptTemplateRoutes(
 
     // Check if any automation references this template
     const automations = await loadAutomations(dataDir);
-    const referencedBy = automations.find(
-      (a) => a.action.systemPromptId === id || a.action.userPromptId === id,
-    );
+    const referencedBy = automations.find((a) => a.action.userPromptId === id);
     if (referencedBy) {
       return reply.status(409).send({
         error: `Template is referenced by automation "${referencedBy.name}"`,

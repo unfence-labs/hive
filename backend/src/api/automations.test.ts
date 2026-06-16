@@ -6,11 +6,26 @@ import { createTempDir } from "../utils/test-helpers.js";
 import { automationRoutes } from "./automations.js";
 import { promptTemplateRoutes } from "./prompt-templates.js";
 import { saveAutomations, addRun } from "../state/automations.js";
-import type { Automation, AutomationRun } from "../types.js";
+import { saveAgents } from "../state/agents.js";
+import type { Agent, Automation, AutomationRun } from "../types.js";
 
 let tmpDir: string;
 let dataDir: string;
 let app: FastifyInstance;
+
+function makeAgent(overrides: Partial<Agent> = {}): Agent {
+  return {
+    id: "agent-1",
+    name: "Reviewer",
+    systemPrompt: "You are a reviewer.",
+    modelId: "claude:opus-4-8",
+    injectGitContext: true,
+    readOnly: false,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
 
 function makeAutomation(overrides: Partial<Automation> = {}): Automation {
   return {
@@ -18,7 +33,7 @@ function makeAutomation(overrides: Partial<Automation> = {}): Automation {
     name: "Test Auto",
     enabled: true,
     trigger: { type: "cron", expression: "0 * * * *" },
-    action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "Do something" },
+    action: { type: "agent", agentId: "agent-1", userPromptInline: "Do something" },
     notification: { onComplete: true, onFailure: true },
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -33,6 +48,8 @@ beforeEach(async () => {
   await app.register((instance) => automationRoutes(instance, { dataDir }));
   await app.register((instance) => promptTemplateRoutes(instance, { dataDir }));
   await app.ready();
+  // Most POST tests reference this agent; validation requires it to exist.
+  await saveAgents([makeAgent()], dataDir);
 });
 
 afterEach(async () => {
@@ -63,7 +80,7 @@ describe("POST /api/automations", () => {
       payload: {
         name: "My Auto",
         trigger: { type: "cron", expression: "0 2 * * *" },
-        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "Audit code" },
+        action: { type: "agent", agentId: "agent-1", userPromptInline: "Audit code" },
       },
     });
     expect(res.statusCode).toBe(201);
@@ -71,6 +88,7 @@ describe("POST /api/automations", () => {
     expect(body.id).toMatch(/^auto-/);
     expect(body.name).toBe("My Auto");
     expect(body.enabled).toBe(true);
+    expect(body.action.agentId).toBe("agent-1");
   });
 
   it("rejects missing name (400)", async () => {
@@ -79,7 +97,7 @@ describe("POST /api/automations", () => {
       url: "/api/automations",
       payload: {
         trigger: { type: "cron", expression: "0 * * * *" },
-        action: { type: "agent", modelId: "m", userPromptInline: "test" },
+        action: { type: "agent", agentId: "agent-1", userPromptInline: "test" },
       },
     });
     expect(res.statusCode).toBe(400);
@@ -92,7 +110,7 @@ describe("POST /api/automations", () => {
       payload: {
         name: "Bad Cron",
         trigger: { type: "cron", expression: "not-valid" },
-        action: { type: "agent", modelId: "m", userPromptInline: "test" },
+        action: { type: "agent", agentId: "agent-1", userPromptInline: "test" },
       },
     });
     expect(res.statusCode).toBe(400);
@@ -106,30 +124,39 @@ describe("POST /api/automations", () => {
       payload: {
         name: "No Prompt",
         trigger: { type: "cron", expression: "0 * * * *" },
-        action: { type: "agent", modelId: "m" },
+        action: { type: "agent", agentId: "agent-1" },
       },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("user prompt is required");
   });
 
-  it("rejects both systemPromptId and systemPromptInline (400)", async () => {
+  it("rejects missing agentId (400)", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/automations",
       payload: {
-        name: "Both",
+        name: "No Agent",
         trigger: { type: "cron", expression: "0 * * * *" },
-        action: {
-          type: "agent",
-          modelId: "m",
-          systemPromptId: "tpl-1",
-          systemPromptInline: "inline",
-          userPromptInline: "test",
-        },
+        action: { type: "agent", userPromptInline: "test" },
       },
     });
     expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("agent is required");
+  });
+
+  it("rejects unknown agentId (400)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/automations",
+      payload: {
+        name: "Bad Agent",
+        trigger: { type: "cron", expression: "0 * * * *" },
+        action: { type: "agent", agentId: "nonexistent", userPromptInline: "test" },
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("agent not found");
   });
 });
 

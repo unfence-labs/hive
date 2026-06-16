@@ -174,6 +174,12 @@ interface CodexAppServerThreadOptions {
   systemPrompt?: string;
   threadId?: string;
   env?: Record<string, string>;
+  /**
+   * Enforce read-only execution for the thread/turn: the read-only sandbox
+   * replaces full access so an agent can inspect but not modify the workspace.
+   * Defaults to off so interactive chat keeps full access.
+   */
+  readOnly?: boolean;
 }
 
 interface CodexAppServerTurnOptions extends CodexAppServerThreadOptions {
@@ -285,7 +291,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       input,
       cwd: options.cwd,
       approvalPolicy: "never",
-      sandboxPolicy: { type: "dangerFullAccess" },
+      sandboxPolicy: { type: options.readOnly ? "readOnly" : "dangerFullAccess" },
       ...(options.model ? { model: options.model } : {}),
       ...(options.thinkingLevel ? { effort: options.thinkingLevel } : {}),
     });
@@ -410,12 +416,13 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   private async ensureThread(options: CodexAppServerThreadOptions): Promise<string> {
+    const sandbox = options.readOnly ? "read-only" : "danger-full-access";
     if (options.threadId) {
       const resumed = await this.request<ThreadResumeResponse>("thread/resume", {
         threadId: options.threadId,
         cwd: options.cwd,
         approvalPolicy: "never",
-        sandbox: "danger-full-access",
+        sandbox,
         ...(options.model ? { model: options.model } : {}),
         ...(options.systemPrompt ? { developerInstructions: options.systemPrompt } : {}),
       });
@@ -427,7 +434,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     const started = await this.request<ThreadStartResponse>("thread/start", {
       cwd: options.cwd,
       approvalPolicy: "never",
-      sandbox: "danger-full-access",
+      sandbox,
       ...(options.model ? { model: options.model } : {}),
       ...(options.systemPrompt ? { developerInstructions: options.systemPrompt } : {}),
     });

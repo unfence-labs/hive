@@ -19,7 +19,7 @@ function makeTemplate(overrides: Partial<PromptTemplate> = {}): PromptTemplate {
   return {
     id: "tpl-1",
     name: "Test Template",
-    type: "system",
+    type: "user",
     content: "You are a helpful assistant.",
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -85,7 +85,7 @@ describe("file-per-template storage", () => {
     const raw = await readFile(join(dataDir, "prompts", "tpl-1.md"), "utf-8");
     expect(raw).toContain("---");
     expect(raw).toContain("name: Test Template");
-    expect(raw).toContain("type: system");
+    expect(raw).toContain("type: user");
     expect(raw).toContain('Special "chars" & <html>');
   });
 
@@ -119,7 +119,6 @@ describe("loadPromptTemplates edge cases", () => {
     const tpl = makeTemplate({
       id: "tpl-full",
       name: "Full Template",
-      type: "user",
       content: "Multi\nline\ncontent",
       createdAt: "2026-01-15T10:30:00Z",
       updatedAt: "2026-01-20T14:00:00Z",

@@ -184,6 +184,10 @@ export interface ConversationSessionConfig {
   browserEnv?: Record<string, string>;
   sessionKind?: SessionKind;
   runnerFactory?: AgentRunnerFactory;
+  /** Strip interactive/blocking tools — set for unattended agent runs. */
+  disableInteractiveTools?: boolean;
+  /** Enforce read-only execution — set for read-only agent runs. */
+  readOnly?: boolean;
 }
 
 export type ConversationSessionEvent = {
@@ -199,6 +203,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private readonly testCommand: string | undefined;
   private readonly systemPrompt: string | undefined;
   private readonly skipPermissions: boolean;
+  private readonly disableInteractiveTools: boolean;
+  private readonly readOnly: boolean;
   private readonly sessionKind: SessionKind;
   private readonly runnerFactory: AgentRunnerFactory;
   private browserEnv: Record<string, string> | undefined;
@@ -234,6 +240,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.testCommand = config.command !== undefined && config.command !== "claude" ? config.command : undefined;
     this.systemPrompt = config.systemPrompt;
     this.skipPermissions = config.skipPermissions ?? true;
+    this.disableInteractiveTools = config.disableInteractiveTools ?? false;
+    this.readOnly = config.readOnly ?? false;
     this.sessionKind = config.sessionKind ?? "chat";
     this.runnerFactory = config.runnerFactory ?? createAgentRunner;
     this.browserEnv = config.browserEnv;
@@ -742,6 +750,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       isFirstMessage,
       systemPrompt: this.systemPrompt,
       skipPermissions: this.skipPermissions,
+      disableInteractiveTools: this.disableInteractiveTools,
+      readOnly: this.readOnly,
       browserEnv: this.browserEnv,
       sessionKind: this.sessionKind,
       providerSessionId: this.cliSessionId,
@@ -833,6 +843,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       isFirstMessage,
       systemPrompt: this.systemPrompt,
       skipPermissions: this.skipPermissions,
+      disableInteractiveTools: this.disableInteractiveTools,
+      readOnly: this.readOnly,
       browserEnv: this.browserEnv,
       sessionKind: this.sessionKind,
       providerSessionId: this.cliSessionId,

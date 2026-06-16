@@ -11,12 +11,27 @@ import { automationRoutes } from "./automations.js";
 import { promptTemplateRoutes } from "./prompt-templates.js";
 import { saveAutomations, addRun } from "../state/automations.js";
 import { savePromptTemplates } from "../state/prompt-templates.js";
-import type { Automation, AutomationRun, PromptTemplate } from "../types.js";
+import { saveAgents } from "../state/agents.js";
+import type { Agent, Automation, AutomationRun, PromptTemplate } from "../types.js";
 import type { AutomationScheduler } from "../services/automation-scheduler.js";
 
 let tmpDir: string;
 let dataDir: string;
 let app: FastifyInstance;
+
+function makeAgent(overrides: Partial<Agent> = {}): Agent {
+  return {
+    id: "agent-1",
+    name: "Reviewer",
+    systemPrompt: "You are a reviewer.",
+    modelId: "claude:opus-4-8",
+    injectGitContext: true,
+    readOnly: false,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
 
 function makeAutomation(overrides: Partial<Automation> = {}): Automation {
   return {
@@ -24,7 +39,7 @@ function makeAutomation(overrides: Partial<Automation> = {}): Automation {
     name: "Test Auto",
     enabled: true,
     trigger: { type: "cron", expression: "0 * * * *" },
-    action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "Do something" },
+    action: { type: "agent", agentId: "agent-1", userPromptInline: "Do something" },
     notification: { onComplete: true, onFailure: true },
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -35,9 +50,9 @@ function makeAutomation(overrides: Partial<Automation> = {}): Automation {
 function makeTemplate(overrides: Partial<PromptTemplate> = {}): PromptTemplate {
   return {
     id: "tpl-1",
-    name: "System Prompt",
-    type: "system",
-    content: "You are helpful.",
+    name: "Task Prompt",
+    type: "user",
+    content: "Review the latest changes.",
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -65,6 +80,7 @@ describe("Automation API - extended validation", () => {
     await app.register((instance) => automationRoutes(instance, { dataDir }));
     await app.register((instance) => promptTemplateRoutes(instance, { dataDir }));
     await app.ready();
+    await saveAgents([makeAgent()], dataDir);
   });
 
   afterEach(async () => {
@@ -80,7 +96,7 @@ describe("Automation API - extended validation", () => {
         payload: {
           name: "   ",
           trigger: { type: "cron", expression: "0 * * * *" },
-          action: { type: "agent", modelId: "m", userPromptInline: "test" },
+          action: { type: "agent", agentId: "agent-1", userPromptInline: "test" },
         },
       });
       expect(res.statusCode).toBe(400);
@@ -94,14 +110,14 @@ describe("Automation API - extended validation", () => {
         payload: {
           name: "Test",
           trigger: { type: "cron" },
-          action: { type: "agent", modelId: "m", userPromptInline: "test" },
+          action: { type: "agent", agentId: "agent-1", userPromptInline: "test" },
         },
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().error).toContain("Trigger expression is required");
     });
 
-    it("rejects missing model ID", async () => {
+    it("rejects missing agentId", async () => {
       const res = await app.inject({
         method: "POST",
         url: "/api/automations",
@@ -112,7 +128,7 @@ describe("Automation API - extended validation", () => {
         },
       });
       expect(res.statusCode).toBe(400);
-      expect(res.json().error).toContain("Model ID is required");
+      expect(res.json().error).toContain("agent is required");
     });
 
     it("rejects both userPromptId and userPromptInline", async () => {
@@ -124,7 +140,7 @@ describe("Automation API - extended validation", () => {
           trigger: { type: "cron", expression: "0 * * * *" },
           action: {
             type: "agent",
-            modelId: "m",
+            agentId: "agent-1",
             userPromptId: "tpl-1",
             userPromptInline: "inline",
           },
@@ -134,7 +150,7 @@ describe("Automation API - extended validation", () => {
       expect(res.json().error).toContain("either userPromptId or userPromptInline");
     });
 
-    it("rejects non-existent system prompt template reference", async () => {
+    it("rejects non-existent agent reference", async () => {
       const res = await app.inject({
         method: "POST",
         url: "/api/automations",
@@ -143,14 +159,13 @@ describe("Automation API - extended validation", () => {
           trigger: { type: "cron", expression: "0 * * * *" },
           action: {
             type: "agent",
-            modelId: "m",
-            systemPromptId: "nonexistent",
+            agentId: "nonexistent",
             userPromptInline: "test",
           },
         },
       });
       expect(res.statusCode).toBe(400);
-      expect(res.json().error).toContain("system prompt template not found");
+      expect(res.json().error).toContain("agent not found");
     });
 
     it("rejects non-existent user prompt template reference", async () => {
@@ -162,7 +177,7 @@ describe("Automation API - extended validation", () => {
           trigger: { type: "cron", expression: "0 * * * *" },
           action: {
             type: "agent",
-            modelId: "m",
+            agentId: "agent-1",
             userPromptId: "nonexistent",
           },
         },
@@ -171,7 +186,7 @@ describe("Automation API - extended validation", () => {
       expect(res.json().error).toContain("user prompt template not found");
     });
 
-    it("accepts valid system prompt template reference", async () => {
+    it("accepts valid user prompt template reference", async () => {
       await savePromptTemplates([makeTemplate()], dataDir);
 
       const res = await app.inject({
@@ -182,14 +197,13 @@ describe("Automation API - extended validation", () => {
           trigger: { type: "cron", expression: "0 * * * *" },
           action: {
             type: "agent",
-            modelId: "m",
-            systemPromptId: "tpl-1",
-            userPromptInline: "test",
+            agentId: "agent-1",
+            userPromptId: "tpl-1",
           },
         },
       });
       expect(res.statusCode).toBe(201);
-      expect(res.json().action.systemPromptId).toBe("tpl-1");
+      expect(res.json().action.userPromptId).toBe("tpl-1");
     });
 
     it("trims automation name", async () => {
@@ -199,7 +213,7 @@ describe("Automation API - extended validation", () => {
         payload: {
           name: "  Padded Name  ",
           trigger: { type: "cron", expression: "0 * * * *" },
-          action: { type: "agent", modelId: "m", userPromptInline: "test" },
+          action: { type: "agent", agentId: "agent-1", userPromptInline: "test" },
         },
       });
       expect(res.statusCode).toBe(201);
@@ -213,7 +227,7 @@ describe("Automation API - extended validation", () => {
         payload: {
           name: "No Notif",
           trigger: { type: "cron", expression: "0 * * * *" },
-          action: { type: "agent", modelId: "m", userPromptInline: "test" },
+          action: { type: "agent", agentId: "agent-1", userPromptInline: "test" },
         },
       });
       expect(res.statusCode).toBe(201);
@@ -227,7 +241,7 @@ describe("Automation API - extended validation", () => {
         payload: {
           name: "Custom Notif",
           trigger: { type: "cron", expression: "0 * * * *" },
-          action: { type: "agent", modelId: "m", userPromptInline: "test" },
+          action: { type: "agent", agentId: "agent-1", userPromptInline: "test" },
           notification: { onComplete: false, onFailure: true },
         },
       });
@@ -242,7 +256,7 @@ describe("Automation API - extended validation", () => {
         payload: {
           name: "New Auto",
           trigger: { type: "cron", expression: "0 * * * *" },
-          action: { type: "agent", modelId: "m", userPromptInline: "test" },
+          action: { type: "agent", agentId: "agent-1", userPromptInline: "test" },
         },
       });
       expect(res.statusCode).toBe(201);
@@ -256,7 +270,7 @@ describe("Automation API - extended validation", () => {
         payload: {
           name: "Auto 1",
           trigger: { type: "cron", expression: "0 * * * *" },
-          action: { type: "agent", modelId: "m", userPromptInline: "test" },
+          action: { type: "agent", agentId: "agent-1", userPromptInline: "test" },
         },
       });
       const res2 = await app.inject({
@@ -265,7 +279,7 @@ describe("Automation API - extended validation", () => {
         payload: {
           name: "Auto 2",
           trigger: { type: "cron", expression: "0 * * * *" },
-          action: { type: "agent", modelId: "m", userPromptInline: "test" },
+          action: { type: "agent", agentId: "agent-1", userPromptInline: "test" },
         },
       });
       expect(res1.json().id).not.toBe(res2.json().id);
@@ -279,7 +293,7 @@ describe("Automation API - extended validation", () => {
         payload: {
           name: "Timed",
           trigger: { type: "cron", expression: "0 * * * *" },
-          action: { type: "agent", modelId: "m", userPromptInline: "test" },
+          action: { type: "agent", agentId: "agent-1", userPromptInline: "test" },
         },
       });
       const after = new Date().toISOString();
@@ -344,10 +358,10 @@ describe("Automation API - extended validation", () => {
       const res = await app.inject({
         method: "PUT",
         url: "/api/automations/auto-1",
-        payload: { action: { modelId: "claude:sonnet-4-6" } },
+        payload: { action: { type: "agent", agentId: "agent-2", userPromptInline: "Do something" } },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json().action.modelId).toBe("claude:sonnet-4-6");
+      expect(res.json().action.agentId).toBe("agent-2");
       expect(res.json().action.userPromptInline).toBe("Do something"); // preserved
     });
 
@@ -477,6 +491,7 @@ describe("Automation API - scheduler integration", () => {
     );
     await app.register((instance) => promptTemplateRoutes(instance, { dataDir }));
     await app.ready();
+    await saveAgents([makeAgent()], dataDir);
   });
 
   afterEach(async () => {
@@ -491,7 +506,7 @@ describe("Automation API - scheduler integration", () => {
       payload: {
         name: "New",
         trigger: { type: "cron", expression: "0 * * * *" },
-        action: { type: "agent", modelId: "m", userPromptInline: "test" },
+        action: { type: "agent", agentId: "agent-1", userPromptInline: "test" },
       },
     });
 
@@ -526,7 +541,7 @@ describe("Automation API - scheduler integration", () => {
     await app.inject({
       method: "POST",
       url: "/api/automations",
-      payload: { name: "", trigger: { type: "cron", expression: "0 * * * *" }, action: { type: "agent", modelId: "m", userPromptInline: "test" } },
+      payload: { name: "", trigger: { type: "cron", expression: "0 * * * *" }, action: { type: "agent", agentId: "agent-1", userPromptInline: "test" } },
     });
 
     expect(schedulerMock.onAutomationCreated).not.toHaveBeenCalled();

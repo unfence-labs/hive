@@ -54,7 +54,7 @@ type Selection =
   | { kind: "base" }
   | { kind: "brain" }
   | { kind: "template"; id: string }
-  | { kind: "create"; type: "system" | "user" }
+  | { kind: "create" }
   | null;
 
 // ── Constants ──────────────────────────────────────────────────────────
@@ -75,14 +75,7 @@ export default function PromptTemplatesSettings() {
   const [deleteTarget, setDeleteTarget] = useState<PromptTemplate | null>(null);
   const [showFlowDialog, setShowFlowDialog] = useState(false);
 
-  const systemTemplates = useMemo(
-    () => templates?.filter((t) => t.type === "system") ?? [],
-    [templates],
-  );
-  const userTemplates = useMemo(
-    () => templates?.filter((t) => t.type === "user") ?? [],
-    [templates],
-  );
+  const userTemplates = useMemo(() => templates ?? [], [templates]);
 
   // Resolve the selected template object
   const selectedTemplate = useMemo(() => {
@@ -134,7 +127,6 @@ export default function PromptTemplatesSettings() {
           onSelect={setSelection}
           baseData={baseData ?? null}
           brainData={brainData ?? null}
-          systemTemplates={systemTemplates}
           userTemplates={userTemplates}
         />
 
@@ -194,14 +186,12 @@ function LeftPanel({
   onSelect,
   baseData,
   brainData,
-  systemTemplates,
   userTemplates,
 }: {
   selection: Selection;
   onSelect: (s: Selection) => void;
   baseData: BasePromptSummary | null;
   brainData: BasePromptSummary | null;
-  systemTemplates: PromptTemplate[];
   userTemplates: PromptTemplate[];
 }) {
   return (
@@ -230,28 +220,11 @@ function LeftPanel({
 
           <div className="my-2 border-t border-border/30" />
 
-          {/* System templates */}
-          {systemTemplates.length > 0 && (
-            <div className="mb-1">
-              <h3 className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                System
-              </h3>
-              {systemTemplates.map((tpl) => (
-                <ListItem
-                  key={tpl.id}
-                  label={tpl.name}
-                  isSelected={selection?.kind === "template" && selection.id === tpl.id}
-                  onClick={() => onSelect({ kind: "template", id: tpl.id })}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* User templates */}
+          {/* Task (user) templates */}
           {userTemplates.length > 0 && (
             <div className="mb-1">
               <h3 className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                User
+                Templates
               </h3>
               {userTemplates.map((tpl) => (
                 <ListItem
@@ -270,7 +243,7 @@ function LeftPanel({
       <div className="border-t border-border/30 p-2">
         <button
           type="button"
-          onClick={() => onSelect({ kind: "create", type: "system" })}
+          onClick={() => onSelect({ kind: "create" })}
           className={cn(
             "inline-flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/10",
             selection?.kind === "create" && "border-primary bg-primary/10",
@@ -362,7 +335,6 @@ function RightPanel({
   if (selection?.kind === "create") {
     return (
       <CreateTemplateForm
-        initialType={selection.type}
         onCreated={onCreated}
         onCancel={onCancel}
       />
@@ -595,17 +567,12 @@ function TemplateDetail({
     <div className="flex h-full flex-col overflow-hidden px-5 pt-5 pb-2">
       {/* Header */}
       <div className="mb-4 shrink-0">
-        <div className="flex items-center gap-3">
-          <Input
-            value={draftName}
-            onChange={(e) => setDraftName(e.target.value)}
-            className="text-sm font-medium"
-            placeholder="Template name"
-          />
-          <Badge variant="secondary" className="shrink-0 text-[10px]">
-            {template.type}
-          </Badge>
-        </div>
+        <Input
+          value={draftName}
+          onChange={(e) => setDraftName(e.target.value)}
+          className="text-sm font-medium"
+          placeholder="Template name"
+        />
       </div>
 
       {/* Editor */}
@@ -614,7 +581,7 @@ function TemplateDetail({
           value={draftContent}
           onChange={setDraftContent}
           maxHeight="100%"
-          placeholder={template.type === "system" ? "You are a code auditor..." : "Review the codebase and..."}
+          placeholder="Review the codebase and..."
         />
       </div>
 
@@ -648,17 +615,14 @@ function TemplateDetail({
 // ── Create Template Form ───────────────────────────────────────────────
 
 function CreateTemplateForm({
-  initialType,
   onCreated,
   onCancel,
 }: {
-  initialType: "system" | "user";
   onCreated: (id: string) => void;
   onCancel: () => void;
 }) {
   const createMutation = useCreatePromptTemplate();
   const [name, setName] = useState("");
-  const [type, setType] = useState<"system" | "user">(initialType);
   const [content, setContent] = useState("");
 
   const isValid = name.trim() && content.trim();
@@ -667,7 +631,7 @@ function CreateTemplateForm({
     if (!isValid) return;
     const result = await createMutation.mutateAsync({
       name: name.trim(),
-      type,
+      type: "user",
       content: content.trim(),
     });
     onCreated(result.id);
@@ -686,31 +650,9 @@ function CreateTemplateForm({
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Code Audit System Prompt"
+          placeholder="e.g. Nightly Review Task"
           className="text-sm"
         />
-      </div>
-
-      {/* Type */}
-      <div className="mb-3 shrink-0">
-        <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Type</label>
-        <div className="flex gap-2">
-          {(["system", "user"] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setType(t)}
-              className={cn(
-                "cursor-pointer rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                type === t
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {t === "system" ? "System" : "User"}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* Content */}
@@ -722,7 +664,7 @@ function CreateTemplateForm({
           value={content}
           onChange={setContent}
           maxHeight="100%"
-          placeholder={type === "system" ? "You are a code auditor..." : "Review the codebase and..."}
+          placeholder="Review the codebase and..."
         />
       </div>
 

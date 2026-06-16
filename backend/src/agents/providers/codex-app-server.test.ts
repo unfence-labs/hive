@@ -155,6 +155,51 @@ describe("CodexAppServerSession request handling", () => {
     );
   });
 
+  it("requests full access by default on thread/start and turn/start", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    await initializeSession(session, proc);
+
+    const writes = parseWrites(proc);
+    const threadStart = writes.find((w) => w.method === "thread/start");
+    const turnStart = writes.find((w) => w.method === "turn/start");
+    expect((threadStart?.params as { sandbox?: string }).sandbox).toBe("danger-full-access");
+    expect((turnStart?.params as { sandboxPolicy?: { type?: string } }).sandboxPolicy?.type).toBe("dangerFullAccess");
+  });
+
+  it("uses the read-only sandbox on thread/start and turn/start when readOnly", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+
+    const started = session.startTurn({
+      cwd: "/tmp/project",
+      content: "review only",
+      model: "gpt-5.5",
+      readOnly: true,
+    });
+
+    const initialize = await waitForMethod(proc, "initialize");
+    proc._stdout.push(appServerResponse(initialize.id, {
+      userAgent: "codex-test",
+      codexHome: "/tmp/codex",
+      platformFamily: "unix",
+      platformOs: "linux",
+    }));
+    const threadStartReq = await waitForMethod(proc, "thread/start");
+    proc._stdout.push(appServerResponse(threadStartReq.id, { thread: { id: "thread-1" } }));
+    const turnStartReq = await waitForMethod(proc, "turn/start");
+    proc._stdout.push(appServerResponse(turnStartReq.id, { turn: { id: "turn-1" } }));
+    await started;
+
+    const writes = parseWrites(proc);
+    const threadStart = writes.find((w) => w.method === "thread/start");
+    const turnStart = writes.find((w) => w.method === "turn/start");
+    expect((threadStart?.params as { sandbox?: string }).sandbox).toBe("read-only");
+    expect((turnStart?.params as { sandboxPolicy?: { type?: string } }).sandboxPolicy?.type).toBe("readOnly");
+  });
+
   it("sets a goal on a materialized thread without starting a turn", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);

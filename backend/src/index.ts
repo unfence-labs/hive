@@ -27,6 +27,7 @@ import { scriptWsRoutes } from "./ws/script.js";
 import { browserWsRoutes } from "./ws/browser.js";
 import { automationRoutes } from "./api/automations.js";
 import { promptTemplateRoutes } from "./api/prompt-templates.js";
+import { agentRoutes } from "./api/agent-definitions.js";
 import { basePromptRoutes } from "./api/base-prompt.js";
 import { brainPromptRoutes } from "./api/brain-prompt.js";
 import { skillRoutes } from "./api/skills.js";
@@ -335,6 +336,7 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     automationRoutes(instance, { scheduler: opts.scheduler }),
   );
   await app.register((instance: FastifyInstance) => promptTemplateRoutes(instance));
+  await app.register((instance: FastifyInstance) => agentRoutes(instance));
   await app.register((instance: FastifyInstance) => basePromptRoutes(instance));
   await app.register((instance: FastifyInstance) => brainPromptRoutes(instance));
   await app.register((instance: FastifyInstance) => skillRoutes(instance));

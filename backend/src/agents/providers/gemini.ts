@@ -34,6 +34,11 @@ export class GeminiProvider implements AgentProvider {
     session: ProviderSessionState,
   ): string[] {
     const model = this.models.find((m) => m.id === options.model);
+    // KNOWN GAP: Gemini exposes no clean CLI mechanism to strip interactive
+    // tools (session.disableInteractiveTools) or enforce a read-only sandbox
+    // (session.readOnly). Agent-run enforcement for Gemini is therefore
+    // prompt-only — the system prompt must instruct read-only behavior. We do
+    // not emit fake flags here; do not pretend to enforce what the CLI cannot.
     return [
       "-p", content,
       "-o", "stream-json",

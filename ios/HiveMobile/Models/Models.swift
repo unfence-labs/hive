@@ -488,9 +488,7 @@ struct AutomationTrigger: Codable {
 
 struct AutomationAction: Codable {
     let type: String
-    let modelId: String
-    let systemPromptId: String?
-    let systemPromptInline: String?
+    let agentId: String
     let userPromptId: String?
     let userPromptInline: String?
 }

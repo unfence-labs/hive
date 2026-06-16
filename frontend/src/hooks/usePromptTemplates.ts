@@ -15,7 +15,7 @@ export function usePromptTemplates() {
 export function useCreatePromptTemplate() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; type: "system" | "user"; content: string }) =>
+    mutationFn: (body: { name: string; type: "user"; content: string }) =>
       api.post<PromptTemplate>("/api/prompt-templates", body),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["prompt-templates"] });

@@ -23,6 +23,10 @@ export interface CreateAgentRunnerInput {
   isFirstMessage: boolean;
   systemPrompt?: string;
   skipPermissions: boolean;
+  /** Strip interactive/blocking tools — set for unattended agent runs. */
+  disableInteractiveTools?: boolean;
+  /** Enforce read-only execution — set for read-only agent runs. */
+  readOnly?: boolean;
   browserEnv?: Record<string, string>;
   sessionKind: SessionKind;
   providerSessionId?: string;
@@ -55,6 +59,7 @@ type CodexAppServerStartRunner = AgentRunner & {
     systemPrompt?: string;
     threadId?: string;
     env?: Record<string, string>;
+    readOnly?: boolean;
   }): void;
 };
 
@@ -100,6 +105,7 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
         systemPrompt: input.systemPrompt,
         threadId: input.providerSessionId,
         env,
+        readOnly: input.readOnly,
       }),
     };
   }
@@ -125,6 +131,8 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
       sessionId: nextProviderSessionId,
       systemPrompt: input.systemPrompt,
       skipPermissions: input.skipPermissions,
+      disableInteractiveTools: input.disableInteractiveTools,
+      readOnly: input.readOnly,
     });
     if (provider!.id === "codex") {
       stdinContent = cliContent;

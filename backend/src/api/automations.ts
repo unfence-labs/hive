@@ -12,6 +12,7 @@ import {
   withAutomationsLock,
 } from "../state/automations.js";
 import { loadPromptTemplates } from "../state/prompt-templates.js";
+import { loadAgents } from "../state/agents.js";
 import { getDataDir } from "../state/state.js";
 import type { AutomationScheduler } from "../services/automation-scheduler.js";
 import type {
@@ -60,12 +61,8 @@ export async function automationRoutes(
     } catch {
       return reply.status(400).send({ error: "Invalid cron expression" });
     }
-    if (!action?.modelId) {
-      return reply.status(400).send({ error: "Model ID is required" });
-    }
-    // Validate prompt: must have either Id or Inline, not both
-    if (action.systemPromptId && action.systemPromptInline) {
-      return reply.status(400).send({ error: "Provide either systemPromptId or systemPromptInline, not both" });
+    if (!action?.agentId) {
+      return reply.status(400).send({ error: "An agent is required (agentId)" });
     }
     if (action.userPromptId && action.userPromptInline) {
       return reply.status(400).send({ error: "Provide either userPromptId or userPromptInline, not both" });
@@ -74,13 +71,15 @@ export async function automationRoutes(
     if (!action.userPromptId && !action.userPromptInline) {
       return reply.status(400).send({ error: "A user prompt is required (userPromptId or userPromptInline)" });
     }
-    // Validate referenced templates exist
-    if (action.systemPromptId || action.userPromptId) {
+    // Validate the referenced agent exists
+    const agents = await loadAgents(dataDir);
+    if (!agents.find((a) => a.id === action.agentId)) {
+      return reply.status(400).send({ error: "Referenced agent not found" });
+    }
+    // Validate the referenced user prompt template exists
+    if (action.userPromptId) {
       const templates = await loadPromptTemplates(dataDir);
-      if (action.systemPromptId && !templates.find((t) => t.id === action.systemPromptId)) {
-        return reply.status(400).send({ error: "Referenced system prompt template not found" });
-      }
-      if (action.userPromptId && !templates.find((t) => t.id === action.userPromptId)) {
+      if (!templates.find((t) => t.id === action.userPromptId)) {
         return reply.status(400).send({ error: "Referenced user prompt template not found" });
       }
     }
@@ -94,9 +93,7 @@ export async function automationRoutes(
       trigger: { type: trigger.type ?? "cron", expression: trigger.expression },
       action: {
         type: action.type ?? "agent",
-        modelId: action.modelId,
-        systemPromptId: action.systemPromptId,
-        systemPromptInline: action.systemPromptInline,
+        agentId: action.agentId,
         userPromptId: action.userPromptId,
         userPromptInline: action.userPromptInline,
       },

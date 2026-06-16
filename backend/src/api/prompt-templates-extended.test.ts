@@ -20,9 +20,9 @@ let app: FastifyInstance;
 function makeTemplate(overrides: Partial<PromptTemplate> = {}): PromptTemplate {
   return {
     id: "tpl-1",
-    name: "System Prompt",
-    type: "system",
-    content: "You are helpful.",
+    name: "Task Prompt",
+    type: "user",
+    content: "Run the tests.",
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -35,7 +35,7 @@ function makeAutomation(overrides: Partial<Automation> = {}): Automation {
     name: "Test Auto",
     enabled: true,
     trigger: { type: "cron", expression: "0 * * * *" },
-    action: { type: "agent", modelId: "m", userPromptInline: "test" },
+    action: { type: "agent", agentId: "agent-1", userPromptInline: "test" },
     notification: { onComplete: true, onFailure: true },
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -62,7 +62,7 @@ describe("POST /api/prompt-templates - edge cases", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/prompt-templates",
-      payload: { name: "   ", type: "system", content: "text" },
+      payload: { name: "   ", type: "user", content: "text" },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("Name is required");
@@ -72,7 +72,7 @@ describe("POST /api/prompt-templates - edge cases", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/prompt-templates",
-      payload: { name: "Test", type: "system", content: "   " },
+      payload: { name: "Test", type: "user", content: "   " },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("Content is required");
@@ -93,7 +93,7 @@ describe("POST /api/prompt-templates - edge cases", () => {
     const res1 = await app.inject({
       method: "POST",
       url: "/api/prompt-templates",
-      payload: { name: "T1", type: "system", content: "a" },
+      payload: { name: "T1", type: "user", content: "a" },
     });
     const res2 = await app.inject({
       method: "POST",
@@ -108,7 +108,7 @@ describe("POST /api/prompt-templates - edge cases", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/prompt-templates",
-      payload: { name: "Timed", type: "system", content: "text" },
+      payload: { name: "Timed", type: "user", content: "text" },
     });
     const after = new Date().toISOString();
     const body = res.json();
@@ -117,21 +117,20 @@ describe("POST /api/prompt-templates - edge cases", () => {
     expect(body.updatedAt).toBe(body.createdAt);
   });
 
-  it("accepts both system and user type", async () => {
+  it("accepts the user type and rejects the removed system type", async () => {
     const res1 = await app.inject({
       method: "POST",
       url: "/api/prompt-templates",
-      payload: { name: "Sys", type: "system", content: "a" },
+      payload: { name: "Usr", type: "user", content: "a" },
     });
     const res2 = await app.inject({
       method: "POST",
       url: "/api/prompt-templates",
-      payload: { name: "Usr", type: "user", content: "b" },
+      payload: { name: "Sys", type: "system", content: "b" },
     });
     expect(res1.statusCode).toBe(201);
-    expect(res2.statusCode).toBe(201);
-    expect(res1.json().type).toBe("system");
-    expect(res2.json().type).toBe("user");
+    expect(res1.json().type).toBe("user");
+    expect(res2.statusCode).toBe(400);
   });
 });
 
@@ -157,8 +156,8 @@ describe("PUT /api/prompt-templates/:id - edge cases", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().name).toBe("New Name");
-    expect(res.json().content).toBe("You are helpful."); // unchanged
-    expect(res.json().type).toBe("system"); // unchanged
+    expect(res.json().content).toBe("Run the tests."); // unchanged
+    expect(res.json().type).toBe("user"); // unchanged
   });
 
   it("updates updatedAt timestamp", async () => {
@@ -187,9 +186,9 @@ describe("PUT /api/prompt-templates/:id - edge cases", () => {
 
 describe("DELETE /api/prompt-templates/:id - deletion guard", () => {
   it("blocks deletion when referenced as user prompt by automation", async () => {
-    await savePromptTemplates([makeTemplate({ id: "tpl-user", type: "user" })], dataDir);
+    await savePromptTemplates([makeTemplate({ id: "tpl-user" })], dataDir);
     await saveAutomations([
-      makeAutomation({ action: { type: "agent", modelId: "m", userPromptId: "tpl-user" } }),
+      makeAutomation({ action: { type: "agent", agentId: "agent-1", userPromptId: "tpl-user" } }),
     ], dataDir);
 
     const res = await app.inject({ method: "DELETE", url: "/api/prompt-templates/tpl-user" });
@@ -204,7 +203,7 @@ describe("DELETE /api/prompt-templates/:id - deletion guard", () => {
     ], dataDir);
     // Automation only references tpl-1
     await saveAutomations([
-      makeAutomation({ action: { type: "agent", modelId: "m", systemPromptId: "tpl-1", userPromptInline: "test" } }),
+      makeAutomation({ action: { type: "agent", agentId: "agent-1", userPromptId: "tpl-1" } }),
     ], dataDir);
 
     const res = await app.inject({ method: "DELETE", url: "/api/prompt-templates/tpl-2" });
@@ -214,7 +213,7 @@ describe("DELETE /api/prompt-templates/:id - deletion guard", () => {
   it("shows the referencing automation name in the error", async () => {
     await savePromptTemplates([makeTemplate()], dataDir);
     await saveAutomations([
-      makeAutomation({ name: "Daily Review", action: { type: "agent", modelId: "m", systemPromptId: "tpl-1", userPromptInline: "test" } }),
+      makeAutomation({ name: "Daily Review", action: { type: "agent", agentId: "agent-1", userPromptId: "tpl-1" } }),
     ], dataDir);
 
     const res = await app.inject({ method: "DELETE", url: "/api/prompt-templates/tpl-1" });

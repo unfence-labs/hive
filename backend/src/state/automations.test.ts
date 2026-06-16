@@ -20,7 +20,7 @@ function makeAutomation(overrides: Partial<Automation> = {}): Automation {
     name: "Test Automation",
     enabled: true,
     trigger: { type: "cron", expression: "0 * * * *" },
-    action: { type: "agent", modelId: "claude:opus-4-7" },
+    action: { type: "agent", agentId: "agent-1", userPromptInline: "Do something" },
     notification: { onComplete: true, onFailure: true },
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",

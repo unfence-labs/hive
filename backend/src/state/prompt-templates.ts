@@ -60,10 +60,12 @@ function parseTemplate(raw: string, filename: string): PromptTemplate | null {
   const id = fields.id || filename.replace(/\.md$/, "");
   if (!id || !fields.name || !fields.type) return null;
 
+  if (fields.type !== "user") return null;
+
   return {
     id,
     name: fields.name,
-    type: fields.type as "system" | "user",
+    type: "user",
     content,
     createdAt: fields.createdAt || new Date().toISOString(),
     updatedAt: fields.updatedAt || new Date().toISOString(),
