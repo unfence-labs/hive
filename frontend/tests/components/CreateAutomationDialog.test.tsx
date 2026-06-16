@@ -70,6 +70,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     name: "Code Auditor",
     systemPrompt: "You are a code auditor.",
     modelId: "claude:opus-4-7",
+    thinkingLevel: "high",
     injectGitContext: true,
     readOnly: true,
     createdAt: "2026-01-01T00:00:00Z",

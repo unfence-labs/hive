@@ -19,6 +19,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     description: "Reviews code",
     systemPrompt: "You are a code reviewer.",
     modelId: "claude:sonnet-4-6",
+    thinkingLevel: "high",
     injectGitContext: true,
     readOnly: true,
     createdAt: "2026-01-01T00:00:00Z",
@@ -64,6 +65,7 @@ describe("POST /api/agents", () => {
         description: "Does things",
         systemPrompt: "You are helpful.",
         modelId: "claude:sonnet-4-6",
+        thinkingLevel: "xhigh",
         injectGitContext: false,
         readOnly: true,
       },
@@ -72,8 +74,25 @@ describe("POST /api/agents", () => {
     const body = res.json();
     expect(body.id).toMatch(/^agent-/);
     expect(body.name).toBe("My Agent");
+    expect(body.thinkingLevel).toBe("xhigh");
     expect(body.injectGitContext).toBe(false);
     expect(body.readOnly).toBe(true);
+  });
+
+  it("defaults thinkingLevel when omitted", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/agents",
+      payload: {
+        name: "My Agent",
+        systemPrompt: "You are helpful.",
+        modelId: "claude:sonnet-4-6",
+        injectGitContext: true,
+        readOnly: false,
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().thinkingLevel).toBe("high");
   });
 
   it("rejects missing name (400)", async () => {
@@ -118,6 +137,23 @@ describe("POST /api/agents", () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("Unknown model");
   });
+
+  it("rejects an unsupported thinkingLevel for the model provider (400)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/agents",
+      payload: {
+        name: "X",
+        systemPrompt: "p",
+        modelId: "claude:sonnet-4-6",
+        thinkingLevel: "minimal",
+        injectGitContext: true,
+        readOnly: false,
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("Thinking level");
+  });
 });
 
 describe("PATCH /api/agents/:id", () => {
@@ -132,6 +168,29 @@ describe("PATCH /api/agents/:id", () => {
     const body = res.json();
     expect(body.name).toBe("Updated Name");
     expect(body.readOnly).toBe(false);
+  });
+
+  it("updates thinkingLevel", async () => {
+    await saveAgents([makeAgent()], dataDir);
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/agents/agent-1",
+      payload: { thinkingLevel: "max" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().thinkingLevel).toBe("max");
+  });
+
+  it("resets thinkingLevel when changing to a provider that does not support the current level", async () => {
+    await saveAgents([makeAgent({ thinkingLevel: "max" })], dataDir);
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/agents/agent-1",
+      payload: { modelId: "codex:gpt-5.5" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().modelId).toBe("codex:gpt-5.5");
+    expect(res.json().thinkingLevel).toBe("high");
   });
 
   it("returns 404 for unknown id", async () => {
@@ -164,6 +223,17 @@ describe("PATCH /api/agents/:id", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("Unknown model");
+  });
+
+  it("rejects updating to an unsupported thinkingLevel for the target model (400)", async () => {
+    await saveAgents([makeAgent()], dataDir);
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/agents/agent-1",
+      payload: { modelId: "codex:gpt-5.5", thinkingLevel: "max" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("Thinking level");
   });
 });
 

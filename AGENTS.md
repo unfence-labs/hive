@@ -67,7 +67,7 @@ Core model: Project -> Workspace -> Session. Projects are bare repositories; wor
 - When adding a WS event, update backend dispatch, frontend reducers/cache invalidation, iOS stores, and tests.
 - When adding a provider, implement `AgentProvider`, register it in `providers/registry.ts`, expose capabilities, and add a stream adapter when the CLI format differs from Claude.
 - Keep provider capability fields synchronized across backend, frontend, and iOS models.
-- Automation actions reference Team agents by `agentId`; keep model, system prompt, git-context injection, and read-only settings on the agent definition, not on each automation.
+- Automation actions reference Team agents by `agentId`; keep model, thinking level, system prompt, git-context injection, and read-only settings on the agent definition, not on each automation.
 - Prompt templates are run/user prompts only. System prompts live in the base/Brain prompts or Team agent definitions.
 - Keep prompt variables synchronized between `backend/src/agents/system-prompt.ts` and `frontend/src/lib/prompt-variables.ts`.
 - Keep notification event variants synchronized between `backend/src/notifications/types.ts` and notification channels.

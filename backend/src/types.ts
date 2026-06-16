@@ -492,6 +492,7 @@ export interface Agent {
   description?: string;
   systemPrompt: string;
   modelId: string;
+  thinkingLevel: ThinkingLevel;
   injectGitContext: boolean;
   readOnly: boolean;
   createdAt: string;
@@ -503,6 +504,7 @@ export interface CreateAgentRequest {
   description?: string;
   systemPrompt: string;
   modelId: string;
+  thinkingLevel?: ThinkingLevel;
   injectGitContext: boolean;
   readOnly: boolean;
 }
@@ -512,6 +514,7 @@ export interface UpdateAgentRequest {
   description?: string;
   systemPrompt?: string;
   modelId?: string;
+  thinkingLevel?: ThinkingLevel;
   injectGitContext?: boolean;
   readOnly?: boolean;
 }

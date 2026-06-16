@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Bot, Trash2, Save, X } from "lucide-react";
 import {
   AlertDialog,
@@ -10,6 +10,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { PromptEditor } from "@/components/PromptEditor";
 import { SettingsHeader } from "@/components/AppLayout";
@@ -21,6 +22,7 @@ import {
   SettingsResourceList,
   SettingsResourceListItem,
 } from "@/components/settings/SettingsResourceList";
+import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import {
@@ -29,7 +31,7 @@ import {
   useUpdateAgent,
   useDeleteAgent,
 } from "@/hooks/useAgents";
-import type { Agent, ModelCatalogEntry, ModelCatalogResponse } from "@/types";
+import type { Agent, ModelCatalogEntry, ModelCatalogResponse, ThinkingLevel } from "@/types";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -42,6 +44,7 @@ type Selection =
 
 export default function TeamSettings() {
   const { data: agents, isLoading } = useAgents();
+  const { data: catalog } = useModelCatalog();
   const [selection, setSelection] = useState<Selection>(null);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
 
@@ -92,6 +95,8 @@ export default function TeamSettings() {
           <RightPanel
             selection={selection}
             selectedAgent={selectedAgent}
+            models={catalog?.models ?? []}
+            defaultModelId={catalog?.defaultModelId ?? ""}
             onDelete={handleDelete}
             onCreated={handleCreated}
             onCancel={() => setSelection(null)}
@@ -157,12 +162,16 @@ function LeftPanel({
 function RightPanel({
   selection,
   selectedAgent,
+  models,
+  defaultModelId,
   onDelete,
   onCreated,
   onCancel,
 }: {
   selection: Selection;
   selectedAgent: Agent | null;
+  models: ModelCatalogEntry[];
+  defaultModelId: string;
   onDelete: (a: Agent) => void;
   onCreated: (id: string) => void;
   onCancel: () => void;
@@ -172,13 +181,21 @@ function RightPanel({
       <AgentDetail
         key={selectedAgent.id}
         agent={selectedAgent}
+        models={models}
         onDelete={() => onDelete(selectedAgent)}
       />
     );
   }
 
   if (selection?.kind === "create") {
-    return <CreateAgentForm onCreated={onCreated} onCancel={onCancel} />;
+    return (
+      <CreateAgentForm
+        models={models}
+        defaultModelId={defaultModelId}
+        onCreated={onCreated}
+        onCancel={onCancel}
+      />
+    );
   }
 
   return <SettingsEmptySelection>Select an agent to edit, or add a new one</SettingsEmptySelection>;
@@ -195,6 +212,9 @@ function FormFields({
   setSystemPrompt,
   modelId,
   setModelId,
+  thinkingLevel,
+  setThinkingLevel,
+  models,
   injectGitContext,
   setInjectGitContext,
   readOnly,
@@ -208,13 +228,23 @@ function FormFields({
   setSystemPrompt: (v: string) => void;
   modelId: string;
   setModelId: (v: string) => void;
+  thinkingLevel: ThinkingLevel;
+  setThinkingLevel: (v: ThinkingLevel) => void;
+  models: ModelCatalogEntry[];
   injectGitContext: boolean;
   setInjectGitContext: (v: boolean) => void;
   readOnly: boolean;
   setReadOnly: (v: boolean) => void;
 }) {
-  const { data: catalog } = useModelCatalog();
-  const models = catalog?.models ?? [];
+  const selectedModel = modelForId(models, modelId);
+  const resolvedThinkingLevel = resolveThinkingLevel(selectedModel, thinkingLevel);
+  const thinkingLevels = selectedModel?.capabilities.thinkingLevels ?? [resolvedThinkingLevel];
+
+  useEffect(() => {
+    if (resolvedThinkingLevel !== thinkingLevel) {
+      setThinkingLevel(resolvedThinkingLevel);
+    }
+  }, [resolvedThinkingLevel, setThinkingLevel, thinkingLevel]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -232,6 +262,14 @@ function FormFields({
           <ModelSelect value={modelId} onChange={setModelId} models={models} />
         </Field>
       </div>
+
+      <Field label="Thinking">
+        <ThinkingLevelChips
+          value={resolvedThinkingLevel}
+          onChange={setThinkingLevel}
+          levels={thinkingLevels}
+        />
+      </Field>
 
       {/* Description */}
       <Field label="Description (optional)">
@@ -296,9 +334,11 @@ function FormFields({
 
 function AgentDetail({
   agent,
+  models,
   onDelete,
 }: {
   agent: Agent;
+  models: ModelCatalogEntry[];
   onDelete: () => void;
 }) {
   const updateMutation = useUpdateAgent();
@@ -306,17 +346,20 @@ function AgentDetail({
   const [description, setDescription] = useState(agent.description ?? "");
   const [systemPrompt, setSystemPrompt] = useState(agent.systemPrompt);
   const [modelId, setModelId] = useState(agent.modelId);
+  const [thinkingLevel, setThinkingLevel] = useState(agent.thinkingLevel);
   const [injectGitContext, setInjectGitContext] = useState(agent.injectGitContext);
   const [readOnly, setReadOnly] = useState(agent.readOnly);
+  const resolvedThinkingLevel = resolveThinkingLevel(modelForId(models, modelId), thinkingLevel);
 
   const isDirty =
     name !== agent.name ||
     description !== (agent.description ?? "") ||
     systemPrompt !== agent.systemPrompt ||
     modelId !== agent.modelId ||
+    resolvedThinkingLevel !== agent.thinkingLevel ||
     injectGitContext !== agent.injectGitContext ||
     readOnly !== agent.readOnly;
-  const isValid = name.trim() && systemPrompt.trim() && modelId;
+  const isValid = name.trim() && systemPrompt.trim() && modelId && resolvedThinkingLevel;
 
   const handleSave = async () => {
     if (!isValid) return;
@@ -326,6 +369,7 @@ function AgentDetail({
       description: description.trim(),
       systemPrompt: systemPrompt.trim(),
       modelId,
+      thinkingLevel: resolvedThinkingLevel,
       injectGitContext,
       readOnly,
     });
@@ -346,6 +390,9 @@ function AgentDetail({
         setSystemPrompt={setSystemPrompt}
         modelId={modelId}
         setModelId={setModelId}
+        thinkingLevel={thinkingLevel}
+        setThinkingLevel={setThinkingLevel}
+        models={models}
         injectGitContext={injectGitContext}
         setInjectGitContext={setInjectGitContext}
         readOnly={readOnly}
@@ -378,25 +425,29 @@ function AgentDetail({
 // ── Create Agent Form ──────────────────────────────────────────────────
 
 function CreateAgentForm({
+  models,
+  defaultModelId,
   onCreated,
   onCancel,
 }: {
+  models: ModelCatalogEntry[];
+  defaultModelId: string;
   onCreated: (id: string) => void;
   onCancel: () => void;
 }) {
   const createMutation = useCreateAgent();
-  const { data: catalog } = useModelCatalog();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [modelId, setModelId] = useState("");
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("high");
   const [injectGitContext, setInjectGitContext] = useState(true);
   const [readOnly, setReadOnly] = useState(false);
 
-  // Default the model to the catalog default once it loads.
-  const resolvedModelId = modelId || catalog?.defaultModelId || "";
+  const resolvedModelId = modelId || defaultModelId;
+  const resolvedThinkingLevel = resolveThinkingLevel(modelForId(models, resolvedModelId), thinkingLevel);
 
-  const isValid = name.trim() && systemPrompt.trim() && resolvedModelId;
+  const isValid = name.trim() && systemPrompt.trim() && resolvedModelId && resolvedThinkingLevel;
 
   const handleSubmit = async () => {
     if (!isValid) return;
@@ -405,6 +456,7 @@ function CreateAgentForm({
       ...(description.trim() && { description: description.trim() }),
       systemPrompt: systemPrompt.trim(),
       modelId: resolvedModelId,
+      thinkingLevel: resolvedThinkingLevel,
       injectGitContext,
       readOnly,
     });
@@ -426,6 +478,9 @@ function CreateAgentForm({
         setSystemPrompt={setSystemPrompt}
         modelId={resolvedModelId}
         setModelId={setModelId}
+        thinkingLevel={thinkingLevel}
+        setThinkingLevel={setThinkingLevel}
+        models={models}
         injectGitContext={injectGitContext}
         setInjectGitContext={setInjectGitContext}
         readOnly={readOnly}
@@ -531,4 +586,60 @@ function ModelSelect({
       ))}
     </select>
   );
+}
+
+function ThinkingLevelChips({
+  value,
+  onChange,
+  levels,
+}: {
+  value: ThinkingLevel;
+  onChange: (value: ThinkingLevel) => void;
+  levels: ThinkingLevel[];
+}) {
+  const options = levels.length > 0 ? levels : [value];
+  return (
+    <div className="flex min-h-7 flex-wrap items-center gap-1.5">
+      {options.map((level) => (
+        <Badge
+          key={level}
+          asChild
+          variant="outline"
+          className={cn(
+            "h-6 cursor-pointer rounded-full px-2.5 text-[11px] font-medium leading-none transition-colors",
+            level === value
+              ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
+              : "border-border/60 bg-muted/20 text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground",
+          )}
+        >
+          <button
+            type="button"
+            aria-pressed={level === value}
+            onClick={() => onChange(level)}
+          >
+            {thinkingLevelLabel(level)}
+          </button>
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+function modelForId(models: ModelCatalogEntry[], modelId: string): ModelCatalogEntry | undefined {
+  return models.find((model) => model.id === modelId);
+}
+
+function resolveThinkingLevel(
+  model: ModelCatalogEntry | undefined,
+  thinkingLevel: ThinkingLevel,
+): ThinkingLevel {
+  const levels = model?.capabilities.thinkingLevels;
+  if (!levels || levels.length === 0 || levels.includes(thinkingLevel)) return thinkingLevel;
+  return levels.includes("high") ? "high" : levels[0] ?? "high";
+}
+
+function thinkingLevelLabel(level: ThinkingLevel): string {
+  return level === "xhigh"
+    ? "Extra high"
+    : level.charAt(0).toUpperCase() + level.slice(1);
 }

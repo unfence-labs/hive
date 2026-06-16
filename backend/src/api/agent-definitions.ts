@@ -3,11 +3,33 @@ import { nanoid } from "nanoid";
 import { loadAgents, saveAgents, withAgentsLock } from "../state/agents.js";
 import { loadAutomations } from "../state/automations.js";
 import { getDataDir } from "../state/state.js";
-import { isKnownModelId } from "../agents/providers/registry.js";
-import type { Agent, CreateAgentRequest, UpdateAgentRequest } from "../types.js";
+import {
+  getDefaultThinkingLevelForModel,
+  isKnownModelId,
+  isThinkingLevelSupportedForModel,
+} from "../agents/providers/registry.js";
+import type { Agent, CreateAgentRequest, ThinkingLevel, UpdateAgentRequest } from "../types.js";
 
 interface AgentRoutesOptions {
   dataDir?: string;
+}
+
+function resolveThinkingLevel(
+  modelId: string,
+  requested: ThinkingLevel | undefined,
+): { thinkingLevel: ThinkingLevel } | { error: string } {
+  if (requested !== undefined) {
+    if (!isThinkingLevelSupportedForModel(modelId, requested)) {
+      return { error: `Thinking level "${requested}" is not supported by model ${modelId}` };
+    }
+    return { thinkingLevel: requested };
+  }
+
+  const thinkingLevel = getDefaultThinkingLevelForModel(modelId);
+  if (!thinkingLevel) {
+    return { error: `Model ${modelId} does not support thinking levels` };
+  }
+  return { thinkingLevel };
 }
 
 export async function agentRoutes(
@@ -23,7 +45,15 @@ export async function agentRoutes(
 
   // ── Create agent ────────────────────────────────────────────────────
   app.post<{ Body: CreateAgentRequest }>("/api/agents", async (req, reply) => {
-    const { name, description, systemPrompt, modelId, injectGitContext, readOnly } = req.body;
+    const {
+      name,
+      description,
+      systemPrompt,
+      modelId,
+      thinkingLevel,
+      injectGitContext,
+      readOnly,
+    } = req.body;
 
     if (!name?.trim()) {
       return reply.status(400).send({ error: "Name is required" });
@@ -37,6 +67,10 @@ export async function agentRoutes(
     if (!isKnownModelId(modelId.trim())) {
       return reply.status(400).send({ error: `Unknown model: ${modelId.trim()}` });
     }
+    const thinkingResult = resolveThinkingLevel(modelId.trim(), thinkingLevel);
+    if ("error" in thinkingResult) {
+      return reply.status(400).send({ error: thinkingResult.error });
+    }
 
     const now = new Date().toISOString();
     const agent: Agent = {
@@ -45,6 +79,7 @@ export async function agentRoutes(
       ...(description?.trim() && { description: description.trim() }),
       systemPrompt: systemPrompt.trim(),
       modelId: modelId.trim(),
+      thinkingLevel: thinkingResult.thinkingLevel,
       injectGitContext: injectGitContext ?? true,
       readOnly: readOnly ?? false,
       createdAt: now,
@@ -83,17 +118,37 @@ export async function agentRoutes(
         return reply.status(400).send({ error: `Unknown model: ${updates.modelId.trim()}` });
       }
 
-      const updated = await withAgentsLock(async () => {
+      const result = await withAgentsLock(async () => {
         const agents = await loadAgents(dataDir);
         const idx = agents.findIndex((a) => a.id === id);
-        if (idx === -1) return null;
+        if (idx === -1) return { status: 404 as const, error: "Agent not found" };
+
+        const current = agents[idx];
+        const nextModelId = updates.modelId !== undefined
+          ? updates.modelId.trim()
+          : current.modelId;
+        let nextThinkingLevel = current.thinkingLevel;
+        if (updates.thinkingLevel !== undefined) {
+          const thinkingResult = resolveThinkingLevel(nextModelId, updates.thinkingLevel);
+          if ("error" in thinkingResult) {
+            return { status: 400 as const, error: thinkingResult.error };
+          }
+          nextThinkingLevel = thinkingResult.thinkingLevel;
+        } else if (updates.modelId !== undefined && !isThinkingLevelSupportedForModel(nextModelId, nextThinkingLevel)) {
+          const thinkingResult = resolveThinkingLevel(nextModelId, undefined);
+          if ("error" in thinkingResult) {
+            return { status: 400 as const, error: thinkingResult.error };
+          }
+          nextThinkingLevel = thinkingResult.thinkingLevel;
+        }
 
         const merged: Agent = {
-          ...agents[idx],
+          ...current,
           ...(updates.name !== undefined && { name: updates.name.trim() }),
           ...(updates.description !== undefined && { description: updates.description.trim() }),
           ...(updates.systemPrompt !== undefined && { systemPrompt: updates.systemPrompt.trim() }),
-          ...(updates.modelId !== undefined && { modelId: updates.modelId.trim() }),
+          modelId: nextModelId,
+          thinkingLevel: nextThinkingLevel,
           ...(updates.injectGitContext !== undefined && {
             injectGitContext: updates.injectGitContext,
           }),
@@ -102,11 +157,13 @@ export async function agentRoutes(
         };
         agents[idx] = merged;
         await saveAgents(agents, dataDir);
-        return merged;
+        return { status: 200 as const, agent: merged };
       });
 
-      if (!updated) return reply.status(404).send({ error: "Agent not found" });
-      return updated;
+      if (result.status !== 200) {
+        return reply.status(result.status).send({ error: result.error });
+      }
+      return result.agent;
     },
   );
 

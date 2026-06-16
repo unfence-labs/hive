@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir } from "../utils/test-helpers.js";
 import { loadAgents, saveAgents } from "./agents.js";
@@ -13,7 +13,8 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     name: "Code Auditor",
     description: "Reviews code for issues",
     systemPrompt: "You are a meticulous code reviewer.",
-    modelId: "claude-sonnet",
+    modelId: "claude:sonnet-4-6",
+    thinkingLevel: "high",
     injectGitContext: true,
     readOnly: true,
     createdAt: "2026-01-01T00:00:00Z",
@@ -55,5 +56,21 @@ describe("agents persistence", () => {
     const loaded = await loadAgents(dataDir);
     expect(loaded).toHaveLength(1);
     expect(loaded[0].name).toBe("Updated");
+  });
+
+  it("normalizes old agents without a thinkingLevel", async () => {
+    const { thinkingLevel: _thinkingLevel, ...legacy } = makeAgent();
+    await mkdir(dataDir, { recursive: true });
+    await writeFile(join(dataDir, "agents.json"), JSON.stringify([legacy]), "utf-8");
+
+    const loaded = await loadAgents(dataDir);
+    expect(loaded[0].thinkingLevel).toBe("high");
+  });
+
+  it("normalizes unsupported thinkingLevel values", async () => {
+    await saveAgents([makeAgent({ modelId: "codex:gpt-5.5", thinkingLevel: "max" })], dataDir);
+
+    const loaded = await loadAgents(dataDir);
+    expect(loaded[0].thinkingLevel).toBe("high");
   });
 });

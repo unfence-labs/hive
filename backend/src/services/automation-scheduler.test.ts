@@ -109,6 +109,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     name: "Reviewer",
     systemPrompt: "You are a reviewer.",
     modelId: "claude:opus-4-8",
+    thinkingLevel: "high",
     injectGitContext: true,
     readOnly: false,
     createdAt: "2026-01-01T00:00:00Z",
@@ -838,7 +839,7 @@ describe("AutomationScheduler", () => {
       const { loadProject } = await import("../state/state.js");
       vi.mocked(loadProject).mockResolvedValue(null as never);
 
-      await saveAgents([makeAgent({ modelId: "claude:sonnet-4-6", readOnly: true })], dataDir);
+      await saveAgents([makeAgent({ modelId: "claude:sonnet-4-6", thinkingLevel: "xhigh", readOnly: true })], dataDir);
       const auto = makeAutomation({ projectId: undefined });
       await saveAutomations([auto], dataDir);
 
@@ -851,6 +852,7 @@ describe("AutomationScheduler", () => {
 
       const lastSend = sessionSendCalls[sessionSendCalls.length - 1];
       expect(lastSend.options?.model).toBe("claude:sonnet-4-6");
+      expect(lastSend.options?.thinkingLevel).toBe("xhigh");
 
       scheduler.stop();
     });

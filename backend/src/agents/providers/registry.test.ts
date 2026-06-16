@@ -17,6 +17,9 @@ import {
   markProviderAvailable,
   parseVersionFromOutput,
   getAllProviderInfo,
+  getDefaultThinkingLevelForModel,
+  isKnownModelId,
+  isThinkingLevelSupportedForModel,
   providerSupportsAppServer,
   providerSupportsAppServerGoals,
 } from "./registry.js";
@@ -99,6 +102,25 @@ describe("getProvider", () => {
 
   it("returns undefined for unknown provider", () => {
     expect(getProvider("unknown")).toBeUndefined();
+  });
+});
+
+describe("model helpers", () => {
+  it("detects known model IDs without requiring provider availability", () => {
+    expect(isKnownModelId("claude:sonnet-4-6")).toBe(true);
+    expect(isKnownModelId("codex:gpt-5.5")).toBe(true);
+    expect(isKnownModelId("claude:missing")).toBe(false);
+  });
+
+  it("returns high as the default thinking level when supported", () => {
+    expect(getDefaultThinkingLevelForModel("claude:sonnet-4-6")).toBe("high");
+    expect(getDefaultThinkingLevelForModel("codex:gpt-5.5")).toBe("high");
+  });
+
+  it("validates thinking levels against the resolved provider", () => {
+    expect(isThinkingLevelSupportedForModel("claude:sonnet-4-6", "max")).toBe(true);
+    expect(isThinkingLevelSupportedForModel("codex:gpt-5.5", "max")).toBe(false);
+    expect(isThinkingLevelSupportedForModel("claude:missing", "high")).toBe(false);
   });
 });
 

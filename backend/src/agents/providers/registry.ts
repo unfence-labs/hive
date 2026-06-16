@@ -2,7 +2,13 @@ import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { ClaudeProvider } from "./claude.js";
 import { CodexProvider } from "./codex.js";
-import type { AgentProvider, ModelCatalogEntry, ModelCatalogResponse, ProviderCapabilities } from "./types.js";
+import type {
+  AgentProvider,
+  ModelCatalogEntry,
+  ModelCatalogResponse,
+  ProviderCapabilities,
+  ThinkingLevel,
+} from "./types.js";
 
 const execFile = promisify(execFileCb);
 
@@ -155,6 +161,17 @@ export function getProvider(providerId: string): AgentProvider | undefined {
   return providerMap.get(providerId);
 }
 
+function resolveKnownModel(compoundModelId: string): { provider: AgentProvider; modelId: string } | undefined {
+  try {
+    const resolved = resolveProvider(compoundModelId);
+    return resolved.provider.models.some((m) => m.id === resolved.modelId)
+      ? resolved
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Whether a compound model id ("provider:model") refers to a model that exists
  * in the static provider definitions. Availability-independent — it does NOT
@@ -163,12 +180,22 @@ export function getProvider(providerId: string): AgentProvider | undefined {
  * {@link getModelCatalog} which only lists available providers.
  */
 export function isKnownModelId(compoundModelId: string): boolean {
-  try {
-    const { provider, modelId } = resolveProvider(compoundModelId);
-    return provider.models.some((m) => m.id === modelId);
-  } catch {
-    return false;
-  }
+  return resolveKnownModel(compoundModelId) !== undefined;
+}
+
+export function getDefaultThinkingLevelForModel(compoundModelId: string): ThinkingLevel | undefined {
+  const resolved = resolveKnownModel(compoundModelId);
+  const levels = resolved?.provider.capabilities.thinkingLevels ?? [];
+  if (levels.length === 0) return undefined;
+  return levels.includes("high") ? "high" : levels[0];
+}
+
+export function isThinkingLevelSupportedForModel(
+  compoundModelId: string,
+  thinkingLevel: ThinkingLevel,
+): boolean {
+  const resolved = resolveKnownModel(compoundModelId);
+  return resolved?.provider.capabilities.thinkingLevels.includes(thinkingLevel) ?? false;
 }
 
 /** Build the model catalog for the frontend, only including available providers. */

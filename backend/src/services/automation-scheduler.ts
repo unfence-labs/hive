@@ -289,9 +289,13 @@ export class AutomationScheduler {
         }
       });
 
-      // Send the message to start the agent. The model is owned by the agent.
+      // Send the message to start the agent. The model and thinking level are
+      // owned by the agent so unattended runs stay predictable.
       try {
-        session.sendMessage(userPrompt, { model: agent.modelId });
+        session.sendMessage(userPrompt, {
+          model: agent.modelId,
+          thinkingLevel: agent.thinkingLevel,
+        });
       } catch (err) {
         void finish("failure", err instanceof Error ? err.message : String(err));
       }

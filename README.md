@@ -26,7 +26,7 @@ Hive can run as a local web app, a Tauri desktop app connected to a local or rem
 - Codex App Server command execution, file changes, plan updates, goals, diagnostics, image views/generations, token usage, and collaborative agent tool calls are normalized into Hive events.
 
 **Automation**
-- Define reusable Team agents with a model, system prompt, optional git context injection, and read-only execution.
+- Define reusable Team agents with a model, thinking level, system prompt, optional git context injection, and read-only execution.
 - Schedule cron-based agent runs for a project or a standalone directory.
 - Build automation prompts from a Team agent plus an inline run prompt or user prompt template.
 - Store run history, messages, resolved system prompts, summaries, status, duration, and errors.
