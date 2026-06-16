@@ -1,7 +1,6 @@
-import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
-import { getDataDir } from "./state.js";
+import { getDataDir, writeJsonAtomic } from "./state.js";
 import type { Agent } from "../types.js";
 
 // Global lock for agents.json (shared array of all agent definitions).
@@ -28,13 +27,6 @@ function agentsFilePath(dataDir: string): string {
   return join(dataDir, "agents.json");
 }
 
-async function atomicWrite(filePath: string, data: unknown, dir: string): Promise<void> {
-  await mkdir(dir, { recursive: true });
-  const tmp = join(dir, `tmp.${randomUUID()}.json`);
-  await writeFile(tmp, JSON.stringify(data, null, 2), "utf-8");
-  await rename(tmp, filePath);
-}
-
 export async function loadAgents(dataDir = getDataDir()): Promise<Agent[]> {
   try {
     const raw = await readFile(agentsFilePath(dataDir), "utf-8");
@@ -46,5 +38,5 @@ export async function loadAgents(dataDir = getDataDir()): Promise<Agent[]> {
 }
 
 export async function saveAgents(agents: Agent[], dataDir = getDataDir()): Promise<void> {
-  await atomicWrite(agentsFilePath(dataDir), agents, dataDir);
+  await writeJsonAtomic(agentsFilePath(dataDir), agents, dataDir);
 }
