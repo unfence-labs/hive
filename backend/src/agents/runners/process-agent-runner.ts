@@ -4,14 +4,6 @@ import type { StreamAdapter } from "../providers/types.js";
 import { buildWorkspaceEnv } from "../../utils/env.js";
 import type { AgentRunner, AgentRunnerEvent, StopReason } from "./types.js";
 
-/** Gemini CLI writes informational/retry messages to stderr; suppress these from error events. */
-const GEMINI_STDERR_NOISE = [
-  "Loaded cached credentials",
-  "YOLO mode is enabled",
-  "Retrying with backoff",
-  "GaxiosError",
-];
-
 /** Codex CLI writes non-fatal operational diagnostics to stderr. */
 const CODEX_STDERR_NOISE = [
   "Reading additional input from stdin",
@@ -125,10 +117,6 @@ export class ProcessAgentRunner extends EventEmitter<AgentRunnerEvent> implement
 }
 
 function classifyProviderStderr(providerId: string | undefined, text: string): "suppress" | "diagnostic" | "error" {
-  if (providerId === "gemini") {
-    return GEMINI_STDERR_NOISE.some((n) => text.includes(n)) ? "suppress" : "error";
-  }
-
   if (providerId === "codex") {
     if (CODEX_STDERR_NOISE.some((n) => text.includes(n))
       || CODEX_STDERR_NOISE_PATTERNS.some((pattern) => pattern.test(text))) {

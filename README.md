@@ -8,7 +8,7 @@ Hive can run as a local web app, a Tauri desktop app connected to a local or rem
 
 **Agent workspaces**
 - Clone or create git-backed projects, then create isolated workspaces from them.
-- Run Claude, Codex, and Gemini sessions with provider-aware model selection and per-session provider locking.
+- Run Claude and Codex sessions with provider-aware model selection and per-session provider locking.
 - Keep up to 4 sessions per workspace, with history replay, queued follow-up messages, unread indicators, and interrupt/stop handling.
 - Stream assistant text, thinking, tool calls, file changes, diagnostics, tasks, images, plan updates, branch info, diff stats, and script status over the multiplexed hub WebSocket.
 - Attach images to chat messages; backend resizes and stores attachments per session.
@@ -23,7 +23,6 @@ Hive can run as a local web app, a Tauri desktop app connected to a local or rem
 **Providers**
 - Claude uses streaming JSON from the Claude CLI.
 - Interactive Codex chat uses `codex app-server`; Codex automations use `codex exec --json`.
-- Gemini uses NDJSON output with Hive's stream adapter.
 - Codex App Server command execution, file changes, plan updates, goals, diagnostics, image views/generations, token usage, and collaborative agent tool calls are normalized into Hive events.
 
 **Automation**
@@ -44,11 +43,10 @@ Hive can run as a local web app, a Tauri desktop app connected to a local or rem
 - Claude CLI installed and authenticated (`claude`)
 - GitHub CLI installed and authenticated when using GitHub-backed flows (`gh`)
 - Optional: Codex CLI (`codex`) for OpenAI model support
-- Optional: Gemini CLI (`gemini`) for Google model support
 - Optional desktop build: Rust >= 1.77 for Tauri
 - Optional remote setup: Tailscale
 
-The backend preflight requires `git`, `claude`, and `gh`. `codex` and `gemini` are optional and only affect their provider features.
+The backend preflight requires `git`, `claude`, and `gh`. `codex` is optional and only affects its provider features.
 
 ## Installation
 
@@ -264,7 +262,7 @@ This is the public backend surface exposed by route modules under `backend/src/a
 | Sessions | `GET/POST/DELETE /api/workspaces/:wsId/session`, `GET /api/workspaces/:wsId/session/messages`, `GET/POST /api/workspaces/:wsId/sessions`, `DELETE /api/workspaces/:wsId/sessions/:sessionId`, `GET /api/workspaces/:wsId/sessions/:sessionId/messages`, `GET /api/workspaces/:wsId/sessions/:sessionId/attachments/:filename` |
 | Brain | `GET/POST/DELETE /api/brain`, `GET /api/brain/files`, `GET/PUT /api/brain/file`, `GET /api/brain/file/raw`, `GET /api/brain/status`, `GET /api/brain/diff`, `POST /api/brain/save` |
 | Models and provider usage | `GET /api/models`, `GET /api/provider-usage` |
-| Completions | `GET /api/workspaces/:wsId/completions?provider=claude\|codex\|gemini` |
+| Completions | `GET /api/workspaces/:wsId/completions?provider=claude\|codex` |
 | Automations | `GET/POST /api/automations`, `GET/PUT/DELETE /api/automations/:id`, `POST /api/automations/:id/trigger`, `GET /api/automations/:id/runs`, `GET /api/automations/:id/runs/:runId/messages` |
 | Prompts | `GET/POST /api/prompt-templates`, `PUT/DELETE /api/prompt-templates/:id`, `GET/PUT/DELETE /api/prompts/base`, `GET/PUT/DELETE /api/prompts/brain` |
 | Settings | `GET/PUT /api/settings/notifications`, `POST /api/settings/notifications/test`, `POST /api/settings/notifications/test-apns`, `POST /api/devices/apns`, `GET /api/settings/agents`, `GET/PUT/DELETE /api/settings/instructions`, `POST /api/settings/instructions/sync`, `GET/POST /api/settings/skills`, `GET/PUT/DELETE /api/settings/skills/:id`, `POST /api/settings/skills/:id/sync`, `POST /api/settings/skills/sync-missing`, `GET/POST /api/settings/custom-agents`, `GET /api/settings/custom-agents/:id`, `PUT/DELETE /api/settings/custom-agents/:id/providers/:provider`, `POST /api/settings/custom-agents/:id/providers/:provider/counterpart` |

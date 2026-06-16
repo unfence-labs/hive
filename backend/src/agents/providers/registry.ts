@@ -2,7 +2,6 @@ import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { ClaudeProvider } from "./claude.js";
 import { CodexProvider } from "./codex.js";
-import { GeminiProvider } from "./gemini.js";
 import type { AgentProvider, ModelCatalogEntry, ModelCatalogResponse, ProviderCapabilities } from "./types.js";
 
 const execFile = promisify(execFileCb);
@@ -10,23 +9,20 @@ const execFile = promisify(execFileCb);
 const PROVIDER_LABELS: Record<string, string> = {
   claude: "Claude Code",
   codex: "Codex",
-  gemini: "Gemini CLI",
 };
 
 /** npm package name for each provider, used to check for updates. */
 const NPM_PACKAGES: Record<string, string> = {
   claude: "@anthropic-ai/claude-code",
   codex: "@openai/codex",
-  gemini: "@google/gemini-cli",
 };
 
-const DEFAULT_PROVIDER_PRIORITY = ["codex", "claude", "gemini"];
+const DEFAULT_PROVIDER_PRIORITY = ["codex", "claude"];
 
 /** All known providers. Availability is checked at runtime via CLI detection. */
 const ALL_PROVIDERS: AgentProvider[] = [
   new ClaudeProvider(),
   new CodexProvider(),
-  new GeminiProvider(),
 ];
 
 const providerMap = new Map<string, AgentProvider>(

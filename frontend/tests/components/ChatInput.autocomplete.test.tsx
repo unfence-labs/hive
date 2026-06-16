@@ -206,7 +206,7 @@ describe("ChatInput autocomplete", () => {
     vi.mocked(useModels).mockReturnValue({
       models: [],
       defaultModelId: "",
-      selectedModelId: "gemini:gemini-3.1-pro-preview",
+      selectedModelId: "provider:model-without-completions",
       selectedModel: undefined,
       capabilities: { thinkingLevels: [], planMode: false, blockingTools: false, completions: false },
       setSelectedModelId: vi.fn(),

@@ -89,7 +89,7 @@ describe("custom agent settings routes", () => {
     const badProvider = await app.inject({
       method: "POST",
       url: "/api/settings/custom-agents",
-      payload: { provider: "gemini", content: "name = \"x\"" },
+      payload: { provider: "unknown", content: "name = \"x\"" },
     });
     expect(badProvider.statusCode).toBe(400);
 

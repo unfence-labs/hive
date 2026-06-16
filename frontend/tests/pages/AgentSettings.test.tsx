@@ -80,11 +80,11 @@ describe("AgentSettings", () => {
   it("renders 'Not installed' badge for missing agents", async () => {
     mocks.get.mockResolvedValueOnce({
       agents: [
-        { id: "gemini", label: "Gemini CLI", installed: false, version: null, latestVersion: null, updateAvailable: false },
+        { id: "codex", label: "Codex", installed: false, version: null, latestVersion: null, updateAvailable: false },
       ],
     });
     renderPage();
-    expect(await screen.findByText("Gemini CLI")).toBeInTheDocument();
+    expect(await screen.findByText("Codex")).toBeInTheDocument();
     expect(screen.getByText("Not installed")).toBeInTheDocument();
   });
 
@@ -132,12 +132,10 @@ describe("AgentSettings", () => {
       agents: [
         { id: "claude", label: "Claude Code", installed: true, version: "1.0.35", latestVersion: "1.0.35", updateAvailable: false },
         { id: "codex", label: "Codex", installed: true, version: "0.1.2", latestVersion: "0.2.0", updateAvailable: true },
-        { id: "gemini", label: "Gemini CLI", installed: false, version: null, latestVersion: null, updateAvailable: false },
       ],
     });
     renderPage();
     expect(await screen.findByText("Claude Code")).toBeInTheDocument();
     expect(screen.getByText("Codex")).toBeInTheDocument();
-    expect(screen.getByText("Gemini CLI")).toBeInTheDocument();
   });
 });

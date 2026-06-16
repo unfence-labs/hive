@@ -281,9 +281,9 @@ private func getFilename(_ path: String) -> String {
     (path as NSString).lastPathComponent
 }
 
-/// Resolve file path across providers (Claude: file_path, Codex: filename, Gemini: path).
+/// Resolve file path across providers (Claude: file_path, Codex: filename).
 private func resolveFilePath(_ input: [String: Any]) -> String? {
-    (input["file_path"] ?? input["filename"] ?? input["path"]) as? String
+    (input["file_path"] ?? input["filename"]) as? String
 }
 
 /// Compute edit diff stats using prefix/suffix line matching.
@@ -695,7 +695,7 @@ private struct WhisperToolCallRow: View {
 
 // MARK: - Diff Content View (Edit tool expanded)
 
-/// Compute display-ready diff lines from old/new strings (Claude/Gemini format).
+/// Compute display-ready diff lines from old/new strings.
 private func computeDiffLines(oldString: String, newString: String) -> [DiffLine] {
     let oldLines = oldString.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
     let newLines = newString.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
@@ -759,7 +759,7 @@ private struct DiffContentView: View {
         if let diff = input["diff"] as? String, !diff.isEmpty {
             return (filePath, parseUnifiedDiffLines(diff))
         }
-        // Claude/Gemini format: old_string + new_string
+        // Claude format: old_string + new_string
         let oldString = input["old_string"] as? String ?? ""
         let newString = input["new_string"] as? String ?? ""
         return (filePath, computeDiffLines(oldString: oldString, newString: newString))

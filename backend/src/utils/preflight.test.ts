@@ -46,14 +46,14 @@ describe("preflight()", () => {
     vi.restoreAllMocks();
   });
 
-  it("continues when optional dependencies (codex, gemini) are missing", async () => {
+  it("continues when optional dependencies are missing", async () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
       throw new Error(`exit-${String(code)}`);
     }) as never);
 
     mockExecFile.mockImplementation(
       (cmd: string, _args: string[], cb: (...a: unknown[]) => void) => {
-        if (cmd === "codex" || cmd === "gemini") {
+        if (cmd === "codex") {
           cb(new Error("not found"), { stdout: "", stderr: "" });
           return;
         }
@@ -69,7 +69,6 @@ describe("preflight()", () => {
 
     expect(exitSpy).not.toHaveBeenCalled();
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("optional: 'codex' not found"));
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("optional: 'gemini' not found"));
   });
 
   it("exits when a required dependency is missing", async () => {
@@ -114,7 +113,7 @@ describe("preflight()", () => {
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("git 2.16.9 is too old (need >= 2.17)"));
   });
 
-  it("does not warn for gemini when gemini CLI exists", async () => {
+  it("does not warn when optional CLI exists", async () => {
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
       throw new Error(`exit-${String(code)}`);
     }) as never);
@@ -132,6 +131,6 @@ describe("preflight()", () => {
     await preflight();
 
     expect(exitSpy).not.toHaveBeenCalled();
-    expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining("'gemini' not found"));
+    expect(console.warn).not.toHaveBeenCalled();
   });
 });

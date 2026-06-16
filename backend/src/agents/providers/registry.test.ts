@@ -72,12 +72,6 @@ describe("resolveProvider", () => {
     expect(modelId).toBe("gpt-5.3-codex");
   });
 
-  it("resolves gemini:model-id correctly", () => {
-    const { provider, modelId } = resolveProvider("gemini:gemini-3.1-pro-preview");
-    expect(provider.id).toBe("gemini");
-    expect(modelId).toBe("gemini-3.1-pro-preview");
-  });
-
   it("throws for unknown provider prefix", () => {
     expect(() => resolveProvider("unknown:some-model")).toThrow("Unknown provider: unknown");
   });
@@ -101,12 +95,6 @@ describe("getProvider", () => {
     const provider = getProvider("codex");
     expect(provider).toBeDefined();
     expect(provider!.id).toBe("codex");
-  });
-
-  it("returns gemini provider by ID", () => {
-    const provider = getProvider("gemini");
-    expect(provider).toBeDefined();
-    expect(provider!.id).toBe("gemini");
   });
 
   it("returns undefined for unknown provider", () => {
@@ -156,18 +144,6 @@ describe("getModelCatalog", () => {
     }
   });
 
-  it("includes gemini models when gemini is available", () => {
-    markProviderAvailable("gemini");
-    const catalog = getModelCatalog();
-
-    const geminiModels = catalog.models.filter((m) => m.provider === "gemini");
-    expect(geminiModels.length).toBeGreaterThan(0);
-
-    for (const model of geminiModels) {
-      expect(model.id).toMatch(/^gemini:/);
-    }
-  });
-
   it("sets defaultModelId to claude default when only claude is available", () => {
     markProviderAvailable("claude");
     const catalog = getModelCatalog();
@@ -203,14 +179,6 @@ describe("getModelCatalog", () => {
     expect(claudeModel?.providerLabel).toBe("Claude Code");
   });
 
-  it("uses Gemini CLI label for gemini models", () => {
-    markProviderAvailable("gemini");
-    const catalog = getModelCatalog();
-
-    const geminiModel = catalog.models.find((m) => m.provider === "gemini");
-    expect(geminiModel?.providerLabel).toBe("Gemini CLI");
-  });
-
   it("includes capabilities for each model", () => {
     markProviderAvailable("claude");
     const catalog = getModelCatalog();
@@ -223,21 +191,6 @@ describe("getModelCatalog", () => {
       expect(typeof model.capabilities.completions).toBe("boolean");
       expect(typeof model.capabilities.goals).toBe("boolean");
     }
-  });
-
-  it("exposes gemini capabilities with thinking disabled", () => {
-    markProviderAvailable("gemini");
-    const catalog = getModelCatalog();
-
-    const geminiModel = catalog.models.find((m) => m.provider === "gemini");
-    expect(geminiModel).toBeDefined();
-    expect(geminiModel?.capabilities).toEqual({
-      thinkingLevels: [],
-      planMode: false,
-      blockingTools: false,
-      completions: false,
-      goals: false,
-    });
   });
 
   it("exposes Codex goals capability when App Server goals are detected", () => {
@@ -301,7 +254,6 @@ describe("detectAvailableProviders", () => {
     const providers = new Set(catalog.models.map((m) => m.provider));
     expect(providers.has("claude")).toBe(true);
     expect(providers.has("codex")).toBe(true);
-    expect(providers.has("gemini")).toBe(true);
     expect(providerSupportsAppServer("codex")).toBe(true);
     expect(providerSupportsAppServerGoals("codex")).toBe(true);
   });
@@ -497,7 +449,7 @@ describe("getAllProviderInfo", () => {
     await detectAvailableProviders();
 
     const info = getAllProviderInfo();
-    expect(info).toHaveLength(3);
+    expect(info).toHaveLength(2);
     expect(info.every((p) => !p.installed)).toBe(true);
     expect(info.every((p) => p.version === null)).toBe(true);
   });
@@ -527,14 +479,11 @@ describe("getAllProviderInfo", () => {
     const info = getAllProviderInfo();
     const claude = info.find((p) => p.id === "claude")!;
     const codex = info.find((p) => p.id === "codex")!;
-    const gemini = info.find((p) => p.id === "gemini")!;
 
     expect(claude.label).toBe("Claude Code");
     expect(claude.npmPackage).toBe("@anthropic-ai/claude-code");
     expect(codex.label).toBe("Codex");
     expect(codex.npmPackage).toBe("@openai/codex");
-    expect(gemini.label).toBe("Gemini CLI");
-    expect(gemini.npmPackage).toBe("@google/gemini-cli");
   });
 
   it("sets version null when CLI output is unparseable", async () => {
@@ -598,6 +547,5 @@ describe("getAllProviderInfo", () => {
     const info = getAllProviderInfo();
     expect(info.find((p) => p.id === "claude")?.version).toBe("1.0.0");
     expect(info.find((p) => p.id === "codex")?.version).toBe("0.2.5");
-    expect(info.find((p) => p.id === "gemini")?.version).toBeNull();
   });
 });

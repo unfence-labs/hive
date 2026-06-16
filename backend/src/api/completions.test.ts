@@ -252,7 +252,7 @@ description: Fix CI failures
   it("rejects unsupported completion providers", async () => {
     const res = await app.inject({
       method: "GET",
-      url: `/api/workspaces/${wsId}/completions?provider=gemini`,
+      url: `/api/workspaces/${wsId}/completions?provider=unknown`,
     });
 
     expect(res.statusCode).toBe(400);
