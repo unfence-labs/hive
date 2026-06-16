@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Loader2, Plus, Trash2, Save, X } from "lucide-react";
+import { Bot, Trash2, Save, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,8 +11,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingsHeader } from "@/components/AppLayout";
+import { SettingsActionButton } from "@/components/settings/ProviderSync";
+import {
+  SettingsEmptySelection,
+  SettingsResourceEmptyList,
+  SettingsResourceList,
+  SettingsResourceListItem,
+} from "@/components/settings/SettingsResourceList";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import {
@@ -21,7 +27,6 @@ import {
   useUpdateAgent,
   useDeleteAgent,
 } from "@/hooks/useAgents";
-import { cn } from "@/lib/utils";
 import type { Agent, ModelCatalogEntry, ModelCatalogResponse } from "@/types";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -124,62 +129,24 @@ function LeftPanel({
   agents: Agent[];
 }) {
   return (
-    <div className="flex w-64 shrink-0 flex-col border-r border-border/50">
-      <ScrollArea className="flex-1">
-        <div className="p-2">
-          {agents.map((agent) => (
-            <ListItem
-              key={agent.id}
-              label={agent.name}
-              isSelected={selection?.kind === "agent" && selection.id === agent.id}
-              onClick={() => onSelect({ kind: "agent", id: agent.id })}
-            />
-          ))}
-        </div>
-      </ScrollArea>
-
-      {/* Add Agent button */}
-      <div className="border-t border-border/30 p-2">
-        <button
-          type="button"
-          onClick={() => onSelect({ kind: "create" })}
-          className={cn(
-            "inline-flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/10",
-            selection?.kind === "create" && "border-primary bg-primary/10",
-          )}
-        >
-          <Plus className="h-3 w-3" />
-          Add Agent
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── List Item ──────────────────────────────────────────────────────────
-
-function ListItem({
-  label,
-  isSelected,
-  onClick,
-}: {
-  label: string;
-  isSelected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-        isSelected
-          ? "bg-primary/15 text-foreground"
-          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-      )}
+    <SettingsResourceList
+      showEmpty={agents.length === 0}
+      empty={<SettingsResourceEmptyList>No agents yet — add one to get started.</SettingsResourceEmptyList>}
+      actionLabel="Add Agent"
+      actionActive={selection?.kind === "create"}
+      onAction={() => onSelect({ kind: "create" })}
     >
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-    </button>
+      {agents.map((agent) => (
+        <SettingsResourceListItem
+          key={agent.id}
+          icon={<Bot className="h-3.5 w-3.5 text-muted-foreground" />}
+          title={agent.name}
+          description={agent.description}
+          selected={selection?.kind === "agent" && selection.id === agent.id}
+          onClick={() => onSelect({ kind: "agent", id: agent.id })}
+        />
+      ))}
+    </SettingsResourceList>
   );
 }
 
@@ -212,7 +179,7 @@ function RightPanel({
     return <CreateAgentForm onCreated={onCreated} onCancel={onCancel} />;
   }
 
-  return <EmptyState />;
+  return <SettingsEmptySelection>Select an agent to edit, or add a new one</SettingsEmptySelection>;
 }
 
 // ── Shared form fields ─────────────────────────────────────────────────
@@ -372,26 +339,22 @@ function AgentDetail({
 
       {/* Actions */}
       <div className="mt-4 flex shrink-0 items-center gap-2">
-        <button
-          type="button"
+        <SettingsActionButton
+          variant="primary"
           onClick={() => void handleSave()}
           disabled={!isDirty || !isValid || updateMutation.isPending}
-          className={cn(
-            "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
-            (!isDirty || !isValid || updateMutation.isPending) && "pointer-events-none opacity-60",
-          )}
+          pending={updateMutation.isPending}
+          icon={<Save className="h-3 w-3" />}
         >
-          {updateMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
           Save
-        </button>
-        <button
-          type="button"
+        </SettingsActionButton>
+        <SettingsActionButton
+          variant="danger"
           onClick={onDelete}
-          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-red-400"
+          icon={<Trash2 className="h-3 w-3" />}
         >
-          <Trash2 className="h-3 w-3" />
           Delete
-        </button>
+        </SettingsActionButton>
       </div>
     </div>
   );
@@ -456,37 +419,23 @@ function CreateAgentForm({
 
       {/* Actions */}
       <div className="mt-4 flex shrink-0 items-center gap-2">
-        <button
-          type="button"
+        <SettingsActionButton
+          variant="primary"
           onClick={() => void handleSubmit()}
           disabled={!isValid || createMutation.isPending}
-          className={cn(
-            "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
-            (!isValid || createMutation.isPending) && "pointer-events-none opacity-60",
-          )}
+          pending={createMutation.isPending}
+          icon={<Save className="h-3 w-3" />}
         >
-          {createMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
           Create
-        </button>
-        <button
-          type="button"
+        </SettingsActionButton>
+        <SettingsActionButton
+          variant="secondary"
           onClick={onCancel}
-          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          icon={<X className="h-3 w-3" />}
         >
-          <X className="h-3 w-3" />
           Cancel
-        </button>
+        </SettingsActionButton>
       </div>
-    </div>
-  );
-}
-
-// ── Empty State ────────────────────────────────────────────────────────
-
-function EmptyState() {
-  return (
-    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      Select an agent to edit, or add a new one
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Loader2, Plus, Trash2, Save, X, RotateCcw, ChevronRight, HelpCircle, Sparkles, Brain } from "lucide-react";
+import { Loader2, Trash2, Save, X, RotateCcw, ChevronRight, HelpCircle, Sparkles, Brain, FileText } from "lucide-react";
 import type { UseQueryResult, UseMutationResult } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -25,8 +25,13 @@ import {
 } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingsHeader } from "@/components/AppLayout";
+import { SettingsActionButton } from "@/components/settings/ProviderSync";
+import {
+  SettingsEmptySelection,
+  SettingsResourceList,
+  SettingsResourceListItem,
+} from "@/components/settings/SettingsResourceList";
 import {
   usePromptTemplates,
   useCreatePromptTemplate,
@@ -195,107 +200,65 @@ function LeftPanel({
   userTemplates: PromptTemplate[];
 }) {
   return (
-    <div className="flex w-64 shrink-0 flex-col border-r border-border/50">
-      <ScrollArea className="flex-1">
-        <div className="p-2">
-          {/* Pinned: Build Agent Prompt */}
-          <ListItem
-            label="Build Agent Prompt"
-            icon={<Sparkles className="h-3 w-3 text-primary" />}
-            badge={baseData?.isDefault ? "Default" : "Custom"}
-            badgeVariant={baseData?.isDefault ? "secondary" : "default"}
-            isSelected={selection?.kind === "base"}
-            onClick={() => onSelect({ kind: "base" })}
-          />
-
-          {/* Pinned: Brain Agent Prompt */}
-          <ListItem
-            label="Brain Agent Prompt"
-            icon={<Brain className="h-3 w-3 text-primary" />}
-            badge={brainData?.isDefault ? "Default" : "Custom"}
-            badgeVariant={brainData?.isDefault ? "secondary" : "default"}
-            isSelected={selection?.kind === "brain"}
-            onClick={() => onSelect({ kind: "brain" })}
-          />
-
-          <div className="my-2 border-t border-border/30" />
-
-          {/* Task (user) templates */}
-          {userTemplates.length > 0 && (
-            <div className="mb-1">
-              <h3 className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                Templates
-              </h3>
-              {userTemplates.map((tpl) => (
-                <ListItem
-                  key={tpl.id}
-                  label={tpl.name}
-                  isSelected={selection?.kind === "template" && selection.id === tpl.id}
-                  onClick={() => onSelect({ kind: "template", id: tpl.id })}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </ScrollArea>
-
-      {/* Add Template button */}
-      <div className="border-t border-border/30 p-2">
-        <button
-          type="button"
-          onClick={() => onSelect({ kind: "create" })}
-          className={cn(
-            "inline-flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:border-primary hover:bg-primary/10",
-            selection?.kind === "create" && "border-primary bg-primary/10",
-          )}
-        >
-          <Plus className="h-3 w-3" />
-          Add Template
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── List Item ──────────────────────────────────────────────────────────
-
-function ListItem({
-  label,
-  icon,
-  badge,
-  badgeVariant = "secondary",
-  isSelected,
-  onClick,
-}: {
-  label: string;
-  icon?: React.ReactNode;
-  badge?: string;
-  badgeVariant?: "default" | "secondary";
-  isSelected: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-        isSelected
-          ? "bg-primary/15 text-foreground"
-          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-      )}
+    <SettingsResourceList
+      showEmpty={false}
+      empty={null}
+      actionLabel="Add Template"
+      actionActive={selection?.kind === "create"}
+      onAction={() => onSelect({ kind: "create" })}
     >
-      {icon}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {badge && (
-        <Badge
-          variant={badgeVariant}
-          className="shrink-0 px-1.5 py-0 text-[10px]"
-        >
-          {badge}
-        </Badge>
+      {/* Pinned: Build Agent Prompt */}
+      <SettingsResourceListItem
+        icon={<Sparkles className="h-3 w-3 text-primary" />}
+        title="Build Agent Prompt"
+        trailing={
+          <Badge
+            variant={baseData?.isDefault ? "secondary" : "default"}
+            className="shrink-0 px-1.5 py-0 text-[10px]"
+          >
+            {baseData?.isDefault ? "Default" : "Custom"}
+          </Badge>
+        }
+        selected={selection?.kind === "base"}
+        onClick={() => onSelect({ kind: "base" })}
+      />
+
+      {/* Pinned: Brain Agent Prompt */}
+      <SettingsResourceListItem
+        icon={<Brain className="h-3 w-3 text-primary" />}
+        title="Brain Agent Prompt"
+        trailing={
+          <Badge
+            variant={brainData?.isDefault ? "secondary" : "default"}
+            className="shrink-0 px-1.5 py-0 text-[10px]"
+          >
+            {brainData?.isDefault ? "Default" : "Custom"}
+          </Badge>
+        }
+        selected={selection?.kind === "brain"}
+        onClick={() => onSelect({ kind: "brain" })}
+      />
+
+      <div className="my-2 border-t border-border/30" />
+
+      {/* Task (user) templates */}
+      {userTemplates.length > 0 && (
+        <div className="mb-1">
+          <h3 className="px-2 py-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Templates
+          </h3>
+          {userTemplates.map((tpl) => (
+            <SettingsResourceListItem
+              key={tpl.id}
+              icon={<FileText className="h-3 w-3 text-muted-foreground" />}
+              title={tpl.name}
+              selected={selection?.kind === "template" && selection.id === tpl.id}
+              onClick={() => onSelect({ kind: "template", id: tpl.id })}
+            />
+          ))}
+        </div>
       )}
-    </button>
+    </SettingsResourceList>
   );
 }
 
@@ -341,7 +304,7 @@ function RightPanel({
     );
   }
 
-  return <EmptyState />;
+  return <SettingsEmptySelection>Select a prompt to edit</SettingsEmptySelection>;
 }
 
 // ── Editable Prompt Detail (shared) ────────────────────────────────────
@@ -460,27 +423,23 @@ function EditablePromptDetail({
 
       {/* Actions */}
       <div className="mt-4 flex shrink-0 items-center gap-2">
-        <button
-          type="button"
+        <SettingsActionButton
+          variant="primary"
           onClick={() => void handleSave()}
           disabled={!isDirty || !draft.trim() || updateMutation.isPending}
-          className={cn(
-            "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
-            (!isDirty || !draft.trim() || updateMutation.isPending) && "pointer-events-none opacity-60",
-          )}
+          pending={updateMutation.isPending}
+          icon={<Save className="h-3 w-3" />}
         >
-          {updateMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
           Save
-        </button>
+        </SettingsActionButton>
         {!data.isDefault && (
-          <button
-            type="button"
+          <SettingsActionButton
+            variant="danger"
             onClick={() => setShowResetConfirm(true)}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-red-400"
+            icon={<RotateCcw className="h-3 w-3" />}
           >
-            <RotateCcw className="h-3 w-3" />
             Reset to default
-          </button>
+          </SettingsActionButton>
         )}
       </div>
 
@@ -587,26 +546,22 @@ function TemplateDetail({
 
       {/* Actions */}
       <div className="mt-4 flex shrink-0 items-center gap-2">
-        <button
-          type="button"
+        <SettingsActionButton
+          variant="primary"
           onClick={() => void handleSave()}
           disabled={!isDirty || !isValid || updateMutation.isPending}
-          className={cn(
-            "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
-            (!isDirty || !isValid || updateMutation.isPending) && "pointer-events-none opacity-60",
-          )}
+          pending={updateMutation.isPending}
+          icon={<Save className="h-3 w-3" />}
         >
-          {updateMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
           Save
-        </button>
-        <button
-          type="button"
+        </SettingsActionButton>
+        <SettingsActionButton
+          variant="danger"
           onClick={onDelete}
-          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-red-400"
+          icon={<Trash2 className="h-3 w-3" />}
         >
-          <Trash2 className="h-3 w-3" />
           Delete
-        </button>
+        </SettingsActionButton>
       </div>
     </div>
   );
@@ -670,37 +625,23 @@ function CreateTemplateForm({
 
       {/* Actions */}
       <div className="mt-4 flex shrink-0 items-center gap-2">
-        <button
-          type="button"
+        <SettingsActionButton
+          variant="primary"
           onClick={() => void handleSubmit()}
           disabled={!isValid || createMutation.isPending}
-          className={cn(
-            "inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
-            (!isValid || createMutation.isPending) && "pointer-events-none opacity-60",
-          )}
+          pending={createMutation.isPending}
+          icon={<Save className="h-3 w-3" />}
         >
-          {createMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
           Create
-        </button>
-        <button
-          type="button"
+        </SettingsActionButton>
+        <SettingsActionButton
+          variant="secondary"
           onClick={onCancel}
-          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+          icon={<X className="h-3 w-3" />}
         >
-          <X className="h-3 w-3" />
           Cancel
-        </button>
+        </SettingsActionButton>
       </div>
-    </div>
-  );
-}
-
-// ── Empty State ────────────────────────────────────────────────────────
-
-function EmptyState() {
-  return (
-    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      Select a prompt to edit
     </div>
   );
 }
@@ -715,8 +656,11 @@ function DeleteButton({ template, onDone }: { template: PromptTemplate | null; o
     <div className="flex items-center gap-2">
       {error && <span className="text-xs text-red-500">{error}</span>}
       <AlertDialogAction
-        onClick={async () => {
+        onClick={async (e) => {
           if (!template) return;
+          // Keep the dialog open so a 409 error can surface inline.
+          e.preventDefault();
+          setError(null);
           try {
             await deleteMutation.mutateAsync(template.id);
             onDone();
