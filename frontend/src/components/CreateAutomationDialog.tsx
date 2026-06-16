@@ -235,11 +235,11 @@ export default function AutomationDialog({ open, onOpenChange, automation }: Aut
               <p className="text-xs text-muted-foreground">
                 No agents yet. Create one on the{" "}
                 <Link
-                  to="/settings/task-agents"
+                  to="/settings/team"
                   onClick={() => onOpenChange(false)}
                   className="text-primary underline-offset-2 hover:underline"
                 >
-                  Task Agents settings page
+                  Team settings page
                 </Link>
                 .
               </p>

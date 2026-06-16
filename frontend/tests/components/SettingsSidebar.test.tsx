@@ -158,14 +158,14 @@ describe("SettingsSidebar", () => {
     });
   });
 
-  it("navigates to agents settings", async () => {
+  it("navigates to CLI settings", async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <MemoryRouter initialEntries={["/settings/appearance"]}>
         <Routes>
           <Route path="/settings" element={<SettingsShell />}>
             <Route path="appearance" element={<div>Appearance settings</div>} />
-            <Route path="agents" element={<div>Agents settings</div>} />
+            <Route path="cli" element={<div>CLI settings</div>} />
           </Route>
         </Routes>
       </MemoryRouter>,
@@ -173,7 +173,7 @@ describe("SettingsSidebar", () => {
 
     await user.click(screen.getByRole("link", { name: /CLI/i }));
     await waitFor(() => {
-      expect(screen.getByText("Agents settings")).toBeInTheDocument();
+      expect(screen.getByText("CLI settings")).toBeInTheDocument();
     });
   });
 
@@ -196,37 +196,37 @@ describe("SettingsSidebar", () => {
     });
   });
 
-  it("navigates to custom agents settings", async () => {
+  it("navigates to subagents settings", async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <MemoryRouter initialEntries={["/settings/appearance"]}>
         <Routes>
           <Route path="/settings" element={<SettingsShell />}>
             <Route path="appearance" element={<div>Appearance settings</div>} />
-            <Route path="custom-agents" element={<div>Custom agents settings</div>} />
+            <Route path="subagents" element={<div>Subagents settings</div>} />
           </Route>
         </Routes>
       </MemoryRouter>,
     );
 
-    await user.click(screen.getByRole("link", { name: /Custom Agents/i }));
+    await user.click(screen.getByRole("link", { name: /Subagents/i }));
     await waitFor(() => {
-      expect(screen.getByText("Custom agents settings")).toBeInTheDocument();
+      expect(screen.getByText("Subagents settings")).toBeInTheDocument();
     });
   });
 
-  it("highlights the agents link when agents route is active", async () => {
+  it("highlights the CLI link when CLI route is active", async () => {
     renderWithProviders(
-      <MemoryRouter initialEntries={["/settings/agents"]}>
+      <MemoryRouter initialEntries={["/settings/cli"]}>
         <Routes>
           <Route path="/settings" element={<SettingsShell />}>
-            <Route path="agents" element={<div>Agents settings</div>} />
+            <Route path="cli" element={<div>CLI settings</div>} />
           </Route>
         </Routes>
       </MemoryRouter>,
     );
 
-    await screen.findByText("Agents settings");
+    await screen.findByText("CLI settings");
     expect(screen.getByRole("link", { name: /CLI/i })).toHaveClass("bg-primary/10");
   });
 
@@ -243,10 +243,10 @@ describe("SettingsSidebar", () => {
 
     expect(screen.getByRole("heading", { name: "General" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Agents" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /CLI/i })).toHaveAttribute("href", "/settings/agents");
-    expect(screen.getByRole("link", { name: /Custom Agents/i })).toHaveAttribute("href", "/settings/custom-agents");
+    expect(screen.getByRole("link", { name: /CLI/i })).toHaveAttribute("href", "/settings/cli");
+    expect(screen.getByRole("link", { name: /Subagents/i })).toHaveAttribute("href", "/settings/subagents");
     expect(screen.getByRole("link", { name: /Instructions/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Prompts/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Prompt/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Skills/i })).toBeInTheDocument();
   });
 

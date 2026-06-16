@@ -57,7 +57,7 @@ function isNewerVersion(installed: string, latest: string): boolean {
 }
 
 export async function agentSettingsRoutes(app: FastifyInstance): Promise<void> {
-  app.get("/api/settings/agents", async (): Promise<AgentStatusResponse> => {
+  app.get("/api/settings/cli", async (): Promise<AgentStatusResponse> => {
     const providers = getAllProviderInfo();
 
     const latestVersions = await Promise.all(

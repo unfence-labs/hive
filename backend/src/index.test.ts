@@ -115,7 +115,7 @@ describe("buildApp", () => {
 
   it("registers agent settings routes", async () => {
     app = await buildApp();
-    const res = await app.inject({ method: "GET", url: "/api/settings/agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
@@ -133,9 +133,9 @@ describe("buildApp", () => {
     });
   });
 
-  it("registers custom agent settings routes", async () => {
+  it("registers subagent settings routes", async () => {
     app = await buildApp();
-    const res = await app.inject({ method: "GET", url: "/api/settings/custom-agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/subagents" });
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({

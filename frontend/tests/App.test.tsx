@@ -135,8 +135,8 @@ vi.mock("@/pages/settings/AgentSettings", () => ({
   default: () => <div>agent settings</div>,
 }));
 
-vi.mock("@/pages/settings/CustomAgentsSettings", () => ({
-  default: () => <div>custom agents settings</div>,
+vi.mock("@/pages/settings/SubagentsSettings", () => ({
+  default: () => <div>subagents settings</div>,
 }));
 
 vi.mock("@/pages/settings/ProjectDetail", () => ({
@@ -275,20 +275,20 @@ describe("App", () => {
     expect(screen.getByText("notification settings")).toBeInTheDocument();
   });
 
-  it("renders agent settings route", () => {
-    window.history.pushState({}, "", "/settings/agents");
+  it("renders CLI settings route", () => {
+    window.history.pushState({}, "", "/settings/cli");
 
     renderApp();
 
     expect(screen.getByText("agent settings")).toBeInTheDocument();
   });
 
-  it("renders custom agents settings route", async () => {
-    window.history.pushState({}, "", "/settings/custom-agents");
+  it("renders subagents settings route", async () => {
+    window.history.pushState({}, "", "/settings/subagents");
 
     renderApp();
 
-    expect(await screen.findByText("custom agents settings")).toBeInTheDocument();
+    expect(await screen.findByText("subagents settings")).toBeInTheDocument();
   });
 
   it("redirects /projects/:id to /home", () => {

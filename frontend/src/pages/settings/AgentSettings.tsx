@@ -19,14 +19,14 @@ interface AgentStatusResponse {
 
 export default function AgentSettings() {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["settings", "agents"],
-    queryFn: () => api.get<AgentStatusResponse>("/api/settings/agents"),
+    queryKey: ["settings", "cli"],
+    queryFn: () => api.get<AgentStatusResponse>("/api/settings/cli"),
   });
 
   return (
     <div className="flex h-full flex-col overflow-auto">
       <SettingsHeader>
-        <h1 className="text-sm font-medium">Agents</h1>
+        <h1 className="text-sm font-medium">CLI</h1>
       </SettingsHeader>
 
       <div className="max-w-2xl space-y-4 px-4 py-5">

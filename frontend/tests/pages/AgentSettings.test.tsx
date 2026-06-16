@@ -36,7 +36,7 @@ describe("AgentSettings", () => {
   it("renders heading with drag region", async () => {
     mocks.get.mockResolvedValueOnce({ agents: [] });
     renderPage();
-    const heading = await screen.findByRole("heading", { name: "Agents" });
+    const heading = await screen.findByRole("heading", { name: "CLI" });
     expect(heading.closest("div")).toHaveAttribute("data-tauri-drag-region");
   });
 
@@ -50,8 +50,8 @@ describe("AgentSettings", () => {
     mocks.get.mockResolvedValueOnce({ agents: [] });
     renderPage();
 
-    await screen.findByRole("heading", { name: "Agents" });
-    expect(mocks.get).toHaveBeenCalledWith("/api/settings/agents");
+    await screen.findByRole("heading", { name: "CLI" });
+    expect(mocks.get).toHaveBeenCalledWith("/api/settings/cli");
   });
 
   it("renders installed agent with 'Up to date' badge", async () => {

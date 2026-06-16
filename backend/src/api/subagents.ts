@@ -17,7 +17,7 @@ import type {
 } from "../types.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
 
-interface CustomAgentRoutesOptions {
+interface SubagentRoutesOptions {
   roots?: CustomAgentRoots;
 }
 
@@ -25,26 +25,32 @@ function parseProvider(value: string | undefined): CustomAgentProviderId | null 
   return value === "claude" || value === "codex" ? value : null;
 }
 
-export async function customAgentRoutes(
+function subagentErrorMessage(err: unknown, fallback: string): string {
+  return errorMessage(err, fallback)
+    .replaceAll("Custom agent", "Subagent")
+    .replaceAll("custom agent", "subagent");
+}
+
+export async function subagentRoutes(
   app: FastifyInstance,
-  opts: CustomAgentRoutesOptions = {},
+  opts: SubagentRoutesOptions = {},
 ): Promise<void> {
   const roots = opts.roots ?? globalCustomAgentRoots();
 
-  app.get("/api/settings/custom-agents", async (_req, reply) => {
+  app.get("/api/settings/subagents", async (_req, reply) => {
     try {
       return await listGlobalCustomAgents(roots);
     } catch (err: unknown) {
       return reply
         .status(errorStatus(err))
-        .send({ error: errorMessage(err, "Failed to list custom agents") });
+        .send({ error: subagentErrorMessage(err, "Failed to list subagents") });
     }
   });
 
-  app.post<{ Body: CreateCustomAgentRequest }>("/api/settings/custom-agents", async (req, reply) => {
+  app.post<{ Body: CreateCustomAgentRequest }>("/api/settings/subagents", async (req, reply) => {
     try {
       const provider = parseProvider(req.body?.provider);
-      if (!provider) return reply.status(400).send({ error: "Unsupported custom agent provider" });
+      if (!provider) return reply.status(400).send({ error: "Unsupported subagent provider" });
 
       const { content } = req.body ?? {};
       if (typeof content !== "string" || !content.trim()) {
@@ -58,29 +64,29 @@ export async function customAgentRoutes(
     } catch (err: unknown) {
       return reply
         .status(errorStatus(err))
-        .send({ error: errorMessage(err, "Failed to create custom agent") });
+        .send({ error: subagentErrorMessage(err, "Failed to create subagent") });
     }
   });
 
-  app.get<{ Params: { id: string } }>("/api/settings/custom-agents/:id", async (req, reply) => {
+  app.get<{ Params: { id: string } }>("/api/settings/subagents/:id", async (req, reply) => {
     try {
       const agent = await loadGlobalCustomAgent(req.params.id, roots);
-      if (!agent) return reply.status(404).send({ error: "Custom agent not found" });
+      if (!agent) return reply.status(404).send({ error: "Subagent not found" });
       return agent;
     } catch (err: unknown) {
       return reply
         .status(errorStatus(err))
-        .send({ error: errorMessage(err, "Failed to load custom agent") });
+        .send({ error: subagentErrorMessage(err, "Failed to load subagent") });
     }
   });
 
   app.put<{
     Params: { id: string; provider: string };
     Body: UpdateCustomAgentRequest;
-  }>("/api/settings/custom-agents/:id/providers/:provider", async (req, reply) => {
+  }>("/api/settings/subagents/:id/providers/:provider", async (req, reply) => {
     try {
       const provider = parseProvider(req.params.provider);
-      if (!provider) return reply.status(400).send({ error: "Unsupported custom agent provider" });
+      if (!provider) return reply.status(400).send({ error: "Unsupported subagent provider" });
 
       const { content } = req.body ?? {};
       if (typeof content !== "string" || !content.trim()) {
@@ -90,51 +96,51 @@ export async function customAgentRoutes(
       const agent = await withCustomAgentsLock(() =>
         saveGlobalCustomAgentProvider(req.params.id, provider, content, roots),
       );
-      if (!agent) return reply.status(404).send({ error: "Custom agent not found" });
+      if (!agent) return reply.status(404).send({ error: "Subagent not found" });
       return agent;
     } catch (err: unknown) {
       return reply
         .status(errorStatus(err))
-        .send({ error: errorMessage(err, "Failed to save custom agent") });
+        .send({ error: subagentErrorMessage(err, "Failed to save subagent") });
     }
   });
 
   app.delete<{ Params: { id: string; provider: string } }>(
-    "/api/settings/custom-agents/:id/providers/:provider",
+    "/api/settings/subagents/:id/providers/:provider",
     async (req, reply) => {
       try {
         const provider = parseProvider(req.params.provider);
-        if (!provider) return reply.status(400).send({ error: "Unsupported custom agent provider" });
+        if (!provider) return reply.status(400).send({ error: "Unsupported subagent provider" });
 
         const deleted = await withCustomAgentsLock(() =>
           deleteGlobalCustomAgentProvider(req.params.id, provider, roots),
         );
-        if (!deleted) return reply.status(404).send({ error: "Custom agent not found" });
+        if (!deleted) return reply.status(404).send({ error: "Subagent not found" });
         return reply.status(204).send();
       } catch (err: unknown) {
         return reply
           .status(errorStatus(err))
-          .send({ error: errorMessage(err, "Failed to delete custom agent") });
+          .send({ error: subagentErrorMessage(err, "Failed to delete subagent") });
       }
     },
   );
 
   app.post<{ Params: { id: string; provider: string } }>(
-    "/api/settings/custom-agents/:id/providers/:provider/counterpart",
+    "/api/settings/subagents/:id/providers/:provider/counterpart",
     async (req, reply) => {
       try {
         const provider = parseProvider(req.params.provider);
-        if (!provider) return reply.status(400).send({ error: "Unsupported custom agent provider" });
+        if (!provider) return reply.status(400).send({ error: "Unsupported subagent provider" });
 
         const agent = await withCustomAgentsLock(() =>
           createGlobalCustomAgentCounterpart(req.params.id, provider, roots),
         );
-        if (!agent) return reply.status(404).send({ error: "Custom agent not found" });
+        if (!agent) return reply.status(404).send({ error: "Subagent not found" });
         return agent;
       } catch (err: unknown) {
         return reply
           .status(errorStatus(err))
-          .send({ error: errorMessage(err, "Failed to create custom agent counterpart") });
+          .send({ error: subagentErrorMessage(err, "Failed to create subagent counterpart") });
       }
     },
   );

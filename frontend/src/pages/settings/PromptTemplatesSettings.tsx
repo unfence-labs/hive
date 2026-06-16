@@ -113,7 +113,7 @@ export default function PromptTemplatesSettings() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <SettingsHeader>
-        <h1 className="text-sm font-medium">Prompts</h1>
+        <h1 className="text-sm font-medium">Prompt</h1>
         <div className="flex-1" />
         <button
           type="button"

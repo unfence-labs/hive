@@ -200,12 +200,12 @@ describe("CreateAutomationDialog", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/automations/auto-new");
   });
 
-  it("shows an empty-state link to the Agents page when no agents exist", () => {
+  it("shows an empty-state link to the Team page when no agents exist", () => {
     mocks.useAgents.mockReturnValue({ data: [] });
     renderDialog({});
 
-    const link = screen.getByRole("link", { name: "Task Agents settings page" });
-    expect(link).toHaveAttribute("href", "/settings/task-agents");
+    const link = screen.getByRole("link", { name: "Team settings page" });
+    expect(link).toHaveAttribute("href", "/settings/team");
   });
 
   it("shows an inline validation message for invalid custom cron expressions", async () => {

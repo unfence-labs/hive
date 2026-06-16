@@ -93,7 +93,7 @@ interface NewAgentDraft {
   conflictContent: string | null;
 }
 
-export default function CustomAgentsSettings() {
+export default function SubagentsSettings() {
   const { data, isLoading, isError } = useCustomAgents();
   const agents = data?.agents ?? [];
   const [selection, setSelection] = useState<AgentSelection>(null);
@@ -185,17 +185,17 @@ export default function CustomAgentsSettings() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <SettingsHeader>
-        <h1 className="text-sm font-medium">Custom Agents</h1>
+        <h1 className="text-sm font-medium">Subagents</h1>
       </SettingsHeader>
 
       {isLoading ? (
         <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
           <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
-          Loading custom agents…
+          Loading subagents…
         </div>
       ) : isError ? (
         <div className="flex flex-1 items-center justify-center text-xs text-red-400">
-          Could not load custom agents.
+          Could not load subagents.
         </div>
       ) : (
         <div className="flex flex-1 overflow-hidden max-md:flex-col">
@@ -251,7 +251,7 @@ function CustomAgentsList({
   return (
     <SettingsResourceList
       showEmpty={agents.length === 0 && !draftAgent}
-      empty={<SettingsResourceEmptyList>No global custom agents found.</SettingsResourceEmptyList>}
+      empty={<SettingsResourceEmptyList>No global subagents found.</SettingsResourceEmptyList>}
       actionLabel="New Agent"
       actionActive={selection?.kind === "draft"}
       onAction={onNewAgent}
@@ -277,7 +277,7 @@ function CustomAgentsList({
           icon={<Bot className="h-3.5 w-3.5" />}
           title={agent.name}
           description={agent.description}
-          ariaLabel={`${agent.name} custom agent`}
+          ariaLabel={`${agent.name} subagent`}
           trailing={<CompactStatusIcon status={agent.status} />}
           selected={selection?.kind === "existing" && agent.id === selection.id}
           onClick={() => onSelect(agent.id)}
@@ -302,7 +302,7 @@ function CustomAgentDetailPanel({
     return (
       <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
         <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
-        Loading custom agent…
+        Loading subagent…
       </div>
     );
   }
@@ -310,7 +310,7 @@ function CustomAgentDetailPanel({
   if (isError || !data) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-red-400">
-        Could not load this custom agent.
+        Could not load this subagent.
       </div>
     );
   }
@@ -342,7 +342,7 @@ function LoadedCustomAgentDetailPanel({
     <div className="flex h-full min-h-0 flex-col">
       <div
         className="flex shrink-0 items-center gap-1 border-b border-border/30 px-5 pt-4"
-        aria-label="Custom agent provider"
+        aria-label="Subagent provider"
       >
         {PROVIDERS.map((provider) => (
           <button
@@ -414,7 +414,7 @@ function CustomAgentProviderEditor({
       const saved = await updateMutation.mutateAsync({ id: data.id, provider, content: draft });
       onSelectedIdChange(saved.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save custom agent");
+      setError(err instanceof Error ? err.message : "Failed to save subagent");
     }
   };
 
@@ -425,7 +425,7 @@ function CustomAgentProviderEditor({
       setShowDeleteConfirm(false);
       onProviderDeleted(data.id, provider);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete custom agent");
+      setError(err instanceof Error ? err.message : "Failed to delete subagent");
     }
   };
 
@@ -440,7 +440,7 @@ function CustomAgentProviderEditor({
         onChange={setDraft}
         language={provider === "codex" ? "toml" : "markdown"}
         placeholder={PLACEHOLDERS[provider]}
-        ariaLabel={`${data.name} ${PROVIDER_LABELS[provider]} custom agent`}
+        ariaLabel={`${data.name} ${PROVIDER_LABELS[provider]} subagent`}
         actions={
           <>
             <EditorActionButton
@@ -473,7 +473,7 @@ function CustomAgentProviderEditor({
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete custom agent</AlertDialogTitle>
+            <AlertDialogTitle>Delete subagent</AlertDialogTitle>
             <AlertDialogDescription>
               Delete the {PROVIDER_LABELS[provider]} version of &ldquo;{data.name}&rdquo;? This cannot be undone.
             </AlertDialogDescription>
@@ -595,10 +595,10 @@ function NewCustomAgentPanel({
       const conflict = err instanceof ApiError && err.status === 409;
       onError(
         conflict
-          ? "Custom agent already exists"
+          ? "Subagent already exists"
           : err instanceof Error
             ? err.message
-            : "Failed to create custom agent",
+            : "Failed to create subagent",
         conflict,
       );
     }
@@ -623,7 +623,7 @@ function NewCustomAgentPanel({
       onChange={onChange}
       language={draft.provider === "codex" ? "toml" : "markdown"}
       placeholder={PLACEHOLDERS[draft.provider]}
-      ariaLabel="New custom agent"
+      ariaLabel="New subagent"
       actions={
         <>
           <EditorActionButton
@@ -696,7 +696,7 @@ function CustomAgentBanner({
   if (data.status === "invalid") {
     return (
       <Banner tone="danger" icon={<XCircle className="h-3.5 w-3.5" />}>
-        {data.providers[provider].error ?? data.invalidReason ?? "This custom agent could not be read."}
+        {data.providers[provider].error ?? data.invalidReason ?? "This subagent could not be read."}
       </Banner>
     );
   }
@@ -711,13 +711,13 @@ function CustomAgentBanner({
 
   return (
     <Banner tone="warning" icon={<AlertTriangle className="h-3.5 w-3.5" />}>
-      This custom agent exists only in {PROVIDER_LABELS[provider]}. Use the other provider tab to create a counterpart.
+      This subagent exists only in {PROVIDER_LABELS[provider]}. Use the other provider tab to create a counterpart.
     </Banner>
   );
 }
 
 function EmptyState() {
   return (
-    <SettingsEmptySelection>Select a custom agent to edit</SettingsEmptySelection>
+    <SettingsEmptySelection>Select a subagent to edit</SettingsEmptySelection>
   );
 }

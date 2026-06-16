@@ -38,7 +38,7 @@ type Selection =
 
 // ── Main page ──────────────────────────────────────────────────────────
 
-export default function AgentsSettings() {
+export default function TeamSettings() {
   const { data: agents, isLoading } = useAgents();
   const [selection, setSelection] = useState<Selection>(null);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
@@ -74,7 +74,7 @@ export default function AgentsSettings() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <SettingsHeader>
-        <h1 className="text-sm font-medium">Task Agents</h1>
+        <h1 className="text-sm font-medium">Team</h1>
       </SettingsHeader>
 
       <div className="flex flex-1 overflow-hidden">
