@@ -168,7 +168,7 @@ export default function PromptTemplatesSettings() {
       <Dialog open={showFlowDialog} onOpenChange={setShowFlowDialog}>
         <DialogContent className="max-h-[80vh] overflow-auto sm:max-w-4xl">
           {/* Title/description live in PromptFlowExplainer; keep them here sr-only for dialog a11y. */}
-          <DialogTitle className="sr-only">Prompt Construction Flow</DialogTitle>
+          <DialogTitle className="sr-only">Prompt Assembly</DialogTitle>
           <DialogDescription className="sr-only">
             How your prompts are assembled before being sent to the AI model.
           </DialogDescription>

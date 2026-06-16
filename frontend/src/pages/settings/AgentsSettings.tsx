@@ -261,7 +261,7 @@ function FormFields({
             onChange={(e) => setInjectGitContext(e.target.checked)}
             className="rounded border-border"
           />
-          Inject git context
+          Inject git context when the run is project-linked
         </label>
         <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
           <input
