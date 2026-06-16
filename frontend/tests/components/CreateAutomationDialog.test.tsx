@@ -204,8 +204,8 @@ describe("CreateAutomationDialog", () => {
     mocks.useAgents.mockReturnValue({ data: [] });
     renderDialog({});
 
-    const link = screen.getByRole("link", { name: "Agents settings page" });
-    expect(link).toHaveAttribute("href", "/settings/user-agents");
+    const link = screen.getByRole("link", { name: "Task Agents settings page" });
+    expect(link).toHaveAttribute("href", "/settings/task-agents");
   });
 
   it("shows an inline validation message for invalid custom cron expressions", async () => {

@@ -13,8 +13,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingsHeader } from "@/components/AppLayout";
-import { ModelSelect } from "@/components/ModelSelect";
-import { useModelCatalog } from "@/hooks/useModelCatalog";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/hooks/useApi";
 import {
   useAgents,
   useCreateAgent,
@@ -22,7 +22,7 @@ import {
   useDeleteAgent,
 } from "@/hooks/useAgents";
 import { cn } from "@/lib/utils";
-import type { Agent } from "@/types";
+import type { Agent, ModelCatalogEntry, ModelCatalogResponse } from "@/types";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -69,7 +69,7 @@ export default function AgentsSettings() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <SettingsHeader>
-        <h1 className="text-sm font-medium">Agents</h1>
+        <h1 className="text-sm font-medium">Task Agents</h1>
       </SettingsHeader>
 
       <div className="flex flex-1 overflow-hidden">
@@ -529,5 +529,42 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{label}</label>
       {children}
     </div>
+  );
+}
+
+// ── Model catalog + select ─────────────────────────────────────────────
+// Local to this page: it is the only place that picks a model now that the
+// automation dialog selects an agent (which owns its model) instead.
+
+function useModelCatalog() {
+  return useQuery({
+    queryKey: ["models"],
+    queryFn: () => api.get<ModelCatalogResponse>("/api/models"),
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
+  });
+}
+
+function ModelSelect({
+  value,
+  onChange,
+  models,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  models: ModelCatalogEntry[];
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {models.map((m) => (
+        <option key={m.id} value={m.id}>
+          {m.label} ({m.providerLabel})
+        </option>
+      ))}
+    </select>
   );
 }

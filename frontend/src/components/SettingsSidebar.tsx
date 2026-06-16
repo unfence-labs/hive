@@ -110,10 +110,10 @@ export default function SettingsSidebar() {
               active={pathname === "/settings/instructions"}
             />
             <NavItem
-              to="/settings/user-agents"
-              label="Agents"
+              to="/settings/task-agents"
+              label="Task Agents"
               icon={<Users className="h-4 w-4" />}
-              active={pathname === "/settings/user-agents"}
+              active={pathname === "/settings/task-agents"}
             />
             <NavItem
               to="/settings/prompt-templates"

@@ -105,7 +105,7 @@ export default function App() {
             <Route path="settings/connection" element={<ConnectionSettings onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }} />} />
             <Route path="settings/notifications" element={<NotificationSettings />} />
             <Route path="settings/agents" element={<AgentSettings />} />
-            <Route path="settings/user-agents" element={<Suspense fallback={null}><AgentsSettings /></Suspense>} />
+            <Route path="settings/task-agents" element={<Suspense fallback={null}><AgentsSettings /></Suspense>} />
             <Route path="settings/custom-agents" element={<Suspense fallback={null}><CustomAgentsSettings /></Suspense>} />
             <Route path="settings/instructions" element={<Suspense fallback={null}><InstructionsSettings /></Suspense>} />
             <Route path="settings/prompt-templates" element={<Suspense fallback={null}><PromptTemplatesSettings /></Suspense>} />
