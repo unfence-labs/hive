@@ -219,6 +219,7 @@ $DATA_DIR/
 |-- config.json
 |-- ui-preferences.json
 |-- automations.json
+|-- agents.json
 |-- prompts/
 |   |-- base.md
 |   |-- brain.md
@@ -264,6 +265,7 @@ This is the public backend surface exposed by route modules under `backend/src/a
 | Models and provider usage | `GET /api/models`, `GET /api/provider-usage` |
 | Completions | `GET /api/workspaces/:wsId/completions?provider=claude\|codex` |
 | Automations | `GET/POST /api/automations`, `GET/PUT/DELETE /api/automations/:id`, `POST /api/automations/:id/trigger`, `GET /api/automations/:id/runs`, `GET /api/automations/:id/runs/:runId/messages` |
+| Task agents | `GET/POST /api/agents`, `GET/PUT/DELETE /api/agents/:id` |
 | Prompts | `GET/POST /api/prompt-templates`, `PUT/DELETE /api/prompt-templates/:id`, `GET/PUT/DELETE /api/prompts/base`, `GET/PUT/DELETE /api/prompts/brain` |
 | Settings | `GET/PUT /api/settings/notifications`, `POST /api/settings/notifications/test`, `POST /api/settings/notifications/test-apns`, `POST /api/devices/apns`, `GET /api/settings/agents`, `GET/PUT/DELETE /api/settings/instructions`, `POST /api/settings/instructions/sync`, `GET/POST /api/settings/skills`, `GET/PUT/DELETE /api/settings/skills/:id`, `POST /api/settings/skills/:id/sync`, `POST /api/settings/skills/sync-missing`, `GET/POST /api/settings/custom-agents`, `GET /api/settings/custom-agents/:id`, `PUT/DELETE /api/settings/custom-agents/:id/providers/:provider`, `POST /api/settings/custom-agents/:id/providers/:provider/counterpart` |
 | Account | `GET /api/account/status`, `POST /api/account/connect`, `POST /api/account/connect/poll`, `POST /api/account/disconnect` |
