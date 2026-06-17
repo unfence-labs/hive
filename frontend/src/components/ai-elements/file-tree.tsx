@@ -23,7 +23,7 @@ import {
 import type { WorkspaceFileTreeNode } from "@/types";
 
 const fileTreeRowClass =
-  "relative grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] items-center gap-x-1 rounded py-1 pr-2 text-left transition-colors hover:bg-muted/50";
+  "grid min-w-0 grid-cols-[1rem_1rem_minmax(0,1fr)] items-center gap-x-1.5 rounded py-1 pl-1 pr-2 text-left transition-colors hover:bg-muted/50";
 
 interface FileTreeContextType {
   expandedPaths: Set<string>;
@@ -144,13 +144,10 @@ export const FileTreeFolder = ({
           {...props}
         >
           <CollapsibleTrigger asChild>
-            <button
-              className={cn("-ml-5 w-[calc(100%+1.25rem)] pl-7", fileTreeRowClass)}
-              type="button"
-            >
+            <button className={cn("w-full", fileTreeRowClass)} type="button">
               <ChevronRightIcon
                 className={cn(
-                  "absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground transition-transform",
+                  "size-4 text-muted-foreground transition-transform",
                   isExpanded && "rotate-90"
                 )}
               />
@@ -217,7 +214,6 @@ export const FileTreeFile = ({
         className={cn(
           "cursor-pointer",
           fileTreeRowClass,
-          "pl-2",
           isSelected && "bg-muted",
           className
         )}
@@ -229,6 +225,8 @@ export const FileTreeFile = ({
       >
         {children ?? (
           <>
+            {/* Empty chevron slot so file icons align with folder icons. */}
+            <span aria-hidden className="size-4" />
             <FileTreeIcon>
               {icon ?? <SymbolFileIcon fileName={name} autoAssign className="size-4" />}
             </FileTreeIcon>

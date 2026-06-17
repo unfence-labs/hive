@@ -25,7 +25,7 @@ export function FileBrowserHeader({
   isRefreshing = false,
 }: FileBrowserHeaderProps) {
   return (
-    <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4" data-tauri-drag-region>
+    <div className="flex h-12 items-center gap-3 px-4" data-tauri-drag-region>
       <button
         type="button"
         className={cn(
