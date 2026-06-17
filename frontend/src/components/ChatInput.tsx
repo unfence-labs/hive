@@ -346,7 +346,6 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
 
   const showSlashPopup = autocomplete !== null && autocomplete.trigger !== "#" && filteredItems.length > 0;
   const showFilePopup = autocomplete !== null && autocomplete.trigger === "#" && fileResults.length > 0;
-  const showPopup = showSlashPopup || showFilePopup;
 
   const activeStyle = "bg-primary/10 text-primary ring-1 ring-primary/15 hover:bg-primary/15 hover:text-primary dark:hover:bg-primary/15";
 
@@ -354,9 +353,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
     <div className="relative z-50 bg-card p-4">
       <div className={cn(
         "relative rounded-lg border border-transparent [&_[data-slot=input-group]]:!border [&_[data-slot=input-group]]:!border-border/30 [&_[data-slot=input-group]]:!bg-field [&_[data-slot=input-group]]:!shadow-none",
-        showPopup && "[&_[data-slot=input-group]]:rounded-t-none [&_[data-slot=input-group]]:!border-t-transparent",
         planMode && supportsPlanMode && "[&_[data-slot=input-group]]:!border-transparent border-dashed border-primary",
-        planMode && supportsPlanMode && showPopup && "rounded-t-none border-t-0",
       )}>
         {showSlashPopup && (
           <AutocompletePopup

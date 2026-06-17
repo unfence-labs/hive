@@ -2,18 +2,6 @@ import { useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import type { CompletionItem, CompletionSource } from "@/types";
 
-const SOURCE_LABELS: Record<CompletionSource, string> = {
-  builtin: "Commands",
-  user_command: "Commands",
-  project_command: "Project Commands",
-  user_skill: "Skills",
-  project_skill: "Project Skills",
-  admin_skill: "Admin Skills",
-  plugin: "Plugin Commands",
-  user_agent: "Agents",
-  project_agent: "Project Agents",
-};
-
 const SOURCE_ORDER: CompletionSource[] = [
   "builtin",
   "user_command",
@@ -75,17 +63,12 @@ export function AutocompletePopup({
     <div
       ref={listRef}
       className={cn(
-        "absolute bottom-full -left-px -right-px z-50 max-h-[240px] overflow-y-auto rounded-t-md border border-b-0 bg-popover text-popover-foreground shadow-lg",
+        "absolute bottom-full left-0 right-0 mb-2 z-50 max-h-[240px] overflow-y-auto rounded-md border bg-field text-popover-foreground",
         planMode ? "border-dashed border-primary" : "border-border/30",
       )}
     >
       {grouped.map(({ source, items: groupItems }) => (
         <div key={source}>
-          {grouped.length > 1 && (
-            <div className="sticky top-0 bg-muted/70 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              {SOURCE_LABELS[source] ?? source}
-            </div>
-          )}
           <div className="p-1">
           {groupItems.map(({ item, globalIndex }) => (
             <button
