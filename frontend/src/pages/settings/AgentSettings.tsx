@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, ArrowUpCircle, CircleSlash } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import { api } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 
@@ -24,11 +25,12 @@ export default function AgentSettings() {
   });
 
   return (
-    <div className="flex h-full flex-col overflow-auto">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <h1 className="text-sm font-medium">CLI</h1>
       </SettingsHeader>
 
+      <CenterCard scroll>
       <div className="max-w-2xl space-y-4 px-4 py-5">
         <p className="text-xs text-muted-foreground">
           Agent CLI tools detected on this server.
@@ -51,6 +53,7 @@ export default function AgentSettings() {
           <AgentCard key={agent.id} agent={agent} />
         ))}
       </div>
+      </CenterCard>
     </div>
   );
 }

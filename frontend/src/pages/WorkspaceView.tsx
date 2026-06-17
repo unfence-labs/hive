@@ -19,6 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { OpenTargetDropdown } from "@/components/OpenTargetDropdown";
 import { FileBrowserHeader } from "@/components/FileBrowserHeader";
 import { useLayoutContext } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { PathCopyButton } from "@/components/PathCopyButton";
 import { wsTransport } from "@/lib/ws-transport";
@@ -431,7 +432,7 @@ export default function WorkspaceView() {
         <Panel id="chat" minSize="40%">
         <div className="flex min-w-0 h-full flex-col overflow-hidden">
           <div
-            className="relative z-20 flex h-12 items-center gap-2 border-b border-border/50 pr-4 backdrop-blur-sm transition-[padding-left] duration-200 ease-in-out"
+            className="relative flex h-12 shrink-0 items-center gap-2 pr-4 transition-[padding-left] duration-200 ease-in-out"
             style={{ paddingLeft: collapsed ? "max(var(--traffic-light-clearance, 0px), 1rem)" : "1rem" }}
             data-tauri-drag-region
           >
@@ -455,6 +456,7 @@ export default function WorkspaceView() {
               pathUnavailableReason={copyWorkspacePathDisabledReason}
             />
           </div>
+          <CenterCard>
           <ConversationPane
             sessions={sessions}
             activeSessionId={sessionId}
@@ -551,10 +553,11 @@ export default function WorkspaceView() {
               onFocusConversation={handleFocusConversation}
             />
           )}
+          </CenterCard>
         </div>
         </Panel>
 
-        <ResizeHandle orientation="vertical" disabled={!isLg} className={!isLg ? "hidden" : ""} />
+        <ResizeHandle orientation="vertical" cardSide="left" disabled={!isLg} className={!isLg ? "hidden" : ""} />
 
         <Panel
           id="right-sidebar"

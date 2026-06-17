@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import {
   CompactSyncStatusIcon as CompactStatusIcon,
   SettingsActionButton as EditorActionButton,
@@ -183,11 +184,12 @@ export default function SubagentsSettings() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <h1 className="text-sm font-medium">Subagents</h1>
       </SettingsHeader>
 
+      <CenterCard>
       {isLoading ? (
         <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
           <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
@@ -229,6 +231,7 @@ export default function SubagentsSettings() {
           </div>
         </div>
       )}
+      </CenterCard>
     </div>
   );
 }

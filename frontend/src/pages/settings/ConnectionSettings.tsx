@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import { Input } from "@/components/ui/input";
@@ -57,11 +58,12 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
   const cfg = STATUS_CONFIG[status];
 
   return (
-    <div className="flex h-full flex-col overflow-auto">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <h1 className="text-sm font-medium">Connection</h1>
       </SettingsHeader>
 
+      <CenterCard scroll>
       <div className="max-w-2xl space-y-6 px-4 py-5">
         <section className="rounded-lg border border-border/50 bg-card/50 p-5">
           <div className="flex items-start justify-between">
@@ -148,6 +150,7 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
           </div>
         </section>
       </div>
+      </CenterCard>
     </div>
   );
 }

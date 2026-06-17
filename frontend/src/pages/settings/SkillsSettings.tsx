@@ -30,6 +30,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import { DiffView } from "@/components/diff/DiffView";
 import {
   CompactSyncStatusIcon as CompactStatusIcon,
@@ -152,7 +153,7 @@ export default function SkillsSettings() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <h1 className="text-sm font-medium">Skills</h1>
         <div className="flex-1" />
@@ -174,6 +175,7 @@ export default function SkillsSettings() {
         </button>
       </SettingsHeader>
 
+      <CenterCard>
       {isLoading ? (
         <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
           <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
@@ -214,6 +216,7 @@ export default function SkillsSettings() {
           </div>
         </div>
       )}
+      </CenterCard>
     </div>
   );
 }

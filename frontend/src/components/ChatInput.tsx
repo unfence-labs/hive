@@ -351,7 +351,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   const activeStyle = "bg-primary/10 text-primary ring-1 ring-primary/15 hover:bg-primary/15 hover:text-primary dark:hover:bg-primary/15";
 
   return (
-    <div className="relative z-50 bg-background p-4">
+    <div className="relative z-50 bg-card p-4">
       <div className={cn(
         "relative rounded-lg border border-transparent [&_[data-slot=input-group]]:!border-border/50 [&_[data-slot=input-group]]:!bg-card dark:[&_[data-slot=input-group]]:!border-border/30 dark:[&_[data-slot=input-group]]:!bg-[#1e1e28]",
         showPopup && "[&_[data-slot=input-group]]:rounded-t-none [&_[data-slot=input-group]]:!border-t-transparent",

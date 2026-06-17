@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Github, Loader2, LogOut, ExternalLink, Copy, Check, AlertCircle, CheckCircle2, Terminal, XCircle } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import { cn } from "@/lib/utils";
 import { api } from "@/hooks/useApi";
 import { openExternal } from "@/lib/open-external";
@@ -164,11 +165,12 @@ export default function AccountSettings() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-auto">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <h1 className="text-sm font-medium">Account</h1>
       </SettingsHeader>
 
+      <CenterCard scroll>
       {state.kind === "loading" ? (
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="h-5 w-5 motion-safe:animate-spin text-muted-foreground" />
@@ -363,6 +365,7 @@ export default function AccountSettings() {
           </section>
         </div>
       )}
+      </CenterCard>
     </div>
   );
 }

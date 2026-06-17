@@ -2,6 +2,7 @@ import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Eye, EyeOff, Send, Save, Loader2, Smartphone } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -47,16 +48,18 @@ export default function NotificationSettings() {
   const apns = query.data?.apns ?? defaultApns;
 
   return (
-    <div className="flex h-full flex-col overflow-auto">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <h1 className="text-sm font-medium">Notifications</h1>
       </SettingsHeader>
 
+      <CenterCard scroll>
       <div className="max-w-2xl space-y-6 px-4 py-5">
         <LocalToastsSection />
         <TelegramForm initial={telegram} />
         <ApnsForm initial={apns} />
       </div>
+      </CenterCard>
     </div>
   );
 }

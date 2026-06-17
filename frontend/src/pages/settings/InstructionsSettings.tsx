@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import { DiffView } from "@/components/diff/DiffView";
 import {
   ProviderBadge,
@@ -56,13 +57,14 @@ export default function InstructionsSettings() {
   const { data, isLoading, isError } = useInstructions();
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <h1 className="text-sm font-medium">
           Instructions <span className="text-[11px] font-normal text-muted-foreground">(AGENTS.md / CLAUDE.md)</span>
         </h1>
       </SettingsHeader>
 
+      <CenterCard>
       {isLoading ? (
         <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -83,6 +85,7 @@ export default function InstructionsSettings() {
           data={data}
         />
       )}
+      </CenterCard>
     </div>
   );
 }

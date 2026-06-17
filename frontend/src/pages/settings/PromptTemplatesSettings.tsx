@@ -26,6 +26,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import { SettingsActionButton } from "@/components/settings/ProviderSync";
 import {
   SettingsEmptySelection,
@@ -104,7 +105,7 @@ export default function PromptTemplatesSettings() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <h1 className="text-sm font-medium">Prompt</h1>
         <div className="flex-1" />
@@ -118,6 +119,7 @@ export default function PromptTemplatesSettings() {
         </button>
       </SettingsHeader>
 
+      <CenterCard>
       <div className="flex flex-1 overflow-hidden">
         {/* ── Left Panel ─────────────────────────────────────────── */}
         <LeftPanel
@@ -169,6 +171,7 @@ export default function PromptTemplatesSettings() {
           <DialogFooter showCloseButton />
         </DialogContent>
       </Dialog>
+      </CenterCard>
     </div>
   );
 }

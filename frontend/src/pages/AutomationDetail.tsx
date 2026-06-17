@@ -22,6 +22,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import AutomationDialog from "@/components/CreateAutomationDialog";
 import AutomationRunLogSheet from "@/components/AutomationRunLogSheet";
 import {
@@ -105,7 +106,7 @@ export default function AutomationDetail() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-auto">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <div className="flex flex-1 items-center gap-3">
           <span
@@ -122,6 +123,7 @@ export default function AutomationDetail() {
         </div>
       </SettingsHeader>
 
+      <CenterCard scroll>
       <div className="max-w-2xl space-y-5 px-4 py-5">
         {/* ── Controls ─────────────────────────────────────────────── */}
         <div className="flex items-center gap-3">
@@ -251,6 +253,7 @@ export default function AutomationDetail() {
         run={logRun}
         onClose={() => setLogRun(null)}
       />
+      </CenterCard>
     </div>
   );
 }
