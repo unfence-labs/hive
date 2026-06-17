@@ -1194,7 +1194,7 @@ describe("Sidebar", () => {
     });
   });
 
-  it("shows orbit loader on streaming workspace and hides it when idle", async () => {
+  it("shows the streaming indicator on a streaming workspace and hides it when idle", async () => {
     const { __wsMock } = await getWsMock();
     renderSidebar("/workspaces/w1", projects);
 
@@ -1217,39 +1217,39 @@ describe("Sidebar", () => {
     expect(screen.getByText("workspace/tokyo")).toBeInTheDocument();
   });
 
-  it("shows orbit loader when streaming and removes it when idle", async () => {
+  it("shimmers the branch text while streaming and clears it when idle", async () => {
     const { __wsMock } = await getWsMock();
     renderSidebar("/workspaces/w1", projects);
 
     await screen.findByText("workspace/tokyo");
 
-    // Before streaming: no SVG icons (GitBranch icon is always hidden)
     const workspaceLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
-    const svgsBefore = workspaceLink.querySelectorAll("svg");
-    expect(svgsBefore.length).toBe(0);
+    const shimmer = () => workspaceLink.querySelector(".sidebar-stream-text");
+
+    // Before streaming: no shimmer, no streaming status, and the row is icon-free.
+    expect(shimmer()).toBeNull();
+    expect(workspaceLink.querySelector("[aria-label='Agent thinking']")).toBeNull();
+    expect(workspaceLink.querySelectorAll("svg").length).toBe(0);
 
     act(() => {
       __wsMock.emit("w1", { type: "status", status: "busy", streaming: true });
     });
 
-    // While streaming: orbit loader SVG appears
-    const svgsStreaming = workspaceLink.querySelectorAll("svg");
-    const orbitSvg = Array.from(svgsStreaming).find(
-      (svg) => svg.getAttribute("aria-label") === "Agent thinking",
-    );
-    expect(orbitSvg).toBeTruthy();
+    // While streaming: the branch text shimmers and an accessible status is exposed.
+    expect(shimmer()).not.toBeNull();
+    expect(workspaceLink.querySelector("[aria-label='Agent thinking']")).toBeInTheDocument();
 
     act(() => {
       __wsMock.emit("w1", { type: "status", status: "busy", streaming: false });
     });
 
-    // After streaming stops: no SVGs again
-    expect(screen.queryByRole("img", { name: "Agent thinking" })).not.toBeInTheDocument();
-    const svgsAfter = workspaceLink.querySelectorAll("svg");
-    expect(svgsAfter.length).toBe(0);
+    // After streaming stops: shimmer + status gone, row icon-free again.
+    expect(shimmer()).toBeNull();
+    expect(workspaceLink.querySelector("[aria-label='Agent thinking']")).toBeNull();
+    expect(workspaceLink.querySelectorAll("svg").length).toBe(0);
   });
 
-  it("does not show orbit loader on non-streaming workspaces", async () => {
+  it("shows the streaming indicator only on the streaming workspace", async () => {
     const multiWsProjects: Project[] = [
       {
         id: "p1",
@@ -1273,9 +1273,9 @@ describe("Sidebar", () => {
       __wsMock.emit("w1", { type: "status", status: "busy", streaming: true });
     });
 
-    // Orbit loader should appear only once (for w1)
-    const orbitLoaders = screen.getAllByRole("img", { name: "Agent thinking" });
-    expect(orbitLoaders).toHaveLength(1);
+    // The streaming indicator should appear only once (for w1)
+    const streamingIndicators = screen.getAllByRole("img", { name: "Agent thinking" });
+    expect(streamingIndicators).toHaveLength(1);
   });
 
   it("shows unread dot for inactive workspace after done event", async () => {
@@ -1633,7 +1633,7 @@ describe("Sidebar", () => {
     expect(addRepository).not.toHaveClass("border");
   });
 
-  it("shows PR loading text while bulk status is in flight", async () => {
+  it("reserves the PR slot but shows no dot while bulk status is in flight and after a no-PR result", async () => {
     let resolve!: (value: unknown) => void;
     const pending = new Promise((res) => {
       resolve = res;
@@ -1645,15 +1645,19 @@ describe("Sidebar", () => {
 
     renderSidebar("/workspaces/w1", projects);
 
-    expect(await screen.findByText("Loading…")).toBeInTheDocument();
+    // The dense row no longer surfaces a textual "Loading…" state; the row
+    // renders normally with an empty (reserved) PR slot while in flight.
+    const wsLink = await screen.findByRole("link", { name: /workspace\/tokyo/i });
+    expect(wsLink.querySelector("[role='img'][aria-label^='#']")).toBeNull();
 
     resolve({ results: {} });
     await waitFor(() => {
-      expect(screen.getByText("No PR")).toBeInTheDocument();
+      // No PR resolved -> the reserved slot stays empty (no PR dot).
+      expect(wsLink.querySelector("[role='img'][aria-label^='#']")).toBeNull();
     });
   });
 
-  it("shows compact PR info when a PR exists", async () => {
+  it("shows a colour-coded PR dot when a PR exists", async () => {
     mockPostWithBulkFallback({
       "/api/workspaces/pr-status/bulk": {
         results: {
@@ -1664,10 +1668,14 @@ describe("Sidebar", () => {
 
     renderSidebar("/workspaces/w1", projects);
 
-    expect(await screen.findByText("#7 Ready")).toBeInTheDocument();
+    const wsLink = await screen.findByRole("link", { name: /workspace\/tokyo/i });
+    await waitFor(() => {
+      // mergeable + clean -> "Ready"; the dot exposes it via aria-label/title.
+      expect(wsLink.querySelector("[role='img'][aria-label='#7 Ready']")).not.toBeNull();
+    });
   });
 
-  it("shows PR error text when backend reports an error for a workspace", async () => {
+  it("renders no PR dot when backend reports an error for a workspace", async () => {
     mockPostWithBulkFallback({
       "/api/workspaces/pr-status/bulk": {
         results: {
@@ -1678,28 +1686,37 @@ describe("Sidebar", () => {
 
     renderSidebar("/workspaces/w1", projects);
 
-    expect(await screen.findByText("Error fetching PR")).toBeInTheDocument();
+    // The dense row intentionally does not surface the PR error detail; the
+    // reserved PR slot simply stays empty so the column stays aligned.
+    const wsLink = await screen.findByRole("link", { name: /workspace\/tokyo/i });
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith(
+        "/api/workspaces/pr-status/bulk",
+        expect.anything(),
+      );
+    });
+    expect(wsLink.querySelector("[role='img'][aria-label^='#']")).toBeNull();
   });
 
   // ── Sidebar card CSS classes ──────────────────────────────────────
 
-  it("applies sidebar-card class to workspace links", async () => {
+  it("applies sidebar-ws class to workspace links", async () => {
     renderSidebar("/workspaces/w1", projects);
     await screen.findByText("workspace/tokyo");
 
     const wsLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
-    expect(wsLink.className).toContain("sidebar-card");
+    expect(wsLink.className).toContain("sidebar-ws");
   });
 
-  it("applies sidebar-card-active class to the active workspace", async () => {
+  it("applies sidebar-ws-active class to the active workspace", async () => {
     renderSidebar("/workspaces/w1", projects);
     await screen.findByText("workspace/tokyo");
 
     const wsLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
-    expect(wsLink.className).toContain("sidebar-card-active");
+    expect(wsLink.className).toContain("sidebar-ws-active");
   });
 
-  it("does not apply sidebar-card-active to inactive workspaces", async () => {
+  it("does not apply sidebar-ws-active to inactive workspaces", async () => {
     const multiWsProjects: Project[] = [
       {
         id: "p1",
@@ -1717,8 +1734,8 @@ describe("Sidebar", () => {
     await screen.findByText("workspace/paris");
 
     const inactiveLink = screen.getByRole("link", { name: /workspace\/paris/i });
-    expect(inactiveLink.className).toContain("sidebar-card");
-    expect(inactiveLink.className).not.toContain("sidebar-card-active");
+    expect(inactiveLink.className).toContain("sidebar-ws");
+    expect(inactiveLink.className).not.toContain("sidebar-ws-active");
   });
 
   // ── Automations section ──────────────────────────────────────────
@@ -1910,7 +1927,7 @@ describe("Sidebar", () => {
     const autoLink = await screen.findByRole("link", { name: /Running auto/i });
     const dot = autoLink.querySelector("span[class*='rounded-full']");
     expect(dot).toBeTruthy();
-    expect(dot!.className).toContain("bg-green-500");
+    expect(dot!.className).toContain("bg-success");
     expect(dot!.className).toContain("animate-pulse");
   });
 

@@ -198,7 +198,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     }),
     [activeProjectId, activeWsId, expandedProjects, folders, isFolderExpanded, rootProjects],
   );
-  const { loadingByWorkspace: prLoadingByWorkspace } = useBulkPrStatus(visiblePrWorkspaceIds);
+  useBulkPrStatus(visiblePrWorkspaceIds);
   const prStatuses = usePrStatusMap(visiblePrWorkspaceIds);
   const sortedAutomations = useMemo(() => {
     if (!automations) return [];
@@ -481,7 +481,6 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
         activeWsId={activeWsId}
         liveData={liveData}
         prStatuses={prStatuses}
-        prLoadingByWorkspace={prLoadingByWorkspace}
         creatingProjectId={creatingProjectId}
         archivingWsId={archivingWsId}
         canReorder={hasInitialHydration}

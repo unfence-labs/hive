@@ -1,23 +1,13 @@
-import { Link } from "react-router-dom";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { SidebarGroupHeader } from "@/components/sidebar/SidebarHeaders";
 import { SidebarActivityDot } from "@/components/sidebar/SidebarActivityDot";
-import { BranchLabel } from "@/components/BranchLabel";
-import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
+import { SidebarWorkspaceItem } from "@/components/sidebar/SidebarWorkspaceItem";
 import { ActivityWave } from "@/components/ui/activity-wave";
 import { ProjectAvatar } from "@/components/ProjectAvatar";
-import { computePrDisplayCompact } from "@/lib/pr-display";
 import { cn } from "@/lib/utils";
-import { DiffStatBadge } from "@/components/diff/DiffStatBadge";
 import type { WorkspaceLiveData } from "@/hooks/useWorkspaceLiveData";
-import { aggregateScriptRunning, aggregateWorkspaceActivity, workspaceDiffTotals } from "@/lib/workspace-activity";
+import { aggregateScriptRunning, aggregateWorkspaceActivity } from "@/lib/workspace-activity";
 import type { PrStatusResponse, Project } from "@/types";
-import { ArchiveIcon, Loader2 } from "lucide-react";
 
 type ProjectInsertIndicator = "before" | "after" | null;
 
@@ -33,7 +23,6 @@ interface SidebarProjectItemProps {
   activeWsId?: string;
   liveData: Record<string, WorkspaceLiveData>;
   prStatuses: Record<string, PrStatusResponse>;
-  prLoadingByWorkspace: Record<string, boolean>;
   creatingProjectId: string | null;
   archivingWsId: string | null;
   draggingProjectId: string | null;
@@ -67,7 +56,6 @@ export function SidebarProjectItem({
   activeWsId,
   liveData,
   prStatuses,
-  prLoadingByWorkspace,
   creatingProjectId,
   archivingWsId,
   draggingProjectId,
@@ -131,115 +119,18 @@ export function SidebarProjectItem({
 
         <CollapsibleContent className="mb-2">
           <div className="ml-2 mt-px border-l border-sidebar-border/40 pl-2">
-            <div className="mt-1 space-y-1.5">
-              {(project.workspaces ?? []).map((ws) => {
-              const wsLive = liveData[ws.id];
-              const wsStreaming = wsLive?.streaming ?? false;
-              const wsScriptRunning = wsLive?.scriptRunning ?? false;
-              const displayBranch = wsLive?.branch ?? ws.branch;
-              const wsUnread = !wsStreaming && Object.keys(wsLive?.unreadSessions ?? {}).length > 0;
-              const prStatus = prStatuses[ws.id];
-              const wsArchiving = archivingWsId === ws.id;
-              const diffTotals = workspaceDiffTotals(wsLive);
-
-              return (
-                <div
+            <div className="mt-1 space-y-px">
+              {(project.workspaces ?? []).map((ws) => (
+                <SidebarWorkspaceItem
                   key={ws.id}
-                  className={cn(
-                    "group/ws relative transition-opacity",
-                    wsArchiving && "pointer-events-none opacity-40",
-                  )}
-                >
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Link
-                        to={`/workspaces/${ws.id}`}
-                        className={cn(
-                          "sidebar-card block rounded-md border py-1.5 pl-2 pr-2",
-                          activeWsId === ws.id && "sidebar-card-active",
-                        )}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <div className="flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-visible">
-                            {wsStreaming ? (
-                              <AgentActivityPreview size="small" />
-                            ) : wsUnread ? (
-                              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                            ) : null}
-                          </div>
-                          <BranchLabel
-                            branch={displayBranch}
-                            showIcon={false}
-                            className={cn(
-                              "min-w-0 flex-1 pr-5 text-sm",
-                              activeWsId === ws.id || wsUnread
-                                ? "text-sidebar-foreground"
-                                : "text-muted-foreground",
-                            )}
-                          />
-                        </div>
-
-                        <div className="mt-0.5 flex items-center gap-1.5 pl-5 text-[11px]">
-                          <span className="min-w-0 flex-1 truncate">
-                            {prStatus?.pr ? (
-                              (() => {
-                                const display = computePrDisplayCompact(prStatus.pr);
-                                return (
-                                  <span className={display.textClass}>
-                                    #{prStatus.pr.number} {display.label}
-                                  </span>
-                                );
-                              })()
-                            ) : prLoadingByWorkspace[ws.id] ? (
-                              <span className="text-muted-foreground">Loading…</span>
-                            ) : prStatus?.error ? (
-                              <span className="text-muted-foreground">Error fetching PR</span>
-                            ) : (
-                              <span className="text-muted-foreground">No PR</span>
-                            )}
-                          </span>
-                          {diffTotals && (
-                            <DiffStatBadge
-                              additions={diffTotals.additions}
-                              deletions={diffTotals.deletions}
-                            />
-                          )}
-                        </div>
-                      </Link>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="text-xs">
-                      {ws.name}
-                    </TooltipContent>
-                  </Tooltip>
-
-                  {wsScriptRunning && !wsArchiving && (
-                    <div className="pointer-events-none absolute right-2 top-1.5">
-                      <ActivityWave size="small" decorative className="shrink-0" />
-                    </div>
-                  )}
-
-                  {wsArchiving ? (
-                    <div className="absolute right-2 top-1.5 p-0.5">
-                      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-                    </div>
-                  ) : !wsScriptRunning && (
-                    <button
-                      type="button"
-                      className="absolute right-2 top-1.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-sidebar-foreground group-hover/ws:opacity-100"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        onArchiveWorkspace(ws.id);
-                      }}
-                      aria-label={`Archive workspace ${ws.name}`}
-                      title="Archive workspace"
-                    >
-                      <ArchiveIcon className="h-3 w-3" />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+                  ws={ws}
+                  wsLive={liveData[ws.id]}
+                  prStatus={prStatuses[ws.id]}
+                  isActive={activeWsId === ws.id}
+                  isArchiving={archivingWsId === ws.id}
+                  onArchive={onArchiveWorkspace}
+                />
+              ))}
             </div>
           </div>
         </CollapsibleContent>
