@@ -1165,7 +1165,9 @@ describe("WorkspaceView behavior", () => {
     await screen.findByText("tokyo");
 
     const workspaceHeader = screen.getByText("tokyo").closest("div");
-    const sidebarHeader = screen.getByRole("button", { name: "All" }).closest("div");
+    const sidebarHeader = screen
+      .getByRole("button", { name: "Files" })
+      .closest("[data-tauri-drag-region]");
 
     expect(workspaceHeader).toHaveAttribute("data-tauri-drag-region");
     expect(sidebarHeader).toHaveAttribute("data-tauri-drag-region");
@@ -1210,7 +1212,7 @@ describe("WorkspaceView behavior", () => {
     renderWorkspace();
 
     await screen.findByText("tokyo");
-    await user.click(screen.getByRole("button", { name: /Modified/ }));
+    await user.click(screen.getByRole("button", { name: /Changes/ }));
     expect(await screen.findByText("old.md")).toBeInTheDocument();
 
     diffStatsResponse = freshDiffStats;
