@@ -32,6 +32,7 @@ import {
   useTriggerAutomation,
 } from "@/hooks/useAutomations";
 import { usePromptTemplates } from "@/hooks/usePromptTemplates";
+import { useAgents } from "@/hooks/useAgents";
 import { useProjects } from "@/hooks/useProjects";
 import { ApiError } from "@/hooks/useApi";
 import { getNextRun, formatTimeUntil } from "@/lib/cron";
@@ -48,6 +49,7 @@ export default function AutomationDetail() {
   const deleteMutation = useDeleteAutomation();
   const triggerMutation = useTriggerAutomation();
   const { data: templates } = usePromptTemplates();
+  const { data: agents } = useAgents();
   const { projects } = useProjects();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -58,6 +60,12 @@ export default function AutomationDetail() {
     for (const t of templates ?? []) map[t.id] = t.name;
     return map;
   }, [templates]);
+
+  const agentNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const a of agents ?? []) map[a.id] = a.name;
+    return map;
+  }, [agents]);
 
   const projectNames = useMemo(() => {
     const map: Record<string, string> = {};
@@ -172,14 +180,8 @@ export default function AutomationDetail() {
           <div className="space-y-px overflow-hidden rounded-lg border border-border/50">
             <ConfigRow label="Schedule" value={auto.trigger.expression} />
             {auto.enabled && <NextRunRow expression={auto.trigger.expression} isRunning={isRunning} />}
-            <ConfigRow label="Model" value={auto.action.modelId} />
+            <ConfigRow label="Agent" value={agentNames[auto.action.agentId] ?? auto.action.agentId} />
             {auto.projectId && <ConfigRow label="Project" value={projectNames[auto.projectId] ?? auto.projectId} />}
-            {auto.action.systemPromptId && (
-              <ConfigRow label="System Prompt" value={templateNames[auto.action.systemPromptId] ?? auto.action.systemPromptId} />
-            )}
-            {auto.action.systemPromptInline && (
-              <ConfigBlock label="System Prompt" content={auto.action.systemPromptInline} />
-            )}
             {auto.action.userPromptId && (
               <ConfigRow label="User Prompt" value={templateNames[auto.action.userPromptId] ?? auto.action.userPromptId} />
             )}

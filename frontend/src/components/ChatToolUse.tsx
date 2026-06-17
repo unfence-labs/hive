@@ -85,9 +85,9 @@ function getFilename(path: string): string {
   return path.split("/").pop() ?? path;
 }
 
-/** Resolve file path across providers (Claude: file_path, Codex: filename, Gemini: path). */
+/** Resolve file path across providers (Claude: file_path, Codex: filename). */
 function resolveFilePath(input: Record<string, unknown>): string | undefined {
-  return (input.file_path ?? input.filename ?? input.path) as string | undefined;
+  return (input.file_path ?? input.filename) as string | undefined;
 }
 
 /** Parse a tool output as a JSON array of content blocks and extract text. */

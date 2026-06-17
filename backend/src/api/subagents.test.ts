@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { customAgentRoutes } from "./custom-agents.js";
+import { subagentRoutes } from "./subagents.js";
 import { _clearCustomAgentsLockForTests, type CustomAgentRoots } from "../state/custom-agents.js";
 import { createTempDir } from "../utils/test-helpers.js";
 
@@ -23,7 +23,7 @@ beforeEach(async () => {
   };
   _clearCustomAgentsLockForTests();
   app = Fastify();
-  await app.register((instance) => customAgentRoutes(instance, { roots }));
+  await app.register((instance) => subagentRoutes(instance, { roots }));
   await app.ready();
 });
 
@@ -33,11 +33,11 @@ afterEach(async () => {
   _clearCustomAgentsLockForTests();
 });
 
-describe("custom agent settings routes", () => {
-  it("returns global custom agents", async () => {
+describe("subagent settings routes", () => {
+  it("returns global subagents", async () => {
     await writeAgent(roots.claude, "reviewer.md", "---\nname: reviewer\n---\n# Reviewer\n");
 
-    const res = await app.inject({ method: "GET", url: "/api/settings/custom-agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/subagents" });
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
@@ -57,7 +57,7 @@ describe("custom agent settings routes", () => {
       "name = \"reviewer\"\ndeveloper_instructions = \"Review changes.\"\n",
     );
 
-    const res = await app.inject({ method: "GET", url: "/api/settings/custom-agents/reviewer" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/subagents/reviewer" });
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual(
@@ -70,10 +70,10 @@ describe("custom agent settings routes", () => {
     );
   });
 
-  it("creates a Claude custom agent", async () => {
+  it("creates a Claude subagent", async () => {
     const res = await app.inject({
       method: "POST",
-      url: "/api/settings/custom-agents",
+      url: "/api/settings/subagents",
       payload: {
         provider: "claude",
         content: "---\nname: reviewer\ndescription: Review code\n---\n# Reviewer\n",
@@ -88,14 +88,14 @@ describe("custom agent settings routes", () => {
   it("rejects invalid providers and invalid content", async () => {
     const badProvider = await app.inject({
       method: "POST",
-      url: "/api/settings/custom-agents",
-      payload: { provider: "gemini", content: "name = \"x\"" },
+      url: "/api/settings/subagents",
+      payload: { provider: "unknown", content: "name = \"x\"" },
     });
     expect(badProvider.statusCode).toBe(400);
 
     const badContent = await app.inject({
       method: "POST",
-      url: "/api/settings/custom-agents",
+      url: "/api/settings/subagents",
       payload: { provider: "codex", content: "name = \"reviewer\"\n" },
     });
     expect(badContent.statusCode).toBe(400);
@@ -107,7 +107,7 @@ describe("custom agent settings routes", () => {
 
     const res = await app.inject({
       method: "PUT",
-      url: "/api/settings/custom-agents/reviewer/providers/claude",
+      url: "/api/settings/subagents/reviewer/providers/claude",
       payload: { content: "---\nname: reviewer\n---\n# New\n" },
     });
 
@@ -122,12 +122,12 @@ describe("custom agent settings routes", () => {
 
     const res = await app.inject({
       method: "PUT",
-      url: "/api/settings/custom-agents/reviewer/providers/claude",
+      url: "/api/settings/subagents/reviewer/providers/claude",
       payload: { content: "---\nname: tester\n---\n# Renamed\n" },
     });
 
     expect(res.statusCode).toBe(409);
-    expect(res.json()).toEqual({ error: "Custom agent already exists" });
+    expect(res.json()).toEqual({ error: "Subagent already exists" });
   });
 
   it("deletes a provider copy", async () => {
@@ -135,7 +135,7 @@ describe("custom agent settings routes", () => {
 
     const res = await app.inject({
       method: "DELETE",
-      url: "/api/settings/custom-agents/reviewer/providers/claude",
+      url: "/api/settings/subagents/reviewer/providers/claude",
     });
 
     expect(res.statusCode).toBe(204);
@@ -147,7 +147,7 @@ describe("custom agent settings routes", () => {
 
     const res = await app.inject({
       method: "POST",
-      url: "/api/settings/custom-agents/reviewer/providers/codex/counterpart",
+      url: "/api/settings/subagents/reviewer/providers/codex/counterpart",
     });
 
     expect(res.statusCode).toBe(200);
@@ -160,10 +160,10 @@ describe("custom agent settings routes", () => {
 
     const res = await app.inject({
       method: "POST",
-      url: "/api/settings/custom-agents/reviewer/providers/claude/counterpart",
+      url: "/api/settings/subagents/reviewer/providers/claude/counterpart",
     });
 
     expect(res.statusCode).toBe(400);
-    expect(res.json()).toEqual({ error: "Source custom agent is invalid" });
+    expect(res.json()).toEqual({ error: "Source subagent is invalid" });
   });
 });

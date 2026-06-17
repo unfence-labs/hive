@@ -58,7 +58,7 @@ beforeEach(() => {
 });
 
 describe("useCustomAgents", () => {
-  it("fetches custom agents from the settings API", async () => {
+  it("fetches subagents from the settings API", async () => {
     const response = { agents: [makeAgent()] };
     vi.mocked(api.get).mockResolvedValueOnce(response);
 
@@ -69,12 +69,12 @@ describe("useCustomAgents", () => {
       expect(result.current.data).toEqual(response);
     });
 
-    expect(api.get).toHaveBeenCalledWith("/api/settings/custom-agents");
+    expect(api.get).toHaveBeenCalledWith("/api/settings/subagents");
   });
 });
 
 describe("useCustomAgent", () => {
-  it("fetches one custom agent by id", async () => {
+  it("fetches one subagent by id", async () => {
     const detail = makeDetail();
     vi.mocked(api.get).mockResolvedValueOnce(detail);
 
@@ -85,12 +85,12 @@ describe("useCustomAgent", () => {
       expect(result.current.data).toEqual(detail);
     });
 
-    expect(api.get).toHaveBeenCalledWith("/api/settings/custom-agents/reviewer");
+    expect(api.get).toHaveBeenCalledWith("/api/settings/subagents/reviewer");
   });
 });
 
 describe("useCreateCustomAgent", () => {
-  it("posts a new provider-native custom agent", async () => {
+  it("posts a new provider-native subagent", async () => {
     vi.mocked(api.post).mockResolvedValueOnce(makeDetail());
 
     const { wrapper, queryClient } = createWrapper();
@@ -104,12 +104,12 @@ describe("useCreateCustomAgent", () => {
       });
     });
 
-    expect(api.post).toHaveBeenCalledWith("/api/settings/custom-agents", {
+    expect(api.post).toHaveBeenCalledWith("/api/settings/subagents", {
       provider: "claude",
       content: "---\nname: reviewer\n---\n# Reviewer\n",
     });
     expect(invalidateSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ queryKey: ["settings", "custom-agents"] }),
+      expect.objectContaining({ queryKey: ["settings", "subagents"] }),
     );
     expect(invalidateSpy).toHaveBeenCalledWith(
       expect.objectContaining({ queryKey: ["completions"] }),
@@ -138,7 +138,7 @@ describe("useUpdateCustomAgentProvider", () => {
     vi.mocked(api.put).mockResolvedValueOnce(renamed);
 
     const { wrapper, queryClient } = createWrapper();
-    queryClient.setQueryData(["settings", "custom-agents"], { agents: [existing] });
+    queryClient.setQueryData(["settings", "subagents"], { agents: [existing] });
     const { result } = renderHook(() => useUpdateCustomAgentProvider(), { wrapper });
 
     await act(async () => {
@@ -150,10 +150,10 @@ describe("useUpdateCustomAgentProvider", () => {
     });
 
     expect(api.put).toHaveBeenCalledWith(
-      "/api/settings/custom-agents/reviewer/providers/claude",
+      "/api/settings/subagents/reviewer/providers/claude",
       { content: "---\nname: auditor\n---\n# Auditor\n" },
     );
-    expect(queryClient.getQueryData(["settings", "custom-agents"])).toEqual({
+    expect(queryClient.getQueryData(["settings", "subagents"])).toEqual({
       agents: [
         expect.objectContaining({ id: "auditor", status: "claude_only" }),
         expect.objectContaining({
@@ -174,7 +174,7 @@ describe("useDeleteCustomAgentProvider", () => {
     vi.mocked(api.delete).mockResolvedValueOnce(undefined);
 
     const { wrapper, queryClient } = createWrapper();
-    queryClient.setQueryData(["settings", "custom-agents"], {
+    queryClient.setQueryData(["settings", "subagents"], {
       agents: [
         makeAgent({
           status: "invalid",
@@ -196,8 +196,8 @@ describe("useDeleteCustomAgentProvider", () => {
       await result.current.mutateAsync({ id: "reviewer", provider: "claude" });
     });
 
-    expect(api.delete).toHaveBeenCalledWith("/api/settings/custom-agents/reviewer/providers/claude");
-    expect(queryClient.getQueryData(["settings", "custom-agents"])).toEqual({
+    expect(api.delete).toHaveBeenCalledWith("/api/settings/subagents/reviewer/providers/claude");
+    expect(queryClient.getQueryData(["settings", "subagents"])).toEqual({
       agents: [
         expect.objectContaining({
           id: "reviewer",
@@ -221,7 +221,7 @@ describe("useCreateCustomAgentCounterpart", () => {
     });
 
     expect(api.post).toHaveBeenCalledWith(
-      "/api/settings/custom-agents/reviewer/providers/codex/counterpart",
+      "/api/settings/subagents/reviewer/providers/codex/counterpart",
     );
   });
 });

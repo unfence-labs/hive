@@ -37,6 +37,19 @@ export interface ProviderSessionState {
   sessionId: string;
   systemPrompt?: string;
   skipPermissions: boolean;
+  /**
+   * Strip interactive/blocking tools (e.g. AskUserQuestion, plan mode) from the
+   * turn. Set for unattended agent runs where no human can answer a prompt.
+   * Each provider translates this to its own flags; defaults to off so
+   * interactive chat is unaffected.
+   */
+  disableInteractiveTools?: boolean;
+  /**
+   * Enforce read-only execution: the agent may inspect but not edit files.
+   * Each provider translates this to a tool restriction or read-only sandbox;
+   * defaults to off so interactive chat is unaffected.
+   */
+  readOnly?: boolean;
 }
 
 // ── Message options subset relevant to providers ────────────────────

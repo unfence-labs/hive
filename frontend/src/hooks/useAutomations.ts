@@ -44,9 +44,7 @@ export function useCreateAutomation() {
       trigger: { type: "cron"; expression: string };
       action: {
         type: "agent";
-        modelId: string;
-        systemPromptId?: string;
-        systemPromptInline?: string;
+        agentId: string;
         userPromptId?: string;
         userPromptInline?: string;
       };

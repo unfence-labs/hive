@@ -13,6 +13,7 @@ import {
   GitFork,
   Paintbrush,
   Sparkles,
+  Users,
   Wifi,
 } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
@@ -91,16 +92,10 @@ export default function SettingsSidebar() {
 
           <SidebarSection label="Agents">
             <NavItem
-              to="/settings/agents"
+              to="/settings/cli"
               label="CLI"
               icon={<Bot className="h-4 w-4" />}
-              active={pathname === "/settings/agents"}
-            />
-            <NavItem
-              to="/settings/custom-agents"
-              label="Custom Agents"
-              icon={<FileCode2 className="h-4 w-4" />}
-              active={pathname === "/settings/custom-agents"}
+              active={pathname === "/settings/cli"}
             />
             <NavItem
               to="/settings/instructions"
@@ -109,16 +104,28 @@ export default function SettingsSidebar() {
               active={pathname === "/settings/instructions"}
             />
             <NavItem
-              to="/settings/prompt-templates"
-              label="Prompts"
+              to="/settings/prompt"
+              label="Prompt"
               icon={<FileText className="h-4 w-4" />}
-              active={pathname === "/settings/prompt-templates"}
+              active={pathname === "/settings/prompt"}
             />
             <NavItem
               to="/settings/skills"
               label="Skills"
               icon={<Sparkles className="h-4 w-4" />}
               active={pathname === "/settings/skills"}
+            />
+            <NavItem
+              to="/settings/team"
+              label="Team"
+              icon={<Users className="h-4 w-4" />}
+              active={pathname === "/settings/team"}
+            />
+            <NavItem
+              to="/settings/subagents"
+              label="Subagents"
+              icon={<FileCode2 className="h-4 w-4" />}
+              active={pathname === "/settings/subagents"}
             />
           </SidebarSection>
 

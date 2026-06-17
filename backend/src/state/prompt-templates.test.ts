@@ -11,7 +11,7 @@ function makeTemplate(overrides: Partial<PromptTemplate> = {}): PromptTemplate {
   return {
     id: "tpl-test1",
     name: "Test Template",
-    type: "system",
+    type: "user",
     content: "You are a helpful assistant.",
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -37,12 +37,12 @@ describe("prompt templates persistence", () => {
   it("saves and loads templates", async () => {
     const templates = [
       makeTemplate(),
-      makeTemplate({ id: "tpl-test2", name: "User Prompt", type: "user" }),
+      makeTemplate({ id: "tpl-test2", name: "User Prompt" }),
     ];
     await savePromptTemplates(templates, dataDir);
     const loaded = await loadPromptTemplates(dataDir);
     expect(loaded).toHaveLength(2);
-    expect(loaded[0].type).toBe("system");
+    expect(loaded[0].type).toBe("user");
     expect(loaded[1].type).toBe("user");
   });
 

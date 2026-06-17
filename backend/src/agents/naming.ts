@@ -157,7 +157,7 @@ function resolveNamingCommand(command?: string): string | null {
   // Test harnesses pass shell binaries here; skip naming in that case.
   if (["bash", "sh", "zsh"].includes(cmd)) return null;
   // Naming prompt/args are Claude-specific; fall back to Claude for other providers.
-  if (["codex", "gemini"].includes(cmd)) return "claude";
+  if (cmd === "codex") return "claude";
   return fallback;
 }
 

@@ -174,6 +174,12 @@ interface CodexAppServerThreadOptions {
   systemPrompt?: string;
   threadId?: string;
   env?: Record<string, string>;
+  /**
+   * Enforce read-only execution for the thread/turn: the read-only sandbox
+   * replaces full access so an agent can inspect but not modify the workspace.
+   * Defaults to off so interactive chat keeps full access.
+   */
+  readOnly?: boolean;
 }
 
 interface CodexAppServerTurnOptions extends CodexAppServerThreadOptions {
@@ -285,7 +291,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       input,
       cwd: options.cwd,
       approvalPolicy: "never",
-      sandboxPolicy: { type: "dangerFullAccess" },
+      sandboxPolicy: { type: options.readOnly ? "readOnly" : "dangerFullAccess" },
       ...(options.model ? { model: options.model } : {}),
       ...(options.thinkingLevel ? { effort: options.thinkingLevel } : {}),
     });
@@ -410,12 +416,23 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
   }
 
   private async ensureThread(options: CodexAppServerThreadOptions): Promise<string> {
+    // The sandbox is derived from the CURRENT run's readOnly and applied to both
+    // thread/start and thread/resume. Codex does NOT pin the sandbox to a thread's
+    // creation policy — per the app-server protocol, thread/resume "accepts the same
+    // permission override rules as thread/start", so the resume sandbox is honored.
+    // This is correct for our model: readOnly is a per-run property (the agent's
+    // current setting), automations use a fresh thread per run (start, not resume),
+    // and interactive chat never sets readOnly. So a thread is never resumed with a
+    // *changed* readOnly today. If a future swarm shares one long-lived thread across
+    // turns with differing readOnly intents, decide explicitly whether to pin to the
+    // creation policy or keep re-applying the current value here.
+    const sandbox = options.readOnly ? "read-only" : "danger-full-access";
     if (options.threadId) {
       const resumed = await this.request<ThreadResumeResponse>("thread/resume", {
         threadId: options.threadId,
         cwd: options.cwd,
         approvalPolicy: "never",
-        sandbox: "danger-full-access",
+        sandbox,
         ...(options.model ? { model: options.model } : {}),
         ...(options.systemPrompt ? { developerInstructions: options.systemPrompt } : {}),
       });
@@ -427,7 +444,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     const started = await this.request<ThreadStartResponse>("thread/start", {
       cwd: options.cwd,
       approvalPolicy: "never",
-      sandbox: "danger-full-access",
+      sandbox,
       ...(options.model ? { model: options.model } : {}),
       ...(options.systemPrompt ? { developerInstructions: options.systemPrompt } : {}),
     });

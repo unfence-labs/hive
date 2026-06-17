@@ -11,7 +11,9 @@ import {
   withAutomationsLock,
 } from "../state/automations.js";
 import { loadPromptTemplates } from "../state/prompt-templates.js";
+import { loadAgents } from "../state/agents.js";
 import { ConversationSession } from "../agents/conversation-session.js";
+import { composeAgentRunPrompt } from "./agent-run-prompt.js";
 import { extractSummary } from "../utils/summary-extractor.js";
 import { getNotifier } from "../agents/agent-manager.js";
 import { loadProject } from "../state/state.js";
@@ -22,11 +24,8 @@ import {
   refreshWorktreeToRemoteBranch,
 } from "../utils/git-worktree.js";
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
-import { getGitContext, formatGitContextBlock, interpolatePromptVariables } from "../agents/system-prompt.js";
+import { getGitContext, formatGitContextBlock } from "../agents/system-prompt.js";
 import type { Automation, AutomationRun, WsOutgoing } from "../types.js";
-
-const SUMMARY_INSTRUCTION =
-  "\n\nIMPORTANT: End your final message with a \"## Summary\" section that concisely summarizes your findings and actions. This summary will be sent as a notification.";
 
 interface ActiveRun {
   run: AutomationRun;
@@ -182,18 +181,26 @@ export class AutomationScheduler {
       });
     }
 
-    // Resolve prompts
-    let systemPrompt = await this.resolvePrompt(auto.action.systemPromptId, auto.action.systemPromptInline, "system");
-    const userPrompt = await this.resolvePrompt(auto.action.userPromptId, auto.action.userPromptInline, "user");
+    // Resolve the agent — the durable "who" that owns the system prompt and model.
+    const agents = await loadAgents(this.dataDir);
+    const agent = agents.find((a) => a.id === auto.action.agentId);
+    if (!agent) {
+      const error = `Agent ${auto.action.agentId} not found (deleted?)`;
+      await this.completeRun(auto, run.id, "failure", undefined, error, now);
+      return { ...run, status: "failure", error };
+    }
 
+    // Resolve the per-run user prompt ("what to do this run").
+    const userPrompt = await this.resolveUserPrompt(auto.action.userPromptId, auto.action.userPromptInline);
     if (!userPrompt) {
       const error = "No user prompt resolved";
       await this.completeRun(auto, run.id, "failure", undefined, error, now);
       return { ...run, status: "failure", error };
     }
 
-    // Inject git context for project-linked automations
+    // Gather a git context block for project-linked runs when the agent wants it.
     let projectName = "unknown";
+    let gitContextBlock: string | null = null;
     if (auto.projectId) {
       const project = await loadProject(auto.projectId, this.dataDir);
       if (!project) {
@@ -202,23 +209,25 @@ export class AutomationScheduler {
         return { ...run, status: "failure", error };
       }
       projectName = project.name;
-      const ctx = await getGitContext(workspacePath, defaultBranch);
-      const gitBlock = formatGitContextBlock(ctx, { projectName });
-      systemPrompt = systemPrompt ? systemPrompt + "\n\n" + gitBlock : gitBlock;
+      if (agent.injectGitContext) {
+        const ctx = await getGitContext(workspacePath, defaultBranch);
+        gitContextBlock = formatGitContextBlock(ctx, { projectName });
+      }
     }
 
-    // Interpolate template variables
-    if (systemPrompt) {
-      systemPrompt = interpolatePromptVariables(systemPrompt, {
+    const resolvedSystemPrompt = composeAgentRunPrompt({
+      agent,
+      gitContextBlock,
+      interpolation: {
         projectName,
         cwd: workspacePath,
         defaultBranch: defaultBranch ?? "main",
-      });
-    }
+      },
+    });
 
-    const resolvedSystemPrompt = systemPrompt ? systemPrompt + SUMMARY_INSTRUCTION : undefined;
-
-    // Create session
+    // Create session. Every agent run strips interactive tools (no human is
+    // subscribed to answer), and read-only agents block edits — both translated
+    // to provider-specific flags inside each provider's buildArgs.
     const autoDir = join(this.dataDir, "automations", autoId);
     const session = new ConversationSession({
       cwd: workspacePath,
@@ -228,6 +237,8 @@ export class AutomationScheduler {
       systemPrompt: resolvedSystemPrompt,
       skipPermissions: true,
       sessionKind: "automation",
+      disableInteractiveTools: true,
+      readOnly: agent.readOnly,
     });
 
     this.activeRuns.set(autoId, { run, session });
@@ -278,9 +289,13 @@ export class AutomationScheduler {
         }
       });
 
-      // Send the message to start the agent
+      // Send the message to start the agent. The model and thinking level are
+      // owned by the agent so unattended runs stay predictable.
       try {
-        session.sendMessage(userPrompt, { model: auto.action.modelId });
+        session.sendMessage(userPrompt, {
+          model: agent.modelId,
+          thinkingLevel: agent.thinkingLevel,
+        });
       } catch (err) {
         void finish("failure", err instanceof Error ? err.message : String(err));
       }
@@ -323,10 +338,9 @@ export class AutomationScheduler {
     }
   }
 
-  private async resolvePrompt(
+  private async resolveUserPrompt(
     templateId: string | undefined,
     inlineContent: string | undefined,
-    _type: "system" | "user",
   ): Promise<string | undefined> {
     if (templateId) {
       const templates = await loadPromptTemplates(this.dataDir);

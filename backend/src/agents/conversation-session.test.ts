@@ -215,10 +215,6 @@ async function completeAppServerTurn(
   return turnStart;
 }
 
-function geminiInitLine(sessionId: string, model = "gemini-3.1-pro-preview"): string {
-  return JSON.stringify({ type: "init", session_id: sessionId, model }) + "\n";
-}
-
 function thinkingAssistantLine(thinking: string, text: string): string {
   return JSON.stringify({
     type: "assistant",
@@ -1425,29 +1421,6 @@ describe("ConversationSession", () => {
     expect(secondArgs).not.toContain("--session-id");
   });
 
-  it("uses Gemini init session_id for resume on second message", () => {
-    const session = createSession({ sessionId: "gemini-resume" });
-
-    session.sendMessage("First", { model: "gemini:gemini-3.1-pro-preview" });
-
-    const firstArgs = mockSpawn.mock.calls[0][1] as string[];
-    expect(firstArgs).not.toContain("-r");
-
-    mockProc._stdout.push(geminiInitLine("gem-sess-123"));
-    mockProc._emitClose(0);
-
-    const mockProc2 = createMockProcess();
-    mockSpawn.mockReturnValue(mockProc2);
-
-    session.sendMessage("Second", { model: "gemini:gemini-3-flash-preview" });
-
-    const secondArgs = mockSpawn.mock.calls[1][1] as string[];
-    const resumeIdx = secondArgs.indexOf("-r");
-    expect(resumeIdx).toBeGreaterThanOrEqual(0);
-    expect(secondArgs[resumeIdx + 1]).toBe("gem-sess-123");
-    expect(session.metadata.claudeSessionId).toBe("gem-sess-123");
-  });
-
   it("uses Codex app-server for interactive Codex chat sessions", async () => {
     const session = createSession({ sessionId: "codex-app-chat" });
     const messages: WsOutgoing[] = [];
@@ -2546,37 +2519,6 @@ describe("ConversationSession", () => {
     if (errors[0].type === "error") {
       expect(errors[0].message).toContain("stderr:");
       expect(errors[0].message).toContain("something went wrong");
-    }
-  });
-
-  it("suppresses known Gemini stderr noise messages", () => {
-    const session = createSession({ sessionId: "gemini-stderr-noise" });
-    const messages: WsOutgoing[] = [];
-    session.on("message", (msg) => messages.push(msg));
-
-    session.sendMessage("Hi", { model: "gemini:gemini-3.1-pro-preview" });
-    mockProc._stderr.push("Loaded cached credentials at /tmp/creds");
-    mockProc._stderr.push("YOLO mode is enabled for this run");
-    mockProc._stderr.push("Retrying with backoff in 1000ms");
-    mockProc._stderr.push("GaxiosError: 429 Too Many Requests");
-
-    const errors = messages.filter((m) => m.type === "error");
-    expect(errors).toHaveLength(0);
-  });
-
-  it("still emits stderr errors for Gemini when message is not noise", () => {
-    const session = createSession({ sessionId: "gemini-stderr-real" });
-    const messages: WsOutgoing[] = [];
-    session.on("message", (msg) => messages.push(msg));
-
-    session.sendMessage("Hi", { model: "gemini:gemini-3.1-pro-preview" });
-    mockProc._stderr.push("permission denied");
-
-    const errors = messages.filter((m) => m.type === "error");
-    expect(errors).toHaveLength(1);
-    if (errors[0].type === "error") {
-      expect(errors[0].message).toContain("stderr:");
-      expect(errors[0].message).toContain("permission denied");
     }
   });
 

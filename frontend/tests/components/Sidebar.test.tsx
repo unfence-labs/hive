@@ -10,6 +10,8 @@ import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import type { UiPreferencesPayload } from "@/lib/sidebar-preferences";
 import type { BrainState, Project, PullRequestInfo, WsOutgoing } from "@/types";
 
+declare const require: <T = any>(id: string) => T;
+
 /** Match elements whose full textContent equals `text` (handles text split across child spans). */
 function withTextContent(text: string) {
   return (_: string, element: Element | null): boolean => {
@@ -336,6 +338,7 @@ describe("Sidebar", () => {
     brainMock.brain = {
       exists: true,
       repoUrl: "git@github.com:octocat/brain.git",
+      repoPath: "/tmp/brain",
       createdAt: "2026-06-05T00:00:00.000Z",
     };
     renderSidebar("/projects", projects);
@@ -355,6 +358,7 @@ describe("Sidebar", () => {
     brainMock.brain = {
       exists: true,
       repoUrl: "git@github.com:octocat/brain.git",
+      repoPath: "/tmp/brain",
       createdAt: "2026-06-05T00:00:00.000Z",
     };
     const { __wsMock } = await getWsMock();
@@ -1784,7 +1788,7 @@ describe("Sidebar", () => {
         name: "Disabled job",
         enabled: false,
         trigger: { type: "cron", expression: "0 * * * *" },
-        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "x" },
+        action: { type: "agent", agentId: "agent-1", userPromptInline: "x" },
         notification: { onComplete: false, onFailure: false },
         createdAt: "2026-01-01T00:00:00Z",
         updatedAt: "2026-01-01T00:00:00Z",
@@ -1795,7 +1799,7 @@ describe("Sidebar", () => {
         enabled: true,
         lastRunStatus: "running",
         trigger: { type: "cron", expression: "0 2 * * *" },
-        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "x" },
+        action: { type: "agent", agentId: "agent-1", userPromptInline: "x" },
         notification: { onComplete: false, onFailure: false },
         createdAt: "2026-01-01T00:00:00Z",
         updatedAt: "2026-01-01T00:00:00Z",
@@ -1805,7 +1809,7 @@ describe("Sidebar", () => {
         name: "Enabled job",
         enabled: true,
         trigger: { type: "cron", expression: "0 8 * * *" },
-        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "x" },
+        action: { type: "agent", agentId: "agent-1", userPromptInline: "x" },
         notification: { onComplete: false, onFailure: false },
         createdAt: "2026-01-01T00:00:00Z",
         updatedAt: "2026-01-01T00:00:00Z",
@@ -1836,7 +1840,7 @@ describe("Sidebar", () => {
         enabled: true,
         lastRunStatus: "running",
         trigger: { type: "cron", expression: "0 2 * * *" },
-        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "x" },
+        action: { type: "agent", agentId: "agent-1", userPromptInline: "x" },
         notification: { onComplete: false, onFailure: false },
         createdAt: "2026-01-01T00:00:00Z",
         updatedAt: "2026-01-01T00:00:00Z",
@@ -1854,7 +1858,7 @@ describe("Sidebar", () => {
         name: "Disabled auto",
         enabled: false,
         trigger: { type: "cron", expression: "0 2 * * *" },
-        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "x" },
+        action: { type: "agent", agentId: "agent-1", userPromptInline: "x" },
         notification: { onComplete: false, onFailure: false },
         createdAt: "2026-01-01T00:00:00Z",
         updatedAt: "2026-01-01T00:00:00Z",
@@ -1872,7 +1876,7 @@ describe("Sidebar", () => {
         name: "Active auto",
         enabled: true,
         trigger: { type: "cron", expression: "0 2 * * *" },
-        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "x" },
+        action: { type: "agent", agentId: "agent-1", userPromptInline: "x" },
         notification: { onComplete: false, onFailure: false },
         createdAt: "2026-01-01T00:00:00Z",
         updatedAt: "2026-01-01T00:00:00Z",
@@ -1894,7 +1898,7 @@ describe("Sidebar", () => {
         enabled: true,
         lastRunStatus: "running",
         trigger: { type: "cron", expression: "0 2 * * *" },
-        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "x" },
+        action: { type: "agent", agentId: "agent-1", userPromptInline: "x" },
         notification: { onComplete: false, onFailure: false },
         createdAt: "2026-01-01T00:00:00Z",
         updatedAt: "2026-01-01T00:00:00Z",
@@ -1917,7 +1921,7 @@ describe("Sidebar", () => {
         name: "Off auto",
         enabled: false,
         trigger: { type: "cron", expression: "0 2 * * *" },
-        action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "x" },
+        action: { type: "agent", agentId: "agent-1", userPromptInline: "x" },
         notification: { onComplete: false, onFailure: false },
         createdAt: "2026-01-01T00:00:00Z",
         updatedAt: "2026-01-01T00:00:00Z",

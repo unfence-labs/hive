@@ -41,12 +41,6 @@ const DEPENDENCIES: Dependency[] = [
     versionArgs: ["--version"],
     required: false,
   },
-  {
-    name: "gemini",
-    command: "gemini",
-    versionArgs: ["--version"],
-    required: false,
-  },
 ];
 
 export function meetsMinVersion(version: string, min: [number, number]): boolean {

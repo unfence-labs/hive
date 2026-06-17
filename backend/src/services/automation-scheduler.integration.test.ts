@@ -5,9 +5,10 @@ import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { createProject } from "../projects/project-manager.js";
 import { saveAutomations } from "../state/automations.js";
+import { saveAgents } from "../state/agents.js";
 import { git } from "../utils/git.js";
 import { AutomationScheduler } from "./automation-scheduler.js";
-import type { Automation } from "../types.js";
+import type { Agent, Automation } from "../types.js";
 
 vi.mock("../agents/conversation-session.js", async () => {
   const { EventEmitter } = await import("node:events");
@@ -45,6 +46,20 @@ let tmpDir: string;
 let dataDir: string;
 let fixtureRepoUrl: string;
 
+function makeAgent(): Agent {
+  return {
+    id: "agent-1",
+    name: "Reviewer",
+    systemPrompt: "You are a reviewer.",
+    modelId: "claude:opus-4-8",
+    thinkingLevel: "high",
+    injectGitContext: true,
+    readOnly: false,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+  };
+}
+
 function makeAutomation(projectId: string): Automation {
   return {
     id: "auto-integration-1",
@@ -52,7 +67,7 @@ function makeAutomation(projectId: string): Automation {
     enabled: true,
     projectId,
     trigger: { type: "cron", expression: "0 * * * *" },
-    action: { type: "agent", modelId: "claude:opus-4-7", userPromptInline: "Run" },
+    action: { type: "agent", agentId: "agent-1", userPromptInline: "Run" },
     notification: { onComplete: false, onFailure: false },
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -86,6 +101,7 @@ describe("AutomationScheduler integration (real git worktree lifecycle)", () => 
     const { stdout: expectedHead } = await git(["rev-parse", "HEAD"], pushClone);
 
     const auto = makeAutomation(project.id);
+    await saveAgents([makeAgent()], dataDir);
     await saveAutomations([auto], dataDir);
 
     const scheduler = new AutomationScheduler(dataDir);
@@ -116,6 +132,7 @@ describe("AutomationScheduler integration (real git worktree lifecycle)", () => 
     await git(["push", "origin", "main"], pushClone);
 
     const auto = makeAutomation(project.id);
+    await saveAgents([makeAgent()], dataDir);
     await saveAutomations([auto], dataDir);
 
     const scheduler = new AutomationScheduler(dataDir);

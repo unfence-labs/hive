@@ -23,7 +23,7 @@ function makeTemplate(overrides: Partial<PromptTemplate> = {}): PromptTemplate {
   return {
     id: "tpl-1",
     name: "Test Template",
-    type: "system",
+    type: "user",
     content: "You are helpful.",
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -96,7 +96,7 @@ describe("useCreatePromptTemplate", () => {
     const { result } = renderHook(() => useCreatePromptTemplate(), { wrapper });
 
     await act(async () => {
-      await result.current.mutateAsync({ name: "X", type: "system" as const, content: "y" });
+      await result.current.mutateAsync({ name: "X", type: "user" as const, content: "y" });
     });
 
     expect(invalidateSpy).toHaveBeenCalledWith(

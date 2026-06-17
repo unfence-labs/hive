@@ -2,31 +2,33 @@ import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { ClaudeProvider } from "./claude.js";
 import { CodexProvider } from "./codex.js";
-import { GeminiProvider } from "./gemini.js";
-import type { AgentProvider, ModelCatalogEntry, ModelCatalogResponse, ProviderCapabilities } from "./types.js";
+import type {
+  AgentProvider,
+  ModelCatalogEntry,
+  ModelCatalogResponse,
+  ProviderCapabilities,
+  ThinkingLevel,
+} from "./types.js";
 
 const execFile = promisify(execFileCb);
 
 const PROVIDER_LABELS: Record<string, string> = {
   claude: "Claude Code",
   codex: "Codex",
-  gemini: "Gemini CLI",
 };
 
 /** npm package name for each provider, used to check for updates. */
 const NPM_PACKAGES: Record<string, string> = {
   claude: "@anthropic-ai/claude-code",
   codex: "@openai/codex",
-  gemini: "@google/gemini-cli",
 };
 
-const DEFAULT_PROVIDER_PRIORITY = ["codex", "claude", "gemini"];
+const DEFAULT_PROVIDER_PRIORITY = ["codex", "claude"];
 
 /** All known providers. Availability is checked at runtime via CLI detection. */
 const ALL_PROVIDERS: AgentProvider[] = [
   new ClaudeProvider(),
   new CodexProvider(),
-  new GeminiProvider(),
 ];
 
 const providerMap = new Map<string, AgentProvider>(
@@ -157,6 +159,43 @@ export function resolveProvider(compoundModelId?: string): { provider: AgentProv
 /** Get a provider by ID. */
 export function getProvider(providerId: string): AgentProvider | undefined {
   return providerMap.get(providerId);
+}
+
+function resolveKnownModel(compoundModelId: string): { provider: AgentProvider; modelId: string } | undefined {
+  try {
+    const resolved = resolveProvider(compoundModelId);
+    return resolved.provider.models.some((m) => m.id === resolved.modelId)
+      ? resolved
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether a compound model id ("provider:model") refers to a model that exists
+ * in the static provider definitions. Availability-independent — it does NOT
+ * depend on whether the provider CLI is currently detected — so it is safe for
+ * write-time validation of stored model ids (e.g. agent definitions), unlike
+ * {@link getModelCatalog} which only lists available providers.
+ */
+export function isKnownModelId(compoundModelId: string): boolean {
+  return resolveKnownModel(compoundModelId) !== undefined;
+}
+
+export function getDefaultThinkingLevelForModel(compoundModelId: string): ThinkingLevel | undefined {
+  const resolved = resolveKnownModel(compoundModelId);
+  const levels = resolved?.provider.capabilities.thinkingLevels ?? [];
+  if (levels.length === 0) return undefined;
+  return levels.includes("high") ? "high" : levels[0];
+}
+
+export function isThinkingLevelSupportedForModel(
+  compoundModelId: string,
+  thinkingLevel: ThinkingLevel,
+): boolean {
+  const resolved = resolveKnownModel(compoundModelId);
+  return resolved?.provider.capabilities.thinkingLevels.includes(thinkingLevel) ?? false;
 }
 
 /** Build the model catalog for the frontend, only including available providers. */

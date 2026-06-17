@@ -170,6 +170,45 @@ describe("ClaudeProvider", () => {
     expect(args).not.toContain("--append-system-prompt");
   });
 
+  // ── Agent-run enforcement (--disallowedTools) ──────────────────────
+
+  it("omits --disallowedTools for interactive chat (defaults off)", () => {
+    const args = provider.buildArgs("Hello", {}, baseSession());
+    expect(args).not.toContain("--disallowedTools");
+  });
+
+  it("strips interactive tools when disableInteractiveTools is set", () => {
+    const args = provider.buildArgs("Hello", {}, baseSession({ disableInteractiveTools: true }));
+    const idx = args.indexOf("--disallowedTools");
+    expect(idx).toBeGreaterThan(-1);
+    const names = args[idx + 1].split(" ");
+    expect(names).toContain("AskUserQuestion");
+    expect(names).toContain("ExitPlanMode");
+    // Read-only edit tools are NOT stripped unless readOnly is set.
+    expect(names).not.toContain("Edit");
+  });
+
+  it("adds edit-tool restriction when readOnly is set, keeping Bash", () => {
+    const args = provider.buildArgs("Hello", {}, baseSession({
+      disableInteractiveTools: true,
+      readOnly: true,
+    }));
+    const idx = args.indexOf("--disallowedTools");
+    const names = args[idx + 1].split(" ");
+    expect(names).toContain("AskUserQuestion");
+    expect(names).toContain("ExitPlanMode");
+    expect(names).toEqual(expect.arrayContaining(["Edit", "Write", "NotebookEdit"]));
+    // Bash is intentionally kept so read-only audits can grep/build/test.
+    expect(names).not.toContain("Bash");
+  });
+
+  it("restricts only edit tools when readOnly is set without disableInteractiveTools", () => {
+    const args = provider.buildArgs("Hello", {}, baseSession({ readOnly: true }));
+    const idx = args.indexOf("--disallowedTools");
+    const names = args[idx + 1].split(" ");
+    expect(names).toEqual(["Edit", "Write", "NotebookEdit"]);
+  });
+
   it("ends with -p and the content", () => {
     const args = provider.buildArgs("My message", {}, baseSession());
     expect(args.slice(-2)).toEqual(["-p", "My message"]);

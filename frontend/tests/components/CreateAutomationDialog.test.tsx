@@ -3,14 +3,14 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import CreateAutomationDialog from "@/components/CreateAutomationDialog";
-import type { Automation, Project, PromptTemplate } from "@/types";
+import type { Agent, Automation, Project, PromptTemplate } from "@/types";
 
 const mocks = vi.hoisted(() => ({
   useProjects: vi.fn(),
   usePromptTemplates: vi.fn(),
+  useAgents: vi.fn(),
   useCreateAutomation: vi.fn(),
   useUpdateAutomation: vi.fn(),
-  apiGet: vi.fn(),
   navigate: vi.fn(),
   createMutateAsync: vi.fn(),
   updateMutateAsync: vi.fn(),
@@ -24,15 +24,13 @@ vi.mock("@/hooks/usePromptTemplates", () => ({
   usePromptTemplates: mocks.usePromptTemplates,
 }));
 
+vi.mock("@/hooks/useAgents", () => ({
+  useAgents: mocks.useAgents,
+}));
+
 vi.mock("@/hooks/useAutomations", () => ({
   useCreateAutomation: mocks.useCreateAutomation,
   useUpdateAutomation: mocks.useUpdateAutomation,
-}));
-
-vi.mock("@/hooks/useApi", () => ({
-  api: {
-    get: mocks.apiGet,
-  },
 }));
 
 vi.mock("react-router-dom", async (importOriginal) => {
@@ -56,10 +54,25 @@ function makeProject(overrides: Partial<Project> = {}): Project {
 
 function makeTemplate(overrides: Partial<PromptTemplate> = {}): PromptTemplate {
   return {
-    id: "tpl-1",
-    name: "Security Prompt",
-    type: "system",
-    content: "You are a security auditor.",
+    id: "tpl-u",
+    name: "User Prompt",
+    type: "user",
+    content: "Review the codebase.",
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function makeAgent(overrides: Partial<Agent> = {}): Agent {
+  return {
+    id: "agent-1",
+    name: "Code Auditor",
+    systemPrompt: "You are a code auditor.",
+    modelId: "claude:opus-4-7",
+    thinkingLevel: "high",
+    injectGitContext: true,
+    readOnly: true,
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -75,8 +88,7 @@ function makeAutomation(overrides: Partial<Automation> = {}): Automation {
     trigger: { type: "cron", expression: "0 2 * * *" },
     action: {
       type: "agent",
-      modelId: "claude:opus-4-7",
-      systemPromptInline: "Be strict.",
+      agentId: "agent-1",
       userPromptInline: "Review the latest commit.",
     },
     notification: { onComplete: true, onFailure: false },
@@ -108,42 +120,33 @@ describe("CreateAutomationDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.useProjects.mockReturnValue({ projects: [makeProject()] });
-    mocks.usePromptTemplates.mockReturnValue({ data: [makeTemplate(), makeTemplate({ id: "tpl-u", type: "user", name: "User Prompt" })] });
+    mocks.usePromptTemplates.mockReturnValue({ data: [makeTemplate()] });
+    mocks.useAgents.mockReturnValue({ data: [makeAgent()] });
     mocks.useCreateAutomation.mockReturnValue({ mutateAsync: mocks.createMutateAsync, isPending: false });
     mocks.useUpdateAutomation.mockReturnValue({ mutateAsync: mocks.updateMutateAsync, isPending: false });
-    mocks.apiGet.mockResolvedValue({
-      models: [{ id: "claude:opus-4-7", label: "Claude Opus", providerLabel: "Anthropic" }],
-      defaultModelId: "claude:opus-4-7",
-    });
     mocks.createMutateAsync.mockResolvedValue({ id: "auto-new" });
     mocks.updateMutateAsync.mockResolvedValue(makeAutomation());
   });
 
-  it("prefills fields in edit mode and disables project selection", async () => {
+  it("renders the agent selector and prefills it in edit mode", async () => {
     renderDialog({ automation: makeAutomation() });
-
-    await waitFor(() => {
-      expect(mocks.apiGet).toHaveBeenCalledWith("/api/models");
-    });
 
     expect(screen.getByRole("heading", { name: "Edit Automation" })).toBeInTheDocument();
     expect(screen.getByDisplayValue("Nightly audit")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Review the latest commit.")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Be strict.")).toBeInTheDocument();
+    // Agent dropdown shows the agent name and is set to the referenced agent.
+    expect(screen.getByRole("option", { name: "Code Auditor" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save Changes" })).toBeInTheDocument();
 
     const [projectSelect] = screen.getAllByRole("combobox");
     expect(projectSelect).toBeDisabled();
   });
 
-  it("updates an existing automation in edit mode", async () => {
+  it("updates an existing automation submitting the agentId", async () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
 
     renderDialog({ automation: makeAutomation(), onOpenChange });
-    await waitFor(() => {
-      expect(mocks.apiGet).toHaveBeenCalledWith("/api/models");
-    });
 
     await user.click(screen.getByRole("button", { name: "Save Changes" }));
 
@@ -154,8 +157,7 @@ describe("CreateAutomationDialog", () => {
         trigger: { type: "cron", expression: "0 2 * * *" },
         action: {
           type: "agent",
-          modelId: "claude:opus-4-7",
-          systemPromptInline: "Be strict.",
+          agentId: "agent-1",
           userPromptInline: "Review the latest commit.",
         },
         notification: { onComplete: true, onFailure: false },
@@ -167,16 +169,16 @@ describe("CreateAutomationDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("creates and navigates in create mode", async () => {
+  it("creates and navigates submitting the selected agentId", async () => {
     const user = userEvent.setup();
     const onOpenChange = vi.fn();
 
     renderDialog({ onOpenChange });
-    await waitFor(() => {
-      expect(mocks.apiGet).toHaveBeenCalledWith("/api/models");
-    });
 
     await user.type(screen.getByPlaceholderText("e.g. Nightly code audit"), "Morning review");
+    // Comboboxes in order: Project (0), Schedule (1), Agent (2).
+    const agentSelect = screen.getAllByRole("combobox")[2];
+    await user.selectOptions(agentSelect, "agent-1");
     await user.type(screen.getByPlaceholderText("What should the agent do?"), "Check yesterday changes");
     await user.click(screen.getByRole("button", { name: "Create Automation" }));
 
@@ -187,7 +189,7 @@ describe("CreateAutomationDialog", () => {
         trigger: { type: "cron", expression: "0 2 * * *" },
         action: {
           type: "agent",
-          modelId: "claude:opus-4-7",
+          agentId: "agent-1",
           userPromptInline: "Check yesterday changes",
         },
         notification: { onComplete: true, onFailure: true },
@@ -199,14 +201,20 @@ describe("CreateAutomationDialog", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/automations/auto-new");
   });
 
+  it("shows an empty-state link to the Team page when no agents exist", () => {
+    mocks.useAgents.mockReturnValue({ data: [] });
+    renderDialog({});
+
+    const link = screen.getByRole("link", { name: "Team settings page" });
+    expect(link).toHaveAttribute("href", "/settings/team");
+  });
+
   it("shows an inline validation message for invalid custom cron expressions", async () => {
     const user = userEvent.setup();
     renderDialog({});
-    await waitFor(() => {
-      expect(mocks.apiGet).toHaveBeenCalledWith("/api/models");
-    });
 
     const selects = screen.getAllByRole("combobox");
+    // Schedule select is the second combobox (Project is first).
     await user.selectOptions(selects[1], "");
     await user.type(screen.getByPlaceholderText("0 */6 * * *"), "bad-cron");
 

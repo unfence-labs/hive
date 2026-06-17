@@ -48,6 +48,17 @@ export class ClaudeProvider implements AgentProvider {
     // `--fast` flag in headless mode, so we override the `fastMode` setting for
     // this session via inline `--settings` JSON (merges over settings.json).
     const fastMode = !!options.fastMode && !!model?.supportsFastMode;
+    // Agent-run enforcement: strip interactive tools (no human can answer
+    // unattended), and for read-only agents block the edit tools while keeping
+    // Bash so read-only audits can still grep/build/test. Empty for interactive
+    // chat, which leaves the native plan-mode path untouched.
+    const disallowedTools: string[] = [];
+    if (session.disableInteractiveTools) {
+      disallowedTools.push("AskUserQuestion", "ExitPlanMode");
+    }
+    if (session.readOnly) {
+      disallowedTools.push("Edit", "Write", "NotebookEdit");
+    }
     return [
       "--print",
       "--output-format", "stream-json",
@@ -55,6 +66,7 @@ export class ClaudeProvider implements AgentProvider {
       ...(model ? ["--model", model.cliValue] : []),
       ...(options.thinkingLevel ? ["--effort", options.thinkingLevel] : []),
       ...(fastMode ? ["--settings", JSON.stringify({ fastMode: true })] : []),
+      ...(disallowedTools.length > 0 ? ["--disallowedTools", disallowedTools.join(" ")] : []),
       ...(options.planMode
         ? ["--permission-mode", "plan"]
         : session.skipPermissions ? ["--dangerously-skip-permissions"] : []),

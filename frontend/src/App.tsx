@@ -21,10 +21,11 @@ import { wsTransport } from "@/lib/ws-transport";
 import { HiveToaster } from "@/components/ui/toaster";
 
 const AutomationDetail = lazy(() => import("@/pages/AutomationDetail"));
+const TeamSettings = lazy(() => import("@/pages/settings/TeamSettings"));
 const PromptTemplatesSettings = lazy(() => import("@/pages/settings/PromptTemplatesSettings"));
 const SkillsSettings = lazy(() => import("@/pages/settings/SkillsSettings"));
 const InstructionsSettings = lazy(() => import("@/pages/settings/InstructionsSettings"));
-const CustomAgentsSettings = lazy(() => import("@/pages/settings/CustomAgentsSettings"));
+const SubagentsSettings = lazy(() => import("@/pages/settings/SubagentsSettings"));
 const CreateAutomationDialog = lazy(() => import("@/components/CreateAutomationDialog"));
 
 function NotificationToastsBridge({ projects }: { projects: Project[] }) {
@@ -103,11 +104,12 @@ export default function App() {
             <Route path="settings/appearance" element={<AppearanceSettings />} />
             <Route path="settings/connection" element={<ConnectionSettings onRefreshConnection={() => { wsTransport.disconnectAll(); fetchProjects(); }} />} />
             <Route path="settings/notifications" element={<NotificationSettings />} />
-            <Route path="settings/agents" element={<AgentSettings />} />
-            <Route path="settings/custom-agents" element={<Suspense fallback={null}><CustomAgentsSettings /></Suspense>} />
+            <Route path="settings/cli" element={<AgentSettings />} />
             <Route path="settings/instructions" element={<Suspense fallback={null}><InstructionsSettings /></Suspense>} />
-            <Route path="settings/prompt-templates" element={<Suspense fallback={null}><PromptTemplatesSettings /></Suspense>} />
+            <Route path="settings/prompt" element={<Suspense fallback={null}><PromptTemplatesSettings /></Suspense>} />
             <Route path="settings/skills" element={<Suspense fallback={null}><SkillsSettings /></Suspense>} />
+            <Route path="settings/team" element={<Suspense fallback={null}><TeamSettings /></Suspense>} />
+            <Route path="settings/subagents" element={<Suspense fallback={null}><SubagentsSettings /></Suspense>} />
             <Route path="settings/repositories/:projectId" element={<ProjectDetail />} />
           </Route>
         </Routes>

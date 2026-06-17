@@ -95,9 +95,29 @@ describe("CodexProvider", () => {
     expect(args).toContain("--json");
   });
 
-  it("includes --dangerously-bypass-approvals-and-sandbox flag", () => {
+  it("includes --dangerously-bypass-approvals-and-sandbox flag when not read-only", () => {
     const args = provider.buildArgs("Hello", {}, baseSession());
     expect(args).toContain("--dangerously-bypass-approvals-and-sandbox");
+  });
+
+  // ── Agent-run enforcement (read-only sandbox) ──────────────────────
+
+  it("uses the read-only sandbox and never approval instead of full bypass when readOnly", () => {
+    const args = provider.buildArgs("Hello", {}, baseSession({ readOnly: true }));
+    expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+    const sandboxIdx = args.indexOf("--sandbox");
+    expect(sandboxIdx).toBeGreaterThan(-1);
+    expect(args[sandboxIdx + 1]).toBe("read-only");
+    const approvalIdx = args.indexOf("--ask-for-approval");
+    expect(approvalIdx).toBeGreaterThan(-1);
+    expect(args[approvalIdx + 1]).toBe("never");
+  });
+
+  it("ignores disableInteractiveTools (codex exec has no blocking tools)", () => {
+    const args = provider.buildArgs("Hello", {}, baseSession({ disableInteractiveTools: true }));
+    // No interactive-strip flags exist for codex exec; behavior is unchanged.
+    expect(args).toContain("--dangerously-bypass-approvals-and-sandbox");
+    expect(args).not.toContain("--sandbox");
   });
 
   it("includes --model with cli value when model is specified", () => {

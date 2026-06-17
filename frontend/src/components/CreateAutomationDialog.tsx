@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -13,9 +13,9 @@ import { cn } from "@/lib/utils";
 import { getNextRuns } from "@/lib/cron";
 import { useProjects } from "@/hooks/useProjects";
 import { usePromptTemplates } from "@/hooks/usePromptTemplates";
+import { useAgents } from "@/hooks/useAgents";
 import { useCreateAutomation, useUpdateAutomation } from "@/hooks/useAutomations";
-import { api } from "@/hooks/useApi";
-import type { Automation, ModelCatalogEntry, ModelCatalogResponse } from "@/types";
+import type { Automation } from "@/types";
 
 interface AutomationDialogProps {
   open: boolean;
@@ -39,6 +39,7 @@ export default function AutomationDialog({ open, onOpenChange, automation }: Aut
   const navigate = useNavigate();
   const { projects } = useProjects();
   const { data: templates } = usePromptTemplates();
+  const { data: agents } = useAgents();
   const createMutation = useCreateAutomation();
   const updateMutation = useUpdateAutomation();
 
@@ -46,13 +47,9 @@ export default function AutomationDialog({ open, onOpenChange, automation }: Aut
   const [projectId, setProjectId] = useState("");
   const [schedulePreset, setSchedulePreset] = useState("0 2 * * *");
   const [customCron, setCustomCron] = useState("");
-  const [modelId, setModelId] = useState("");
-  const [models, setModels] = useState<ModelCatalogEntry[]>([]);
 
-  // System prompt
-  const [systemPromptMode, setSystemPromptMode] = useState<"none" | "template" | "custom">("none");
-  const [systemPromptId, setSystemPromptId] = useState("");
-  const [systemPromptInline, setSystemPromptInline] = useState("");
+  // Agent
+  const [agentId, setAgentId] = useState("");
 
   // User prompt
   const [userPromptMode, setUserPromptMode] = useState<"custom" | "template">("custom");
@@ -84,21 +81,7 @@ export default function AutomationDialog({ open, onOpenChange, automation }: Aut
         setCustomCron(automation.trigger.expression);
       }
 
-      setModelId(automation.action.modelId);
-
-      if (automation.action.systemPromptId) {
-        setSystemPromptMode("template");
-        setSystemPromptId(automation.action.systemPromptId);
-        setSystemPromptInline("");
-      } else if (automation.action.systemPromptInline) {
-        setSystemPromptMode("custom");
-        setSystemPromptInline(automation.action.systemPromptInline);
-        setSystemPromptId("");
-      } else {
-        setSystemPromptMode("none");
-        setSystemPromptId("");
-        setSystemPromptInline("");
-      }
+      setAgentId(automation.action.agentId);
 
       if (automation.action.userPromptId) {
         setUserPromptMode("template");
@@ -118,34 +101,24 @@ export default function AutomationDialog({ open, onOpenChange, automation }: Aut
       setProjectId("");
       setSchedulePreset("0 2 * * *");
       setCustomCron("");
-      setModelId("");
-      setSystemPromptMode("none");
-      setSystemPromptId("");
-      setSystemPromptInline("");
+      setAgentId("");
       setUserPromptMode("custom");
       setUserPromptId("");
       setUserPromptInline("");
       setNotifyComplete(true);
       setNotifyFailure(true);
     }
-
-    api.get<ModelCatalogResponse>("/api/models")
-      .then((data) => {
-        setModels(data.models);
-        // In create mode, default to the API's default model
-        if (!automation) setModelId((prev) => prev || data.defaultModelId);
-      })
-      .catch(() => {});
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cronExpression = schedulePreset || customCron;
-  const systemTemplates = templates?.filter((t) => t.type === "system") ?? [];
-  const userTemplates = templates?.filter((t) => t.type === "user") ?? [];
+  const userTemplates = templates ?? [];
+  const agentList = agents ?? [];
+  const hasAgents = agentList.length > 0;
 
   const isValid =
     name.trim() &&
     cronExpression.trim() &&
-    modelId &&
+    agentId &&
     (userPromptMode === "custom" ? userPromptInline.trim() : userPromptId);
 
   const isPending = createMutation.isPending || updateMutation.isPending;
@@ -155,9 +128,7 @@ export default function AutomationDialog({ open, onOpenChange, automation }: Aut
 
     const actionPayload = {
       type: "agent" as const,
-      modelId,
-      ...(systemPromptMode === "template" && systemPromptId ? { systemPromptId } : {}),
-      ...(systemPromptMode === "custom" && systemPromptInline.trim() ? { systemPromptInline: systemPromptInline.trim() } : {}),
+      agentId,
       ...(userPromptMode === "template" && userPromptId ? { userPromptId } : {}),
       ...(userPromptMode === "custom" && userPromptInline.trim() ? { userPromptInline: userPromptInline.trim() } : {}),
     };
@@ -191,8 +162,8 @@ export default function AutomationDialog({ open, onOpenChange, automation }: Aut
           <DialogTitle>{isEditMode ? "Edit Automation" : "New Automation"}</DialogTitle>
           <DialogDescription>
             {isEditMode
-              ? "Update schedule, prompts, model, and notification behavior."
-              : "Create a scheduled automation with prompts, model, and notifications."}
+              ? "Update schedule, agent, prompt, and notification behavior."
+              : "Create a scheduled automation with an agent, prompt, and notifications."}
           </DialogDescription>
         </DialogHeader>
 
@@ -247,58 +218,31 @@ export default function AutomationDialog({ open, onOpenChange, automation }: Aut
             {cronExpression && <CronPreview expression={cronExpression} />}
           </Field>
 
-          {/* Model */}
-          <Field label="Model">
-            <select
-              value={modelId}
-              onChange={(e) => setModelId(e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {models.map((m) => (
-                <option key={m.id} value={m.id}>{m.label} ({m.providerLabel})</option>
-              ))}
-            </select>
-          </Field>
-
-          {/* System Prompt */}
-          <Field label="System Prompt">
-            <div className="flex gap-2 text-xs">
-              {(["none", "template", "custom"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setSystemPromptMode(mode)}
-                  className={cn(
-                    "rounded-md px-2.5 py-1 transition-colors",
-                    systemPromptMode === mode
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {mode === "none" ? "None" : mode === "template" ? "Template" : "Custom"}
-                </button>
-              ))}
-            </div>
-            {systemPromptMode === "template" && (
+          {/* Agent */}
+          <Field label="Agent">
+            {hasAgents ? (
               <select
-                value={systemPromptId}
-                onChange={(e) => setSystemPromptId(e.target.value)}
-                className="mt-2 flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                value={agentId}
+                onChange={(e) => setAgentId(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <option value="">Select a template...</option>
-                {systemTemplates.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
+                <option value="">Select an agent...</option>
+                {agentList.map((a) => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
               </select>
-            )}
-            {systemPromptMode === "custom" && (
-              <textarea
-                value={systemPromptInline}
-                onChange={(e) => setSystemPromptInline(e.target.value)}
-                placeholder="System instructions..."
-                rows={3}
-                className="mt-2 flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No agents yet. Create one on the{" "}
+                <Link
+                  to="/settings/team"
+                  onClick={() => onOpenChange(false)}
+                  className="text-primary underline-offset-2 hover:underline"
+                >
+                  Team settings page
+                </Link>
+                .
+              </p>
             )}
           </Field>
 
@@ -337,8 +281,8 @@ export default function AutomationDialog({ open, onOpenChange, automation }: Aut
                 value={userPromptInline}
                 onChange={(e) => setUserPromptInline(e.target.value)}
                 placeholder="What should the agent do?"
-                rows={4}
-                className="mt-2 flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                rows={6}
+                className="mt-2 flex min-h-[140px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             )}
           </Field>

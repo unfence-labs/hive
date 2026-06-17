@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "types": ["vitest/globals", "@testing-library/jest-dom"]
+  },
+  "include": [
+    "src",
+    "tests/setup.ts",
+    "tests/test-utils.tsx",
+    "tests/components/AutomationRunLogSheet.test.tsx",
+    "tests/components/CreateAutomationDialog.test.tsx",
+    "tests/components/Sidebar.helpers.test.ts",
+    "tests/components/Sidebar.test.tsx",
+    "tests/hooks/useAutomations.test.ts",
+    "tests/pages/AutomationDetail.test.tsx"
+  ]
+}

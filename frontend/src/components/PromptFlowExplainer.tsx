@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Terminal, FileCode2, GitBranch, MessageSquare, Lightbulb, Settings, Brain, FolderTree, Globe } from "lucide-react";
+import { Terminal, Bot, GitBranch, MessageSquare, Lightbulb, Settings, Brain, FolderTree, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type FlowMode = "chat" | "brain" | "automation";
@@ -13,7 +13,7 @@ export function PromptFlowExplainer() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-medium text-foreground flex items-center gap-2">
-            Prompt Construction Flow
+            Prompt Assembly
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
             Understand how your prompts are assembled before being sent to the AI model.
@@ -120,18 +120,18 @@ export function PromptFlowExplainer() {
           ) : (
             <>
               <SourceCard
-                id="template"
-                icon={<FileCode2 className="h-4 w-4" />}
-                title="System Prompt"
-                desc="Selected system prompt or inline"
-                isHovered={hoveredCard === "template"}
+                id="task-agent"
+                icon={<Bot className="h-4 w-4" />}
+                title="Task Agent"
+                desc="System prompt, model, permissions"
+                isHovered={hoveredCard === "task-agent"}
                 onHover={setHoveredCard}
               />
               <SourceCard
                 id="git-auto"
                 icon={<GitBranch className="h-4 w-4" />}
                 title="Git Context"
-                desc="Injected if linked to a Project"
+                desc="Only for project-linked runs"
                 isHovered={hoveredCard === "git-auto"}
                 onHover={setHoveredCard}
               />
@@ -139,15 +139,15 @@ export function PromptFlowExplainer() {
                 id="summary"
                 icon={<Lightbulb className="h-4 w-4" />}
                 title="Summary Instruction"
-                desc="Appended to system prompt"
+                desc="For completion notifications"
                 isHovered={hoveredCard === "summary"}
                 onHover={setHoveredCard}
               />
               <SourceCard
                 id="user-auto"
                 icon={<MessageSquare className="h-4 w-4" />}
-                title="User Prompt"
-                desc="Selected user prompt or inline"
+                title="Run Prompt"
+                desc="Inline text or prompt template"
                 isHovered={hoveredCard === "user-auto"}
                 onHover={setHoveredCard}
               />
@@ -162,7 +162,7 @@ export function PromptFlowExplainer() {
           >
             <div className="flex items-center gap-2 border-b border-white/10 bg-white/5 px-4 py-2">
               <Terminal className="h-4 w-4 text-muted-foreground" />
-              <span className="text-xs font-medium text-muted-foreground">Final CLI Payload</span>
+              <span className="text-xs font-medium text-muted-foreground">Final Prompt Payload</span>
             </div>
             <div className="flex-1 overflow-auto p-4 font-mono text-[11px] leading-relaxed">
               {mode === "chat" ? (
@@ -196,18 +196,18 @@ export function PromptFlowExplainer() {
                 </>
               ) : (
                 <>
-                  <PayloadBlock id="template" hoveredId={hoveredCard} color="text-purple-400">
-                    --append-system-prompt "Review the codebase for security issues...
+                  <PayloadBlock id="task-agent" hoveredId={hoveredCard} color="text-purple-400">
+                    --agent "Security Reviewer"
                   </PayloadBlock>
                   <PayloadBlock id="git-auto" hoveredId={hoveredCard} color="text-green-400">
-                    {`\n\n# Git Context\nProject: Hive\n..."`}
+                    {`\n\n# Git Context\nProject: Hive\n...\n\n// omitted when no project is linked`}
                   </PayloadBlock>
                   <PayloadBlock id="summary" hoveredId={hoveredCard} color="text-amber-400">
-                    {`\n\nIMPORTANT: End your final message with a '## Summary'..."`}
+                    {`\n\nIMPORTANT: End your final message with a "## Summary"..."`}
                   </PayloadBlock>
                   <div className="my-2 border-t border-white/10" />
                   <PayloadBlock id="user-auto" hoveredId={hoveredCard} color="text-white">
-                    -p "Run full audit on the auth module..."
+                    -p "Run the selected prompt template or inline run prompt..."
                   </PayloadBlock>
                 </>
               )}

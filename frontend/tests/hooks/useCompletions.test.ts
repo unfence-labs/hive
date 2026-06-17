@@ -45,7 +45,7 @@ describe("useCompletions", () => {
 
   it("returns empty list and skips fetch when completions are disabled", () => {
     const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useCompletions("ws-1", "gemini", false), { wrapper });
+    const { result } = renderHook(() => useCompletions("ws-1", "codex", false), { wrapper });
 
     expect(result.current).toEqual([]);
     expect(api.get).not.toHaveBeenCalled();

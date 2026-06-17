@@ -42,10 +42,19 @@ export class CodexProvider implements AgentProvider {
     // Session continuity: `codex exec resume <thread_id> -` on subsequent turns.
     // NOTE: The prompt is provided on stdin via "-" because Codex also reads from
     // piped stdin when a positional prompt is present, which creates noisy stderr.
+    //
+    // Read-only agent runs swap the full bypass for the read-only sandbox so the
+    // agent can inspect but not modify the workspace. `--ask-for-approval never`
+    // keeps it non-interactive (no human is subscribed to an automation run).
+    // Codex exec has no AskUserQuestion tool, so disableInteractiveTools is a no-op
+    // here. Interactive chat keeps the existing full-access path untouched.
+    const sandboxFlags = session.readOnly
+      ? ["--sandbox", "read-only", "--ask-for-approval", "never"]
+      : ["--dangerously-bypass-approvals-and-sandbox"];
     const flags = [
       "--json",
       ...(model ? ["--model", model.cliValue] : []),
-      "--dangerously-bypass-approvals-and-sandbox",
+      ...sandboxFlags,
       "--config", `model_reasoning_effort=${thinkingLevel}`,
     ];
 

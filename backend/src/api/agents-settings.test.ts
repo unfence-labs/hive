@@ -46,7 +46,7 @@ function mockFetchNpm(versions: Record<string, string | null>) {
   }) as typeof fetch;
 }
 
-describe("GET /api/settings/agents", () => {
+describe("GET /api/settings/cli", () => {
   it("returns all providers with correct shape", async () => {
     mocks.getAllProviderInfo.mockReturnValue([
       { id: "claude", label: "Claude Code", npmPackage: "@anthropic-ai/claude-code", installed: true, version: "1.0.35" },
@@ -54,7 +54,7 @@ describe("GET /api/settings/agents", () => {
     ]);
     mockFetchNpm({ "@anthropic-ai/claude-code": "1.0.35", "@openai/codex": "0.2.0" });
 
-    const res = await app.inject({ method: "GET", url: "/api/settings/agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
 
     expect(res.statusCode).toBe(200);
     const body = res.json();
@@ -83,7 +83,7 @@ describe("GET /api/settings/agents", () => {
     ]);
     mockFetchNpm({ "@anthropic-ai/claude-code": "1.0.35" });
 
-    const res = await app.inject({ method: "GET", url: "/api/settings/agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
     const body = res.json();
 
     expect(body.agents[0].updateAvailable).toBe(true);
@@ -96,7 +96,7 @@ describe("GET /api/settings/agents", () => {
     ]);
     mockFetchNpm({ "@anthropic-ai/claude-code": "1.0.35" });
 
-    const res = await app.inject({ method: "GET", url: "/api/settings/agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
     expect(res.json().agents[0].updateAvailable).toBe(false);
   });
 
@@ -108,7 +108,7 @@ describe("GET /api/settings/agents", () => {
       throw new Error("network error");
     }) as typeof fetch;
 
-    const res = await app.inject({ method: "GET", url: "/api/settings/agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
     const agent = res.json().agents[0];
 
     expect(agent.latestVersion).toBeNull();
@@ -121,7 +121,7 @@ describe("GET /api/settings/agents", () => {
     ]);
     mockFetchNpm({ "@anthropic-ai/claude-code": null });
 
-    const res = await app.inject({ method: "GET", url: "/api/settings/agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
     const agent = res.json().agents[0];
 
     expect(agent.latestVersion).toBeNull();
@@ -136,7 +136,7 @@ describe("GET /api/settings/agents", () => {
       throw new Error("fetch should not be called");
     }) as typeof fetch;
 
-    const res = await app.inject({ method: "GET", url: "/api/settings/agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
     const agent = res.json().agents[0];
 
     expect(agent.latestVersion).toBeNull();
@@ -150,7 +150,7 @@ describe("GET /api/settings/agents", () => {
     ]);
     mockFetchNpm({ "@openai/codex": "0.2.0" });
 
-    const res = await app.inject({ method: "GET", url: "/api/settings/agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
     expect(res.json().agents[0].updateAvailable).toBe(false);
   });
 
@@ -160,7 +160,7 @@ describe("GET /api/settings/agents", () => {
     ]);
     mockFetchNpm({ "@anthropic-ai/claude-code": "1.0.35" });
 
-    const res = await app.inject({ method: "GET", url: "/api/settings/agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
     const agent = res.json().agents[0];
 
     expect(agent.installed).toBe(true);
@@ -174,7 +174,7 @@ describe("GET /api/settings/agents", () => {
     ]);
     mockFetchNpm({ "@openai/codex": "0.2.0" });
 
-    const res = await app.inject({ method: "GET", url: "/api/settings/agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
     const agent = res.json().agents[0];
 
     expect(agent.latestVersion).toBe("0.2.0");
@@ -187,7 +187,7 @@ describe("GET /api/settings/agents", () => {
     ]);
     mockFetchNpm({ "@anthropic-ai/claude-code": "1.2.1" });
 
-    const res = await app.inject({ method: "GET", url: "/api/settings/agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
     const agent = res.json().agents[0];
 
     expect(agent.latestVersion).toBe("1.2.1");
@@ -200,7 +200,7 @@ describe("GET /api/settings/agents", () => {
     ]);
     mockFetchNpm({ "@anthropic-ai/claude-code": "1.2.0-beta.1" });
 
-    const res = await app.inject({ method: "GET", url: "/api/settings/agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
     const agent = res.json().agents[0];
 
     expect(agent.latestVersion).toBe("1.2.0-beta.1");
@@ -225,7 +225,7 @@ describe("GET /api/settings/agents", () => {
       return new Response("Not Found", { status: 404 });
     }) as typeof fetch;
 
-    const res = await app.inject({ method: "GET", url: "/api/settings/agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
     const body = res.json();
 
     expect(body.agents.map((agent: { id: string }) => agent.id)).toEqual(["claude", "codex"]);
@@ -243,7 +243,7 @@ describe("GET /api/settings/agents", () => {
       return response;
     }) as typeof fetch;
 
-    const res = await app.inject({ method: "GET", url: "/api/settings/agents" });
+    const res = await app.inject({ method: "GET", url: "/api/settings/cli" });
     const agent = res.json().agents[0];
 
     expect(agent.latestVersion).toBeNull();
@@ -261,7 +261,7 @@ describe("GET /api/settings/agents", () => {
       })
     )) as typeof fetch;
 
-    await app.inject({ method: "GET", url: "/api/settings/agents" });
+    await app.inject({ method: "GET", url: "/api/settings/cli" });
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "https://registry.npmjs.org/@anthropic-ai/claude-code/latest",
