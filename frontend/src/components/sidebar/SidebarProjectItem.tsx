@@ -106,7 +106,7 @@ export function SidebarProjectItem({
           addLabel={`Add workspace to ${displayLabelPlain}`}
           variant="plain"
           buttonClassName={cn(
-            "rounded py-1 pl-0 pr-1.5 hover:bg-sidebar-accent/35",
+            "rounded py-1 pl-0 hover:bg-sidebar-accent/35",
             isDragged && "cursor-grabbing opacity-45",
           )}
           buttonProps={{

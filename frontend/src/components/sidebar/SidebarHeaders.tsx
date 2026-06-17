@@ -80,7 +80,7 @@ export function SidebarGroupHeader({
               <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
             ) : (
               <>
-                <span className="text-xs tabular-nums text-muted-foreground/60 transition-opacity group-hover:opacity-0">
+                <span className="text-[11px] font-medium tabular-nums tracking-tight text-muted-foreground/45 transition-opacity group-hover:opacity-0">
                   {count}
                 </span>
                 {onAdd && (
