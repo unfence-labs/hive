@@ -1,18 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { StreamParser } from "../stream-parser.js";
-import { providerSupportsAppServer, providerSupportsAppServerGoals } from "../providers/registry.js";
 import type { MessageOptions } from "../../types.js";
-import type { AgentProvider } from "../providers/types.js";
+import type { AgentProvider, StreamAdapter } from "../providers/types.js";
 import type { AgentRunner } from "./types.js";
 import { CodexAppServerRunner } from "./codex-app-server-runner.js";
 import { buildCodexAppServerArgs } from "../providers/codex-app-server.js";
 import { ProcessAgentRunner } from "./process-agent-runner.js";
 
 type SessionKind = "chat" | "automation" | "brain";
-
-function usesInteractiveRunner(sessionKind: SessionKind): boolean {
-  return sessionKind !== "automation";
-}
 
 export interface CreateAgentRunnerInput {
   cwd: string;
@@ -68,17 +63,13 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
     ? { provider: null as AgentProvider | null, modelId: "" }
     : input.resolved!;
 
-  const useCodexAppServer =
-    !input.testCommand &&
-    provider!.id === "codex" &&
-    usesInteractiveRunner(input.sessionKind) &&
-    providerSupportsAppServer(provider!.id);
+  const useCodexAppServer = !input.testCommand && provider!.id === "codex";
   const supportsBlockingTools = provider?.capabilities.blockingTools ?? false;
 
   if (useCodexAppServer) {
-    const enableGoals = providerSupportsAppServerGoals(provider!.id);
+    const enableGoals = provider!.capabilities.goals;
     const env = {
-      ...(provider!.buildEnv({ ...input.msgOptions, model: modelId }) ?? {}),
+      ...(provider!.buildEnv?.({ ...input.msgOptions, model: modelId }) ?? {}),
       ...(input.browserEnv ?? {}),
     };
     const runner = (
@@ -114,19 +105,20 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
   let command: string;
   let args: string[];
   let env: Record<string, string> | undefined;
-  let stdinContent: string | undefined;
+  let parser: StreamAdapter;
 
   if (input.testCommand) {
     command = input.testCommand;
     args = ["-c", `echo '{"type":"result","session_id":"test","duration_ms":0}'`];
+    parser = new StreamParser();
   } else {
-    command = provider!.command;
-    let cliContent = input.content;
-    if (input.isFirstMessage && input.systemPrompt && provider!.id !== "claude") {
-      cliContent = `<context>\n${input.systemPrompt}\n</context>\n\n${input.content}`;
+    // Only providers that ship CLI arg/stream support reach the process runner;
+    // Codex is always routed to the app-server above.
+    if (!provider!.buildArgs || !provider!.createStreamAdapter) {
+      throw new Error(`Provider ${provider!.id} only supports the app-server runner`);
     }
-
-    args = provider!.buildArgs(cliContent, { ...input.msgOptions, model: modelId }, {
+    command = provider!.command;
+    args = provider!.buildArgs(input.content, { ...input.msgOptions, model: modelId }, {
       isFirstMessage: input.isFirstMessage,
       sessionId: nextProviderSessionId,
       systemPrompt: input.systemPrompt,
@@ -134,13 +126,11 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
       disableInteractiveTools: input.disableInteractiveTools,
       readOnly: input.readOnly,
     });
-    if (provider!.id === "codex") {
-      stdinContent = cliContent;
-    }
     env = {
-      ...(provider!.buildEnv({ ...input.msgOptions, model: modelId }) ?? {}),
+      ...(provider!.buildEnv?.({ ...input.msgOptions, model: modelId }) ?? {}),
       ...(input.browserEnv ?? {}),
     };
+    parser = provider!.createStreamAdapter();
   }
 
   const runner = new ProcessAgentRunner({
@@ -148,9 +138,7 @@ export function createAgentRunner(input: CreateAgentRunnerInput): CreatedAgentRu
     args,
     cwd: input.cwd,
     env,
-    stdinContent,
-    parser: input.testCommand ? new StreamParser() : provider!.createStreamAdapter(),
-    providerId: provider?.id,
+    parser,
     useWorkspaceEnv: !input.testCommand,
   });
 

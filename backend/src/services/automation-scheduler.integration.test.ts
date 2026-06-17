@@ -22,6 +22,10 @@ vi.mock("../agents/conversation-session.js", async () => {
       // No-op for tests.
     }
 
+    async dispose() {
+      // No-op for tests.
+    }
+
     async getMessages() {
       return [
         {

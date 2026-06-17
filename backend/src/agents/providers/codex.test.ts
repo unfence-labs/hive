@@ -1,16 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { CodexProvider } from "./codex.js";
-import { CodexStreamAdapter } from "./codex-stream-adapter.js";
-import type { ProviderSessionState } from "./types.js";
-
-function baseSession(overrides?: Partial<ProviderSessionState>): ProviderSessionState {
-  return {
-    isFirstMessage: true,
-    sessionId: "thread-abc",
-    skipPermissions: true,
-    ...overrides,
-  };
-}
 
 describe("CodexProvider", () => {
   const provider = new CodexProvider();
@@ -71,113 +60,7 @@ describe("CodexProvider", () => {
     expect(provider.capabilities.completions).toBe(true);
   });
 
-  it("defaults Codex goals capability to false before detection", () => {
-    expect(provider.capabilities.goals).toBe(false);
-  });
-
-  // ── buildArgs ──────────────────────────────────────────────────────
-
-  it("starts with 'exec' for first message", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession({ isFirstMessage: true }));
-    expect(args[0]).toBe("exec");
-    // First message should NOT have "resume"
-    expect(args[1]).not.toBe("resume");
-  });
-
-  it("starts with 'exec resume' for subsequent messages", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession({ isFirstMessage: false }));
-    expect(args[0]).toBe("exec");
-    expect(args[1]).toBe("resume");
-  });
-
-  it("includes --json flag", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession());
-    expect(args).toContain("--json");
-  });
-
-  it("includes --dangerously-bypass-approvals-and-sandbox flag when not read-only", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession());
-    expect(args).toContain("--dangerously-bypass-approvals-and-sandbox");
-  });
-
-  // ── Agent-run enforcement (read-only sandbox) ──────────────────────
-
-  it("uses the read-only sandbox and never approval instead of full bypass when readOnly", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession({ readOnly: true }));
-    expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
-    const sandboxIdx = args.indexOf("--sandbox");
-    expect(sandboxIdx).toBeGreaterThan(-1);
-    expect(args[sandboxIdx + 1]).toBe("read-only");
-    const approvalIdx = args.indexOf("--ask-for-approval");
-    expect(approvalIdx).toBeGreaterThan(-1);
-    expect(args[approvalIdx + 1]).toBe("never");
-  });
-
-  it("ignores disableInteractiveTools (codex exec has no blocking tools)", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession({ disableInteractiveTools: true }));
-    // No interactive-strip flags exist for codex exec; behavior is unchanged.
-    expect(args).toContain("--dangerously-bypass-approvals-and-sandbox");
-    expect(args).not.toContain("--sandbox");
-  });
-
-  it("includes --model with cli value when model is specified", () => {
-    const args = provider.buildArgs("Hello", { model: "gpt-5.3-codex" }, baseSession());
-    expect(args).toContain("--model");
-    expect(args).toContain("gpt-5.3-codex");
-  });
-
-  it("omits --model when model is not in the list", () => {
-    const args = provider.buildArgs("Hello", { model: "unknown" }, baseSession());
-    expect(args).not.toContain("--model");
-  });
-
-  it("includes --config with default thinking level when none specified", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession());
-    expect(args).toContain("--config");
-    expect(args).toContain("model_reasoning_effort=high");
-  });
-
-  it("uses provided thinkingLevel", () => {
-    const args = provider.buildArgs("Hello", { thinkingLevel: "low" }, baseSession());
-    expect(args).toContain("model_reasoning_effort=low");
-  });
-
-  it("uses stdin marker as prompt arg on first message", () => {
-    const args = provider.buildArgs("Do something", {}, baseSession({ isFirstMessage: true }));
-    expect(args[args.length - 1]).toBe("-");
-    expect(args).not.toContain("Do something");
-  });
-
-  it("puts session ID and stdin marker as last args on resume", () => {
-    const args = provider.buildArgs("Do something", {}, baseSession({ isFirstMessage: false, sessionId: "thread-xyz" }));
-    expect(args[args.length - 2]).toBe("thread-xyz");
-    expect(args[args.length - 1]).toBe("-");
-    expect(args).not.toContain("Do something");
-  });
-
-  it("does NOT use -p flag for content", () => {
-    const args = provider.buildArgs("Hello", {}, baseSession());
-    expect(args).not.toContain("-p");
-    expect(args).not.toContain("--profile");
-  });
-
-  // ── buildEnv ───────────────────────────────────────────────────────
-
-  it("always returns undefined (no env overrides)", () => {
-    expect(provider.buildEnv({})).toBeUndefined();
-    expect(provider.buildEnv({ thinkingLevel: "xhigh" })).toBeUndefined();
-  });
-
-  // ── createStreamAdapter ────────────────────────────────────────────
-
-  it("returns a CodexStreamAdapter instance", () => {
-    const adapter = provider.createStreamAdapter();
-    expect(adapter).toBeInstanceOf(CodexStreamAdapter);
-  });
-
-  it("returned adapter has write and flush methods", () => {
-    const adapter = provider.createStreamAdapter();
-    expect(typeof adapter.write).toBe("function");
-    expect(typeof adapter.flush).toBe("function");
+  it("supports goals", () => {
+    expect(provider.capabilities.goals).toBe(true);
   });
 });

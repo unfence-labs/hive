@@ -355,16 +355,6 @@ function getToolDisplay(tool: ToolCall): ToolDisplay {
       };
     }
 
-    case "CodexDiagnostic": {
-      const message = input.message as string | undefined;
-      return {
-        icon: icons.wrench,
-        label: "CodexDiagnostic",
-        detail: message,
-        expandedContent: JSON.stringify(input, null, 2),
-      };
-    }
-
     default:
       return {
         icon: icons.wrench,

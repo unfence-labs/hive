@@ -25,6 +25,7 @@ import {
 } from "../utils/git-worktree.js";
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
 import { getGitContext, formatGitContextBlock } from "../agents/system-prompt.js";
+import { parsePositiveNumber } from "../utils/env.js";
 import type { Automation, AutomationRun, WsOutgoing } from "../types.js";
 
 interface ActiveRun {
@@ -36,9 +37,13 @@ export class AutomationScheduler {
   private readonly dataDir: string;
   private readonly cronJobs = new Map<string, Cron>();
   private readonly activeRuns = new Map<string, ActiveRun>();
+  /** Idle timeout: a run is failed if it produces no stream activity for this long. */
+  private readonly runTimeoutMs: number;
 
-  constructor(dataDir: string) {
+  constructor(dataDir: string, runTimeoutMs?: number) {
     this.dataDir = dataDir;
+    this.runTimeoutMs =
+      runTimeoutMs ?? parsePositiveNumber(process.env.HIVE_AUTOMATION_TIMEOUT_SEC, 1800) * 1000;
   }
 
   async start(): Promise<void> {
@@ -74,7 +79,9 @@ export class AutomationScheduler {
     this.cronJobs.clear();
 
     for (const [, active] of this.activeRuns) {
-      active.session.stop();
+      // "park" closes the Codex app-server process immediately on forced teardown;
+      // plain stop() only schedules a 5s-delayed close that may not fire on shutdown.
+      active.session.stop("park");
     }
     this.activeRuns.clear();
   }
@@ -127,7 +134,9 @@ export class AutomationScheduler {
 
     const active = this.activeRuns.get(autoId);
     if (active) {
-      active.session.stop();
+      // "park" closes the Codex app-server process immediately on forced teardown;
+      // plain stop() only schedules a 5s-delayed close that may not fire on shutdown.
+      active.session.stop("park");
       this.activeRuns.delete(autoId);
     }
   }
@@ -254,11 +263,22 @@ export class AutomationScheduler {
     // Listen for completion
     return new Promise<AutomationRun>((resolve) => {
       let resolved = false;
+      let idleTimer: NodeJS.Timeout | null = null;
+
+      // Idle timeout: any stream activity resets the clock. This guards against
+      // hung runs without killing a slow-but-progressing agent (unlike a wall
+      // clock), and ensures the long-lived app-server process is always closed.
+      const resetIdleTimer = () => {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+          void finish("failure", `Idle timeout after ${Math.round(this.runTimeoutMs / 1000)}s`);
+        }, this.runTimeoutMs);
+      };
 
       const finish = async (status: "success" | "failure", error?: string) => {
         if (resolved) return;
         resolved = true;
-        this.activeRuns.delete(autoId);
+        if (idleTimer) clearTimeout(idleTimer);
 
         try {
           const messages = await session.getMessages();
@@ -268,10 +288,20 @@ export class AutomationScheduler {
         } catch (err) {
           console.error(`[scheduler] Error completing run ${run.id}:`, err);
           resolve({ ...run, status: "failure", error: String(err) });
+        } finally {
+          // Close the app-server process for every terminal path, even when
+          // completion bookkeeping failed above. Hold the concurrency guard
+          // until the long-lived process is fully torn down so a tight cron
+          // cannot start a second run on the same worktree (index.lock race).
+          await session.dispose().catch((err) => {
+            console.error(`[scheduler] Error disposing session for run ${run.id}:`, err);
+          });
+          this.activeRuns.delete(autoId);
         }
       };
 
       session.on("message", (msg: WsOutgoing) => {
+        resetIdleTimer();
         if (msg.type === "done") {
           void finish("success");
         } else if (msg.type === "error") {
@@ -292,6 +322,7 @@ export class AutomationScheduler {
       // Send the message to start the agent. The model and thinking level are
       // owned by the agent so unattended runs stay predictable.
       try {
+        resetIdleTimer();
         session.sendMessage(userPrompt, {
           model: agent.modelId,
           thinkingLevel: agent.thinkingLevel,

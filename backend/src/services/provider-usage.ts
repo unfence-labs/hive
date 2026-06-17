@@ -6,10 +6,7 @@ import {
   JsonRpcStdioClient,
   type JsonRpcRequest,
 } from "../agents/providers/json-rpc-stdio.js";
-import {
-  getAllProviderInfo,
-  providerSupportsAppServer,
-} from "../agents/providers/registry.js";
+import { getAllProviderInfo } from "../agents/providers/registry.js";
 import { buildWorkspaceEnv } from "../utils/env.js";
 
 type UsageStatus = "available" | "unavailable" | "unknown" | "error";
@@ -123,10 +120,6 @@ export function stopProviderUsagePolling(): void {
 async function getCodexUsage(label: string, installed: boolean): Promise<ProviderUsageEntry> {
   if (!installed) {
     return unavailableProvider("codex", label, "Codex CLI is not installed.");
-  }
-
-  if (!providerSupportsAppServer("codex")) {
-    return unavailableProvider("codex", label, "Installed Codex CLI does not support app-server account usage.");
   }
 
   const now = Date.now();

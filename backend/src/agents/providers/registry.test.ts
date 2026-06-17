@@ -20,8 +20,6 @@ import {
   getDefaultThinkingLevelForModel,
   isKnownModelId,
   isThinkingLevelSupportedForModel,
-  providerSupportsAppServer,
-  providerSupportsAppServerGoals,
 } from "./registry.js";
 
 // Cast away the overloaded execFile signature so mockImplementation accepts simpler callbacks.
@@ -215,33 +213,13 @@ describe("getModelCatalog", () => {
     }
   });
 
-  it("exposes Codex goals capability when App Server goals are detected", () => {
-    markProviderAvailable("codex", { appServer: true, goals: true });
+  it("reports Codex goals capability", () => {
+    markProviderAvailable("codex");
     const catalog = getModelCatalog();
 
     const codexModels = catalog.models.filter((m) => m.provider === "codex");
     expect(codexModels.length).toBeGreaterThan(0);
     expect(codexModels.every((model) => model.capabilities.goals)).toBe(true);
-  });
-
-  it("omits Codex goals capability when App Server goals are not detected", () => {
-    markProviderAvailable("codex", { appServer: true, goals: false });
-    const catalog = getModelCatalog();
-
-    const codexModels = catalog.models.filter((m) => m.provider === "codex");
-    expect(codexModels.length).toBeGreaterThan(0);
-    expect(codexModels.every((model) => !model.capabilities.goals)).toBe(true);
-  });
-
-  it("does not infer Codex goals support from App Server availability alone", () => {
-    markProviderAvailable("codex", { appServer: true });
-    const catalog = getModelCatalog();
-
-    expect(providerSupportsAppServerGoals("codex")).toBe(false);
-    expect(catalog.models
-      .filter((model) => model.provider === "codex")
-      .every((model) => !model.capabilities.goals))
-      .toBe(true);
   });
 
   it("includes isNew flag from model definition", () => {
@@ -276,78 +254,6 @@ describe("detectAvailableProviders", () => {
     const providers = new Set(catalog.models.map((m) => m.provider));
     expect(providers.has("claude")).toBe(true);
     expect(providers.has("codex")).toBe(true);
-    expect(providerSupportsAppServer("codex")).toBe(true);
-    expect(providerSupportsAppServerGoals("codex")).toBe(true);
-  });
-
-  it("keeps Codex available but disables App Server when the subcommand is missing", async () => {
-    mockExecFile.mockImplementation(
-      (cmd: string, args: string[], cb: (...a: unknown[]) => void) => {
-        if (cmd === "codex" && args[0] === "--version") {
-          cb(null, { stdout: "codex 0.2.5\n", stderr: "" });
-          return;
-        }
-        if (cmd === "codex" && args[0] === "app-server") {
-          cb(new Error("unknown command"), { stdout: "", stderr: "" });
-          return;
-        }
-        cb(new Error("not found"), { stdout: "", stderr: "" });
-      },
-    );
-
-    await detectAvailableProviders();
-
-    const catalog = getModelCatalog();
-    const providers = new Set(catalog.models.map((m) => m.provider));
-    expect(providers.has("codex")).toBe(true);
-    expect(providerSupportsAppServer("codex")).toBe(false);
-    expect(providerSupportsAppServerGoals("codex")).toBe(false);
-  });
-
-  it("marks Codex App Server and goals support when both are available", async () => {
-    mockExecFile.mockImplementation(
-      (cmd: string, args: string[], cb: (...a: unknown[]) => void) => {
-        if (cmd === "codex" && args[0] === "--version") {
-          cb(null, { stdout: "codex 0.130.0\n", stderr: "" });
-          return;
-        }
-        if (cmd === "codex" && args[0] === "app-server") {
-          cb(null, { stdout: "Usage: codex app-server\n", stderr: "" });
-          return;
-        }
-        cb(new Error("not found"), { stdout: "", stderr: "" });
-      },
-    );
-
-    await detectAvailableProviders();
-
-    expect(providerSupportsAppServer("codex")).toBe(true);
-    expect(providerSupportsAppServerGoals("codex")).toBe(true);
-  });
-
-  it("keeps Codex App Server enabled without goals when the flag is unsupported", async () => {
-    mockExecFile.mockImplementation(
-      (cmd: string, args: string[], cb: (...a: unknown[]) => void) => {
-        if (cmd === "codex" && args[0] === "--version") {
-          cb(null, { stdout: "codex 0.129.0\n", stderr: "" });
-          return;
-        }
-        if (cmd === "codex" && args[0] === "app-server" && args.includes("--enable")) {
-          cb(new Error("unknown option --enable"), { stdout: "", stderr: "unknown option --enable" });
-          return;
-        }
-        if (cmd === "codex" && args[0] === "app-server") {
-          cb(null, { stdout: "Usage: codex app-server\n", stderr: "" });
-          return;
-        }
-        cb(new Error("not found"), { stdout: "", stderr: "" });
-      },
-    );
-
-    await detectAvailableProviders();
-
-    expect(providerSupportsAppServer("codex")).toBe(true);
-    expect(providerSupportsAppServerGoals("codex")).toBe(false);
   });
 
   it("ignores providers whose CLI is not found", async () => {
@@ -382,25 +288,13 @@ describe("markProviderAvailable", () => {
     expect(catalog.models.every((m) => m.provider === "claude")).toBe(true);
   });
 
-  it("can mark Codex as available without App Server support", async () => {
+  it("makes Codex appear in catalog", async () => {
     mockNoProviderCli();
     await detectAvailableProviders();
 
-    markProviderAvailable("codex", { appServer: false });
+    markProviderAvailable("codex");
 
     expect(getModelCatalog().models.some((m) => m.provider === "codex")).toBe(true);
-    expect(providerSupportsAppServer("codex")).toBe(false);
-    expect(providerSupportsAppServerGoals("codex")).toBe(false);
-  });
-
-  it("can mark Codex App Server available without goals support", async () => {
-    mockNoProviderCli();
-    await detectAvailableProviders();
-
-    markProviderAvailable("codex", { appServer: true, goals: false });
-
-    expect(providerSupportsAppServer("codex")).toBe(true);
-    expect(providerSupportsAppServerGoals("codex")).toBe(false);
   });
 });
 

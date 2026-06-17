@@ -260,7 +260,7 @@ describe("ConversationSession", () => {
   beforeEach(() => {
     mockProc = createMockProcess();
     mockSpawn.mockReturnValue(mockProc);
-    providerRegistry.markProviderAvailable("codex", { appServer: true, goals: true });
+    providerRegistry.markProviderAvailable("codex");
   });
 
   function createSession(opts?: { sessionId?: string; command?: string; skipPermissions?: boolean; sessionKind?: "chat" | "automation" | "brain" }) {
@@ -1180,46 +1180,6 @@ describe("ConversationSession", () => {
     expect(userMessage?.goalCommand).toBe(true);
   });
 
-  it("does not mark Codex /goal user messages when goals are unsupported", async () => {
-    providerRegistry.markProviderAvailable("codex", { appServer: true, goals: false });
-    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
-    fakeRunner.start = vi.fn(() => {
-      fakeRunner.emit("result", { type: "result", session_id: "provider-goal-command-unsupported" });
-      fakeRunner.emit("exit", 0, "provider-goal-command-unsupported");
-    });
-    fakeRunner.stop = vi.fn(() => {});
-
-    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
-      runner: fakeRunner,
-      protocol: "process" as const,
-      providerId: "codex",
-      modelId: "gpt-5.5",
-      supportsBlockingTools: false,
-      providerSessionId: "provider-goal-command-unsupported",
-      debug: { command: "fake", args: [] },
-      start: fakeRunner.start,
-    }));
-    const session = new ConversationSession({
-      cwd: "/tmp/test",
-      dataDir: tempDir,
-      workspaceId: "ws-test",
-      sessionId: "unsupported-goal-command-session",
-      runnerFactory,
-    });
-    const messages: WsOutgoing[] = [];
-    session.on("message", (msg) => messages.push(msg));
-
-    session.sendMessage("/goal Ship backend support", { model: "codex:gpt-5.5" });
-
-    await waitForMessages(messages, "done");
-    const userEvent = messages.find(
-      (msg): msg is Extract<WsOutgoing, { type: "user_message" }> => msg.type === "user_message",
-    );
-    expect(userEvent?.message.goalCommand).toBeUndefined();
-    const userMessage = (await session.getMessages()).find((msg) => msg.role === "user");
-    expect(userMessage?.goalCommand).toBeUndefined();
-  });
-
   it("does not mark non-Codex /goal user messages", async () => {
     const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
     fakeRunner.start = vi.fn(() => {
@@ -1745,42 +1705,6 @@ describe("ConversationSession", () => {
     });
   });
 
-  it("omits Codex goals debug args when the feature is not detected", () => {
-    providerRegistry.markProviderAvailable("codex", { appServer: true, goals: false });
-    const resolved = providerRegistry.resolveProvider("codex:gpt-5.5");
-
-    const selection = createAgentRunner({
-      cwd: "/tmp/test",
-      content: "Hello Codex",
-      msgOptions: { model: "codex:gpt-5.5" },
-      resolved,
-      isFirstMessage: true,
-      skipPermissions: true,
-      sessionKind: "chat",
-    });
-
-    expect(selection.debug).toEqual({
-      command: "codex",
-      args: ["app-server", "--listen", "stdio://"],
-    });
-  });
-
-  it("falls back to codex exec when Codex app-server is not supported", () => {
-    providerRegistry.markProviderAvailable("codex", { appServer: false });
-    const session = createSession({ sessionId: "codex-no-app-server" });
-
-    session.sendMessage("Hello Codex", { model: "codex:gpt-5.5" });
-
-    const args = mockSpawn.mock.calls[0][1] as string[];
-    expect(mockSpawn.mock.calls[0][0]).toBe("codex");
-    expect(args[0]).toBe("exec");
-    expect(args).toContain("--json");
-    expect(args).not.toContain("app-server");
-
-    session.stop("park");
-    mockProc._emitClose(1);
-  });
-
   it("surfaces failed Codex app-server turns as errors instead of done", async () => {
     const session = createSession({ sessionId: "codex-app-failed-turn" });
     const messages: WsOutgoing[] = [];
@@ -2012,6 +1936,22 @@ describe("ConversationSession", () => {
     expect(textDeltas.map((msg) => msg.text)).toEqual(["First answer", "Second answer"]);
   });
 
+  it("dispose closes the Codex app-server process after a completed turn", async () => {
+    // Anti-leak guarantee on a real session (not a mock): dispose() must kill the
+    // long-lived app-server process. Path: dispose -> stop("park") ->
+    // CodexAppServerRunner.close() -> JsonRpcStdioClient.close() -> kill("SIGTERM").
+    const session = createSession({ sessionId: "codex-app-dispose" });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    await establishCodexThread(session, messages, "thread-app-dispose", "turn-dispose");
+    expect(mockProc.kill).not.toHaveBeenCalled();
+
+    await session.dispose();
+
+    expect(mockProc.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
   it("starts a new Codex app-server turn after an interrupted stop", async () => {
     const session = createSession({ sessionId: "codex-app-stop-restart" });
     const messages: WsOutgoing[] = [];
@@ -2227,16 +2167,23 @@ describe("ConversationSession", () => {
     }
   });
 
-  it("keeps Codex automations on codex exec JSONL", () => {
-    const session = createSession({ sessionId: "codex-auto", sessionKind: "automation" });
+  it("runs Codex automations through the app-server", () => {
+    const resolved = providerRegistry.resolveProvider("codex:gpt-5.5");
 
-    session.sendMessage("Run automation", { model: "codex:gpt-5.5" });
+    const selection = createAgentRunner({
+      cwd: "/tmp/test",
+      content: "Run automation",
+      msgOptions: { model: "codex:gpt-5.5" },
+      resolved,
+      isFirstMessage: true,
+      skipPermissions: true,
+      sessionKind: "automation",
+    });
 
-    const args = mockSpawn.mock.calls[0][1] as string[];
-    expect(mockSpawn.mock.calls[0][0]).toBe("codex");
-    expect(args[0]).toBe("exec");
-    expect(args).toContain("--json");
-    expect(args).not.toContain("app-server");
+    expect(selection.protocol).toBe("codex_app_server");
+    expect(selection.debug.command).toBe("codex");
+    expect(selection.debug.args).toContain("app-server");
+    expect(selection.debug.args).not.toContain("exec");
   });
 
   it("emits text_delta for assistant text", () => {
@@ -2519,80 +2466,6 @@ describe("ConversationSession", () => {
     if (errors[0].type === "error") {
       expect(errors[0].message).toContain("stderr:");
       expect(errors[0].message).toContain("something went wrong");
-    }
-  });
-
-  it("sends Codex prompt through stdin", () => {
-    const session = createSession({ sessionId: "codex-stdin", sessionKind: "automation" });
-
-    session.sendMessage("Hi Codex", { model: "codex:gpt-5.5" });
-
-    expect(mockSpawn).toHaveBeenCalledWith(
-      "codex",
-      expect.arrayContaining(["exec", "--json", "-"]),
-      expect.any(Object),
-    );
-    expect(mockProc._stdinEnd).toHaveBeenCalledWith("Hi Codex");
-  });
-
-  it("suppresses known Codex stderr diagnostics", () => {
-    const session = createSession({ sessionId: "codex-stderr-noise", sessionKind: "automation" });
-    const messages: WsOutgoing[] = [];
-    session.on("message", (msg) => messages.push(msg));
-
-    session.sendMessage("Hi", { model: "codex:gpt-5.5" });
-    mockProc._stderr.push("Reading additional input from stdin...");
-    mockProc._stderr.push("2026-04-24T08:34:25.714940Z ERROR codex_core::tools::router: error=resources/templates/list failed: unknown MCP server 'openaiDeveloperDocs'");
-    mockProc._stderr.push("2026-04-24T08:34:25.714946Z ERROR codex_core::tools::router: error=resources/list failed: unknown MCP server 'openaiDeveloperDocs'");
-
-    const errors = messages.filter((m) => m.type === "error");
-    expect(errors).toHaveLength(0);
-  });
-
-  it("surfaces Codex websocket metadata stderr as inline diagnostics", () => {
-    const session = createSession({ sessionId: "codex-stderr-diagnostic", sessionKind: "automation" });
-    const messages: WsOutgoing[] = [];
-    session.on("message", (msg) => messages.push(msg));
-
-    session.sendMessage("Hi", { model: "codex:gpt-5.5" });
-    mockProc._stderr.push("2026-04-28T11:10:15.042636Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata' with value: \"{\\\"session_id\\\":\\\"019dd3b3\\\"}\"");
-    mockProc._stderr.push("Reconnecting... 5/5 (stream disconnected before completion: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata' with value: \"{\\\"session_id\\\":\\\"019dd3b3\\\"}\")");
-
-    const errors = messages.filter((m) => m.type === "error");
-    const diagnostics = messages.filter(
-      (m): m is Extract<WsOutgoing, { type: "tool_use" }> =>
-        m.type === "tool_use" && m.name === "CodexDiagnostic",
-    );
-    const diagnosticResults = messages.filter(
-      (m): m is Extract<WsOutgoing, { type: "tool_result" }> => m.type === "tool_result",
-    );
-
-    expect(errors).toHaveLength(0);
-    expect(diagnostics).toHaveLength(2);
-    expect(diagnosticResults).toHaveLength(2);
-    expect(JSON.parse(diagnostics[0]!.input)).toMatchObject({
-      source: "stderr",
-      severity: "warning",
-    });
-    expect(diagnosticResults[0]).toMatchObject({
-      type: "tool_result",
-      toolUseId: diagnostics[0]!.id,
-    });
-  });
-
-  it("still emits Codex stderr errors when message is not known noise", () => {
-    const session = createSession({ sessionId: "codex-stderr-real", sessionKind: "automation" });
-    const messages: WsOutgoing[] = [];
-    session.on("message", (msg) => messages.push(msg));
-
-    session.sendMessage("Hi", { model: "codex:gpt-5.5" });
-    mockProc._stderr.push("permission denied");
-
-    const errors = messages.filter((m) => m.type === "error");
-    expect(errors).toHaveLength(1);
-    if (errors[0].type === "error") {
-      expect(errors[0].message).toContain("stderr:");
-      expect(errors[0].message).toContain("permission denied");
     }
   });
 

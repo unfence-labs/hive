@@ -48,7 +48,7 @@ beforeEach(async () => {
 
   originalHome = process.env.HOME;
   process.env.HOME = homeDir;
-  markProviderAvailable("codex", { appServer: true, goals: false });
+  markProviderAvailable("codex");
 
   fixtureRepoUrl = await createFixtureRepo(fixtureDir);
 
@@ -215,8 +215,8 @@ description: Fix CI failures
     );
   });
 
-  it("includes Codex /goal completion when App Server goals are supported", async () => {
-    markProviderAvailable("codex", { appServer: true, goals: true });
+  it("includes the Codex /goal completion", async () => {
+    markProviderAvailable("codex");
 
     const res = await app.inject({
       method: "GET",
@@ -234,19 +234,6 @@ description: Fix CI failures
         }),
       ]),
     );
-  });
-
-  it("omits Codex /goal completion when App Server goals are unsupported", async () => {
-    markProviderAvailable("codex", { appServer: true, goals: false });
-
-    const res = await app.inject({
-      method: "GET",
-      url: `/api/workspaces/${wsId}/completions?provider=codex`,
-    });
-
-    expect(res.statusCode).toBe(200);
-    expect(res.json().items.map((item: { label: string }) => item.label))
-      .not.toContain("/goal");
   });
 
   it("rejects unsupported completion providers", async () => {

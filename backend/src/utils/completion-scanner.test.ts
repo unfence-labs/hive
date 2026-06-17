@@ -114,7 +114,7 @@ beforeEach(async () => {
 
   originalHome = process.env.HOME;
   process.env.HOME = homeDir;
-  markProviderAvailable("codex", { appServer: true, goals: false });
+  markProviderAvailable("codex");
 });
 
 afterEach(async () => {
@@ -436,7 +436,7 @@ name: stable
   });
 
   it("scans Codex builtins, skills, and agents from Codex paths", async () => {
-    markProviderAvailable("codex", { appServer: true, goals: true });
+    markProviderAvailable("codex");
     await writeSkill(
       join(homeDir, ".agents", "skills"),
       "triage",
@@ -507,8 +507,8 @@ description = "Reviews changes"
     );
   });
 
-  it("includes Codex /goal completion when App Server goals are supported", async () => {
-    markProviderAvailable("codex", { appServer: true, goals: true });
+  it("includes the Codex /goal completion", async () => {
+    markProviderAvailable("codex");
 
     const items = await scanCompletions(workspaceCwd, { provider: "codex" });
 
@@ -522,16 +522,6 @@ description = "Reviews changes"
         }),
       ]),
     );
-  });
-
-  it("omits Codex /goal completion when App Server goals are unsupported", async () => {
-    markProviderAvailable("codex", { appServer: true, goals: false });
-
-    const items = await scanCompletions(workspaceCwd, { provider: "codex" });
-
-    expect(items.map((item) => item.label)).not.toContain("/goal");
-    expect(items.map((item) => item.label).slice(0, CODEX_BUILTIN_LABELS.length))
-      .toEqual(CODEX_BUILTIN_LABELS);
   });
 
   it("replaces Codex skill slash aliases with native skill mentions", async () => {

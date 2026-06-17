@@ -6,7 +6,6 @@ export type StopReason = "user" | "park";
 
 export type RunnerStderrEvent = {
   text: string;
-  classification: "diagnostic" | "error";
 };
 
 export type AgentRunnerTurnStartedEvent = {
