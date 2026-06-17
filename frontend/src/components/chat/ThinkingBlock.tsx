@@ -69,7 +69,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({
         <BrainIcon className="size-3.5 shrink-0" />
         <span className="shrink-0">{label}</span>
         {!open && preview && (
-          <code className="truncate rounded bg-muted/40 px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+          <code className="truncate rounded bg-[var(--chat-chrome)] px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
             {preview}{content.length > 60 ? "..." : ""}
           </code>
         )}

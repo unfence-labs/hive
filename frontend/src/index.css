@@ -232,23 +232,35 @@
    light cool "chrome" tint (hue 264, like the shell) for highlights & frames,
    white for content. Dark keeps its unchanged tokens. Unlayered so it wins over
    the :root token defaults. */
-:root:not(.dark) :is(.markdown-surface, .chat-surface) {
-  --muted: oklch(0.955 0.013 264);
-  --sidebar: oklch(0.955 0.013 264);
-  --background: oklch(1 0 0);
+/* Chat renders (markdown + tool / thinking / sub-agent blocks) share two
+   surface roles via `--chat-chrome` (chips, inline code, code-block & table
+   frames, headers) and `--chat-content` (code, table cells, output). Light: a
+   cool shell-coloured chrome on a white content. Dark: the chat-input colour for
+   chrome on the sidebar colour for content. Unlayered so it wins over :root. */
+:is(.markdown-surface, .chat-surface) {
+  /* Chrome = the tool-row hover colour (bg-muted/80) as an opaque fill, so chips
+     and frames match the hover state and blend into it on hover (light already
+     behaves this way). */
+  --chat-chrome: color-mix(in oklch, var(--muted) 80%, var(--card));
+  --chat-content: var(--card);
 }
-
-/* Streamdown ships inconsistent per-element opacities (inline code & code-block
-   frame at full, table header at /80, …). Normalise every chrome surface to the
-   same chip tint (muted/40) so highlights and frames match the tool chips. */
-:root:not(.dark) .markdown-surface :is(
+.dark :is(.markdown-surface, .chat-surface) {
+  --chat-content: var(--sidebar); /* = #0c0c14 */
+}
+.markdown-surface :is(
   [data-streamdown="inline-code"],
   [data-streamdown="code-block"],
   [data-streamdown="table-wrapper"],
   [data-streamdown="table-header"],
   [data-streamdown="mermaid-block"]
 ) {
-  background-color: color-mix(in oklch, var(--muted) 40%, transparent) !important;
+  background-color: var(--chat-chrome) !important;
+}
+.markdown-surface :is(
+  [data-streamdown="code-block-body"],
+  [data-streamdown="table"]
+) {
+  background-color: var(--chat-content) !important;
 }
 
 @layer base {

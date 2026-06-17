@@ -135,7 +135,7 @@ export const SubAgentNode = memo(function SubAgentNode({
             {info.subagentType}
           </span>
           {info.description && (
-            <code className="min-w-0 truncate rounded bg-muted/40 px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+            <code className="min-w-0 truncate rounded bg-[var(--chat-chrome)] px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
               {info.description}
             </code>
           )}

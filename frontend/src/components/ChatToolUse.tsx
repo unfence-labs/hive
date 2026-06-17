@@ -489,7 +489,7 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
         <span className="shrink-0">{display.icon}</span>
         <span>{display.label}</span>
         {display.detail && (
-          <code className="truncate rounded bg-muted/40 px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+          <code className="truncate rounded bg-[var(--chat-chrome)] px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
             {display.detail}
           </code>
         )}
