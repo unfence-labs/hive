@@ -18,7 +18,7 @@ import ScriptPanel from "@/components/ScriptPanel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OpenTargetDropdown } from "@/components/OpenTargetDropdown";
 import { FileBrowserHeader } from "@/components/FileBrowserHeader";
-import { useLayoutContext } from "@/components/AppLayout";
+import { PageHeader } from "@/components/AppLayout";
 import { CenterCard } from "@/components/CenterCard";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { PathCopyButton } from "@/components/PathCopyButton";
@@ -35,7 +35,6 @@ function matchesDiffStat(filePath: string | null | undefined, stat: DiffFileStat
 
 export default function WorkspaceView() {
   const { wsId } = useParams();
-  const { collapsed } = useLayoutContext();
   const queryClient = useQueryClient();
 
   // Server data via TanStack Query
@@ -431,11 +430,7 @@ export default function WorkspaceView() {
       >
         <Panel id="chat" minSize="40%">
         <div className="flex min-w-0 h-full flex-col overflow-hidden">
-          <div
-            className="relative flex h-12 shrink-0 items-center gap-2 pr-4 transition-[padding-left] duration-200 ease-in-out"
-            style={{ paddingLeft: collapsed ? "max(var(--traffic-light-clearance, 0px), 1rem)" : "1rem" }}
-            data-tauri-drag-region
-          >
+          <PageHeader className="gap-2">
             <span className="truncate text-sm font-semibold text-foreground">{workspace?.projectName ?? workspace?.name}</span>
             {displayBranch && (
               <BranchLabel branch={displayBranch} showIcon={false} className="text-xs text-muted-foreground" />
@@ -455,7 +450,7 @@ export default function WorkspaceView() {
               path={workspace?.worktreePath}
               pathUnavailableReason={copyWorkspacePathDisabledReason}
             />
-          </div>
+          </PageHeader>
           <CenterCard>
           <ConversationPane
             sessions={sessions}

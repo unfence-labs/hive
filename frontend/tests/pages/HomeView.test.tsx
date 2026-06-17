@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import EmptyStateLogo from "@/components/EmptyStateLogo";
+import HomeView from "@/pages/HomeView";
 
 const mocks = vi.hoisted(() => ({
   useTailscaleConfig: vi.fn(),
@@ -12,10 +12,9 @@ vi.mock("@/hooks/useTailscaleConfig", () => ({
   useTailscaleConfig: mocks.useTailscaleConfig,
 }));
 
-describe("EmptyStateLogo", () => {
+describe("HomeView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
     mocks.useTailscaleConfig.mockReturnValue({
       ip: "",
       port: "",
@@ -25,13 +24,13 @@ describe("EmptyStateLogo", () => {
     });
   });
 
-  it("disables repository action when tailscale config is missing", async () => {
+  it("disables the repository action and emphasizes config when tailscale config is missing", async () => {
     const user = userEvent.setup();
     const onAddProject = vi.fn();
 
     render(
       <MemoryRouter>
-        <EmptyStateLogo onAddProject={onAddProject} />
+        <HomeView onAddProject={onAddProject} />
       </MemoryRouter>,
     );
 
@@ -40,16 +39,17 @@ describe("EmptyStateLogo", () => {
     await user.click(addRepository);
     expect(onAddProject).not.toHaveBeenCalled();
 
+    // Until the server is configured, "Start config" carries the primary emphasis.
     const startConfig = screen.getByRole("link", { name: /start config/i });
     expect(startConfig).toHaveAttribute("href", "/settings");
-    expect(startConfig).toHaveClass("text-primary");
+    expect(startConfig).toHaveAttribute("data-variant", "default");
 
     const docs = screen.getByRole("link", { name: /documentation/i });
     expect(docs).toHaveAttribute("href", "https://docs.hive.dev");
     expect(docs).toHaveAttribute("target", "_blank");
   });
 
-  it("enables repository action when tailscale config exists", async () => {
+  it("enables the repository action and demotes config when tailscale config exists", async () => {
     const user = userEvent.setup();
     const onAddProject = vi.fn();
     mocks.useTailscaleConfig.mockReturnValue({
@@ -62,7 +62,7 @@ describe("EmptyStateLogo", () => {
 
     render(
       <MemoryRouter>
-        <EmptyStateLogo onAddProject={onAddProject} />
+        <HomeView onAddProject={onAddProject} />
       </MemoryRouter>,
     );
 
@@ -71,7 +71,8 @@ describe("EmptyStateLogo", () => {
     await user.click(addRepository);
     expect(onAddProject).toHaveBeenCalledTimes(1);
 
+    // Once configured, the primary emphasis moves to "Add repository".
     const startConfig = screen.getByRole("link", { name: /start config/i });
-    expect(startConfig).toHaveClass("text-muted-foreground");
+    expect(startConfig).toHaveAttribute("data-variant", "outline");
   });
 });
