@@ -10,9 +10,10 @@ import { cn } from "@/lib/utils";
  * Pass `scroll` for pages whose body should scroll as a whole; omit it for
  * pages that manage their own internal scroll regions (e.g. split layouts).
  *
- * The card keeps a real margin on all four sides: that gutter is where the
- * elevation shadow renders (it sits inside the panel, so it is not clipped) and
- * it doubles as the resize gutter. Resize separators next to a card are pulled
+ * The card keeps a real margin on its left, right and bottom sides (the top is
+ * flush against the page header): that gutter is where the elevation shadow
+ * renders (it sits inside the panel, so it is not clipped) and it doubles as the
+ * resize gutter. Resize separators next to a card are pulled
  * into this margin gutter (see ResizeHandle `cardSide`) so the hit target sits
  * flush against the card edge without adding any layout width.
  */
@@ -28,7 +29,7 @@ export function CenterCard({
   return (
     <div
       className={cn(
-        "relative m-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60 bg-card shadow-[var(--center-card-shadow)]",
+        "relative mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60 bg-card shadow-[var(--center-card-shadow)]",
         className,
       )}
     >

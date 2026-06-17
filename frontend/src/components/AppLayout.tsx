@@ -40,7 +40,7 @@ export function SettingsHeader({ children }: { children: React.ReactNode }) {
   const { collapsed } = useLayoutContext();
   return (
     <div
-      className="flex h-12 shrink-0 items-center border-b border-border/50 pr-4 transition-[padding-left] duration-200 ease-in-out"
+      className="flex h-12 shrink-0 items-center pr-4 transition-[padding-left] duration-200 ease-in-out"
       style={{ paddingLeft: collapsed ? "max(var(--traffic-light-clearance, 0px), 1rem)" : "1rem" }}
       data-tauri-drag-region
     >
