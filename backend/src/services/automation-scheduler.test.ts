@@ -21,6 +21,7 @@ import type { Agent, Automation, AutomationRun, PromptTemplate } from "../types.
 /** Surface of the mock ConversationSession that tests inspect/drive. */
 interface MockSessionHandle extends EventEmitter {
   stopped: boolean;
+  stopReason: string | undefined;
   disposed: boolean;
   sentMessage: string | undefined;
   sendOptions: Record<string, unknown> | undefined;
@@ -42,6 +43,7 @@ vi.mock("../agents/conversation-session.js", async () => {
   const { EventEmitter } = await import("node:events");
   class MockSession extends EventEmitter implements MockSessionHandle {
     stopped = false;
+    stopReason: string | undefined;
     disposed = false;
     sentMessage: string | undefined;
     sendOptions: Record<string, unknown> | undefined;
@@ -64,8 +66,9 @@ vi.mock("../agents/conversation-session.js", async () => {
       }
     }
 
-    stop() {
+    stop(reason?: string) {
       this.stopped = true;
+      this.stopReason = reason;
     }
 
     async dispose() {
@@ -956,6 +959,51 @@ describe("AutomationScheduler", () => {
       expect(run.status).toBe("success");
       expect(session.disposed).toBe(true);
 
+      scheduler.stop();
+    });
+
+    it("parks in-flight runs on scheduler.stop()", async () => {
+      suppressAutoDone = true; // Keep the run in-flight so stop() must force teardown.
+      const auto = makeAutomation({ projectId: undefined, notification: { onComplete: false, onFailure: false } });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const runPromise = scheduler.triggerNow("auto-1");
+
+      // Wait until sendMessage fired: by then the session's completion listeners
+      // are attached, so the settle-emit below cannot race ahead of them.
+      await waitFor(() => mockSessions.length > 0 && mockSessions[0].sentMessage !== undefined);
+      const session = mockSessions[mockSessions.length - 1];
+
+      scheduler.stop();
+      // "park" closes the Codex app-server process immediately on forced teardown.
+      expect(session.stopReason).toBe("park");
+
+      // Let the parked run settle (its finish() flow) so the test does not hang.
+      session.emit("message", { type: "done" });
+      await runPromise.catch(() => {});
+    });
+
+    it("parks an in-flight run on onAutomationDeleted()", async () => {
+      suppressAutoDone = true; // Keep the run in-flight so deletion must force teardown.
+      const auto = makeAutomation({ projectId: undefined, notification: { onComplete: false, onFailure: false } });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const runPromise = scheduler.triggerNow("auto-1");
+
+      // Wait until sendMessage fired: by then the session's completion listeners
+      // are attached, so the settle-emit below cannot race ahead of them.
+      await waitFor(() => mockSessions.length > 0 && mockSessions[0].sentMessage !== undefined);
+      const session = mockSessions[mockSessions.length - 1];
+
+      await scheduler.onAutomationDeleted("auto-1");
+      // "park" closes the Codex app-server process immediately on forced teardown.
+      expect(session.stopReason).toBe("park");
+
+      // Let the parked run settle (its finish() flow) so the test does not hang.
+      session.emit("message", { type: "done" });
+      await runPromise.catch(() => {});
       scheduler.stop();
     });
   });

@@ -79,7 +79,9 @@ export class AutomationScheduler {
     this.cronJobs.clear();
 
     for (const [, active] of this.activeRuns) {
-      active.session.stop();
+      // "park" closes the Codex app-server process immediately on forced teardown;
+      // plain stop() only schedules a 5s-delayed close that may not fire on shutdown.
+      active.session.stop("park");
     }
     this.activeRuns.clear();
   }
@@ -132,7 +134,9 @@ export class AutomationScheduler {
 
     const active = this.activeRuns.get(autoId);
     if (active) {
-      active.session.stop();
+      // "park" closes the Codex app-server process immediately on forced teardown;
+      // plain stop() only schedules a 5s-delayed close that may not fire on shutdown.
+      active.session.stop("park");
       this.activeRuns.delete(autoId);
     }
   }
