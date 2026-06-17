@@ -7,7 +7,7 @@ import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { AgentEventNormalizer, type NormalizedAgentEvent } from "./agent-event-normalizer.js";
 import type { CodexGoalResult, CodexGoalSetParams, CodexGoalStatus } from "./providers/codex-app-server.js";
-import { providerSupportsAppServerGoals, resolveProvider } from "./providers/registry.js";
+import { resolveProvider } from "./providers/registry.js";
 import type { AgentProvider } from "./providers/types.js";
 import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js";
 import type { AgentRunner, AgentRunnerTurnStartedEvent, StopReason } from "./runners/types.js";
@@ -119,8 +119,7 @@ function canHandleCodexGoalCommand(
   return command !== null
     && !testCommand
     && isInteractiveSessionKind(sessionKind)
-    && providerId === "codex"
-    && providerSupportsAppServerGoals(providerId);
+    && providerId === "codex";
 }
 
 function isCodexGoalRunner(runner: AgentRunner): runner is CodexGoalRunner {
@@ -777,7 +776,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     const model = resolved.provider.models.find((m) => m.id === resolved.modelId);
     const env = {
-      ...(resolved.provider.buildEnv({ ...msgOptions, model: resolved.modelId }) ?? {}),
+      ...(resolved.provider.buildEnv?.({ ...msgOptions, model: resolved.modelId }) ?? {}),
       ...(this.browserEnv ?? {}),
     };
     const goalOptions: CodexGoalRunnerOptions = {
@@ -888,7 +887,6 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     let resultContextUsedTokens: number | undefined;
     let resultContextWindowTokens: number | undefined;
     let lastStderr: string | undefined;
-    const emittedDiagnostics = new Set<string>();
 
     const normalizer = new AgentEventNormalizer();
     const blockingToolNames = new Set(["AskUserQuestion", "ExitPlanMode"]);
@@ -970,24 +968,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       this.emit("error", err);
     });
 
-    runner.on("stderr", ({ text, classification }) => {
+    runner.on("stderr", ({ text }) => {
       const stderrLine = `stderr: ${sanitizeErrorDetail(text)}`;
       lastStderr = stderrLine;
-      if (classification === "diagnostic") {
-        const diagnosticKey = stderrLine;
-        if (emittedDiagnostics.has(diagnosticKey)) return;
-        emittedDiagnostics.add(diagnosticKey);
-        const id = `codex-diagnostic-${nanoid(8)}`;
-        const input = JSON.stringify({
-          source: "stderr",
-          severity: "warning",
-          message: stderrLine,
-        });
-        this._streamToolCalls.push({ id, name: "CodexDiagnostic", input, output: stderrLine });
-        this.emit("message", { type: "tool_use", sessionId: this.sessionId, id, name: "CodexDiagnostic", input } as WsOutgoing);
-        this.emit("message", { type: "tool_result", sessionId: this.sessionId, toolUseId: id, output: stderrLine } as WsOutgoing);
-        return;
-      }
       this.emit("message", { type: "error", message: stderrLine, sessionId: this.sessionId } as WsOutgoing);
     });
 
@@ -1480,6 +1463,17 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     this.stopReason = reason;
     this.runner.stop(reason);
+  }
+
+  /**
+   * Orchestrator-owned teardown: parks the session (closing any cached Codex
+   * app-server process) and drains pending persistence. Use this when an owner
+   * is done with the session for good — e.g. an automation run has finished —
+   * so the long-lived app-server process does not leak.
+   */
+  async dispose(): Promise<void> {
+    this.stop("park");
+    await this.drain();
   }
 
   /** Respond to an interactive tool input (AskUserQuestion, ExitPlanMode).

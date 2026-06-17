@@ -1,12 +1,7 @@
-import { CodexStreamAdapter } from "./codex-stream-adapter.js";
 import type {
   AgentProvider,
   ModelDefinition,
   ProviderCapabilities,
-  ProviderMessageOptions,
-  ProviderSessionState,
-  StreamAdapter,
-  ThinkingLevel,
 } from "./types.js";
 
 const CODEX_MODELS: ModelDefinition[] = [
@@ -19,57 +14,12 @@ const CODEX_CAPABILITIES: ProviderCapabilities = {
   planMode: false,
   blockingTools: false,
   completions: true,
-  goals: false,
+  goals: true,
 };
-
-const DEFAULT_THINKING_LEVEL: ThinkingLevel = "high";
 
 export class CodexProvider implements AgentProvider {
   readonly id = "codex";
   readonly command = "codex";
   readonly models = CODEX_MODELS;
   readonly capabilities = CODEX_CAPABILITIES;
-
-  buildArgs(
-    content: string,
-    options: ProviderMessageOptions,
-    session: ProviderSessionState,
-  ): string[] {
-    const model = this.models.find((m) => m.id === options.model);
-    const thinkingLevel = options.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
-
-    // Codex uses `codex exec` for non-interactive mode with `--json` for JSONL streaming.
-    // Session continuity: `codex exec resume <thread_id> -` on subsequent turns.
-    // NOTE: The prompt is provided on stdin via "-" because Codex also reads from
-    // piped stdin when a positional prompt is present, which creates noisy stderr.
-    //
-    // Read-only agent runs swap the full bypass for the read-only sandbox so the
-    // agent can inspect but not modify the workspace. `--ask-for-approval never`
-    // keeps it non-interactive (no human is subscribed to an automation run).
-    // Codex exec has no AskUserQuestion tool, so disableInteractiveTools is a no-op
-    // here. Interactive chat keeps the existing full-access path untouched.
-    const sandboxFlags = session.readOnly
-      ? ["--sandbox", "read-only", "--ask-for-approval", "never"]
-      : ["--dangerously-bypass-approvals-and-sandbox"];
-    const flags = [
-      "--json",
-      ...(model ? ["--model", model.cliValue] : []),
-      ...sandboxFlags,
-      "--config", `model_reasoning_effort=${thinkingLevel}`,
-    ];
-
-    if (session.isFirstMessage) {
-      return ["exec", ...flags, "-"];
-    }
-    return ["exec", "resume", ...flags, session.sessionId, "-"];
-  }
-
-  buildEnv(_options: ProviderMessageOptions): Record<string, string> | undefined {
-    // Codex doesn't use env-based thinking control
-    return undefined;
-  }
-
-  createStreamAdapter(): StreamAdapter {
-    return new CodexStreamAdapter();
-  }
 }

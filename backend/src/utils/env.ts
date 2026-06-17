@@ -41,3 +41,10 @@ export function buildWorkspaceEnv(
   if (extra) Object.assign(env, extra);
   return env;
 }
+
+/** Parse an env var as a positive finite number, falling back when unset or invalid. */
+export function parsePositiveNumber(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}

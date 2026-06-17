@@ -14,6 +14,7 @@ import { sessionRoutes } from "./api/agents.js";
 import { streamRoutes } from "./ws/stream.js";
 import { createAuthHook } from "./utils/auth.js";
 import { createRateLimitHook } from "./utils/rate-limit.js";
+import { parsePositiveNumber } from "./utils/env.js";
 import { ensureDataDir, getDataDir, loadAllProjects, saveProject } from "./state/state.js";
 import { type SessionOptions, rebuildNotifier, stopAllSessions } from "./agents/agent-manager.js";
 import { GitSyncService } from "./services/git-sync.js";
@@ -54,12 +55,6 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
   return fallback;
-}
-
-function parsePositiveNumber(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-  return parsed;
 }
 
 interface BuildAppOptions {

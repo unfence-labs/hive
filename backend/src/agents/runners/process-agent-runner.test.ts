@@ -43,6 +43,16 @@ function createMockProcess() {
   return proc;
 }
 
+function createRunner(parser = createParser()) {
+  return new ProcessAgentRunner({
+    command: "agent",
+    args: ["--json"],
+    cwd: "/tmp/project",
+    parser,
+    useWorkspaceEnv: false,
+  });
+}
+
 function createParser() {
   const parser = new EventEmitter() as StreamAdapter & {
     writes: string[];
@@ -55,18 +65,6 @@ function createParser() {
   };
   parser.flush = vi.fn(() => {});
   return parser;
-}
-
-function createRunner(parser = createParser(), providerId?: string) {
-  return new ProcessAgentRunner({
-    command: "agent",
-    args: ["--json"],
-    cwd: "/tmp/project",
-    stdinContent: "hello",
-    parser,
-    providerId,
-    useWorkspaceEnv: false,
-  });
 }
 
 beforeEach(() => {
@@ -95,28 +93,21 @@ describe("ProcessAgentRunner", () => {
 
     expect(parser.writes).toEqual(["line 1\n"]);
     expect(assistantEvents).toHaveLength(1);
-    expect(proc._stdinEnd).toHaveBeenCalledWith("hello");
+    expect(proc._stdinEnd).toHaveBeenCalledWith();
   });
 
-  it("classifies provider stderr as suppressed, diagnostic, or error", () => {
+  it("emits non-empty stderr lines as errors and ignores blank ones", () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
-    const runner = createRunner(createParser(), "codex");
-    const stderrEvents: Array<{ text: string; classification: string }> = [];
+    const runner = createRunner();
+    const stderrEvents: Array<{ text: string }> = [];
     runner.on("stderr", (event) => stderrEvents.push(event));
 
     runner.start();
-    proc._stderr.push("Reading additional input from stdin...");
-    proc._stderr.push("failed to connect to websocket: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata'");
+    proc._stderr.push("   ");
     proc._stderr.push("permission denied");
 
-    expect(stderrEvents).toEqual([
-      {
-        text: "failed to connect to websocket: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata'",
-        classification: "diagnostic",
-      },
-      { text: "permission denied", classification: "error" },
-    ]);
+    expect(stderrEvents).toEqual([{ text: "permission denied" }]);
   });
 
   it("captures provider session id on exit", () => {

@@ -4,28 +4,12 @@ import type { StreamAdapter } from "../providers/types.js";
 import { buildWorkspaceEnv } from "../../utils/env.js";
 import type { AgentRunner, AgentRunnerEvent, StopReason } from "./types.js";
 
-/** Codex CLI writes non-fatal operational diagnostics to stderr. */
-const CODEX_STDERR_NOISE = [
-  "Reading additional input from stdin",
-];
-
-const CODEX_STDERR_NOISE_PATTERNS = [
-  /\bERROR\s+codex_core::tools::router:\s+error=resources\/(?:templates\/)?list failed: unknown MCP server '[^']+'/,
-];
-
-const CODEX_STDERR_DIAGNOSTIC_PATTERNS = [
-  /failed to connect to websocket: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata'/,
-  /stream disconnected before completion: UTF-8 encoding error: failed to convert header to a str for header name 'x-codex-turn-metadata'/,
-];
-
 interface ProcessAgentRunnerConfig {
   command: string;
   args: string[];
   cwd: string;
   env?: Record<string, string>;
-  stdinContent?: string;
   parser: StreamAdapter;
-  providerId?: string;
   useWorkspaceEnv: boolean;
 }
 
@@ -34,9 +18,7 @@ export class ProcessAgentRunner extends EventEmitter<AgentRunnerEvent> implement
   private readonly args: string[];
   private readonly cwd: string;
   private readonly env: Record<string, string> | undefined;
-  private readonly stdinContent: string | undefined;
   private readonly parser: StreamAdapter;
-  private readonly providerId: string | undefined;
   private readonly useWorkspaceEnv: boolean;
   private process: ChildProcess | null = null;
 
@@ -46,9 +28,7 @@ export class ProcessAgentRunner extends EventEmitter<AgentRunnerEvent> implement
     this.args = config.args;
     this.cwd = config.cwd;
     this.env = config.env;
-    this.stdinContent = config.stdinContent;
     this.parser = config.parser;
-    this.providerId = config.providerId;
     this.useWorkspaceEnv = config.useWorkspaceEnv;
 
     this.parser.on("assistant", (data) => this.emit("assistant", data));
@@ -65,7 +45,7 @@ export class ProcessAgentRunner extends EventEmitter<AgentRunnerEvent> implement
       ...(this.useWorkspaceEnv ? { env: buildWorkspaceEnv(this.env) } : {}),
     });
 
-    this.process.stdin?.end(this.stdinContent);
+    this.process.stdin?.end();
 
     this.process.stdout?.on("data", (chunk: Buffer) => {
       this.parser.write(chunk.toString("utf-8"));
@@ -74,9 +54,7 @@ export class ProcessAgentRunner extends EventEmitter<AgentRunnerEvent> implement
     this.process.stderr?.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf-8").trim();
       if (!text) return;
-      const classification = classifyProviderStderr(this.providerId, text);
-      if (classification === "suppress") return;
-      this.emit("stderr", { text, classification });
+      this.emit("stderr", { text });
     });
 
     this.process.on("error", (err) => {
@@ -116,24 +94,7 @@ export class ProcessAgentRunner extends EventEmitter<AgentRunnerEvent> implement
   }
 }
 
-function classifyProviderStderr(providerId: string | undefined, text: string): "suppress" | "diagnostic" | "error" {
-  if (providerId === "codex") {
-    if (CODEX_STDERR_NOISE.some((n) => text.includes(n))
-      || CODEX_STDERR_NOISE_PATTERNS.some((pattern) => pattern.test(text))) {
-      return "suppress";
-    }
-    if (CODEX_STDERR_DIAGNOSTIC_PATTERNS.some((pattern) => pattern.test(text))) {
-      return "diagnostic";
-    }
-  }
-
-  return "error";
-}
-
 function capturedProviderSessionId(parser: StreamAdapter): string | undefined {
-  const maybe = parser as StreamAdapter & {
-    capturedThreadId?: string;
-    capturedSessionId?: string;
-  };
-  return maybe.capturedThreadId ?? maybe.capturedSessionId;
+  const maybe = parser as StreamAdapter & { capturedSessionId?: string };
+  return maybe.capturedSessionId;
 }

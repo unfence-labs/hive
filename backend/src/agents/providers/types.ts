@@ -81,13 +81,13 @@ export interface AgentProvider {
   readonly capabilities: ProviderCapabilities;
 
   /** Build CLI args for a conversation turn. */
-  buildArgs(content: string, options: ProviderMessageOptions, session: ProviderSessionState): string[];
+  buildArgs?(content: string, options: ProviderMessageOptions, session: ProviderSessionState): string[];
 
   /** Optional env overrides for the spawned process. */
-  buildEnv(options: ProviderMessageOptions): Record<string, string> | undefined;
+  buildEnv?(options: ProviderMessageOptions): Record<string, string> | undefined;
 
   /** Return a stream adapter that normalizes CLI output into StreamParserEvent. */
-  createStreamAdapter(): StreamAdapter;
+  createStreamAdapter?(): StreamAdapter;
 }
 
 // ── Catalog types (returned by GET /api/models) ─────────────────────

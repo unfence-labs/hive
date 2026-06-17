@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getAllProviderInfo: vi.fn(),
-  providerSupportsAppServer: vi.fn(),
   readFile: vi.fn(),
   spawn: vi.fn(),
 }));
@@ -15,7 +14,6 @@ vi.mock("node:child_process", () => ({
 
 vi.mock("../agents/providers/registry.js", () => ({
   getAllProviderInfo: mocks.getAllProviderInfo,
-  providerSupportsAppServer: mocks.providerSupportsAppServer,
 }));
 
 vi.mock("node:fs/promises", () => ({
@@ -107,7 +105,6 @@ describe("provider usage", () => {
     vi.stubGlobal("fetch", vi.fn());
     __providerUsageTestHooks.resetProviderUsageCaches();
     mocks.spawn.mockReset();
-    mocks.providerSupportsAppServer.mockReturnValue(false);
     mocks.getAllProviderInfo.mockReturnValue([
       {
         id: "claude",
@@ -202,7 +199,6 @@ describe("provider usage", () => {
   it("reads Codex usage through the App Server JSON-RPC endpoint", async () => {
     const proc = createMockProcess();
     mocks.spawn.mockReturnValue(proc);
-    mocks.providerSupportsAppServer.mockReturnValue(true);
     mocks.getAllProviderInfo.mockReturnValue([
       {
         id: "codex",
@@ -254,7 +250,6 @@ describe("provider usage", () => {
   it("reports a Codex usage error instead of crashing on malformed App Server output", async () => {
     const proc = createMockProcess();
     mocks.spawn.mockReturnValue(proc);
-    mocks.providerSupportsAppServer.mockReturnValue(true);
     mocks.getAllProviderInfo.mockReturnValue([
       {
         id: "codex",
@@ -290,7 +285,6 @@ describe("provider usage", () => {
     mocks.spawn
       .mockReturnValueOnce(firstProc)
       .mockReturnValueOnce(secondProc);
-    mocks.providerSupportsAppServer.mockReturnValue(true);
     mocks.getAllProviderInfo.mockReturnValue([
       {
         id: "codex",
@@ -339,7 +333,6 @@ describe("provider usage", () => {
     vi.useFakeTimers();
     const proc = createMockProcess();
     mocks.spawn.mockReturnValue(proc);
-    mocks.providerSupportsAppServer.mockReturnValue(true);
     mocks.getAllProviderInfo.mockReturnValue([
       {
         id: "codex",
@@ -371,7 +364,6 @@ describe("provider usage", () => {
     vi.useFakeTimers();
     const proc = createMockProcess();
     mocks.spawn.mockReturnValue(proc);
-    mocks.providerSupportsAppServer.mockReturnValue(true);
     mocks.getAllProviderInfo.mockReturnValue([
       {
         id: "codex",

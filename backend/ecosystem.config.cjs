@@ -8,12 +8,14 @@ module.exports = {
       HOST: "0.0.0.0",
       PORT: 9420,
       DATA_DIR: "~/.hive",
+      HIVE_AUTOMATION_TIMEOUT_SEC: 1800,
     },
     env_development: {
       NODE_ENV: "development",
       HOST: "127.0.0.1",
       PORT: 3000,
       DATA_DIR: "~/.hive-dev",
+      HIVE_AUTOMATION_TIMEOUT_SEC: 1800,
     },
   }],
 };

@@ -463,10 +463,6 @@ private func getToolDisplay(
         let completed = items.filter { ($0["completed"] as? Bool) == true }.count
         return ToolDisplay(icon: "checklist", label: "TodoList", detail: "\(completed)/\(items.count) complete")
 
-    case "CodexDiagnostic":
-        let message = input["message"] as? String
-        return ToolDisplay(icon: "exclamationmark.triangle", label: "CodexDiagnostic", detail: message)
-
     default:
         return ToolDisplay(icon: toolIcon(for: tool.name), label: tool.name)
     }

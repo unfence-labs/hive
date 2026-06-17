@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import type { EventEmitter } from "node:events";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir } from "../utils/test-helpers.js";
@@ -17,15 +18,31 @@ import type { Agent, Automation, AutomationRun, PromptTemplate } from "../types.
 // ConversationSession is a complex beast that spawns child processes.
 // We mock it to test scheduler orchestration logic in isolation.
 
+/** Surface of the mock ConversationSession that tests inspect/drive. */
+interface MockSessionHandle extends EventEmitter {
+  stopped: boolean;
+  disposed: boolean;
+  sentMessage: string | undefined;
+  sendOptions: Record<string, unknown> | undefined;
+  opts: Record<string, unknown>;
+}
+
 // Track constructor calls to inspect systemPrompt passed to sessions
 const sessionConstructorCalls: Array<Record<string, unknown>> = [];
 // Track sendMessage calls to inspect the model (owned by the agent).
 const sessionSendCalls: Array<{ content: string; options?: Record<string, unknown> }> = [];
+// Every constructed session, so tests can drive its lifecycle (idle timeout,
+// dispose) explicitly. The class lives inside the vi.mock factory (hoisting),
+// so it can only reach the test via this module-level registry.
+const mockSessions: MockSessionHandle[] = [];
+// When true, sendMessage does NOT auto-emit "done"; the test drives activity.
+let suppressAutoDone = false;
 
 vi.mock("../agents/conversation-session.js", async () => {
   const { EventEmitter } = await import("node:events");
-  class MockSession extends EventEmitter {
+  class MockSession extends EventEmitter implements MockSessionHandle {
     stopped = false;
+    disposed = false;
     sentMessage: string | undefined;
     sendOptions: Record<string, unknown> | undefined;
     opts: Record<string, unknown>;
@@ -34,18 +51,26 @@ vi.mock("../agents/conversation-session.js", async () => {
       super();
       this.opts = opts;
       sessionConstructorCalls.push(opts);
+      mockSessions.push(this);
     }
 
     sendMessage(msg: string, opts?: Record<string, unknown>) {
       this.sentMessage = msg;
       this.sendOptions = opts;
       sessionSendCalls.push({ content: msg, options: opts });
-      // Emit "done" on next tick to simulate completion
-      process.nextTick(() => this.emit("message", { type: "done" }));
+      if (!suppressAutoDone) {
+        // Emit "done" on next tick to simulate completion
+        process.nextTick(() => this.emit("message", { type: "done" }));
+      }
     }
 
     stop() {
       this.stopped = true;
+    }
+
+    async dispose() {
+      this.disposed = true;
+      this.stop();
     }
 
     async getMessages() {
@@ -103,6 +128,18 @@ vi.mock("../agents/system-prompt.js", () => ({
 let tmpDir: string;
 let dataDir: string;
 
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Poll until predicate is true or a short deadline elapses. */
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await delay(5);
+  }
+  throw new Error("Timed out waiting for condition");
+}
+
 function makeAgent(overrides: Partial<Agent> = {}): Agent {
   return {
     id: "agent-1",
@@ -148,6 +185,8 @@ beforeEach(async () => {
   dataDir = join(tmpDir, "data");
   sessionConstructorCalls.length = 0;
   sessionSendCalls.length = 0;
+  mockSessions.length = 0;
+  suppressAutoDone = false;
   vi.clearAllMocks();
   // Default agent referenced by makeAutomation(). Tests needing a different
   // system prompt / model / readOnly re-save via saveAgents().
@@ -853,6 +892,69 @@ describe("AutomationScheduler", () => {
       const lastSend = sessionSendCalls[sessionSendCalls.length - 1];
       expect(lastSend.options?.model).toBe("claude:sonnet-4-6");
       expect(lastSend.options?.thinkingLevel).toBe("xhigh");
+
+      scheduler.stop();
+    });
+  });
+
+  describe("session lifecycle", () => {
+    // Codex automations run on the long-lived app-server, so the scheduler must
+    // tear the session down (closing that process) on every terminal path.
+
+    it("disposes the session after a run completes", async () => {
+      const auto = makeAutomation({ projectId: undefined, notification: { onComplete: false, onFailure: false } });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.status).toBe("success");
+      const session = mockSessions[mockSessions.length - 1];
+      expect(session.disposed).toBe(true);
+      expect(session.stopped).toBe(true);
+
+      scheduler.stop();
+    });
+
+    it("fails and disposes a run that stays idle past the timeout", async () => {
+      suppressAutoDone = true; // No stream activity — the idle timer must fire.
+      const auto = makeAutomation({ projectId: undefined, notification: { onComplete: false, onFailure: false } });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir, 50);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.status).toBe("failure");
+      expect(run.error).toContain("Idle timeout");
+      expect(mockSessions[mockSessions.length - 1].disposed).toBe(true);
+
+      scheduler.stop();
+    });
+
+    it("does not kill a run that keeps emitting activity within the idle window", async () => {
+      suppressAutoDone = true; // Drive activity manually to prove idle (not absolute) semantics.
+      const auto = makeAutomation({ projectId: undefined, notification: { onComplete: false, onFailure: false } });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir, 120);
+      const runPromise = scheduler.triggerNow("auto-1");
+
+      // Wait until the session exists and the clock has started.
+      await waitFor(() => mockSessions.length > 0);
+      const session = mockSessions[mockSessions.length - 1];
+
+      // Heartbeat every 30ms for ~240ms total (well past the 120ms idle window),
+      // but no single gap exceeds it, so the timer keeps getting reset. The wide
+      // window-to-heartbeat ratio keeps this resilient on a slow event loop.
+      for (let i = 0; i < 8; i++) {
+        await delay(30);
+        session.emit("message", { type: "text_delta" });
+      }
+      session.emit("message", { type: "done" });
+
+      const run = await runPromise;
+      expect(run.status).toBe("success");
+      expect(session.disposed).toBe(true);
 
       scheduler.stop();
     });

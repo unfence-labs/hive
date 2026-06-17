@@ -4,7 +4,6 @@ import { readdir, readFile } from "node:fs/promises";
 import { parseFrontmatter } from "./frontmatter.js";
 import { parseSkillManifest } from "./skill-manifest.js";
 import { parseCustomAgentManifest } from "./custom-agent-manifest.js";
-import { providerSupportsAppServerGoals } from "../agents/providers/registry.js";
 import type { CompletionItem, CompletionSource } from "../types.js";
 
 export type CompletionProvider = "claude" | "codex";
@@ -375,9 +374,7 @@ async function scanClaudeCompletions(workspaceCwd: string): Promise<CompletionIt
 
 async function scanCodexCompletions(workspaceCwd: string): Promise<CompletionItem[]> {
   const home = homedir();
-  const codexBuiltinCommands = providerSupportsAppServerGoals("codex")
-    ? CODEX_BUILTIN_COMMANDS
-    : CODEX_BUILTIN_COMMANDS.filter((command) => command.name !== "goal");
+  const codexBuiltinCommands = CODEX_BUILTIN_COMMANDS;
   const [userSkills, projectSkills, adminSkills, userAgents, projectAgents] =
     await Promise.all([
       scanSkills(join(home, ".agents", "skills"), "user_skill", "codex"),
