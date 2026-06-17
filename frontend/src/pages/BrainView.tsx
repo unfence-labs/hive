@@ -17,6 +17,8 @@ import {
 } from "@/contexts/WorkspaceLiveDataContext";
 import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 import { ConversationPane } from "@/components/chat/ConversationPane";
+import { CenterCard } from "@/components/CenterCard";
+import { PageHeader } from "@/components/AppLayout";
 import { BrainWelcome } from "@/components/BrainWelcome";
 import { type FileViewerHandle } from "@/components/FileViewer";
 import { FileTabView } from "@/components/FileTabView";
@@ -325,7 +327,7 @@ export default function BrainView() {
 
   if (!loading && !brainConnected) {
     return (
-      <div className="flex h-full min-h-0 flex-col bg-background">
+      <div className="flex h-full min-h-0 flex-col">
         <BrainHeader path={repoPath} upstream={brainUpstream} />
         <div className="flex flex-1 items-center justify-center px-6">
           <p className="text-sm text-muted-foreground">No Brain repository connected.</p>
@@ -335,7 +337,7 @@ export default function BrainView() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div className="flex h-full flex-col">
       <Group
         orientation="horizontal"
         defaultLayout={defaultLayout}
@@ -345,6 +347,7 @@ export default function BrainView() {
         <Panel id="brain-main" minSize="40%">
           <div className="flex min-w-0 h-full flex-col overflow-hidden">
             <BrainHeader path={repoPath} upstream={brainUpstream} />
+            <CenterCard>
             <ConversationPane
               sessions={sessions}
               activeSessionId={sessionId}
@@ -369,6 +372,7 @@ export default function BrainView() {
               pendingToolInputs={pendingToolInputs}
               onQuestionAnswer={answerQuestion}
               onFileMentionClick={handleSelect}
+              activeProvider={effectiveLockedProvider}
               projectName="Brain"
               emptyState={<BrainWelcome notesCount={notesCount} repoUrl={repoUrl} />}
               switchCounter={switchCounter}
@@ -433,10 +437,11 @@ export default function BrainView() {
                 fileViewerRef={fileViewerRef}
               />
             )}
+            </CenterCard>
           </div>
         </Panel>
 
-        <ResizeHandle orientation="vertical" />
+        <ResizeHandle orientation="vertical" cardSide="left" />
 
         <Panel id="brain-tree" minSize={220} maxSize={480} defaultSize="25%" className="bg-sidebar">
           <div className="flex h-full flex-col">
@@ -505,7 +510,7 @@ function BrainHeader({
   upstream?: string | null;
 }) {
   return (
-    <div className="flex h-12 items-center gap-2 border-b border-border/50 px-4" data-tauri-drag-region>
+    <PageHeader className="gap-2">
       <BrainIcon className="size-4 text-primary" aria-hidden="true" />
       <span className="shrink-0 text-sm font-semibold text-foreground">Brain</span>
       <div className="flex min-w-0 items-center gap-1">
@@ -524,7 +529,7 @@ function BrainHeader({
           pathUnavailableReason="Brain path unavailable. Connect a Brain repository first."
         />
       </div>
-    </div>
+    </PageHeader>
   );
 }
 

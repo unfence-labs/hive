@@ -6,7 +6,9 @@ import SwiftUI
 /// above the list is supplied by the caller via `header`, and any caller-specific
 /// data (workspace scripts, Brain status) refreshes through `onExtraRefresh`.
 struct ConversationsSection<Header: View>: View {
-    private let maxSessions = 4
+    // Keep in sync with the web cap (MAX_SESSIONS_PER_WORKSPACE in
+    // ConversationTabs.tsx) and the backend Brain guard (MAX_BRAIN_SESSIONS).
+    private let maxSessions = 6
 
     let workspace: Workspace
     let store: ConversationStore

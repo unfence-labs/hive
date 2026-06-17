@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { PlayIcon, SquareIcon, RotateCcwIcon, CheckCircle2Icon, TerminalSquareIcon } from "lucide-react";
@@ -10,20 +10,20 @@ import { useThemeType } from "@/hooks/useThemeType";
 import type { ScriptStatusInfo, HiveConfig } from "@/types";
 import "@xterm/xterm/css/xterm.css";
 
-const XTERM_THEMES = {
-  dark: {
-    background: "#09090f",
-    foreground: "#e4e4e7",
-    cursor: "#e4e4e7",
-    selectionBackground: "#3f3f46",
-  },
-  light: {
-    background: "#f5f5f5",
-    foreground: "#18181b",
-    cursor: "#18181b",
-    selectionBackground: "#d4d4d8",
-  },
-} as const;
+function readThemeColor(name: string, fallback: string): string {
+  if (typeof window === "undefined") return fallback;
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
+
+function buildXtermTheme(theme: "dark" | "light") {
+  const foreground = readThemeColor("--foreground", theme === "dark" ? "#e4e4e7" : "#18181b");
+  return {
+    background: readThemeColor("--sidebar", theme === "dark" ? "#0c0c14" : "#f8f8fb"),
+    foreground,
+    cursor: foreground,
+    selectionBackground: readThemeColor("--muted", theme === "dark" ? "#262636" : "#f0f1f4"),
+  };
+}
 
 interface ScriptPanelProps {
   config: HiveConfig | null;
@@ -48,7 +48,7 @@ function StatusIndicator({ status, isSetup }: { status: ScriptStatusInfo; isSetu
     return <ActivityWave size="small" decorative />;
   }
   if (isSetup && status.state === "done") {
-    return <CheckCircle2Icon className="size-3 text-green-400" />;
+    return <CheckCircle2Icon className="size-3 text-success-foreground" />;
   }
   return null;
 }
@@ -105,8 +105,9 @@ export default function ScriptPanel({
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const connectedTabRef = useRef<string | null>(null);
   const theme = useThemeType();
-  const themeRef = useRef(theme);
-  themeRef.current = theme;
+  const xtermTheme = useMemo(() => buildXtermTheme(theme), [theme]);
+  const themeRef = useRef(xtermTheme);
+  themeRef.current = xtermTheme;
 
   // Incremented on re-run to force the terminal init effect to re-fire
   const [runGeneration, setRunGeneration] = useState(0);
@@ -128,7 +129,7 @@ export default function ScriptPanel({
       fontSize: 12,
       fontFamily: '"Geist Mono", Menlo, Monaco, "Courier New", monospace',
       lineHeight: 1.3,
-      theme: XTERM_THEMES[themeRef.current],
+      theme: themeRef.current,
       scrollback: 5000,
       disableStdin: false,
     });
@@ -193,9 +194,9 @@ export default function ScriptPanel({
   // Live theme updates without recreating the terminal
   useEffect(() => {
     if (termRef.current) {
-      termRef.current.options.theme = XTERM_THEMES[theme];
+      termRef.current.options.theme = xtermTheme;
     }
-  }, [theme]);
+  }, [xtermTheme]);
 
   const handleAction = async () => {
     if (currentStatus.state === "running") {
@@ -309,7 +310,7 @@ export default function ScriptPanel({
             <div
               ref={containerRef}
               className="h-full w-full overflow-hidden px-3"
-              style={{ backgroundColor: XTERM_THEMES[theme].background }}
+              style={{ backgroundColor: xtermTheme.background }}
             />
             {/* Port badge */}
             {!isSetupTab && !isTerminalTab && config?.port && currentStatus.state === "running" && (

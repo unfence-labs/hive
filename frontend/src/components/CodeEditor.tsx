@@ -15,7 +15,7 @@ const appTheme = EditorView.theme(
       height: "100%",
     },
     "&.cm-focused": {
-      outline: "2px solid hsl(var(--ring))",
+      outline: "2px solid var(--ring)",
       outlineOffset: "0px",
     },
     ".cm-scroller": {

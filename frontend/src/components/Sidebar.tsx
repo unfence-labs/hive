@@ -198,7 +198,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
     }),
     [activeProjectId, activeWsId, expandedProjects, folders, isFolderExpanded, rootProjects],
   );
-  const { loadingByWorkspace: prLoadingByWorkspace } = useBulkPrStatus(visiblePrWorkspaceIds);
+  useBulkPrStatus(visiblePrWorkspaceIds);
   const prStatuses = usePrStatusMap(visiblePrWorkspaceIds);
   const sortedAutomations = useMemo(() => {
     if (!automations) return [];
@@ -481,7 +481,6 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
         activeWsId={activeWsId}
         liveData={liveData}
         prStatuses={prStatuses}
-        prLoadingByWorkspace={prLoadingByWorkspace}
         creatingProjectId={creatingProjectId}
         archivingWsId={archivingWsId}
         canReorder={hasInitialHydration}
@@ -829,9 +828,9 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
           className={cn(
             "h-1.5 w-1.5 shrink-0 rounded-full",
             isRunning
-              ? "bg-green-500 animate-pulse"
+              ? "bg-success animate-pulse"
               : auto.enabled
-                ? "bg-green-500"
+                ? "bg-success"
                 : "bg-muted-foreground/40",
           )}
         />

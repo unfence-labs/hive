@@ -230,7 +230,7 @@ export default function AddProjectDialog({
                       <span>Checking GitHub connection...</span>
                     ) : ghConnected ? (
                       <span>
-                        <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+                        <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-success" />
                         Private GitHub repository as{" "}
                         <span className="font-medium text-foreground">@{account.user?.login}</span>
                       </span>
@@ -295,7 +295,7 @@ export default function AddProjectDialog({
                   <span>Checking GitHub connection...</span>
                 ) : ghConnected ? (
                   <span>
-                    <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+                    <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-success" />
                     Connected as <span className="font-medium text-foreground">@{account.user?.login}</span>
                   </span>
                 ) : (

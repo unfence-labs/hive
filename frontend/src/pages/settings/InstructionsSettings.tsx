@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import { DiffView } from "@/components/diff/DiffView";
 import {
   ProviderBadge,
@@ -56,20 +57,21 @@ export default function InstructionsSettings() {
   const { data, isLoading, isError } = useInstructions();
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <h1 className="text-sm font-medium">
           Instructions <span className="text-[11px] font-normal text-muted-foreground">(AGENTS.md / CLAUDE.md)</span>
         </h1>
       </SettingsHeader>
 
+      <CenterCard>
       {isLoading ? (
         <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading instructions
         </div>
       ) : isError || !data ? (
-        <div className="flex flex-1 items-center justify-center text-xs text-red-400">
+        <div className="flex flex-1 items-center justify-center text-xs text-destructive">
           Could not load instructions.
         </div>
       ) : (
@@ -83,6 +85,7 @@ export default function InstructionsSettings() {
           data={data}
         />
       )}
+      </CenterCard>
     </div>
   );
 }
@@ -187,7 +190,7 @@ function LoadedInstructionsPanel({ data }: { data: InstructionDetail }) {
               Delete
             </EditorActionButton>
             {error && (
-              <span role="alert" className="text-xs text-red-400">
+              <span role="alert" className="text-xs text-destructive">
                 {error}
               </span>
             )}
@@ -213,7 +216,7 @@ function LoadedInstructionsPanel({ data }: { data: InstructionDetail }) {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => void handleDelete()}
-              className="bg-red-600 text-white hover:bg-red-700"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleteMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Delete"}
             </AlertDialogAction>
@@ -343,11 +346,11 @@ function InstructionDiffDialog({
         <div className="min-h-0">
           <div className="mb-2 flex items-center gap-3 text-[11px] text-muted-foreground">
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-red-400" />
+              <span className="h-2 w-2 rounded-full bg-destructive" />
               Claude
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-green-400" />
+              <span className="h-2 w-2 rounded-full bg-success" />
               Codex
             </span>
           </div>

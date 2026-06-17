@@ -31,8 +31,10 @@ describe("AutocompletePopup", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("groups items by source using the expected display order", () => {
-    const { container } = render(
+  it("orders items by source using the expected display order", () => {
+    // Group headers were removed in the floating-panel redesign; the source
+    // grouping now only governs the order items render in (no labels).
+    render(
       <AutocompletePopup
         items={[
           makeItem("agent-z", "project_agent"),
@@ -47,19 +49,13 @@ describe("AutocompletePopup", () => {
       />,
     );
 
-    const headerTexts = Array.from(container.querySelectorAll(".sticky")).map((el) =>
-      el.textContent?.trim(),
-    );
-    expect(headerTexts).toEqual([
-      "Commands",
-      "Skills",
-      "Project Skills",
-      "Agents",
-      "Project Agents",
-    ]);
+    const labels = screen
+      .getAllByRole("button")
+      .map((button) => button.querySelector("span")?.textContent);
+    expect(labels).toEqual(["/help", "/deploy", "/local", "@agent-a", "@agent-z"]);
   });
 
-  it("falls back to raw source label for unknown sources", () => {
+  it("still renders items whose source is unknown (ungrouped fallback)", () => {
     render(
       <AutocompletePopup
         items={[
@@ -77,11 +73,13 @@ describe("AutocompletePopup", () => {
       />,
     );
 
-    expect(screen.getByText("custom_source")).toBeInTheDocument();
+    // Headers/source labels are gone, but unknown-source items must still be
+    // appended and rendered rather than dropped.
+    expect(screen.getByRole("button", { name: /\/custom-source/i })).toBeInTheDocument();
   });
 
-  it("uses opaque header backgrounds to avoid scroll bleed", () => {
-    render(
+  it("uses the input background with no shadow (floating-panel redesign)", () => {
+    const { container } = render(
       <AutocompletePopup
         items={[makeItem("help", "builtin"), makeItem("agent-a", "user_agent")]}
         selectedIndex={0}
@@ -90,9 +88,9 @@ describe("AutocompletePopup", () => {
       />,
     );
 
-    const commandsHeader = screen.getByText("Commands");
-    expect(commandsHeader.className).toContain("bg-black/5");
-    expect(commandsHeader.className).toContain("dark:bg-[var(--header-bg)]");
+    const panel = container.firstElementChild as HTMLElement;
+    expect(panel.className).toContain("bg-field");
+    expect(panel.className).not.toContain("shadow");
   });
 
   it("marks the selected item using selectedIndex", () => {
@@ -109,7 +107,7 @@ describe("AutocompletePopup", () => {
     const unselected = screen.getByRole("button", { name: /\/help/i });
 
     expect(selected.className).toContain("bg-primary/10");
-    expect(unselected.className).toContain("hover:bg-white/[0.04]");
+    expect(unselected.className).toContain("hover:bg-accent");
   });
 
   it("calls onSelect on mousedown and prevents default", () => {

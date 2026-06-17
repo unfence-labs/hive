@@ -358,7 +358,7 @@ export const InlineDiffViewer = forwardRef<InlineDiffViewerHandle, InlineDiffVie
   if (!matchedFile && omittedFileCount > 0) {
     return (
       <div className="flex flex-1 items-center justify-center p-4">
-        <div className="flex max-w-md items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-4 text-amber-700 dark:text-amber-300">
+        <div className="flex max-w-md items-start gap-2 rounded-md border border-warning-border bg-warning-muted px-3 py-4 text-warning-foreground">
           <AlertCircleIcon className="mt-0.5 size-4 shrink-0" />
           <span className="text-sm">
             This file is not included in the rendered diff. {omittedFileCount} untracked{" "}

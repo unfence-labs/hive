@@ -155,7 +155,7 @@ export default function QuestionPanel({
 
   return (
     <div className="border-t border-border/30 px-3 py-3">
-      <div className="rounded-lg border border-border/50 bg-muted/40">
+      <div className="rounded-lg border border-border/50 bg-field">
         {/* Question text + dismiss */}
         <div className="flex items-start gap-3 px-4 pt-3.5 pb-1">
           <p className="min-w-0 flex-1 text-[13px] font-medium text-foreground">

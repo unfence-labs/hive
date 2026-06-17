@@ -43,7 +43,7 @@ describe("ContextRing", () => {
     );
     const circles = container.querySelectorAll("circle");
     // The progress circle is the second one
-    expect(circles[1]?.getAttribute("stroke")).toBe("#34d399");
+    expect(circles[1]?.getAttribute("stroke")).toBe("var(--success)");
   });
 
   it("uses yellow stroke for medium usage", () => {
@@ -51,7 +51,7 @@ describe("ContextRing", () => {
       <ContextRing usage={makeUsage({ usageFraction: 0.6, inputTokens: 120_000, contextWindow: 200_000 })} />,
     );
     const circles = container.querySelectorAll("circle");
-    expect(circles[1]?.getAttribute("stroke")).toBe("#facc15");
+    expect(circles[1]?.getAttribute("stroke")).toBe("var(--warning)");
   });
 
   it("uses red stroke for high usage", () => {
@@ -59,7 +59,7 @@ describe("ContextRing", () => {
       <ContextRing usage={makeUsage({ usageFraction: 0.9, inputTokens: 180_000, contextWindow: 200_000 })} />,
     );
     const circles = container.querySelectorAll("circle");
-    expect(circles[1]?.getAttribute("stroke")).toBe("#f87171");
+    expect(circles[1]?.getAttribute("stroke")).toBe("var(--destructive)");
   });
 
   it("renders at 0% usage fraction", () => {
@@ -76,7 +76,7 @@ describe("ContextRing", () => {
     );
     const circles = container.querySelectorAll("circle");
     // Red at 100%
-    expect(circles[1]?.getAttribute("stroke")).toBe("#f87171");
+    expect(circles[1]?.getAttribute("stroke")).toBe("var(--destructive)");
     // strokeDashoffset should be 0 at 100%
     const offset = circles[1]?.getAttribute("stroke-dashoffset");
     expect(Number(offset)).toBeCloseTo(0, 1);

@@ -35,12 +35,12 @@ function FileRow({
         <span className="text-foreground">{stat.file.split("/").pop()}</span>
       </span>
       {stat.additions > 0 && (
-        <span className="shrink-0 text-green-500">
+        <span className="shrink-0 text-success-foreground">
           +{stat.additions}
         </span>
       )}
       {stat.deletions > 0 && (
-        <span className="shrink-0 text-red-500">
+        <span className="shrink-0 text-destructive">
           -{stat.deletions}
         </span>
       )}
@@ -56,10 +56,10 @@ function SectionHeader({ label, stats }: { label: string; stats: DiffFileStat[] 
       <span className="font-semibold text-foreground">{label}</span>
       <span className="text-muted-foreground/60">{stats.length}</span>
       {totalAdditions > 0 && (
-        <span className="text-green-500">+{totalAdditions}</span>
+        <span className="text-success-foreground">+{totalAdditions}</span>
       )}
       {totalDeletions > 0 && (
-        <span className="text-red-500">-{totalDeletions}</span>
+        <span className="text-destructive">-{totalDeletions}</span>
       )}
     </div>
   );

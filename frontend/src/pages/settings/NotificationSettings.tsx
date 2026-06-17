@@ -2,6 +2,7 @@ import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Eye, EyeOff, Send, Save, Loader2, Smartphone } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -47,16 +48,18 @@ export default function NotificationSettings() {
   const apns = query.data?.apns ?? defaultApns;
 
   return (
-    <div className="flex h-full flex-col overflow-auto">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <h1 className="text-sm font-medium">Notifications</h1>
       </SettingsHeader>
 
+      <CenterCard scroll>
       <div className="max-w-2xl space-y-6 px-4 py-5">
         <LocalToastsSection />
         <TelegramForm initial={telegram} />
         <ApnsForm initial={apns} />
       </div>
+      </CenterCard>
     </div>
   );
 }
@@ -217,7 +220,7 @@ function Toggle({ id, enabled, onChange }: { id: string; enabled: boolean; onCha
     >
       <span
         className={cn(
-          "pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+          "pointer-events-none block h-4 w-4 rounded-full bg-primary-foreground shadow-sm transition-transform",
           enabled ? "translate-x-4" : "translate-x-0",
         )}
       />
@@ -475,7 +478,7 @@ function FormActions({
       {feedback && (
         <span className={cn(
           "text-xs font-medium",
-          feedback.type === "success" ? "text-emerald-500" : "text-red-500",
+          feedback.type === "success" ? "text-success-foreground" : "text-destructive",
         )}>
           {feedback.message}
         </span>

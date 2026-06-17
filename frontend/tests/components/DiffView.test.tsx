@@ -17,8 +17,8 @@ describe("DiffView", () => {
 
     const removed = screen.getByText("remove-this");
     const added = screen.getByText("add-this");
-    expect(removed.closest("div")).toHaveClass("text-red-400");
-    expect(added.closest("div")).toHaveClass("text-green-400");
+    expect(removed.closest("div")).toHaveClass("text-destructive");
+    expect(added.closest("div")).toHaveClass("text-success-foreground");
   });
 
   it("renders without file path metadata", () => {
@@ -38,7 +38,7 @@ describe("DiffView", () => {
       />,
     );
 
-    expect(screen.getByText("-old")).toHaveClass("text-red-400");
-    expect(screen.getByText("+new")).toHaveClass("text-green-400");
+    expect(screen.getByText("-old")).toHaveClass("text-destructive");
+    expect(screen.getByText("+new")).toHaveClass("text-success-foreground");
   });
 });

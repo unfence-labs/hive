@@ -22,6 +22,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import AutomationDialog from "@/components/CreateAutomationDialog";
 import AutomationRunLogSheet from "@/components/AutomationRunLogSheet";
 import {
@@ -105,16 +106,16 @@ export default function AutomationDetail() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-auto">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <div className="flex flex-1 items-center gap-3">
           <span
             className={cn(
               "h-2 w-2 shrink-0 rounded-full",
               isRunning
-                ? "bg-blue-500 animate-pulse"
+                ? "bg-primary animate-pulse"
                 : auto.enabled
-                  ? "bg-emerald-500"
+                  ? "bg-success"
                   : "bg-muted-foreground/40",
             )}
           />
@@ -122,6 +123,7 @@ export default function AutomationDetail() {
         </div>
       </SettingsHeader>
 
+      <CenterCard scroll>
       <div className="max-w-2xl space-y-5 px-4 py-5">
         {/* ── Controls ─────────────────────────────────────────────── */}
         <div className="flex items-center gap-3">
@@ -164,7 +166,7 @@ export default function AutomationDetail() {
             <button
               type="button"
               onClick={() => setShowDeleteDialog(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-red-500/30 px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/10"
+              className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
             >
               <Trash2 className="h-3 w-3" />
               Delete
@@ -232,7 +234,7 @@ export default function AutomationDetail() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => void handleDelete()}
-              className="bg-red-600 text-white hover:bg-red-700"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete
             </AlertDialogAction>
@@ -251,6 +253,7 @@ export default function AutomationDetail() {
         run={logRun}
         onClose={() => setLogRun(null)}
       />
+      </CenterCard>
     </div>
   );
 }
@@ -279,7 +282,7 @@ function Toggle({
     >
       <span
         className={cn(
-          "pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+          "pointer-events-none block h-4 w-4 rounded-full bg-primary-foreground shadow-sm transition-transform",
           enabled ? "translate-x-4" : "translate-x-0",
         )}
       />
@@ -347,11 +350,11 @@ function RunRow({ run, onViewLog }: { run: AutomationRun; onViewLog: (run: Autom
       >
         {/* Status icon */}
         {run.status === "running" ? (
-          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-blue-400" />
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
         ) : run.status === "success" ? (
-          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success-foreground" />
         ) : (
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-400" />
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
         )}
 
         <span className="text-muted-foreground">
@@ -396,7 +399,7 @@ function RunRow({ run, onViewLog }: { run: AutomationRun; onViewLog: (run: Autom
       {expanded && hasDetails && (
         <div className="border-t border-border/50 bg-muted/10 px-3 py-2.5 text-xs">
           {run.error && (
-            <p className="text-red-400">{run.error}</p>
+            <p className="text-destructive">{run.error}</p>
           )}
           {run.summary && (
             <pre className="whitespace-pre-wrap text-muted-foreground">{run.summary}</pre>

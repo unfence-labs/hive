@@ -2,18 +2,6 @@ import { useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import type { CompletionItem, CompletionSource } from "@/types";
 
-const SOURCE_LABELS: Record<CompletionSource, string> = {
-  builtin: "Commands",
-  user_command: "Commands",
-  project_command: "Project Commands",
-  user_skill: "Skills",
-  project_skill: "Project Skills",
-  admin_skill: "Admin Skills",
-  plugin: "Plugin Commands",
-  user_agent: "Agents",
-  project_agent: "Project Agents",
-};
-
 const SOURCE_ORDER: CompletionSource[] = [
   "builtin",
   "user_command",
@@ -75,21 +63,12 @@ export function AutocompletePopup({
     <div
       ref={listRef}
       className={cn(
-        "absolute bottom-full -left-px -right-px z-50 max-h-[240px] overflow-y-auto rounded-t-md border border-b-0 bg-background dark:bg-[var(--input-group-bg)] shadow-lg",
+        "absolute bottom-full left-0 right-0 mb-2 z-50 max-h-[240px] overflow-y-auto rounded-md border bg-field text-popover-foreground",
         planMode ? "border-dashed border-primary" : "border-border/30",
       )}
-      style={{
-        "--input-group-bg": "color-mix(in srgb, var(--background), white 3%)",
-        "--header-bg": "color-mix(in srgb, var(--background), white 6%)",
-      } as React.CSSProperties}
     >
       {grouped.map(({ source, items: groupItems }) => (
         <div key={source}>
-          {grouped.length > 1 && (
-            <div className="sticky top-0 bg-black/5 dark:bg-[var(--header-bg)] px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              {SOURCE_LABELS[source] ?? source}
-            </div>
-          )}
           <div className="p-1">
           {groupItems.map(({ item, globalIndex }) => (
             <button
@@ -100,7 +79,7 @@ export function AutocompletePopup({
                 "flex w-full items-baseline gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors",
                 globalIndex === selectedIndex
                   ? "bg-primary/10 text-primary"
-                  : "text-foreground hover:bg-white/[0.04]",
+                  : "text-foreground hover:bg-accent hover:text-accent-foreground",
               )}
               onMouseDown={(e) => {
                 e.preventDefault(); // Prevent textarea blur

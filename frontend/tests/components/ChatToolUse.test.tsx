@@ -72,8 +72,8 @@ describe("ChatToolUse", () => {
 
     expect(screen.getByText(/--- a\/src\/app\.ts/)).toBeInTheDocument();
     expect(screen.getByText("Path: src/app.ts")).toBeInTheDocument();
-    expect(screen.getByText(/\+after/)).toHaveClass("text-green-400");
-    expect(screen.getByText(/-before/)).toHaveClass("text-red-400");
+    expect(screen.getByText(/\+after/)).toHaveClass("text-success-foreground");
+    expect(screen.getByText(/-before/)).toHaveClass("text-destructive");
     expect(screen.queryByText("Output")).not.toBeInTheDocument();
   });
 

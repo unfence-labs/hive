@@ -1,5 +1,4 @@
 import { RefreshCwIcon } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -13,9 +12,9 @@ interface FileBrowserHeaderProps {
 }
 
 /**
- * Shared file-browser header: "All" / "Modified" tabs (with a pending-change
- * count badge) plus a right-aligned manual refresh button that reloads the file
- * tree + git status/diff. Reused by the Workspace and Brain right columns.
+ * Shared file-browser header: "Files" / "Changes" segmented tabs (Changes shows the
+ * pending-change count) plus a right-aligned manual refresh button that reloads
+ * the file tree + git status/diff. Reused by the Workspace and Brain right columns.
  */
 export function FileBrowserHeader({
   activeTab,
@@ -25,36 +24,34 @@ export function FileBrowserHeader({
   isRefreshing = false,
 }: FileBrowserHeaderProps) {
   return (
-    <div className="flex h-12 items-center gap-3 border-b border-border/50 px-4" data-tauri-drag-region>
-      <button
-        type="button"
-        className={cn(
-          "text-xs uppercase tracking-wide transition-colors",
-          activeTab === "all"
-            ? "text-foreground"
-            : "text-muted-foreground hover:text-foreground",
-        )}
-        onClick={() => onTabChange("all")}
-      >
-        All
-      </button>
-      <button
-        type="button"
-        className={cn(
-          "flex items-center gap-1.5 text-xs uppercase tracking-wide transition-colors",
-          activeTab === "modified"
-            ? "text-foreground"
-            : "text-muted-foreground hover:text-foreground",
-        )}
-        onClick={() => onTabChange("modified")}
-      >
-        Modified
-        {modifiedCount > 0 && (
-          <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-            {modifiedCount}
-          </Badge>
-        )}
-      </button>
+    <div className="flex h-12 items-center px-4" data-tauri-drag-region>
+      <div className="inline-flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5">
+        <button
+          type="button"
+          className={cn(
+            "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+            activeTab === "all"
+              ? "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          onClick={() => onTabChange("all")}
+        >
+          Files
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+            activeTab === "modified"
+              ? "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          onClick={() => onTabChange("modified")}
+        >
+          Changes
+          <span className="tabular-nums text-muted-foreground/70">{modifiedCount}</span>
+        </button>
+      </div>
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>

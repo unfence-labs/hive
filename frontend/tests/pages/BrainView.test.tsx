@@ -152,12 +152,12 @@ describe("BrainView", () => {
     expect(screen.getByText(/No Brain repository connected/i)).toBeInTheDocument();
   });
 
-  it("renders the chat column and the shared file browser (All/Modified tabs)", () => {
+  it("renders the chat column and the shared file browser (Files/Changes tabs)", () => {
     renderBrain();
     expect(screen.getByTestId("chat-conversation")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^All$/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Modified/i })).toBeInTheDocument();
-    // The note appears in the tree (All tab is the default).
+    expect(screen.getByRole("button", { name: /^Files$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Changes/i })).toBeInTheDocument();
+    // The note appears in the tree (Files tab is the default).
     expect(screen.getByText("a.md")).toBeInTheDocument();
     // Chat is visible, no file tab open yet.
     expect(screen.queryByTestId("file-viewer")).not.toBeInTheDocument();
@@ -184,12 +184,12 @@ describe("BrainView", () => {
     expect(chat.closest(".hidden")).not.toBeNull();
   });
 
-  it("opens a per-file diff tab (InlineDiffViewer) from the Modified tab", async () => {
+  it("opens a per-file diff tab (InlineDiffViewer) from the Changes tab", async () => {
     const user = userEvent.setup();
     renderBrain();
 
-    // Switch to the Modified tab, then click the modified file.
-    await user.click(screen.getByRole("button", { name: /^Modified/i }));
+    // Switch to the Changes tab, then click the modified file.
+    await user.click(screen.getByRole("button", { name: /^Changes/i }));
     const modifiedRow = await screen.findByRole("button", { name: /a\.md/i });
     await user.click(modifiedRow);
 

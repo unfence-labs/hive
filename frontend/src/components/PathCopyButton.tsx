@@ -36,7 +36,7 @@ export function PathCopyButton({
               aria-label={copied ? `${label} copied` : `Copy ${label.toLowerCase()}`}
             >
               {copied ? (
-                <CheckIcon className="size-3 text-green-500" />
+                <CheckIcon className="size-3 text-success-foreground" />
               ) : (
                 <ClipboardIcon className="size-3" />
               )}

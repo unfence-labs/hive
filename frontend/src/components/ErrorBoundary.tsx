@@ -24,7 +24,7 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div style={{ padding: 40, textAlign: "center", fontFamily: "system-ui" }}>
           <h2>Something went wrong</h2>
-          <p style={{ color: "#888", marginBottom: 16 }}>
+          <p style={{ color: "var(--muted-foreground)", marginBottom: 16 }}>
             An unexpected error crashed the UI.
           </p>
           <button
@@ -32,7 +32,7 @@ export class ErrorBoundary extends Component<Props, State> {
             style={{
               padding: "8px 16px",
               borderRadius: 6,
-              border: "1px solid #555",
+              border: "1px solid var(--border)",
               background: "transparent",
               color: "inherit",
               cursor: "pointer",

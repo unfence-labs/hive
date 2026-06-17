@@ -2,6 +2,7 @@ import { Check, Monitor, Moon, Sun } from "lucide-react";
 import { useAccentColor } from "@/hooks/useAccentColor";
 import { useThemeMode, type ThemeMode } from "@/hooks/useThemeMode";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import { cn } from "@/lib/utils";
 
 const THEME_OPTIONS: { id: ThemeMode; label: string; Icon: typeof Sun }[] = [
@@ -15,11 +16,12 @@ export default function AppearanceSettings() {
   const { mode, setMode } = useThemeMode();
 
   return (
-    <div className="flex h-full flex-col overflow-auto">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <h1 className="text-sm font-medium">Appearance</h1>
       </SettingsHeader>
 
+      <CenterCard scroll>
       <div className="max-w-2xl space-y-5 px-4 py-5">
         <section>
           <div className="rounded-lg border border-border/50 bg-card/50 p-5">
@@ -115,6 +117,7 @@ export default function AppearanceSettings() {
           </div>
         </section>
       </div>
+      </CenterCard>
     </div>
   );
 }

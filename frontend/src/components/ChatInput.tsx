@@ -346,17 +346,14 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
 
   const showSlashPopup = autocomplete !== null && autocomplete.trigger !== "#" && filteredItems.length > 0;
   const showFilePopup = autocomplete !== null && autocomplete.trigger === "#" && fileResults.length > 0;
-  const showPopup = showSlashPopup || showFilePopup;
 
   const activeStyle = "bg-primary/10 text-primary ring-1 ring-primary/15 hover:bg-primary/15 hover:text-primary dark:hover:bg-primary/15";
 
   return (
-    <div className="relative z-50 bg-background p-4">
+    <div className="relative z-50 bg-card p-4">
       <div className={cn(
-        "relative rounded-lg border border-transparent [&_[data-slot=input-group]]:!border-border/50 [&_[data-slot=input-group]]:!bg-card dark:[&_[data-slot=input-group]]:!border-border/30 dark:[&_[data-slot=input-group]]:!bg-[#1e1e28]",
-        showPopup && "[&_[data-slot=input-group]]:rounded-t-none [&_[data-slot=input-group]]:!border-t-transparent",
+        "relative rounded-lg border border-transparent [&_[data-slot=input-group]]:!border [&_[data-slot=input-group]]:!border-border/30 [&_[data-slot=input-group]]:!bg-field [&_[data-slot=input-group]]:!shadow-none",
         planMode && supportsPlanMode && "[&_[data-slot=input-group]]:!border-transparent border-dashed border-primary",
-        planMode && supportsPlanMode && showPopup && "rounded-t-none border-t-0",
       )}>
         {showSlashPopup && (
           <AutocompletePopup
@@ -464,7 +461,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
                 className="size-5"
                 onClick={(e) => { e.preventDefault(); onStop(); }}
               >
-                <SquareIcon className="size-3 text-red-500" />
+                <SquareIcon className="size-3 text-destructive" />
               </PromptInputButton>
             )}
             <PromptInputSubmit
@@ -475,7 +472,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
               size="icon-xs"
               className={cn(
                 "size-5 border border-border/50",
-                canSubmit && "bg-white text-black hover:bg-white/90 dark:bg-white dark:text-black dark:hover:bg-white/90",
+                canSubmit && "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
               )}
             />
           </PromptInputTools>

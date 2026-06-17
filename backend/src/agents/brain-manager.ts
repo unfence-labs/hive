@@ -8,6 +8,7 @@ import { requireBrainRepo } from "../brain/brain-files.js";
 import { buildFileTree, flattenFilePaths } from "../utils/file-tree.js";
 import { NotFoundError } from "../utils/errors.js";
 import { getNotifier } from "./agent-manager.js";
+import { assertSessionCapacity } from "./session-limits.js";
 import { extractSummary, extractPreview } from "../utils/summary-extractor.js";
 import { withKeyedLock } from "../utils/async-lock.js";
 import { parseJsonlMessages, sortByUpdatedAtDesc } from "./session-utils.js";
@@ -28,8 +29,6 @@ import type { ChatMessage, SessionMetadata } from "../types.js";
  */
 export { BRAIN_WORKSPACE_ID };
 
-/** Maximum coexisting Brain sessions, matching the workspace cap. */
-export const MAX_BRAIN_SESSIONS = 4;
 
 /** Max wait for a deleted session's process to exit before releasing the lock (ms). */
 const EXIT_AWAIT_TIMEOUT_MS = 6000;
@@ -241,7 +240,7 @@ export async function listBrainSessions(dataDir = getDataDir()): Promise<Session
   return sortByUpdatedAtDesc(sessions);
 }
 
-/** Create a new Brain session and make it active. Enforces {@link MAX_BRAIN_SESSIONS}. */
+/** Create a new Brain session and make it active. Enforces the shared session cap. */
 export async function createNewBrainSession(
   dataDir = getDataDir(),
   options?: CreateOptions,
@@ -249,9 +248,7 @@ export async function createNewBrainSession(
   return withKeyedLock(brainLocks, BRAIN_WORKSPACE_ID, async () => {
     await requireBrainRepo(dataDir);
     const existing = await listBrainSessions(dataDir);
-    if (existing.length >= MAX_BRAIN_SESSIONS) {
-      throw new Error(`Maximum of ${MAX_BRAIN_SESSIONS} Brain sessions reached`);
-    }
+    assertSessionCapacity(existing.length, "Brain sessions");
     const session = await createSession(dataDir, options);
     activeSessionId = session.sessionId;
     return session;

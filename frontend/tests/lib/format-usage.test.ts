@@ -34,20 +34,20 @@ describe("formatTokenCount", () => {
 
 describe("usageStrokeColor", () => {
   it("returns green for low usage (< 50%)", () => {
-    expect(usageStrokeColor(0)).toBe("#34d399");
-    expect(usageStrokeColor(0.1)).toBe("#34d399");
-    expect(usageStrokeColor(0.49)).toBe("#34d399");
+    expect(usageStrokeColor(0)).toBe("var(--success)");
+    expect(usageStrokeColor(0.1)).toBe("var(--success)");
+    expect(usageStrokeColor(0.49)).toBe("var(--success)");
   });
 
   it("returns yellow for medium usage (50–79%)", () => {
-    expect(usageStrokeColor(0.5)).toBe("#facc15");
-    expect(usageStrokeColor(0.65)).toBe("#facc15");
-    expect(usageStrokeColor(0.79)).toBe("#facc15");
+    expect(usageStrokeColor(0.5)).toBe("var(--warning)");
+    expect(usageStrokeColor(0.65)).toBe("var(--warning)");
+    expect(usageStrokeColor(0.79)).toBe("var(--warning)");
   });
 
   it("returns red for high usage (>= 80%)", () => {
-    expect(usageStrokeColor(0.8)).toBe("#f87171");
-    expect(usageStrokeColor(0.95)).toBe("#f87171");
-    expect(usageStrokeColor(1.0)).toBe("#f87171");
+    expect(usageStrokeColor(0.8)).toBe("var(--destructive)");
+    expect(usageStrokeColor(0.95)).toBe("var(--destructive)");
+    expect(usageStrokeColor(1.0)).toBe("var(--destructive)");
   });
 });

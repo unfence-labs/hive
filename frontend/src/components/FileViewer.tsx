@@ -336,7 +336,7 @@ export const FileViewer = forwardRef<FileViewerHandle, FileViewerProps>(function
 function TruncatedNotice() {
   return (
     <div
-      className="flex shrink-0 items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-400"
+      className="flex shrink-0 items-center gap-2 border-b border-warning-border bg-warning-muted px-4 py-2 text-xs text-warning-foreground"
       role="status"
     >
       <AlertTriangleIcon className="size-3.5 shrink-0" />
