@@ -1,12 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { MessageSquareIcon, PlusIcon, XIcon, MoreHorizontalIcon, FileIcon, GitCompareArrowsIcon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MessageSquareIcon, PlusIcon, XIcon, FileIcon, GitCompareArrowsIcon } from "lucide-react";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
+import { ProviderIcon, isKnownProvider } from "@/components/chat/ProviderIcon";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,7 +16,7 @@ import { cn } from "@/lib/utils";
 import type { SessionMetadata } from "@/types";
 import type { FileViewMode } from "@/hooks/useTabs";
 
-const MAX_SESSIONS_PER_WORKSPACE = 4;
+const MAX_SESSIONS_PER_WORKSPACE = 6;
 
 interface ConversationTabsProps {
   sessions: SessionMetadata[];
@@ -38,6 +33,9 @@ interface ConversationTabsProps {
   onFileTabActivate?: () => void;
   onFileTabClose?: () => void;
   onConversationActivate?: () => void;
+  /** Live provider of the active session — shows the tab icon immediately, before
+   * the sessions list refetches the persisted lockedProvider. */
+  activeProvider?: string;
 }
 
 function getTabTitle(session: SessionMetadata): string {
@@ -92,22 +90,35 @@ function getFallbackVisualState({
   return { isSessionStreaming, isSessionUnread };
 }
 
-function SessionStatusIndicator({
+/**
+ * The tab's leading glyph. The provider mark is the conversation's resting
+ * identity (shown once a session locks its provider on the first message), so
+ * the whole strip reads which model each conversation runs at a glance.
+ * Transient states take the slot momentarily: a working indicator while
+ * streaming, an unread dot otherwise. Before a provider is known we fall back to
+ * a neutral message icon.
+ */
+function TabLeadingIcon({
   isStreaming,
   isUnread,
+  provider,
 }: {
   isStreaming: boolean;
   isUnread: boolean;
+  provider?: string;
 }) {
   if (isStreaming) {
     return (
-      <div className="flex size-3 shrink-0 items-center justify-center overflow-visible">
+      <div className="flex size-3.5 shrink-0 items-center justify-center overflow-visible">
         <AgentActivityPreview size="small" />
       </div>
     );
   }
   if (isUnread) {
     return <span className="size-2 shrink-0 rounded-full bg-primary" />;
+  }
+  if (isKnownProvider(provider)) {
+    return <ProviderIcon provider={provider} colored className="size-3.5 shrink-0" />;
   }
   return <MessageSquareIcon className="size-3 shrink-0" />;
 }
@@ -152,11 +163,14 @@ export function ConversationTabs({
   onFileTabActivate,
   onFileTabClose,
   onConversationActivate,
+  activeProvider,
 }: ConversationTabsProps) {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [visibleCount, setVisibleCount] = useState(sessions.length);
-  const tabsRef = useRef<HTMLDivElement>(null);
-  const visibleSessionCount = Math.max(0, visibleCount - (openFile ? 1 : 0));
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Whether content is clipped on each side — drives the edge fade masks so it's
+  // discoverable that more conversations live off-screen.
+  const [edges, setEdges] = useState({ left: false, right: false });
+
   const { isSessionStreaming: isFallbackStreaming, isSessionUnread: isFallbackUnread } = getFallbackVisualState({
     activeSessionId,
     isStreaming,
@@ -165,173 +179,175 @@ export function ConversationTabs({
     unreadSessions,
   });
 
-  const measureTabs = useCallback(() => {
-    const tabsEl = tabsRef.current;
-    if (!tabsEl) return;
-
-    // Temporarily make all tabs visible for accurate measurement
-    const tabs = Array.from(tabsEl.children) as HTMLElement[];
-    for (const tab of tabs) tab.classList.remove("hidden");
-
-    const containerWidth = tabsEl.clientWidth;
-    let usedWidth = 0;
-    let count = 0;
-
-    for (const tab of tabs) {
-      const w = tab.scrollWidth + 4; // 4px gap
-      if (usedWidth + w > containerWidth && count > 0) break;
-      usedWidth += w;
-      count++;
-    }
-
-    // Re-hide overflow tabs immediately to avoid flash
-    for (let i = count; i < tabs.length; i++) tabs[i].classList.add("hidden");
-
-    setVisibleCount(Math.max(1, count));
+  const updateEdges = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const left = el.scrollLeft > 1;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+    setEdges((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
   }, []);
 
+  // Recompute fades when the tab set or layout changes.
   useEffect(() => {
-    measureTabs();
-  }, [sessions, openFile, measureTabs]);
+    updateEdges();
+  }, [sessions, openFile, updateEdges]);
 
   useEffect(() => {
-    const el = tabsRef.current;
+    const el = scrollRef.current;
     if (!el) return;
-    const observer = new ResizeObserver(measureTabs);
+    const observer = new ResizeObserver(updateEdges);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [measureTabs]);
+  }, [updateEdges]);
 
-  const overflowSessions = sessions.slice(visibleSessionCount);
+  // Translate vertical wheel into horizontal scroll over the strip (mouse users
+  // can't scroll a horizontal overflow otherwise). Native non-passive so we can
+  // preventDefault and stop the page from scrolling instead.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.shiftKey || e.deltaY === 0) return;
+      if (el.scrollWidth <= el.clientWidth) return;
+      el.scrollLeft += e.deltaY;
+      e.preventDefault();
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  // Keep the active conversation in view when it changes (e.g. activated from
+  // elsewhere), so it never sits half-clipped behind a fade.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !activeSessionId) return;
+    const tab = Array.from(el.children).find(
+      (child) => (child as HTMLElement).dataset.sessionId === activeSessionId,
+    ) as HTMLElement | undefined;
+    if (!tab) return;
+    const left = tab.offsetLeft;
+    const right = left + tab.offsetWidth;
+    if (left < el.scrollLeft) {
+      el.scrollLeft = left - 8;
+    } else if (right > el.scrollLeft + el.clientWidth) {
+      el.scrollLeft = right - el.clientWidth + 8;
+    }
+    updateEdges();
+  }, [activeSessionId, sessions, updateEdges]);
+
+  const atLimit = sessions.length >= MAX_SESSIONS_PER_WORKSPACE;
 
   return (
     <>
-      <div className="flex h-9 items-center gap-1 border-b border-border/50 px-2">
-        <div ref={tabsRef} className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-          {openFile && (
-            <button
-              type="button"
-              className={cn(
-                "group relative flex h-7 max-w-48 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
-                isFileTabActive
-                  ? "text-foreground after:absolute after:bottom-0 after:inset-x-2 after:h-0.5 after:rounded-full after:bg-primary"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-              )}
-              onClick={onFileTabActivate}
-            >
-              {fileViewMode === "diff" ? (
-                <GitCompareArrowsIcon className="size-3 shrink-0 text-primary" />
-              ) : (
-                <FileIcon className="size-3 shrink-0" />
-              )}
-              <span className="truncate">{openFile.split("/").pop()}</span>
-              <TabCloseAction onClose={() => onFileTabClose?.()} />
-            </button>
-          )}
-          {sessions.length === 0 && (
-            <button
-              type="button"
-              className={cn(
-                "relative flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
-                !isFileTabActive
-                  ? "text-foreground after:absolute after:bottom-0 after:inset-x-2 after:h-0.5 after:rounded-full after:bg-primary"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-              )}
-              onClick={onConversationActivate}
-            >
-              <SessionStatusIndicator isStreaming={isFallbackStreaming} isUnread={isFallbackUnread} />
-              <span className="truncate">Untitled</span>
-            </button>
-          )}
-          {sessions.map((session, i) => {
-            const { isActive, isSessionStreaming, isSessionUnread } = getSessionVisualState({
-              sessionId: session.sessionId,
-              activeSessionId,
-              isStreaming,
-              isFileTabActive,
-              streamingSessions,
-              unreadSessions,
-            });
-            const isVisible = i < visibleSessionCount;
-            const title = getTabTitle(session);
-
-            return (
-              <button
-                key={session.sessionId}
-                type="button"
-                className={cn(
-                  "group relative flex h-7 max-w-48 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
-                  isActive && !isFileTabActive
-                    ? "text-foreground after:absolute after:bottom-0 after:inset-x-2 after:h-0.5 after:rounded-full after:bg-primary"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                  !isVisible && "hidden",
-                )}
-                onClick={() => onActivateSession(session.sessionId)}
-              >
-                <SessionStatusIndicator isStreaming={isSessionStreaming} isUnread={isSessionUnread} />
-                <span className="truncate">{title}</span>
-                {sessions.length > 1 && !isSessionStreaming && (
-                  <TabCloseAction onClose={() => setDeleteTarget(session.sessionId)} />
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {overflowSessions.length > 0 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-              >
-                <MoreHorizontalIcon className="size-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              {overflowSessions.map((session) => {
-                const { isActive, isSessionStreaming: isOverflowStreaming, isSessionUnread: isOverflowUnread } = getSessionVisualState({
-                  sessionId: session.sessionId,
-                  activeSessionId,
-                  isStreaming,
-                  isFileTabActive,
-                  streamingSessions,
-                  unreadSessions,
-                });
-                const title = getTabTitle(session);
-
-                return (
-                  <DropdownMenuItem
-                    key={session.sessionId}
-                    className="flex items-center gap-2"
-                    onSelect={() => onActivateSession(session.sessionId)}
-                  >
-                    <SessionStatusIndicator
-                      isStreaming={isOverflowStreaming}
-                      isUnread={isOverflowUnread}
-                    />
-                    <span className="flex-1 truncate text-xs">{title}</span>
-                    {isActive && (
-                      <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-                    )}
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
+      <div className="flex h-9 items-center gap-1 px-2">
+        {/* Pinned file/diff takeover tab — stays put while conversations scroll. */}
+        {openFile && (
+          <button
+            type="button"
+            className={cn(
+              "group relative flex h-7 max-w-44 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
+              isFileTabActive
+                ? "text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={onFileTabActivate}
+          >
+            {fileViewMode === "diff" ? (
+              <GitCompareArrowsIcon className="size-3 shrink-0 text-primary" />
+            ) : (
+              <FileIcon className="size-3 shrink-0" />
+            )}
+            <span className="truncate">{openFile.split("/").pop()}</span>
+            <TabCloseAction onClose={() => onFileTabClose?.()} />
+          </button>
         )}
 
+        {/* Scrollable conversation strip. */}
+        <div className="relative min-w-0 flex-1">
+          <div
+            ref={scrollRef}
+            onScroll={updateEdges}
+            className="flex items-center gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {sessions.length === 0 && (
+              <button
+                type="button"
+                className={cn(
+                  "relative flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
+                  !isFileTabActive
+                    ? "text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={onConversationActivate}
+              >
+                <TabLeadingIcon isStreaming={isFallbackStreaming} isUnread={isFallbackUnread} />
+                <span className="truncate">Untitled</span>
+              </button>
+            )}
+            {sessions.map((session) => {
+              const { isActive, isSessionStreaming, isSessionUnread } = getSessionVisualState({
+                sessionId: session.sessionId,
+                activeSessionId,
+                isStreaming,
+                isFileTabActive,
+                streamingSessions,
+                unreadSessions,
+              });
+              const title = getTabTitle(session);
+
+              return (
+                <button
+                  key={session.sessionId}
+                  data-session-id={session.sessionId}
+                  type="button"
+                  className={cn(
+                    "group relative flex h-7 max-w-44 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
+                    isActive && !isFileTabActive
+                      ? "text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => onActivateSession(session.sessionId)}
+                >
+                  <TabLeadingIcon
+                    isStreaming={isSessionStreaming}
+                    isUnread={isSessionUnread}
+                    provider={session.lockedProvider ?? (isActive ? activeProvider : undefined)}
+                  />
+                  <span className="truncate">{title}</span>
+                  {sessions.length > 1 && !isSessionStreaming && (
+                    <TabCloseAction onClose={() => setDeleteTarget(session.sessionId)} />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {edges.left && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-card to-transparent"
+            />
+          )}
+          {edges.right && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-card to-transparent"
+            />
+          )}
+        </div>
+
+        {/* Pinned new-conversation button — always reachable, capped at the limit. */}
         <button
           type="button"
           className={cn(
             "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground",
-            sessions.length >= MAX_SESSIONS_PER_WORKSPACE
-              ? "opacity-40 cursor-not-allowed"
+            atLimit
+              ? "cursor-not-allowed opacity-40"
               : "hover:bg-accent/50 hover:text-foreground",
           )}
           onClick={onCreateSession}
-          disabled={sessions.length >= MAX_SESSIONS_PER_WORKSPACE}
-          title={sessions.length >= MAX_SESSIONS_PER_WORKSPACE ? "Session limit reached (4 max)" : "New conversation"}
+          disabled={atLimit}
+          title={atLimit ? `Session limit reached (${MAX_SESSIONS_PER_WORKSPACE} max)` : "New conversation"}
         >
           <PlusIcon className="size-3.5" />
         </button>

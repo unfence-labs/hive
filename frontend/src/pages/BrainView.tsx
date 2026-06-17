@@ -372,6 +372,7 @@ export default function BrainView() {
               pendingToolInputs={pendingToolInputs}
               onQuestionAnswer={answerQuestion}
               onFileMentionClick={handleSelect}
+              activeProvider={effectiveLockedProvider}
               projectName="Brain"
               emptyState={<BrainWelcome notesCount={notesCount} repoUrl={repoUrl} />}
               switchCounter={switchCounter}

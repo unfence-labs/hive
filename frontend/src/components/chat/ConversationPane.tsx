@@ -46,6 +46,9 @@ export interface ConversationPaneProps {
   onFileTabActivate?: () => void;
   onFileTabClose?: () => void;
   onConversationActivate?: () => void;
+  /** Live provider of the active session, used as the tab icon before the
+   * sessions list refetches the locked provider. */
+  activeProvider?: string;
 
   // ── Conversation (ChatConversation surface) ──
   messages: ChatMessage[];
@@ -107,6 +110,7 @@ export function ConversationPane({
   onFileTabActivate,
   onFileTabClose,
   onConversationActivate,
+  activeProvider,
   messages,
   streamingStartedAt,
   currentStreamingText,
@@ -159,6 +163,7 @@ export function ConversationPane({
         onFileTabActivate={onFileTabActivate}
         onFileTabClose={onFileTabClose}
         onConversationActivate={onConversationActivate}
+        activeProvider={activeProvider}
       />
       <div className={!isFileTabActive ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
         <ChatConversation

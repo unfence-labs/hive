@@ -476,6 +476,7 @@ export default function WorkspaceView() {
             pendingToolInputs={pendingToolInputs}
             onQuestionAnswer={answerQuestion}
             onFileMentionClick={handleFileTreeSelect}
+            activeProvider={effectiveLockedProvider}
             workspaceName={workspace?.name}
             projectName={workspace?.projectName}
             branch={displayBranch}

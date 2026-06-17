@@ -335,38 +335,72 @@ describe("ConversationTabs", () => {
     expect(screen.getByText("Untitled")).toBeInTheDocument();
   });
 
-  it("shows unread dot in overflow menu for unread overflow sessions", async () => {
-    const user = userEvent.setup();
-    const clientWidthSpy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(50);
-    const scrollWidthSpy = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(50);
+  it("keeps every conversation tab in the strip (no overflow menu)", () => {
+    renderTabs({
+      sessions: [
+        makeSession("s1", "2026-02-12T00:00:03.000Z", "Alpha"),
+        makeSession("s2", "2026-02-12T00:00:02.000Z", "Beta"),
+        makeSession("s3", "2026-02-12T00:00:01.000Z", "Gamma"),
+      ],
+      activeSessionId: "s1",
+    });
 
-    try {
-      renderTabs({
-        sessions: [
-          makeSession("s1", "2026-02-12T00:00:03.000Z", "Alpha"),
-          makeSession("s2", "2026-02-12T00:00:02.000Z", "Beta"),
-          makeSession("s3", "2026-02-12T00:00:01.000Z", "Gamma"),
-        ],
-        activeSessionId: "s1",
-        unreadSessions: { s3: true },
-      });
+    // All tabs are present inline — they scroll horizontally rather than
+    // collapsing into a dropdown.
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByText("Beta")).toBeInTheDocument();
+    expect(screen.getByText("Gamma")).toBeInTheDocument();
+    expect(document.querySelector("svg.lucide-more-horizontal")).toBeNull();
+    expect(document.querySelector("svg.lucide-ellipsis")).toBeNull();
+  });
 
-      const overflowTrigger = await waitFor(() => {
-        const trigger = (
-          document.querySelector("svg.lucide-more-horizontal")?.closest("button")
-          ?? document.querySelector("svg.lucide-ellipsis")?.closest("button")
-        ) as HTMLButtonElement | null;
-        expect(trigger).toBeTruthy();
-        return trigger as HTMLButtonElement;
-      });
+  it("shows the provider mark once a session locks its provider", () => {
+    renderTabs({
+      sessions: [
+        { ...makeSession("s1", "2026-02-12T00:00:02.000Z", "Codex chat"), lockedProvider: "codex" },
+        { ...makeSession("s2", "2026-02-12T00:00:01.000Z", "Claude chat"), lockedProvider: "claude" },
+      ],
+      activeSessionId: "s1",
+    });
 
-      await user.click(overflowTrigger);
-      const overflowItem = await screen.findByRole("menuitem", { name: /Gamma/i });
-      expect(findUnreadDot(overflowItem)).toBeInTheDocument();
-    } finally {
-      clientWidthSpy.mockRestore();
-      scrollWidthSpy.mockRestore();
-    }
+    const codexTab = screen.getByText("Codex chat").closest("button")!;
+    const claudeTab = screen.getByText("Claude chat").closest("button")!;
+    // Provider mark replaces the neutral message icon as the resting identity.
+    expect(codexTab.querySelector("svg.lucide-message-square")).toBeNull();
+    expect(claudeTab.querySelector("svg.lucide-message-square")).toBeNull();
+    expect(codexTab.querySelector("svg")).toBeInTheDocument();
+    expect(claudeTab.querySelector("svg")).toBeInTheDocument();
+  });
+
+  it("uses activeProvider for the active tab before its provider is persisted", () => {
+    renderTabs({
+      sessions: [
+        makeSession("s1", "2026-02-12T00:00:02.000Z", "Fresh GPT chat"),
+        makeSession("s2", "2026-02-12T00:00:01.000Z", "Other chat"),
+      ],
+      activeSessionId: "s1",
+      activeProvider: "codex",
+    });
+
+    // The active session has no persisted lockedProvider yet, but the live
+    // provider drives its icon (no neutral message fallback).
+    const activeTab = screen.getByText("Fresh GPT chat").closest("button")!;
+    expect(activeTab.querySelector("svg.lucide-message-square")).toBeNull();
+    // Inactive provider-less tabs keep the neutral icon.
+    const otherTab = screen.getByText("Other chat").closest("button")!;
+    expect(otherTab.querySelector("svg.lucide-message-square")).toBeInTheDocument();
+  });
+
+  it("disables the + button at the session cap (6 max)", () => {
+    renderTabs({
+      sessions: Array.from({ length: 6 }, (_, i) =>
+        makeSession(`s${i}`, `2026-02-12T00:00:0${i}.000Z`, `Chat ${i}`),
+      ),
+      activeSessionId: "s0",
+    });
+
+    const plusBtn = screen.getByTitle(/Session limit reached/i);
+    expect(plusBtn).toBeDisabled();
   });
 });
 
@@ -450,29 +484,13 @@ describe("ConversationTabs — file tab", () => {
     expect(fileTab.querySelector("svg.lucide-file")).toBeNull();
   });
 
-  it("keeps all conversation tabs reachable via overflow when file tab consumes visible width", async () => {
-    const user = userEvent.setup();
-    const clientWidthSpy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(50);
-    const scrollWidthSpy = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(50);
+  it("keeps the file tab pinned to the left while conversations stay inline", () => {
+    renderTabs({ openFile: "src/app.ts", isFileTabActive: true });
 
-    try {
-      renderTabs({ openFile: "src/app.ts", isFileTabActive: true });
-
-      const overflowTrigger = await waitFor(() => {
-        const trigger = (
-          document.querySelector("svg.lucide-more-horizontal")?.closest("button")
-          ?? document.querySelector("svg.lucide-ellipsis")?.closest("button")
-        ) as HTMLButtonElement | null;
-        expect(trigger).toBeTruthy();
-        return trigger as HTMLButtonElement;
-      });
-
-      await user.click(overflowTrigger);
-      expect(await screen.findByRole("menuitem", { name: /First conversation/i })).toBeInTheDocument();
-      expect(await screen.findByRole("menuitem", { name: /Second conversation/i })).toBeInTheDocument();
-    } finally {
-      clientWidthSpy.mockRestore();
-      scrollWidthSpy.mockRestore();
-    }
+    // File tab and all conversations coexist inline (no overflow menu).
+    expect(screen.getByText("app.ts")).toBeInTheDocument();
+    expect(screen.getByText("First conversation")).toBeInTheDocument();
+    expect(screen.getByText("Second conversation")).toBeInTheDocument();
+    expect(document.querySelector("svg.lucide-more-horizontal")).toBeNull();
   });
 });

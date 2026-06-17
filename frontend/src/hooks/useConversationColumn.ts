@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
 import { useTabs, type UseTabsReturn } from "@/hooks/useTabs";
@@ -120,6 +120,18 @@ export function useConversationColumn(
   const effectiveLockedProvider =
     conversation.lockedProvider ??
     activeSession?.lockedProvider;
+
+  // A session locks its provider and earns its generated title during the first
+  // turn, but the sessions list is only fetched on mount/create/delete. Refetch
+  // when a turn finishes so the tab strip picks up the now-known provider icon
+  // and title without waiting for an unrelated invalidation.
+  const wasStreamingRef = useRef(isStreaming);
+  useEffect(() => {
+    if (wasStreamingRef.current && !isStreaming) {
+      refreshSessions();
+    }
+    wasStreamingRef.current = isStreaming;
+  }, [isStreaming, refreshSessions]);
 
   const tabs = useTabs(sessionId, wsId);
   const { activateTab } = tabs;
