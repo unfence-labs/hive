@@ -238,13 +238,14 @@
    cool shell-coloured chrome on a white content. Dark: the chat-input colour for
    chrome on the sidebar colour for content. Unlayered so it wins over :root. */
 :is(.markdown-surface, .chat-surface) {
-  /* Chrome = the tool-row hover colour (bg-muted/80) as an opaque fill, so chips
-     and frames match the hover state and blend into it on hover (light already
-     behaves this way). */
-  --chat-chrome: color-mix(in oklch, var(--muted) 80%, var(--card));
+  /* Chrome (chips, frames, headers, question panel) and the tool-row hover share
+     this colour, so hover === chip everywhere: the shell colour in light, the
+     chat-input colour in dark. Content sits on the card (light) / sidebar (dark). */
+  --chat-chrome: var(--sidebar);
   --chat-content: var(--card);
 }
 .dark :is(.markdown-surface, .chat-surface) {
+  --chat-chrome: #1e1e28; /* = chat input field */
   --chat-content: var(--sidebar); /* = #0c0c14 */
 }
 .markdown-surface :is(

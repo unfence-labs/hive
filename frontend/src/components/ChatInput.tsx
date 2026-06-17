@@ -353,7 +353,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   return (
     <div className="relative z-50 bg-card p-4">
       <div className={cn(
-        "relative rounded-lg border border-transparent [&_[data-slot=input-group]]:!border-border/50 [&_[data-slot=input-group]]:!bg-card dark:[&_[data-slot=input-group]]:!border-border/30 dark:[&_[data-slot=input-group]]:!bg-[#1e1e28]",
+        "relative rounded-lg border border-transparent [&_[data-slot=input-group]]:!border [&_[data-slot=input-group]]:!border-border/30 [&_[data-slot=input-group]]:!bg-sidebar [&_[data-slot=input-group]]:!shadow-none dark:[&_[data-slot=input-group]]:!bg-[#1e1e28]",
         showPopup && "[&_[data-slot=input-group]]:rounded-t-none [&_[data-slot=input-group]]:!border-t-transparent",
         planMode && supportsPlanMode && "[&_[data-slot=input-group]]:!border-transparent border-dashed border-primary",
         planMode && supportsPlanMode && showPopup && "rounded-t-none border-t-0",
