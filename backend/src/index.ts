@@ -372,6 +372,21 @@ async function reconcileStaleWorkspaces(dataDir: string): Promise<void> {
 }
 
 async function main() {
+  // Safety guard: never start the backend from TypeScript source (dev, run via
+  // tsx) against the production data dir. getDataDir() silently falls back to
+  // ~/.hive when DATA_DIR is unset, so a bare `npm run dev`, `tsx src/index.ts`,
+  // or any agent-launched source run would otherwise mutate prod state (and race
+  // the live prod scheduler on shared worktrees). Compiled prod (dist/index.js)
+  // ends in .js and is unaffected; tests run with NODE_ENV=test.
+  const runningFromSource = import.meta.url.endsWith(".ts");
+  if (runningFromSource && !process.env.DATA_DIR && process.env.NODE_ENV !== "test") {
+    throw new Error(
+      "Refusing to start the dev backend without DATA_DIR set: it would use the " +
+        "production data dir (~/.hive). Launch via the hive.json runner, or set " +
+        "DATA_DIR explicitly (e.g. DATA_DIR=~/.hive-dev).",
+    );
+  }
+
   await preflight();
   await detectAvailableProviders();
 
