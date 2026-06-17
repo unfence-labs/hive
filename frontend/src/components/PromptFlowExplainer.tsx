@@ -158,55 +158,55 @@ export function PromptFlowExplainer() {
         {/* Right Column: Final Payload */}
         <div className="z-10 flex flex-1 flex-col justify-center py-4">
           <div
-            className="flex h-full w-full flex-col overflow-hidden rounded-lg border border-border/50 bg-[#0d1117] shadow-xl"
+            className="flex h-full w-full flex-col overflow-hidden rounded-lg border border-border/50 bg-field shadow-sm"
           >
-            <div className="flex items-center gap-2 border-b border-white/10 bg-white/5 px-4 py-2">
+            <div className="flex items-center gap-2 border-b border-border/60 bg-muted/50 px-4 py-2">
               <Terminal className="h-4 w-4 text-muted-foreground" />
               <span className="text-xs font-medium text-muted-foreground">Final Prompt Payload</span>
             </div>
             <div className="flex-1 overflow-auto p-4 font-mono text-[11px] leading-relaxed">
               {mode === "chat" ? (
                 <>
-                  <PayloadBlock id="base" hoveredId={hoveredCard} color="text-blue-400">
+                  <PayloadBlock id="base" hoveredId={hoveredCard} color="text-info-foreground">
                     --append-system-prompt "You are an AI coding agent...
                   </PayloadBlock>
-                  <PayloadBlock id="git" hoveredId={hoveredCard} color="text-green-400">
+                  <PayloadBlock id="git" hoveredId={hoveredCard} color="text-success-foreground">
                     {`\n\n# Git Context\nProject: Hive\nBranch: main\n...`}
                   </PayloadBlock>
-                  <PayloadBlock id="browser" hoveredId={hoveredCard} color="text-orange-400">
+                  <PayloadBlock id="browser" hoveredId={hoveredCard} color="text-warning-foreground">
                     {`\n\n# Browser Context\nHive provides a read-only live browser panel..."`}
                   </PayloadBlock>
-                  <div className="my-2 border-t border-white/10" />
-                  <PayloadBlock id="user" hoveredId={hoveredCard} color="text-white">
+                  <div className="my-2 border-t border-border/60" />
+                  <PayloadBlock id="user" hoveredId={hoveredCard} color="text-foreground">
                     -p "Please refactor /absolute/path/to/file.ts..."
                   </PayloadBlock>
                 </>
               ) : mode === "brain" ? (
                 <>
-                  <PayloadBlock id="brain" hoveredId={hoveredCard} color="text-blue-400">
+                  <PayloadBlock id="brain" hoveredId={hoveredCard} color="text-info-foreground">
                     --append-system-prompt "You are the Brain agent...
                   </PayloadBlock>
-                  <PayloadBlock id="brain-map" hoveredId={hoveredCard} color="text-cyan-400">
+                  <PayloadBlock id="brain-map" hoveredId={hoveredCard} color="text-primary">
                     {`\n\n# Brain Files\nnotes/ideas.md\nnotes/people/..."`}
                   </PayloadBlock>
-                  <div className="my-2 border-t border-white/10" />
-                  <PayloadBlock id="brain-user" hoveredId={hoveredCard} color="text-white">
+                  <div className="my-2 border-t border-border/60" />
+                  <PayloadBlock id="brain-user" hoveredId={hoveredCard} color="text-foreground">
                     -p "Summarize what we know about #notes/ideas.md..."
                   </PayloadBlock>
                 </>
               ) : (
                 <>
-                  <PayloadBlock id="task-agent" hoveredId={hoveredCard} color="text-purple-400">
+                  <PayloadBlock id="task-agent" hoveredId={hoveredCard} color="text-primary">
                     --agent "Security Reviewer"
                   </PayloadBlock>
-                  <PayloadBlock id="git-auto" hoveredId={hoveredCard} color="text-green-400">
+                  <PayloadBlock id="git-auto" hoveredId={hoveredCard} color="text-success-foreground">
                     {`\n\n# Git Context\nProject: Hive\n...\n\n// omitted when no project is linked`}
                   </PayloadBlock>
-                  <PayloadBlock id="summary" hoveredId={hoveredCard} color="text-amber-400">
+                  <PayloadBlock id="summary" hoveredId={hoveredCard} color="text-warning-foreground">
                     {`\n\nIMPORTANT: End your final message with a "## Summary"..."`}
                   </PayloadBlock>
-                  <div className="my-2 border-t border-white/10" />
-                  <PayloadBlock id="user-auto" hoveredId={hoveredCard} color="text-white">
+                  <div className="my-2 border-t border-border/60" />
+                  <PayloadBlock id="user-auto" hoveredId={hoveredCard} color="text-foreground">
                     -p "Run the selected prompt template or inline run prompt..."
                   </PayloadBlock>
                 </>
@@ -234,7 +234,7 @@ const SourceCard = ({ icon, title, desc, id, isHovered, onHover }: {
       className={cn(
         "group relative flex cursor-default flex-col gap-1 rounded-xl border p-4 transition-all duration-300",
         isHovered
-          ? "border-primary/50 bg-primary/10 shadow-[0_0_15px_rgba(var(--primary),0.2)]"
+          ? "border-primary/50 bg-primary/10 shadow-[0_0_16px_var(--hive-accent-glow)]"
           : "border-border/50 bg-card/40 hover:border-primary/30"
       )}
     >
@@ -268,7 +268,7 @@ const PayloadBlock = ({
       className={cn(
         "rounded px-2 py-1.5 transition-all duration-300",
         isActive ? "opacity-100" : "opacity-30",
-        hoveredId === id && "bg-white/10"
+        hoveredId === id && "bg-muted/70"
       )}
     >
       <span className={color}>{children}</span>

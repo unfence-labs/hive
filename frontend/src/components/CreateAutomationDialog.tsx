@@ -343,7 +343,7 @@ function CronPreview({ expression }: { expression: string }) {
   const runs = getNextRuns(expression, 3);
   if (!runs) {
     return (
-      <p className="mt-1.5 text-xs text-red-400">Invalid cron expression</p>
+      <p className="mt-1.5 text-xs text-destructive">Invalid cron expression</p>
     );
   }
   const fmt = new Intl.DateTimeFormat(undefined, {

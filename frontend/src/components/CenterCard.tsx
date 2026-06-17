@@ -28,7 +28,7 @@ export function CenterCard({
   return (
     <div
       className={cn(
-        "relative m-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60 bg-card shadow-[0_2px_10px_-5px_rgba(0,0,0,0.12),0_0_6px_-3px_rgba(0,0,0,0.05)]",
+        "relative m-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/60 bg-card shadow-[var(--center-card-shadow)]",
         className,
       )}
     >

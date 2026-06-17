@@ -46,6 +46,7 @@
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
+  --color-overlay: var(--overlay);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
@@ -54,6 +55,8 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-field: var(--field);
+  --color-field-hover: var(--field-hover);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-success-muted: var(--success-muted);
@@ -63,6 +66,7 @@
   --color-info-muted: var(--info-muted);
   --color-info-border: var(--info-border);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
   --color-warning-muted: var(--warning-muted);
@@ -95,6 +99,7 @@
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
+  --overlay: oklch(0 0 0 / 50%);
 
   /* Primary = accent color (set dynamically via useAccentColor) */
   --primary: var(--hive-accent, #635BFF);
@@ -106,17 +111,20 @@
   --muted-foreground: oklch(0.45 0.006 255);
   --accent: oklch(0.97 0.003 255);
   --accent-foreground: oklch(0.205 0 0);
-  --success: oklch(0.55 0.16 145);
-  --success-foreground: oklch(0.36 0.12 145);
+  --field: var(--background);
+  --field-hover: var(--muted);
+  --success: #34d399;
+  --success-foreground: var(--success);
   --success-muted: color-mix(in oklch, var(--success) 10%, transparent);
   --success-border: color-mix(in oklch, var(--success) 30%, transparent);
   --info: var(--primary);
   --info-foreground: var(--primary);
   --info-muted: color-mix(in oklch, var(--info) 10%, transparent);
   --info-border: color-mix(in oklch, var(--info) 30%, transparent);
-  --destructive: oklch(0.577 0.245 27.325);
-  --warning: oklch(0.769 0.188 70.08);
-  --warning-foreground: oklch(0.473 0.137 46.201);
+  --destructive: #f87171;
+  --destructive-foreground: #000000;
+  --warning: #facc15;
+  --warning-foreground: var(--warning);
   --warning-muted: color-mix(in oklch, var(--warning) 10%, transparent);
   --warning-border: color-mix(in oklch, var(--warning) 30%, transparent);
   --warning-contrast: #000000;
@@ -153,6 +161,7 @@
 
   /* Accent glow for focus rings & highlights */
   --hive-accent-glow: color-mix(in oklch, var(--hive-accent, #635BFF) 12%, transparent);
+  --center-card-shadow: 0 2px 10px -5px oklch(0 0 0 / 12%), 0 0 6px -3px oklch(0 0 0 / 5%);
 }
 
 .dark {
@@ -163,6 +172,7 @@
   --card-foreground: oklch(0.93 0.005 260);
   --popover: #16161e;
   --popover-foreground: oklch(0.93 0.005 260);
+  --overlay: oklch(0 0 0 / 70%);
 
   /* Primary = accent color (set dynamically via useAccentColor) */
   --primary: var(--hive-accent, #635BFF);
@@ -174,17 +184,20 @@
   --muted-foreground: oklch(0.707 0.022 261.325);
   --accent: oklch(0.2 0.015 270);
   --accent-foreground: oklch(0.93 0.005 260);
-  --success: oklch(0.72 0.17 145);
-  --success-foreground: oklch(0.78 0.17 145);
+  --field: #1e1e28;
+  --field-hover: #222230;
+  --success: #34d399;
+  --success-foreground: var(--success);
   --success-muted: color-mix(in oklch, var(--success) 10%, transparent);
   --success-border: color-mix(in oklch, var(--success) 25%, transparent);
   --info: var(--primary);
   --info-foreground: var(--primary);
   --info-muted: color-mix(in oklch, var(--info) 10%, transparent);
   --info-border: color-mix(in oklch, var(--info) 25%, transparent);
-  --destructive: oklch(0.65 0.2 22);
-  --warning: oklch(0.769 0.188 70.08);
-  --warning-foreground: oklch(0.879 0.169 91.605);
+  --destructive: #f87171;
+  --destructive-foreground: #000000;
+  --warning: #facc15;
+  --warning-foreground: var(--warning);
   --warning-muted: color-mix(in oklch, var(--warning) 10%, transparent);
   --warning-border: color-mix(in oklch, var(--warning) 25%, transparent);
   --warning-contrast: #000000;
@@ -224,30 +237,11 @@
 
   /* Accent glow for focus rings & highlights */
   --hive-accent-glow: color-mix(in oklch, var(--hive-accent, #635BFF) 15%, transparent);
+  --center-card-shadow: inset 0 1px 0 oklch(1 0 0 / 3%), 0 16px 36px oklch(0 0 0 / 22%);
 }
 
-/* Chat render surfaces — rendered markdown (code blocks, inline code, tables,
-   mermaid) and tool / thinking / sub-agent blocks. Light mode: remap the steel
-   shell tokens to one shared scheme so every render follows the same logic — a
-   light cool "chrome" tint (hue 264, like the shell) for highlights & frames,
-   white for content. Dark keeps its unchanged tokens. Unlayered so it wins over
-   the :root token defaults. */
-/* Chat renders (markdown + tool / thinking / sub-agent blocks) share two
-   surface roles via `--chat-chrome` (chips, inline code, code-block & table
-   frames, headers) and `--chat-content` (code, table cells, output). Light: a
-   cool shell-coloured chrome on a white content. Dark: the chat-input colour for
-   chrome on the sidebar colour for content. Unlayered so it wins over :root. */
-:is(.markdown-surface, .chat-surface) {
-  /* Chrome (chips, frames, headers, question panel) and the tool-row hover share
-     this colour, so hover === chip everywhere: the shell colour in light, the
-     chat-input colour in dark. Content sits on the card (light) / sidebar (dark). */
-  --chat-chrome: var(--sidebar);
-  --chat-content: var(--card);
-}
-.dark :is(.markdown-surface, .chat-surface) {
-  --chat-chrome: #1e1e28; /* = chat input field */
-  --chat-content: var(--sidebar); /* = #0c0c14 */
-}
+/* Streamdown ships its own render chrome. Keep it mapped to the app theme:
+   field for frames/chips and card/sidebar for readable content cells. */
 .markdown-surface :is(
   [data-streamdown="inline-code"],
   [data-streamdown="code-block"],
@@ -255,13 +249,19 @@
   [data-streamdown="table-header"],
   [data-streamdown="mermaid-block"]
 ) {
-  background-color: var(--chat-chrome) !important;
+  background-color: var(--field) !important;
 }
 .markdown-surface :is(
   [data-streamdown="code-block-body"],
   [data-streamdown="table"]
 ) {
-  background-color: var(--chat-content) !important;
+  background-color: var(--card) !important;
+}
+.dark .markdown-surface :is(
+  [data-streamdown="code-block-body"],
+  [data-streamdown="table"]
+) {
+  background-color: var(--sidebar) !important;
 }
 
 @layer base {
@@ -291,7 +291,7 @@
     background: var(--input);
   }
   *::-webkit-scrollbar-thumb:hover {
-    background: oklch(1 0 0 / 20%);
+    background: color-mix(in oklch, var(--muted-foreground) 25%, transparent);
   }
 
   html,
@@ -306,10 +306,11 @@
   }
 
   [data-streamdown="link"] {
-    @apply !text-blue-400 !underline-offset-2;
+    color: var(--primary) !important;
+    text-underline-offset: 2px;
   }
   [data-streamdown="link"]:hover {
-    @apply !text-blue-300;
+    color: color-mix(in oklch, var(--primary) 80%, var(--foreground)) !important;
   }
 
   /* Disable content-visibility containment on code blocks — it breaks

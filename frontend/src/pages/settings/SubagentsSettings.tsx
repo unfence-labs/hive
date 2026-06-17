@@ -196,7 +196,7 @@ export default function SubagentsSettings() {
           Loading subagents…
         </div>
       ) : isError ? (
-        <div className="flex flex-1 items-center justify-center text-xs text-red-400">
+        <div className="flex flex-1 items-center justify-center text-xs text-destructive">
           Could not load subagents.
         </div>
       ) : (
@@ -312,7 +312,7 @@ function CustomAgentDetailPanel({
 
   if (isError || !data) {
     return (
-      <div className="flex h-full items-center justify-center text-xs text-red-400">
+      <div className="flex h-full items-center justify-center text-xs text-destructive">
         Could not load this subagent.
       </div>
     );
@@ -365,7 +365,7 @@ function LoadedCustomAgentDetailPanel({
               aria-hidden="true"
               className={cn(
                 "h-1.5 w-1.5 rounded-full",
-                data.providers[provider].present ? "bg-emerald-400" : "bg-muted-foreground/40",
+                data.providers[provider].present ? "bg-success" : "bg-muted-foreground/40",
               )}
             />
           </button>
@@ -465,7 +465,7 @@ function CustomAgentProviderEditor({
               Delete {PROVIDER_LABELS[provider]}
             </EditorActionButton>
             {error && (
-              <span role="alert" className="text-xs text-red-400">
+              <span role="alert" className="text-xs text-destructive">
                 {error}
               </span>
             )}
@@ -485,7 +485,7 @@ function CustomAgentProviderEditor({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => void handleDelete()}
-              className="bg-red-600 text-white hover:bg-red-700"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleteMutation.isPending ? <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" /> : "Delete"}
             </AlertDialogAction>
@@ -556,7 +556,7 @@ function MissingProviderPanel({
             Create {PROVIDER_LABELS[provider]} version
           </button>
           {error && (
-            <p role="alert" className="mt-3 text-xs text-red-400">
+            <p role="alert" className="mt-3 text-xs text-destructive">
               {error}
             </p>
           )}
@@ -645,7 +645,7 @@ function NewCustomAgentPanel({
             Discard
           </EditorActionButton>
           {draft.error && (
-            <span role="alert" className="text-xs text-red-400">
+            <span role="alert" className="text-xs text-destructive">
               {draft.error}
             </span>
           )}

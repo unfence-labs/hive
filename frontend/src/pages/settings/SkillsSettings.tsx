@@ -182,7 +182,7 @@ export default function SkillsSettings() {
           Loading skills…
         </div>
       ) : isError ? (
-        <div className="flex flex-1 items-center justify-center text-xs text-red-400">
+        <div className="flex flex-1 items-center justify-center text-xs text-destructive">
           Could not load skills.
         </div>
       ) : (
@@ -297,7 +297,7 @@ function SkillDetailPanel({
 
   if (isError || !data) {
     return (
-      <div className="flex h-full items-center justify-center text-xs text-red-400">
+      <div className="flex h-full items-center justify-center text-xs text-destructive">
         Could not load this skill.
       </div>
     );
@@ -422,7 +422,7 @@ function LoadedSkillDetailPanel({
               Delete
             </EditorActionButton>
             {error && (
-              <span role="alert" className="text-xs text-red-400">
+              <span role="alert" className="text-xs text-destructive">
                 {error}
               </span>
             )}
@@ -448,7 +448,7 @@ function LoadedSkillDetailPanel({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => void handleDelete()}
-              className="bg-red-600 text-white hover:bg-red-700"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {deleteMutation.isPending ? <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" /> : "Delete"}
             </AlertDialogAction>
@@ -526,7 +526,7 @@ function NewSkillDetailPanel({
             Discard
           </EditorActionButton>
           {draft.error && (
-            <span role="alert" className="text-xs text-red-400">
+            <span role="alert" className="text-xs text-destructive">
               {draft.error}
             </span>
           )}
@@ -634,11 +634,11 @@ function SkillDiffDialog({
         <div className="min-h-0">
           <div className="mb-2 flex items-center gap-3 text-[11px] text-muted-foreground">
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-red-400" />
+              <span className="h-2 w-2 rounded-full bg-destructive" />
               Claude
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-green-400" />
+              <span className="h-2 w-2 rounded-full bg-success" />
               Codex
             </span>
           </div>

@@ -521,7 +521,7 @@ function DeleteButton({ agent, onDone }: { agent: Agent | null; onDone: () => vo
 
   return (
     <div className="flex items-center gap-2">
-      {error && <span className="text-xs text-red-500">{error}</span>}
+      {error && <span className="text-xs text-destructive">{error}</span>}
       <AlertDialogAction
         onClick={async (e) => {
           if (!agent) return;
@@ -535,7 +535,7 @@ function DeleteButton({ agent, onDone }: { agent: Agent | null; onDone: () => vo
             setError(err instanceof Error ? err.message : "Failed to delete");
           }
         }}
-        className="bg-red-600 text-white hover:bg-red-700"
+        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
       >
         Delete
       </AlertDialogAction>

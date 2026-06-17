@@ -9,14 +9,14 @@ import { cn } from "@/lib/utils";
 
 const STATUS_CONFIG: Record<string, { dot: string; label: string; badge: string }> = {
   connected: {
-    dot: "bg-emerald-500",
+    dot: "bg-success",
     label: "Connected",
-    badge: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
+    badge: "border-success-border bg-success-muted text-success-foreground",
   },
   disconnected: {
-    dot: "bg-red-500",
+    dot: "bg-destructive",
     label: "Unreachable",
-    badge: "border-red-500/30 bg-red-500/10 text-red-400",
+    badge: "border-destructive/30 bg-destructive/10 text-destructive",
   },
   unknown: {
     dot: "bg-muted-foreground/40",

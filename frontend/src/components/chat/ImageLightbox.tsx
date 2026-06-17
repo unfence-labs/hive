@@ -16,7 +16,7 @@ export function ImageLightbox({ src, alt, open, onClose }: ImageLightboxProps) {
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <DialogContent
         showCloseButton={false}
-        overlayClassName="bg-black/80 backdrop-blur-sm"
+        overlayClassName="bg-overlay backdrop-blur-sm"
         className="flex items-center justify-center border-none bg-transparent p-0 shadow-none sm:max-w-[90vw]"
         onClick={onClose}
       >

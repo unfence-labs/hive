@@ -220,7 +220,7 @@ function Toggle({ id, enabled, onChange }: { id: string; enabled: boolean; onCha
     >
       <span
         className={cn(
-          "pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform",
+          "pointer-events-none block h-4 w-4 rounded-full bg-primary-foreground shadow-sm transition-transform",
           enabled ? "translate-x-4" : "translate-x-0",
         )}
       />
@@ -478,7 +478,7 @@ function FormActions({
       {feedback && (
         <span className={cn(
           "text-xs font-medium",
-          feedback.type === "success" ? "text-emerald-500" : "text-red-500",
+          feedback.type === "success" ? "text-success-foreground" : "text-destructive",
         )}>
           {feedback.message}
         </span>

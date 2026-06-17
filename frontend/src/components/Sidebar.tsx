@@ -829,9 +829,9 @@ function AutomationRow({ auto, pathname }: { auto: Automation; pathname: string 
           className={cn(
             "h-1.5 w-1.5 shrink-0 rounded-full",
             isRunning
-              ? "bg-green-500 animate-pulse"
+              ? "bg-success animate-pulse"
               : auto.enabled
-                ? "bg-green-500"
+                ? "bg-success"
                 : "bg-muted-foreground/40",
           )}
         />

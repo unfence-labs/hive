@@ -24,7 +24,7 @@ function StatusIcon({ status, unconfirmed }: { status: TrackedTask["status"]; un
   switch (status) {
     case "completed":
       return (
-        <svg {...svgProps} className="size-3 text-green-500">
+        <svg {...svgProps} className="size-3 text-success-foreground">
           <polyline points="20 6 9 17 4 12" />
         </svg>
       );
@@ -51,7 +51,7 @@ function AgentStatusIcon({ isRunning }: { isRunning: boolean }) {
     );
   }
   return (
-    <svg {...svgProps} className="size-3 text-green-500">
+    <svg {...svgProps} className="size-3 text-success-foreground">
       <polyline points="20 6 9 17 4 12" />
     </svg>
   );

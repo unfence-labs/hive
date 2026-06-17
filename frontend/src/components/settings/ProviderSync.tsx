@@ -47,7 +47,7 @@ export function SettingsActionButton({
           : "text-muted-foreground",
         variant === "secondary" && "border border-border/50",
         variant === "secondary" && "hover:text-foreground",
-        variant === "danger" && "hover:text-red-400",
+        variant === "danger" && "hover:text-destructive",
         disabledState && "pointer-events-none opacity-60",
       )}
     >
@@ -76,9 +76,9 @@ export function SettingsBanner({
     <div
       className={cn(
         "flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-xs",
-        tone === "info" && "border-sky-500/25 bg-sky-500/10 text-sky-300",
+        tone === "info" && "border-info-border bg-info-muted text-info-foreground",
         tone === "warning" && "border-warning-border bg-warning-muted text-warning-foreground",
-        tone === "danger" && "border-red-500/25 bg-red-500/10 text-red-300",
+        tone === "danger" && "border-destructive/25 bg-destructive/10 text-destructive",
       )}
     >
       <span aria-hidden="true" className="shrink-0">
@@ -102,7 +102,7 @@ export function ProviderBadge({
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium",
         state.present
-          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+          ? "border-success-border bg-success-muted text-success-foreground"
           : "border-border bg-muted/50 text-muted-foreground",
       )}
     >
@@ -128,10 +128,10 @@ export function SyncStatusBadge({ status }: { status: ProviderSyncStatus }) {
 
 export function CompactSyncStatusIcon({ status }: { status: ProviderSyncStatus }) {
   if (status === "both" || status === "linked" || status === "synced") {
-    return <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-emerald-400" />;
+    return <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-success-foreground" />;
   }
   if (status === "invalid") {
-    return <XCircle aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-red-400" />;
+    return <XCircle aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-destructive" />;
   }
   return <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-warning-foreground" />;
 }
@@ -141,11 +141,11 @@ function statusConfig(status: ProviderSyncStatus): { label: string; className: s
     case "missing":
       return { label: "Missing", className: "bg-muted text-muted-foreground" };
     case "both":
-      return { label: "Both", className: "bg-emerald-500/10 text-emerald-400" };
+      return { label: "Both", className: "bg-success-muted text-success-foreground" };
     case "linked":
-      return { label: "Linked", className: "bg-emerald-500/10 text-emerald-400" };
+      return { label: "Linked", className: "bg-success-muted text-success-foreground" };
     case "synced":
-      return { label: "Synced", className: "bg-sky-500/10 text-sky-400" };
+      return { label: "Synced", className: "bg-info-muted text-info-foreground" };
     case "claude_only":
       return { label: "Claude only", className: "bg-warning-muted text-warning-foreground" };
     case "codex_only":
@@ -153,6 +153,6 @@ function statusConfig(status: ProviderSyncStatus): { label: string; className: s
     case "diverged":
       return { label: "Diverged", className: "bg-warning-muted text-warning-foreground" };
     case "invalid":
-      return { label: "Invalid", className: "bg-red-500/10 text-red-400" };
+      return { label: "Invalid", className: "bg-destructive/10 text-destructive" };
   }
 }

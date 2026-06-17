@@ -239,7 +239,7 @@ export default function AccountSettings() {
                   </code>
                   <span className="text-muted-foreground transition-colors group-hover:text-foreground">
                     {isCopied(state.userCode)
-                      ? <Check className="h-4 w-4 text-emerald-500" />
+                      ? <Check className="h-4 w-4 text-success-foreground" />
                       : <Copy className="h-4 w-4" />}
                   </span>
                 </button>
@@ -315,7 +315,7 @@ export default function AccountSettings() {
           {state.kind === "error" && (
             <section className="rounded-lg border border-border/50 bg-card/50 p-5" role="alert">
               <div className="flex items-start gap-3">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
                 <div>
                   <h2 className="text-sm font-medium">Something went wrong</h2>
                   <p className="mt-1 text-xs text-muted-foreground">{state.message}</p>
@@ -337,9 +337,9 @@ export default function AccountSettings() {
           <section className="rounded-lg border border-border/50 bg-card/50 p-5">
             <div className="flex items-start gap-3">
               {state.kind === "connected" ? (
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success-foreground" />
               ) : state.kind === "no-gh" ? (
-                <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
               ) : (
                 <Terminal className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
               )}

@@ -29,14 +29,11 @@ export function FileAutocompletePopup({
   return (
     <div
       className={cn(
-        "absolute bottom-full -left-px -right-px z-50 max-h-[240px] overflow-y-auto rounded-t-md border border-b-0 bg-background dark:bg-[var(--input-group-bg)] shadow-lg",
+        "absolute bottom-full -left-px -right-px z-50 max-h-[240px] overflow-y-auto rounded-t-md border border-b-0 bg-popover text-popover-foreground shadow-lg",
         planMode ? "border-dashed border-primary" : "border-border/30",
       )}
-      style={{
-        "--input-group-bg": "color-mix(in srgb, var(--background), white 3%)",
-      } as React.CSSProperties}
     >
-      <div className="sticky top-0 bg-black/5 dark:bg-[color-mix(in_srgb,var(--background),white_6%)] px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+      <div className="sticky top-0 bg-muted/70 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
         Files
       </div>
       <div className="p-1">
@@ -54,7 +51,7 @@ export function FileAutocompletePopup({
               "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors",
               isSelected
                 ? "bg-primary/10 text-primary"
-                : "text-foreground hover:bg-white/[0.04]",
+                : "text-foreground hover:bg-accent hover:text-accent-foreground",
             )}
             onMouseDown={(e) => {
               e.preventDefault();

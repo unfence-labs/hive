@@ -65,11 +65,7 @@ export function ModelSelector({ models, selectedModelId, onSelect, lockedProvide
       <DropdownMenuContent
         side="top"
         align="start"
-        className="w-56 border-border/30 p-0 dark:bg-[var(--menu-bg)]"
-        style={{
-          "--menu-bg": "color-mix(in srgb, var(--background), white 3%)",
-          "--header-bg": "color-mix(in srgb, var(--background), white 6%)",
-        } as React.CSSProperties}
+        className="w-56 border-border/30 p-0"
       >
         <TooltipProvider>
           {grouped.map((group) => {
@@ -77,7 +73,7 @@ export function ModelSelector({ models, selectedModelId, onSelect, lockedProvide
             return (
               <div key={group.provider}>
                 <div className={cn(
-                  "flex items-center gap-1.5 bg-black/5 px-3 py-1.5 dark:bg-[var(--header-bg)]",
+                  "flex items-center gap-1.5 bg-muted/70 px-3 py-1.5",
                   isGroupLocked && "opacity-40",
                 )}>
                   <ProviderIcon provider={group.provider} className="size-2.5 text-muted-foreground" />
@@ -119,7 +115,7 @@ export function ModelSelector({ models, selectedModelId, onSelect, lockedProvide
                           "gap-2 rounded-sm",
                           isSelected
                             ? "bg-primary/10 text-primary focus:bg-primary/10 focus:text-primary"
-                            : "focus:bg-white/[0.04]",
+                            : "focus:bg-accent focus:text-accent-foreground",
                         )}
                       >
                         <span className="flex-1">{model.label}</span>

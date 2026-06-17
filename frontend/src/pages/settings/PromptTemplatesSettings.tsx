@@ -450,7 +450,7 @@ function EditablePromptDetail({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => void handleReset()}
-              className="bg-red-600 text-white hover:bg-red-700"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {resetMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Reset"}
             </AlertDialogAction>
@@ -650,7 +650,7 @@ function DeleteButton({ template, onDone }: { template: PromptTemplate | null; o
 
   return (
     <div className="flex items-center gap-2">
-      {error && <span className="text-xs text-red-500">{error}</span>}
+      {error && <span className="text-xs text-destructive">{error}</span>}
       <AlertDialogAction
         onClick={async (e) => {
           if (!template) return;
@@ -664,7 +664,7 @@ function DeleteButton({ template, onDone }: { template: PromptTemplate | null; o
             setError(err instanceof Error ? err.message : "Failed to delete");
           }
         }}
-        className="bg-red-600 text-white hover:bg-red-700"
+        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
       >
         Delete
       </AlertDialogAction>

@@ -353,7 +353,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   return (
     <div className="relative z-50 bg-card p-4">
       <div className={cn(
-        "relative rounded-lg border border-transparent [&_[data-slot=input-group]]:!border [&_[data-slot=input-group]]:!border-border/30 [&_[data-slot=input-group]]:!bg-sidebar [&_[data-slot=input-group]]:!shadow-none dark:[&_[data-slot=input-group]]:!bg-[#1e1e28]",
+        "relative rounded-lg border border-transparent [&_[data-slot=input-group]]:!border [&_[data-slot=input-group]]:!border-border/30 [&_[data-slot=input-group]]:!bg-field [&_[data-slot=input-group]]:!shadow-none",
         showPopup && "[&_[data-slot=input-group]]:rounded-t-none [&_[data-slot=input-group]]:!border-t-transparent",
         planMode && supportsPlanMode && "[&_[data-slot=input-group]]:!border-transparent border-dashed border-primary",
         planMode && supportsPlanMode && showPopup && "rounded-t-none border-t-0",
@@ -464,7 +464,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
                 className="size-5"
                 onClick={(e) => { e.preventDefault(); onStop(); }}
               >
-                <SquareIcon className="size-3 text-red-500" />
+                <SquareIcon className="size-3 text-destructive" />
               </PromptInputButton>
             )}
             <PromptInputSubmit
@@ -475,7 +475,7 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
               size="icon-xs"
               className={cn(
                 "size-5 border border-border/50",
-                canSubmit && "bg-white text-black hover:bg-white/90 dark:bg-white dark:text-black dark:hover:bg-white/90",
+                canSubmit && "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
               )}
             />
           </PromptInputTools>

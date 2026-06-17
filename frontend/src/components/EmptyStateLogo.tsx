@@ -12,8 +12,6 @@ interface EmptyStateLogoProps {
 }
 
 const CELL_SIZE = 8;
-const BG_DARK = "#09090f";
-const BG_LIGHT = "#f7f7f8";
 
 function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
@@ -27,6 +25,11 @@ function hexToRgb(hex: string): [number, number, number] {
 function rgbToHex(r: number, g: number, b: number): string {
   const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
   return `#${[clamp(r), clamp(g), clamp(b)].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function getThemeColor(name: string, fallback: string): string {
+  if (typeof window === "undefined") return fallback;
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 }
 
 function buildPalette(accent: string, bg: string) {
@@ -46,7 +49,7 @@ function getAccentHex(): string {
   const raw = getComputedStyle(document.documentElement)
     .getPropertyValue("--hive-accent")
     .trim();
-  return raw || "#7c3aed";
+  return raw || "#635BFF";
 }
 
 function renderStaticLogo(
@@ -164,7 +167,7 @@ export default function EmptyStateLogo({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { isConfigured } = useTailscaleConfig();
   const theme = useThemeType();
-  const bg = theme === "dark" ? BG_DARK : BG_LIGHT;
+  const bg = getThemeColor("--background", theme === "dark" ? "#111119" : "#f8f8fb");
 
   useEffect(() => {
     const canvas = canvasRef.current;

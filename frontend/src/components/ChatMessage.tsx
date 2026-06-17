@@ -118,7 +118,7 @@ const ChatMessage = memo(function ChatMessage({
             </>
           )}
           {message.content && (
-            <div className="group/user-msg relative rounded-[10px] rounded-br-[2px] border border-primary/25 bg-primary/10 px-3.5 py-2 text-foreground dark:border-primary/15 dark:bg-primary/20 dark:text-white">
+            <div className="group/user-msg relative rounded-[10px] rounded-br-[2px] border border-primary/25 bg-primary/10 px-3.5 py-2 text-foreground dark:border-primary/15 dark:bg-primary/20">
               <CopyButton
                 content={message.content}
                 className="absolute -top-2 -right-2 opacity-0 transition-opacity group-hover/user-msg:opacity-100"
