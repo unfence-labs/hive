@@ -255,7 +255,7 @@ export function ConversationTabs({
             {fileViewMode === "diff" ? (
               <GitCompareArrowsIcon className="size-3 shrink-0 text-primary" />
             ) : (
-              <FileIcon className="size-3 shrink-0" />
+              <FileIcon className="size-3 shrink-0 text-primary" />
             )}
             <span className="truncate">{openFile.split("/").pop()}</span>
             <TabCloseAction onClose={() => onFileTabClose?.()} />
