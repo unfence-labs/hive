@@ -16,6 +16,10 @@ import { cn } from "@/lib/utils";
 import type { SessionMetadata } from "@/types";
 import type { FileViewMode } from "@/hooks/useTabs";
 
+// Keep in sync with the backend Brain guard (MAX_BRAIN_SESSIONS in
+// brain-manager.ts) and the iOS cap (maxSessions in ConversationsSection.swift).
+// For the Brain this is enforced server-side; workspaces have no backend cap, so
+// this is their only limit.
 const MAX_SESSIONS_PER_WORKSPACE = 6;
 
 interface ConversationTabsProps {
