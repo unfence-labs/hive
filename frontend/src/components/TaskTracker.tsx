@@ -172,7 +172,7 @@ const TaskTracker = memo(function TaskTracker({
   const goalHeaderMeta = [goalTokens, goalElapsed].filter(Boolean);
 
   return (
-    <div className="border-t border-border/50 bg-background px-4 py-1.5">
+    <div className="border-t border-border/50 px-4 py-2">
       {/* Goal section */}
       {hasGoal && (
         <>
