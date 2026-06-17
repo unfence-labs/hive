@@ -226,6 +226,17 @@
   --hive-accent-glow: color-mix(in oklch, var(--hive-accent, #635BFF) 15%, transparent);
 }
 
+/* Rendered markdown (streamdown) surfaces — code blocks, tables, mermaid — use
+   `bg-sidebar`/`bg-background`, which the redesign retinted to the cool steel
+   shell. Inside markdown only, remap those two tokens back to main's neutral
+   palette (light only; dark keeps its unchanged tokens) so every rendered
+   surface stays neutral grey/white instead of steel. Unlayered so it wins over
+   the :root token defaults. */
+:root:not(.dark) .markdown-surface {
+  --sidebar: oklch(0.985 0 0);
+  --background: oklch(1 0 0);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
