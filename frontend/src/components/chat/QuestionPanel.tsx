@@ -154,7 +154,7 @@ export default function QuestionPanel({
   if (flatQuestions.length === 0) return null;
 
   return (
-    <div className="border-t border-border/30 px-3 py-3">
+    <div className="chat-surface border-t border-border/30 px-3 py-3">
       <div className="rounded-lg border border-border/50 bg-muted/40">
         {/* Question text + dismiss */}
         <div className="flex items-start gap-3 px-4 pt-3.5 pb-1">

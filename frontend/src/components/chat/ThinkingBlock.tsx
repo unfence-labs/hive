@@ -57,7 +57,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({
   const preview = content.split("\n")[0].slice(0, 60);
 
   return (
-    <div className="my-0.5">
+    <div className="chat-surface my-0.5">
       <button
         type="button"
         className={cn(
@@ -69,7 +69,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({
         <BrainIcon className="size-3.5 shrink-0" />
         <span className="shrink-0">{label}</span>
         {!open && preview && (
-          <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+          <code className="truncate rounded bg-muted/40 px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
             {preview}{content.length > 60 ? "..." : ""}
           </code>
         )}

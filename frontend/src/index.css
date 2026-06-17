@@ -226,15 +226,29 @@
   --hive-accent-glow: color-mix(in oklch, var(--hive-accent, #635BFF) 15%, transparent);
 }
 
-/* Rendered markdown (streamdown) surfaces — code blocks, tables, mermaid — use
-   `bg-sidebar`/`bg-background`, which the redesign retinted to the cool steel
-   shell. Inside markdown only, remap those two tokens back to main's neutral
-   palette (light only; dark keeps its unchanged tokens) so every rendered
-   surface stays neutral grey/white instead of steel. Unlayered so it wins over
+/* Chat render surfaces — rendered markdown (code blocks, inline code, tables,
+   mermaid) and tool / thinking / sub-agent blocks. Light mode: remap the steel
+   shell tokens to one shared scheme so every render follows the same logic — a
+   light cool "chrome" tint (hue 264, like the shell) for highlights & frames,
+   white for content. Dark keeps its unchanged tokens. Unlayered so it wins over
    the :root token defaults. */
-:root:not(.dark) .markdown-surface {
-  --sidebar: oklch(0.985 0 0);
+:root:not(.dark) :is(.markdown-surface, .chat-surface) {
+  --muted: oklch(0.955 0.013 264);
+  --sidebar: oklch(0.955 0.013 264);
   --background: oklch(1 0 0);
+}
+
+/* Streamdown ships inconsistent per-element opacities (inline code & code-block
+   frame at full, table header at /80, …). Normalise every chrome surface to the
+   same chip tint (muted/40) so highlights and frames match the tool chips. */
+:root:not(.dark) .markdown-surface :is(
+  [data-streamdown="inline-code"],
+  [data-streamdown="code-block"],
+  [data-streamdown="table-wrapper"],
+  [data-streamdown="table-header"],
+  [data-streamdown="mermaid-block"]
+) {
+  background-color: color-mix(in oklch, var(--muted) 40%, transparent) !important;
 }
 
 @layer base {
