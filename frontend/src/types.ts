@@ -198,6 +198,10 @@ export interface FileMention {
 
 // ── Session / Chat types ────────────────────────────────────────────
 
+/** Discriminates the surface a session drives. Absent = "chat". Keep in sync
+ *  with the backend `SessionKind`. */
+export type SessionKind = "chat" | "automation" | "brain" | "terminal";
+
 export interface SessionMetadata {
   sessionId: string;
   /** Provider-native conversation/thread id used for resume across turns. */
@@ -206,6 +210,8 @@ export interface SessionMetadata {
   claudeSessionId?: string;
   workspaceId: string;
   title?: string;
+  /** Session surface; absent means a regular chat session. */
+  kind?: SessionKind;
   createdAt: string;
   updatedAt: string;
   messageCount: number;

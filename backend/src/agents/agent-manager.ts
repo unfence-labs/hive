@@ -11,7 +11,8 @@ import { assertSessionCapacity } from "./session-limits.js";
 import { extractSummary, extractPreview } from "../utils/summary-extractor.js";
 import { withKeyedLock } from "../utils/async-lock.js";
 import { parseJsonlMessages, sortByUpdatedAtDesc } from "./session-utils.js";
-import type { ChatMessage, SessionMetadata } from "../types.js";
+import { removeTerminal } from "../services/terminal-runner.js";
+import type { ChatMessage, SessionKind, SessionMetadata } from "../types.js";
 import { Notifier } from "../notifications/notifier.js";
 import { TelegramChannel } from "../notifications/telegram.js";
 import { ApnsChannel } from "../notifications/apns.js";
@@ -129,7 +130,10 @@ function getActiveSession(wsId: string): ConversationSession | undefined {
 }
 
 function getMostRecentlyUpdatedLoadedSession(wsId: string): ConversationSession | undefined {
-  const sessions = getLoadedSessions(wsId);
+  // Terminal sessions are never the active chat session: they render a shell,
+  // not a conversation, and silently no-op sendMessage. Skip them here so they
+  // are never auto-promoted to active.
+  const sessions = getLoadedSessions(wsId).filter((s) => s.metadata.kind !== "terminal");
   if (sessions.length === 0) return undefined;
   const sorted = sortByUpdatedAtDesc(sessions.map((s) => s.metadata));
   return sorted[0] ? getLoadedSessionById(wsId, sorted[0].sessionId) : undefined;
@@ -194,15 +198,20 @@ export async function getOrCreateSession(
     if (persistedActiveId) {
       try {
         const session = await loadSessionFromDisk(ctx, persistedActiveId, dataDir, options);
-        setActiveSession(wsId, session);
-        await persistWorkspaceSessionState(
-          ctx.projectId,
-          wsId,
-          "busy",
-          dataDir,
-          session.sessionId,
-        );
-        return { session, created: false };
+        // A terminal session must never be resumed as the active chat session:
+        // it renders a shell over the chat UI and silently no-ops sendMessage.
+        // Fall through to create a fresh chat session instead.
+        if (session.metadata.kind !== "terminal") {
+          setActiveSession(wsId, session);
+          await persistWorkspaceSessionState(
+            ctx.projectId,
+            wsId,
+            "busy",
+            dataDir,
+            session.sessionId,
+          );
+          return { session, created: false };
+        }
       } catch {
         // Missing/corrupt persisted active session — fall through to create new.
       }
@@ -460,14 +469,20 @@ async function createSession(
   ctx: Awaited<ReturnType<typeof resolveWorkspaceContext>>,
   dataDir: string,
   options?: SessionOptions,
+  kind: SessionKind = "chat",
 ): Promise<ConversationSession> {
-  const systemPrompt = await buildSessionPrompt(
-    ctx.wsPath,
-    ctx.workspace,
-    ctx.projectState,
-    dataDir,
-    options,
-  );
+  // Terminal sessions host a shell PTY, not an agent, so they never need a
+  // system prompt. Building one only does unnecessary work.
+  const systemPrompt =
+    kind === "terminal"
+      ? undefined
+      : await buildSessionPrompt(
+          ctx.wsPath,
+          ctx.workspace,
+          ctx.projectState,
+          dataDir,
+          options,
+        );
 
   const session = new ConversationSession({
     cwd: ctx.wsPath,
@@ -476,6 +491,7 @@ async function createSession(
     command: options?.command,
     systemPrompt,
     skipPermissions: options?.skipPermissions,
+    sessionKind: kind,
   });
   await attachBrowserEnv(session, ctx.workspace.id, options);
   await session.persistMetadata();
@@ -595,12 +611,20 @@ export async function createNewSession(
   wsId: string,
   dataDir = getDataDir(),
   options?: SessionOptions,
+  kind: SessionKind = "chat",
 ): Promise<ConversationSession> {
   return withWorkspaceLock(wsId, async () => {
     const ctx = await resolveWorkspaceContext(wsId, dataDir);
-    const existing = await listWorkspaceSessions(wsId, dataDir);
-    assertSessionCapacity(existing.length, "sessions");
-    const session = await createSession(ctx, dataDir, options);
+    // Terminal tabs are a separate surface and don't count toward the
+    // conversation cap; only chat sessions are capped, and opening a terminal is
+    // never blocked by it.
+    if (kind !== "terminal") {
+      const chatCount = (await listWorkspaceSessions(wsId, dataDir)).filter(
+        (s) => s.kind !== "terminal",
+      ).length;
+      assertSessionCapacity(chatCount, "sessions");
+    }
+    const session = await createSession(ctx, dataDir, options, kind);
     setActiveSession(wsId, session);
     await persistWorkspaceSessionState(
       ctx.projectId,
@@ -610,6 +634,21 @@ export async function createNewSession(
       session.sessionId,
     );
     return session;
+  });
+}
+
+/** Convert an empty chat session into a terminal session (irreversible). */
+export async function convertSessionToTerminal(
+  wsId: string,
+  sessionId: string,
+  dataDir = getDataDir(),
+): Promise<SessionMetadata> {
+  return withWorkspaceLock(wsId, async () => {
+    const ctx = await resolveWorkspaceContext(wsId, dataDir);
+    const session = await loadSessionFromDisk(ctx, sessionId, dataDir);
+    session.convertToTerminal();
+    await session.persistMetadata();
+    return session.metadata;
   });
 }
 
@@ -650,6 +689,11 @@ export async function hardDeleteSession(
     const loaded = getLoadedSessionById(wsId, sessionId);
     const wasActive = activeSessionIds.get(wsId) === sessionId;
     browserSessionManager.closeSession(wsId, sessionId);
+
+    // Remove any terminal-tab PTY keyed by this session id: kill it if running
+    // and always drop the registry entry (and its replay buffer) so a deleted
+    // terminal's output can't linger or be replayed. No-op for chat sessions.
+    removeTerminal(wsId, sessionId);
 
     if (loaded) {
       removeLoadedSession(wsId, sessionId);

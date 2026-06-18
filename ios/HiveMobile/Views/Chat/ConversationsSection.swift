@@ -181,7 +181,9 @@ struct ConversationsSection<Header: View>: View {
 
     private func loadSessions() async {
         do {
+            // Terminal sessions are a desktop-only surface; hide them on mobile.
             sessions = try await api.fetchSessions(workspaceId: workspace.id)
+                .filter { $0.kind != "terminal" }
             errorMessage = nil
         } catch is CancellationError {
             // View disappeared.

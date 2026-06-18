@@ -1,29 +1,12 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import { Terminal as XTerm } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
+import { useEffect, useState, useCallback } from "react";
+import type { Terminal as XTerm } from "@xterm/xterm";
 import { PlayIcon, SquareIcon, RotateCcwIcon, CheckCircle2Icon, TerminalSquareIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ActivityWave } from "@/components/ui/activity-wave";
+import { XtermSurface } from "@/components/XtermSurface";
 import { cn } from "@/lib/utils";
-import { useThemeType } from "@/hooks/useThemeType";
 import type { ScriptStatusInfo, HiveConfig } from "@/types";
-import "@xterm/xterm/css/xterm.css";
-
-function readThemeColor(name: string, fallback: string): string {
-  if (typeof window === "undefined") return fallback;
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
-}
-
-function buildXtermTheme(theme: "dark" | "light") {
-  const foreground = readThemeColor("--foreground", theme === "dark" ? "#e4e4e7" : "#18181b");
-  return {
-    background: readThemeColor("--sidebar", theme === "dark" ? "#0c0c14" : "#f8f8fb"),
-    foreground,
-    cursor: foreground,
-    selectionBackground: readThemeColor("--muted", theme === "dark" ? "#262636" : "#f0f1f4"),
-  };
-}
 
 interface ScriptPanelProps {
   config: HiveConfig | null;
@@ -99,17 +82,7 @@ export default function ScriptPanel({
   const isTerminalTab = tabInfo?.isTerminal ?? false;
   const currentStatus: ScriptStatusInfo = status[effectiveTab] ?? { state: "idle" };
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<XTerm | null>(null);
-  const fitAddonRef = useRef<FitAddon | null>(null);
-  const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const connectedTabRef = useRef<string | null>(null);
-  const theme = useThemeType();
-  const xtermTheme = useMemo(() => buildXtermTheme(theme), [theme]);
-  const themeRef = useRef(xtermTheme);
-  themeRef.current = xtermTheme;
-
-  // Incremented on re-run to force the terminal init effect to re-fire
+  // Incremented on re-run to force the terminal surface to reconnect.
   const [runGeneration, setRunGeneration] = useState(0);
 
   const shouldShowTerminal = currentStatus.state !== "idle";
@@ -120,83 +93,15 @@ export default function ScriptPanel({
       ? "Open an interactive shell"
       : "Start this script";
 
-  const initTerminal = useCallback(() => {
-    const el = containerRef.current;
-    if (!el || termRef.current) return;
-
-    const term = new XTerm({
-      cursorBlink: false,
-      fontSize: 12,
-      fontFamily: '"Geist Mono", Menlo, Monaco, "Courier New", monospace',
-      lineHeight: 1.3,
-      theme: themeRef.current,
-      scrollback: 5000,
-      disableStdin: false,
-    });
-
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    term.open(el);
-    fitAddon.fit();
-
-    termRef.current = term;
-    fitAddonRef.current = fitAddon;
-
-    // Attach ResizeObserver so fit() fires on every panel resize
-    resizeObserverRef.current?.disconnect();
-    const observer = new ResizeObserver(() => fitAddon.fit());
-    observer.observe(el);
-    resizeObserverRef.current = observer;
-
-    connectedTabRef.current = effectiveTab;
-    onConnectOutput(effectiveTab, term);
-  }, [effectiveTab, onConnectOutput]);
-
-  const destroyTerminal = useCallback(() => {
-    resizeObserverRef.current?.disconnect();
-    resizeObserverRef.current = null;
-    if (termRef.current) {
-      onDisconnectOutput();
-      termRef.current.dispose();
-      termRef.current = null;
-      fitAddonRef.current = null;
-      connectedTabRef.current = null;
-    }
-  }, [onDisconnectOutput]);
-
-  // Init terminal when needed (runGeneration forces re-fire on restart)
-  useEffect(() => {
-    if (shouldShowTerminal) {
-      const timer = setTimeout(() => initTerminal(), 50);
-      return () => clearTimeout(timer);
-    }
-    destroyTerminal();
-    return undefined;
-  }, [shouldShowTerminal, runGeneration, initTerminal, destroyTerminal]);
-
-  // Reconnect when tab changes
-  useEffect(() => {
-    if (shouldShowTerminal && termRef.current && connectedTabRef.current !== effectiveTab) {
-      destroyTerminal();
-      const timer = setTimeout(() => initTerminal(), 50);
-      return () => clearTimeout(timer);
-    }
-    return undefined;
-  }, [effectiveTab, shouldShowTerminal, destroyTerminal, initTerminal]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      destroyTerminal();
-    };
-  }, [destroyTerminal]);
-
-  // Live theme updates without recreating the terminal
-  useEffect(() => {
-    if (termRef.current) {
-      termRef.current.options.theme = xtermTheme;
-    }
-  }, [xtermTheme]);
+  // Bridge the surface terminal to the script's PTY output. Returning the
+  // disconnect callback lets XtermSurface tear the WS down on reconnect/unmount.
+  const connect = useCallback(
+    (term: XTerm) => {
+      onConnectOutput(effectiveTab, term);
+      return onDisconnectOutput;
+    },
+    [effectiveTab, onConnectOutput, onDisconnectOutput],
+  );
 
   const handleAction = async () => {
     if (currentStatus.state === "running") {
@@ -206,7 +111,6 @@ export default function ScriptPanel({
         onStop(effectiveTab);
       }
     } else {
-      destroyTerminal();
       if (isTerminalTab) {
         onStartTerminal();
       } else {
@@ -307,10 +211,10 @@ export default function ScriptPanel({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         {shouldShowTerminal ? (
           <>
-            <div
-              ref={containerRef}
+            <XtermSurface
+              connect={connect}
+              connectKey={`${effectiveTab}:${runGeneration}`}
               className="h-full w-full overflow-hidden px-3"
-              style={{ backgroundColor: xtermTheme.background }}
             />
             {/* Port badge */}
             {!isSetupTab && !isTerminalTab && config?.port && currentStatus.state === "running" && (

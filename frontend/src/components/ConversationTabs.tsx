@@ -13,7 +13,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import type { SessionMetadata } from "@/types";
+import type { SessionKind, SessionMetadata } from "@/types";
 import type { FileViewMode } from "@/hooks/useTabs";
 
 // Keep in sync with the backend Brain guard (MAX_BRAIN_SESSIONS in
@@ -95,6 +95,28 @@ function getFallbackVisualState({
 }
 
 /**
+ * Filled terminal mark for terminal-kind tabs. A solid window in `currentColor`
+ * (so it reads as the tab's text color — near-black in light, near-white in
+ * dark) with the `>_` prompt knocked out in the card background behind it. This
+ * gives terminal tabs a bolder, distinct silhouette next to the colored provider
+ * marks, instead of a thin outline.
+ */
+function TerminalTabIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" data-icon="terminal" aria-hidden>
+      <rect x="2" y="3.5" width="20" height="17" rx="3.5" fill="currentColor" />
+      <path
+        d="m6.5 9.5 3 2.5-3 2.5M12.5 15h4"
+        style={{ stroke: "var(--card)" }}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/**
  * The tab's leading glyph. The provider mark is the conversation's resting
  * identity (shown once a session locks its provider on the first message), so
  * the whole strip reads which model each conversation runs at a glance.
@@ -106,10 +128,12 @@ function TabLeadingIcon({
   isStreaming,
   isUnread,
   provider,
+  sessionKind,
 }: {
   isStreaming: boolean;
   isUnread: boolean;
   provider?: string;
+  sessionKind?: SessionKind;
 }) {
   if (isStreaming) {
     return (
@@ -120,6 +144,9 @@ function TabLeadingIcon({
   }
   if (isUnread) {
     return <span className="size-2 shrink-0 rounded-full bg-primary" />;
+  }
+  if (sessionKind === "terminal") {
+    return <TerminalTabIcon className="size-3.5 shrink-0" />;
   }
   if (isKnownProvider(provider)) {
     return <ProviderIcon provider={provider} colored className="size-3.5 shrink-0" />;
@@ -239,7 +266,10 @@ export function ConversationTabs({
     updateEdges();
   }, [activeSessionId, sessions, updateEdges]);
 
-  const atLimit = sessions.length >= MAX_SESSIONS_PER_WORKSPACE;
+  // Terminal tabs are a separate surface and don't count toward the conversation
+  // cap (the backend caps chat sessions only), so they must not disable the +.
+  const atLimit =
+    sessions.filter((s) => s.kind !== "terminal").length >= MAX_SESSIONS_PER_WORKSPACE;
 
   return (
     <>
@@ -297,7 +327,15 @@ export function ConversationTabs({
                 streamingSessions,
                 unreadSessions,
               });
-              const title = getTabTitle(session);
+              // Terminal sessions with no title fall back to "Terminal N",
+              // where N is the 1-based position among terminal-kind sessions
+              // (the list is already sorted by createdAt asc).
+              const title =
+                session.kind === "terminal" && !session.title
+                  ? `Terminal ${
+                      sessions.filter((s) => s.kind === "terminal").indexOf(session) + 1
+                    }`
+                  : getTabTitle(session);
 
               return (
                 <button
@@ -316,6 +354,7 @@ export function ConversationTabs({
                     isStreaming={isSessionStreaming}
                     isUnread={isSessionUnread}
                     provider={session.lockedProvider ?? (isActive ? activeProvider : undefined)}
+                    sessionKind={session.kind}
                   />
                   <span className="truncate">{title}</span>
                   {sessions.length > 1 && !isSessionStreaming && (

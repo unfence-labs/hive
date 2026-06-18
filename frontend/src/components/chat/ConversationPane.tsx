@@ -91,6 +91,11 @@ export interface ConversationPaneProps {
   // ── Slots ──
   chatInput: ReactNode;
   planActionBar?: ReactNode;
+  /** Full-pane terminal surface, rendered in place of the chat body when the
+   * active session is a terminal-kind session. */
+  terminalView?: ReactNode;
+  /** Opens a terminal tab from the workspace empty state. */
+  onStartTerminal?: () => void;
 }
 
 type QuestionPanelBatchSubmit = React.ComponentProps<typeof QuestionPanel>["onBatchSubmit"];
@@ -143,8 +148,12 @@ export function ConversationPane({
   onDismissQuestion,
   chatInput,
   planActionBar,
+  terminalView,
+  onStartTerminal,
 }: ConversationPaneProps) {
   const showQuestion = pendingToolInputs.some((p) => p.toolName === "AskUserQuestion");
+  const activeIsTerminal =
+    sessions.find((s) => s.sessionId === activeSessionId)?.kind === "terminal";
 
   return (
     <>
@@ -166,53 +175,60 @@ export function ConversationPane({
         activeProvider={activeProvider}
       />
       <div className={!isFileTabActive ? "flex min-h-0 flex-1 flex-col" : "hidden"}>
-        <ChatConversation
-          messages={messages}
-          isStreaming={isStreaming}
-          streamingStartedAt={streamingStartedAt}
-          currentStreamingText={currentStreamingText}
-          currentThinking={currentThinking}
-          activeToolCalls={activeToolCalls}
-          activeAgentActivities={activeAgentActivities}
-          pendingToolInputs={pendingToolInputs}
-          onQuestionAnswer={onQuestionAnswer}
-          onFileMentionClick={onFileMentionClick}
-          workspaceName={workspaceName}
-          projectName={projectName}
-          branch={branch}
-          defaultBranch={defaultBranch}
-          fileCount={fileCount}
-          emptyState={emptyState}
-          switchCounter={switchCounter}
-          agentPlanMode={agentPlanMode}
-          error={error}
-          queuedMessage={queuedMessage}
-          onClearQueue={onClearQueue}
-          scrollToBottomTrigger={scrollToBottomTrigger}
-        />
-        {(goal || tasks.length > 0 || backgroundAgents.length > 0) && !showQuestion && (
-          <TaskTracker
-            goal={goal}
-            tasks={tasks}
-            currentTask={currentTask}
-            counts={taskCounts}
-            trackerStatus={taskTrackerStatus}
-            isStreaming={isStreaming}
-            backgroundAgents={backgroundAgents}
-            backgroundRunningCount={backgroundRunningCount}
-          />
-        )}
-        {showQuestion ? (
-          <QuestionPanel
-            pendingToolInputs={pendingToolInputs}
-            onBatchSubmit={onBatchAnswerQuestions}
-            onDismiss={onDismissQuestion}
-          />
+        {activeIsTerminal ? (
+          terminalView
         ) : (
-          <div className="relative">
-            {planActionBar}
-            {chatInput}
-          </div>
+          <>
+            <ChatConversation
+              messages={messages}
+              isStreaming={isStreaming}
+              streamingStartedAt={streamingStartedAt}
+              currentStreamingText={currentStreamingText}
+              currentThinking={currentThinking}
+              activeToolCalls={activeToolCalls}
+              activeAgentActivities={activeAgentActivities}
+              pendingToolInputs={pendingToolInputs}
+              onQuestionAnswer={onQuestionAnswer}
+              onFileMentionClick={onFileMentionClick}
+              onStartTerminal={onStartTerminal}
+              workspaceName={workspaceName}
+              projectName={projectName}
+              branch={branch}
+              defaultBranch={defaultBranch}
+              fileCount={fileCount}
+              emptyState={emptyState}
+              switchCounter={switchCounter}
+              agentPlanMode={agentPlanMode}
+              error={error}
+              queuedMessage={queuedMessage}
+              onClearQueue={onClearQueue}
+              scrollToBottomTrigger={scrollToBottomTrigger}
+            />
+            {(goal || tasks.length > 0 || backgroundAgents.length > 0) && !showQuestion && (
+              <TaskTracker
+                goal={goal}
+                tasks={tasks}
+                currentTask={currentTask}
+                counts={taskCounts}
+                trackerStatus={taskTrackerStatus}
+                isStreaming={isStreaming}
+                backgroundAgents={backgroundAgents}
+                backgroundRunningCount={backgroundRunningCount}
+              />
+            )}
+            {showQuestion ? (
+              <QuestionPanel
+                pendingToolInputs={pendingToolInputs}
+                onBatchSubmit={onBatchAnswerQuestions}
+                onDismiss={onDismissQuestion}
+              />
+            ) : (
+              <div className="relative">
+                {planActionBar}
+                {chatInput}
+              </div>
+            )}
+          </>
         )}
       </div>
     </>

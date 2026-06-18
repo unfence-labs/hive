@@ -69,6 +69,30 @@ describe("ConversationTabs", () => {
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
+  it("does not count terminal tabs toward the session cap", () => {
+    // 5 chats + 2 terminals is under the chat cap (6), so + stays enabled.
+    const sessions: SessionMetadata[] = [
+      ...Array.from({ length: 5 }, (_, i) =>
+        makeSession(`chat-${i}`, `2026-02-12T00:00:0${i}.000Z`, `Chat ${i}`),
+      ),
+      { ...makeSession("term-1", "2026-02-12T00:01:00.000Z"), kind: "terminal" },
+      { ...makeSession("term-2", "2026-02-12T00:02:00.000Z"), kind: "terminal" },
+    ];
+    renderTabs({ sessions, activeSessionId: "chat-0" });
+    expect(screen.getByTitle("New conversation")).not.toBeDisabled();
+  });
+
+  it("disables the + button at the chat-session cap regardless of terminals", () => {
+    const sessions: SessionMetadata[] = [
+      ...Array.from({ length: 6 }, (_, i) =>
+        makeSession(`chat-${i}`, `2026-02-12T00:00:0${i}.000Z`, `Chat ${i}`),
+      ),
+      { ...makeSession("term-1", "2026-02-12T00:01:00.000Z"), kind: "terminal" },
+    ];
+    renderTabs({ sessions, activeSessionId: "chat-0" });
+    expect(screen.getByTitle(/Session limit reached/i)).toBeDisabled();
+  });
+
   it("activates a non-active tab on click", async () => {
     const user = userEvent.setup();
     const { onActivateSession } = renderTabs();
@@ -492,5 +516,53 @@ describe("ConversationTabs — file tab", () => {
     expect(screen.getByText("First conversation")).toBeInTheDocument();
     expect(screen.getByText("Second conversation")).toBeInTheDocument();
     expect(document.querySelector("svg.lucide-more-horizontal")).toBeNull();
+  });
+
+  it("renders a terminal icon for terminal-kind sessions", () => {
+    const terminal: SessionMetadata = {
+      sessionId: "term-1",
+      workspaceId: "ws-1",
+      kind: "terminal",
+      createdAt: "2026-02-12T00:00:02.000Z",
+      updatedAt: "2026-02-12T00:00:02.000Z",
+      messageCount: 0,
+    };
+    renderTabs({
+      sessions: [makeSession("sess-1", "2026-02-12T00:00:01.000Z", "Chat"), terminal],
+      activeSessionId: "sess-1",
+    });
+
+    const chatTab = screen.getByText("Chat").closest("button")!;
+    expect(chatTab.querySelector('svg[data-icon="terminal"]')).toBeNull();
+
+    const termTab = screen.getByText("Terminal 1").closest("button")!;
+    expect(termTab.querySelector('svg[data-icon="terminal"]')).toBeInTheDocument();
+  });
+
+  it("titles untitled terminal sessions as 'Terminal N' by their order among terminals", () => {
+    const makeTerminal = (id: string, createdAt: string, title?: string): SessionMetadata => ({
+      sessionId: id,
+      workspaceId: "ws-1",
+      kind: "terminal",
+      title,
+      createdAt,
+      updatedAt: createdAt,
+      messageCount: 0,
+    });
+
+    renderTabs({
+      sessions: [
+        makeSession("chat-1", "2026-02-12T00:00:00.000Z", "Chat"),
+        makeTerminal("term-1", "2026-02-12T00:00:01.000Z"),
+        makeTerminal("term-2", "2026-02-12T00:00:02.000Z", "Build logs"),
+        makeTerminal("term-3", "2026-02-12T00:00:03.000Z"),
+      ],
+      activeSessionId: "chat-1",
+    });
+
+    // 1-based index counts every terminal session, even titled ones.
+    expect(screen.getByText("Terminal 1")).toBeInTheDocument();
+    expect(screen.getByText("Build logs")).toBeInTheDocument();
+    expect(screen.getByText("Terminal 3")).toBeInTheDocument();
   });
 });

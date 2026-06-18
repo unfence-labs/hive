@@ -203,7 +203,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private readonly skipPermissions: boolean;
   private readonly disableInteractiveTools: boolean;
   private readonly readOnly: boolean;
-  private readonly sessionKind: SessionKind;
+  // Not readonly: load() restores the persisted kind before any use.
+  private sessionKind: SessionKind;
   private readonly runnerFactory: AgentRunnerFactory;
   private browserEnv: Record<string, string> | undefined;
   private readonly sessionDir: string;
@@ -252,6 +253,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       messageCount: 0,
+      kind: this.sessionKind,
     };
 
     // Node crashes the whole process on emit("error") with zero listeners.
@@ -338,6 +340,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       session._metadata = meta;
       session.cliSessionId = meta.providerSessionId ?? meta.claudeSessionId;
       session.messageCount = meta.messageCount;
+      // Restore the persisted kind (absent = "chat" for old sessions) and keep
+      // _metadata.kind consistent so subsequent saves never drop it.
+      session.sessionKind = meta.kind ?? "chat";
+      session._metadata.kind = session.sessionKind;
       // Backfill lockedProvider for sessions created before multi-model support.
       // All pre-existing sessions were Claude-only, so default to "claude".
       if (!meta.lockedProvider && meta.messageCount > 0) {
@@ -374,6 +380,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
    *  When `cliContent` is provided, it is sent to the CLI instead of `content`
    *  while the displayed/persisted message remains `content`. */
   sendMessage(content: string, msgOptions?: MessageOptions, images?: ImageAttachment[], cliContent?: string, fileMentions?: FileMention[]): void {
+    // Terminal sessions host a shell PTY, not an agent. Never spawn a runner.
+    // Defensive: the UI does not call this for terminal tabs.
+    if (this.sessionKind === "terminal") {
+      return;
+    }
     if (this._status === "streaming") {
       throw new Error("Already streaming — wait for current message to complete or stop it");
     }
@@ -1525,6 +1536,20 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
   setTitle(title: string): void {
     this._metadata.title = title;
+    this._metadata.updatedAt = new Date().toISOString();
+    this.enqueueMetadataPersist();
+  }
+
+  /** Convert an empty chat session into a terminal session. Irreversible and
+   *  only allowed before the first message — terminal sessions host a shell PTY,
+   *  not an agent, so there must be no conversation history to strand. */
+  convertToTerminal(): void {
+    if (this.sessionKind === "terminal") return;
+    if (this.messageCount > 0) {
+      throw new Error("Cannot convert a session with messages into a terminal");
+    }
+    this.sessionKind = "terminal";
+    this._metadata.kind = "terminal";
     this._metadata.updatedAt = new Date().toISOString();
     this.enqueueMetadataPersist();
   }

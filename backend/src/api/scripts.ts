@@ -7,6 +7,8 @@ import {
   stopScript,
   getScriptStatus,
 } from "../services/script-runner.js";
+import { startTerminal, stopTerminal } from "../services/terminal-runner.js";
+import { listWorkspaceSessions } from "../agents/session-dispatch.js";
 import { broadcastToWorkspace } from "../ws/stream.js";
 import { workspacesDir } from "../utils/paths.js";
 import { getDataDir } from "../state/state.js";
@@ -146,6 +148,51 @@ export async function scriptRoutes(app: FastifyInstance, dataDir?: string) {
         scriptType: "terminal",
         state: "idle",
       });
+
+      return reply.send({ stopped: true });
+    },
+  );
+
+  // POST /api/workspaces/:wsId/terminal-tabs/:sessionId/start — terminal-tab shell.
+  // Each tab gets its own PTY in the terminal registry (NOT the script runner),
+  // so an open terminal never lights up the workspace "script running" indicator
+  // and no `script_status` is broadcast. The pane is driven entirely by its own
+  // `/ws/terminal` socket.
+  app.post<{ Params: { wsId: string; sessionId: string } }>(
+    "/api/workspaces/:wsId/terminal-tabs/:sessionId/start",
+    async (req, reply) => {
+      const { wsId, sessionId } = req.params;
+      const resolved = await resolveWsPath(wsId);
+      if (!resolved) return reply.status(404).send({ error: "Workspace not found" });
+
+      // Only terminal-kind sessions get a PTY here.
+      const sessions = await listWorkspaceSessions(wsId, dir);
+      const session = sessions.find((s) => s.sessionId === sessionId);
+      if (!session) {
+        return reply.status(404).send({ error: "Session not found" });
+      }
+      if (session.kind !== "terminal") {
+        return reply.status(400).send({ error: "Session is not a terminal" });
+      }
+
+      try {
+        startTerminal(wsId, sessionId, resolved.wsPath);
+        return reply.send({ started: true });
+      } catch (err: unknown) {
+        return reply.status(409).send({ error: errorMessage(err, "Failed to start terminal") });
+      }
+    },
+  );
+
+  // POST /api/workspaces/:wsId/terminal-tabs/:sessionId/stop
+  app.post<{ Params: { wsId: string; sessionId: string } }>(
+    "/api/workspaces/:wsId/terminal-tabs/:sessionId/stop",
+    async (req, reply) => {
+      const { wsId, sessionId } = req.params;
+      const stopped = stopTerminal(wsId, sessionId);
+      if (!stopped) {
+        return reply.status(409).send({ error: "No running terminal to stop" });
+      }
 
       return reply.send({ stopped: true });
     },

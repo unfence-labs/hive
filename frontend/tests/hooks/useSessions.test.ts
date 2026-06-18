@@ -98,7 +98,7 @@ describe("useSessions", () => {
     });
 
     expect(created).toEqual(makeSession("sess-2"));
-    expect(api.post).toHaveBeenCalledWith("/api/workspaces/ws-1/sessions");
+    expect(api.post).toHaveBeenCalledWith("/api/workspaces/ws-1/sessions", undefined);
 
     await waitFor(() => {
       expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-2")]);
@@ -189,6 +189,57 @@ describe("useSessions", () => {
       expect(result.current.sessions).toEqual([makeSession("sess-1"), makeSession("sess-3")]);
     });
     expect(api.get).toHaveBeenCalledTimes(2);
+  });
+
+  it("creates a terminal session by sending the kind in the body", async () => {
+    vi.mocked(api.get)
+      .mockResolvedValueOnce([makeSession("sess-1")])
+      .mockResolvedValueOnce([makeSession("sess-1"), makeSession("term-1")]);
+    vi.mocked(api.post).mockResolvedValueOnce({ ...makeSession("term-1"), kind: "terminal" });
+    const { wrapper } = createWrapper();
+
+    const { result } = renderHook(() => useSessions("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+
+    let created: SessionMetadata | null = null;
+    await act(async () => {
+      created = await result.current.createSession("terminal");
+    });
+
+    expect(created).toEqual({ ...makeSession("term-1"), kind: "terminal" });
+    expect(api.post).toHaveBeenCalledWith("/api/workspaces/ws-1/sessions", { kind: "terminal" });
+  });
+
+  it("converts an empty chat session into a terminal in place", async () => {
+    vi.mocked(api.get).mockResolvedValue([makeSession("sess-1")]);
+    vi.mocked(api.post).mockResolvedValueOnce({ ...makeSession("sess-1"), kind: "terminal" });
+    const { wrapper } = createWrapper();
+
+    const { result } = renderHook(() => useSessions("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+
+    let converted: SessionMetadata | null = null;
+    await act(async () => {
+      converted = await result.current.convertToTerminal("sess-1");
+    });
+
+    expect(converted).toEqual({ ...makeSession("sess-1"), kind: "terminal" });
+    expect(api.post).toHaveBeenCalledWith(
+      "/api/workspaces/ws-1/sessions/sess-1/convert-to-terminal",
+    );
+  });
+
+  it("returns null when convert-to-terminal fails", async () => {
+    vi.mocked(api.get).mockResolvedValue([makeSession("sess-1")]);
+    vi.mocked(api.post).mockRejectedValueOnce(new Error("has messages"));
+    const { wrapper } = createWrapper();
+
+    const { result } = renderHook(() => useSessions("ws-1"), { wrapper });
+    await waitFor(() => expect(result.current.sessions).toHaveLength(1));
+
+    await act(async () => {
+      expect(await result.current.convertToTerminal("sess-1")).toBeNull();
+    });
   });
 
   it("sorts sessions after manual refresh", async () => {

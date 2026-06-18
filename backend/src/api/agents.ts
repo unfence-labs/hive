@@ -9,6 +9,7 @@ import {
   getSessionMessages,
   listWorkspaceSessions,
   createNewSession,
+  convertSessionToTerminal,
   hardDeleteSession,
   getSpecificSessionMessages,
   resolveSessionAttachmentPath,
@@ -104,14 +105,36 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
   );
 
   // POST /api/workspaces/:wsId/sessions — create a new session (parks current)
-  app.post<{ Params: { wsId: string } }>(
+  app.post<{ Params: { wsId: string }; Body?: { kind?: string } }>(
     "/api/workspaces/:wsId/sessions",
     async (req, reply) => {
       try {
-        const session = await createNewSession(req.params.wsId, dataDir, sessionOptions);
+        // Only "terminal" is accepted from the body; anything else is a chat.
+        const kind = req.body?.kind === "terminal" ? "terminal" : "chat";
+        const session = await createNewSession(req.params.wsId, dataDir, sessionOptions, kind);
         return reply.status(201).send(session.metadata);
       } catch (err: unknown) {
         const msg = errorMessage(err, "Failed to create session");
+        const code = errorStatus(err);
+        return reply.status(code).send({ error: msg });
+      }
+    },
+  );
+
+  // POST /api/workspaces/:wsId/sessions/:sessionId/convert-to-terminal —
+  // turn an empty chat session into a terminal session in place (irreversible).
+  app.post<{ Params: { wsId: string; sessionId: string } }>(
+    "/api/workspaces/:wsId/sessions/:sessionId/convert-to-terminal",
+    async (req, reply) => {
+      try {
+        const meta = await convertSessionToTerminal(
+          req.params.wsId,
+          req.params.sessionId,
+          dataDir,
+        );
+        return reply.send(meta);
+      } catch (err: unknown) {
+        const msg = errorMessage(err, "Failed to convert session to terminal");
         const code = errorStatus(err);
         return reply.status(code).send({ error: msg });
       }

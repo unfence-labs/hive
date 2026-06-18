@@ -9,12 +9,14 @@ const mocks = vi.hoisted(() => ({
   useSessions: vi.fn(),
   useTasks: vi.fn(),
   useBackgroundAgents: vi.fn(),
+  apiPost: vi.fn(),
 }));
 
 vi.mock("@/hooks/useConversation", () => ({ useConversation: mocks.useConversation }));
 vi.mock("@/hooks/useSessions", () => ({ useSessions: mocks.useSessions }));
 vi.mock("@/hooks/useTasks", () => ({ useTasks: mocks.useTasks }));
 vi.mock("@/hooks/useBackgroundAgents", () => ({ useBackgroundAgents: mocks.useBackgroundAgents }));
+vi.mock("@/hooks/useApi", () => ({ api: { post: mocks.apiPost } }));
 
 // Shared mutable conversation state so we can re-render with different values.
 let conversation: Record<string, unknown>;
@@ -50,11 +52,12 @@ function makeConversation(overrides: Record<string, unknown> = {}) {
 }
 
 const sessionList = [
-  { sessionId: "s1", title: "One", createdAt: "2024-01-01T00:00:00Z" },
-  { sessionId: "s2", title: "Two", createdAt: "2024-01-02T00:00:00Z" },
+  { sessionId: "s1", title: "One", createdAt: "2024-01-01T00:00:00Z", messageCount: 0 },
+  { sessionId: "s2", title: "Two", createdAt: "2024-01-02T00:00:00Z", messageCount: 0 },
 ];
 
 let createSession: ReturnType<typeof vi.fn>;
+let convertToTerminal: ReturnType<typeof vi.fn>;
 let deleteSession: ReturnType<typeof vi.fn>;
 let refresh: ReturnType<typeof vi.fn>;
 
@@ -64,9 +67,11 @@ beforeEach(() => {
   conversation = makeConversation();
   mocks.useConversation.mockImplementation(() => conversation);
   createSession = vi.fn().mockResolvedValue({ sessionId: "s3", title: "New", createdAt: "2024-01-03T00:00:00Z" });
+  convertToTerminal = vi.fn().mockResolvedValue({ sessionId: "s1", kind: "terminal", createdAt: "2024-01-01T00:00:00Z" });
   deleteSession = vi.fn().mockResolvedValue(true);
   refresh = vi.fn();
-  mocks.useSessions.mockReturnValue({ sessions: sessionList, createSession, deleteSession, refresh });
+  mocks.apiPost.mockResolvedValue(undefined);
+  mocks.useSessions.mockReturnValue({ sessions: sessionList, createSession, convertToTerminal, deleteSession, refresh });
   mocks.useTasks.mockReturnValue({ tasks: [], currentTask: undefined, counts: {} });
   mocks.useBackgroundAgents.mockReturnValue({ agents: [], runningCount: 0 });
 });
@@ -137,6 +142,72 @@ describe("useConversationColumn — session handlers", () => {
     expect(conversation.clearChat).not.toHaveBeenCalled();
     expect(onLastSessionDeleted).not.toHaveBeenCalled();
     expect(conversation.switchSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("useConversationColumn — handleStartTerminal", () => {
+  it("converts the active session in place when it is an empty chat", async () => {
+    // Active session s1 is an empty chat (kind absent, messageCount 0).
+    const { result } = renderHook(() => useConversationColumn("ws1"));
+    await act(async () => {
+      await result.current.handleStartTerminal();
+    });
+
+    expect(convertToTerminal).toHaveBeenCalledWith("s1");
+    expect(createSession).not.toHaveBeenCalled();
+    expect(mocks.apiPost).toHaveBeenCalledWith("/api/workspaces/ws1/terminal-tabs/s1/start");
+    expect(refresh).toHaveBeenCalledTimes(1);
+    // Activating the already-active session is a no-op switch, but the tab is
+    // still re-activated.
+    expect(result.current.activateTab).toBeTypeOf("function");
+  });
+
+  it("creates a fresh terminal session when the active chat already has messages", async () => {
+    mocks.useSessions.mockReturnValue({
+      sessions: [
+        { sessionId: "s1", title: "One", createdAt: "2024-01-01T00:00:00Z", messageCount: 3 },
+      ],
+      createSession,
+      convertToTerminal,
+      deleteSession,
+      refresh,
+    });
+    createSession.mockResolvedValue({ sessionId: "term-1", kind: "terminal", createdAt: "2024-01-04T00:00:00Z" });
+
+    const { result } = renderHook(() => useConversationColumn("ws1"));
+    await act(async () => {
+      await result.current.handleStartTerminal();
+    });
+
+    expect(createSession).toHaveBeenCalledWith("terminal");
+    expect(convertToTerminal).not.toHaveBeenCalled();
+    expect(mocks.apiPost).toHaveBeenCalledWith("/api/workspaces/ws1/terminal-tabs/term-1/start");
+    expect(conversation.switchSession).toHaveBeenCalledWith("term-1");
+  });
+
+  it("aborts (no start) when the conversion fails", async () => {
+    convertToTerminal.mockResolvedValue(null);
+    const { result } = renderHook(() => useConversationColumn("ws1"));
+    await act(async () => {
+      await result.current.handleStartTerminal();
+    });
+
+    expect(convertToTerminal).toHaveBeenCalledWith("s1");
+    expect(mocks.apiPost).not.toHaveBeenCalled();
+  });
+
+  it("still lands on the tab when the start request fails", async () => {
+    // Convert succeeds but the PTY start rejects. The session is already a
+    // terminal (convert is irreversible), so this must not reject unhandled and
+    // must still refresh + activate so the pane's Start button can retry.
+    mocks.apiPost.mockRejectedValueOnce(new Error("network"));
+    const { result } = renderHook(() => useConversationColumn("ws1"));
+    await act(async () => {
+      await result.current.handleStartTerminal();
+    });
+
+    expect(mocks.apiPost).toHaveBeenCalledWith("/api/workspaces/ws1/terminal-tabs/s1/start");
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 });
 

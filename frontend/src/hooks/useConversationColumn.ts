@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { api } from "@/hooks/useApi";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
 import { useTabs, type UseTabsReturn } from "@/hooks/useTabs";
@@ -92,6 +93,12 @@ export interface ConversationColumn
   handleCreateSession: () => Promise<void>;
   handleActivateSession: (sessionId: string) => void;
   handleDeleteSession: (sessionId: string) => Promise<void>;
+  /**
+   * Open a terminal tab. Converts the active session in place when it is an
+   * empty chat; otherwise creates a fresh terminal session. Then starts the PTY
+   * and activates the tab.
+   */
+  handleStartTerminal: () => Promise<void>;
 }
 
 export function useConversationColumn(
@@ -112,7 +119,7 @@ export function useConversationColumn(
     switchSession,
   } = conversation;
 
-  const { sessions, loading: sessionsLoading, createSession, deleteSession, refresh: refreshSessions } = useSessions(wsId);
+  const { sessions, loading: sessionsLoading, createSession, convertToTerminal, deleteSession, refresh: refreshSessions } = useSessions(wsId);
 
   // Mirror iOS: fall back to session metadata when WS hasn't delivered
   // lockedProvider yet.
@@ -221,6 +228,37 @@ export function useConversationColumn(
     [deleteSession, sessionId, sessions, handleActivateSession, clearChat, onLastSessionDeleted],
   );
 
+  const handleStartTerminal = useCallback(async () => {
+    if (!wsId) return;
+    let targetId: string;
+    // Convert the active session in place when it's an empty chat; otherwise
+    // spin up a fresh terminal session so existing chats stay untouched.
+    if (
+      activeSession &&
+      activeSession.kind !== "terminal" &&
+      activeSession.messageCount === 0 &&
+      sessionId
+    ) {
+      const converted = await convertToTerminal(sessionId);
+      if (!converted) return;
+      targetId = sessionId;
+    } else {
+      const meta = await createSession("terminal");
+      if (!meta) return;
+      targetId = meta.sessionId;
+    }
+    // The session is already a terminal (convert is irreversible), so land on
+    // the tab no matter what: a failed start must not reject unhandled, and the
+    // pane's idle state offers a Start button to retry.
+    try {
+      await api.post(`/api/workspaces/${wsId}/terminal-tabs/${targetId}/start`);
+    } catch {
+      // Swallowed — TerminalPane shows the idle/Start state for a retry.
+    }
+    refreshSessions();
+    handleActivateSession(targetId);
+  }, [wsId, activeSession, sessionId, convertToTerminal, createSession, refreshSessions, handleActivateSession]);
+
   return {
     ...conversation,
     // Tabs
@@ -259,5 +297,6 @@ export function useConversationColumn(
     handleCreateSession,
     handleActivateSession,
     handleDeleteSession,
+    handleStartTerminal,
   };
 }

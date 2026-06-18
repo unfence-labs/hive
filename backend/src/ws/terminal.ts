@@ -1,25 +1,30 @@
 import type { FastifyInstance } from "fastify";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
-import { getScriptProcess } from "../services/script-runner.js";
+import { getTerminalProcess } from "../services/terminal-runner.js";
 import { isAuthorized } from "../utils/auth.js";
 import { attachPtyToSocket } from "./pty-socket.js";
 
-export interface ScriptWsRoutesOptions {
+export interface TerminalWsRoutesOptions {
   dataDir?: string;
   authToken?: string;
 }
 
-export async function scriptWsRoutes(
+/**
+ * WebSocket endpoint for terminal-tab sessions. Resolves the PTY from the
+ * terminal registry keyed by the session id and bridges it with the same
+ * {@link attachPtyToSocket} helper as `/ws/script`.
+ */
+export async function terminalWsRoutes(
   app: FastifyInstance,
-  opts: ScriptWsRoutesOptions = {},
+  opts: TerminalWsRoutesOptions = {},
 ) {
-  const { authToken } = opts;
+  const { authToken, dataDir } = opts;
 
   app.get<{
     Params: { wsId: string };
-    Querystring: { token?: string; type?: string };
+    Querystring: { token?: string; sessionId?: string };
   }>(
-    "/ws/script/:wsId",
+    "/ws/terminal/:wsId",
     { websocket: true },
     async (socket, req) => {
       const queryToken =
@@ -31,16 +36,17 @@ export async function scriptWsRoutes(
       }
 
       const { wsId } = req.params;
-      const scriptType = typeof req.query.type === "string" ? req.query.type : undefined;
-      if (!scriptType) {
+      const sessionId =
+        typeof req.query.sessionId === "string" ? req.query.sessionId : undefined;
+      if (!sessionId) {
         socket.send(
-          JSON.stringify({ type: "error", message: "Missing 'type' query param" }),
+          JSON.stringify({ type: "error", message: "Missing 'sessionId' query param" }),
         );
-        socket.close(1008, "Invalid type");
+        socket.close(1008, "Invalid sessionId");
         return;
       }
 
-      const result = await getWorkspace(wsId);
+      const result = await getWorkspace(wsId, dataDir);
       if (!result) {
         socket.send(
           JSON.stringify({ type: "error", message: "Workspace not found" }),
@@ -49,12 +55,12 @@ export async function scriptWsRoutes(
         return;
       }
 
-      const proc = getScriptProcess(wsId, scriptType);
+      const proc = getTerminalProcess(wsId, sessionId);
       if (!proc) {
         socket.send(
-          JSON.stringify({ type: "error", message: `No ${scriptType} script process found` }),
+          JSON.stringify({ type: "error", message: "No terminal process found" }),
         );
-        socket.close(1008, "No script process");
+        socket.close(1008, "No terminal process");
         return;
       }
 

@@ -1,4 +1,4 @@
-import { GitBranch, Folder } from "lucide-react";
+import { GitBranch, Folder, TerminalSquareIcon } from "lucide-react";
 
 interface WorkspaceWelcomeProps {
   projectName: string;
@@ -6,6 +6,8 @@ interface WorkspaceWelcomeProps {
   branch: string;
   defaultBranch: string;
   fileCount: number;
+  /** When provided, render a button to open a terminal tab in this workspace. */
+  onStartTerminal?: () => void;
 }
 
 export function WorkspaceWelcome({
@@ -14,6 +16,7 @@ export function WorkspaceWelcome({
   branch,
   defaultBranch,
   fileCount,
+  onStartTerminal,
 }: WorkspaceWelcomeProps) {
   return (
     <div className="flex w-full max-w-lg flex-col gap-6">
@@ -48,6 +51,22 @@ export function WorkspaceWelcome({
             files
           </span>
         </div>
+        {onStartTerminal && (
+          <div className="flex items-center gap-3">
+            <TerminalSquareIcon className="size-4 shrink-0" />
+            <span>
+              You can{" "}
+              <button
+                type="button"
+                onClick={onStartTerminal}
+                className="cursor-pointer font-medium text-foreground underline decoration-border underline-offset-4 transition-colors hover:decoration-foreground"
+              >
+                start a terminal
+              </button>{" "}
+              in this workspace
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -87,6 +87,52 @@ describe("ConversationPane", () => {
     expect(screen.getByTestId("chat-input")).toBeInTheDocument();
   });
 
+  it("renders the terminalView in place of the chat when the active session is a terminal", () => {
+    render(
+      <ConversationPane
+        {...baseProps({
+          activeSessionId: "term-1",
+          sessions: [
+            {
+              sessionId: "term-1",
+              workspaceId: "ws-1",
+              kind: "terminal",
+              createdAt: "2026-02-12T00:00:00.000Z",
+              updatedAt: "2026-02-12T00:00:00.000Z",
+              messageCount: 0,
+            },
+          ],
+          terminalView: <div data-testid="terminal-view">terminal</div>,
+        })}
+      />,
+    );
+    expect(screen.getByTestId("terminal-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-conversation")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chat-input")).not.toBeInTheDocument();
+  });
+
+  it("renders the chat (not the terminalView) when the active session is a regular chat", () => {
+    render(
+      <ConversationPane
+        {...baseProps({
+          activeSessionId: "chat-1",
+          sessions: [
+            {
+              sessionId: "chat-1",
+              workspaceId: "ws-1",
+              createdAt: "2026-02-12T00:00:00.000Z",
+              updatedAt: "2026-02-12T00:00:00.000Z",
+              messageCount: 0,
+            },
+          ],
+          terminalView: <div data-testid="terminal-view">terminal</div>,
+        })}
+      />,
+    );
+    expect(screen.getByTestId("chat-conversation")).toBeInTheDocument();
+    expect(screen.queryByTestId("terminal-view")).not.toBeInTheDocument();
+  });
+
   it("shows the task tracker only when tasks/agents exist and no question is pending", () => {
     const { rerender } = render(<ConversationPane {...baseProps()} />);
     expect(screen.queryByTestId("task-tracker")).not.toBeInTheDocument();
