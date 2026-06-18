@@ -14,9 +14,9 @@ export function formatTokenCount(tokens: number): string {
   return `${(tokens / 1_000_000).toFixed(1)}m`;
 }
 
-/** Get the SVG stroke color hex for a usage fraction (0-1). */
+/** Get the SVG stroke color for a usage fraction (0-1). */
 export function usageStrokeColor(fraction: number): string {
-  if (fraction < 0.5) return "#34d399"; // emerald-400
-  if (fraction < 0.8) return "#facc15"; // yellow-400
-  return "#f87171"; // red-400
+  if (fraction < 0.5) return "var(--success)";
+  if (fraction < 0.8) return "var(--warning)";
+  return "var(--destructive)";
 }

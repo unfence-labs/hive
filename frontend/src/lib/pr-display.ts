@@ -30,8 +30,8 @@ export function computePrDisplay(pr: PullRequestInfo): PrDisplayInfo {
   if (pr.state === "merged")
     return {
       Icon: GitMerge,
-      iconClass: "text-purple-500",
-      textClass: "text-purple-600 dark:text-purple-400",
+      iconClass: "text-primary",
+      textClass: "text-primary",
       label: "Merged",
     };
 
@@ -57,8 +57,8 @@ export function computePrDisplay(pr: PullRequestInfo): PrDisplayInfo {
   if (pr.mergeable === false || pr.mergeableState === "conflict")
     return {
       Icon: AlertTriangle,
-      iconClass: "text-orange-500",
-      textClass: "text-orange-600 dark:text-orange-400",
+      iconClass: "text-warning-foreground",
+      textClass: "text-warning-foreground",
       label: "Has conflicts",
     };
 
@@ -66,8 +66,8 @@ export function computePrDisplay(pr: PullRequestInfo): PrDisplayInfo {
   if (pr.checksStatus === "failure")
     return {
       Icon: XCircle,
-      iconClass: "text-red-500",
-      textClass: "text-red-600 dark:text-red-400",
+      iconClass: "text-destructive",
+      textClass: "text-destructive",
       label: checksLabel("Checks failing"),
     };
 
@@ -75,8 +75,8 @@ export function computePrDisplay(pr: PullRequestInfo): PrDisplayInfo {
   if (pr.checksStatus === "cancelled")
     return {
       Icon: Ban,
-      iconClass: "text-orange-500",
-      textClass: "text-orange-600 dark:text-orange-400",
+      iconClass: "text-warning-foreground",
+      textClass: "text-warning-foreground",
       label: "Checks cancelled",
     };
 
@@ -84,8 +84,8 @@ export function computePrDisplay(pr: PullRequestInfo): PrDisplayInfo {
   if (pr.checksStatus === "pending")
     return {
       Icon: Clock,
-      iconClass: "text-yellow-500",
-      textClass: "text-yellow-600 dark:text-yellow-400",
+      iconClass: "text-warning-foreground",
+      textClass: "text-warning-foreground",
       label: checksLabel("Checks running"),
     };
 
@@ -93,8 +93,8 @@ export function computePrDisplay(pr: PullRequestInfo): PrDisplayInfo {
   if (pr.reviewStatus === "changes_requested")
     return {
       Icon: AlertTriangle,
-      iconClass: "text-orange-500",
-      textClass: "text-orange-600 dark:text-orange-400",
+      iconClass: "text-warning-foreground",
+      textClass: "text-warning-foreground",
       label: "Changes requested",
     };
 
@@ -102,8 +102,8 @@ export function computePrDisplay(pr: PullRequestInfo): PrDisplayInfo {
   if (pr.mergeableState === "blocked")
     return {
       Icon: Ban,
-      iconClass: "text-orange-500",
-      textClass: "text-orange-600 dark:text-orange-400",
+      iconClass: "text-warning-foreground",
+      textClass: "text-warning-foreground",
       label: "Blocked",
     };
 
@@ -111,8 +111,8 @@ export function computePrDisplay(pr: PullRequestInfo): PrDisplayInfo {
   if (pr.mergeableState === "unstable")
     return {
       Icon: AlertTriangle,
-      iconClass: "text-yellow-500",
-      textClass: "text-yellow-600 dark:text-yellow-400",
+      iconClass: "text-warning-foreground",
+      textClass: "text-warning-foreground",
       label: "Unstable",
     };
 
@@ -120,8 +120,8 @@ export function computePrDisplay(pr: PullRequestInfo): PrDisplayInfo {
   if (pr.reviewStatus === "review_required")
     return {
       Icon: Eye,
-      iconClass: "text-blue-500",
-      textClass: "text-blue-600 dark:text-blue-400",
+      iconClass: "text-info-foreground",
+      textClass: "text-info-foreground",
       label: "Review needed",
     };
 
@@ -129,16 +129,16 @@ export function computePrDisplay(pr: PullRequestInfo): PrDisplayInfo {
   if (pr.mergeable === true || pr.mergeableState === "clean")
     return {
       Icon: GitMerge,
-      iconClass: "text-green-500",
-      textClass: "text-green-600 dark:text-green-400",
+      iconClass: "text-success-foreground",
+      textClass: "text-success-foreground",
       label: "Ready to merge",
     };
 
   // 13. Fallback: Open
   return {
     Icon: GitPullRequest,
-    iconClass: "text-blue-500",
-    textClass: "text-blue-600 dark:text-blue-400",
+    iconClass: "text-info-foreground",
+    textClass: "text-info-foreground",
     label: "Open",
   };
 }

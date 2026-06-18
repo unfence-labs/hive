@@ -148,7 +148,7 @@ function DiagnosticActivity({ activity }: { activity: Extract<AgentActivity, { k
 
 function diagnosticIcon(severity: Extract<AgentActivity, { kind: "diagnostic" }>["severity"]) {
   if (severity === "error") return <XCircleIcon className="size-3.5 text-destructive" aria-label="Diagnostic error" />;
-  if (severity === "warning") return <AlertTriangleIcon className="size-3.5 text-amber-500" aria-label="Diagnostic warning" />;
+  if (severity === "warning") return <AlertTriangleIcon className="size-3.5 text-warning-foreground" aria-label="Diagnostic warning" />;
   return undefined;
 }
 

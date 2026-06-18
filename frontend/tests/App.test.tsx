@@ -107,7 +107,7 @@ vi.mock("@/components/AddProjectDialog", () => ({
   ),
 }));
 
-vi.mock("@/components/EmptyStateLogo", () => ({
+vi.mock("@/pages/HomeView", () => ({
   default: ({ onAddProject }: { onAddProject?: () => void }) => (
     <button type="button" onClick={onAddProject}>
       open add project

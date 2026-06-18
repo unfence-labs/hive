@@ -32,7 +32,7 @@ export const PlanActionBar = memo(function PlanActionBar({
           onClick={handleCopy}
           className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
-          {copied ? <CheckIcon className="size-3 text-green-500" /> : <ClipboardIcon className="size-3" />}
+          {copied ? <CheckIcon className="size-3 text-success-foreground" /> : <ClipboardIcon className="size-3" />}
           Copy
         </button>
       )}

@@ -42,7 +42,7 @@ export const CopyButton = memo(function CopyButton({
       aria-label={copied ? copiedAriaLabel : ariaLabel}
     >
       {copied ? (
-        <CheckIcon className={cn(iconClassName, "text-green-500")} />
+        <CheckIcon className={cn(iconClassName, "text-success-foreground")} />
       ) : (
         <ClipboardIcon className={iconClassName} />
       )}

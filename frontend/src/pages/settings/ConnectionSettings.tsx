@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import { useTailscaleConfig } from "@/hooks/useTailscaleConfig";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
 import { Input } from "@/components/ui/input";
@@ -8,14 +9,14 @@ import { cn } from "@/lib/utils";
 
 const STATUS_CONFIG: Record<string, { dot: string; label: string; badge: string }> = {
   connected: {
-    dot: "bg-emerald-500",
+    dot: "bg-success",
     label: "Connected",
-    badge: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
+    badge: "border-success-border bg-success-muted text-success-foreground",
   },
   disconnected: {
-    dot: "bg-red-500",
+    dot: "bg-destructive",
     label: "Unreachable",
-    badge: "border-red-500/30 bg-red-500/10 text-red-400",
+    badge: "border-destructive/30 bg-destructive/10 text-destructive",
   },
   unknown: {
     dot: "bg-muted-foreground/40",
@@ -57,11 +58,12 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
   const cfg = STATUS_CONFIG[status];
 
   return (
-    <div className="flex h-full flex-col overflow-auto">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <h1 className="text-sm font-medium">Connection</h1>
       </SettingsHeader>
 
+      <CenterCard scroll>
       <div className="max-w-2xl space-y-6 px-4 py-5">
         <section className="rounded-lg border border-border/50 bg-card/50 p-5">
           <div className="flex items-start justify-between">
@@ -148,6 +150,7 @@ export default function ConnectionSettings({ onRefreshConnection }: ConnectionSe
           </div>
         </section>
       </div>
+      </CenterCard>
     </div>
   );
 }

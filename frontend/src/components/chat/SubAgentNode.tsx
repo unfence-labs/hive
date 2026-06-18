@@ -115,7 +115,7 @@ export const SubAgentNode = memo(function SubAgentNode({
         <button
           type="button"
           className={cn(
-            "inline-flex w-fit max-w-full min-w-0 items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground",
+            "inline-flex w-fit max-w-full min-w-0 items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-field hover:text-foreground",
             isRunning && "animate-shimmer",
           )}
           onClick={() => setExpanded(!expanded)}
@@ -125,7 +125,7 @@ export const SubAgentNode = memo(function SubAgentNode({
               "shrink-0",
               isRunning && "text-primary",
               isFailed && "text-destructive",
-              isDone && "text-green-500/80",
+              isDone && "text-success-foreground",
               !isRunning && !isDone && !isFailed && "text-muted-foreground",
             )}
           >
@@ -135,7 +135,7 @@ export const SubAgentNode = memo(function SubAgentNode({
             {info.subagentType}
           </span>
           {info.description && (
-            <code className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+            <code className="min-w-0 truncate rounded bg-field px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
               {info.description}
             </code>
           )}
@@ -150,7 +150,7 @@ export const SubAgentNode = memo(function SubAgentNode({
             </span>
           )}
           {isDone && (
-            <svg className="size-3 shrink-0 text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+            <svg className="size-3 shrink-0 text-success-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12" />
             </svg>
           )}
@@ -171,7 +171,7 @@ export const SubAgentNode = memo(function SubAgentNode({
             "ml-4 border-l-2 pl-3",
             isRunning && "border-primary/40",
             isFailed && "border-destructive/30",
-            isDone && "border-green-500/30",
+            isDone && "border-success-border",
             !isRunning && !isDone && !isFailed && "border-muted-foreground/20",
           )}
         >

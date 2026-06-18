@@ -7,6 +7,7 @@ import { saveProject, getDataDir, loadProject, withProjectStateLock } from "../s
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
 import { runNamingTask } from "./naming.js";
 import { NotFoundError } from "../utils/errors.js";
+import { assertSessionCapacity } from "./session-limits.js";
 import { extractSummary, extractPreview } from "../utils/summary-extractor.js";
 import { withKeyedLock } from "../utils/async-lock.js";
 import { parseJsonlMessages, sortByUpdatedAtDesc } from "./session-utils.js";
@@ -597,6 +598,8 @@ export async function createNewSession(
 ): Promise<ConversationSession> {
   return withWorkspaceLock(wsId, async () => {
     const ctx = await resolveWorkspaceContext(wsId, dataDir);
+    const existing = await listWorkspaceSessions(wsId, dataDir);
+    assertSessionCapacity(existing.length, "sessions");
     const session = await createSession(ctx, dataDir, options);
     setActiveSession(wsId, session);
     await persistWorkspaceSessionState(

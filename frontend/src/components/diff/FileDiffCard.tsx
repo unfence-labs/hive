@@ -14,14 +14,14 @@ const UNSAFE_CSS =
 function diffStatusColor(type: string): string {
   switch (type) {
     case "new":
-      return "text-green-500";
+      return "text-success-foreground";
     case "deleted":
-      return "text-red-500";
+      return "text-destructive";
     case "rename-pure":
     case "rename-changed":
-      return "text-yellow-500";
+      return "text-warning-foreground";
     default:
-      return "text-blue-500";
+      return "text-info-foreground";
   }
 }
 
@@ -87,8 +87,8 @@ function FileDiffCardComponent<TMeta>({
           <span className="truncate text-muted-foreground">&larr; {fileDiff.prevName}</span>
         )}
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          {additions > 0 && <span className="text-green-500">+{additions}</span>}
-          {deletions > 0 && <span className="text-red-500">-{deletions}</span>}
+          {additions > 0 && <span className="text-success-foreground">+{additions}</span>}
+          {deletions > 0 && <span className="text-destructive">-{deletions}</span>}
         </div>
       </div>
       {isEmpty ? (

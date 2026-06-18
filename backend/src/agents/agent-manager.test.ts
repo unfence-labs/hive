@@ -21,6 +21,7 @@ import {
   _clearActiveSessions,
   setNotifier,
 } from "./agent-manager.js";
+import { MAX_SESSIONS_PER_WORKSPACE } from "./session-limits.js";
 import { loadProject, saveProject } from "../state/state.js";
 import type { ChatMessage, SessionMetadata } from "../types.js";
 import { Notifier } from "../notifications/notifier.js";
@@ -403,6 +404,14 @@ describe("createNewSession", () => {
 
   it("throws for non-existent workspace", async () => {
     await expect(createNewSession("missing", dataDir, CONV_CMD)).rejects.toThrow("not found");
+  });
+
+  it("enforces the shared session cap (same rule as the Brain)", async () => {
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    for (let i = 1; i < MAX_SESSIONS_PER_WORKSPACE; i++) {
+      await createNewSession(wsId, dataDir, CONV_CMD);
+    }
+    await expect(createNewSession(wsId, dataDir, CONV_CMD)).rejects.toThrow(/Maximum/);
   });
 
   it("supports concurrent streaming across two sessions in the same workspace", async () => {

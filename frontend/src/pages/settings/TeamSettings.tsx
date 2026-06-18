@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { PromptEditor } from "@/components/PromptEditor";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import { SettingsActionButton } from "@/components/settings/ProviderSync";
 import { TEMPLATE_VARIABLES } from "@/lib/prompt-variables";
 import {
@@ -77,11 +78,12 @@ export default function TeamSettings() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <h1 className="text-sm font-medium">Team</h1>
       </SettingsHeader>
 
+      <CenterCard>
       <div className="flex flex-1 overflow-hidden">
         {/* ── Left Panel ─────────────────────────────────────────── */}
         <LeftPanel
@@ -120,6 +122,7 @@ export default function TeamSettings() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </CenterCard>
     </div>
   );
 }
@@ -496,7 +499,7 @@ function DeleteButton({ agent, onDone }: { agent: Agent | null; onDone: () => vo
 
   return (
     <div className="flex items-center gap-2">
-      {error && <span className="text-xs text-red-500">{error}</span>}
+      {error && <span className="text-xs text-destructive">{error}</span>}
       <AlertDialogAction
         onClick={async (e) => {
           if (!agent) return;
@@ -510,7 +513,7 @@ function DeleteButton({ agent, onDone }: { agent: Agent | null; onDone: () => vo
             setError(err instanceof Error ? err.message : "Failed to delete");
           }
         }}
-        className="bg-red-600 text-white hover:bg-red-700"
+        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
       >
         Delete
       </AlertDialogAction>

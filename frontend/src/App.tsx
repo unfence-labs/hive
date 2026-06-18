@@ -10,7 +10,7 @@ import AgentSettings from "@/pages/settings/AgentSettings";
 import ProjectDetail from "@/pages/settings/ProjectDetail";
 import BrainView from "@/pages/BrainView";
 import AddProjectDialog from "@/components/AddProjectDialog";
-import EmptyStateLogo from "@/components/EmptyStateLogo";
+import HomeView from "@/pages/HomeView";
 import { useProjects } from "@/hooks/useProjects";
 import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import type { Project } from "@/types";
@@ -91,7 +91,7 @@ export default function App() {
             <Route index element={<Navigate to="/home" replace />} />
             <Route
               path="home"
-              element={<EmptyStateLogo onAddProject={() => setShowAddProject(true)} />}
+              element={<HomeView onAddProject={() => setShowAddProject(true)} />}
             />
             <Route path="projects" element={<Navigate to="/home" replace />} />
             <Route path="projects/:id" element={<Navigate to="/home" replace />} />

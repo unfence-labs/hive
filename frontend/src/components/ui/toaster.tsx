@@ -49,7 +49,7 @@ export function HiveToast({
   const colors = VARIANT_COLORS[variant];
 
   return (
-    <div className="group pointer-events-auto relative flex w-[min(380px,calc(100vw-2rem))] items-start gap-3 rounded-lg border border-border bg-popover px-4 py-3.5 text-popover-foreground shadow-lg shadow-black/10 dark:shadow-black/30">
+    <div className="group pointer-events-auto relative flex w-[min(380px,calc(100vw-2rem))] items-start gap-3 rounded-lg border border-border bg-popover px-4 py-3.5 text-popover-foreground shadow-[var(--center-card-shadow)]">
       <span
         className="mt-1.5 size-2 shrink-0 rounded-full"
         style={{

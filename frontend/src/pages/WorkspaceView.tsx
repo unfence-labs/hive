@@ -18,7 +18,8 @@ import ScriptPanel from "@/components/ScriptPanel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { OpenTargetDropdown } from "@/components/OpenTargetDropdown";
 import { FileBrowserHeader } from "@/components/FileBrowserHeader";
-import { useLayoutContext } from "@/components/AppLayout";
+import { PageHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { PathCopyButton } from "@/components/PathCopyButton";
 import { wsTransport } from "@/lib/ws-transport";
@@ -34,7 +35,6 @@ function matchesDiffStat(filePath: string | null | undefined, stat: DiffFileStat
 
 export default function WorkspaceView() {
   const { wsId } = useParams();
-  const { collapsed } = useLayoutContext();
   const queryClient = useQueryClient();
 
   // Server data via TanStack Query
@@ -430,11 +430,7 @@ export default function WorkspaceView() {
       >
         <Panel id="chat" minSize="40%">
         <div className="flex min-w-0 h-full flex-col overflow-hidden">
-          <div
-            className="relative z-20 flex h-12 items-center gap-2 border-b border-border/50 pr-4 backdrop-blur-sm transition-[padding-left] duration-200 ease-in-out"
-            style={{ paddingLeft: collapsed ? "max(var(--traffic-light-clearance, 0px), 1rem)" : "1rem" }}
-            data-tauri-drag-region
-          >
+          <PageHeader className="gap-2">
             <span className="truncate text-sm font-semibold text-foreground">{workspace?.projectName ?? workspace?.name}</span>
             {displayBranch && (
               <BranchLabel branch={displayBranch} showIcon={false} className="text-xs text-muted-foreground" />
@@ -454,7 +450,8 @@ export default function WorkspaceView() {
               path={workspace?.worktreePath}
               pathUnavailableReason={copyWorkspacePathDisabledReason}
             />
-          </div>
+          </PageHeader>
+          <CenterCard>
           <ConversationPane
             sessions={sessions}
             activeSessionId={sessionId}
@@ -479,6 +476,7 @@ export default function WorkspaceView() {
             pendingToolInputs={pendingToolInputs}
             onQuestionAnswer={answerQuestion}
             onFileMentionClick={handleFileTreeSelect}
+            activeProvider={effectiveLockedProvider}
             workspaceName={workspace?.name}
             projectName={workspace?.projectName}
             branch={displayBranch}
@@ -551,10 +549,11 @@ export default function WorkspaceView() {
               onFocusConversation={handleFocusConversation}
             />
           )}
+          </CenterCard>
         </div>
         </Panel>
 
-        <ResizeHandle orientation="vertical" disabled={!isLg} className={!isLg ? "hidden" : ""} />
+        <ResizeHandle orientation="vertical" cardSide="left" disabled={!isLg} className={!isLg ? "hidden" : ""} />
 
         <Panel
           id="right-sidebar"

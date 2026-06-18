@@ -39,8 +39,8 @@ export const DiffView = memo(function DiffView({
             key={i}
             className={cn(
               "px-2 font-mono",
-              line.startsWith("+") && !line.startsWith("+++") && "bg-green-500/15 text-green-400",
-              line.startsWith("-") && !line.startsWith("---") && "bg-red-500/15 text-red-400",
+              line.startsWith("+") && !line.startsWith("+++") && "bg-success-muted text-success-foreground",
+              line.startsWith("-") && !line.startsWith("---") && "bg-destructive/10 text-destructive",
               line.startsWith("@@") && "bg-muted/60 text-muted-foreground",
             )}
           >
@@ -53,8 +53,8 @@ export const DiffView = memo(function DiffView({
               key={`${i}-${j}`}
               className={cn(
                 "px-2 font-mono",
-                part.added && "bg-green-500/15 text-green-400",
-                part.removed && "bg-red-500/15 text-red-400",
+                part.added && "bg-success-muted text-success-foreground",
+                part.removed && "bg-destructive/10 text-destructive",
               )}
             >
               <span className="inline-block w-4 select-none opacity-60">

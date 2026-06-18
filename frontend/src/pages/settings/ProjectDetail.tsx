@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Trash2, ExternalLink, Save, Pencil, Plus, X, Eye } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import { EnvEditor } from "@/components/EnvEditor";
 import { ProjectEnvStructuredEditor } from "@/components/ProjectEnvStructuredEditor";
 import {
@@ -68,7 +69,7 @@ export default function ProjectDetail() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-auto">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <div className="flex items-center gap-2.5">
           <ProjectAvatar
@@ -81,6 +82,7 @@ export default function ProjectDetail() {
         </div>
       </SettingsHeader>
 
+      <CenterCard scroll>
       <div className="max-w-4xl space-y-4 px-4 py-5">
         <section className="rounded-lg border border-border/50 bg-card/50 p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
@@ -178,6 +180,7 @@ export default function ProjectDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </CenterCard>
     </div>
   );
 }

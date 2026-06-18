@@ -323,7 +323,7 @@ export function BrowserPanel({ status, collapsed = false, onToggleCollapsed }: B
             <span className="text-xs uppercase tracking-wide text-foreground">Browser</span>
           </div>
           <span className="flex items-center gap-1 rounded-full bg-sidebar-accent/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-            <span className={isStreaming ? "size-1.5 rounded-full bg-emerald-400" : "size-1.5 rounded-full bg-muted-foreground/50"} />
+            <span className={isStreaming ? "size-1.5 rounded-full bg-success" : "size-1.5 rounded-full bg-muted-foreground/50"} />
             {statusLabel}
           </span>
 

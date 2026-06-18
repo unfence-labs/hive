@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { createFixtureRepo, createTempDir } from "../utils/test-helpers.js";
 import { connectBrain } from "../brain/brain-repo.js";
 import {
-  MAX_BRAIN_SESSIONS,
   activateBrainSession,
   createNewBrainSession,
   getOrCreateBrainSession,
@@ -12,6 +11,7 @@ import {
   listBrainSessions,
   _clearBrainSessions,
 } from "./brain-manager.js";
+import { MAX_SESSIONS_PER_WORKSPACE } from "./session-limits.js";
 
 const CMD = { command: "bash" };
 
@@ -78,7 +78,7 @@ describe("brain session manager", () => {
 
   it("enforces the maximum session count", async () => {
     await connectFixtureBrain();
-    for (let i = 0; i < MAX_BRAIN_SESSIONS; i++) {
+    for (let i = 0; i < MAX_SESSIONS_PER_WORKSPACE; i++) {
       await createNewBrainSession(dataDir, CMD);
     }
     await expect(createNewBrainSession(dataDir, CMD)).rejects.toThrow(/Maximum/);

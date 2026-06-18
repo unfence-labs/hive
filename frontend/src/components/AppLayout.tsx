@@ -5,6 +5,7 @@ import Sidebar from "./Sidebar";
 import SettingsSidebar from "./SettingsSidebar";
 import { ResizeHandle } from "./ResizeHandle";
 import { useConnectionStatus } from "@/hooks/useConnectionStatus";
+import { cn } from "@/lib/utils";
 
 /**
  * Temporarily enable a CSS transition on a panel's outer element so that
@@ -36,17 +37,37 @@ export function useLayoutContext(): LayoutContext {
   return ctx ?? defaultContext;
 }
 
-export function SettingsHeader({ children }: { children: React.ReactNode }) {
+/**
+ * The shell page header shared by every main view: a fixed-height (h-12) bar
+ * that sits on the shell *above* the floating {@link CenterCard}. It owns the
+ * macOS traffic-light clearance (left padding grows when the sidebar is
+ * collapsed) and the Tauri window drag region, so every view gets consistent
+ * window chrome for free. Pass `className` to tune layout (e.g. `gap-2`).
+ */
+export function PageHeader({
+  children,
+  className,
+}: {
+  children?: React.ReactNode;
+  className?: string;
+}) {
   const { collapsed } = useLayoutContext();
   return (
     <div
-      className="flex h-12 shrink-0 items-center border-b border-border/50 pr-4 transition-[padding-left] duration-200 ease-in-out"
+      className={cn(
+        "relative flex h-12 shrink-0 items-center pr-4 transition-[padding-left] duration-200 ease-in-out",
+        className,
+      )}
       style={{ paddingLeft: collapsed ? "max(var(--traffic-light-clearance, 0px), 1rem)" : "1rem" }}
       data-tauri-drag-region
     >
       {children}
     </div>
   );
+}
+
+export function SettingsHeader({ children }: { children: React.ReactNode }) {
+  return <PageHeader>{children}</PageHeader>;
 }
 
 interface AppLayoutProps {
@@ -110,7 +131,7 @@ export default function AppLayout({ onAddProject, onAddAutomation }: AppLayoutPr
   const context: LayoutContext = { collapsed, toggleSidebar };
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-screen flex-col bg-sidebar">
       {import.meta.env.DEV && (
         <div className="shrink-0 bg-warning/90 px-3 py-0.5 text-center text-xs font-medium text-warning-contrast">
           Dev frontend → {backendEnv ? `${backendEnv} backend` : "connecting…"}
@@ -140,7 +161,7 @@ export default function AppLayout({ onAddProject, onAddAutomation }: AppLayoutPr
             <Sidebar onAddProject={onAddProject} onAddAutomation={onAddAutomation} />
           )}
         </Panel>
-        <ResizeHandle orientation="vertical" />
+        <ResizeHandle orientation="vertical" cardSide="right" />
         <Panel id="main">
           <main className="relative flex h-full flex-col overflow-hidden">
             <Outlet context={context} />

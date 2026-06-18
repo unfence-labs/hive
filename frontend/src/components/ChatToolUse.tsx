@@ -480,7 +480,7 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
       <button
         type="button"
         className={cn(
-          "inline-flex w-fit max-w-full items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground",
+          "inline-flex w-fit max-w-full items-center gap-2 rounded-md py-1 pr-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-field hover:text-foreground",
           isExecuting && "animate-shimmer",
         )}
         onClick={onClick ?? (() => setExpanded(!expanded))}
@@ -489,14 +489,14 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
         <span className="shrink-0">{display.icon}</span>
         <span>{display.label}</span>
         {display.detail && (
-          <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+          <code className="truncate rounded bg-field px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
             {display.detail}
           </code>
         )}
         {stats?.type === "diff" && (
           <span className="flex items-center gap-1 font-mono text-xs">
-            {stats.added > 0 && <span className="text-green-500">+{stats.added}</span>}
-            {stats.removed > 0 && <span className="text-red-500">&minus;{stats.removed}</span>}
+            {stats.added > 0 && <span className="text-success-foreground">+{stats.added}</span>}
+            {stats.removed > 0 && <span className="text-destructive">&minus;{stats.removed}</span>}
           </span>
         )}
         {stats?.type === "plain" && (

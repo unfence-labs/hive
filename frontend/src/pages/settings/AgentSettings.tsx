@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, CheckCircle2, ArrowUpCircle, CircleSlash } from "lucide-react";
 import { SettingsHeader } from "@/components/AppLayout";
+import { CenterCard } from "@/components/CenterCard";
 import { api } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
 
@@ -24,11 +25,12 @@ export default function AgentSettings() {
   });
 
   return (
-    <div className="flex h-full flex-col overflow-auto">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <SettingsHeader>
         <h1 className="text-sm font-medium">CLI</h1>
       </SettingsHeader>
 
+      <CenterCard scroll>
       <div className="max-w-2xl space-y-4 px-4 py-5">
         <p className="text-xs text-muted-foreground">
           Agent CLI tools detected on this server.
@@ -42,7 +44,7 @@ export default function AgentSettings() {
         )}
 
         {isError && (
-          <p className="py-4 text-xs text-red-400">
+          <p className="py-4 text-xs text-destructive">
             Could not load agent information.
           </p>
         )}
@@ -51,6 +53,7 @@ export default function AgentSettings() {
           <AgentCard key={agent.id} agent={agent} />
         ))}
       </div>
+      </CenterCard>
     </div>
   );
 }
@@ -99,7 +102,7 @@ function StatusBadge({ agent }: { agent: AgentStatusEntry }) {
 
   if (agent.latestVersion != null) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-400">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-success-border bg-success-muted px-2.5 py-0.5 text-[11px] font-medium text-success-foreground">
         <CheckCircle2 className="h-3 w-3" />
         Up to date
       </span>
