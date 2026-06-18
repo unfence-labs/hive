@@ -99,7 +99,9 @@ export function SidebarWorkspaceItem({
             <span
               className={cn(
                 "flex shrink-0 items-center gap-2 transition-opacity",
-                canArchive && "group-hover/ws:opacity-0",
+                // While archiving, the spinner takes over the trailing slot — hide
+                // the metadata entirely so it doesn't show through underneath.
+                isArchiving ? "opacity-0" : canArchive && "group-hover/ws:opacity-0",
               )}
             >
               {diffTotals && (
@@ -110,12 +112,19 @@ export function SidebarWorkspaceItem({
                 />
               )}
               <span className="grid w-2.5 place-items-center">
-                {prDisplay && (
+                {prDisplay ? (
                   <span
                     role="img"
                     aria-label={`#${pr!.number} ${prDisplay.label}`}
                     title={`#${pr!.number} ${prDisplay.label}`}
-                    className={cn("size-1.5 rounded-full bg-current", prDisplay.iconClass)}
+                    className={cn("size-1.5 rounded-full bg-current", prDisplay.colorClass)}
+                  />
+                ) : (
+                  // No PR yet: a hollow gray dot keeps the column aligned and reads
+                  // as an empty status slot.
+                  <span
+                    aria-hidden
+                    className="size-1.5 rounded-full border border-muted-foreground/40"
                   />
                 )}
               </span>
@@ -127,15 +136,20 @@ export function SidebarWorkspaceItem({
         </TooltipContent>
       </Tooltip>
 
+      {/* Center the archive overlay (loader + trash) on the PR-dot column, which sits
+          13px from the row's right edge (px-2 = 8px + half the dot's w-2.5 cell = 5px).
+          A w-3.5 (14px) box at right-1.5 (6px) centers there (6 + 7 = 13px); the box must
+          be wider than the ~13px icons, since Chromium start-aligns oversized grid items
+          rather than centering them. */}
       {isArchiving ? (
-        <div className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5">
+        <div className="absolute right-1.5 top-1/2 grid w-3.5 -translate-y-1/2 place-items-center">
           <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
         </div>
       ) : (
         canArchive && (
           <button
             type="button"
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground opacity-0 transition-[opacity,color] duration-150 hover:text-destructive group-hover/ws:opacity-100"
+            className="absolute right-1.5 top-1/2 grid w-3.5 -translate-y-1/2 place-items-center rounded text-muted-foreground opacity-0 transition-[opacity,color] duration-150 hover:text-destructive group-hover/ws:opacity-100"
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
