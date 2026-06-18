@@ -67,7 +67,7 @@ export function stopAllTerminalsForWorkspace(wsId: string): void {
     .filter((k) => k.startsWith(prefix))
     .map((k) => k.slice(prefix.length));
   for (const sessionId of sessionIds) {
-    stopTerminal(wsId, sessionId);
+    removeTerminal(wsId, sessionId);
   }
 }
 
@@ -76,7 +76,7 @@ export function stopAllTerminals(): void {
   for (const k of [...activeTerminals.keys()]) {
     const [wsId, ...rest] = k.split(":");
     const sessionId = rest.join(":");
-    if (wsId && sessionId) stopTerminal(wsId, sessionId);
+    if (wsId && sessionId) removeTerminal(wsId, sessionId);
   }
 }
 

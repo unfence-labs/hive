@@ -152,11 +152,12 @@ describe("terminal-runner", () => {
     startTerminal("ws-1", "sess-a", "/tmp/workspace");
     startTerminal("ws-1", "sess-b", "/tmp/workspace");
     startTerminal("ws-2", "sess-c", "/tmp/workspace");
+    mocks.processes[1].emitExit(0);
 
     stopAllTerminalsForWorkspace("ws-1");
 
     expect(mocks.processes[0]?.kill).toHaveBeenCalledTimes(1);
-    expect(mocks.processes[1]?.kill).toHaveBeenCalledTimes(1);
+    expect(mocks.processes[1]?.kill).not.toHaveBeenCalled();
     expect(mocks.processes[2]?.kill).not.toHaveBeenCalled();
     expect(getTerminalProcess("ws-1", "sess-a")).toBeUndefined();
     expect(getTerminalProcess("ws-1", "sess-b")).toBeUndefined();
@@ -166,11 +167,12 @@ describe("terminal-runner", () => {
   it("stops all terminals across all workspaces", () => {
     startTerminal("ws-1", "sess-a", "/tmp/workspace");
     startTerminal("ws-2", "sess-b", "/tmp/workspace");
+    mocks.processes[1].emitExit(0);
 
     stopAllTerminals();
 
     expect(mocks.processes[0]?.kill).toHaveBeenCalledTimes(1);
-    expect(mocks.processes[1]?.kill).toHaveBeenCalledTimes(1);
+    expect(mocks.processes[1]?.kill).not.toHaveBeenCalled();
     expect(getTerminalProcess("ws-1", "sess-a")).toBeUndefined();
     expect(getTerminalProcess("ws-2", "sess-b")).toBeUndefined();
   });
