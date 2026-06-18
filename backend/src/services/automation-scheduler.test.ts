@@ -38,6 +38,9 @@ const sessionSendCalls: Array<{ content: string; options?: Record<string, unknow
 const mockSessions: MockSessionHandle[] = [];
 // When true, sendMessage does NOT auto-emit "done"; the test drives activity.
 let suppressAutoDone = false;
+// Content of the final assistant message returned by getMessages(). Tests can
+// override it to exercise summary extraction vs. preview fallback.
+let mockAssistantContent = "Working\n## Summary\nAll good.";
 
 vi.mock("../agents/conversation-session.js", async () => {
   const { EventEmitter } = await import("node:events");
@@ -78,7 +81,7 @@ vi.mock("../agents/conversation-session.js", async () => {
 
     async getMessages() {
       return [
-        { id: "m1", sessionId: "s1", role: "assistant", content: "Working\n## Summary\nAll good.", timestamp: new Date().toISOString() },
+        { id: "m1", sessionId: "s1", role: "assistant", content: mockAssistantContent, timestamp: new Date().toISOString() },
       ];
     }
   }
@@ -106,25 +109,20 @@ vi.mock("../utils/paths.js", () => ({
   resolveDefaultBranch: vi.fn(async () => "main"),
 }));
 
-vi.mock("../agents/system-prompt.js", () => ({
-  getGitContext: vi.fn(async () => ({
-    branch: "main",
-    status: "",
-    recentCommits: "abc1234 initial commit",
-    defaultBranch: "main",
-  })),
-  formatGitContextBlock: vi.fn(
-    (_ctx: unknown, opts?: { projectName?: string }) =>
-      `# Git Context (snapshot at session start)\n\nProject: ${opts?.projectName ?? "unknown"}\nCurrent branch: main\nMain branch: main\n\nStatus: (clean)\n\nRecent commits:\nabc1234 initial commit`,
-  ),
-  interpolatePromptVariables: vi.fn(
-    (prompt: string, values: { projectName: string; cwd: string; defaultBranch: string }) =>
-      prompt
-        .replace(/\{DIR}/g, values.cwd)
-        .replace(/\{DEFAULT_BRANCH}/g, values.defaultBranch)
-        .replace(/\{PROJECT}/g, values.projectName),
-  ),
-}));
+// Keep the real pure composer (buildPrompt) and formatters so the scheduler
+// produces a faithful prompt; only stub getGitContext to avoid real git calls.
+vi.mock("../agents/system-prompt.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../agents/system-prompt.js")>();
+  return {
+    ...actual,
+    getGitContext: vi.fn(async () => ({
+      branch: "main",
+      status: "",
+      recentCommits: "abc1234 initial commit",
+      defaultBranch: "main",
+    })),
+  };
+});
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -150,7 +148,6 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     systemPrompt: "You are a reviewer.",
     modelId: "claude:opus-4-8",
     thinkingLevel: "high",
-    injectGitContext: true,
     readOnly: false,
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -190,6 +187,7 @@ beforeEach(async () => {
   sessionSendCalls.length = 0;
   mockSessions.length = 0;
   suppressAutoDone = false;
+  mockAssistantContent = "Working\n## Summary\nAll good.";
   vi.clearAllMocks();
   // Default agent referenced by makeAutomation(). Tests needing a different
   // system prompt / model / readOnly re-save via saveAgents().
@@ -331,6 +329,20 @@ describe("AutomationScheduler", () => {
       expect(run.status).toBe("success");
       expect(run.summary).toBe("All good.");
       expect(run.completedAt).toBeDefined();
+
+      scheduler.stop();
+    });
+
+    it("falls back to the message preview when there is no '## Summary' section", async () => {
+      mockAssistantContent = "Did the work, but wrote no formal summary section.";
+      const auto = makeAutomation();
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      const run = await scheduler.triggerNow("auto-1");
+
+      expect(run.status).toBe("success");
+      expect(run.summary).toBe("Did the work, but wrote no formal summary section.");
 
       scheduler.stop();
     });
@@ -723,16 +735,16 @@ describe("AutomationScheduler", () => {
       expect(sysPrompt).toContain("You are a reviewer.");
       expect(sysPrompt).toContain("# Git Context");
       expect(sysPrompt).toContain("Project: Test Project");
-      expect(sysPrompt).toContain("## Summary");
 
       scheduler.stop();
     });
 
-    it("omits git context when the agent has injectGitContext disabled", async () => {
+    it("includes git context for project-linked automations", async () => {
       const { loadProject } = await import("../state/state.js");
       vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "Test Project", repoUrl: "https://github.com/test/repo" } as never);
 
-      await saveAgents([makeAgent({ injectGitContext: false })], dataDir);
+      // Project-linkage alone gates git context.
+      await saveAgents([makeAgent()], dataDir);
       const auto = makeAutomation({ projectId: "proj-1" });
       await saveAutomations([auto], dataDir);
 
@@ -742,9 +754,27 @@ describe("AutomationScheduler", () => {
       const lastCall = sessionConstructorCalls[sessionConstructorCalls.length - 1];
       const sysPrompt = lastCall.systemPrompt as string;
       expect(sysPrompt).toContain("You are a reviewer.");
+      expect(sysPrompt).toContain("# Git Context");
+
+      scheduler.stop();
+    });
+
+    it("does not inject git context for non-project automations when project lookup returns null", async () => {
+      const { loadProject } = await import("../state/state.js");
+      vi.mocked(loadProject).mockResolvedValue(null as never);
+
+      // No projectId means no git context.
+      await saveAgents([makeAgent()], dataDir);
+      const auto = makeAutomation({ projectId: undefined });
+      await saveAutomations([auto], dataDir);
+
+      const scheduler = new AutomationScheduler(dataDir);
+      await scheduler.triggerNow("auto-1");
+
+      const lastCall = sessionConstructorCalls[sessionConstructorCalls.length - 1];
+      const sysPrompt = lastCall.systemPrompt as string;
       expect(sysPrompt).not.toContain("# Git Context");
-      expect(sysPrompt).toContain("## Summary");
-      // Should NOT start with \n\n (no empty prefix)
+      // No empty git block prefix.
       expect(sysPrompt).not.toMatch(/^\n/);
 
       scheduler.stop();
@@ -811,24 +841,6 @@ describe("AutomationScheduler", () => {
       scheduler.stop();
     });
 
-    it("calls formatGitContextBlock with project name", async () => {
-      const { loadProject } = await import("../state/state.js");
-      vi.mocked(loadProject).mockResolvedValue({ id: "proj-1", name: "My App", repoUrl: "https://github.com/test/repo" } as never);
-      const { formatGitContextBlock } = await import("../agents/system-prompt.js");
-
-      const auto = makeAutomation({ projectId: "proj-1" });
-      await saveAutomations([auto], dataDir);
-
-      const scheduler = new AutomationScheduler(dataDir);
-      await scheduler.triggerNow("auto-1");
-
-      expect(formatGitContextBlock).toHaveBeenCalledWith(
-        expect.objectContaining({ branch: "main", defaultBranch: "main" }),
-        { projectName: "My App" },
-      );
-
-      scheduler.stop();
-    });
   });
 
   describe("system prompt persistence", () => {
@@ -853,7 +865,9 @@ describe("AutomationScheduler", () => {
       );
       const persisted = await readFile(promptPath, "utf-8");
       expect(persisted).toContain("You are strict.");
-      expect(persisted).toContain("## Summary");
+      // The forced "## Summary" instruction is gone; the persisted prompt is
+      // just the agent prompt (no git context for a non-project automation).
+      expect(persisted).not.toContain("## Summary");
 
       scheduler.stop();
     });

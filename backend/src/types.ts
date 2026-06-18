@@ -3,6 +3,9 @@ export type { AgentActivity, AgentActivityCommandAction, AgentActivityFile } fro
 
 export type WorkspaceStatus = "idle" | "busy";
 
+/** Kind of a persisted agent conversation session. */
+export type SessionKind = "chat" | "automation" | "brain";
+
 export interface Workspace {
   id: string;
   name: string;
@@ -493,7 +496,6 @@ export interface Agent {
   systemPrompt: string;
   modelId: string;
   thinkingLevel: ThinkingLevel;
-  injectGitContext: boolean;
   readOnly: boolean;
   createdAt: string;
   updatedAt: string;
@@ -505,7 +507,6 @@ export interface CreateAgentRequest {
   systemPrompt: string;
   modelId: string;
   thinkingLevel?: ThinkingLevel;
-  injectGitContext: boolean;
   readOnly: boolean;
 }
 
@@ -515,7 +516,6 @@ export interface UpdateAgentRequest {
   systemPrompt?: string;
   modelId?: string;
   thinkingLevel?: ThinkingLevel;
-  injectGitContext?: boolean;
   readOnly?: boolean;
 }
 

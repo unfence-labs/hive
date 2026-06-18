@@ -5,8 +5,7 @@ import { createTempDir } from "../utils/test-helpers.js";
 import { git } from "../utils/git.js";
 import {
   getGitContext,
-  buildSystemPrompt,
-  buildBrainSystemPrompt,
+  buildPrompt,
   loadBasePrompt,
   loadBrainPrompt,
   formatGitContextBlock,
@@ -34,41 +33,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
-});
-
-describe("buildBrainSystemPrompt", () => {
-  it("injects the Brain file-path map", () => {
-    const prompt = buildBrainSystemPrompt({
-      cwd: "/data/brain/repo",
-      filePaths: ["solana/notes.md", "ideas/roadmap.md"],
-    });
-    expect(prompt).toContain("Brain Map");
-    expect(prompt).toContain("- solana/notes.md");
-    expect(prompt).toContain("- ideas/roadmap.md");
-    expect(prompt).toContain("Brain");
-  });
-
-  it("describes an empty Brain when there are no files", () => {
-    const prompt = buildBrainSystemPrompt({ cwd: "/data/brain/repo", filePaths: [] });
-    expect(prompt).toContain("currently empty");
-  });
-
-  it("reminds the agent to stay inside the Brain", () => {
-    const prompt = buildBrainSystemPrompt({ cwd: "/data/brain/repo", filePaths: [] });
-    expect(prompt).toMatch(/ONLY inside the Brain/i);
-  });
-
-  it("uses an injected basePrompt over the hardcoded default", () => {
-    const prompt = buildBrainSystemPrompt({
-      cwd: "/data/brain/repo",
-      filePaths: ["a.md"],
-      basePrompt: "Custom brain instructions in {DIR}.",
-    });
-    expect(prompt).toContain("Custom brain instructions in /data/brain/repo.");
-    expect(prompt).not.toContain("personal knowledge base");
-    // Map is still appended.
-    expect(prompt).toContain("- a.md");
-  });
 });
 
 describe("loadBrainPrompt", () => {
@@ -132,110 +96,6 @@ describe("getGitContext", () => {
     const ctx = await getGitContext(repoDir);
     // No remote set up, so origin/HEAD won't resolve — should fall back to "main"
     expect(ctx.defaultBranch).toBe("main");
-  });
-});
-
-describe("buildSystemPrompt", () => {
-  it("includes git context in output", async () => {
-    const prompt = await buildSystemPrompt({ cwd: repoDir });
-    expect(prompt).toContain("Current branch: main");
-    expect(prompt).toContain("initial commit");
-  });
-
-  it("includes workspace and project name when provided", async () => {
-    const prompt = await buildSystemPrompt({
-      cwd: repoDir,
-      workspaceName: "geneva",
-      projectName: "hive",
-    });
-    expect(prompt).toContain("Project: hive");
-    expect(prompt).toContain("Workspace: geneva");
-  });
-
-  it("includes default base prompt with interpolated variables", async () => {
-    const prompt = await buildSystemPrompt({ cwd: repoDir, projectName: "my-app" });
-    expect(prompt).toContain("running inside Hive");
-    expect(prompt).toContain("project called **my-app**");
-    expect(prompt).toContain(`take place in the ${repoDir} directory`);
-    expect(prompt).toContain("target branch for this workspace is main");
-    expect(prompt).not.toContain("{DIR}");
-    expect(prompt).not.toContain("{DEFAULT_BRANCH}");
-    expect(prompt).not.toContain("{PROJECT}");
-  });
-
-  it("uses custom base prompt when provided", async () => {
-    const prompt = await buildSystemPrompt({
-      cwd: repoDir,
-      basePrompt: "You are a specialized agent for database migrations.",
-    });
-    expect(prompt).toContain("database migrations");
-    expect(prompt).not.toContain("AI coding assistant");
-  });
-
-  it("shows clean status for clean repo", async () => {
-    const prompt = await buildSystemPrompt({ cwd: repoDir });
-    expect(prompt).toContain("Status: (clean)");
-  });
-
-  it("shows dirty status for modified repo", async () => {
-    await writeFile(join(repoDir, "dirty.txt"), "changes");
-    const prompt = await buildSystemPrompt({ cwd: repoDir });
-    expect(prompt).toContain("dirty.txt");
-    expect(prompt).not.toContain("Status: (clean)");
-  });
-
-  it("uses provided defaultBranch instead of detecting", async () => {
-    const prompt = await buildSystemPrompt({ cwd: repoDir, defaultBranch: "develop" });
-    expect(prompt).toContain("Main branch: develop");
-  });
-
-  it("does not include branch rename directives", async () => {
-    const prompt = await buildSystemPrompt({ cwd: repoDir });
-    expect(prompt).not.toContain("git branch -m");
-    expect(prompt).not.toContain("Branch Naming");
-  });
-
-  it("loads base prompt from promptsDir when provided", async () => {
-    const promptsDir = join(tempDir, "prompts");
-    await mkdir(promptsDir, { recursive: true });
-    await writeFile(join(promptsDir, "base.md"), "Custom base prompt from file.");
-
-    const prompt = await buildSystemPrompt({ cwd: repoDir, promptsDir });
-    expect(prompt).toContain("Custom base prompt from file.");
-    expect(prompt).not.toContain("AI coding assistant");
-  });
-
-  it("interpolates {DIR} and {DEFAULT_BRANCH} in file-based prompt", async () => {
-    const promptsDir = join(tempDir, "prompts");
-    await mkdir(promptsDir, { recursive: true });
-    await writeFile(join(promptsDir, "base.md"), "Work in {DIR}, branch is {DEFAULT_BRANCH}.");
-
-    const prompt = await buildSystemPrompt({ cwd: repoDir, promptsDir, defaultBranch: "develop" });
-    expect(prompt).toContain(`Work in ${repoDir}, branch is develop.`);
-    expect(prompt).not.toContain("{DIR}");
-    expect(prompt).not.toContain("{DEFAULT_BRANCH}");
-  });
-
-  it("falls back to default when promptsDir has no base.md", async () => {
-    const promptsDir = join(tempDir, "empty-prompts");
-    await mkdir(promptsDir, { recursive: true });
-
-    const prompt = await buildSystemPrompt({ cwd: repoDir, promptsDir });
-    expect(prompt).toContain("running inside Hive");
-  });
-
-  it("explicit basePrompt takes priority over promptsDir", async () => {
-    const promptsDir = join(tempDir, "prompts");
-    await mkdir(promptsDir, { recursive: true });
-    await writeFile(join(promptsDir, "base.md"), "From file.");
-
-    const prompt = await buildSystemPrompt({
-      cwd: repoDir,
-      promptsDir,
-      basePrompt: "Explicit override.",
-    });
-    expect(prompt).toContain("Explicit override.");
-    expect(prompt).not.toContain("From file.");
   });
 });
 
@@ -346,15 +206,126 @@ describe("formatGitContextBlock", () => {
     expect(block).toContain("Current branch: unknown");
   });
 
-  it("produces identical output to what buildSystemPrompt appends", async () => {
-    // buildSystemPrompt calls formatGitContextBlock internally — verify consistency
-    const prompt = await buildSystemPrompt({
-      cwd: repoDir,
+  it("produces identical output to what buildPrompt appends", async () => {
+    // buildPrompt("chat") calls formatGitContextBlock internally — verify consistency
+    const ctx = await getGitContext(repoDir);
+    const { text } = buildPrompt("chat", {
+      base: DEFAULT_BASE_PROMPT,
+      interpolation: { projectName: "hive", cwd: repoDir, defaultBranch: ctx.defaultBranch },
+      git: ctx,
       projectName: "hive",
       workspaceName: "geneva",
     });
-    const ctx = await getGitContext(repoDir);
     const block = formatGitContextBlock(ctx, { projectName: "hive", workspaceName: "geneva" });
-    expect(prompt).toContain(block);
+    expect(text).toContain(block);
+  });
+});
+
+describe("buildPrompt", () => {
+  const gitCtx: GitContext = {
+    branch: "feat/login",
+    status: "",
+    recentCommits: "abc1234 add login page",
+    defaultBranch: "main",
+  };
+  const interpolation = { projectName: "hive", cwd: "/work/dir", defaultBranch: "main" };
+  const base = "Base for {PROJECT} in {DIR} on {DEFAULT_BRANCH}.";
+
+  it("chat recipe with git material yields [base, git, browser] in order", () => {
+    const result = buildPrompt("chat", { base, interpolation, git: gitCtx });
+    expect(result.blocks.map((b) => b.label)).toEqual(["base", "git", "browser"]);
+    expect(result.text).toBe(result.blocks.map((b) => b.content).join("\n\n"));
+    expect(result.blocks[1].content).toContain("# Git Context");
+    expect(result.blocks[2].content).toContain("# Browser Context");
+  });
+
+  it("chat recipe without git material yields [base, browser]", () => {
+    const result = buildPrompt("chat", { base, interpolation });
+    expect(result.blocks.map((b) => b.label)).toEqual(["base", "browser"]);
+    expect(result.text).not.toContain("# Git Context");
+    expect(result.text).toContain("# Browser Context");
+  });
+
+  it("brain recipe yields [base, brainMap]", () => {
+    const result = buildPrompt("brain", {
+      base,
+      interpolation,
+      brainFilePaths: ["notes/a.md"],
+    });
+    expect(result.blocks.map((b) => b.label)).toEqual(["base", "brainMap"]);
+    expect(result.blocks[1].content).toContain("# Brain Map");
+    expect(result.blocks[1].content).toContain("- notes/a.md");
+  });
+
+  it("brain recipe with empty filePaths still yields a brainMap block", () => {
+    const result = buildPrompt("brain", { base, interpolation, brainFilePaths: [] });
+    expect(result.blocks.map((b) => b.label)).toEqual(["base", "brainMap"]);
+    expect(result.blocks[1].content).toContain("currently empty");
+  });
+
+  it("brain recipe with omitted filePaths defaults to an empty brainMap block", () => {
+    const result = buildPrompt("brain", { base, interpolation });
+    expect(result.blocks.map((b) => b.label)).toEqual(["base", "brainMap"]);
+    expect(result.blocks[1].content).toContain("currently empty");
+  });
+
+  it("automation recipe with git yields [base, git]", () => {
+    const result = buildPrompt("automation", { base, interpolation, git: gitCtx });
+    expect(result.blocks.map((b) => b.label)).toEqual(["base", "git"]);
+    expect(result.blocks[1].content).toContain("# Git Context");
+  });
+
+  it("automation recipe without git yields [base]", () => {
+    const result = buildPrompt("automation", { base, interpolation });
+    expect(result.blocks.map((b) => b.label)).toEqual(["base"]);
+  });
+
+  it("interpolates the base block only, leaving concrete blocks untouched", () => {
+    // Git block carries a literal "{DIR}" that must survive untouched, while the
+    // base's "{DIR}" must be replaced with the interpolation cwd.
+    const gitWithPlaceholder: GitContext = {
+      ...gitCtx,
+      recentCommits: "deadbee build in {DIR}",
+    };
+    const result = buildPrompt("chat", {
+      base,
+      interpolation: { projectName: "hive", cwd: "/work/dir", defaultBranch: "main" },
+      git: gitWithPlaceholder,
+    });
+
+    const baseBlock = result.blocks.find((b) => b.label === "base")!;
+    const gitBlock = result.blocks.find((b) => b.label === "git")!;
+
+    // Base placeholders are resolved.
+    expect(baseBlock.content).toContain("/work/dir");
+    expect(baseBlock.content).not.toContain("{DIR}");
+    // Git block keeps the literal placeholder — never interpolated.
+    expect(gitBlock.content).toContain("build in {DIR}");
+  });
+
+  it("passes project/workspace names into the git block header", () => {
+    const result = buildPrompt("chat", {
+      base,
+      interpolation,
+      git: gitCtx,
+      projectName: "hive",
+      workspaceName: "geneva",
+    });
+    const gitBlock = result.blocks.find((b) => b.label === "git")!;
+    expect(gitBlock.content).toContain("Project: hive");
+    expect(gitBlock.content).toContain("Workspace: geneva");
+  });
+
+  it("text equals blocks joined with double newline for every recipe", () => {
+    for (const result of [
+      buildPrompt("chat", { base, interpolation, git: gitCtx }),
+      buildPrompt("chat", { base, interpolation }),
+      buildPrompt("automation", { base, interpolation, git: gitCtx }),
+      buildPrompt("automation", { base, interpolation }),
+      buildPrompt("brain", { base, interpolation, brainFilePaths: [] }),
+    ]) {
+      expect(result.text).toBe(result.blocks.map((b) => b.content).join("\n\n"));
+      expect(result.blocks.every((b) => typeof b.label === "string" && b.label.length > 0)).toBe(true);
+    }
   });
 });

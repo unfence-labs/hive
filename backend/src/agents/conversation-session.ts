@@ -20,6 +20,7 @@ import type {
   FileMention,
   ImageAttachment,
   MessageOptions,
+  SessionKind,
   ToolCall,
   ToolInputResult,
   SessionMetadata,
@@ -165,8 +166,6 @@ function normalizeActivityFiles(
   }
   return existingFiles?.map((file) => ({ ...file })) ?? [];
 }
-
-type SessionKind = "chat" | "automation" | "brain";
 
 function isInteractiveSessionKind(sessionKind: SessionKind): boolean {
   return sessionKind !== "automation";

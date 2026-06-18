@@ -51,7 +51,6 @@ export async function agentRoutes(
       systemPrompt,
       modelId,
       thinkingLevel,
-      injectGitContext,
       readOnly,
     } = req.body;
 
@@ -80,7 +79,6 @@ export async function agentRoutes(
       systemPrompt: systemPrompt.trim(),
       modelId: modelId.trim(),
       thinkingLevel: thinkingResult.thinkingLevel,
-      injectGitContext: injectGitContext ?? true,
       readOnly: readOnly ?? false,
       createdAt: now,
       updatedAt: now,
@@ -149,9 +147,6 @@ export async function agentRoutes(
           ...(updates.systemPrompt !== undefined && { systemPrompt: updates.systemPrompt.trim() }),
           modelId: nextModelId,
           thinkingLevel: nextThinkingLevel,
-          ...(updates.injectGitContext !== undefined && {
-            injectGitContext: updates.injectGitContext,
-          }),
           ...(updates.readOnly !== undefined && { readOnly: updates.readOnly }),
           updatedAt: new Date().toISOString(),
         };

@@ -13,8 +13,7 @@ import {
 import { loadPromptTemplates } from "../state/prompt-templates.js";
 import { loadAgents } from "../state/agents.js";
 import { ConversationSession } from "../agents/conversation-session.js";
-import { composeAgentRunPrompt } from "./agent-run-prompt.js";
-import { extractSummary } from "../utils/summary-extractor.js";
+import { extractSummary, extractPreview } from "../utils/summary-extractor.js";
 import { getNotifier } from "../agents/agent-manager.js";
 import { loadProject } from "../state/state.js";
 import { git } from "../utils/git.js";
@@ -24,7 +23,8 @@ import {
   refreshWorktreeToRemoteBranch,
 } from "../utils/git-worktree.js";
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
-import { getGitContext, formatGitContextBlock } from "../agents/system-prompt.js";
+import { buildPrompt, getGitContext } from "../agents/system-prompt.js";
+import type { GitContext } from "../agents/system-prompt.js";
 import { parsePositiveNumber } from "../utils/env.js";
 import type { Automation, AutomationRun, WsOutgoing } from "../types.js";
 
@@ -207,9 +207,9 @@ export class AutomationScheduler {
       return { ...run, status: "failure", error };
     }
 
-    // Gather a git context block for project-linked runs when the agent wants it.
+    // Gather raw git context for project-linked runs only. buildPrompt formats it.
     let projectName = "unknown";
-    let gitContextBlock: string | null = null;
+    let gitContext: GitContext | undefined;
     if (auto.projectId) {
       const project = await loadProject(auto.projectId, this.dataDir);
       if (!project) {
@@ -218,21 +218,19 @@ export class AutomationScheduler {
         return { ...run, status: "failure", error };
       }
       projectName = project.name;
-      if (agent.injectGitContext) {
-        const ctx = await getGitContext(workspacePath, defaultBranch);
-        gitContextBlock = formatGitContextBlock(ctx, { projectName });
-      }
+      gitContext = await getGitContext(workspacePath, defaultBranch);
     }
 
-    const resolvedSystemPrompt = composeAgentRunPrompt({
-      agent,
-      gitContextBlock,
+    const resolvedSystemPrompt = buildPrompt("automation", {
+      base: agent.systemPrompt,
       interpolation: {
         projectName,
         cwd: workspacePath,
         defaultBranch: defaultBranch ?? "main",
       },
-    });
+      git: gitContext,
+      projectName,
+    }).text;
 
     // Create session. Every agent run strips interactive tools (no human is
     // subscribed to answer), and read-only agents block edits — both translated
@@ -282,7 +280,7 @@ export class AutomationScheduler {
 
         try {
           const messages = await session.getMessages();
-          const summary = extractSummary(messages);
+          const summary = extractSummary(messages) ?? extractPreview(messages);
           await this.completeRun(auto, run.id, status, summary, error, now);
           resolve({ ...run, status, summary, error, completedAt: new Date().toISOString() });
         } catch (err) {

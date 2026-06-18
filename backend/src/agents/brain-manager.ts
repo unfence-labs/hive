@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { readdir, readFile, rm } from "node:fs/promises";
 import { ConversationSession } from "./conversation-session.js";
-import { buildBrainSystemPrompt, loadBrainPrompt } from "./system-prompt.js";
+import { buildPrompt, loadBrainPrompt } from "./system-prompt.js";
 import { getDataDir } from "../state/state.js";
 import { BRAIN_WORKSPACE_ID, brainDir, brainRepoPath } from "../utils/paths.js";
 import { requireBrainRepo } from "../brain/brain-files.js";
@@ -71,7 +71,11 @@ async function buildBrainPrompt(dataDir: string): Promise<string> {
     // Empty/unreadable Brain — prompt still describes the role.
   }
   const basePrompt = await loadBrainPrompt(join(dataDir, "prompts"));
-  return buildBrainSystemPrompt({ cwd: repoPath, filePaths, basePrompt });
+  return buildPrompt("brain", {
+    base: basePrompt,
+    interpolation: { projectName: "Brain", cwd: repoPath, defaultBranch: "main" },
+    brainFilePaths: filePaths,
+  }).text;
 }
 
 function attachNotificationListener(session: ConversationSession): void {

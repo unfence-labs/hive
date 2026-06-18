@@ -215,8 +215,6 @@ function FormFields({
   thinkingLevel,
   setThinkingLevel,
   models,
-  injectGitContext,
-  setInjectGitContext,
   readOnly,
   setReadOnly,
 }: {
@@ -231,8 +229,6 @@ function FormFields({
   thinkingLevel: ThinkingLevel;
   setThinkingLevel: (v: ThinkingLevel) => void;
   models: ModelCatalogEntry[];
-  injectGitContext: boolean;
-  setInjectGitContext: (v: boolean) => void;
   readOnly: boolean;
   setReadOnly: (v: boolean) => void;
 }) {
@@ -284,7 +280,7 @@ function FormFields({
       {/* System prompt — fills the remaining height */}
       <div className="flex min-h-0 flex-1 flex-col">
         <label className="mb-1.5 block shrink-0 text-xs font-medium text-muted-foreground">
-          System Prompt
+          Agent Instructions
         </label>
         <div className="min-h-0 flex-1">
           <PromptEditor
@@ -307,15 +303,6 @@ function FormFields({
 
       {/* Flags */}
       <div className="shrink-0 space-y-2">
-        <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
-          <input
-            type="checkbox"
-            checked={injectGitContext}
-            onChange={(e) => setInjectGitContext(e.target.checked)}
-            className="rounded border-border"
-          />
-          Inject git context when the run is project-linked
-        </label>
         <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
           <input
             type="checkbox"
@@ -347,7 +334,6 @@ function AgentDetail({
   const [systemPrompt, setSystemPrompt] = useState(agent.systemPrompt);
   const [modelId, setModelId] = useState(agent.modelId);
   const [thinkingLevel, setThinkingLevel] = useState(agent.thinkingLevel);
-  const [injectGitContext, setInjectGitContext] = useState(agent.injectGitContext);
   const [readOnly, setReadOnly] = useState(agent.readOnly);
   const resolvedThinkingLevel = resolveThinkingLevel(modelForId(models, modelId), thinkingLevel);
 
@@ -357,7 +343,6 @@ function AgentDetail({
     systemPrompt !== agent.systemPrompt ||
     modelId !== agent.modelId ||
     resolvedThinkingLevel !== agent.thinkingLevel ||
-    injectGitContext !== agent.injectGitContext ||
     readOnly !== agent.readOnly;
   const isValid = name.trim() && systemPrompt.trim() && modelId && resolvedThinkingLevel;
 
@@ -370,7 +355,6 @@ function AgentDetail({
       systemPrompt: systemPrompt.trim(),
       modelId,
       thinkingLevel: resolvedThinkingLevel,
-      injectGitContext,
       readOnly,
     });
   };
@@ -393,8 +377,6 @@ function AgentDetail({
         thinkingLevel={thinkingLevel}
         setThinkingLevel={setThinkingLevel}
         models={models}
-        injectGitContext={injectGitContext}
-        setInjectGitContext={setInjectGitContext}
         readOnly={readOnly}
         setReadOnly={setReadOnly}
       />
@@ -441,7 +423,6 @@ function CreateAgentForm({
   const [systemPrompt, setSystemPrompt] = useState("");
   const [modelId, setModelId] = useState("");
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("high");
-  const [injectGitContext, setInjectGitContext] = useState(true);
   const [readOnly, setReadOnly] = useState(false);
 
   const resolvedModelId = modelId || defaultModelId;
@@ -457,7 +438,6 @@ function CreateAgentForm({
       systemPrompt: systemPrompt.trim(),
       modelId: resolvedModelId,
       thinkingLevel: resolvedThinkingLevel,
-      injectGitContext,
       readOnly,
     });
     onCreated(result.id);
@@ -481,8 +461,6 @@ function CreateAgentForm({
         thinkingLevel={thinkingLevel}
         setThinkingLevel={setThinkingLevel}
         models={models}
-        injectGitContext={injectGitContext}
-        setInjectGitContext={setInjectGitContext}
         readOnly={readOnly}
         setReadOnly={setReadOnly}
       />
