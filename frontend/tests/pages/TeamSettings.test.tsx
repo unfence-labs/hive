@@ -91,7 +91,6 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     systemPrompt: "You are a code auditor.",
     modelId: "claude:sonnet-4-6",
     thinkingLevel: "high",
-    injectGitContext: true,
     readOnly: false,
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -151,7 +150,6 @@ describe("TeamSettings", () => {
         systemPrompt: "Review safely.",
         modelId: "claude:sonnet-4-6",
         thinkingLevel: "xhigh",
-        injectGitContext: true,
         readOnly: false,
       });
     });

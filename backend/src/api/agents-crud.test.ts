@@ -20,7 +20,6 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     systemPrompt: "You are a code reviewer.",
     modelId: "claude:sonnet-4-6",
     thinkingLevel: "high",
-    injectGitContext: true,
     readOnly: true,
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt: "2026-01-01T00:00:00Z",
@@ -66,7 +65,6 @@ describe("POST /api/agents", () => {
         systemPrompt: "You are helpful.",
         modelId: "claude:sonnet-4-6",
         thinkingLevel: "xhigh",
-        injectGitContext: false,
         readOnly: true,
       },
     });
@@ -75,7 +73,6 @@ describe("POST /api/agents", () => {
     expect(body.id).toMatch(/^agent-/);
     expect(body.name).toBe("My Agent");
     expect(body.thinkingLevel).toBe("xhigh");
-    expect(body.injectGitContext).toBe(false);
     expect(body.readOnly).toBe(true);
   });
 
@@ -87,7 +84,6 @@ describe("POST /api/agents", () => {
         name: "My Agent",
         systemPrompt: "You are helpful.",
         modelId: "claude:sonnet-4-6",
-        injectGitContext: true,
         readOnly: false,
       },
     });
@@ -99,7 +95,7 @@ describe("POST /api/agents", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/agents",
-      payload: { systemPrompt: "x", modelId: "m", injectGitContext: true, readOnly: false },
+      payload: { systemPrompt: "x", modelId: "m", readOnly: false },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -108,7 +104,7 @@ describe("POST /api/agents", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/agents",
-      payload: { name: "X", modelId: "m", injectGitContext: true, readOnly: false },
+      payload: { name: "X", modelId: "m", readOnly: false },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -117,7 +113,7 @@ describe("POST /api/agents", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/agents",
-      payload: { name: "X", systemPrompt: "p", injectGitContext: true, readOnly: false },
+      payload: { name: "X", systemPrompt: "p", readOnly: false },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -130,7 +126,6 @@ describe("POST /api/agents", () => {
         name: "X",
         systemPrompt: "p",
         modelId: "claude:does-not-exist",
-        injectGitContext: true,
         readOnly: false,
       },
     });
@@ -147,7 +142,6 @@ describe("POST /api/agents", () => {
         systemPrompt: "p",
         modelId: "claude:sonnet-4-6",
         thinkingLevel: "minimal",
-        injectGitContext: true,
         readOnly: false,
       },
     });

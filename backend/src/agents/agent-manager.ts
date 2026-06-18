@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { readdir, readFile, rm } from "node:fs/promises";
 import { ConversationSession } from "./conversation-session.js";
-import { buildSystemPrompt } from "./system-prompt.js";
+import { buildPrompt, getGitContext, loadBasePrompt } from "./system-prompt.js";
 import { getWorkspace } from "../workspaces/workspace-manager.js";
 import { saveProject, getDataDir, loadProject, withProjectStateLock } from "../state/state.js";
 import { bareRepoPath, resolveDefaultBranch } from "../utils/paths.js";
@@ -385,13 +385,20 @@ async function buildSessionPrompt(
     // Falls back to detection in getGitContext
   }
 
-  return buildSystemPrompt({
-    cwd: wsPath,
-    workspaceName: workspace.name,
+  const base = await loadBasePrompt(join(dataDir, "prompts"));
+  const ctx = await getGitContext(wsPath, defaultBranch);
+
+  return buildPrompt("chat", {
+    base,
+    interpolation: {
+      projectName: projectState.name ?? "unknown",
+      cwd: wsPath,
+      defaultBranch: ctx.defaultBranch,
+    },
+    git: ctx,
     projectName: projectState.name,
-    defaultBranch,
-    promptsDir: join(dataDir, "prompts"),
-  });
+    workspaceName: workspace.name,
+  }).text;
 }
 
 function attachNotificationListener(

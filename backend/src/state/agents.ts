@@ -34,10 +34,8 @@ function normalizeAgent(raw: Agent): Agent {
   const thinkingLevel = rawThinkingLevel && isThinkingLevelSupportedForModel(raw.modelId, rawThinkingLevel)
     ? rawThinkingLevel
     : fallbackThinkingLevel;
-  return {
-    ...raw,
-    thinkingLevel,
-  };
+  const { injectGitContext: _drop, ...rest } = raw as Agent & { injectGitContext?: boolean };
+  return { ...rest, thinkingLevel };
 }
 
 export async function loadAgents(dataDir = getDataDir()): Promise<Agent[]> {

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { SessionKind } from "../types.js";
 import { git } from "../utils/git.js";
 
 export interface GitContext {
@@ -7,17 +8,6 @@ export interface GitContext {
   status: string;
   recentCommits: string;
   defaultBranch: string;
-}
-
-export interface SystemPromptOptions {
-  cwd: string;
-  workspaceName?: string;
-  projectName?: string;
-  basePrompt?: string;
-  /** Pre-resolved default branch (from bare repo). Skips detection if provided. */
-  defaultBranch?: string;
-  /** Path to prompts directory (e.g. ~/.hive/prompts). Loads base.md from disk. */
-  promptsDir?: string;
 }
 
 export interface PromptInterpolationValues {
@@ -138,37 +128,6 @@ export function interpolatePromptVariables(
     .replace(/\{PROJECT}/g, values.projectName);
 }
 
-/**
- * Build a system prompt by merging a base prompt with dynamic git context.
- */
-export async function buildSystemPrompt(opts: SystemPromptOptions): Promise<string> {
-  const { cwd, workspaceName, projectName, defaultBranch, promptsDir } = opts;
-
-  const ctx = await getGitContext(cwd, defaultBranch);
-
-  let basePrompt: string;
-  if (opts.basePrompt !== undefined) {
-    basePrompt = opts.basePrompt;
-  } else if (promptsDir) {
-    basePrompt = await loadBasePrompt(promptsDir);
-  } else {
-    basePrompt = DEFAULT_BASE_PROMPT;
-  }
-
-  // Interpolate template variables
-  basePrompt = interpolatePromptVariables(basePrompt, {
-    cwd,
-    defaultBranch: ctx.defaultBranch,
-    projectName: projectName ?? "unknown",
-  });
-
-  const sections: string[] = [basePrompt];
-  sections.push(formatGitContextBlock(ctx, { projectName, workspaceName }));
-  sections.push(formatBrowserContextBlock());
-
-  return sections.join("\n\n");
-}
-
 /** Hardcoded base prompt describing the Brain agent's role and constraints. */
 export const BRAIN_BASE_PROMPT = `You are the agent for the user's **Brain**, a personal knowledge base stored as a Git repository.
 The Brain holds the user's notes, documentation, code snippets, references, and brainstorming — not application source code.
@@ -181,15 +140,6 @@ Rules:
 - Prefer clear Markdown for notes. Keep a sensible folder structure; reuse existing folders when they fit.
 - When the user asks you to record something, write it to an appropriate file rather than only replying in chat.
 - All file content must be in English.`;
-
-export interface BrainSystemPromptOptions {
-  /** Brain repository working-tree path (Brain `cwd`). */
-  cwd: string;
-  /** Relative file paths currently in the Brain (the navigation map). */
-  filePaths: string[];
-  /** Editable base prompt; falls back to {@link BRAIN_BASE_PROMPT} when omitted. */
-  basePrompt?: string;
-}
 
 /**
  * Load the Brain base prompt from `{promptsDir}/brain.md`.
@@ -221,15 +171,87 @@ function formatBrainMapBlock(filePaths: string[]): string {
   return lines.join("\n");
 }
 
+// ── Pure prompt composer (buildPrompt) ──────────────────────────────
+// Synchronous, IO-free composition of a system prompt from pre-resolved
+// materials. Callers gather git/fs context and pass it in; this function only
+// formats and orders blocks per the session kind. It is the single entry point
+// for chat, automation, and brain prompts.
+
+/** A single labelled section of a composed prompt. */
+export interface PromptBlock {
+  /** Metadata identifier (e.g. "base", "git", "browser", "brainMap"). Never injected into text. */
+  label: string;
+  content: string;
+}
+
+/** Result of {@link buildPrompt}: the joined text plus its ordered blocks. */
+export interface PromptResult {
+  text: string;
+  blocks: PromptBlock[];
+}
+
+/** Pre-resolved inputs for {@link buildPrompt}. All IO happens before this. */
+export interface PromptMaterials {
+  /** Raw base prompt; may contain {PROJECT}/{DIR}/{DEFAULT_BRANCH} placeholders. */
+  base: string;
+  /** Values for interpolating the BASE block only. */
+  interpolation: PromptInterpolationValues;
+  /** Git snapshot; emits the git block when present and the kind allows git. */
+  git?: GitContext;
+  /** Brain navigation map (brain kind only). */
+  brainFilePaths?: string[];
+  /** Header line for the git block. */
+  projectName?: string;
+  /** Header line for the git block. */
+  workspaceName?: string;
+}
+
 /**
- * Build the system prompt for a Brain agent session. Injects the Brain file-path
- * map so the agent always knows the knowledge-base structure.
+ * Compose a system prompt from pre-resolved materials. Pure and synchronous.
+ *
+ * The session kind decides which blocks appear:
+ *   - chat:       base + git (if `materials.git`) + browser
+ *   - brain:      base + brainMap (from `brainFilePaths ?? []`)
+ *   - automation: base + git (if `materials.git`)
+ *
+ * Interpolation applies to the BASE block only; the git/browser/brainMap blocks
+ * are concrete and emitted verbatim. `text` is the blocks joined with "\n\n".
  */
-export function buildBrainSystemPrompt(opts: BrainSystemPromptOptions): string {
-  const basePrompt = interpolatePromptVariables(opts.basePrompt ?? BRAIN_BASE_PROMPT, {
-    cwd: opts.cwd,
-    defaultBranch: "main",
-    projectName: "Brain",
-  });
-  return [basePrompt, formatBrainMapBlock(opts.filePaths)].join("\n\n");
+export function buildPrompt(kind: SessionKind, materials: PromptMaterials): PromptResult {
+  const blocks: PromptBlock[] = [
+    {
+      label: "base",
+      content: interpolatePromptVariables(materials.base, materials.interpolation),
+    },
+  ];
+
+  const pushGitBlock = () => {
+    if (materials.git) {
+      blocks.push({
+        label: "git",
+        content: formatGitContextBlock(materials.git, {
+          projectName: materials.projectName,
+          workspaceName: materials.workspaceName,
+        }),
+      });
+    }
+  };
+
+  switch (kind) {
+    case "chat":
+      pushGitBlock();
+      blocks.push({ label: "browser", content: formatBrowserContextBlock() });
+      break;
+    case "automation":
+      pushGitBlock();
+      break;
+    case "brain":
+      blocks.push({
+        label: "brainMap",
+        content: formatBrainMapBlock(materials.brainFilePaths ?? []),
+      });
+      break;
+  }
+
+  return { text: blocks.map((b) => b.content).join("\n\n"), blocks };
 }

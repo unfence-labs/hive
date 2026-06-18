@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Terminal, Bot, GitBranch, MessageSquare, Lightbulb, Settings, Brain, FolderTree, Globe } from "lucide-react";
+import { Terminal, Bot, GitBranch, MessageSquare, Settings, Brain, FolderTree, Globe, Cpu } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type FlowMode = "chat" | "brain" | "automation";
+type FlowMode = "chat" | "brain" | "agent" | "automation";
 
 export function PromptFlowExplainer() {
   const [mode, setMode] = useState<FlowMode>("chat");
@@ -39,6 +39,15 @@ export function PromptFlowExplainer() {
             Brain
           </button>
           <button
+            onClick={() => setMode("agent")}
+            className={cn(
+              "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
+              mode === "agent" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Agent
+          </button>
+          <button
             onClick={() => setMode("automation")}
             className={cn(
               "px-3 py-1.5 text-xs font-medium rounded-md transition-all",
@@ -57,6 +66,14 @@ export function PromptFlowExplainer() {
         <div className="z-10 flex w-64 flex-col justify-center gap-4 py-4">
           {mode === "chat" ? (
             <>
+              <SourceCard
+                id="harness"
+                icon={<Cpu className="h-4 w-4" />}
+                title="Native Harness Prompt"
+                desc="Claude Code / Codex — not editable by Hive"
+                isHovered={hoveredCard === "harness"}
+                onHover={setHoveredCard}
+              />
               <SourceCard
                 id="base"
                 icon={<Settings className="h-4 w-4" />}
@@ -93,6 +110,14 @@ export function PromptFlowExplainer() {
           ) : mode === "brain" ? (
             <>
               <SourceCard
+                id="harness"
+                icon={<Cpu className="h-4 w-4" />}
+                title="Native Harness Prompt"
+                desc="Claude Code / Codex — not editable by Hive"
+                isHovered={hoveredCard === "harness"}
+                onHover={setHoveredCard}
+              />
+              <SourceCard
                 id="brain"
                 icon={<Brain className="h-4 w-4" />}
                 title="Brain Agent Prompt"
@@ -117,13 +142,48 @@ export function PromptFlowExplainer() {
                 onHover={setHoveredCard}
               />
             </>
+          ) : mode === "agent" ? (
+            <>
+              <SourceCard
+                id="harness"
+                icon={<Cpu className="h-4 w-4" />}
+                title="Native Harness Prompt"
+                desc="Claude Code / Codex — not editable by Hive"
+                isHovered={hoveredCard === "harness"}
+                onHover={setHoveredCard}
+              />
+              <SourceCard
+                id="agent-base"
+                icon={<Bot className="h-4 w-4" />}
+                title="Agent Instructions"
+                desc="The Team Agent's role — its base prompt"
+                isHovered={hoveredCard === "agent-base"}
+                onHover={setHoveredCard}
+              />
+              <SourceCard
+                id="agent-git"
+                icon={<GitBranch className="h-4 w-4" />}
+                title="Git Context"
+                desc="Only for project-linked runs"
+                isHovered={hoveredCard === "agent-git"}
+                onHover={setHoveredCard}
+              />
+            </>
           ) : (
             <>
+              <SourceCard
+                id="harness"
+                icon={<Cpu className="h-4 w-4" />}
+                title="Native Harness Prompt"
+                desc="Claude Code / Codex — not editable by Hive"
+                isHovered={hoveredCard === "harness"}
+                onHover={setHoveredCard}
+              />
               <SourceCard
                 id="task-agent"
                 icon={<Bot className="h-4 w-4" />}
                 title="Task Agent"
-                desc="System prompt, model, permissions"
+                desc="Agent instructions, model, permissions"
                 isHovered={hoveredCard === "task-agent"}
                 onHover={setHoveredCard}
               />
@@ -133,14 +193,6 @@ export function PromptFlowExplainer() {
                 title="Git Context"
                 desc="Only for project-linked runs"
                 isHovered={hoveredCard === "git-auto"}
-                onHover={setHoveredCard}
-              />
-              <SourceCard
-                id="summary"
-                icon={<Lightbulb className="h-4 w-4" />}
-                title="Summary Instruction"
-                desc="For completion notifications"
-                isHovered={hoveredCard === "summary"}
                 onHover={setHoveredCard}
               />
               <SourceCard
@@ -167,6 +219,9 @@ export function PromptFlowExplainer() {
             <div className="flex-1 overflow-auto p-4 font-mono text-[11px] leading-relaxed">
               {mode === "chat" ? (
                 <>
+                  <PayloadBlock id="harness" hoveredId={hoveredCard} color="text-muted-foreground">
+                    {"# Native system prompt — provided by Claude Code / Codex. Hive appends its overlay below."}
+                  </PayloadBlock>
                   <PayloadBlock id="base" hoveredId={hoveredCard} color="text-info-foreground">
                     --append-system-prompt "You are an AI coding agent...
                   </PayloadBlock>
@@ -183,6 +238,9 @@ export function PromptFlowExplainer() {
                 </>
               ) : mode === "brain" ? (
                 <>
+                  <PayloadBlock id="harness" hoveredId={hoveredCard} color="text-muted-foreground">
+                    {"# Native system prompt — provided by Claude Code / Codex. Hive appends its overlay below."}
+                  </PayloadBlock>
                   <PayloadBlock id="brain" hoveredId={hoveredCard} color="text-info-foreground">
                     --append-system-prompt "You are the Brain agent...
                   </PayloadBlock>
@@ -194,16 +252,31 @@ export function PromptFlowExplainer() {
                     -p "Summarize what we know about #notes/ideas.md..."
                   </PayloadBlock>
                 </>
+              ) : mode === "agent" ? (
+                <>
+                  <PayloadBlock id="harness" hoveredId={hoveredCard} color="text-muted-foreground">
+                    {"# Native system prompt — provided by Claude Code / Codex. Hive appends its overlay below."}
+                  </PayloadBlock>
+                  <PayloadBlock id="agent-base" hoveredId={hoveredCard} color="text-primary">
+                    --append-system-prompt "You are a security reviewer...
+                  </PayloadBlock>
+                  <PayloadBlock id="agent-git" hoveredId={hoveredCard} color="text-success-foreground">
+                    {`\n\n# Git Context\nProject: Hive\n...\n\n// omitted when no project is linked`}
+                  </PayloadBlock>
+                  <PayloadBlock id="agent-note" hoveredId={hoveredCard} color="text-muted-foreground">
+                    {`\n\n// + run prompt added at execution — see the Automations tab`}
+                  </PayloadBlock>
+                </>
               ) : (
                 <>
+                  <PayloadBlock id="harness" hoveredId={hoveredCard} color="text-muted-foreground">
+                    {"# Native system prompt — provided by Claude Code / Codex. Hive appends its overlay below."}
+                  </PayloadBlock>
                   <PayloadBlock id="task-agent" hoveredId={hoveredCard} color="text-primary">
-                    --agent "Security Reviewer"
+                    --append-system-prompt "You are a security reviewer...
                   </PayloadBlock>
                   <PayloadBlock id="git-auto" hoveredId={hoveredCard} color="text-success-foreground">
                     {`\n\n# Git Context\nProject: Hive\n...\n\n// omitted when no project is linked`}
-                  </PayloadBlock>
-                  <PayloadBlock id="summary" hoveredId={hoveredCard} color="text-warning-foreground">
-                    {`\n\nIMPORTANT: End your final message with a "## Summary"..."`}
                   </PayloadBlock>
                   <div className="my-2 border-t border-border/60" />
                   <PayloadBlock id="user-auto" hoveredId={hoveredCard} color="text-foreground">

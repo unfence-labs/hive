@@ -1,13 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { StreamParser } from "../stream-parser.js";
-import type { MessageOptions } from "../../types.js";
+import type { MessageOptions, SessionKind } from "../../types.js";
 import type { AgentProvider, StreamAdapter } from "../providers/types.js";
 import type { AgentRunner } from "./types.js";
 import { CodexAppServerRunner } from "./codex-app-server-runner.js";
 import { buildCodexAppServerArgs } from "../providers/codex-app-server.js";
 import { ProcessAgentRunner } from "./process-agent-runner.js";
-
-type SessionKind = "chat" | "automation" | "brain";
 
 export interface CreateAgentRunnerInput {
   cwd: string;
