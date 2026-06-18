@@ -10,17 +10,6 @@ export interface GitContext {
   defaultBranch: string;
 }
 
-export interface SystemPromptOptions {
-  cwd: string;
-  workspaceName?: string;
-  projectName?: string;
-  basePrompt?: string;
-  /** Pre-resolved default branch (from bare repo). Skips detection if provided. */
-  defaultBranch?: string;
-  /** Path to prompts directory (e.g. ~/.hive/prompts). Loads base.md from disk. */
-  promptsDir?: string;
-}
-
 export interface PromptInterpolationValues {
   projectName: string;
   cwd: string;
@@ -151,15 +140,6 @@ Rules:
 - Prefer clear Markdown for notes. Keep a sensible folder structure; reuse existing folders when they fit.
 - When the user asks you to record something, write it to an appropriate file rather than only replying in chat.
 - All file content must be in English.`;
-
-export interface BrainSystemPromptOptions {
-  /** Brain repository working-tree path (Brain `cwd`). */
-  cwd: string;
-  /** Relative file paths currently in the Brain (the navigation map). */
-  filePaths: string[];
-  /** Editable base prompt; falls back to {@link BRAIN_BASE_PROMPT} when omitted. */
-  basePrompt?: string;
-}
 
 /**
  * Load the Brain base prompt from `{promptsDir}/brain.md`.
