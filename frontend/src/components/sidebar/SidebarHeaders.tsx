@@ -74,7 +74,10 @@ export function SidebarGroupHeader({
         </div>
       )}
       {hasCount && (
-        <div className="absolute inset-y-0 right-0 flex items-center">
+        // Offset by 3px so the count number's center lands on the workspace PR-dot
+        // column below it (the dot sits at px-2 + half its w-2.5 cell = 13px from the
+        // row's right edge, vs. this 20px-wide box's natural 10px center).
+        <div className="absolute inset-y-0 right-[3px] flex items-center">
           <div className="relative flex h-5 w-5 items-center justify-center">
             {isLoading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />

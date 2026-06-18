@@ -49,13 +49,13 @@ export function PrStatusSection({ wsId }: PrStatusSectionProps) {
     );
   }
 
-  const { Icon, iconClass, textClass, label } = computePrDisplay(pr);
+  const { Icon, colorClass, label } = computePrDisplay(pr);
 
   return (
     <div className="border-t border-border/50 px-3 py-2.5">
       <div className="flex items-center gap-2 text-xs">
-        <Icon className={cn("size-3.5 shrink-0", iconClass)} />
-        <span className={cn("min-w-0 truncate", textClass)}>
+        <Icon className={cn("size-3.5 shrink-0", colorClass)} />
+        <span className={cn("min-w-0 truncate", colorClass)}>
           PR #{pr.number} &middot; {label}
         </span>
         <a
