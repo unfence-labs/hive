@@ -4,7 +4,7 @@ export type { AgentActivity, AgentActivityCommandAction, AgentActivityFile } fro
 export type WorkspaceStatus = "idle" | "busy";
 
 /** Kind of a persisted agent conversation session. */
-export type SessionKind = "chat" | "automation" | "brain";
+export type SessionKind = "chat" | "automation" | "brain" | "terminal";
 
 export interface Workspace {
   id: string;
@@ -203,6 +203,8 @@ export interface SessionMetadata {
   lockedProvider?: string;
   /** Options from the last user message accepted for execution. */
   lastRunOptions?: MessageOptions;
+  /** Session kind. Absent means "chat" for back-compat with older sessions. */
+  kind?: SessionKind;
 }
 
 export interface ToolCall {

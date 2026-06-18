@@ -13,6 +13,7 @@ Hive can run as a local web app, a Tauri desktop app connected to a local or rem
 - Stream assistant text, thinking, tool calls, file changes, diagnostics, tasks, images, plan updates, branch info, diff stats, and script status over the multiplexed hub WebSocket.
 - Attach images to chat messages; backend resizes and stores attachments per session.
 - Browse workspace files, preview raw files, inspect inline diffs, paste selected diff comments into prompts, and use `#file`, `/command`, and `@agent` autocomplete.
+- Open a conversation tab as a full-pane interactive terminal (login shell in the worktree) from the workspace empty state. A tab commits to terminal before its first message and cannot revert; multiple terminal tabs per workspace are allowed. Terminal tabs are a desktop surface and are hidden on iOS.
 
 **Brain**
 - Maintain one normal git clone as the Brain knowledge base.
@@ -261,7 +262,7 @@ This is the public backend surface exposed by route modules under `backend/src/a
 | Health | `GET /health` |
 | Projects | `GET/POST /api/projects`, `GET/DELETE /api/projects/:id`, `POST /api/projects/:id/fetch`, `GET /api/projects/:id/favicon`, `GET/PUT /api/projects/:id/env` |
 | Workspaces | `GET/POST /api/projects/:id/workspaces`, `GET/DELETE /api/workspaces/:wsId`, `GET /api/workspaces/:wsId/files`, `GET /api/workspaces/:wsId/file`, `GET /api/workspaces/:wsId/file/raw`, `GET /api/workspaces/:wsId/file-completions`, `GET /api/workspaces/:wsId/diff`, `GET /api/workspaces/:wsId/diff/stat`, `POST /api/workspaces/:wsId/merge`, `POST /api/workspaces/:wsId/archive`, `GET /api/workspaces/:wsId/pr-status`, `POST /api/workspaces/pr-status/bulk` |
-| Sessions | `GET/POST/DELETE /api/workspaces/:wsId/session`, `GET /api/workspaces/:wsId/session/messages`, `GET/POST /api/workspaces/:wsId/sessions`, `DELETE /api/workspaces/:wsId/sessions/:sessionId`, `GET /api/workspaces/:wsId/sessions/:sessionId/messages`, `GET /api/workspaces/:wsId/sessions/:sessionId/attachments/:filename` |
+| Sessions | `GET/POST/DELETE /api/workspaces/:wsId/session`, `GET /api/workspaces/:wsId/session/messages`, `GET/POST /api/workspaces/:wsId/sessions`, `POST /api/workspaces/:wsId/sessions/:sessionId/convert-to-terminal`, `DELETE /api/workspaces/:wsId/sessions/:sessionId`, `GET /api/workspaces/:wsId/sessions/:sessionId/messages`, `GET /api/workspaces/:wsId/sessions/:sessionId/attachments/:filename` |
 | Brain | `GET/POST/DELETE /api/brain`, `GET /api/brain/files`, `GET/PUT /api/brain/file`, `GET /api/brain/file/raw`, `GET /api/brain/status`, `GET /api/brain/diff`, `POST /api/brain/save` |
 | Models and provider usage | `GET /api/models`, `GET /api/provider-usage` |
 | Completions | `GET /api/workspaces/:wsId/completions?provider=claude\|codex` |
@@ -270,7 +271,7 @@ This is the public backend surface exposed by route modules under `backend/src/a
 | Prompts | `GET/POST /api/prompt-templates`, `PUT/DELETE /api/prompt-templates/:id`, `GET/PUT/DELETE /api/prompts/base`, `GET/PUT/DELETE /api/prompts/brain` |
 | Settings | `GET/PUT /api/settings/notifications`, `POST /api/settings/notifications/test`, `POST /api/settings/notifications/test-apns`, `POST /api/devices/apns`, `GET /api/settings/cli`, `GET/PUT/DELETE /api/settings/instructions`, `POST /api/settings/instructions/sync`, `GET/POST /api/settings/skills`, `GET/PUT/DELETE /api/settings/skills/:id`, `POST /api/settings/skills/:id/sync`, `POST /api/settings/skills/sync-missing`, `GET/POST /api/settings/subagents`, `GET /api/settings/subagents/:id`, `PUT/DELETE /api/settings/subagents/:id/providers/:provider`, `POST /api/settings/subagents/:id/providers/:provider/counterpart` |
 | Account | `GET /api/account/status`, `POST /api/account/connect`, `POST /api/account/connect/poll`, `POST /api/account/disconnect` |
-| Scripts and preferences | `GET /api/workspaces/:wsId/scripts`, `POST /api/workspaces/:wsId/scripts/:type/start`, `POST /api/workspaces/:wsId/scripts/:type/stop`, `POST /api/workspaces/:wsId/terminal/start`, `POST /api/workspaces/:wsId/terminal/stop`, `GET/PUT /api/ui-preferences` |
+| Scripts and preferences | `GET /api/workspaces/:wsId/scripts`, `POST /api/workspaces/:wsId/scripts/:type/start`, `POST /api/workspaces/:wsId/scripts/:type/stop`, `POST /api/workspaces/:wsId/terminal/start`, `POST /api/workspaces/:wsId/terminal/stop`, `POST /api/workspaces/:wsId/terminal-tabs/:sessionId/start`, `POST /api/workspaces/:wsId/terminal-tabs/:sessionId/stop`, `GET/PUT /api/ui-preferences` |
 
 `wsId=brain` is valid for session and hub routes through the shared session dispatcher.
 
@@ -288,6 +289,11 @@ Script stream:
 
 - Endpoint: `ws://<host>/ws/script/:wsId?type=<scriptType>`
 - Binary frames are PTY bytes; JSON control messages include `ready`, `exit`, and `error`.
+
+Terminal stream:
+
+- Endpoint: `ws://<host>/ws/terminal/:wsId?sessionId=<sessionId>`
+- Same PTY protocol as the script stream, keyed by the terminal-tab session id.
 
 Browser stream:
 

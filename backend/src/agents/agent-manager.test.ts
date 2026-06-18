@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { chmod, mkdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTempDir, createFixtureRepo } from "../utils/test-helpers.js";
 import { createProject } from "../projects/project-manager.js";
@@ -14,6 +14,7 @@ import {
   getSessionMetadata,
   listWorkspaceSessions,
   createNewSession,
+  convertSessionToTerminal,
   activateSession,
   hardDeleteSession,
   getSpecificSessionMessages,
@@ -22,6 +23,12 @@ import {
   setNotifier,
 } from "./agent-manager.js";
 import { MAX_SESSIONS_PER_WORKSPACE } from "./session-limits.js";
+import { _clearAll as clearAllScripts } from "../services/script-runner.js";
+import {
+  _setTerminalForTests,
+  getTerminalProcess,
+  _clearAllTerminals,
+} from "../services/terminal-runner.js";
 import { loadProject, saveProject } from "../state/state.js";
 import type { ChatMessage, SessionMetadata } from "../types.js";
 import { Notifier } from "../notifications/notifier.js";
@@ -69,6 +76,8 @@ beforeEach(async () => {
 afterEach(async () => {
   setNotifier(new Notifier([]));
   _clearActiveSessions();
+  clearAllScripts();
+  _clearAllTerminals();
   await new Promise((r) => setTimeout(r, 50));
   await rm(tempDir, { recursive: true, force: true });
 });
@@ -207,6 +216,31 @@ describe("getOrCreateSession", () => {
 
     expect(first.session.sessionId).toBe(second.session.sessionId);
     expect([first.created, second.created].filter(Boolean)).toHaveLength(1);
+  });
+
+  it("never resumes a persisted terminal session as the active chat session", async () => {
+    // A terminal session was persisted as the workspace's active session.
+    // Resuming it as the active chat would render a shell over the chat UI and
+    // silently no-op sendMessage, so a fresh chat session must be created.
+    await writeSessionFixture("terminal-session", wsId, {
+      metadata: { kind: "terminal", updatedAt: "2026-02-12T00:00:00.000Z" },
+    });
+
+    const state = await loadProject(projectId, dataDir);
+    const ws = state!.workspaces.find((w) => w.id === wsId)!;
+    ws.status = "busy";
+    ws.activeSessionId = "terminal-session";
+    await saveProject(state!, dataDir);
+
+    const { session, created } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+
+    expect(created).toBe(true);
+    expect(session.sessionId).not.toBe("terminal-session");
+    expect(session.metadata.kind).toBe("chat");
+
+    const updatedState = await loadProject(projectId, dataDir);
+    const updatedWs = updatedState!.workspaces.find((w) => w.id === wsId)!;
+    expect(updatedWs.activeSessionId).toBe(session.sessionId);
   });
 });
 
@@ -430,6 +464,83 @@ describe("createNewSession", () => {
     expect(getSession(wsId)?.sessionId).toBe(second.sessionId);
     expect(getSessionById(wsId, first.sessionId)?.status).toBe("streaming");
     expect(getSessionById(wsId, second.sessionId)?.status).toBe("streaming");
+  });
+});
+
+describe("terminal sessions", () => {
+  it("persists kind:terminal in metadata.json and lists it", async () => {
+    const session = await createNewSession(wsId, dataDir, CONV_CMD, "terminal");
+    expect(session.metadata.kind).toBe("terminal");
+
+    const metaPath = join(dataDir, projectId, "sessions", session.sessionId, "metadata.json");
+    const persisted = JSON.parse(await readFile(metaPath, "utf-8")) as SessionMetadata;
+    expect(persisted.kind).toBe("terminal");
+
+    const sessions = await listWorkspaceSessions(wsId, dataDir);
+    const listed = sessions.find((s) => s.sessionId === session.sessionId);
+    expect(listed?.kind).toBe("terminal");
+  });
+
+  it("defaults to chat kind when none is requested", async () => {
+    const session = await createNewSession(wsId, dataDir, CONV_CMD);
+    expect(session.metadata.kind).toBe("chat");
+  });
+
+  it("treats sendMessage on a terminal session as a no-op (no runner)", async () => {
+    const session = await createNewSession(wsId, dataDir, CONV_CMD, "terminal");
+
+    // Use a real (non-test) command path so a runner would be spawned for a
+    // chat session, proving the terminal guard short-circuits before that.
+    session.sendMessage("hello");
+
+    expect(session.status).toBe("idle");
+    const messages = await session.getMessages();
+    expect(messages).toEqual([]);
+  });
+
+  it("hardDeleteSession kills the terminal PTY keyed by the session id", async () => {
+    const session = await createNewSession(wsId, dataDir, CONV_CMD, "terminal");
+
+    // Seed a fake running terminal PTY keyed by the session id, as
+    // terminal-tabs/start would.
+    _setTerminalForTests(wsId, session.sessionId);
+    expect(getTerminalProcess(wsId, session.sessionId)?.state).toBe("running");
+
+    // stopTerminal() arms a 5s SIGKILL fallback timer on the (fake) PTY. Fake
+    // timers keep that callback from ever firing process.kill during the test.
+    vi.useFakeTimers();
+    try {
+      await hardDeleteSession(wsId, session.sessionId, dataDir);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+
+    expect(getTerminalProcess(wsId, session.sessionId)).toBeUndefined();
+  });
+
+  it("converts an empty chat session into a terminal session in place", async () => {
+    const { session } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    expect(session.metadata.kind).toBe("chat");
+
+    const meta = await convertSessionToTerminal(wsId, session.sessionId, dataDir);
+    expect(meta.kind).toBe("terminal");
+    // Same in-memory instance is mutated (not a fork).
+    expect(session.metadata.kind).toBe("terminal");
+
+    const metaPath = join(dataDir, projectId, "sessions", session.sessionId, "metadata.json");
+    const persisted = JSON.parse(await readFile(metaPath, "utf-8")) as SessionMetadata;
+    expect(persisted.kind).toBe("terminal");
+  });
+
+  it("refuses to convert a session that already has messages", async () => {
+    await writeSessionFixture("chatty-session", wsId, {
+      metadata: { messageCount: 3, updatedAt: "2026-02-12T00:00:00.000Z" },
+    });
+
+    await expect(
+      convertSessionToTerminal(wsId, "chatty-session", dataDir),
+    ).rejects.toThrow(/messages/);
   });
 });
 

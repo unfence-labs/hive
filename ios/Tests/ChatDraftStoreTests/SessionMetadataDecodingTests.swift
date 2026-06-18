@@ -16,6 +16,7 @@ struct SessionMetadataDecodingTests {
           "updatedAt": "2026-01-02T00:00:00.000Z",
           "messageCount": 7,
           "lockedProvider": "codex",
+          "kind": "chat",
           "lastRunOptions": {
             "planMode": false,
             "model": "codex:gpt-5.5",
@@ -36,6 +37,7 @@ struct SessionMetadataDecodingTests {
         #expect(metadata.updatedAt == "2026-01-02T00:00:00.000Z")
         #expect(metadata.messageCount == 7)
         #expect(metadata.lockedProvider == "codex")
+        #expect(metadata.kind == "chat")
         #expect(metadata.lastRunOptions?.model == "codex:gpt-5.5")
         #expect(metadata.lastRunOptions?.thinkingLevel == .low)
         #expect(metadata.lastRunOptions?.planMode == false)
@@ -62,6 +64,7 @@ struct SessionMetadataDecodingTests {
         #expect(metadata.claudeSessionId == nil)
         #expect(metadata.title == nil)
         #expect(metadata.lockedProvider == nil)
+        #expect(metadata.kind == nil)
         #expect(metadata.lastRunOptions == nil)
     }
 }

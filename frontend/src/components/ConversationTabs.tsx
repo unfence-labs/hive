@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MessageSquareIcon, PlusIcon, XIcon, FileIcon, GitCompareArrowsIcon } from "lucide-react";
+import { MessageSquareIcon, PlusIcon, XIcon, FileIcon, GitCompareArrowsIcon, TerminalSquareIcon } from "lucide-react";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { ProviderIcon, isKnownProvider } from "@/components/chat/ProviderIcon";
 import {
@@ -13,7 +13,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import type { SessionMetadata } from "@/types";
+import type { SessionKind, SessionMetadata } from "@/types";
 import type { FileViewMode } from "@/hooks/useTabs";
 
 // Keep in sync with the backend Brain guard (MAX_BRAIN_SESSIONS in
@@ -106,10 +106,12 @@ function TabLeadingIcon({
   isStreaming,
   isUnread,
   provider,
+  sessionKind,
 }: {
   isStreaming: boolean;
   isUnread: boolean;
   provider?: string;
+  sessionKind?: SessionKind;
 }) {
   if (isStreaming) {
     return (
@@ -120,6 +122,9 @@ function TabLeadingIcon({
   }
   if (isUnread) {
     return <span className="size-2 shrink-0 rounded-full bg-primary" />;
+  }
+  if (sessionKind === "terminal") {
+    return <TerminalSquareIcon className="size-3.5 shrink-0" />;
   }
   if (isKnownProvider(provider)) {
     return <ProviderIcon provider={provider} colored className="size-3.5 shrink-0" />;
@@ -297,7 +302,15 @@ export function ConversationTabs({
                 streamingSessions,
                 unreadSessions,
               });
-              const title = getTabTitle(session);
+              // Terminal sessions with no title fall back to "Terminal N",
+              // where N is the 1-based position among terminal-kind sessions
+              // (the list is already sorted by createdAt asc).
+              const title =
+                session.kind === "terminal" && !session.title
+                  ? `Terminal ${
+                      sessions.filter((s) => s.kind === "terminal").indexOf(session) + 1
+                    }`
+                  : getTabTitle(session);
 
               return (
                 <button
@@ -316,6 +329,7 @@ export function ConversationTabs({
                     isStreaming={isSessionStreaming}
                     isUnread={isSessionUnread}
                     provider={session.lockedProvider ?? (isActive ? activeProvider : undefined)}
+                    sessionKind={session.kind}
                   />
                   <span className="truncate">{title}</span>
                   {sessions.length > 1 && !isSessionStreaming && (

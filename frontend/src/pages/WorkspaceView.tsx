@@ -9,6 +9,7 @@ import { useWorkspaceLiveDataContext, useClearUnread } from "@/contexts/Workspac
 import { FileTree, renderFileTreeNodes } from "@/components/ai-elements/file-tree";
 import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 import { ConversationPane } from "@/components/chat/ConversationPane";
+import { TerminalPane } from "@/components/TerminalPane";
 import { FileTabView } from "@/components/FileTabView";
 import { BranchLabel } from "@/components/BranchLabel";
 import { ModifiedFileList } from "@/components/diff/ModifiedFileList";
@@ -208,6 +209,7 @@ export default function WorkspaceView() {
     handleCreateSession,
     handleActivateSession,
     handleDeleteSession,
+    handleStartTerminal,
   } = useConversationColumn(wsId, { onActivateSession, onLastSessionDeleted });
 
   const [renderMode, setRenderMode] = useState<"raw" | "rendered">("raw");
@@ -497,6 +499,12 @@ export default function WorkspaceView() {
             backgroundRunningCount={bgRunningCount}
             onBatchAnswerQuestions={batchAnswerQuestions}
             onDismissQuestion={() => rejectToolInput("[question_dismissed]")}
+            onStartTerminal={handleStartTerminal}
+            terminalView={
+              wsId && sessionId ? (
+                <TerminalPane key={sessionId} wsId={wsId} sessionId={sessionId} />
+              ) : undefined
+            }
             planActionBar={
               hasPendingPlan && pendingPlanData ? (
                 <PlanActionBar

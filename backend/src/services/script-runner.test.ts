@@ -112,14 +112,14 @@ describe("script-runner", () => {
     expect(getScriptStatus("ws-1").setup?.state).toBe("running");
   });
 
-  it("starts an interactive shell when command is undefined", () => {
+  it("starts an interactive login shell when command is undefined", () => {
     process.env.SHELL = "/bin/bash";
 
     const proc = startScript("ws-1", "terminal", undefined, "/tmp/workspace");
 
     expect(mocks.spawn).toHaveBeenCalledWith(
       "/bin/bash",
-      [],
+      ["-l"],
       expect.objectContaining({
         cwd: "/tmp/workspace",
       }),

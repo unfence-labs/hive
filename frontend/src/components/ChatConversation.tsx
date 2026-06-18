@@ -31,6 +31,8 @@ interface ChatConversationProps {
   pendingToolInputs?: PendingToolInput[];
   onQuestionAnswer?: (toolCallId: string, answers: QuestionAnswer[]) => void;
   onFileMentionClick?: (relativePath: string) => void;
+  /** When set, the workspace welcome offers a button to open a terminal tab. */
+  onStartTerminal?: () => void;
   workspaceName?: string;
   projectName?: string;
   branch?: string;
@@ -61,6 +63,7 @@ export default function ChatConversation({
   pendingToolInputs = [],
   onQuestionAnswer,
   onFileMentionClick,
+  onStartTerminal,
   workspaceName,
   projectName,
   branch,
@@ -205,6 +208,7 @@ export default function ChatConversation({
                 branch={branch}
                 defaultBranch={defaultBranch}
                 fileCount={fileCount ?? 0}
+                onStartTerminal={onStartTerminal}
               />
             </ConversationEmptyState>
           ) : emptyState ? (

@@ -3,7 +3,7 @@ import * as brainManager from "./brain-manager.js";
 import { BRAIN_WORKSPACE_ID } from "./brain-manager.js";
 import { getDataDir } from "../state/state.js";
 import type { ConversationSession } from "./conversation-session.js";
-import type { ChatMessage, SessionMetadata } from "../types.js";
+import type { ChatMessage, SessionKind, SessionMetadata } from "../types.js";
 import type { SessionOptions } from "./agent-manager.js";
 
 /**
@@ -82,10 +82,12 @@ export async function createNewSession(
   wsId: string,
   dataDir = getDataDir(),
   options?: SessionOptions,
+  kind: SessionKind = "chat",
 ): Promise<ConversationSession> {
+  // The Brain is always a "brain" session, so it ignores the requested kind.
   return isBrain(wsId)
     ? brainManager.createNewBrainSession(dataDir, options)
-    : workspaceManager.createNewSession(wsId, dataDir, options);
+    : workspaceManager.createNewSession(wsId, dataDir, options, kind);
 }
 
 export async function activateSession(
@@ -97,6 +99,18 @@ export async function activateSession(
   return isBrain(wsId)
     ? brainManager.activateBrainSession(sessionId, dataDir, options)
     : workspaceManager.activateSession(wsId, sessionId, dataDir, options);
+}
+
+export async function convertSessionToTerminal(
+  wsId: string,
+  sessionId: string,
+  dataDir = getDataDir(),
+): Promise<SessionMetadata> {
+  // Terminal sessions are workspace-only; the Brain never hosts a shell.
+  if (isBrain(wsId)) {
+    throw new Error("Terminal sessions are not supported in the Brain");
+  }
+  return workspaceManager.convertSessionToTerminal(wsId, sessionId, dataDir);
 }
 
 export async function hardDeleteSession(

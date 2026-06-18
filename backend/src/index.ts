@@ -25,6 +25,7 @@ import { stopProviderUsagePolling } from "./services/provider-usage.js";
 import { accountRoutes } from "./api/account.js";
 import { scriptRoutes } from "./api/scripts.js";
 import { scriptWsRoutes } from "./ws/script.js";
+import { terminalWsRoutes } from "./ws/terminal.js";
 import { browserWsRoutes } from "./ws/browser.js";
 import { automationRoutes } from "./api/automations.js";
 import { promptTemplateRoutes } from "./api/prompt-templates.js";
@@ -42,6 +43,7 @@ import type { StreamRoutesOptions } from "./ws/stream.js";
 import { preflight } from "./utils/preflight.js";
 import { detectAvailableProviders } from "./agents/providers/registry.js";
 import { stopAllScripts } from "./services/script-runner.js";
+import { stopAllTerminals } from "./services/terminal-runner.js";
 import { initWorkspaceIndex } from "./state/workspace-index.js";
 
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -325,6 +327,9 @@ export async function buildApp(opts: BuildAppOptions = {}) {
     scriptWsRoutes(instance, { authToken }),
   );
   await app.register((instance: FastifyInstance) =>
+    terminalWsRoutes(instance, { authToken }),
+  );
+  await app.register((instance: FastifyInstance) =>
     browserWsRoutes(instance, { authToken }),
   );
   await app.register((instance: FastifyInstance) =>
@@ -429,6 +434,7 @@ async function main() {
     console.log(`[server] ${signal} received, shutting down...`);
 
     stopAllScripts();
+    stopAllTerminals();
 
     // Drain persist queues with timeout
     await Promise.race([

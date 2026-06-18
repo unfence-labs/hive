@@ -31,9 +31,18 @@ export function useSessions(workspaceId: string | undefined) {
     queryClient.invalidateQueries({ queryKey: ["sessions", workspaceId] });
 
   const createSession = useMutation({
-    mutationFn: () =>
+    mutationFn: (kind?: "terminal") =>
       api.post<SessionMetadata>(
         `/api/workspaces/${workspaceId}/sessions`,
+        kind ? { kind } : undefined,
+      ),
+    onSuccess: invalidate,
+  });
+
+  const convertToTerminal = useMutation({
+    mutationFn: (sessionId: string) =>
+      api.post<SessionMetadata>(
+        `/api/workspaces/${workspaceId}/sessions/${sessionId}/convert-to-terminal`,
       ),
     onSuccess: invalidate,
   });
@@ -47,10 +56,18 @@ export function useSessions(workspaceId: string | undefined) {
   return {
     sessions: sorted,
     loading: query.isLoading,
-    createSession: async (): Promise<SessionMetadata | null> => {
+    createSession: async (kind?: "terminal"): Promise<SessionMetadata | null> => {
       if (!workspaceId) return null;
       try {
-        return await createSession.mutateAsync();
+        return await createSession.mutateAsync(kind);
+      } catch {
+        return null;
+      }
+    },
+    convertToTerminal: async (sessionId: string): Promise<SessionMetadata | null> => {
+      if (!workspaceId) return null;
+      try {
+        return await convertToTerminal.mutateAsync(sessionId);
       } catch {
         return null;
       }

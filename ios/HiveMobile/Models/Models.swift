@@ -177,6 +177,9 @@ struct SessionMetadata: Codable, Hashable, Identifiable {
     let updatedAt: String
     let messageCount: Int
     let lockedProvider: String?
+    /// Session surface; absent means a regular chat session. Mobile hides
+    /// "terminal" sessions, which only exist on the desktop client.
+    let kind: String?
     let lastRunOptions: MessageOptions?
 
     var id: String { sessionId }
@@ -191,6 +194,7 @@ struct SessionMetadata: Codable, Hashable, Identifiable {
         updatedAt: String,
         messageCount: Int,
         lockedProvider: String?,
+        kind: String? = nil,
         lastRunOptions: MessageOptions? = nil
     ) {
         self.sessionId = sessionId
@@ -202,6 +206,7 @@ struct SessionMetadata: Codable, Hashable, Identifiable {
         self.updatedAt = updatedAt
         self.messageCount = messageCount
         self.lockedProvider = lockedProvider
+        self.kind = kind
         self.lastRunOptions = lastRunOptions
     }
 }
