@@ -43,6 +43,20 @@ export function stopTerminal(wsId: string, sessionId: string): boolean {
   return true;
 }
 
+/**
+ * Remove a terminal from the registry entirely: kill it if still running, and
+ * always drop the entry (and its replay buffer). Unlike {@link stopTerminal},
+ * this also clears a PTY that already exited — used when the owning session is
+ * deleted so its output can't linger in memory or be replayed afterwards.
+ */
+export function removeTerminal(wsId: string, sessionId: string): void {
+  const k = key(wsId, sessionId);
+  const proc = activeTerminals.get(k);
+  if (!proc) return;
+  activeTerminals.delete(k);
+  if (proc.state === "running") killPtyProcess(proc);
+}
+
 export function getTerminalProcess(wsId: string, sessionId: string): PtyProcess | undefined {
   return activeTerminals.get(key(wsId, sessionId));
 }

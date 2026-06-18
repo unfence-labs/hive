@@ -468,6 +468,20 @@ describe("createNewSession", () => {
 });
 
 describe("terminal sessions", () => {
+  it("excludes terminal sessions from the conversation cap", async () => {
+    // Fill the cap with chat sessions.
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    for (let i = 1; i < MAX_SESSIONS_PER_WORKSPACE; i++) {
+      await createNewSession(wsId, dataDir, CONV_CMD);
+    }
+    // A terminal can still be opened despite the chat cap being full…
+    await expect(
+      createNewSession(wsId, dataDir, CONV_CMD, "terminal"),
+    ).resolves.toBeDefined();
+    // …and it did not consume a chat slot — another chat still rejects.
+    await expect(createNewSession(wsId, dataDir, CONV_CMD)).rejects.toThrow(/Maximum/);
+  });
+
   it("persists kind:terminal in metadata.json and lists it", async () => {
     const session = await createNewSession(wsId, dataDir, CONV_CMD, "terminal");
     expect(session.metadata.kind).toBe("terminal");

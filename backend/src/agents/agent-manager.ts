@@ -11,7 +11,7 @@ import { assertSessionCapacity } from "./session-limits.js";
 import { extractSummary, extractPreview } from "../utils/summary-extractor.js";
 import { withKeyedLock } from "../utils/async-lock.js";
 import { parseJsonlMessages, sortByUpdatedAtDesc } from "./session-utils.js";
-import { stopTerminal } from "../services/terminal-runner.js";
+import { removeTerminal } from "../services/terminal-runner.js";
 import type { ChatMessage, SessionKind, SessionMetadata } from "../types.js";
 import { Notifier } from "../notifications/notifier.js";
 import { TelegramChannel } from "../notifications/telegram.js";
@@ -615,8 +615,15 @@ export async function createNewSession(
 ): Promise<ConversationSession> {
   return withWorkspaceLock(wsId, async () => {
     const ctx = await resolveWorkspaceContext(wsId, dataDir);
-    const existing = await listWorkspaceSessions(wsId, dataDir);
-    assertSessionCapacity(existing.length, "sessions");
+    // Terminal tabs are a separate surface and don't count toward the
+    // conversation cap; only chat sessions are capped, and opening a terminal is
+    // never blocked by it.
+    if (kind !== "terminal") {
+      const chatCount = (await listWorkspaceSessions(wsId, dataDir)).filter(
+        (s) => s.kind !== "terminal",
+      ).length;
+      assertSessionCapacity(chatCount, "sessions");
+    }
     const session = await createSession(ctx, dataDir, options, kind);
     setActiveSession(wsId, session);
     await persistWorkspaceSessionState(
@@ -683,9 +690,10 @@ export async function hardDeleteSession(
     const wasActive = activeSessionIds.get(wsId) === sessionId;
     browserSessionManager.closeSession(wsId, sessionId);
 
-    // Kill any terminal-tab PTY keyed by this session id. Safe no-op for chat
-    // sessions (no PTY is keyed by their id). Runs regardless of in-memory state.
-    stopTerminal(wsId, sessionId);
+    // Remove any terminal-tab PTY keyed by this session id: kill it if running
+    // and always drop the registry entry (and its replay buffer) so a deleted
+    // terminal's output can't linger or be replayed. No-op for chat sessions.
+    removeTerminal(wsId, sessionId);
 
     if (loaded) {
       removeLoadedSession(wsId, sessionId);

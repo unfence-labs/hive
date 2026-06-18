@@ -22,9 +22,11 @@ export function attachPtyToSocket(socket: WebSocket, proc: PtyProcess): void {
     }
   }
 
-  // If the process already finished, send exit immediately.
+  // If the process already finished, send exit and close — there is nothing
+  // left to stream, so an idle open socket would just leak a connection.
   if (proc.state !== "running") {
     socket.send(JSON.stringify({ type: "exit", code: proc.exitCode ?? -1 }));
+    socket.close();
     return;
   }
 
@@ -40,6 +42,9 @@ export function attachPtyToSocket(socket: WebSocket, proc: PtyProcess): void {
   proc.exitListeners.set(listenerId, (code) => {
     if (socket.readyState === socket.OPEN) {
       socket.send(JSON.stringify({ type: "exit", code }));
+      // The PTY is gone; close the socket so it doesn't linger open with a live
+      // ping timer. The `close` handler below detaches listeners.
+      socket.close();
     }
   });
 

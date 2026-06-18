@@ -18,7 +18,7 @@ export async function terminalWsRoutes(
   app: FastifyInstance,
   opts: TerminalWsRoutesOptions = {},
 ) {
-  const { authToken } = opts;
+  const { authToken, dataDir } = opts;
 
   app.get<{
     Params: { wsId: string };
@@ -46,7 +46,7 @@ export async function terminalWsRoutes(
         return;
       }
 
-      const result = await getWorkspace(wsId);
+      const result = await getWorkspace(wsId, dataDir);
       if (!result) {
         socket.send(
           JSON.stringify({ type: "error", message: "Workspace not found" }),

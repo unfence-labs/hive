@@ -68,6 +68,7 @@ vi.mock("node-pty", () => ({
 import {
   startTerminal,
   stopTerminal,
+  removeTerminal,
   getTerminalProcess,
   stopAllTerminalsForWorkspace,
   stopAllTerminals,
@@ -99,6 +100,21 @@ describe("terminal-runner", () => {
     );
     expect(proc.state).toBe("running");
     expect(getTerminalProcess("ws-1", "sess-1")).toBe(proc);
+  });
+
+  it("removeTerminal drops a finished terminal that stopTerminal leaves behind", () => {
+    const proc = startTerminal("ws-1", "sess-1", "/tmp/workspace");
+    // The shell exits on its own → the entry stays registered for reconnect replay.
+    mocks.processes[0].emitExit(0);
+    expect(proc.state).toBe("done");
+
+    // stopTerminal only stops *running* terminals, so the finished entry lingers.
+    expect(stopTerminal("ws-1", "sess-1")).toBe(false);
+    expect(getTerminalProcess("ws-1", "sess-1")).toBe(proc);
+
+    // removeTerminal clears it regardless of state (used on session delete).
+    removeTerminal("ws-1", "sess-1");
+    expect(getTerminalProcess("ws-1", "sess-1")).toBeUndefined();
   });
 
   it("throws when starting a terminal that is already running for the same key", () => {

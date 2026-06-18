@@ -244,7 +244,10 @@ export function ConversationTabs({
     updateEdges();
   }, [activeSessionId, sessions, updateEdges]);
 
-  const atLimit = sessions.length >= MAX_SESSIONS_PER_WORKSPACE;
+  // Terminal tabs are a separate surface and don't count toward the conversation
+  // cap (the backend caps chat sessions only), so they must not disable the +.
+  const atLimit =
+    sessions.filter((s) => s.kind !== "terminal").length >= MAX_SESSIONS_PER_WORKSPACE;
 
   return (
     <>

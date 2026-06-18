@@ -69,6 +69,30 @@ describe("ConversationTabs", () => {
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
+  it("does not count terminal tabs toward the session cap", () => {
+    // 5 chats + 2 terminals is under the chat cap (6), so + stays enabled.
+    const sessions: SessionMetadata[] = [
+      ...Array.from({ length: 5 }, (_, i) =>
+        makeSession(`chat-${i}`, `2026-02-12T00:00:0${i}.000Z`, `Chat ${i}`),
+      ),
+      { ...makeSession("term-1", "2026-02-12T00:01:00.000Z"), kind: "terminal" },
+      { ...makeSession("term-2", "2026-02-12T00:02:00.000Z"), kind: "terminal" },
+    ];
+    renderTabs({ sessions, activeSessionId: "chat-0" });
+    expect(screen.getByTitle("New conversation")).not.toBeDisabled();
+  });
+
+  it("disables the + button at the chat-session cap regardless of terminals", () => {
+    const sessions: SessionMetadata[] = [
+      ...Array.from({ length: 6 }, (_, i) =>
+        makeSession(`chat-${i}`, `2026-02-12T00:00:0${i}.000Z`, `Chat ${i}`),
+      ),
+      { ...makeSession("term-1", "2026-02-12T00:01:00.000Z"), kind: "terminal" },
+    ];
+    renderTabs({ sessions, activeSessionId: "chat-0" });
+    expect(screen.getByTitle(/Session limit reached/i)).toBeDisabled();
+  });
+
   it("activates a non-active tab on click", async () => {
     const user = userEvent.setup();
     const { onActivateSession } = renderTabs();
