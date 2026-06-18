@@ -72,10 +72,11 @@ export function TerminalPane({ wsId, sessionId }: TerminalPaneProps) {
       <XtermSurface
         connect={connect}
         connectKey={`${sessionId}:${connectGeneration}`}
-        className="h-full w-full overflow-hidden px-3"
+        backgroundVar="--card"
+        className="h-full w-full overflow-hidden px-6 py-3"
       />
       {showOverlay && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-sidebar">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-card">
           <TerminalSquareIcon className="size-8 text-muted-foreground/30" />
           {state.kind === "exited" && (
             <p className="text-xs text-muted-foreground/60">
@@ -86,7 +87,9 @@ export function TerminalPane({ wsId, sessionId }: TerminalPaneProps) {
             <TerminalSquareIcon className="size-3" />
             {state.kind === "exited" ? "Restart" : "Start terminal"}
           </Button>
-          <p className="text-xs text-muted-foreground/60">Open an interactive shell</p>
+          {state.kind === "idle" && (
+            <p className="text-xs text-muted-foreground/60">Open an interactive shell</p>
+          )}
         </div>
       )}
     </div>

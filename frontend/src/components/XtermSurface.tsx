@@ -9,10 +9,10 @@ function readThemeColor(name: string, fallback: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 }
 
-export function buildXtermTheme(theme: "dark" | "light") {
+export function buildXtermTheme(theme: "dark" | "light", backgroundVar = "--sidebar") {
   const foreground = readThemeColor("--foreground", theme === "dark" ? "#e4e4e7" : "#18181b");
   return {
-    background: readThemeColor("--sidebar", theme === "dark" ? "#0c0c14" : "#f8f8fb"),
+    background: readThemeColor(backgroundVar, theme === "dark" ? "#0c0c14" : "#f8f8fb"),
     foreground,
     cursor: foreground,
     selectionBackground: readThemeColor("--muted", theme === "dark" ? "#262636" : "#f0f1f4"),
@@ -33,6 +33,12 @@ export interface XtermSurfaceProps {
    */
   connectKey?: string;
   className?: string;
+  /**
+   * CSS custom property driving the terminal background. Defaults to the panel
+   * background (`--sidebar`), which suits the scripts panel; the in-chat
+   * terminal passes `--card` so it blends with the conversation card it lives in.
+   */
+  backgroundVar?: string;
 }
 
 /**
@@ -44,10 +50,10 @@ export interface XtermSurfaceProps {
  * Shared by ScriptPanel (setup/run/terminal output) and TerminalPane
  * (full-pane interactive shell).
  */
-export function XtermSurface({ connect, connectKey, className }: XtermSurfaceProps) {
+export function XtermSurface({ connect, connectKey, className, backgroundVar }: XtermSurfaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const theme = useThemeType();
-  const xtermTheme = useMemo(() => buildXtermTheme(theme), [theme]);
+  const xtermTheme = useMemo(() => buildXtermTheme(theme, backgroundVar), [theme, backgroundVar]);
   const themeRef = useRef(xtermTheme);
   themeRef.current = xtermTheme;
 

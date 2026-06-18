@@ -1,5 +1,4 @@
 import { GitBranch, Folder, TerminalSquareIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
 interface WorkspaceWelcomeProps {
   projectName: string;
@@ -52,16 +51,23 @@ export function WorkspaceWelcome({
             files
           </span>
         </div>
+        {onStartTerminal && (
+          <div className="flex items-center gap-3">
+            <TerminalSquareIcon className="size-4 shrink-0" />
+            <span>
+              You can{" "}
+              <button
+                type="button"
+                onClick={onStartTerminal}
+                className="cursor-pointer font-medium text-foreground underline decoration-border underline-offset-4 transition-colors hover:decoration-foreground"
+              >
+                start a terminal
+              </button>{" "}
+              in this workspace
+            </span>
+          </div>
+        )}
       </div>
-
-      {onStartTerminal && (
-        <div>
-          <Button variant="outline" size="sm" onClick={onStartTerminal}>
-            <TerminalSquareIcon className="size-3" />
-            Start terminal
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

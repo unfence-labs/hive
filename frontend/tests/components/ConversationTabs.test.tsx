@@ -533,10 +533,10 @@ describe("ConversationTabs — file tab", () => {
     });
 
     const chatTab = screen.getByText("Chat").closest("button")!;
-    expect(chatTab.querySelector("svg.lucide-square-terminal")).toBeNull();
+    expect(chatTab.querySelector('svg[data-icon="terminal"]')).toBeNull();
 
     const termTab = screen.getByText("Terminal 1").closest("button")!;
-    expect(termTab.querySelector("svg.lucide-square-terminal")).toBeInTheDocument();
+    expect(termTab.querySelector('svg[data-icon="terminal"]')).toBeInTheDocument();
   });
 
   it("titles untitled terminal sessions as 'Terminal N' by their order among terminals", () => {

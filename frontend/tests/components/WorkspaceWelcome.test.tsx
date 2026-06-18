@@ -34,7 +34,7 @@ describe("WorkspaceWelcome", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: /start terminal/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start a terminal/i })).not.toBeInTheDocument();
   });
 
   it("renders the start-terminal button and invokes the callback when provided", () => {
@@ -50,7 +50,7 @@ describe("WorkspaceWelcome", () => {
       />,
     );
 
-    const button = screen.getByRole("button", { name: /start terminal/i });
+    const button = screen.getByRole("button", { name: /start a terminal/i });
     fireEvent.click(button);
     expect(onStartTerminal).toHaveBeenCalledTimes(1);
   });

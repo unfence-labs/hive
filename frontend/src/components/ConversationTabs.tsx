@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MessageSquareIcon, PlusIcon, XIcon, FileIcon, GitCompareArrowsIcon, TerminalSquareIcon } from "lucide-react";
+import { MessageSquareIcon, PlusIcon, XIcon, FileIcon, GitCompareArrowsIcon } from "lucide-react";
 import AgentActivityPreview from "@/components/chat/AgentActivityPreview";
 import { ProviderIcon, isKnownProvider } from "@/components/chat/ProviderIcon";
 import {
@@ -95,6 +95,28 @@ function getFallbackVisualState({
 }
 
 /**
+ * Filled terminal mark for terminal-kind tabs. A solid window in `currentColor`
+ * (so it reads as the tab's text color — near-black in light, near-white in
+ * dark) with the `>_` prompt knocked out in the card background behind it. This
+ * gives terminal tabs a bolder, distinct silhouette next to the colored provider
+ * marks, instead of a thin outline.
+ */
+function TerminalTabIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" data-icon="terminal" aria-hidden>
+      <rect x="2" y="3.5" width="20" height="17" rx="3.5" fill="currentColor" />
+      <path
+        d="m6.5 9.5 3 2.5-3 2.5M12.5 15h4"
+        style={{ stroke: "var(--card)" }}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/**
  * The tab's leading glyph. The provider mark is the conversation's resting
  * identity (shown once a session locks its provider on the first message), so
  * the whole strip reads which model each conversation runs at a glance.
@@ -124,7 +146,7 @@ function TabLeadingIcon({
     return <span className="size-2 shrink-0 rounded-full bg-primary" />;
   }
   if (sessionKind === "terminal") {
-    return <TerminalSquareIcon className="size-3.5 shrink-0" />;
+    return <TerminalTabIcon className="size-3.5 shrink-0" />;
   }
   if (isKnownProvider(provider)) {
     return <ProviderIcon provider={provider} colored className="size-3.5 shrink-0" />;
