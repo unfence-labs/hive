@@ -123,6 +123,9 @@ function truncateActivity(activity: AgentActivity): AgentActivity {
  * when over the cap. Returns a copy; the input (and disk) are never mutated.
  */
 export function truncateMessageForHistory(message: ChatMessage): ChatMessage {
+  // Known limitation (see README "REST history payload weight"): only
+  // ToolCall.output and command_execution.output are truncated; ToolCall.input
+  // and file_change diffs pass through and can still be heavy.
   const next: ChatMessage = { ...message };
   if (message.toolCalls) next.toolCalls = message.toolCalls.map(truncateToolCall);
   if (message.agentActivities) {

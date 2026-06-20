@@ -331,6 +331,9 @@ This section is the single approved place for documented remaining work. Do not 
 - Add script automations that run configured commands and capture output for notifications.
 - Add automation chaining, concurrency limits, retry policy, and live hub streaming for automation runs.
 
+**REST history payload weight**
+- Lazy history truncation currently covers `ToolCall.output` and `command_execution.output` only. Large content carried in `ToolCall.input` (e.g. big `Write` inputs or Codex multi-file edits) and `agentActivities[].files[].diff` is not truncated, so a turn with heavy inputs or diffs can still produce a large history payload.
+
 **iOS**
 - Add iOS UI for automations and prompt template management.
 - Add repository file browsing and richer diff inspection on iOS beyond dashboard summaries and chat-rendered diffs.

@@ -732,19 +732,65 @@ export async function hardDeleteSession(
   });
 }
 
+/**
+ * Shared ownership guard for explicit-session reads (messages, tool output,
+ * attachments): a session may only be read through the workspace that owns it.
+ *
+ * Sessions of every workspace in a project share one `<projectId>/sessions/`
+ * directory, so a path built from `wsId` + an arbitrary `sessionId` would
+ * otherwise read another workspace's session (IDOR). This resolves the project
+ * for `wsId`, then requires the on-disk (or in-memory) session metadata to carry
+ * `workspaceId === wsId`. A missing session and a session owned by a different
+ * workspace are treated identically as `NotFoundError` (404) so existence in a
+ * sibling workspace is never leaked. Returns the resolved `projectId` so callers
+ * can build the session path without re-resolving the workspace.
+ */
+async function assertSessionOwnership(
+  wsId: string,
+  sessionId: string,
+  dataDir: string,
+): Promise<{ projectId: string }> {
+  const result = await getWorkspace(wsId, dataDir);
+  if (!result) throw new NotFoundError(`Session ${sessionId} not found`);
+  const projectId = result.projectState.id;
+
+  // An in-memory session is keyed by wsId, so its presence already proves
+  // ownership; for everything else fall back to the persisted metadata.
+  const loaded = getLoadedSessionById(wsId, sessionId);
+  const owner = loaded
+    ? loaded.metadata.workspaceId
+    : await readSessionOwnerFromDisk(projectId, sessionId, dataDir);
+  if (owner !== wsId) throw new NotFoundError(`Session ${sessionId} not found`);
+  return { projectId };
+}
+
+/** Read a session's owning workspace id from its `metadata.json`, or undefined. */
+async function readSessionOwnerFromDisk(
+  projectId: string,
+  sessionId: string,
+  dataDir: string,
+): Promise<string | undefined> {
+  const metaPath = join(dataDir, projectId, "sessions", sessionId, "metadata.json");
+  try {
+    const meta = JSON.parse(await readFile(metaPath, "utf-8")) as SessionMetadata;
+    return meta.workspaceId;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Get messages for a specific session (from memory if active, otherwise from disk). */
 export async function getSpecificSessionMessages(
   wsId: string,
   sessionId: string,
   dataDir = getDataDir(),
 ): Promise<ChatMessage[]> {
+  const { projectId } = await assertSessionOwnership(wsId, sessionId, dataDir);
+
   const loaded = getLoadedSessionById(wsId, sessionId);
   if (loaded) return loaded.getMessages();
 
-  const result = await getWorkspace(wsId, dataDir);
-  if (!result) throw new NotFoundError(`Workspace ${wsId} not found`);
-
-  const messagesPath = join(dataDir, result.projectState.id, "sessions", sessionId, "messages.jsonl");
+  const messagesPath = join(dataDir, projectId, "sessions", sessionId, "messages.jsonl");
   try {
     const raw = await readFile(messagesPath, "utf-8");
     return parseJsonlMessages(raw);
@@ -760,9 +806,8 @@ export async function resolveSessionAttachmentPath(
   filename: string,
   dataDir = getDataDir(),
 ): Promise<string | null> {
-  const result = await getWorkspace(wsId, dataDir);
-  if (!result) return null;
-  return join(dataDir, result.projectState.id, "sessions", sessionId, "attachments", filename);
+  const { projectId } = await assertSessionOwnership(wsId, sessionId, dataDir);
+  return join(dataDir, projectId, "sessions", sessionId, "attachments", filename);
 }
 
 /** Return session IDs currently streaming in a workspace. */

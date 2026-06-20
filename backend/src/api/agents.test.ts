@@ -435,13 +435,14 @@ describe("GET /api/workspaces/:wsId/sessions/:sessionId/messages", () => {
     });
   });
 
-  it("returns empty history when specific session file is missing", async () => {
+  it("404s when the specific session does not exist (no existence leak)", async () => {
+    // A missing session and a session owned by another workspace are
+    // indistinguishable: both 404 so a sibling workspace can't be probed.
     const res = await app.inject({
       method: "GET",
       url: `/api/workspaces/${wsId}/sessions/missing/messages`,
     });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ messages: [], hasMore: false });
+    expect(res.statusCode).toBe(404);
   });
 });
 
@@ -800,5 +801,101 @@ describe("PRD #254 expand endpoint (full output on demand)", () => {
       url: `/api/workspaces/${wsId}/sessions/..%2f..%2fsecret/tools/t/output`,
     });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+// ── Cross-workspace ownership guard (audit P1, IDOR) ─────────────────
+// Sessions of every workspace in a project share one `<projectId>/sessions/`
+// directory. A request that pairs workspace A with a sessionId owned by
+// workspace B (same project) must NOT read B's messages, tool output, or
+// attachments — it must 404 indistinguishably from a missing session.
+describe("explicit-session reads are scoped to the owning workspace", () => {
+  /** Second workspace in the SAME project, owning a session with all read targets. */
+  async function setupSibling(): Promise<{ wsB: string; sessionId: string; filename: string }> {
+    const wsBRes = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/workspaces`,
+    });
+    const wsB = wsBRes.json().id as string;
+
+    const sessionId = "sess-wsB";
+    const filename = "secret.png";
+    await writeSessionFixture(sessionId, wsB, {
+      messages: [
+        {
+          id: "m-secret",
+          sessionId,
+          role: "user",
+          content: "wsB private content",
+          timestamp: "2026-02-11T00:00:00.000Z",
+        },
+        {
+          id: "a-secret",
+          sessionId,
+          role: "assistant",
+          content: "ok",
+          timestamp: "2026-02-11T00:00:01.000Z",
+          toolCalls: [{ id: "tool-secret", name: "Bash", input: "{}", output: BIG_OUTPUT }],
+        },
+      ],
+    });
+
+    const attachmentsDir = join(dataDir, projectId, "sessions", sessionId, "attachments");
+    await mkdir(attachmentsDir, { recursive: true });
+    await writeFile(join(attachmentsDir, filename), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    return { wsB, sessionId, filename };
+  }
+
+  it("returns 404 for messages, tool output, and attachments when read via a foreign workspace", async () => {
+    const { sessionId, filename } = await setupSibling();
+
+    const messagesRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/${sessionId}/messages`,
+    });
+    expect(messagesRes.statusCode).toBe(404);
+    expect(JSON.stringify(messagesRes.json())).not.toContain("wsB private content");
+
+    const toolRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/${sessionId}/tools/tool-secret/output`,
+    });
+    expect(toolRes.statusCode).toBe(404);
+    expect(JSON.stringify(toolRes.json())).not.toContain(BIG_OUTPUT);
+
+    const attachmentRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/${sessionId}/attachments/${filename}`,
+    });
+    expect(attachmentRes.statusCode).toBe(404);
+  });
+
+  it("still serves messages, tool output, and attachments to the owning workspace", async () => {
+    const { wsB, sessionId, filename } = await setupSibling();
+
+    const messagesRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsB}/sessions/${sessionId}/messages`,
+    });
+    expect(messagesRes.statusCode).toBe(200);
+    expect((messagesRes.json() as HistoryResponse).messages.map((m) => m.id)).toEqual([
+      "m-secret",
+      "a-secret",
+    ]);
+
+    const toolRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsB}/sessions/${sessionId}/tools/tool-secret/output`,
+    });
+    expect(toolRes.statusCode).toBe(200);
+    expect(toolRes.json()).toEqual({ output: BIG_OUTPUT });
+
+    const attachmentRes = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsB}/sessions/${sessionId}/attachments/${filename}`,
+    });
+    expect(attachmentRes.statusCode).toBe(200);
+    expect(attachmentRes.headers["content-type"]).toBe("image/png");
   });
 });

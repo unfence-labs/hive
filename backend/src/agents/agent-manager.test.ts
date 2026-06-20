@@ -715,9 +715,27 @@ describe("getSpecificSessionMessages", () => {
     ]);
   });
 
-  it("returns empty array when persisted messages do not exist", async () => {
-    const messages = await getSpecificSessionMessages(wsId, "missing", dataDir);
-    expect(messages).toEqual([]);
+  it("throws not found when the session does not exist", async () => {
+    // Missing and wrong-workspace are indistinguishable so existence in a
+    // sibling workspace cannot be probed.
+    await expect(getSpecificSessionMessages(wsId, "missing", dataDir)).rejects.toThrow("not found");
+  });
+
+  it("throws not found when the session belongs to another workspace in the project", async () => {
+    await writeSessionFixture("sess-foreign", "other-workspace", {
+      messages: [
+        {
+          id: "m-1",
+          sessionId: "sess-foreign",
+          role: "user",
+          content: "private",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      ],
+    });
+    await expect(getSpecificSessionMessages(wsId, "sess-foreign", dataDir)).rejects.toThrow(
+      "not found",
+    );
   });
 
   it("throws for non-existent workspace", async () => {
