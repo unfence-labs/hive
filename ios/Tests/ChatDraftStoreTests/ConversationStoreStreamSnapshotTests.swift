@@ -463,6 +463,32 @@ struct ConversationStoreStreamSnapshotTests {
     }
 
     @Test @MainActor
+    func streamSnapshotComputesZeroScalarsForToolWithEmptyOutput() {
+        let store = ConversationStore()
+        store.setFocusedSessionId("session-1")
+
+        // A completed tool whose output is "" must get the SAME zero scalars the
+        // `tool_result` path computes — not be treated as still-running and left
+        // with nil scalars (PRD #254 #5 audit follow-up).
+        store.handle(.streamSnapshot(
+            sessionId: "session-1",
+            text: "running tools",
+            thinking: "",
+            toolCalls: [toolCall("tool-empty", output: "")],
+            agentActivities: [],
+            planMode: false,
+            streamingStartedAt: 1_700_000_000_000
+        ))
+
+        let tool = store.activeToolCalls.first
+        #expect(tool?.output == "")
+        #expect(tool?.outputPreview == "")
+        #expect(tool?.outputLineCount == 0)
+        #expect(tool?.outputByteLength == 0)
+        #expect(tool?.outputTruncated == false)
+    }
+
+    @Test @MainActor
     func streamSnapshotLeavesRunningToolWithoutOutputUntouched() {
         let store = ConversationStore()
         store.setFocusedSessionId("session-1")

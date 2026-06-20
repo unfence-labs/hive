@@ -474,10 +474,11 @@ final class ConversationStore {
 
     /// Normalize a `stream_snapshot` tool's output to the unified scalar shape
     /// (PRD #254 Finding #5): a snapshot tool that already completed carries a
-    /// non-empty full `output`, so compute its scalars exactly like
-    /// `tool_result`. Tools still running (no output) pass through unchanged.
+    /// full `output` (possibly empty ""), so compute its scalars exactly like
+    /// `tool_result` whenever output is present. Tools still running (nil
+    /// output) pass through unchanged.
     private func normalizeToolCallOutput(_ tc: ToolCall) -> ToolCall {
-        guard let output = tc.output, !output.isEmpty else { return tc }
+        guard let output = tc.output else { return tc }
         return withComputedOutputScalars(tc, output: output)
     }
 

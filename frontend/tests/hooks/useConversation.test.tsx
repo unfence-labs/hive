@@ -2810,6 +2810,36 @@ describe("useConversation", () => {
       });
     });
 
+    it("computes zero scalars for a snapshot tool that completed with empty output", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      // A completed tool whose output is "" must get the SAME zero scalars the
+      // live tool_result path computes (outputPreview "", counts 0, untruncated)
+      // — not be mistaken for a still-running tool and left without scalars.
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
+        __wsMock.emit("ws-1", snapshot({
+          toolCalls: [{ id: "e1", name: "Bash", input: "{}", output: "" }],
+        }));
+      });
+
+      const tool = result.current.activeToolCalls[0];
+      expect(tool).toMatchObject({
+        id: "e1",
+        output: "",
+        outputPreview: "",
+        outputLineCount: 0,
+        outputByteLength: 0,
+        outputTruncated: false,
+      });
+      // The scalars must be present (computed), not undefined.
+      expect(tool?.outputPreview).not.toBeUndefined();
+      expect(tool?.outputLineCount).not.toBeUndefined();
+      expect(tool?.outputByteLength).not.toBeUndefined();
+      expect(tool?.outputTruncated).not.toBeUndefined();
+    });
+
     it("leaves snapshot tools without output untouched (no scalars synthesized)", async () => {
       const { __wsMock } = await getWsMock();
       const { result } = renderHook(() => useConversation("ws-1"));

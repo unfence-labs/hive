@@ -285,7 +285,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       // tools render via scalars (one render path, live and history) instead of
       // re-parsing the full body until the next REST resync.
       const snapshotToolCalls = action.toolCalls.map((tool) =>
-        tool.output ? { ...tool, ...computeOutputScalars(tool.output) } : tool,
+        tool.output !== undefined ? { ...tool, ...computeOutputScalars(tool.output) } : tool,
       );
       return {
         ...state,
