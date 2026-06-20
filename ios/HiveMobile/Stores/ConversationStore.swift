@@ -168,13 +168,7 @@ final class ConversationStore {
             // Live = full output; compute the truncation scalars ONCE and store
             // them in the unified shape so the collapsed view reads scalars
             // instead of re-parsing the body, matching history (PRD #254).
-            let scalars = computeOutputScalars(output)
-            sessionStreams[sid]?.activeToolCalls[idx] = ToolCall(
-                id: tc.id, name: tc.name, input: tc.input,
-                output: output, parentToolUseId: tc.parentToolUseId,
-                outputPreview: scalars.preview, outputLineCount: scalars.lineCount,
-                outputByteLength: scalars.byteLength, outputTruncated: scalars.truncated
-            )
+            sessionStreams[sid]?.activeToolCalls[idx] = withComputedOutputScalars(tc, output: output)
 
         case .agentActivity(let sid, let activity):
             upsertAgentActivity(activity, for: sid)
@@ -277,7 +271,13 @@ final class ConversationStore {
                 stream.isStreaming = true
                 stream.currentText = text
                 stream.currentThinking = thinking
-                stream.activeToolCalls = toolCalls
+                // Normalize snapshot tool outputs the SAME way `tool_result`
+                // does (PRD #254 Finding #5): a snapshot tool that already
+                // completed carries a full `output`, so compute its
+                // preview/lineCount/byteLength (truncated = false) once here. The
+                // collapsed view then reads scalars instead of re-parsing the
+                // body, identical to a tool that completes after focus.
+                stream.activeToolCalls = toolCalls.map(normalizeToolCallOutput)
                 stream.activeAgentActivities = agentActivities
                 stream.agentPlanMode = planMode
                 stream.streamingStartedAt = parseStartedAt(startedAt)
@@ -314,16 +314,7 @@ final class ConversationStore {
 
             // Derive pending tool inputs from history only when not actively
             // streaming (during streaming, live WS tool inputs take precedence).
-            let activeStream = historySessionId.flatMap { sessionStreams[$0] }
-            if activeStream?.isStreaming != true {
-                let derived = derivePendingToolInputsFromHistory(msgs)
-                if let sid = historySessionId {
-                    if activeStream != nil || !derived.isEmpty {
-                        ensureStream(for: sid, streaming: false)
-                        sessionStreams[sid]?.pendingToolInputs = derived
-                    }
-                }
-            }
+            applyDerivedPendingToolInputs(from: msgs, for: historySessionId)
 
         case .branchInfo(let info):
             branchInfo = info
@@ -388,6 +379,13 @@ final class ConversationStore {
     func applyMessagesPage(_ page: MessagesPage) {
         messages = page.messages
         hasMoreEarlier = page.hasMore
+        // REST is now the single source of truth for history, so the pending
+        // question / plan-approval derivation that used to live on the WS
+        // `.history` handler must also run here (PRD #254 Finding #3) — else a
+        // session parked on an AskUserQuestion/ExitPlanMode shows no answer
+        // sheet on open. Skipped while the focused session is actively
+        // streaming, where live WS tool inputs win (mirrors web `set_history`).
+        applyDerivedPendingToolInputs(from: page.messages, for: sessionId)
     }
 
     /// Prepend an older REST page ahead of the current window (PRD #254 "Load
@@ -458,6 +456,29 @@ final class ConversationStore {
             stream.activeAgentActivities.append(activity)
         }
         sessionStreams[sid] = stream
+    }
+
+    /// Return a copy of `tc` whose `output` is `output` and whose lazy-output
+    /// scalars are computed from it (PRD #254). The single place that turns a
+    /// full live output into the unified scalar shape; shared by `tool_result`
+    /// and the `stream_snapshot` normalization so both agree byte-for-byte.
+    private func withComputedOutputScalars(_ tc: ToolCall, output: String) -> ToolCall {
+        let scalars = computeOutputScalars(output)
+        return ToolCall(
+            id: tc.id, name: tc.name, input: tc.input,
+            output: output, parentToolUseId: tc.parentToolUseId,
+            outputPreview: scalars.preview, outputLineCount: scalars.lineCount,
+            outputByteLength: scalars.byteLength, outputTruncated: scalars.truncated
+        )
+    }
+
+    /// Normalize a `stream_snapshot` tool's output to the unified scalar shape
+    /// (PRD #254 Finding #5): a snapshot tool that already completed carries a
+    /// non-empty full `output`, so compute its scalars exactly like
+    /// `tool_result`. Tools still running (no output) pass through unchanged.
+    private func normalizeToolCallOutput(_ tc: ToolCall) -> ToolCall {
+        guard let output = tc.output, !output.isEmpty else { return tc }
+        return withComputedOutputScalars(tc, output: output)
     }
 
     private func hasTerminalAssistantMessage(for sid: String) -> Bool {
@@ -533,6 +554,25 @@ final class ConversationStore {
                 durationMs: nil
             )
             messages.append(msg)
+        }
+    }
+
+    /// Derive pending tool inputs from a loaded history window and store them on
+    /// the session's stream slot (PRD #254 Finding #3). Shared by the WS
+    /// `.history` handler and the REST `applyMessagesPage` path so both hydrate
+    /// the answer sheet identically. Skipped when the session is actively
+    /// streaming: live WS tool inputs take precedence (mirrors web's
+    /// `set_history`, which only derives when not streaming).
+    private func applyDerivedPendingToolInputs(from msgs: [ChatMessage], for sid: String?) {
+        let stream = sid.flatMap { sessionStreams[$0] }
+        guard stream?.isStreaming != true else { return }
+        let derived = derivePendingToolInputsFromHistory(msgs)
+        guard let sid else { return }
+        // Only touch the slot if there is something to set or a slot already
+        // exists — avoid creating an empty stream slot for nothing.
+        if stream != nil || !derived.isEmpty {
+            ensureStream(for: sid, streaming: false)
+            sessionStreams[sid]?.pendingToolInputs = derived
         }
     }
 

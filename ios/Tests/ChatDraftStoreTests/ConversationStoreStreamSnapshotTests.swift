@@ -18,6 +18,22 @@ struct ConversationStoreStreamSnapshotTests {
         ))
     }
 
+    private func message(
+        _ id: String, role: MessageRole, content: String = "",
+        sessionId: String = "session-1", toolCalls: [ToolCall]? = nil
+    ) -> ChatMessage {
+        ChatMessage(
+            id: id, sessionId: sessionId, role: role, content: content,
+            images: nil, toolCalls: toolCalls, thinkingContent: nil,
+            timestamp: "2026-01-01T00:00:00.000Z", cancelled: nil, durationMs: nil
+        )
+    }
+
+    private func askUserQuestionTool(_ id: String) -> ToolCall {
+        ToolCall(id: id, name: "AskUserQuestion", input: "{\"question\":\"pick one\"}",
+                 output: nil, parentToolUseId: nil)
+    }
+
     // MARK: - stream_snapshot REPLACE semantics
 
     @Test @MainActor
@@ -352,6 +368,123 @@ struct ConversationStoreStreamSnapshotTests {
 
         // m2 is not duplicated.
         #expect(store.messages.map(\.id) == ["m1", "m2"])
+    }
+
+    // MARK: - applyMessagesPage derives pending tool inputs (Finding #3)
+
+    @Test @MainActor
+    func applyMessagesPageDerivesPendingFromUnansweredQuestion() {
+        let store = ConversationStore()
+        store.setFocusedSessionId("session-1")
+
+        // REST history whose last assistant turn parked on an AskUserQuestion
+        // with no user message after it: opening this session must surface the
+        // answer sheet, so a pending tool input is derived (PRD #254 Finding #3).
+        let page = MessagesPage(messages: [
+            message("u1", role: .user, content: "do the thing"),
+            message("a1", role: .assistant, content: "I need input",
+                    toolCalls: [askUserQuestionTool("tool-ask-1")])
+        ], hasMore: false)
+
+        store.applyMessagesPage(page)
+
+        #expect(store.pendingToolInputs.count == 1)
+        #expect(store.pendingToolInputs.first?.toolName == "AskUserQuestion")
+        #expect(store.pendingToolInputs.first?.toolUseId == "tool-ask-1")
+    }
+
+    @Test @MainActor
+    func applyMessagesPageDerivesNoPendingWhenUserAnswered() {
+        let store = ConversationStore()
+        store.setFocusedSessionId("session-1")
+
+        // A user message AFTER the question means it was already answered — no
+        // pending input should be derived.
+        let page = MessagesPage(messages: [
+            message("a1", role: .assistant, content: "I need input",
+                    toolCalls: [askUserQuestionTool("tool-ask-1")]),
+            message("u1", role: .user, content: "here is my answer")
+        ], hasMore: false)
+
+        store.applyMessagesPage(page)
+
+        #expect(store.pendingToolInputs.isEmpty)
+    }
+
+    @Test @MainActor
+    func applyMessagesPageSkipsDerivationWhileStreaming() {
+        let store = ConversationStore()
+        store.setFocusedSessionId("session-1")
+        // The focused session is actively streaming: live WS tool inputs win, so
+        // history derivation is skipped (mirrors web's set_history behavior).
+        store.handle(.status(
+            status: .busy, sessionId: "session-1",
+            streaming: true, streamingStartedAt: nil, lockedProvider: nil
+        ))
+
+        let page = MessagesPage(messages: [
+            message("a1", role: .assistant, content: "I need input",
+                    toolCalls: [askUserQuestionTool("tool-ask-1")])
+        ], hasMore: false)
+
+        store.applyMessagesPage(page)
+
+        #expect(store.pendingToolInputs.isEmpty)
+    }
+
+    // MARK: - stream_snapshot computes output scalars (Finding #5)
+
+    @Test @MainActor
+    func streamSnapshotComputesScalarsForToolWithOutput() {
+        let store = ConversationStore()
+        store.setFocusedSessionId("session-1")
+
+        let output = "line one\nline two\nline three"
+        store.handle(.streamSnapshot(
+            sessionId: "session-1",
+            text: "running tools",
+            thinking: "",
+            toolCalls: [toolCall("tool-1", output: output)],
+            agentActivities: [],
+            planMode: false,
+            streamingStartedAt: 1_700_000_000_000
+        ))
+
+        // A snapshot tool that already completed carries a full output, so the
+        // store computes the same scalars `tool_result` would (PRD #254 #5):
+        // body preserved (small => untruncated), preview == body, exact line/byte
+        // counts present.
+        let tool = store.activeToolCalls.first
+        #expect(tool?.output == output)
+        #expect(tool?.outputPreview == output)
+        #expect(tool?.outputLineCount == 3)
+        #expect(tool?.outputByteLength == output.utf8.count)
+        #expect(tool?.outputTruncated == false)
+    }
+
+    @Test @MainActor
+    func streamSnapshotLeavesRunningToolWithoutOutputUntouched() {
+        let store = ConversationStore()
+        store.setFocusedSessionId("session-1")
+
+        // A tool still running in the snapshot has no output — it must pass
+        // through with nil scalars (nothing to compute yet).
+        store.handle(.streamSnapshot(
+            sessionId: "session-1",
+            text: "",
+            thinking: "",
+            toolCalls: [toolCall("tool-running")],
+            agentActivities: [],
+            planMode: false,
+            streamingStartedAt: 1_700_000_000_000
+        ))
+
+        let tool = store.activeToolCalls.first
+        #expect(tool?.output == nil)
+        #expect(tool?.outputPreview == nil)
+        #expect(tool?.outputLineCount == nil)
+        #expect(tool?.outputByteLength == nil)
+        #expect(tool?.outputTruncated == nil)
     }
 
     @Test @MainActor

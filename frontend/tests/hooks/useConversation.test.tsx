@@ -135,7 +135,10 @@ vi.mock("@/lib/ws-transport", () => {
       wsTransport.disconnect.mockClear();
       wsTransport.syncWorkspaces.mockClear();
       wsTransport.disconnectAll.mockClear();
-      wsTransport.send.mockClear();
+      // Reset (not just clear) so a per-test mockImplementation/mockReturnValueOnce
+      // override can't leak into the next test, then restore the default.
+      wsTransport.send.mockReset();
+      wsTransport.send.mockImplementation((_workspaceId: string, _message: unknown) => true);
       wsTransport.onMessage.mockClear();
       wsTransport.setSessionWindow.mockClear();
       wsTransport.getSessionWindow.mockClear();
@@ -326,8 +329,12 @@ describe("useConversation", () => {
 
   it("does not add user message when transport send fails", async () => {
     const { __wsMock } = await getWsMock();
-    __wsMock.sendMock.mockReturnValueOnce(false);
     const { result } = renderHook(() => useConversation("ws-1"));
+    // The mount-time focus pull also calls send(); fail only the user_message so
+    // the assertion targets the message send regardless of call ordering.
+    __wsMock.sendMock.mockImplementation(
+      (_ws: string, msg: { type: string }) => msg.type !== "user_message",
+    );
 
     act(() => {
       const sent = result.current.sendMessage("hello");
@@ -583,6 +590,8 @@ describe("useConversation", () => {
   it("batchAnswerQuestions sends one response per tool with original questions and clears pending", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));
+    // Drop the mount-time focus pull so the two responses are calls 1 and 2.
+    __wsMock.sendMock.mockClear();
 
     act(() => {
       __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
@@ -647,6 +656,8 @@ describe("useConversation", () => {
   it("clears pending tool inputs on tool_input_resolved (dismissed on another client)", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));
+    // Ignore the mount-time focus pull; this asserts no response is sent.
+    __wsMock.sendMock.mockClear();
 
     act(() => {
       __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-1" });
@@ -672,6 +683,8 @@ describe("useConversation", () => {
   it("clears pending tool inputs when the session resumes streaming (answered on another client)", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));
+    // Ignore the mount-time focus pull; this asserts no response is sent.
+    __wsMock.sendMock.mockClear();
 
     act(() => {
       __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-1" });
@@ -1306,8 +1319,13 @@ describe("useConversation", () => {
   it("keeps target session visible and sets an error when switch_session send fails", async () => {
     const { __wsMock } = await getWsMock();
     // REST stays pending (default mock) so messages remain empty regardless.
-    __wsMock.sendMock.mockReturnValueOnce(false);
     const { result } = renderHook(() => useConversation("ws-1"));
+    // The mount-time focus pull also sends switch_session; fail only the explicit
+    // switch to sess-fail so the assertion targets that call.
+    __wsMock.sendMock.mockImplementation(
+      (_ws: string, msg: { type: string; sessionId?: string }) =>
+        !(msg.type === "switch_session" && msg.sessionId === "sess-fail"),
+    );
 
     await act(async () => {
       await result.current.switchSession("sess-fail");
@@ -1710,6 +1728,8 @@ describe("useConversation", () => {
   it("does nothing when rejectToolInput is called with no pending inputs", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));
+    // Ignore the mount-time focus pull; this asserts the action sends nothing.
+    __wsMock.sendMock.mockClear();
 
     act(() => {
       result.current.rejectToolInput("no pending");
@@ -2761,6 +2781,131 @@ describe("useConversation", () => {
       // Replace semantics: the stale delta text and tool are gone, not merged.
       expect(result.current.currentStreamingText).toBe("fresh full text");
       expect(result.current.activeToolCalls).toEqual([]);
+    });
+
+    it("computes unified output scalars for snapshot tools that carry output", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      // A mid-stream-join snapshot whose tool carries a full output must render
+      // via the same computed scalars as the live tool_result path — not the raw
+      // full body — so there is one render path for live and history.
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
+        __wsMock.emit("ws-1", snapshot({
+          toolCalls: [
+            { id: "g1", name: "Grep", input: "{}", output: "line1\nline2\nline3" },
+          ],
+        }));
+      });
+
+      const tool = result.current.activeToolCalls[0];
+      expect(tool).toMatchObject({
+        id: "g1",
+        output: "line1\nline2\nline3",
+        outputPreview: "line1\nline2\nline3",
+        outputLineCount: 3,
+        outputByteLength: 17,
+        outputTruncated: false,
+      });
+    });
+
+    it("leaves snapshot tools without output untouched (no scalars synthesized)", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
+        __wsMock.emit("ws-1", snapshot({
+          toolCalls: [{ id: "pending", name: "Bash", input: "{}" }],
+        }));
+      });
+
+      const tool = result.current.activeToolCalls[0];
+      expect(tool).toMatchObject({ id: "pending", name: "Bash" });
+      expect(tool?.output).toBeUndefined();
+      expect(tool?.outputPreview).toBeUndefined();
+      expect(tool?.outputLineCount).toBeUndefined();
+    });
+  });
+
+  describe("focus pull on mount (in-flight catch-up)", () => {
+    it("sends a bare switch_session (no sessionId) when there is no saved session", async () => {
+      const { __wsMock } = await getWsMock();
+      // No saved session for ws-1 (beforeEach resets saved sessions). The mount
+      // effect must still pull focus so an already-streaming workspace delivers
+      // its consolidated stream_snapshot on first navigation.
+      renderHook(() => useConversation("ws-1"));
+
+      const switchCalls = __wsMock.sendMock.mock.calls.filter(
+        ([, msg]) => (msg as { type?: string }).type === "switch_session",
+      );
+      expect(switchCalls).toHaveLength(1);
+      expect(switchCalls[0]?.[0]).toBe("ws-1");
+      expect((switchCalls[0]?.[1] as { sessionId?: string }).sessionId).toBeUndefined();
+    });
+
+    it("sends switch_session with the saved session id when one exists", async () => {
+      const { __wsMock } = await getWsMock();
+      const { rerender } = renderHook(
+        ({ wsId }) => useConversation(wsId),
+        { initialProps: { wsId: "ws-1" } },
+      );
+
+      // Establish a session, then leave so cleanup saves ws-1 → sess-saved.
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-saved", streaming: false });
+      });
+      rerender({ wsId: "ws-2" });
+      __wsMock.sendMock.mockClear();
+
+      // Returning to ws-1 must focus the saved session explicitly.
+      rerender({ wsId: "ws-1" });
+
+      const switchCalls = __wsMock.sendMock.mock.calls.filter(
+        ([, msg]) => (msg as { type?: string }).type === "switch_session",
+      );
+      expect(switchCalls).toContainEqual([
+        "ws-1",
+        { type: "switch_session", sessionId: "sess-saved" },
+      ]);
+    });
+
+    it("re-pulls focus on reconnect with a bare switch_session when no session is active", async () => {
+      const { __wsMock } = await getWsMock();
+      renderHook(() => useConversation("ws-1"));
+      // Drop the mount-time pull so we isolate the reconnect-triggered send.
+      __wsMock.sendMock.mockClear();
+
+      act(() => {
+        __wsMock.triggerReconnect("ws-1");
+      });
+
+      const switchCalls = __wsMock.sendMock.mock.calls.filter(
+        ([, msg]) => (msg as { type?: string }).type === "switch_session",
+      );
+      expect(switchCalls).toHaveLength(1);
+      expect((switchCalls[0]?.[1] as { sessionId?: string }).sessionId).toBeUndefined();
+    });
+
+    it("re-pulls focus on reconnect with the active session id when one is set", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-active", streaming: true });
+      });
+      expect(result.current.sessionId).toBe("sess-active");
+      __wsMock.sendMock.mockClear();
+
+      act(() => {
+        __wsMock.triggerReconnect("ws-1");
+      });
+
+      expect(__wsMock.sendMock).toHaveBeenCalledWith("ws-1", {
+        type: "switch_session",
+        sessionId: "sess-active",
+      });
     });
   });
 

@@ -271,6 +271,11 @@ class WsTransport {
       for (const sub of this.subscriptions.values()) {
         sub.lastStatusBySession.clear();
       }
+      // Send the subscription FIRST so the on-the-wire order is sync_workspaces →
+      // switch_session. The backend serializes per-socket messages, so the
+      // subscription lands before any reconnect-triggered switch_session and there
+      // is no "Not subscribed" error flash.
+      this.sendSyncWorkspaces();
       // On reconnect, notify listeners so they can re-pull focus (re-send
       // switch_session) and get a fresh consolidated stream_snapshot. The
       // snapshot replaces (not appends) stream state, so this is idempotent and
@@ -281,7 +286,6 @@ class WsTransport {
         }
       }
       this.setHubStatus("connected");
-      this.sendSyncWorkspaces();
     };
 
     ws.onmessage = (event) => {

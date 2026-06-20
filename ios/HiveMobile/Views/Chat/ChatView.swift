@@ -326,8 +326,13 @@ struct ChatView: View {
             store.setFocusedSessionId(selectedSessionId)
         } else {
             store.prepareSessionSwitch(selectedSessionId)
-            _ = await store.send?(.switchSession(sessionId: selectedSessionId))
         }
+        // ALWAYS pull on focus (PRD #254). The backend replays status +
+        // stream_snapshot for the active session, so opening an already-
+        // subscribed streaming workspace shows the in-flight turn immediately
+        // instead of an empty bubble until the next delta. Snapshot apply is
+        // REPLACE, so re-pulling a session we already track is idempotent.
+        _ = await store.send?(.switchSession(sessionId: selectedSessionId))
         restoreDraft(for: selectedSessionId)
 
         if selectedModelId.isEmpty {

@@ -69,7 +69,11 @@ enum ToolInputResult: Encodable {
 // MARK: - WsIncoming (Frontend -> Backend)
 
 enum WsIncoming: Encodable {
-    case switchSession(sessionId: String)
+    // sessionId is OPTIONAL (PRD #254): `switch_session` with no sessionId is a
+    // deterministic focus pull on the workspace's active session. Used on first
+    // open of an already-subscribed streaming workspace, where the client has no
+    // session id yet but must still pull the in-flight snapshot.
+    case switchSession(sessionId: String?)
     case userMessage(content: String, images: [ImageAttachment]?, fileMentions: [FileMention]?, options: MessageOptions?, sessionId: String?)
     case stop(sessionId: String?)
     case toolInputResponse(requestId: String, toolName: String, result: ToolInputResult, sessionId: String?)
@@ -79,7 +83,7 @@ enum WsIncoming: Encodable {
         switch self {
         case .switchSession(let sessionId):
             try container.encode("switch_session", forKey: .type)
-            try container.encode(sessionId, forKey: .sessionId)
+            try container.encodeIfPresent(sessionId, forKey: .sessionId)
         case .userMessage(let content, let images, let fileMentions, let options, let sessionId):
             try container.encode("user_message", forKey: .type)
             try container.encode(content, forKey: .content)

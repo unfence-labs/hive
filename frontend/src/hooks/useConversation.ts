@@ -280,6 +280,13 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       const sid = action.sessionId || state.sessionId;
       if (!sid) return state;
       const existing = state.sessionStreams[sid] ?? { ...emptyStreamState };
+      // Snapshot tools carry full outputs (live = full). Compute the unified
+      // scalars here, once, exactly like the tool_result path so mid-stream-join
+      // tools render via scalars (one render path, live and history) instead of
+      // re-parsing the full body until the next REST resync.
+      const snapshotToolCalls = action.toolCalls.map((tool) =>
+        tool.output ? { ...tool, ...computeOutputScalars(tool.output) } : tool,
+      );
       return {
         ...state,
         sessionStreams: {
@@ -288,7 +295,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
             ...existing,
             currentText: action.text,
             currentThinking: action.thinking,
-            activeToolCalls: action.toolCalls,
+            activeToolCalls: snapshotToolCalls,
             activeAgentActivities: action.agentActivities,
             agentPlanMode: action.planMode,
             isStreaming: true,
@@ -735,18 +742,25 @@ export function useConversation(workspaceId: string | undefined) {
 
     // On reconnect, re-pull focus: re-send switch_session so the backend replays
     // a fresh consolidated stream_snapshot (replace semantics make this safe and
-    // idempotent — no clear-state hack needed).
+    // idempotent — no clear-state hack needed). With no active session id, send a
+    // bare switch_session so the backend resolves the active session and still
+    // pulls its in-flight snapshot.
     const unsubReconnect = wsTransport.onReconnect(workspaceId, () => {
-      const activeSession = sessionIdRef.current;
-      if (activeSession) {
-        wsTransport.send(workspaceId, { type: "switch_session", sessionId: activeSession });
-      }
+      wsTransport.send(workspaceId, {
+        type: "switch_session",
+        ...sessionIdField(sessionIdRef.current),
+      });
     });
 
-    // Tell the backend to activate the saved session and send its bootstrap.
-    if (savedSession) {
-      wsTransport.send(workspaceId, { type: "switch_session", sessionId: savedSession });
-    }
+    // Always pull on focus so an already-subscribed, currently-streaming workspace
+    // delivers its consolidated stream_snapshot on first navigation (the in-flight
+    // catch-up case). With a saved session → focus it; without → bare
+    // switch_session so the backend resolves the active session. Replace semantics
+    // make a redundant pull harmless.
+    wsTransport.send(workspaceId, {
+      type: "switch_session",
+      ...sessionIdField(savedSession),
+    });
 
     // REST history is the single source of truth — always fetch on focus.
     const mountSeq = fetchSeqRef.current;

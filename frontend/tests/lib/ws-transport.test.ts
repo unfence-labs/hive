@@ -344,6 +344,39 @@ describe("wsTransport", () => {
     expect(MockWebSocket.instances).toHaveLength(2);
   });
 
+  it("sends sync_workspaces BEFORE firing reconnect listeners", () => {
+    wsTransport.connect("ws-1");
+    const first = MockWebSocket.instances[0]!;
+    first.open();
+
+    // The reconnect listener (which re-sends switch_session) must only fire after
+    // the subscription is on the wire, so the on-the-wire order is
+    // sync_workspaces → switch_session and the backend never sees "Not subscribed".
+    let syncSeenWhenReconnectFired: string[][] | null = null;
+    wsTransport.onReconnect("ws-1", () => {
+      syncSeenWhenReconnectFired = getSyncMessages(MockWebSocket.instances[1]!);
+    });
+
+    first.close();
+    vi.advanceTimersByTime(1000);
+    const second = MockWebSocket.instances[1]!;
+    second.open();
+
+    // At the instant the reconnect listener fired, the post-reconnect sync had
+    // already been sent on the new socket.
+    expect(syncSeenWhenReconnectFired).not.toBeNull();
+    expect(syncSeenWhenReconnectFired!).toEqual([expect.arrayContaining(["ws-1"])]);
+  });
+
+  it("does not fire reconnect listeners on the initial (non-reconnect) open", () => {
+    const reconnect = vi.fn();
+    wsTransport.connect("ws-1");
+    wsTransport.onReconnect("ws-1", reconnect);
+    MockWebSocket.instances[0]!.open();
+
+    expect(reconnect).not.toHaveBeenCalled();
+  });
+
   it("re-sends sync_workspaces on reconnect", () => {
     wsTransport.syncWorkspaces(["ws-1", "ws-2"]);
     const first = MockWebSocket.instances[0]!;

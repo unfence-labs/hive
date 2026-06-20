@@ -472,6 +472,185 @@ describe("WS /ws/hub", () => {
     await endSession(wsId, dataDir).catch(() => {});
   });
 
+  // ── Focus pull without a sessionId (PRD #254, FINDING #1) ───────────
+  // First navigation to an already-subscribed, currently-streaming workspace:
+  // the client has no session id yet, so it pulls the ACTIVE session by sending
+  // switch_session with NO sessionId. The backend must reply with the
+  // consolidated stream_snapshot for the active session (status + snapshot, no
+  // history). This is the permanent guard against the surviving "empty bubble"
+  // first-visit symptom.
+  it("delivers the consolidated stream_snapshot on switch_session with no sessionId (focus pull)", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-snapshot-focus.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+    const local = await startWsApp(undefined, slowCmd);
+
+    const { session } = await getOrCreateSession(wsId, dataDir, slowCmd);
+    session.sendMessage("focus pull snapshot");
+    const snapshot = session.getStreamingSnapshot();
+    if (!snapshot) throw new Error("Expected a streaming snapshot");
+    vi.spyOn(session, "getStreamingSnapshot").mockReturnValue({
+      ...snapshot,
+      text: "focus-pulled partial",
+      thinking: "mid thought",
+      toolCalls: [
+        { id: "toolu-focus", name: "Read", input: "{}", output: "focused contents" },
+      ],
+    });
+
+    const { wsReady, messages } = connectHub([wsId], { app: local.app });
+    const ws = await wsReady;
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+
+    const marker = messages.length;
+    // No sessionId: the client does not yet know the active session id.
+    ws.send(hubEvent(wsId, { type: "switch_session" }));
+
+    await waitForMessage(
+      messages,
+      (msgs) => msgs.slice(marker).some((m) => m.type === "stream_snapshot"),
+    );
+    await new Promise((r) => setTimeout(r, 100));
+
+    const afterPull = messages.slice(marker);
+    const snapshotEvents = afterPull.filter((m) => m.type === "stream_snapshot");
+    expect(snapshotEvents).toHaveLength(1);
+    const snap = snapshotEvents[0];
+    if (snap.type !== "stream_snapshot") throw new Error("Expected a stream_snapshot");
+    // Resolved against the workspace's active session.
+    expect(snap.sessionId).toBe(session.sessionId);
+    expect(snap.text).toBe("focus-pulled partial");
+    expect(snap.thinking).toBe("mid thought");
+    expect(snap.toolCalls).toEqual([
+      { id: "toolu-focus", name: "Read", input: "{}", output: "focused contents" },
+    ]);
+    // A status accompanies the snapshot; no history on the WS path.
+    expect(afterPull.some((m) => m.type === "status")).toBe(true);
+    expect(afterPull.some((m) => m.type === "history")).toBe(false);
+
+    ws.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
+  // Focus pull with no active/streaming session: must report idle status and
+  // emit neither a stream_snapshot nor an error (no phantom session created).
+  it("replies idle (no snapshot, no error) on switch_session with no sessionId when no session is active", async () => {
+    const { wsReady, messages } = connectHub([wsId]);
+    const ws = await wsReady;
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+
+    const marker = messages.length;
+    ws.send(hubEvent(wsId, { type: "switch_session" }));
+
+    // Allow a status (and any erroneous snapshot/error) to arrive.
+    await waitForMessage(messages, (msgs) => msgs.length > marker);
+    await new Promise((r) => setTimeout(r, 100));
+
+    const afterPull = messages.slice(marker);
+    const status = afterPull.find((m) => m.type === "status");
+    expect(status).toBeDefined();
+    if (status && status.type === "status") {
+      expect(status.status).toBe("idle");
+      expect(status.streaming).toBe(false);
+    }
+    expect(afterPull.some((m) => m.type === "stream_snapshot")).toBe(false);
+    expect(afterPull.some((m) => m.type === "error")).toBe(false);
+
+    ws.close();
+  });
+
+  // Regression guard: switch_session WITH a sessionId still activates and
+  // bootstraps that specific session (the explicit path is unchanged).
+  it("still bootstraps a specific session on switch_session WITH a sessionId", async () => {
+    const first = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const second = await createNewSession(wsId, dataDir, CONV_CMD);
+    // Make the active session distinct from the one we will switch to.
+    expect(second.sessionId).not.toBe(first.session.sessionId);
+
+    const { wsReady, messages } = connectHub([wsId]);
+    const ws = await wsReady;
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+
+    const marker = messages.length;
+    ws.send(hubEvent(wsId, { type: "switch_session", sessionId: first.session.sessionId }));
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.slice(marker).some(
+          (m) => m.type === "status" && m.sessionId === first.session.sessionId,
+        ),
+    );
+
+    const afterSwitch = messages.slice(marker);
+    const status = afterSwitch.find(
+      (m) => m.type === "status" && m.sessionId === first.session.sessionId,
+    );
+    expect(status).toBeDefined();
+    expect(afterSwitch.some((m) => m.type === "error")).toBe(false);
+
+    ws.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
+  // ── Reconnect refocus ordering (PRD #254, FINDING #2) ───────────────
+  // A socket sends sync_workspaces immediately followed by a focus
+  // switch_session (no sessionId) in the same tick. Per-socket serialization
+  // must let sync_workspaces register the subscription before switch_session is
+  // handled, so the pull is accepted (no "Not subscribed" error) and the active
+  // session's stream_snapshot is delivered.
+  it("accepts a switch_session sent immediately after sync_workspaces (no Not-subscribed race)", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-reconnect-race.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+    const local = await startWsApp(undefined, slowCmd);
+
+    const { session } = await getOrCreateSession(wsId, dataDir, slowCmd);
+    session.sendMessage("reconnect race snapshot");
+    const snapshot = session.getStreamingSnapshot();
+    if (!snapshot) throw new Error("Expected a streaming snapshot");
+    vi.spyOn(session, "getStreamingSnapshot").mockReturnValue({
+      ...snapshot,
+      text: "reconnected partial",
+    });
+
+    // Connect raw so we control the exact send ordering on a single socket.
+    const ws = (await local.app.injectWS("/ws/hub")) as WebSocket;
+    const messages: WsOutgoing[] = [];
+    await Promise.resolve();
+    ws.on("message", (data: Buffer) => {
+      const envelope = JSON.parse(data.toString()) as HubOutgoing;
+      if (envelope.workspaceId === wsId) messages.push(envelope.event);
+    });
+
+    // Fire both frames back-to-back, switch_session right after sync_workspaces.
+    syncWorkspaces(ws, [wsId]);
+    ws.send(hubEvent(wsId, { type: "switch_session" }));
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "stream_snapshot"));
+    await new Promise((r) => setTimeout(r, 100));
+
+    // The focus pull was accepted, not rejected as "Not subscribed".
+    expect(
+      messages.some(
+        (m) => m.type === "error" && /Not subscribed/.test(m.message),
+      ),
+    ).toBe(false);
+    const snapshotEvents = messages.filter((m) => m.type === "stream_snapshot");
+    expect(snapshotEvents.length).toBeGreaterThanOrEqual(1);
+    const snap = snapshotEvents[snapshotEvents.length - 1];
+    if (snap.type !== "stream_snapshot") throw new Error("Expected a stream_snapshot");
+    expect(snap.sessionId).toBe(session.sessionId);
+    expect(snap.text).toBe("reconnected partial");
+
+    ws.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
   it("emits a done event carrying the persisted assistant message id", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-done-id.sh");
     // Stream some text, then exit cleanly so finalizeTurn persists a message.

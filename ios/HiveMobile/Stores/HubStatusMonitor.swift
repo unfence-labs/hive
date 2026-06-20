@@ -70,16 +70,30 @@ final class HubStatusMonitor {
         }
     }
 
-    /// Re-pull focus after a (re)connect by re-sending `switch_session` for any
-    /// store that currently has a focused session (PRD #254). The backend
-    /// activates the session and replays `status` + `stream_snapshot`, so the
-    /// in-flight turn is recovered deterministically. Snapshot apply is REPLACE,
-    /// so this is safe to issue on every reconnect.
-    fileprivate func refocusFocusedSessions() {
-        for store in storeCache.stores.values {
-            guard let sessionId = store.sessionId else { continue }
+    /// Re-pull focus after a (re)connect by re-sending `switch_session` (PRD
+    /// #254). The backend activates the session and replays `status` +
+    /// `stream_snapshot`, so the in-flight turn is recovered deterministically.
+    /// Snapshot apply is REPLACE, so this is safe to issue on every reconnect.
+    ///
+    /// Always pulls on focus: with the known session id when the store has one,
+    /// and with NO sessionId for a store that has not adopted a session id yet
+    /// but whose workspace is streaming (first-visit / eagerly-created store) —
+    /// a sessionId-less `switch_session` is a deterministic pull on the
+    /// workspace's active session.
+    ///
+    /// `async` so the caller can `await` it AFTER `sync_workspaces` lands: the
+    /// refocus pull must never race ahead of the subscription (the backend
+    /// serializes per-socket messages, so awaited ordering is sufficient).
+    fileprivate func refocusFocusedSessions() async {
+        for (workspaceId, store) in storeCache.stores {
             let send = store.send
-            Task { _ = await send?(.switchSession(sessionId: sessionId)) }
+            if let sessionId = store.sessionId {
+                _ = await send?(.switchSession(sessionId: sessionId))
+            } else if isStreaming(workspaceId) {
+                // Unknown session id but the workspace is streaming: pull the
+                // active session by omitting the id.
+                _ = await send?(.switchSession(sessionId: nil))
+            }
         }
     }
 
@@ -456,16 +470,21 @@ private final class HubConnection {
         startReceiving()
         startPinging()
 
-        // Send sync_workspaces to subscribe to all tracked workspaces
-        if let workspaceIds = monitor?.subscribedWorkspaceIds {
-            sendSyncWorkspaces(Array(workspaceIds))
+        // Order matters (PRD #254 Finding #2): sync_workspaces (subscription)
+        // MUST land before the focus re-pull. Awaiting the sync send and only
+        // THEN the refocus keeps both on this socket's serialized queue in the
+        // right order, so the refocus pull can never race ahead of (or precede)
+        // the subscription. Re-sending switch_session makes the backend replay
+        // status + stream_snapshot for the live turn, so reconnect
+        // deterministically recovers in-flight content instead of relying on the
+        // old clear-then-bootstrap.
+        Task { [weak self] in
+            guard let self else { return }
+            if let workspaceIds = self.monitor?.subscribedWorkspaceIds {
+                _ = await self.send(.syncWorkspaces(workspaceIds: Array(workspaceIds)))
+            }
+            await self.monitor?.refocusFocusedSessions()
         }
-
-        // Re-pull focus for any session currently displayed: re-sending
-        // switch_session makes the backend replay status + stream_snapshot for
-        // the live turn, so reconnect deterministically recovers in-flight
-        // content (PRD #254) instead of relying on the old clear-then-bootstrap.
-        monitor?.refocusFocusedSessions()
     }
 
     // MARK: - Receive loop

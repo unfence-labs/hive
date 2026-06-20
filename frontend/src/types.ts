@@ -417,7 +417,9 @@ export interface ModelCatalogResponse {
 
 /** Frontend -> Backend */
 export type WsIncoming =
-  | { type: "switch_session"; sessionId: string }
+  // sessionId optional: omit it to pull focus on the workspace's active session
+  // (the backend resolves it). Present to focus an explicit session.
+  | { type: "switch_session"; sessionId?: string }
   | { type: "user_message"; content: string; images?: ImageAttachment[]; fileMentions?: FileMention[]; options?: MessageOptions; sessionId?: string }
   | { type: "stop"; sessionId?: string }
   | { type: "tool_input_response"; requestId: string; toolName: string; result: ToolInputResult; sessionId?: string };

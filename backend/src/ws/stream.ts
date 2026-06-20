@@ -38,6 +38,12 @@ type ActiveSession = NonNullable<ReturnType<typeof getSession>>;
 interface HubSocket {
   ws: WebSocket;
   subscribedWorkspaces: Set<string>;
+  // Per-socket processing queue. Incoming messages from a single socket are
+  // chained here so each is fully handled before the next begins. This keeps
+  // e.g. sync_workspaces (which registers the subscription) from interleaving
+  // with a following switch_session (which is rejected until subscribed).
+  // Only same-socket ordering is serialized; different sockets run concurrently.
+  queue: Promise<void>;
 }
 
 interface WorkspaceChannel {
@@ -390,6 +396,22 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
     switch (incoming.type) {
       case "switch_session": {
+        // Focus pull. With an explicit sessionId the client switches to that
+        // session (activating it if needed). With no sessionId it is a pull on
+        // the workspace's active session — used on first focus / reconnect when
+        // the client has no session id yet. Either way the response is just
+        // status + (when streaming) a consolidated stream_snapshot; replace
+        // semantics make repeated pulls idempotent.
+        if (incoming.sessionId === undefined) {
+          const session = getSession(wsId);
+          if (session) {
+            attachSessionListeners(wsId, channel, session);
+            sendSessionBootstrap(hub, wsId, session);
+          } else {
+            sendToHub(hub, wsId, { type: "status", status: "idle", streaming: false });
+          }
+          break;
+        }
         try {
           const session = await activateSession(
             wsId,
@@ -555,7 +577,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         return;
       }
 
-      const hub: HubSocket = { ws: socket, subscribedWorkspaces: new Set() };
+      const hub: HubSocket = { ws: socket, subscribedWorkspaces: new Set(), queue: Promise.resolve() };
       hubSockets.add(hub);
 
       const pingTimer = setInterval(() => {
@@ -581,7 +603,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         hubSockets.delete(hub);
       });
 
-      socket.on("message", async (raw) => {
+      socket.on("message", (raw) => {
         let parsed: HubIncoming;
         try {
           parsed = JSON.parse(raw.toString()) as HubIncoming;
@@ -592,11 +614,17 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           return;
         }
 
-        if ("type" in parsed && parsed.type === "sync_workspaces") {
-          await handleSyncWorkspaces(hub, parsed.workspaceIds);
-        } else if ("workspaceId" in parsed && "event" in parsed) {
-          await handleWorkspaceMessage(hub, parsed.workspaceId, parsed.event);
-        }
+        // Serialize per-socket handling: each message is fully processed before
+        // the next from the same socket begins, preventing sync_workspaces from
+        // interleaving with a following switch_session. Failures are isolated so
+        // one rejected message does not break the chain for subsequent ones.
+        hub.queue = hub.queue.then(async () => {
+          if ("type" in parsed && parsed.type === "sync_workspaces") {
+            await handleSyncWorkspaces(hub, parsed.workspaceIds);
+          } else if ("workspaceId" in parsed && "event" in parsed) {
+            await handleWorkspaceMessage(hub, parsed.workspaceId, parsed.event);
+          }
+        }).catch(() => {});
       });
     },
   );
