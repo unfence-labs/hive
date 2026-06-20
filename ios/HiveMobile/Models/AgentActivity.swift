@@ -43,10 +43,18 @@ enum AgentActivity: Codable, Equatable, Identifiable {
         let command: String?
         let cwd: String?
         let status: String?
+        /// Full output. Present live; omitted in REST history when truncated
+        /// (PRD #254) — read `outputPreview`/scalars instead.
         let output: String?
         let exitCode: Int?
         let durationMs: Int?
         let commandActions: [AgentActivityCommandAction]?
+        // Lazy-output scalars (PRD #254), mirroring the ToolCall sub-shape.
+        // Only `command_execution` carries a dominant heavy output field.
+        let outputPreview: String?
+        let outputLineCount: Int?
+        let outputByteLength: Int?
+        let outputTruncated: Bool?
 
         init(
             id: String,
@@ -56,7 +64,11 @@ enum AgentActivity: Codable, Equatable, Identifiable {
             output: String?,
             exitCode: Int?,
             durationMs: Int?,
-            commandActions: [AgentActivityCommandAction]? = nil
+            commandActions: [AgentActivityCommandAction]? = nil,
+            outputPreview: String? = nil,
+            outputLineCount: Int? = nil,
+            outputByteLength: Int? = nil,
+            outputTruncated: Bool? = nil
         ) {
             self.id = id
             self.command = command
@@ -66,6 +78,10 @@ enum AgentActivity: Codable, Equatable, Identifiable {
             self.exitCode = exitCode
             self.durationMs = durationMs
             self.commandActions = commandActions
+            self.outputPreview = outputPreview
+            self.outputLineCount = outputLineCount
+            self.outputByteLength = outputByteLength
+            self.outputTruncated = outputTruncated
         }
     }
 
@@ -155,6 +171,7 @@ enum AgentActivity: Codable, Equatable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, kind
         case command, cwd, status, output, exitCode, durationMs, commandActions
+        case outputPreview, outputLineCount, outputByteLength, outputTruncated
         case files
         case steps
         case active, threadId, objective, tokenBudget, tokensUsed, timeUsedSeconds, createdAt, updatedAt
@@ -201,6 +218,10 @@ enum AgentActivity: Codable, Equatable, Identifiable {
             try container.encodeIfPresent(activity.exitCode, forKey: .exitCode)
             try container.encodeIfPresent(activity.durationMs, forKey: .durationMs)
             try container.encodeIfPresent(activity.commandActions, forKey: .commandActions)
+            try container.encodeIfPresent(activity.outputPreview, forKey: .outputPreview)
+            try container.encodeIfPresent(activity.outputLineCount, forKey: .outputLineCount)
+            try container.encodeIfPresent(activity.outputByteLength, forKey: .outputByteLength)
+            try container.encodeIfPresent(activity.outputTruncated, forKey: .outputTruncated)
         case .fileChange(let activity):
             try container.encode(activity.id, forKey: .id)
             try container.encodeIfPresent(activity.status, forKey: .status)
@@ -388,7 +409,13 @@ private func toolCall(for activity: AgentActivity.CommandExecution) -> ToolCall 
             "durationMs": activity.durationMs
         ]),
         output: activity.output,
-        parentToolUseId: nil
+        parentToolUseId: nil,
+        // Carry through history truncation scalars so the collapsed view reads
+        // them instead of parsing the (possibly omitted) body (PRD #254).
+        outputPreview: activity.outputPreview,
+        outputLineCount: activity.outputLineCount,
+        outputByteLength: activity.outputByteLength,
+        outputTruncated: activity.outputTruncated
     )
 }
 

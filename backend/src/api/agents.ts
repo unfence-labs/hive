@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { createReadStream, existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import {
   getOrCreateSession,
   getSessionMetadata,
@@ -14,8 +14,53 @@ import {
   getSpecificSessionMessages,
   resolveSessionAttachmentPath,
 } from "../agents/session-dispatch.js";
+import {
+  truncateMessageForHistory,
+  selectMessageWindow,
+  findFullOutputById,
+} from "../agents/session-utils.js";
+import type { ChatMessage } from "../types.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
 import { errorMessage, errorStatus } from "../utils/errors.js";
+
+/** Default page size for the REST message history (PRD #254). */
+const DEFAULT_MESSAGE_LIMIT = 200;
+
+/** Upper bound on a single history page so a client can't request an unbounded page. */
+const MAX_MESSAGE_LIMIT = 1000;
+
+/** Parse the `limit`/`before` history query, clamping `limit` to a sane range. */
+function parseHistoryQuery(query: { limit?: string; before?: string }): {
+  limit: number;
+  before?: string;
+} {
+  const parsed = Number(query.limit);
+  const limit = Number.isFinite(parsed) && parsed > 0
+    ? Math.min(Math.floor(parsed), MAX_MESSAGE_LIMIT)
+    : DEFAULT_MESSAGE_LIMIT;
+  const before = query.before && query.before.length > 0 ? query.before : undefined;
+  return { limit, before };
+}
+
+/**
+ * Serialize a full (disk-read) message list as the REST history response:
+ * select the `limit`/`before` window, truncate every heavy tool/activity output
+ * to preview + scalars, and send `{ messages, hasMore }`. The single
+ * serialization boundary shared by the active- and explicit-session routes — it
+ * transforms copies only, never the persisted data.
+ */
+function sendMessageHistory(
+  reply: FastifyReply,
+  fullMessages: ChatMessage[],
+  query: { limit?: string; before?: string },
+) {
+  const { limit, before } = parseHistoryQuery(query);
+  const window = selectMessageWindow(fullMessages, limit, before);
+  return reply.send({
+    messages: window.messages.map(truncateMessageForHistory),
+    hasMore: window.hasMore,
+  });
+}
 
 export interface SessionRoutesOptions {
   dataDir?: string;
@@ -57,13 +102,15 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
     },
   );
 
-  // GET /api/workspaces/:wsId/session/messages — get persisted messages
-  app.get<{ Params: { wsId: string } }>(
+  // GET /api/workspaces/:wsId/session/messages — active-session history.
+  // Resolves the active sessionId internally, then delegates to the same
+  // window+truncate serialization as the explicit-session route.
+  app.get<{ Params: { wsId: string }; Querystring: { limit?: string; before?: string } }>(
     "/api/workspaces/:wsId/session/messages",
     async (req, reply) => {
       try {
         const messages = await getSessionMessages(req.params.wsId, dataDir);
-        return reply.send(messages);
+        return sendMessageHistory(reply, messages, req.query);
       } catch (err: unknown) {
         const msg = errorMessage(err, "Failed to load session messages");
         const code = errorStatus(err);
@@ -156,8 +203,13 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
     },
   );
 
-  // GET /api/workspaces/:wsId/sessions/:sessionId/messages — get messages for a specific session
-  app.get<{ Params: { wsId: string; sessionId: string } }>(
+  // GET /api/workspaces/:wsId/sessions/:sessionId/messages — explicit-session
+  // history with `?limit`/`?before`, returning `{ messages, hasMore }` with
+  // heavy tool/activity outputs truncated to preview + scalars.
+  app.get<{
+    Params: { wsId: string; sessionId: string };
+    Querystring: { limit?: string; before?: string };
+  }>(
     "/api/workspaces/:wsId/sessions/:sessionId/messages",
     async (req, reply) => {
       try {
@@ -166,9 +218,45 @@ export async function sessionRoutes(app: FastifyInstance, opts: SessionRoutesOpt
           req.params.sessionId,
           dataDir,
         );
-        return reply.send(messages);
+        return sendMessageHistory(reply, messages, req.query);
       } catch (err: unknown) {
         const msg = errorMessage(err, "Failed to load session messages");
+        const code = errorStatus(err);
+        return reply.status(code).send({ error: msg });
+      }
+    },
+  );
+
+  // GET /api/workspaces/:wsId/sessions/:sessionId/tools/:toolId/output —
+  // fetch the FULL, untruncated output for a tool call OR a heavy agent-activity
+  // field (command output / file diff) by id, read from disk on expand.
+  // Resolves both tool and activity ids through the one scan (no duplication).
+  app.get<{ Params: { wsId: string; sessionId: string; toolId: string } }>(
+    "/api/workspaces/:wsId/sessions/:sessionId/tools/:toolId/output",
+    async (req, reply) => {
+      try {
+        const { sessionId, toolId } = req.params;
+        // Guard the path segments against traversal before they reach the
+        // session-dir join (mirrors the attachment route's filename guard).
+        if (sessionId !== basename(sessionId) || sessionId.includes("..")) {
+          return reply.status(400).send({ error: "Invalid session id" });
+        }
+        if (toolId.includes("/") || toolId.includes("..")) {
+          return reply.status(400).send({ error: "Invalid tool id" });
+        }
+        const messages = await getSpecificSessionMessages(
+          req.params.wsId,
+          sessionId,
+          dataDir,
+        );
+        // No session on disk yields an empty list; treat a missing id alike.
+        const output = findFullOutputById(messages, req.params.toolId);
+        if (output === undefined) {
+          return reply.status(404).send({ error: "Tool output not found" });
+        }
+        return reply.send({ output });
+      } catch (err: unknown) {
+        const msg = errorMessage(err, "Failed to load tool output");
         const code = errorStatus(err);
         return reply.status(code).send({ error: msg });
       }

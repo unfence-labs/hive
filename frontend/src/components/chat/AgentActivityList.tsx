@@ -153,7 +153,16 @@ function diagnosticIcon(severity: Extract<AgentActivity, { kind: "diagnostic" }>
 }
 
 function commandActivityToToolCall(activity: Extract<AgentActivity, { kind: "command_execution" }>): ToolCall {
-  return commandExecutionActivityToToolCall(activity);
+  // The shared mapper drops the output* scalars (its return type is the minimal
+  // tool shape). Carry them across so the collapsed view reads scalars and the
+  // expand affordance can fetch the full body when truncated in REST history.
+  return {
+    ...commandExecutionActivityToToolCall(activity),
+    outputPreview: activity.outputPreview,
+    outputLineCount: activity.outputLineCount,
+    outputByteLength: activity.outputByteLength,
+    outputTruncated: activity.outputTruncated,
+  };
 }
 
 function isCommandRunning(

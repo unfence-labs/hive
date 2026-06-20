@@ -5,6 +5,9 @@ struct MessageBubble: View {
     let message: ChatMessage
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
+    /// Workspace id, used to fetch a truncated tool's full output on expand
+    /// (PRD #254). Nil disables on-demand fetch (the preview still renders).
+    var workspaceId: String? = nil
 
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @State private var copied = false
@@ -15,6 +18,16 @@ struct MessageBubble: View {
 
     private var mergedToolCalls: [ToolCall] {
         mergeToolCalls(message.toolCalls ?? [], with: message.agentActivities ?? [])
+    }
+
+    /// Context for fetching a truncated tool's full output on expand (PRD #254).
+    /// Nil for the live streaming bubble (its outputs are already full) or when
+    /// no workspace id is available; in those cases the preview is shown as-is.
+    private var outputFetchContext: ToolOutputFetchContext? {
+        guard message.id != "streaming",
+              let workspaceId,
+              !message.sessionId.isEmpty else { return nil }
+        return ToolOutputFetchContext(workspaceId: workspaceId, sessionId: message.sessionId)
     }
 
     private var visibleActivities: [VisibleAgentActivity] {
@@ -40,7 +53,8 @@ struct MessageBubble: View {
                         toolCalls: tools,
                         pendingToolUseIds: pendingToolUseIds,
                         dismissedToolCallIds: dismissedToolCallIds,
-                        showExecutingState: message.id == "streaming"
+                        showExecutingState: message.id == "streaming",
+                        outputFetch: outputFetchContext
                     )
                 }
 
@@ -333,20 +347,33 @@ private func computeToolStats(_ tool: ToolCall) -> ChatActivityStats? {
         return ChatActivityStats(kind: .diff, added: lineCount, removed: 0)
 
     case "Grep":
-        guard let output = tool.output, !output.isEmpty else { return nil }
-        let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
-        guard !lines.isEmpty else { return nil }
-        return ChatActivityStats(kind: .plain, label: "\(lines.count) result\(lines.count != 1 ? "s" : "")")
+        guard let count = toolOutputLineCount(tool), count > 0 else { return nil }
+        return ChatActivityStats(kind: .plain, label: "\(count) result\(count != 1 ? "s" : "")")
 
     case "Glob":
-        guard let output = tool.output, !output.isEmpty else { return nil }
-        let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
-        guard !lines.isEmpty else { return nil }
-        return ChatActivityStats(kind: .plain, label: "\(lines.count) file\(lines.count != 1 ? "s" : "")")
+        guard let count = toolOutputLineCount(tool), count > 0 else { return nil }
+        return ChatActivityStats(kind: .plain, label: "\(count) file\(count != 1 ? "s" : "")")
 
     default:
         return nil
     }
+}
+
+/// Non-empty line count of a tool's output, preferring the pre-computed scalar
+/// (PRD #254) so the collapsed view never re-parses the full body. Falls back to
+/// counting the preview, then the full output, when scalars are absent.
+///
+/// Note: `outputLineCount` counts newlines + 1 (matching the backend), whereas
+/// the legacy parse split on "\n" dropping empty subsequences. For Grep/Glob the
+/// output is newline-separated rows with no trailing blank line, so both agree;
+/// the scalar is authoritative and avoids parsing.
+private func toolOutputLineCount(_ tool: ToolCall) -> Int? {
+    if let count = tool.outputLineCount { return count }
+    if let preview = tool.outputPreview, !preview.isEmpty {
+        return preview.split(separator: "\n", omittingEmptySubsequences: true).count
+    }
+    guard let output = tool.output, !output.isEmpty else { return nil }
+    return output.split(separator: "\n", omittingEmptySubsequences: true).count
 }
 
 private func getToolDisplay(
@@ -469,6 +496,18 @@ private func getToolDisplay(
 }
 
 private func getOutputSummary(_ tool: ToolCall) -> String? {
+    // Prefer pre-computed scalars (PRD #254): the collapsed summary reads the
+    // exact line count and the preview, never the full (possibly omitted) body.
+    if let lineCount = tool.outputLineCount {
+        guard lineCount > 0 else { return nil }
+        if lineCount > 1 { return "\(lineCount) lines" }
+        // Single line: show it from the preview if short enough.
+        let text = (tool.outputPreview ?? tool.output ?? "")
+            .trimmingCharacters(in: .newlines)
+        if !text.isEmpty, text.count < 60 { return text }
+        return nil
+    }
+    // Fallback for tools without scalars (defensive).
     guard let output = tool.output, !output.isEmpty else { return nil }
     let lines = output.split(separator: "\n", omittingEmptySubsequences: true)
     if lines.count == 1, lines[0].count < 60 { return String(lines[0]) }
@@ -519,6 +558,7 @@ private struct WhisperToolCallsBlock: View {
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
     var showExecutingState = false
+    var outputFetch: ToolOutputFetchContext? = nil
     @State private var groupExpanded = false
 
     private static let hiddenTaskTools: Set<String> = ["TaskUpdate", "TodoList"]
@@ -564,7 +604,8 @@ private struct WhisperToolCallsBlock: View {
                         childrenByParentId: childrenByParentId,
                         isPending: pendingToolUseIds.contains(tool.id),
                         isDismissed: dismissedToolCallIds.contains(tool.id),
-                        showExecutingState: showExecutingState
+                        showExecutingState: showExecutingState,
+                        outputFetch: outputFetch
                     )
                 }
                 .transition(.opacity)
@@ -620,7 +661,23 @@ private struct WhisperToolCallRow: View {
     var isPending = false
     var isDismissed = false
     var showExecutingState = false
+    var outputFetch: ToolOutputFetchContext? = nil
     @State private var isExpanded = false
+    /// Full output fetched on expand for a truncated tool (PRD #254).
+    @State private var fetchedOutput: String?
+    @State private var isFetchingOutput = false
+
+    /// Output to render in the expanded panel: the fetched full body if we have
+    /// it, else the live/untruncated `output`, else the truncated `outputPreview`.
+    private var displayedOutput: String? {
+        fetchedOutput ?? tool.output ?? tool.outputPreview
+    }
+
+    /// True when the body was omitted by the backend (history) and we have not
+    /// yet fetched it — i.e. the panel is currently showing only the preview.
+    private var needsFullOutputFetch: Bool {
+        tool.outputTruncated == true && fetchedOutput == nil && outputFetch != nil
+    }
 
     var body: some View {
         let display = getToolDisplay(
@@ -647,13 +704,18 @@ private struct WhisperToolCallRow: View {
                         DiffContentView(tool: tool)
                     } else if tool.name == "AskUserQuestion" {
                         AskUserQuestionContent(tool: tool)
-                    } else if let output = tool.output, !output.isEmpty, !display.hideOutput {
+                    } else if let output = displayedOutput, !output.isEmpty, !display.hideOutput {
                         ToolContentPanel {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("OUTPUT")
-                                    .font(WhisperFont.mono(9))
-                                    .foregroundStyle(WhisperColor.textMuted)
-                                    .tracking(1)
+                                HStack(spacing: 6) {
+                                    Text("OUTPUT")
+                                        .font(WhisperFont.mono(9))
+                                        .foregroundStyle(WhisperColor.textMuted)
+                                        .tracking(1)
+                                    if isFetchingOutput {
+                                        ProgressView().controlSize(.mini)
+                                    }
+                                }
                                 Text(output)
                                     .font(WhisperFont.mono(11))
                                     .foregroundStyle(WhisperColor.textSecondary)
@@ -670,7 +732,8 @@ private struct WhisperToolCallRow: View {
                                     tool: child,
                                     children: childrenByParentId[child.id] ?? [],
                                     childrenByParentId: childrenByParentId,
-                                    showExecutingState: showExecutingState
+                                    showExecutingState: showExecutingState,
+                                    outputFetch: outputFetch
                                 )
                             }
                         }
@@ -684,9 +747,57 @@ private struct WhisperToolCallRow: View {
                     }
                 }
                 .transition(.opacity)
+                .task(id: isExpanded) {
+                    // Fetch the full output on first expand of a truncated tool;
+                    // cached process-wide so re-expanding never refetches.
+                    guard isExpanded, needsFullOutputFetch, let ctx = outputFetch else { return }
+                    await loadFullOutput(ctx)
+                }
             }
         }
     }
+
+    /// Resolve the full output for a truncated tool: serve the process cache when
+    /// present, otherwise fetch once via the expand endpoint and cache it.
+    private func loadFullOutput(_ ctx: ToolOutputFetchContext) async {
+        if let cached = ToolOutputCache.shared.value(for: tool.id) {
+            fetchedOutput = cached
+            return
+        }
+        isFetchingOutput = true
+        defer { isFetchingOutput = false }
+        do {
+            let output = try await ToolOutputCache.shared.client.fetchToolOutput(
+                workspaceId: ctx.workspaceId,
+                sessionId: ctx.sessionId,
+                toolId: tool.id
+            )
+            ToolOutputCache.shared.store(output, for: tool.id)
+            fetchedOutput = output
+        } catch {
+            // Leave the preview in place on failure; re-expanding retries.
+        }
+    }
+}
+
+// MARK: - Tool Output Fetch (lazy expand, PRD #254)
+
+/// Identifies where to fetch a truncated tool's full output from history.
+struct ToolOutputFetchContext: Equatable {
+    let workspaceId: String
+    let sessionId: String
+}
+
+/// Process-wide cache of full tool outputs fetched on expand, keyed by tool id.
+/// Keeps a re-expanded (or re-rendered) row from refetching the same body.
+@MainActor
+private final class ToolOutputCache {
+    static let shared = ToolOutputCache()
+    let client = APIClient()
+    private var outputs: [String: String] = [:]
+
+    func value(for toolId: String) -> String? { outputs[toolId] }
+    func store(_ output: String, for toolId: String) { outputs[toolId] = output }
 }
 
 // MARK: - Diff Content View (Edit tool expanded)

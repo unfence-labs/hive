@@ -114,10 +114,13 @@ enum WsOutgoing: Decodable {
     case agentActivity(sessionId: String, activity: AgentActivity)
     case toolInputRequired(sessionId: String, requestId: String, toolName: String, toolUseId: String, input: String)
     case toolInputResolved(sessionId: String)
-    case done(sessionId: String, durationMs: Int?, inputTokens: Int?, outputTokens: Int?, contextUsedTokens: Int?, contextWindowTokens: Int?, pendingToolName: String?)
+    case done(sessionId: String, messageId: String, durationMs: Int?, inputTokens: Int?, outputTokens: Int?, contextUsedTokens: Int?, contextWindowTokens: Int?, pendingToolName: String?)
     case error(message: String, sessionId: String?)
-    case cancelled(sessionId: String, errorDetail: String?, userInitiated: Bool?, durationMs: Int?)
+    case cancelled(sessionId: String, messageId: String?, errorDetail: String?, userInitiated: Bool?, durationMs: Int?)
     case status(status: WorkspaceStatus, sessionId: String?, streaming: Bool?, streamingStartedAt: Double?, lockedProvider: String?)
+    // Live/history split (PRD #254): one consolidated in-flight snapshot with
+    // replace semantics. Applied by replacing the session's stream accumulators.
+    case streamSnapshot(sessionId: String, text: String, thinking: String, toolCalls: [ToolCall], agentActivities: [AgentActivity], planMode: Bool, streamingStartedAt: Double)
     case userMessage(message: ChatMessage)
     case history(messages: [ChatMessage], sessionId: String?)
     case branchInfo(info: BranchInfo)
@@ -131,8 +134,10 @@ enum WsOutgoing: Decodable {
         case activity
         case parentToolUseId, toolUseId, requestId, toolName
         case durationMs, inputTokens, outputTokens, contextUsedTokens, contextWindowTokens, pendingToolName
+        case messageId
         case errorDetail, userInitiated
         case message, status, streaming, streamingStartedAt, lockedProvider
+        case thinking, toolCalls, agentActivities, planMode
         case messages, info, stats
         case scriptType, state, exitCode
         case active
@@ -237,7 +242,10 @@ enum WsOutgoing: Decodable {
                 doneContextWindowTokens = nil
             }
             let donePendingToolName = try container.decodeIfPresent(String.self, forKey: .pendingToolName)
-            self = .done(sessionId: doneSessionId, durationMs: doneDuration,
+            // messageId is the persisted assistant message id for this turn; used
+            // to append the optimistic message and dedup the next REST fetch.
+            let doneMessageId = try container.decode(String.self, forKey: .messageId)
+            self = .done(sessionId: doneSessionId, messageId: doneMessageId, durationMs: doneDuration,
                          inputTokens: doneInputTokens, outputTokens: doneOutputTokens,
                          contextUsedTokens: doneContextUsedTokens,
                          contextWindowTokens: doneContextWindowTokens,
@@ -249,6 +257,8 @@ enum WsOutgoing: Decodable {
             )
         case "cancelled":
             let cancelledSid = try container.decode(String.self, forKey: .sessionId)
+            // messageId is present only when the cancelled turn persisted a message.
+            let cancelledMessageId = try container.decodeIfPresent(String.self, forKey: .messageId)
             let cancelledErrorDetail = try container.decodeIfPresent(String.self, forKey: .errorDetail)
             let cancelledUserInitiated = try container.decodeIfPresent(Bool.self, forKey: .userInitiated)
             let cancelledDuration: Int?
@@ -259,7 +269,7 @@ enum WsOutgoing: Decodable {
             } else {
                 cancelledDuration = nil
             }
-            self = .cancelled(sessionId: cancelledSid, errorDetail: cancelledErrorDetail, userInitiated: cancelledUserInitiated, durationMs: cancelledDuration)
+            self = .cancelled(sessionId: cancelledSid, messageId: cancelledMessageId, errorDetail: cancelledErrorDetail, userInitiated: cancelledUserInitiated, durationMs: cancelledDuration)
         case "status":
             self = .status(
                 status: try container.decode(WorkspaceStatus.self, forKey: .status),
@@ -267,6 +277,16 @@ enum WsOutgoing: Decodable {
                 streaming: try container.decodeIfPresent(Bool.self, forKey: .streaming),
                 streamingStartedAt: try container.decodeIfPresent(Double.self, forKey: .streamingStartedAt),
                 lockedProvider: try container.decodeIfPresent(String.self, forKey: .lockedProvider)
+            )
+        case "stream_snapshot":
+            self = .streamSnapshot(
+                sessionId: try container.decode(String.self, forKey: .sessionId),
+                text: try container.decode(String.self, forKey: .text),
+                thinking: try container.decode(String.self, forKey: .thinking),
+                toolCalls: try container.decode([ToolCall].self, forKey: .toolCalls),
+                agentActivities: try container.decode([AgentActivity].self, forKey: .agentActivities),
+                planMode: try container.decode(Bool.self, forKey: .planMode),
+                streamingStartedAt: try container.decode(Double.self, forKey: .streamingStartedAt)
             )
         case "user_message":
             self = .userMessage(message: try container.decode(ChatMessage.self, forKey: .message))

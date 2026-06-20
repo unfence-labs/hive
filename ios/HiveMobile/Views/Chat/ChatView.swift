@@ -13,6 +13,8 @@ struct ChatView: View {
     @State private var fastModeEnabled = false
     @State private var selectedModelId: String = ""
     @State private var draftAttachments: [ImageAttachment] = []
+    /// Debounce handle that coalesces rapid streaming updates into one scroll.
+    @State private var scrollDebounce: Task<Void, Never>?
 
     @Environment(ModelCatalog.self) private var modelCatalog
     @Environment(ProjectStore.self) private var projectStore
@@ -102,7 +104,7 @@ struct ChatView: View {
         VStack(spacing: 0) {
             if isLoading {
                 Spacer()
-            } else if store.displayMessages.isEmpty && !store.isStreaming {
+            } else if store.messages.isEmpty && !store.isStreaming {
                 Spacer()
                 if isBrainWorkspaceId(workspace.id) {
                     BrainSessionEmptyState()
@@ -118,13 +120,44 @@ struct ChatView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        VStack(spacing: 16) {
-                            ForEach(store.displayMessages) { message in
+                        // LazyVStack builds only the visible rows, so long/heavy
+                        // histories don't construct every bubble up front (PRD #254).
+                        LazyVStack(spacing: 16) {
+                            if store.hasMoreEarlier {
+                                LoadEarlierButton(
+                                    isLoading: store.isLoadingEarlier,
+                                    action: { Task { await loadEarlier() } }
+                                )
+                            }
+
+                            // History rows only. Keyed by id so LazyVStack reuses
+                            // them; they never rebuild on a streaming token because
+                            // the in-flight turn is an isolated sibling view below.
+                            ForEach(store.messages) { message in
                                 if !(message.role == .user && message.content == "Question dismissed.") {
-                                    MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
-                                        .id(message.id)
+                                    MessageBubble(
+                                        message: message,
+                                        pendingToolUseIds: pendingToolUseIds,
+                                        dismissedToolCallIds: dismissedToolCallIds,
+                                        workspaceId: workspace.id
+                                    )
+                                    .id(message.id)
                                 }
                             }
+
+                            // Isolated in-flight bubble: only this view observes the
+                            // streaming accumulators, so per-token updates don't
+                            // invalidate the history rows above (PRD #254). It also
+                            // owns the streaming dependency for scroll, so the parent
+                            // body never re-evaluates per token. Scroll is coalesced
+                            // to ~50 ms via scheduleScroll (debounced).
+                            StreamingMessageView(
+                                store: store,
+                                pendingToolUseIds: pendingToolUseIds,
+                                dismissedToolCallIds: dismissedToolCallIds,
+                                onStreamUpdate: { scheduleScroll(proxy) }
+                            )
+                            .id("streaming-bubble")
 
                             if store.isStreaming {
                                 streamingActivityRow
@@ -141,12 +174,13 @@ struct ChatView: View {
                     .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                         scrollToBottom(proxy)
                     }
-                    .onChange(of: store.displayMessages.count) {
-                        scrollToBottom(proxy)
+                    .onChange(of: store.messages.count) {
+                        scheduleScroll(proxy)
                     }
-                    .onChange(of: store.currentText) {
-                        scrollToBottom(proxy)
+                    .onChange(of: store.isStreaming) {
+                        scheduleScroll(proxy)
                     }
+                    .onDisappear { scrollDebounce?.cancel() }
                 }
             }
 
@@ -273,13 +307,15 @@ struct ChatView: View {
 
                 let requestToken = store.beginHistoryRequest(for: sessionId)
                 do {
-                    let msgs = try await api.fetchMessages(
+                    let page = try await api.fetchMessages(
                         workspaceId: workspace.id,
                         sessionId: sessionId
                     )
                     guard store.sessionId == sessionId else { return }
                     guard store.historyToken(for: sessionId) == requestToken else { return }
-                    store.messages = msgs
+                    // Replace with the authoritative window; the server-id-stamped
+                    // optimistic turn dedups against this fetch (PRD #254).
+                    store.applyMessagesPage(page)
                 } catch {
                     // Best-effort — streamed messages remain as fallback
                 }
@@ -306,7 +342,7 @@ struct ChatView: View {
         store.setFocusedSessionId(sessionId)
         let requestToken = store.beginHistoryRequest(for: sessionId)
         do {
-            let msgs = try await api.fetchMessages(
+            let page = try await api.fetchMessages(
                 workspaceId: workspace.id,
                 sessionId: sessionId
             )
@@ -315,21 +351,50 @@ struct ChatView: View {
                 isLoading = false
                 return
             }
-            // Skip if a newer event (WS history, send, session switch) arrived while
-            // this REST call was in-flight — their data is more authoritative.
+            // Skip if a newer event (send, session switch) arrived while this REST
+            // call was in-flight — their data is more authoritative.
             guard store.historyToken(for: sessionId) == requestToken else {
                 isLoading = false
                 return
             }
-            // History contains only finalized turns; streaming content lives
-            // in sessionStreams and is appended by displayMessages.
-            store.messages = msgs
+            // History (REST) is the single source of truth for finalized turns;
+            // streaming content lives in sessionStreams and is appended by
+            // displayMessages. `hasMore` gates the "Load earlier" button.
+            store.applyMessagesPage(page)
         } catch is CancellationError {
             // View disappeared
         } catch {
-            // Fall through to WS history
+            // Best-effort; live WS state still renders.
         }
         isLoading = false
+    }
+
+    /// Fetch and prepend the page of messages immediately before the oldest
+    /// loaded message (PRD #254 "Load earlier messages"). Explicit user action;
+    /// guarded against overlapping fetches and stale focus.
+    private func loadEarlier() async {
+        let sessionId = session.sessionId
+        guard store.sessionId == sessionId, store.hasMoreEarlier, !store.isLoadingEarlier else { return }
+        guard let before = store.messages.first?.id else { return }
+        store.isLoadingEarlier = true
+        defer { store.isLoadingEarlier = false }
+        // Observe (don't bump) the history token: a prepend does not invalidate
+        // the current window, but if a full-replace fetch (loadMessages /
+        // onTurnCompleted) lands while ours is in flight it bumps the token and
+        // we drop this prepend (the cursor would be stale anyway).
+        let tokenAtStart = store.historyToken(for: sessionId)
+        do {
+            let page = try await api.fetchMessages(
+                workspaceId: workspace.id,
+                sessionId: sessionId,
+                before: before
+            )
+            guard store.sessionId == sessionId else { return }
+            guard store.historyToken(for: sessionId) == tokenAtStart else { return }
+            store.prependEarlier(page)
+        } catch {
+            // Best-effort — the button stays available for a retry.
+        }
     }
 
     // MARK: - Send
@@ -471,6 +536,17 @@ struct ChatView: View {
         }
     }
 
+    /// Debounced scroll-to-bottom (~50 ms). Rapid streaming updates cancel and
+    /// reschedule, so scrolling runs at most once per tick instead of per token.
+    private func scheduleScroll(_ proxy: ScrollViewProxy) {
+        scrollDebounce?.cancel()
+        scrollDebounce = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(50))
+            guard !Task.isCancelled else { return }
+            scrollToBottom(proxy)
+        }
+    }
+
     private func formatStreamingElapsed(at date: Date) -> String {
         guard let startedAt = store.streamingStartedAt else {
             return "0.0s"
@@ -484,6 +560,71 @@ struct ChatView: View {
         let secLabel = min > 0 && sec < 10 ? "0\(secFormatted)" : secFormatted
 
         return min > 0 ? "\(min)m \(secLabel)s" : "\(secFormatted)s"
+    }
+}
+
+// MARK: - Streaming Message View (isolated)
+
+/// Renders the in-flight assistant bubble in isolation (PRD #254). Because only
+/// this view reads the per-token streaming accumulators (via
+/// `store.streamingMessage`), the history rows in the parent `LazyVStack` never
+/// rebuild while tokens arrive. It also reports stream updates so the parent can
+/// debounce scroll-to-bottom without depending on `currentText` itself.
+private struct StreamingMessageView: View {
+    let store: ConversationStore
+    var pendingToolUseIds: Set<String> = []
+    var dismissedToolCallIds: Set<String> = []
+    /// Called when the streaming text changes, so the parent can coalesce scroll.
+    var onStreamUpdate: () -> Void = {}
+
+    var body: some View {
+        Group {
+            if let streaming = store.streamingMessage {
+                MessageBubble(
+                    message: streaming,
+                    pendingToolUseIds: pendingToolUseIds,
+                    dismissedToolCallIds: dismissedToolCallIds
+                )
+                // Owning the currentText dependency here keeps it out of the
+                // parent's body, so the parent never re-evaluates per token.
+                .onChange(of: store.currentText) { onStreamUpdate() }
+                .onAppear { onStreamUpdate() }
+            }
+        }
+    }
+}
+
+// MARK: - Load Earlier Button
+
+/// Explicit "Load earlier messages" affordance shown at the top of the list when
+/// older history exists (PRD #254). One tap fetches and prepends a page.
+private struct LoadEarlierButton: View {
+    let isLoading: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                Text(isLoading ? "Loading…" : "Load earlier messages")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(WhisperColor.textSecondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(WhisperColor.surface))
+            .overlay(Capsule().stroke(WhisperColor.border, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .disabled(isLoading)
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 4)
     }
 }
 

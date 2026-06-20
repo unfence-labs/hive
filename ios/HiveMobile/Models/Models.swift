@@ -226,15 +226,35 @@ struct ToolCall: Codable, Identifiable {
     let id: String
     let name: String
     let input: String
+    /// Full output. Present for live tools; omitted in REST history when the
+    /// body is truncated (PRD #254) — read `outputPreview`/scalars instead.
     let output: String?
     let parentToolUseId: String?
+    // Lazy-output scalars (PRD #254). On history these are filled by the
+    // backend (and `output` omitted when truncated). For live tools the client
+    // computes them once when a `tool_result` arrives, so the collapsed view
+    // reads scalars instead of re-parsing the body and there is one shape.
+    /// First ~2 KB of output (UTF-8). Present on history; computed live.
+    let outputPreview: String?
+    /// Exact line count of the full output (newlines + 1; 0 when empty).
+    let outputLineCount: Int?
+    /// Exact UTF-8 byte length of the full output.
+    let outputByteLength: Int?
+    /// Whether the full body was omitted because it exceeded the preview cap.
+    let outputTruncated: Bool?
 
-    init(id: String, name: String, input: String, output: String?, parentToolUseId: String?) {
+    init(id: String, name: String, input: String, output: String?, parentToolUseId: String?,
+         outputPreview: String? = nil, outputLineCount: Int? = nil,
+         outputByteLength: Int? = nil, outputTruncated: Bool? = nil) {
         self.id = id
         self.name = name
         self.input = input
         self.output = output
         self.parentToolUseId = parentToolUseId
+        self.outputPreview = outputPreview
+        self.outputLineCount = outputLineCount
+        self.outputByteLength = outputByteLength
+        self.outputTruncated = outputTruncated
     }
 
     init(from decoder: Decoder) throws {
@@ -252,11 +272,60 @@ struct ToolCall: Codable, Identifiable {
         } else {
             output = nil
         }
+        outputPreview = try container.decodeIfPresent(String.self, forKey: .outputPreview)
+        outputLineCount = try container.decodeIfPresent(Int.self, forKey: .outputLineCount)
+        outputByteLength = try container.decodeIfPresent(Int.self, forKey: .outputByteLength)
+        outputTruncated = try container.decodeIfPresent(Bool.self, forKey: .outputTruncated)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, input, output, parentToolUseId
+        case outputPreview, outputLineCount, outputByteLength, outputTruncated
     }
+}
+
+// MARK: - Output truncation scalars (PRD #254)
+
+/// Preview cap for truncated outputs, in bytes. Mirrors the backend's
+/// `OUTPUT_PREVIEW_BYTES` so live-computed and history scalars agree.
+let outputPreviewByteCap = 2048
+
+/// Compute the preview + exact scalars for a heavy output string, matching the
+/// backend `computeTruncatedField` byte-for-byte: line count = newlines + 1 (0
+/// when empty), byte length = UTF-8 byte length, truncated when over the cap,
+/// preview = first `outputPreviewByteCap` UTF-8 bytes (never splitting a
+/// multibyte scalar).
+func computeOutputScalars(_ full: String) -> (preview: String, lineCount: Int, byteLength: Int, truncated: Bool) {
+    let bytes = Array(full.utf8)
+    let byteLength = bytes.count
+    // Count newlines by UTF-8 byte (0x0A), then + 1 — exactly matching the
+    // backend's `full.split("\n").length`. Counting raw bytes (not Swift
+    // grapheme `Character`s) keeps "\r\n" counted as one break like JS does.
+    let lineCount = full.isEmpty ? 0 : bytes.reduce(into: 1) { count, byte in
+        if byte == 0x0A { count += 1 }
+    }
+    let truncated = byteLength > outputPreviewByteCap
+    let preview = truncated ? sliceUtf8(full, maxBytes: outputPreviewByteCap) : full
+    return (preview, lineCount, byteLength, truncated)
+}
+
+/// Slice a string to at most `maxBytes` UTF-8 bytes without splitting a scalar.
+/// Walks back off any continuation bytes (`0b10xxxxxx`), mirroring the backend.
+private func sliceUtf8(_ text: String, maxBytes: Int) -> String {
+    let bytes = Array(text.utf8)
+    if bytes.count <= maxBytes { return text }
+    var end = maxBytes
+    while end > 0 && (bytes[end] & 0b1100_0000) == 0b1000_0000 { end -= 1 }
+    return String(decoding: bytes[0..<end], as: UTF8.self)
+}
+
+// MARK: - REST history page (PRD #254)
+
+/// REST history response: a window of messages plus whether older messages
+/// exist before `messages[0]`. The next `before` cursor is `messages.first?.id`.
+struct MessagesPage: Codable {
+    let messages: [ChatMessage]
+    let hasMore: Bool
 }
 
 struct ChatMessage: Codable, Identifiable {

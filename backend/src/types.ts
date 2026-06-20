@@ -211,7 +211,20 @@ export interface ToolCall {
   id: string;
   name: string;
   input: string;
+  /**
+   * Full tool output. Present on live tools; OMITTED in REST history when the
+   * output exceeds the preview cap (fetch the full body via the tool-output
+   * endpoint). Read `outputPreview`/scalars for the collapsed view instead.
+   */
   output?: string;
+  /** First ~2 KB of the output (REST history; computed once for live tools). */
+  outputPreview?: string;
+  /** Exact line count of the FULL output (newlines + 1). */
+  outputLineCount?: number;
+  /** Exact UTF-8 byte length of the FULL output. */
+  outputByteLength?: number;
+  /** True when the full body was omitted because it exceeded the preview cap. */
+  outputTruncated?: boolean;
   parentToolUseId?: string;
 }
 
@@ -411,6 +424,7 @@ export type WsOutgoing =
   | {
       type: "done";
       sessionId: string;
+      messageId: string;
       durationMs?: number;
       inputTokens?: number;
       outputTokens?: number;
@@ -419,8 +433,18 @@ export type WsOutgoing =
       pendingToolName?: string;
     }
   | { type: "error"; message: string; sessionId?: string }
-  | { type: "cancelled"; sessionId: string; errorDetail?: string; userInitiated?: boolean; durationMs?: number }
+  | { type: "cancelled"; sessionId: string; messageId?: string; errorDetail?: string; userInitiated?: boolean; durationMs?: number }
   | { type: "status"; status: WorkspaceStatus; sessionId?: string; streaming?: boolean; streamingStartedAt?: number; lockedProvider?: string }
+  | {
+      type: "stream_snapshot";
+      sessionId: string;
+      text: string;
+      thinking: string;
+      toolCalls: ToolCall[];
+      agentActivities: AgentActivity[];
+      planMode: boolean;
+      streamingStartedAt: number;
+    }
   | { type: "user_message"; message: ChatMessage }
   | { type: "history"; messages: ChatMessage[]; sessionId?: string }
   | { type: "branch_info"; info: BranchInfo }

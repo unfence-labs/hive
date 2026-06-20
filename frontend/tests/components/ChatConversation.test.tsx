@@ -549,3 +549,33 @@ describe("ChatConversation question-dismissed rendering", () => {
     expect(screen.queryByTestId("msg-u1")).not.toBeInTheDocument();
   });
 });
+
+describe("ChatConversation load-earlier", () => {
+  const someMessages: ChatMessage[] = [
+    { id: "m1", sessionId: "s1", role: "user", content: "hi", timestamp: "2026-02-20T00:00:00.000Z" },
+  ];
+
+  it("shows the 'Load earlier messages' button when hasMore and there are messages", () => {
+    renderConversation({ messages: someMessages, hasMore: true });
+    expect(screen.getByRole("button", { name: /load earlier messages/i })).toBeInTheDocument();
+  });
+
+  it("hides the button when hasMore is false", () => {
+    renderConversation({ messages: someMessages, hasMore: false });
+    expect(screen.queryByRole("button", { name: /load earlier messages/i })).not.toBeInTheDocument();
+  });
+
+  it("hides the button when there are no messages even if hasMore is true", () => {
+    renderConversation({ messages: [], hasMore: true });
+    expect(screen.queryByRole("button", { name: /load earlier messages/i })).not.toBeInTheDocument();
+  });
+
+  it("calls onLoadEarlier when the button is clicked", async () => {
+    const onLoadEarlier = vi.fn();
+    renderConversation({ messages: someMessages, hasMore: true, onLoadEarlier });
+
+    await userEvent.click(screen.getByRole("button", { name: /load earlier messages/i }));
+
+    expect(onLoadEarlier).toHaveBeenCalledTimes(1);
+  });
+});

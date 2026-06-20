@@ -1,4 +1,4 @@
-import { useState, memo, type ReactNode } from "react";
+import { useState, useEffect, useMemo, useRef, memo, type ReactNode } from "react";
 import { diffLines } from "diff";
 import { XCircleIcon } from "lucide-react";
 import type { ToolCall } from "@/types";
@@ -7,6 +7,7 @@ import { formatElapsed } from "@/lib/time";
 import { DiffView } from "@/components/diff/DiffView";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ContentPanel, ContentPanelBody, ContentPanelFooter } from "@/components/chat/ContentPanel";
+import { useToolOutput } from "@/contexts/ToolOutputContext";
 
 const svgProps = { className: "size-3.5", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
@@ -416,24 +417,55 @@ function getToolStats(tool: ToolCall): ToolStats | null {
       return { type: "diff", added: lineCount, removed: 0 };
     }
     case "Grep": {
-      if (!tool.output) return null;
-      const lines = tool.output.split("\n").filter(Boolean);
-      return lines.length ? { type: "plain", label: `${lines.length} result${lines.length !== 1 ? "s" : ""}` } : null;
+      const count = outputNonEmptyLineCount(tool);
+      return count ? { type: "plain", label: `${count} result${count !== 1 ? "s" : ""}` } : null;
     }
     case "Glob": {
-      if (!tool.output) return null;
-      const lines = tool.output.split("\n").filter(Boolean);
-      return lines.length ? { type: "plain", label: `${lines.length} file${lines.length !== 1 ? "s" : ""}` } : null;
+      const count = outputNonEmptyLineCount(tool);
+      return count ? { type: "plain", label: `${count} file${count !== 1 ? "s" : ""}` } : null;
     }
     default:
       return null;
   }
 }
 
+/**
+ * Best available view of the tool output WITHOUT touching a (possibly omitted)
+ * full body: prefer the preview (equals the full text when not truncated), then
+ * fall back to the live full output, then nothing.
+ */
+function outputText(tool: ToolCall): string | undefined {
+  if (tool.outputPreview != null) return tool.outputPreview;
+  if (typeof tool.output === "string") return tool.output;
+  if (tool.output != null) return JSON.stringify(tool.output);
+  return undefined;
+}
+
+/**
+ * Result/file count for Grep/Glob, read from scalars (never the omitted body).
+ * Prefer the exact `outputLineCount` scalar; only when absent (e.g. a live tool
+ * whose result hasn't computed scalars) fall back to counting the live text.
+ */
+function outputNonEmptyLineCount(tool: ToolCall): number {
+  if (tool.outputLineCount != null) return tool.outputLineCount;
+  const text = outputText(tool);
+  return text != null ? text.split("\n").filter(Boolean).length : 0;
+}
+
 function getOutputSummary(tool: ToolCall): string | undefined {
-  if (tool.output == null) return undefined;
-  const text = typeof tool.output === "string" ? tool.output : JSON.stringify(tool.output);
-  if (text.length === 0) return undefined;
+  // Read pre-computed scalars / preview; never re-parse the full (omitted) body.
+  if (tool.outputLineCount != null) {
+    if (tool.outputLineCount === 0) return undefined;
+    const preview = tool.outputPreview;
+    if (tool.outputLineCount === 1 && preview != null && preview.length < 60) {
+      return preview;
+    }
+    if (tool.outputLineCount > 1) return `${tool.outputLineCount} lines`;
+    return undefined;
+  }
+  // No scalars (e.g. a live tool whose result hasn't computed them): use text.
+  const text = outputText(tool);
+  if (text == null || text.length === 0) return undefined;
   const lines = text.split("\n").filter(Boolean);
   if (lines.length === 1 && lines[0].length < 60) return lines[0];
   if (lines.length > 1) return `${lines.length} lines`;
@@ -466,14 +498,55 @@ export function ToolExpandedContent({ content }: { content: ReactNode }) {
 
 const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: ChatToolUseProps) {
   const [expanded, setExpanded] = useState(false);
-  const display = getToolDisplay(tool);
+  // Cache of the full output fetched on demand for a truncated history tool, so
+  // toggling expand does not refetch.
+  const [fetchedOutput, setFetchedOutput] = useState<string | null>(null);
+  const [fetchState, setFetchState] = useState<"idle" | "loading" | "error">("idle");
+  const toolOutput = useToolOutput();
+
   const showExpanded = onClick ? false : expanded;
-  const stats = !isExecuting ? getToolStats(tool) : null;
-  const summary = !isExecuting && !showExpanded && !stats ? getOutputSummary(tool) : undefined;
-  const bashMetadata = !isExecuting ? getBashMetadata(tool) : null;
-  const taskOutputText = tool.name === "Task" && tool.output
-    ? parseContentBlocks(tool.output)
-    : null;
+
+  // Memoize the heavy derivations so streaming siblings re-rendering doesn't
+  // re-parse this tool's input/output on every tick.
+  const display = useMemo(() => getToolDisplay(tool), [tool]);
+  const stats = useMemo(() => (isExecuting ? null : getToolStats(tool)), [tool, isExecuting]);
+  const bashMetadata = useMemo(() => (isExecuting ? null : getBashMetadata(tool)), [tool, isExecuting]);
+  const summary = useMemo(
+    () => (!isExecuting && !showExpanded && !stats ? getOutputSummary(tool) : undefined),
+    [tool, isExecuting, showExpanded, stats],
+  );
+
+  const isTruncated = tool.outputTruncated === true;
+  // Guards against re-fetching when the loading state change re-runs the effect.
+  const fetchStartedRef = useRef(false);
+
+  // Fetch the full body once on first expand of a truncated tool, then cache it.
+  useEffect(() => {
+    if (!showExpanded || !isTruncated || fetchedOutput !== null || fetchStartedRef.current) return;
+    if (!toolOutput) return;
+    fetchStartedRef.current = true;
+    setFetchState("loading");
+    toolOutput
+      .fetchOutput(tool.id)
+      .then((output) => {
+        setFetchedOutput(output);
+        setFetchState("idle");
+      })
+      .catch(() => {
+        setFetchState("error");
+        // Allow a retry on a later expand.
+        fetchStartedRef.current = false;
+      });
+  }, [showExpanded, isTruncated, fetchedOutput, toolOutput, tool.id]);
+
+  // Effective full output for the expanded body: fetched body wins, then the
+  // live full output, then the preview (omitted-body history falls back to it).
+  const effectiveOutput =
+    fetchedOutput ?? (typeof tool.output === "string" ? tool.output : undefined) ?? tool.outputPreview;
+  const hasOutput = tool.output !== undefined || tool.outputPreview !== undefined;
+  const taskOutputText =
+    tool.name === "Task" && effectiveOutput ? parseContentBlocks(effectiveOutput) : null;
+  const showTruncationNote = isTruncated && fetchedOutput === null;
 
   return (
     <div className="my-0.5">
@@ -526,16 +599,29 @@ const ChatToolUse = memo(function ChatToolUse({ tool, isExecuting, onClick }: Ch
           <ContentPanelBody>
             <ToolExpandedContent content={display.expandedContent} />
           </ContentPanelBody>
-          {tool.output !== undefined && !display.hideOutput && (
+          {hasOutput && !display.hideOutput && (
             <ContentPanelFooter>
-              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">Output</div>
+              <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/50">
+                <span>Output</span>
+                {fetchState === "loading" && (
+                  <span className="font-normal normal-case text-muted-foreground/50">Loading full output…</span>
+                )}
+                {fetchState === "error" && (
+                  <span className="font-normal normal-case text-destructive">Failed to load full output</span>
+                )}
+              </div>
               {taskOutputText ? (
                 <div className="prose-sm max-h-96 overflow-auto text-muted-foreground">
                   <MessageResponse>{taskOutputText}</MessageResponse>
                 </div>
               ) : (
                 <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-muted-foreground">
-                  {typeof tool.output === "string" ? tool.output : JSON.stringify(tool.output, null, 2)}
+                  {typeof effectiveOutput === "string"
+                    ? effectiveOutput
+                    : JSON.stringify(tool.output ?? null, null, 2)}
+                  {showTruncationNote && fetchState !== "loading" && (
+                    <span className="text-muted-foreground/40">{"\n…(preview truncated)"}</span>
+                  )}
                 </pre>
               )}
             </ContentPanelFooter>

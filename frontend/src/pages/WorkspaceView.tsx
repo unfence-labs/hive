@@ -9,6 +9,7 @@ import { useWorkspaceLiveDataContext, useClearUnread } from "@/contexts/Workspac
 import { FileTree, renderFileTreeNodes } from "@/components/ai-elements/file-tree";
 import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 import { ConversationPane } from "@/components/chat/ConversationPane";
+import { ToolOutputProvider } from "@/contexts/ToolOutputContext";
 import { TerminalPane } from "@/components/TerminalPane";
 import { FileTabView } from "@/components/FileTabView";
 import { BranchLabel } from "@/components/BranchLabel";
@@ -154,6 +155,8 @@ export default function WorkspaceView() {
 
   const {
     messages,
+    hasMore,
+    loadEarlier,
     isStreaming,
     streamingStartedAt,
     currentStreamingText,
@@ -454,6 +457,7 @@ export default function WorkspaceView() {
             />
           </PageHeader>
           <CenterCard>
+          <ToolOutputProvider workspaceId={wsId} sessionId={sessionId}>
           <ConversationPane
             sessions={sessions}
             activeSessionId={sessionId}
@@ -470,6 +474,8 @@ export default function WorkspaceView() {
             onFileTabClose={closeFileTab}
             onConversationActivate={() => sessionId && activateTab(`session:${sessionId}`)}
             messages={messages}
+            hasMore={hasMore}
+            onLoadEarlier={loadEarlier}
             streamingStartedAt={streamingStartedAt}
             currentStreamingText={currentStreamingText}
             currentThinking={currentThinking}
@@ -541,6 +547,7 @@ export default function WorkspaceView() {
               )
             }
           />
+          </ToolOutputProvider>
           {isFileTabActive && openFile && wsId && (
             <FileTabView
               wsId={wsId}

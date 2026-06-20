@@ -1,8 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ChatToolUse from "@/components/ChatToolUse";
+import { ToolOutputProvider } from "@/contexts/ToolOutputContext";
 import type { ToolCall } from "@/types";
+
+const getMock = vi.fn();
+vi.mock("@/hooks/useApi", () => ({
+  api: { get: (...args: unknown[]) => getMock(...args) },
+}));
 
 function tool(overrides: Partial<ToolCall>): ToolCall {
   return {
@@ -14,7 +20,19 @@ function tool(overrides: Partial<ToolCall>): ToolCall {
   };
 }
 
+function renderWithContext(node: React.ReactElement) {
+  return render(
+    <ToolOutputProvider workspaceId="ws-1" sessionId="sess-1">
+      {node}
+    </ToolOutputProvider>,
+  );
+}
+
 describe("ChatToolUse", () => {
+  beforeEach(() => {
+    getMock.mockReset();
+  });
+
   it("shows fallback content when tool input is invalid JSON", async () => {
     const user = userEvent.setup();
     render(<ChatToolUse tool={tool({ input: "{not-json", output: "result" })} />);
@@ -280,5 +298,112 @@ describe("ChatToolUse", () => {
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Path: src/main.ts")).not.toBeInTheDocument();
     expect(screen.queryByText("Output")).not.toBeInTheDocument();
+  });
+
+  describe("lazy output (truncated history tools)", () => {
+    it("reads scalars for the collapsed Grep summary without parsing the full body", () => {
+      // History-truncated Grep: full output omitted, only scalars/preview present.
+      render(
+        <ChatToolUse
+          tool={tool({
+            name: "Grep",
+            input: JSON.stringify({ pattern: "foo" }),
+            output: undefined,
+            outputPreview: "match-a\nmatch-b",
+            outputLineCount: 42,
+            outputByteLength: 999_999,
+            outputTruncated: true,
+          })}
+        />,
+      );
+
+      // The collapsed stat is derived from scalars, not the (omitted) full body.
+      expect(screen.getByText("42 results")).toBeInTheDocument();
+    });
+
+    it("fetches the full output on expand when truncated and renders it", async () => {
+      const user = userEvent.setup();
+      getMock.mockResolvedValueOnce({ output: "the full multi-kilobyte body" });
+
+      renderWithContext(
+        <ChatToolUse
+          tool={tool({
+            id: "trunc-1",
+            name: "Bash",
+            input: JSON.stringify({ command: "cat big.log" }),
+            output: undefined,
+            outputPreview: "first 2kb preview…",
+            outputLineCount: 5000,
+            outputByteLength: 500_000,
+            outputTruncated: true,
+          })}
+        />,
+      );
+
+      // Preview is shown before expanding nothing is fetched.
+      expect(getMock).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole("button", { name: /bash/i }));
+
+      await waitFor(() => {
+        expect(getMock).toHaveBeenCalledWith(
+          "/api/workspaces/ws-1/sessions/sess-1/tools/trunc-1/output",
+        );
+      });
+      await waitFor(() => {
+        expect(screen.getByText("the full multi-kilobyte body")).toBeInTheDocument();
+      });
+    });
+
+    it("does not refetch on a second expand toggle", async () => {
+      const user = userEvent.setup();
+      getMock.mockResolvedValue({ output: "fetched once" });
+
+      renderWithContext(
+        <ChatToolUse
+          tool={tool({
+            id: "trunc-2",
+            name: "Bash",
+            input: JSON.stringify({ command: "x" }),
+            output: undefined,
+            outputPreview: "preview",
+            outputLineCount: 100,
+            outputByteLength: 300_000,
+            outputTruncated: true,
+          })}
+        />,
+      );
+
+      const button = screen.getByRole("button", { name: /bash/i });
+      await user.click(button); // expand → fetch
+      await waitFor(() => expect(screen.getByText("fetched once")).toBeInTheDocument());
+      await user.click(button); // collapse
+      await user.click(button); // expand again → cached, no refetch
+
+      expect(getMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not fetch when the output is not truncated", async () => {
+      const user = userEvent.setup();
+
+      renderWithContext(
+        <ChatToolUse
+          tool={tool({
+            name: "Bash",
+            input: JSON.stringify({ command: "echo hi" }),
+            output: "hi\n",
+            outputPreview: "hi\n",
+            outputLineCount: 2,
+            outputByteLength: 3,
+            outputTruncated: false,
+          })}
+        />,
+      );
+
+      await user.click(screen.getByRole("button", { name: /bash/i }));
+
+      expect(getMock).not.toHaveBeenCalled();
+      expect(screen.getByText("Output")).toBeInTheDocument();
+    });
   });
 });

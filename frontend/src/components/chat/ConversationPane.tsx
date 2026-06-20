@@ -52,6 +52,8 @@ export interface ConversationPaneProps {
 
   // ── Conversation (ChatConversation surface) ──
   messages: ChatMessage[];
+  hasMore?: boolean;
+  onLoadEarlier?: () => void;
   streamingStartedAt?: number | null;
   currentStreamingText: string;
   currentThinking: string;
@@ -117,6 +119,8 @@ export function ConversationPane({
   onConversationActivate,
   activeProvider,
   messages,
+  hasMore,
+  onLoadEarlier,
   streamingStartedAt,
   currentStreamingText,
   currentThinking,
@@ -181,6 +185,8 @@ export function ConversationPane({
           <>
             <ChatConversation
               messages={messages}
+              hasMore={hasMore}
+              onLoadEarlier={onLoadEarlier}
               isStreaming={isStreaming}
               streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}

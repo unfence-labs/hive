@@ -370,7 +370,7 @@ describe("Sidebar", () => {
 
     // A background turn completes -> unread dot.
     act(() => {
-      __wsMock.emit(BRAIN_WORKSPACE_ID, { type: "done", sessionId: "brain-sess-1" });
+      __wsMock.emit(BRAIN_WORKSPACE_ID, { type: "done", sessionId: "brain-sess-1", messageId: "msg-brain-sess-1" });
     });
     expect(brainLink.querySelector("[aria-label='Unread activity']")).not.toBeNull();
 
@@ -1298,7 +1298,7 @@ describe("Sidebar", () => {
     await screen.findByText("workspace/paris");
 
     act(() => {
-      __wsMock.emit("w2", { type: "done", sessionId: "sess-2" });
+      __wsMock.emit("w2", { type: "done", sessionId: "sess-2", messageId: "msg-sess-2" });
     });
 
     const inactiveLink = screen.getByRole("link", { name: /workspace\/paris/i });
@@ -1313,7 +1313,7 @@ describe("Sidebar", () => {
     await screen.findByText("workspace/tokyo");
 
     act(() => {
-      __wsMock.emit("w1", { type: "done", sessionId: "sess-1" });
+      __wsMock.emit("w1", { type: "done", sessionId: "sess-1", messageId: "msg-sess-1" });
     });
 
     const activeLink = screen.getByRole("link", { name: /workspace\/tokyo/i });
@@ -1341,7 +1341,7 @@ describe("Sidebar", () => {
     const inactiveLink = screen.getByRole("link", { name: /workspace\/paris/i });
 
     act(() => {
-      __wsMock.emit("w2", { type: "done", sessionId: "sess-2" });
+      __wsMock.emit("w2", { type: "done", sessionId: "sess-2", messageId: "msg-sess-2" });
     });
     expect(findSidebarUnreadDot(inactiveLink)).toBeInTheDocument();
 

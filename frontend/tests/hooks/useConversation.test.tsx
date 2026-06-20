@@ -1,12 +1,17 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useConversation, _resetSavedSessions } from "@/hooks/useConversation";
-import type { ChatMessage, WsOutgoing } from "@/types";
+import type { ChatMessage, SessionMessagesResponse, WsOutgoing } from "@/types";
+
+/** Convenience: wrap a bare message array in the `{messages, hasMore}` REST shape. */
+function historyResponse(messages: ChatMessage[], hasMore = false): SessionMessagesResponse {
+  return { messages, hasMore };
+}
 
 vi.mock("@/hooks/useApi", () => {
   const getMock = vi.fn(
     () =>
-      new Promise<ChatMessage[]>(() => {
+      new Promise<SessionMessagesResponse>(() => {
         // Keep pending by default to avoid unintentional state updates in tests.
       }),
   );
@@ -21,7 +26,7 @@ vi.mock("@/hooks/useApi", () => {
         getMock.mockReset();
         getMock.mockImplementation(
           () =>
-            new Promise<ChatMessage[]>(() => {
+            new Promise<SessionMessagesResponse>(() => {
               // Keep pending by default to avoid unintentional state updates in tests.
             }),
         );
@@ -32,18 +37,28 @@ vi.mock("@/hooks/useApi", () => {
 
 vi.mock("@/lib/ws-transport", () => {
   type ConnectionStatus = "connecting" | "connected" | "disconnected";
+  interface SessionWindow { messages: ChatMessage[]; hasMore: boolean }
   const statuses = new Map<string, ConnectionStatus>();
   const messageHandlers = new Map<string, Set<(msg: WsOutgoing) => void>>();
   const statusListeners = new Map<string, Set<() => void>>();
+  const reconnectListeners = new Map<string, Set<() => void>>();
   const replayMessages = new Map<string, WsOutgoing[]>();
   const bufferedFlags = new Map<string, boolean>();
-  const cachedHistories = new Map<string, WsOutgoing>();
+  const windows = new Map<string, Map<string, SessionWindow>>();
 
   const getSet = <T,>(source: Map<string, Set<T>>, workspaceId: string) => {
     const existing = source.get(workspaceId);
     if (existing) return existing;
     const created = new Set<T>();
     source.set(workspaceId, created);
+    return created;
+  };
+
+  const windowMap = (workspaceId: string) => {
+    const existing = windows.get(workspaceId);
+    if (existing) return existing;
+    const created = new Map<string, SessionWindow>();
+    windows.set(workspaceId, created);
     return created;
   };
 
@@ -77,8 +92,9 @@ vi.mock("@/lib/ws-transport", () => {
         hadBufferedMessages: bufferedFlags.get(workspaceId) ?? false,
       };
     }),
-    onReconnect: vi.fn((_workspaceId: string, _callback: () => void) => {
-      return () => {};
+    onReconnect: vi.fn((workspaceId: string, callback: () => void) => {
+      getSet(reconnectListeners, workspaceId).add(callback);
+      return () => { getSet(reconnectListeners, workspaceId).delete(callback); };
     }),
     subscribe: (workspaceId: string, listener: () => void) => {
       getSet(statusListeners, workspaceId).add(listener);
@@ -87,12 +103,14 @@ vi.mock("@/lib/ws-transport", () => {
       };
     },
     getStatus: (workspaceId: string) => statuses.get(workspaceId) ?? "disconnected",
-    updateCachedHistory: vi.fn((workspaceId: string, historyMsg: WsOutgoing) => {
-      cachedHistories.set(workspaceId, historyMsg);
+    setSessionWindow: vi.fn((workspaceId: string, sessionId: string, window: SessionWindow) => {
+      windowMap(workspaceId).set(sessionId, window);
     }),
-    hasCachedHistory: vi.fn((workspaceId: string) => cachedHistories.has(workspaceId)),
+    getSessionWindow: vi.fn((workspaceId: string, sessionId: string) =>
+      windowMap(workspaceId).get(sessionId),
+    ),
     clearCachedData: vi.fn((workspaceId: string) => {
-      cachedHistories.delete(workspaceId);
+      windows.delete(workspaceId);
       replayMessages.delete(workspaceId);
       bufferedFlags.delete(workspaceId);
     }),
@@ -102,21 +120,25 @@ vi.mock("@/lib/ws-transport", () => {
     emit: (workspaceId: string, msg: WsOutgoing) => {
       for (const handler of messageHandlers.get(workspaceId) ?? []) handler(msg);
     },
+    triggerReconnect: (workspaceId: string) => {
+      for (const cb of reconnectListeners.get(workspaceId) ?? []) cb();
+    },
     reset: () => {
       statuses.clear();
       messageHandlers.clear();
       statusListeners.clear();
+      reconnectListeners.clear();
       replayMessages.clear();
       bufferedFlags.clear();
-      cachedHistories.clear();
+      windows.clear();
       wsTransport.connect.mockClear();
       wsTransport.disconnect.mockClear();
       wsTransport.syncWorkspaces.mockClear();
       wsTransport.disconnectAll.mockClear();
       wsTransport.send.mockClear();
       wsTransport.onMessage.mockClear();
-      wsTransport.updateCachedHistory.mockClear();
-      wsTransport.hasCachedHistory.mockClear();
+      wsTransport.setSessionWindow.mockClear();
+      wsTransport.getSessionWindow.mockClear();
       wsTransport.clearCachedData.mockClear();
     },
     setReplay: (workspaceId: string, messages: WsOutgoing[]) => {
@@ -128,29 +150,32 @@ vi.mock("@/lib/ws-transport", () => {
     sendMock: wsTransport.send,
     connectMock: wsTransport.connect,
     disconnectMock: wsTransport.disconnect,
-    updateCachedHistoryMock: wsTransport.updateCachedHistory,
-    hasCachedHistoryMock: wsTransport.hasCachedHistory,
-    setCachedHistory: (workspaceId: string, historyMsg: WsOutgoing) => {
-      cachedHistories.set(workspaceId, historyMsg);
+    setSessionWindowMock: wsTransport.setSessionWindow,
+    getSessionWindowMock: wsTransport.getSessionWindow,
+    setSessionWindow: (workspaceId: string, sessionId: string, window: SessionWindow) => {
+      windowMap(workspaceId).set(sessionId, window);
     },
   };
 
   return { wsTransport, __wsMock };
 });
 
+interface SessionWindowShape { messages: ChatMessage[]; hasMore: boolean }
+
 const getWsMock = async () =>
   (await import("@/lib/ws-transport")) as unknown as {
     __wsMock: {
       emit: (workspaceId: string, msg: WsOutgoing) => void;
+      triggerReconnect: (workspaceId: string) => void;
       reset: () => void;
       setReplay: (workspaceId: string, messages: WsOutgoing[]) => void;
       setBuffered: (workspaceId: string, value: boolean) => void;
       sendMock: ReturnType<typeof vi.fn>;
       connectMock: ReturnType<typeof vi.fn>;
       disconnectMock: ReturnType<typeof vi.fn>;
-      updateCachedHistoryMock: ReturnType<typeof vi.fn>;
-      hasCachedHistoryMock: ReturnType<typeof vi.fn>;
-      setCachedHistory: (workspaceId: string, historyMsg: WsOutgoing) => void;
+      setSessionWindowMock: ReturnType<typeof vi.fn>;
+      getSessionWindowMock: ReturnType<typeof vi.fn>;
+      setSessionWindow: (workspaceId: string, sessionId: string, window: SessionWindowShape) => void;
     };
   };
 
@@ -161,6 +186,18 @@ const getApiMock = async () =>
       reset: () => void;
     };
   };
+
+/**
+ * Streaming deltas (text_delta/thinking) are coalesced on a ~50ms tick. Tests
+ * that emit deltas and then assert the streaming view directly must flush that
+ * tick. Emitting any non-delta event also flushes pending deltas synchronously,
+ * so tests that follow deltas with done/tool_use don't need this.
+ */
+async function flushStreamDeltas() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  });
+}
 
 describe("useConversation", () => {
   beforeEach(async () => {
@@ -323,7 +360,7 @@ describe("useConversation", () => {
     act(() => {
       __wsMock.emit("ws-1", { type: "text_delta", text: "Hi " });
       __wsMock.emit("ws-1", { type: "text_delta", text: "there" });
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", messageId: "msg-sess-1" });
     });
 
     expect(result.current.isStreaming).toBe(false);
@@ -337,8 +374,8 @@ describe("useConversation", () => {
   it("resyncs persisted session history on done to recover missed deltas", async () => {
     const { __wsMock } = await getWsMock();
     const { __apiMock } = await getApiMock();
-    __apiMock.getMock.mockResolvedValueOnce([]);
-    __apiMock.getMock.mockResolvedValueOnce([
+    __apiMock.getMock.mockResolvedValueOnce(historyResponse([]));
+    __apiMock.getMock.mockResolvedValueOnce(historyResponse([
       {
         id: "u1",
         sessionId: "sess-1",
@@ -353,7 +390,7 @@ describe("useConversation", () => {
         content: "final answer from persistence",
         timestamp: "2026-02-12T00:00:01.000Z",
       },
-    ]);
+    ]));
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -369,14 +406,14 @@ describe("useConversation", () => {
         },
       });
       // No text_delta received (simulates session unfocused while streaming).
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", messageId: "msg-sess-1" });
     });
 
     await waitFor(() => {
       expect(result.current.messages).toHaveLength(2);
       expect(result.current.messages.at(-1)?.content).toBe("final answer from persistence");
     });
-    expect(__apiMock.getMock).toHaveBeenNthCalledWith(2, "/api/workspaces/ws-1/sessions/sess-1/messages");
+    expect(__apiMock.getMock).toHaveBeenNthCalledWith(2, "/api/workspaces/ws-1/sessions/sess-1/messages?limit=200");
   });
 
   it("preserves parentToolUseId from tool_use events in active and persisted tool calls", async () => {
@@ -415,7 +452,7 @@ describe("useConversation", () => {
     ]);
 
     act(() => {
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", messageId: "msg-sess-1" });
     });
 
     const assistant = result.current.messages.at(-1);
@@ -784,7 +821,7 @@ describe("useConversation", () => {
     act(() => {
       __wsMock.emit("ws-1", {
         type: "done",
-        sessionId: "sess-activity",
+        sessionId: "sess-activity", messageId: "msg-sess-activity",
       });
     });
 
@@ -803,7 +840,7 @@ describe("useConversation", () => {
 
   it("keeps persisted agent activities from history", async () => {
     const { __apiMock } = await getApiMock();
-    __apiMock.getMock.mockResolvedValueOnce([
+    __apiMock.getMock.mockResolvedValueOnce(historyResponse([
       {
         id: "a1",
         sessionId: "sess-history-activity",
@@ -818,7 +855,7 @@ describe("useConversation", () => {
           },
         ],
       },
-    ]);
+    ]));
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -909,24 +946,10 @@ describe("useConversation", () => {
     });
   });
 
-  it("hydrates persisted history after mount even when websocket replays stale history", async () => {
-    const { __wsMock } = await getWsMock();
+  it("hydrates persisted history from REST on mount (single source of truth)", async () => {
     const { __apiMock } = await getApiMock();
 
-    __wsMock.setReplay("ws-1", [{
-      type: "history",
-      messages: [
-        {
-          id: "a1",
-          sessionId: "sess-1",
-          role: "assistant",
-          content: "stale-only-assistant",
-          timestamp: "2026-02-12T00:00:00.000Z",
-        },
-      ],
-    }]);
-
-    __apiMock.getMock.mockResolvedValueOnce([
+    __apiMock.getMock.mockResolvedValueOnce(historyResponse([
       {
         id: "u1",
         sessionId: "sess-1",
@@ -941,7 +964,7 @@ describe("useConversation", () => {
         content: "world",
         timestamp: "2026-02-12T00:00:01.000Z",
       },
-    ]);
+    ]));
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -954,54 +977,38 @@ describe("useConversation", () => {
     expect(result.current.messages[1]?.content).toBe("world");
   });
 
-  it("does not overwrite replayed buffered state when transport reports buffered messages", async () => {
-    const { __wsMock } = await getWsMock();
+  it("loads history from the active-session REST endpoint on first visit", async () => {
     const { __apiMock } = await getApiMock();
 
-    __wsMock.setReplay("ws-1", [{
-      type: "history",
-      sessionId: "sess-buffered",
-      messages: [
-        {
-          id: "m-buffered",
-          sessionId: "sess-buffered",
-          role: "assistant",
-          content: "latest from buffered websocket",
-          timestamp: "2026-02-12T00:00:00.000Z",
-        },
-      ],
-    }]);
-    __wsMock.setBuffered("ws-1", true);
-
-    __apiMock.getMock.mockResolvedValueOnce([
+    __apiMock.getMock.mockResolvedValueOnce(historyResponse([
       {
-        id: "m-stale",
-        sessionId: "sess-buffered",
+        id: "m-disk",
+        sessionId: "sess-fresh",
         role: "assistant",
-        content: "stale from disk",
+        content: "from disk",
         timestamp: "2026-02-12T00:00:00.000Z",
       },
-    ]);
+    ]));
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
     await waitFor(() => {
       expect(result.current.messages).toHaveLength(1);
     });
-    expect(result.current.messages[0]?.content).toBe("latest from buffered websocket");
+    expect(result.current.messages[0]?.content).toBe("from disk");
 
     await waitFor(() => {
-      expect(__apiMock.getMock).toHaveBeenCalledWith("/api/workspaces/ws-1/session/messages");
+      expect(__apiMock.getMock).toHaveBeenCalledWith("/api/workspaces/ws-1/session/messages?limit=200");
     });
-    expect(result.current.messages[0]?.content).toBe("latest from buffered websocket");
+    expect(result.current.messages[0]?.content).toBe("from disk");
   });
 
   it("does not overwrite backend user message with a late history request", async () => {
     const { __wsMock } = await getWsMock();
     const { __apiMock } = await getApiMock();
-    let resolveHistory: ((messages: ChatMessage[]) => void) | undefined;
+    let resolveHistory: ((res: SessionMessagesResponse) => void) | undefined;
     __apiMock.getMock.mockReturnValueOnce(
-      new Promise<ChatMessage[]>((resolve) => {
+      new Promise<SessionMessagesResponse>((resolve) => {
         resolveHistory = resolve;
       }),
     );
@@ -1025,7 +1032,7 @@ describe("useConversation", () => {
     expect(result.current.messages[0]?.role).toBe("user");
 
     act(() => {
-      resolveHistory?.([]);
+      resolveHistory?.(historyResponse([]));
     });
 
     await waitFor(() => {
@@ -1036,7 +1043,7 @@ describe("useConversation", () => {
 
   it("hydrates sessionId from initial history payload", async () => {
     const { __apiMock } = await getApiMock();
-    __apiMock.getMock.mockResolvedValueOnce([
+    __apiMock.getMock.mockResolvedValueOnce(historyResponse([
       {
         id: "u1",
         sessionId: "sess-hydrated",
@@ -1044,7 +1051,7 @@ describe("useConversation", () => {
         content: "hello",
         timestamp: "2026-02-12T00:00:00.000Z",
       },
-    ]);
+    ]));
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -1056,7 +1063,7 @@ describe("useConversation", () => {
 
   it("rehydrates AskUserQuestion pending input from history when WS request event was missed", async () => {
     const { __apiMock } = await getApiMock();
-    __apiMock.getMock.mockResolvedValueOnce([
+    __apiMock.getMock.mockResolvedValueOnce(historyResponse([
       {
         id: "u1",
         sessionId: "sess-q",
@@ -1086,7 +1093,7 @@ describe("useConversation", () => {
           },
         ],
       },
-    ]);
+    ]));
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -1104,7 +1111,7 @@ describe("useConversation", () => {
 
   it("falls back to empty object when history tool input is not valid JSON", async () => {
     const { __apiMock } = await getApiMock();
-    __apiMock.getMock.mockResolvedValueOnce([
+    __apiMock.getMock.mockResolvedValueOnce(historyResponse([
       {
         id: "u1",
         sessionId: "sess-q",
@@ -1126,7 +1133,7 @@ describe("useConversation", () => {
           },
         ],
       },
-    ]);
+    ]));
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -1138,7 +1145,7 @@ describe("useConversation", () => {
 
   it("rehydrates ExitPlanMode pending input from history when WS request event was missed", async () => {
     const { __apiMock } = await getApiMock();
-    __apiMock.getMock.mockResolvedValueOnce([
+    __apiMock.getMock.mockResolvedValueOnce(historyResponse([
       {
         id: "u1",
         sessionId: "sess-plan",
@@ -1160,7 +1167,7 @@ describe("useConversation", () => {
           },
         ],
       },
-    ]);
+    ]));
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -1176,8 +1183,9 @@ describe("useConversation", () => {
     );
   });
 
-  it("clears stale pending tool inputs when history has no pending prompts", async () => {
+  it("clears stale pending tool inputs when the REST resync has no pending prompts", async () => {
     const { __wsMock } = await getWsMock();
+    const { __apiMock } = await getApiMock();
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
@@ -1193,34 +1201,35 @@ describe("useConversation", () => {
     });
     expect(result.current.pendingToolInputs).toHaveLength(1);
 
-    act(() => {
-      __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-1", streaming: false });
-      __wsMock.emit("ws-1", {
-        type: "history",
+    // done triggers a REST resync; the loaded history has no pending prompts.
+    __apiMock.getMock.mockResolvedValueOnce(historyResponse([
+      {
+        id: "u1",
         sessionId: "sess-1",
-        messages: [
-          {
-            id: "u1",
-            sessionId: "sess-1",
-            role: "user",
-            content: "done",
-            timestamp: "2026-02-12T00:00:00.000Z",
-          },
-          {
-            id: "a1",
-            sessionId: "sess-1",
-            role: "assistant",
-            content: "completed",
-            timestamp: "2026-02-12T00:00:01.000Z",
-          },
-        ],
-      });
+        role: "user",
+        content: "done",
+        timestamp: "2026-02-12T00:00:00.000Z",
+      },
+      {
+        id: "a1",
+        sessionId: "sess-1",
+        role: "assistant",
+        content: "completed",
+        timestamp: "2026-02-12T00:00:01.000Z",
+      },
+    ]));
+
+    await act(async () => {
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", messageId: "a1" });
+      await Promise.resolve();
     });
 
-    expect(result.current.pendingToolInputs).toEqual([]);
+    await waitFor(() => {
+      expect(result.current.pendingToolInputs).toEqual([]);
+    });
   });
 
-  it("keeps active pending tool inputs when a history event arrives during streaming", async () => {
+  it("keeps live pending tool inputs across a stream_snapshot replay", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -1242,29 +1251,22 @@ describe("useConversation", () => {
       }),
     ]);
 
+    // A consolidated catch-up snapshot replaces stream accumulators but must not
+    // drop the in-flight pending question.
     act(() => {
       __wsMock.emit("ws-1", {
-        type: "history",
+        type: "stream_snapshot",
         sessionId: "sess-1",
-        messages: [
-          {
-            id: "a1",
-            sessionId: "sess-1",
-            role: "assistant",
-            content: "",
-            timestamp: "2026-02-12T00:00:01.000Z",
-            toolCalls: [
-              {
-                id: "tool-history",
-                name: "AskUserQuestion",
-                input: JSON.stringify({ questions: [{ question: "stale history" }] }),
-              },
-            ],
-          },
-        ],
+        text: "thinking about it",
+        thinking: "",
+        toolCalls: [],
+        agentActivities: [],
+        planMode: false,
+        streamingStartedAt: 1_700_000_000_000,
       });
     });
 
+    expect(result.current.currentStreamingText).toBe("thinking about it");
     expect(result.current.pendingToolInputs).toEqual([
       expect.objectContaining({
         requestId: "req-live",
@@ -1273,10 +1275,17 @@ describe("useConversation", () => {
     ]);
   });
 
-  it("switches sessions and loads specific session history", async () => {
+  it("switches sessions and loads specific session history from REST", async () => {
     const { __apiMock } = await getApiMock();
-    const { __wsMock } = await getWsMock();
-    __apiMock.getMock.mockResolvedValueOnce([]);
+    __apiMock.getMock.mockResolvedValue(historyResponse([
+      {
+        id: "m-1",
+        sessionId: "sess-2",
+        role: "assistant",
+        content: "loaded from target session",
+        timestamp: "2026-02-12T00:00:01.000Z",
+      },
+    ]));
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -1284,51 +1293,21 @@ describe("useConversation", () => {
       await result.current.switchSession("sess-2");
     });
 
-    act(() => {
-      __wsMock.emit("ws-1", {
-        type: "history",
-        sessionId: "sess-2",
-        messages: [
-          {
-            id: "m-1",
-            sessionId: "sess-2",
-            role: "assistant",
-            content: "loaded from target session",
-            timestamp: "2026-02-12T00:00:01.000Z",
-          },
-        ],
-      });
+    await waitFor(() => {
+      expect(result.current.messages).toEqual([
+        expect.objectContaining({ id: "m-1", content: "loaded from target session" }),
+      ]);
     });
-
-    expect(__apiMock.getMock).toHaveBeenCalledTimes(1);
-    expect(result.current.messages).toEqual([
-      expect.objectContaining({ id: "m-1", content: "loaded from target session" }),
-    ]);
+    expect(__apiMock.getMock).toHaveBeenCalledWith("/api/workspaces/ws-1/sessions/sess-2/messages?limit=200");
     expect(result.current.sessionId).toBe("sess-2");
     expect(result.current.isStreaming).toBe(false);
   });
 
   it("keeps target session visible and sets an error when switch_session send fails", async () => {
     const { __wsMock } = await getWsMock();
+    // REST stays pending (default mock) so messages remain empty regardless.
     __wsMock.sendMock.mockReturnValueOnce(false);
     const { result } = renderHook(() => useConversation("ws-1"));
-
-    act(() => {
-      __wsMock.emit("ws-1", {
-        type: "history",
-        sessionId: "sess-old",
-        messages: [
-          {
-            id: "m-old",
-            sessionId: "sess-old",
-            role: "assistant",
-            content: "old",
-            timestamp: "2026-02-12T00:00:00.000Z",
-          },
-        ],
-      });
-    });
-    expect(result.current.messages).toHaveLength(1);
 
     await act(async () => {
       await result.current.switchSession("sess-fail");
@@ -1346,8 +1325,8 @@ describe("useConversation", () => {
 
   it("keeps selected session id when switched session has no messages", async () => {
     const { __apiMock } = await getApiMock();
-    __apiMock.getMock.mockResolvedValueOnce([]);
-    __apiMock.getMock.mockResolvedValueOnce([]);
+    __apiMock.getMock.mockResolvedValueOnce(historyResponse([]));
+    __apiMock.getMock.mockResolvedValueOnce(historyResponse([]));
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -1359,10 +1338,29 @@ describe("useConversation", () => {
     expect(result.current.sessionId).toBe("sess-empty");
   });
 
-  it("ignores stale session history response when switching rapidly", async () => {
+  it("ignores a stale session history response when switching rapidly", async () => {
     const { __apiMock } = await getApiMock();
-    const { __wsMock } = await getWsMock();
-    __apiMock.getMock.mockResolvedValueOnce([]);
+
+    // Each switch fires a REST resync. Make sess-old's resolve late, sess-new's
+    // resolve immediately; the stale sess-old payload must not clobber sess-new.
+    let resolveOld: ((res: SessionMessagesResponse) => void) | undefined;
+    __apiMock.getMock.mockImplementation((url: string) => {
+      if (url.includes("sessions/sess-old/")) {
+        return new Promise<SessionMessagesResponse>((resolve) => { resolveOld = resolve; });
+      }
+      if (url.includes("sessions/sess-new/")) {
+        return Promise.resolve(historyResponse([
+          {
+            id: "m-new",
+            sessionId: "sess-new",
+            role: "assistant",
+            content: "new session payload",
+            timestamp: "2026-02-12T00:00:02.000Z",
+          },
+        ]));
+      }
+      return new Promise<SessionMessagesResponse>(() => {});
+    });
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -1374,38 +1372,29 @@ describe("useConversation", () => {
       await result.current.switchSession("sess-new");
     });
 
-    act(() => {
-      __wsMock.emit("ws-1", {
-        type: "history",
-        sessionId: "sess-old",
-        messages: [
-          {
-            id: "m-old",
-            sessionId: "sess-old",
-            role: "assistant",
-            content: "stale payload",
-            timestamp: "2026-02-12T00:00:03.000Z",
-          },
-        ],
-      });
-      __wsMock.emit("ws-1", {
-        type: "history",
-        sessionId: "sess-new",
-        messages: [
-          {
-            id: "m-new",
-            sessionId: "sess-new",
-            role: "assistant",
-            content: "new session payload",
-            timestamp: "2026-02-12T00:00:02.000Z",
-          },
-        ],
-      });
+    // sess-new's response should have landed.
+    await waitFor(() => {
+      expect(result.current.messages).toEqual([
+        expect.objectContaining({ id: "m-new", content: "new session payload" }),
+      ]);
     });
 
-    await waitFor(() => {
-      expect(result.current.sessionId).toBe("sess-new");
+    // The stale sess-old response arrives after we've moved to sess-new.
+    await act(async () => {
+      resolveOld?.(historyResponse([
+        {
+          id: "m-old",
+          sessionId: "sess-old",
+          role: "assistant",
+          content: "stale payload",
+          timestamp: "2026-02-12T00:00:03.000Z",
+        },
+      ]));
+      await Promise.resolve();
     });
+
+    // The stale payload must NOT clobber sess-new.
+    expect(result.current.sessionId).toBe("sess-new");
     expect(result.current.messages).toEqual([
       expect.objectContaining({ id: "m-new", content: "new session payload" }),
     ]);
@@ -1553,6 +1542,7 @@ describe("useConversation", () => {
       __wsMock.emit("ws-1", { type: "thinking", text: "First " });
       __wsMock.emit("ws-1", { type: "thinking", text: "second" });
     });
+    await flushStreamDeltas();
 
     expect(result.current.currentThinking).toBe("First second");
   });
@@ -1577,7 +1567,7 @@ describe("useConversation", () => {
     act(() => {
       __wsMock.emit("ws-1", { type: "thinking", text: "Deep thought" });
       __wsMock.emit("ws-1", { type: "text_delta", text: "Answer" });
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", messageId: "msg-sess-1" });
     });
 
     const assistant = result.current.messages.at(-1);
@@ -1680,7 +1670,7 @@ describe("useConversation", () => {
 
     act(() => {
       __wsMock.emit("ws-1", { type: "text_delta", text: "Hello" });
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", durationMs: 4500 });
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", messageId: "msg-sess-1", durationMs: 4500 });
     });
 
     const assistant = result.current.messages.at(-1);
@@ -1925,7 +1915,7 @@ describe("useConversation", () => {
   it("uses session-specific REST endpoint when restoring saved session", async () => {
     const { __wsMock } = await getWsMock();
     const { __apiMock } = await getApiMock();
-    __apiMock.getMock.mockResolvedValue([]);
+    __apiMock.getMock.mockResolvedValue(historyResponse([]));
     const { result, rerender } = renderHook(
       ({ wsId }) => useConversation(wsId),
       { initialProps: { wsId: "ws-1" } },
@@ -1943,14 +1933,14 @@ describe("useConversation", () => {
 
     // Switch away and back
     __apiMock.getMock.mockClear();
-    __apiMock.getMock.mockResolvedValue([]);
+    __apiMock.getMock.mockResolvedValue(historyResponse([]));
     rerender({ wsId: "ws-2" });
     __wsMock.setReplay("ws-1", []);
     rerender({ wsId: "ws-1" });
 
     await waitFor(() => {
       expect(__apiMock.getMock).toHaveBeenCalledWith(
-        "/api/workspaces/ws-1/sessions/sess-B/messages",
+        "/api/workspaces/ws-1/sessions/sess-B/messages?limit=200",
       );
     });
   });
@@ -1976,6 +1966,7 @@ describe("useConversation", () => {
       });
       __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Hello " });
     });
+    await flushStreamDeltas();
 
     expect(result.current.currentStreamingText).toBe("Hello ");
     expect(result.current.isStreaming).toBe(true);
@@ -1997,6 +1988,7 @@ describe("useConversation", () => {
     act(() => {
       __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "World" });
     });
+    await flushStreamDeltas();
 
     // Pre-switch + post-switch text are both present
     expect(result.current.sessionId).toBe("sess-1");
@@ -2024,6 +2016,7 @@ describe("useConversation", () => {
       });
       __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "data" });
     });
+    await flushStreamDeltas();
 
     expect(result.current.currentStreamingText).toBe("data");
 
@@ -2063,6 +2056,7 @@ describe("useConversation", () => {
       });
       __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Before " });
     });
+    await flushStreamDeltas();
 
     expect(result.current.currentStreamingText).toBe("Before ");
 
@@ -2073,7 +2067,7 @@ describe("useConversation", () => {
     __wsMock.setReplay("ws-1", [
       { type: "status", status: "busy", sessionId: "sess-1", streaming: true },
       { type: "text_delta", sessionId: "sess-1", text: "after" },
-      { type: "done", sessionId: "sess-1", durationMs: 1234 },
+      { type: "done", sessionId: "sess-1", messageId: "msg-sess-1", durationMs: 1234 },
     ]);
     rerender({ wsId: "ws-1" });
 
@@ -2102,7 +2096,7 @@ describe("useConversation", () => {
         },
       });
       __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Done" });
-      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", durationMs: 100 });
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", messageId: "msg-sess-1", durationMs: 100 });
     });
 
     expect(result.current.isStreaming).toBe(false);
@@ -2237,9 +2231,17 @@ describe("useConversation", () => {
     expect(result.current.streamingStartedAt).toBe(1_700_000_002_000);
   });
 
-  it("preserves streamingStartedAt on same-session history while streaming", async () => {
+  it("preserves streamingStartedAt when a same-session REST history lands while streaming", async () => {
     const { __wsMock } = await getWsMock();
+    const { __apiMock } = await getApiMock();
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_001_666);
+
+    // The initial mount fetch resolves only after a stream is in progress.
+    let resolveMount: ((res: SessionMessagesResponse) => void) | undefined;
+    __apiMock.getMock.mockReturnValueOnce(
+      new Promise<SessionMessagesResponse>((resolve) => { resolveMount = resolve; }),
+    );
+
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
@@ -2254,19 +2256,20 @@ describe("useConversation", () => {
         },
       });
       __wsMock.emit("ws-1", { type: "text_delta", text: "partial" });
-      __wsMock.emit("ws-1", {
-        type: "history",
-        sessionId: "sess-1",
-        messages: [
-          {
-            id: "u1",
-            sessionId: "sess-1",
-            role: "user",
-            content: "hello",
-            timestamp: "2026-02-12T00:00:00.000Z",
-          },
-        ],
-      });
+    });
+    expect(result.current.streamingStartedAt).toBe(1_700_000_001_666);
+
+    await act(async () => {
+      resolveMount?.(historyResponse([
+        {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "hello",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      ]));
+      await Promise.resolve();
     });
 
     expect(result.current.isStreaming).toBe(true);
@@ -2407,7 +2410,7 @@ describe("useConversation", () => {
   it("clears lockedProvider on session switch", async () => {
     const { __wsMock } = await getWsMock();
     const { __apiMock } = await getApiMock();
-    __apiMock.getMock.mockResolvedValueOnce([]);
+    __apiMock.getMock.mockResolvedValueOnce(historyResponse([]));
     const { result } = renderHook(() => useConversation("ws-1"));
 
     act(() => {
@@ -2432,7 +2435,7 @@ describe("useConversation", () => {
   it("picks up lockedProvider from bootstrap status on session switch", async () => {
     const { __wsMock } = await getWsMock();
     const { __apiMock } = await getApiMock();
-    __apiMock.getMock.mockResolvedValueOnce([]);
+    __apiMock.getMock.mockResolvedValueOnce(historyResponse([]));
     const { result } = renderHook(() => useConversation("ws-1"));
 
     await act(async () => {
@@ -2453,8 +2456,8 @@ describe("useConversation", () => {
     expect(result.current.lockedProvider).toBe("claude");
   });
 
-  describe("transport cache freshness", () => {
-    it("updates transport cache when messages change after done event", async () => {
+  describe("session window cache (stale-while-revalidate)", () => {
+    it("writes the per-session window to the transport when messages change after done", async () => {
       const { __wsMock } = await getWsMock();
 
       const { result } = renderHook(() => useConversation("ws-1"));
@@ -2466,21 +2469,23 @@ describe("useConversation", () => {
           message: { id: "u1", sessionId: "sess-1", role: "user", content: "hello", timestamp: "2026-02-20T00:00:00.000Z" },
         });
         __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "hi back" });
-        __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", durationMs: 100 });
+        __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", messageId: "msg-sess-1", durationMs: 100 });
       });
 
-      // After done, messages should have both user + assistant messages.
-      // The cache-update effect should have pushed them to the transport.
       expect(result.current.messages).toHaveLength(2);
-      expect(__wsMock.updateCachedHistoryMock).toHaveBeenCalled();
-      const lastCall = __wsMock.updateCachedHistoryMock.mock.calls.at(-1)!;
+      expect(__wsMock.setSessionWindowMock).toHaveBeenCalled();
+      const lastCall = __wsMock.setSessionWindowMock.mock.calls.at(-1)!;
       expect(lastCall[0]).toBe("ws-1");
-      expect(lastCall[1].type).toBe("history");
-      expect(lastCall[1].sessionId).toBe("sess-1");
-      expect(lastCall[1].messages).toHaveLength(2);
+      expect(lastCall[1]).toBe("sess-1");
+      expect(lastCall[2].messages).toHaveLength(2);
+      expect(lastCall[2]).toHaveProperty("hasMore");
     });
 
-    it("does not update cache with empty messages during workspace switch", async () => {
+    it("does not write the window with empty messages during workspace switch", async () => {
+      const { __apiMock } = await getApiMock();
+      __apiMock.getMock.mockResolvedValue(historyResponse([
+        { id: "m1", sessionId: "sess-1", role: "user", content: "hi", timestamp: "2026-02-20T00:00:00.000Z" },
+      ]));
       const { __wsMock } = await getWsMock();
 
       const { result, rerender } = renderHook(
@@ -2488,29 +2493,24 @@ describe("useConversation", () => {
         { initialProps: { wsId: "ws-1" } },
       );
 
-      // Populate messages for ws-1
-      await act(async () => {
-        __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-1", streaming: false });
-        __wsMock.emit("ws-1", {
-          type: "history",
-          sessionId: "sess-1",
-          messages: [{ id: "m1", sessionId: "sess-1", role: "user", content: "hi", timestamp: "2026-02-20T00:00:00.000Z" }],
-        });
+      await waitFor(() => {
+        expect(result.current.messages).toHaveLength(1);
       });
+      __wsMock.setSessionWindowMock.mockClear();
 
-      expect(result.current.messages).toHaveLength(1);
-      __wsMock.updateCachedHistoryMock.mockClear();
-
-      // Switch to ws-2 — messages clear, cache should NOT be overwritten with empty
+      // Switch to ws-2 — messages clear, window must NOT be overwritten with empty.
       rerender({ wsId: "ws-2" });
 
-      // Check that no call was made with empty messages for ws-1
-      for (const call of __wsMock.updateCachedHistoryMock.mock.calls) {
-        expect(call[1].messages.length).toBeGreaterThan(0);
+      for (const call of __wsMock.setSessionWindowMock.mock.calls) {
+        expect(call[2].messages.length).toBeGreaterThan(0);
       }
     });
 
-    it("skips cache write on first effect cycle after workspace switch to prevent cross-workspace pollution", async () => {
+    it("skips window write on first effect cycle after workspace switch to prevent cross-workspace pollution", async () => {
+      const { __apiMock } = await getApiMock();
+      __apiMock.getMock.mockResolvedValue(historyResponse([
+        { id: "m1", sessionId: "sess-1", role: "user", content: "ws-1 msg", timestamp: "2026-02-20T00:00:00.000Z" },
+      ]));
       const { __wsMock } = await getWsMock();
 
       const { result, rerender } = renderHook(
@@ -2518,55 +2518,63 @@ describe("useConversation", () => {
         { initialProps: { wsId: "ws-1" } },
       );
 
-      // Populate ws-1 with messages
-      await act(async () => {
-        __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-1", streaming: false });
-        __wsMock.emit("ws-1", {
-          type: "history",
-          sessionId: "sess-1",
-          messages: [{ id: "m1", sessionId: "sess-1", role: "user", content: "ws-1 msg", timestamp: "2026-02-20T00:00:00.000Z" }],
-        });
+      await waitFor(() => {
+        expect(result.current.messages).toHaveLength(1);
       });
+      __wsMock.setSessionWindowMock.mockClear();
 
-      expect(result.current.messages).toHaveLength(1);
-      __wsMock.updateCachedHistoryMock.mockClear();
-
-      // Switch to ws-2 — React 18 batching may transiently leave state.messages
-      // holding ws-1's messages while workspaceId is already ws-2. The guard
-      // (prevCacheWorkspaceRef) should prevent writing ws-1's messages into ws-2's cache.
+      // The guard (prevCacheWorkspaceRef) prevents writing ws-1's messages into ws-2's cache.
       rerender({ wsId: "ws-2" });
 
-      const ws2CacheCalls = __wsMock.updateCachedHistoryMock.mock.calls.filter(
+      const ws2CacheCalls = __wsMock.setSessionWindowMock.mock.calls.filter(
         ([wsId]: [string]) => wsId === "ws-2",
       );
       expect(ws2CacheCalls).toHaveLength(0);
     });
 
-    it("skips REST fetch when transport has cached history", async () => {
+    it("renders the cached window immediately and still revalidates via REST on switch-back", async () => {
       const { __wsMock } = await getWsMock();
       const { __apiMock } = await getApiMock();
-      __apiMock.getMock.mockResolvedValue([]);
 
-      // Pre-populate the cache so hasCachedHistory returns true
-      __wsMock.setCachedHistory("ws-1", {
-        type: "history",
-        sessionId: "sess-1",
-        messages: [{ id: "m1", sessionId: "sess-1", role: "user", content: "cached", timestamp: "2026-02-20T00:00:00.000Z" }],
+      // Seed a window for ws-1 / sess-cached and pre-set the saved session.
+      __wsMock.setSessionWindow("ws-1", "sess-cached", {
+        messages: [{ id: "m1", sessionId: "sess-cached", role: "user", content: "cached", timestamp: "2026-02-20T00:00:00.000Z" }],
+        hasMore: false,
       });
 
-      renderHook(() => useConversation("ws-1"));
+      // A fresher REST window revalidates the cached view.
+      __apiMock.getMock.mockResolvedValue(historyResponse([
+        { id: "m1", sessionId: "sess-cached", role: "user", content: "cached", timestamp: "2026-02-20T00:00:00.000Z" },
+        { id: "a1", sessionId: "sess-cached", role: "assistant", content: "revalidated", timestamp: "2026-02-20T00:00:01.000Z" },
+      ]));
 
-      // REST should NOT have been called since cache exists
-      expect(__apiMock.getMock).not.toHaveBeenCalled();
+      const { result, rerender } = renderHook(
+        ({ wsId }) => useConversation(wsId),
+        { initialProps: { wsId: "ws-other" as string | undefined } },
+      );
+
+      // Establish that ws-1's saved session is sess-cached, then visit ws-1.
+      act(() => {
+        rerender({ wsId: "ws-1" });
+      });
+      // Without a saved session yet, prime it via status then re-enter.
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-cached", streaming: false });
+      });
+
+      // REST still fires (single source of truth) — stale-while-revalidate.
+      await waitFor(() => {
+        expect(__apiMock.getMock).toHaveBeenCalled();
+      });
+      expect(result.current.sessionId).toBe("sess-cached");
     });
 
-    it("fires REST fetch on first visit when no cached history exists", async () => {
+    it("always fires a REST fetch on first visit", async () => {
       const { __apiMock } = await getApiMock();
-      __apiMock.getMock.mockReturnValue(new Promise<ChatMessage[]>(() => {}));
+      __apiMock.getMock.mockReturnValue(new Promise<SessionMessagesResponse>(() => {}));
 
       renderHook(() => useConversation("ws-1"));
 
-      // REST should fire since there's no cached history
       await waitFor(() => {
         expect(__apiMock.getMock).toHaveBeenCalledWith(
           expect.stringContaining("/api/workspaces/ws-1/"),
@@ -2598,7 +2606,7 @@ describe("useConversation", () => {
         __wsMock.emit("ws-1", { type: "text_delta", text: "Hello back" });
         __wsMock.emit("ws-1", {
           type: "done",
-          sessionId: "sess-1",
+          sessionId: "sess-1", messageId: "msg-sess-1",
           durationMs: 2000,
           inputTokens: 45_000,
           outputTokens: 1_200,
@@ -2621,7 +2629,7 @@ describe("useConversation", () => {
         __wsMock.emit("ws-1", { type: "text_delta", text: "Codex reply" });
         __wsMock.emit("ws-1", {
           type: "done",
-          sessionId: "sess-1",
+          sessionId: "sess-1", messageId: "msg-sess-1",
           inputTokens: 41_000,
           outputTokens: 900,
           contextUsedTokens: 42_000,
@@ -2657,13 +2665,283 @@ describe("useConversation", () => {
 
       act(() => {
         __wsMock.emit("ws-1", { type: "text_delta", text: "Reply" });
-        __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
+        __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", messageId: "msg-sess-1" });
       });
 
       const assistant = result.current.messages.at(-1);
       expect(assistant?.role).toBe("assistant");
       expect(assistant?.inputTokens).toBeUndefined();
       expect(assistant?.outputTokens).toBeUndefined();
+    });
+  });
+
+  describe("stream_snapshot (consolidated catch-up, replace semantics)", () => {
+    const snapshot = (overrides: Partial<Extract<WsOutgoing, { type: "stream_snapshot" }>> = {}) => ({
+      type: "stream_snapshot" as const,
+      sessionId: "sess-1",
+      text: "partial answer",
+      thinking: "let me think",
+      toolCalls: [
+        { id: "t1", name: "Read", input: JSON.stringify({ file_path: "/a.ts" }), output: "contents" },
+      ],
+      agentActivities: [],
+      planMode: false,
+      streamingStartedAt: 1_700_000_000_000,
+      ...overrides,
+    });
+
+    it("replaces the session stream slot from a snapshot and is idempotent", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
+        __wsMock.emit("ws-1", snapshot());
+      });
+
+      const first = {
+        text: result.current.currentStreamingText,
+        thinking: result.current.currentThinking,
+        toolCalls: result.current.activeToolCalls,
+        isStreaming: result.current.isStreaming,
+      };
+      expect(first).toEqual({
+        text: "partial answer",
+        thinking: "let me think",
+        toolCalls: [expect.objectContaining({ id: "t1", output: "contents" })],
+        isStreaming: true,
+      });
+
+      // Applying the SAME snapshot again must not duplicate or alter state.
+      act(() => {
+        __wsMock.emit("ws-1", snapshot());
+      });
+
+      expect(result.current.currentStreamingText).toBe("partial answer");
+      expect(result.current.currentThinking).toBe("let me think");
+      expect(result.current.activeToolCalls).toHaveLength(1);
+      expect(result.current.activeToolCalls).toEqual([
+        expect.objectContaining({ id: "t1" }),
+      ]);
+    });
+
+    it("creates the stream slot when a snapshot arrives without a prior status", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        // First-visit case: snapshot arrives with no pre-existing slot.
+        __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: false });
+        __wsMock.emit("ws-1", snapshot({ thinking: "", toolCalls: [], agentActivities: [] }));
+      });
+
+      expect(result.current.sessionId).toBe("sess-1");
+      expect(result.current.currentStreamingText).toBe("partial answer");
+      expect(result.current.isStreaming).toBe(true);
+    });
+
+    it("a later snapshot replaces (not appends) prior live deltas", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
+        __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "stale " });
+        __wsMock.emit("ws-1", {
+          type: "tool_use", sessionId: "sess-1", id: "told", name: "Bash", input: "{}",
+        });
+      });
+      await flushStreamDeltas();
+      expect(result.current.currentStreamingText).toBe("stale ");
+
+      act(() => {
+        __wsMock.emit("ws-1", snapshot({ text: "fresh full text", toolCalls: [] }));
+      });
+
+      // Replace semantics: the stale delta text and tool are gone, not merged.
+      expect(result.current.currentStreamingText).toBe("fresh full text");
+      expect(result.current.activeToolCalls).toEqual([]);
+    });
+  });
+
+  describe("finalization dedup by server message id", () => {
+    it("appends the optimistic assistant message with the server id, then dedups on REST fetch", async () => {
+      const { __wsMock } = await getWsMock();
+      const { __apiMock } = await getApiMock();
+
+      // The done-resync returns history that INCLUDES the just-finalized turn.
+      __apiMock.getMock.mockResolvedValue(historyResponse([
+        { id: "u1", sessionId: "sess-1", role: "user", content: "hi", timestamp: "2026-02-20T00:00:00.000Z" },
+        { id: "server-msg-1", sessionId: "sess-1", role: "assistant", content: "Answer", timestamp: "2026-02-20T00:00:01.000Z" },
+      ]));
+
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", {
+          type: "user_message",
+          message: { id: "u1", sessionId: "sess-1", role: "user", content: "hi", timestamp: "2026-02-20T00:00:00.000Z" },
+        });
+        __wsMock.emit("ws-1", { type: "text_delta", text: "Answer" });
+      });
+
+      await act(async () => {
+        __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", messageId: "server-msg-1" });
+        await Promise.resolve();
+      });
+
+      // Optimistic append used the server id; the REST resync must NOT duplicate it.
+      await waitFor(() => {
+        const assistants = result.current.messages.filter((m) => m.id === "server-msg-1");
+        expect(assistants).toHaveLength(1);
+      });
+      expect(result.current.messages.filter((m) => m.role === "assistant")).toHaveLength(1);
+    });
+
+    it("does not append an empty assistant bubble when the done turn has no content", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", {
+          type: "user_message",
+          message: { id: "u1", sessionId: "sess-1", role: "user", content: "noop", timestamp: "2026-02-20T00:00:00.000Z" },
+        });
+        // No text/tools produced — an empty turn.
+        __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", messageId: "empty-1" });
+      });
+
+      // Only the user message remains; no empty assistant bubble.
+      expect(result.current.messages).toHaveLength(1);
+      expect(result.current.messages[0]?.role).toBe("user");
+    });
+  });
+
+  describe("live tool_result computes unified scalars once", () => {
+    it("stores outputPreview/outputLineCount/outputByteLength/outputTruncated on the tool", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", {
+          type: "user_message",
+          message: { id: "u1", sessionId: "sess-1", role: "user", content: "grep", timestamp: "2026-02-20T00:00:00.000Z" },
+        });
+        __wsMock.emit("ws-1", { type: "tool_use", id: "g1", name: "Grep", input: "{}" });
+      });
+
+      act(() => {
+        __wsMock.emit("ws-1", { type: "tool_result", toolUseId: "g1", output: "line1\nline2\nline3" });
+      });
+
+      const tool = result.current.activeToolCalls[0];
+      expect(tool).toMatchObject({
+        id: "g1",
+        output: "line1\nline2\nline3",
+        outputPreview: "line1\nline2\nline3",
+        outputLineCount: 3,
+        outputByteLength: 17,
+        outputTruncated: false,
+      });
+    });
+
+    it("computes a line count of 0 for empty output", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", {
+          type: "user_message",
+          message: { id: "u1", sessionId: "sess-1", role: "user", content: "x", timestamp: "2026-02-20T00:00:00.000Z" },
+        });
+        __wsMock.emit("ws-1", { type: "tool_use", id: "g1", name: "Bash", input: "{}" });
+        __wsMock.emit("ws-1", { type: "tool_result", toolUseId: "g1", output: "" });
+      });
+
+      expect(result.current.activeToolCalls[0]).toMatchObject({
+        outputPreview: "",
+        outputLineCount: 0,
+        outputTruncated: false,
+      });
+    });
+  });
+
+  describe("loadEarlier + hasMore", () => {
+    it("prepends an older window and updates hasMore", async () => {
+      const { __apiMock } = await getApiMock();
+      // Initial window: one recent message, more exist before it.
+      __apiMock.getMock.mockResolvedValueOnce(historyResponse([
+        { id: "m2", sessionId: "sess-1", role: "assistant", content: "recent", timestamp: "2026-02-20T00:00:02.000Z" },
+      ], true));
+
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      await waitFor(() => {
+        expect(result.current.messages).toHaveLength(1);
+      });
+      expect(result.current.hasMore).toBe(true);
+
+      // loadEarlier fetches the window before messages[0].
+      __apiMock.getMock.mockResolvedValueOnce(historyResponse([
+        { id: "m1", sessionId: "sess-1", role: "user", content: "older", timestamp: "2026-02-20T00:00:01.000Z" },
+      ], false));
+
+      await act(async () => {
+        await result.current.loadEarlier();
+      });
+
+      expect(result.current.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
+      expect(result.current.hasMore).toBe(false);
+      expect(__apiMock.getMock).toHaveBeenLastCalledWith(
+        "/api/workspaces/ws-1/sessions/sess-1/messages?limit=200&before=m2",
+      );
+    });
+
+    it("loadEarlier is a no-op when hasMore is false", async () => {
+      const { __apiMock } = await getApiMock();
+      __apiMock.getMock.mockResolvedValueOnce(historyResponse([
+        { id: "m1", sessionId: "sess-1", role: "user", content: "only", timestamp: "2026-02-20T00:00:00.000Z" },
+      ], false));
+
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      await waitFor(() => {
+        expect(result.current.messages).toHaveLength(1);
+      });
+      expect(result.current.hasMore).toBe(false);
+      __apiMock.getMock.mockClear();
+
+      await act(async () => {
+        await result.current.loadEarlier();
+      });
+
+      expect(__apiMock.getMock).not.toHaveBeenCalled();
+      expect(result.current.messages).toHaveLength(1);
+    });
+
+    it("dedups overlapping ids when prepending an older window", async () => {
+      const { __apiMock } = await getApiMock();
+      __apiMock.getMock.mockResolvedValueOnce(historyResponse([
+        { id: "m2", sessionId: "sess-1", role: "user", content: "b", timestamp: "2026-02-20T00:00:02.000Z" },
+        { id: "m3", sessionId: "sess-1", role: "assistant", content: "c", timestamp: "2026-02-20T00:00:03.000Z" },
+      ], true));
+
+      const { result } = renderHook(() => useConversation("ws-1"));
+      await waitFor(() => {
+        expect(result.current.messages).toHaveLength(2);
+      });
+
+      // The older window overlaps on m2 (same id) and adds m1.
+      __apiMock.getMock.mockResolvedValueOnce(historyResponse([
+        { id: "m1", sessionId: "sess-1", role: "user", content: "a", timestamp: "2026-02-20T00:00:01.000Z" },
+        { id: "m2", sessionId: "sess-1", role: "user", content: "b", timestamp: "2026-02-20T00:00:02.000Z" },
+      ], false));
+
+      await act(async () => {
+        await result.current.loadEarlier();
+      });
+
+      expect(result.current.messages.map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
     });
   });
 });

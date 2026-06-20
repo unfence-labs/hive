@@ -72,6 +72,7 @@ struct ConversationStoreAgentActivityTests {
 
         store.handle(.done(
             sessionId: "session-1",
+            messageId: "msg-1",
             durationMs: 1000,
             inputTokens: 10,
             outputTokens: 5,
@@ -104,6 +105,7 @@ struct ConversationStoreAgentActivityTests {
         store.handle(.textDelta(sessionId: "session-1", text: "Done"))
         store.handle(.done(
             sessionId: "session-1",
+            messageId: "msg-1",
             durationMs: 100,
             inputTokens: nil,
             outputTokens: nil,

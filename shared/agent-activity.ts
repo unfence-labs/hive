@@ -1,5 +1,6 @@
 export interface AgentActivityFile {
   path: string;
+  /** Full unified diff. Bounded by edit size; never truncated in REST history. */
   diff?: string;
   kind?: string;
   status?: string;
@@ -38,7 +39,22 @@ export type AgentActivity =
       command?: string;
       cwd?: string;
       status?: string;
+      /**
+       * Full command output. Present on live activities; OMITTED in REST history
+       * when it exceeds the preview cap (fetch the full body via the tool-output
+       * endpoint, keyed by this activity id). Read `outputPreview`/scalars for
+       * the collapsed view instead. Mirrors the {@link AgentActivityToolCall}
+       * / ToolCall sub-shape.
+       */
       output?: string;
+      /** First ~2 KB of the output (REST history). */
+      outputPreview?: string;
+      /** Exact line count of the FULL output (newlines + 1). */
+      outputLineCount?: number;
+      /** Exact UTF-8 byte length of the FULL output. */
+      outputByteLength?: number;
+      /** True when the full body was omitted because it exceeded the preview cap. */
+      outputTruncated?: boolean;
       exitCode?: number;
       durationMs?: number;
       commandActions?: AgentActivityCommandAction[];

@@ -224,7 +224,16 @@ export interface ToolCall {
   id: string;
   name: string;
   input: string;
+  /** Full output. Present live; OMITTED in REST history when truncated. */
   output?: string;
+  /** First ~2 KB of the output (REST history). */
+  outputPreview?: string;
+  /** Exact line count of the FULL output. */
+  outputLineCount?: number;
+  /** Exact UTF-8 byte length of the FULL output. */
+  outputByteLength?: number;
+  /** True when the full body was omitted because it exceeded the preview cap. */
+  outputTruncated?: boolean;
   parentToolUseId?: string;
 }
 
@@ -252,6 +261,22 @@ export interface ChatMessage {
   contextUsedTokens?: number;
   /** Context window size reported by the provider for this turn. */
   contextWindowTokens?: number;
+}
+
+/**
+ * Response of the session-history REST endpoints
+ * (`GET /api/workspaces/:wsId/sessions/:sessionId/messages` and the active-session
+ * `GET /api/workspaces/:wsId/session/messages`). `hasMore` is true when older
+ * messages exist before `messages[0]`; use `messages[0].id` as the next `before`.
+ */
+export interface SessionMessagesResponse {
+  messages: ChatMessage[];
+  hasMore: boolean;
+}
+
+/** Response of `GET /api/workspaces/:wsId/sessions/:sessionId/tools/:toolId/output`. */
+export interface ToolOutputResponse {
+  output: string;
 }
 
 // ── Question / Plan types (for AskUserQuestion & ExitPlanMode tools) ─
@@ -409,6 +434,8 @@ export type WsOutgoing =
   | {
       type: "done";
       sessionId: string;
+      /** Server-persisted message id for the finalized assistant turn. */
+      messageId: string;
       durationMs?: number;
       inputTokens?: number;
       outputTokens?: number;
@@ -417,8 +444,18 @@ export type WsOutgoing =
       pendingToolName?: string;
     }
   | { type: "error"; message: string; sessionId?: string }
-  | { type: "cancelled"; sessionId: string; errorDetail?: string; userInitiated?: boolean; durationMs?: number }
+  | { type: "cancelled"; sessionId: string; messageId?: string; errorDetail?: string; userInitiated?: boolean; durationMs?: number }
   | { type: "status"; status: "idle" | "busy"; sessionId?: string; streaming?: boolean; streamingStartedAt?: number; lockedProvider?: string }
+  | {
+      type: "stream_snapshot";
+      sessionId: string;
+      text: string;
+      thinking: string;
+      toolCalls: ToolCall[];
+      agentActivities: AgentActivity[];
+      planMode: boolean;
+      streamingStartedAt: number;
+    }
   | { type: "user_message"; message: ChatMessage }
   | { type: "history"; messages: ChatMessage[]; sessionId?: string }
   | { type: "branch_info"; info: BranchInfo }

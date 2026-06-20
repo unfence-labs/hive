@@ -734,6 +734,7 @@ describe("notifications", () => {
     session.emit("message", {
       type: "done",
       sessionId: session.sessionId,
+      messageId: "msg-done-1",
       durationMs: 2400,
     });
 
@@ -789,6 +790,7 @@ describe("notifications", () => {
     session.emit("message", {
       type: "done",
       sessionId: session.sessionId,
+      messageId: "msg-done-resumed",
     });
 
     await vi.waitFor(() => {
@@ -811,6 +813,7 @@ describe("notifications", () => {
       session.emit("message", {
         type: "done",
         sessionId: session.sessionId,
+        messageId: "msg-done-swallow",
       });
     }).not.toThrow();
 

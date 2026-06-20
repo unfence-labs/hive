@@ -242,7 +242,10 @@ describe("WS /ws/hub", () => {
     ws.close();
   });
 
-  it("sends persisted history even when no active session exists", async () => {
+  // Option B (PRD #254): the WebSocket carries live state only; message history
+  // is owned by REST. Bootstrap must NOT emit a `history` event, even when a
+  // persisted session exists on disk with no active session in memory.
+  it("does not send history over the WS when persisted sessions exist but none is active", async () => {
     const sessionId = "sess-persisted";
     const sessionDir = join(dataDir, projectId, "sessions", sessionId);
     await mkdir(sessionDir, { recursive: true });
@@ -272,74 +275,25 @@ describe("WS /ws/hub", () => {
     const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
-    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "history"));
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+    // Give any (incorrect) history emission a chance to arrive before asserting.
+    await new Promise((r) => setTimeout(r, 100));
 
-    const history = messages.find((m) => m.type === "history");
-    expect(history).toBeDefined();
-    if (history?.type === "history") {
-      expect(history.messages).toEqual([
-        expect.objectContaining({
-          content: "persisted response",
-          role: "assistant",
-        }),
-      ]);
-    }
+    expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
+    expect(messages.some((m) => m.type === "history")).toBe(false);
 
     ws.close();
   });
 
-  it("delivers persisted history when listener is attached after injectWS resolves", async () => {
-    const sessionId = "sess-persisted-late";
-    const sessionDir = join(dataDir, projectId, "sessions", sessionId);
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(
-      join(sessionDir, "metadata.json"),
-      JSON.stringify({
-        sessionId,
-        workspaceId: wsId,
-        createdAt: "2026-02-11T00:00:00.000Z",
-        updatedAt: "2026-02-11T00:00:01.000Z",
-        messageCount: 1,
-      }),
-      "utf-8",
-    );
-    await writeFile(
-      join(sessionDir, "messages.jsonl"),
-      JSON.stringify({
-        id: "m-1",
-        sessionId,
-        role: "assistant",
-        content: "persisted response late listener",
-        timestamp: "2026-02-11T00:00:00.000Z",
-      }) + "\n",
-      "utf-8",
-    );
-
-    const { ws, messages } = await connectHubLateListener([wsId]);
-
-    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "history"));
-
-    const history = messages.find((m) => m.type === "history");
-    expect(history).toBeDefined();
-    if (history?.type === "history") {
-      expect(history.messages).toEqual([
-        expect.objectContaining({
-          content: "persisted response late listener",
-          role: "assistant",
-        }),
-      ]);
-    }
-
-    ws.close();
-  });
-
-  it("sends idle status + history when session exists but is not streaming", async () => {
+  it("sends idle status (no history) when session exists but is not streaming", async () => {
     await getOrCreateSession(wsId, dataDir, CONV_CMD);
 
     const { wsReady, messages } = connectHub([wsId]);
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.length >= 1);
+    // Let any erroneous history event settle before the negative assertion.
+    await new Promise((r) => setTimeout(r, 100));
 
     expect(messages[0].type).toBe("status");
     if (messages[0].type === "status") {
@@ -347,6 +301,7 @@ describe("WS /ws/hub", () => {
       expect(messages[0].sessionId).toBeTruthy();
       expect(messages[0].streaming).toBe(false);
     }
+    expect(messages.some((m) => m.type === "history")).toBe(false);
 
     ws.close();
     await endSession(wsId, dataDir);
@@ -396,19 +351,29 @@ describe("WS /ws/hub", () => {
     await endSession(wsId, dataDir).catch(() => {});
   });
 
-  it("replays streaming agent activities during bootstrap", async () => {
-    const fakeClaudePath = join(tempDir, "fake-claude-activity-bootstrap.sh");
+  // ── Regression anchor (PRD #254): in-flight catch-up via a single
+  // consolidated stream_snapshot, with NO history on the WS path. This is the
+  // permanent guard against the first-visit / reload-race "empty streaming
+  // bubble" bug. Prior art: the old "replays streaming agent activities during
+  // bootstrap" test that spied on getStreamingSnapshot.
+  it("delivers one consolidated stream_snapshot (and no history) on subscribe to a streaming session", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-snapshot-bootstrap.sh");
     await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);
     const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
     const local = await startWsApp(undefined, slowCmd);
 
     const { session } = await getOrCreateSession(wsId, dataDir, slowCmd);
-    session.sendMessage("bootstrap activity");
+    session.sendMessage("bootstrap snapshot");
     const snapshot = session.getStreamingSnapshot();
     if (!snapshot) throw new Error("Expected a streaming snapshot");
     vi.spyOn(session, "getStreamingSnapshot").mockReturnValue({
       ...snapshot,
+      text: "partial answer so far",
+      thinking: "considering options",
+      toolCalls: [
+        { id: "toolu-1", name: "Read", input: "{}", output: "file contents" },
+      ],
       agentActivities: [{
         id: "cmd-bootstrap",
         kind: "command_execution",
@@ -416,27 +381,121 @@ describe("WS /ws/hub", () => {
         status: "inProgress",
         output: "running\n",
       }],
+      agentPlanMode: true,
     });
 
     const { wsReady, messages } = connectHub([wsId], { app: local.app });
     const ws = await wsReady;
 
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "stream_snapshot"));
+    // Let any (incorrect) history or synthetic-delta events settle.
+    await new Promise((r) => setTimeout(r, 100));
+
+    const snapshotEvents = messages.filter((m) => m.type === "stream_snapshot");
+    expect(snapshotEvents).toHaveLength(1);
+    const snap = snapshotEvents[0];
+    if (snap.type !== "stream_snapshot") throw new Error("Expected a stream_snapshot");
+    expect(snap.sessionId).toBe(session.sessionId);
+    expect(snap.text).toBe("partial answer so far");
+    expect(snap.thinking).toBe("considering options");
+    expect(snap.toolCalls).toEqual([
+      { id: "toolu-1", name: "Read", input: "{}", output: "file contents" },
+    ]);
+    expect(snap.agentActivities).toEqual([{
+      id: "cmd-bootstrap",
+      kind: "command_execution",
+      command: "npm test",
+      status: "inProgress",
+      output: "running\n",
+    }]);
+    expect(snap.planMode).toBe(true);
+    expect(typeof snap.streamingStartedAt).toBe("number");
+
+    // Live/history split: no history event, and the snapshot is consolidated —
+    // not a sequence of synthetic text_delta / tool_use / agent_activity events.
+    expect(messages.some((m) => m.type === "history")).toBe(false);
+    expect(messages.some((m) => m.type === "text_delta")).toBe(false);
+    expect(messages.some((m) => m.type === "tool_use")).toBe(false);
+    expect(messages.some((m) => m.type === "tool_result")).toBe(false);
+    expect(messages.some((m) => m.type === "agent_activity")).toBe(false);
+
+    ws.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
+  it("delivers the consolidated stream_snapshot (and no history) on switch_session into a streaming session", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-snapshot-switch.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+    const local = await startWsApp(undefined, slowCmd);
+
+    const { session } = await getOrCreateSession(wsId, dataDir, slowCmd);
+    session.sendMessage("switch snapshot");
+    const snapshot = session.getStreamingSnapshot();
+    if (!snapshot) throw new Error("Expected a streaming snapshot");
+    vi.spyOn(session, "getStreamingSnapshot").mockReturnValue({
+      ...snapshot,
+      text: "switched-in partial",
+      toolCalls: [
+        { id: "toolu-switch", name: "Bash", input: "{}", output: "ok" },
+      ],
+    });
+
+    const { wsReady, messages } = connectHub([wsId], { app: local.app });
+    const ws = await wsReady;
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+
+    const marker = messages.length;
+    ws.send(hubEvent(wsId, { type: "switch_session", sessionId: session.sessionId }));
+
     await waitForMessage(
       messages,
-      (msgs) => msgs.some((m) => m.type === "agent_activity" && m.activity.id === "cmd-bootstrap"),
+      (msgs) => msgs.slice(marker).some((m) => m.type === "stream_snapshot"),
     );
+    await new Promise((r) => setTimeout(r, 100));
 
-    expect(messages).toContainEqual({
-      type: "agent_activity",
-      sessionId: session.sessionId,
-      activity: {
-        id: "cmd-bootstrap",
-        kind: "command_execution",
-        command: "npm test",
-        status: "inProgress",
-        output: "running\n",
-      },
-    });
+    const afterSwitch = messages.slice(marker);
+    const snapshotEvents = afterSwitch.filter((m) => m.type === "stream_snapshot");
+    expect(snapshotEvents).toHaveLength(1);
+    const snap = snapshotEvents[0];
+    if (snap.type !== "stream_snapshot") throw new Error("Expected a stream_snapshot");
+    expect(snap.text).toBe("switched-in partial");
+    expect(snap.toolCalls).toEqual([
+      { id: "toolu-switch", name: "Bash", input: "{}", output: "ok" },
+    ]);
+    expect(afterSwitch.some((m) => m.type === "history")).toBe(false);
+
+    ws.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
+  it("emits a done event carrying the persisted assistant message id", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-done-id.sh");
+    // Stream some text, then exit cleanly so finalizeTurn persists a message.
+    await writeFile(
+      fakeClaudePath,
+      "#!/bin/sh\nprintf 'hello from the agent\\n'\n",
+      "utf-8",
+    );
+    await chmod(fakeClaudePath, 0o755);
+    const cmd = { command: fakeClaudePath, systemPrompt: false as const };
+    const local = await startWsApp(undefined, cmd);
+
+    const { wsReady, messages } = connectHub([wsId], { app: local.app });
+    const ws = await wsReady;
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+
+    ws.send(hubEvent(wsId, { type: "user_message", content: "say hi" }));
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "done"));
+
+    const done = messages.find((m) => m.type === "done");
+    if (!done || done.type !== "done") throw new Error("Expected a done event");
+    expect(typeof done.messageId).toBe("string");
+    expect(done.messageId.length).toBeGreaterThan(0);
 
     ws.close();
     await local.app.close();

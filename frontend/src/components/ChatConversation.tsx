@@ -22,6 +22,10 @@ import type { PlanStatus } from "@/components/chat/PlanProposal";
 
 interface ChatConversationProps {
   messages: ChatMessageType[];
+  /** Whether older messages exist before `messages[0]` (drives the top button). */
+  hasMore?: boolean;
+  /** Loads an older window and prepends it. */
+  onLoadEarlier?: () => void;
   isStreaming: boolean;
   streamingStartedAt?: number | null;
   currentStreamingText: string;
@@ -54,6 +58,8 @@ interface ChatConversationProps {
 
 export default function ChatConversation({
   messages,
+  hasMore = false,
+  onLoadEarlier,
   isStreaming,
   streamingStartedAt,
   currentStreamingText,
@@ -191,6 +197,32 @@ export default function ChatConversation({
     return ids;
   }, [messages]);
 
+  // Memoize the historical message list so per-token streaming updates (which
+  // change currentStreamingText/Thinking/activeToolCalls but not these inputs)
+  // do not re-render the history. The live streaming bubble is rendered as a
+  // separate block below, giving an isolated streaming view.
+  const renderedMessages = useMemo(
+    () =>
+      messages.map((msg, i) => {
+        // Hide "Question dismissed." user bubbles — the CANCELLED badge conveys this.
+        if (msg.role === "user" && msg.content === "Question dismissed.") return null;
+        return (
+          <ChatMessage
+            key={msg.id ?? `${msg.timestamp}-${i}`}
+            message={msg}
+            isInteractive={isMessageInteractive(msg, i)}
+            planStatus={getPlanStatus(msg, i)}
+            dismissedToolCallIds={dismissedToolCallIds}
+            onQuestionAnswer={onQuestionAnswer}
+            onFileMentionClick={onFileMentionClick}
+          />
+        );
+      }),
+    // isMessageInteractive/getPlanStatus are pure over these inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [messages, pendingToolInputs, isStreaming, agentPlanMode, dismissedToolCallIds, onQuestionAnswer, onFileMentionClick],
+  );
+
   return (
     <Conversation className={`flex-1${isHydrating ? " invisible" : ""}`} resize={settled ? "smooth" : "instant"}>
       {error && (
@@ -222,21 +254,18 @@ export default function ChatConversation({
               description=""
             />
           ))}
-        {messages.map((msg, i) => {
-          // Hide "Question dismissed." user bubbles — the CANCELLED badge already conveys this
-          if (msg.role === "user" && msg.content === "Question dismissed.") return null;
-          return (
-            <ChatMessage
-              key={msg.id ?? `${msg.timestamp}-${i}`}
-              message={msg}
-              isInteractive={isMessageInteractive(msg, i)}
-              planStatus={getPlanStatus(msg, i)}
-              dismissedToolCallIds={dismissedToolCallIds}
-              onQuestionAnswer={onQuestionAnswer}
-              onFileMentionClick={onFileMentionClick}
-            />
-          );
-        })}
+        {hasMore && messages.length > 0 && (
+          <div className="flex justify-center pb-1">
+            <button
+              type="button"
+              onClick={onLoadEarlier}
+              className="rounded-md px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-field hover:text-foreground"
+            >
+              Load earlier messages
+            </button>
+          </div>
+        )}
+        {renderedMessages}
 
         {/* Live streaming content */}
         {isStreaming && (currentStreamingText || currentThinking || activeToolCalls.length > 0 || activeInlineAgentActivities.length > 0) && (

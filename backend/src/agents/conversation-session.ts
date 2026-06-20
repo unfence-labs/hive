@@ -1380,6 +1380,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           await Promise.allSettled(pendingImageAttachments);
         }
 
+        // The terminal event carries the id of the assistant message persisted
+        // for this turn so clients can append it optimistically and dedup the
+        // next REST history fetch by id. Generate the id once here and reuse it
+        // for both the persisted ChatMessage and the done/cancelled event — do
+        // not invent a second id.
+        const messageId = nanoid(12);
+        let persistedMessageId: string | undefined;
+
         if (
           streamText ||
           streamToolCalls.length > 0 ||
@@ -1388,7 +1396,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           shouldSurfaceCancelled
         ) {
           const assistantMsg: ChatMessage = {
-            id: nanoid(12),
+            id: messageId,
             sessionId: this.sessionId,
             role: "assistant",
             content: streamText || (shouldSurfaceCancelled ? CANCELLED_NO_OUTPUT_MESSAGE : ""),
@@ -1406,6 +1414,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
             contextUsedTokens: resultContextUsedTokens,
             contextWindowTokens: resultContextWindowTokens,
           };
+          persistedMessageId = assistantMsg.id;
           void this.enqueuePersist(assistantMsg);
         }
 
@@ -1414,6 +1423,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           this.emit("message", {
             type: "cancelled",
             sessionId: this.sessionId,
+            // A message is persisted whenever shouldSurfaceCancelled is true, but
+            // keep messageId optional in the contract and only attach it when one
+            // was actually saved.
+            ...(persistedMessageId ? { messageId: persistedMessageId } : {}),
             errorDetail: cancellationErrorDetail,
             userInitiated: capturedStopReason === "user",
             durationMs: effectiveDurationMs,
@@ -1428,6 +1441,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           this.emit("message", {
             type: "done",
             sessionId: this.sessionId,
+            // Required by the contract. When the turn produced output this is the
+            // persisted message id; for a genuinely empty turn no message is saved
+            // and this id matches nothing in history (a harmless no-op for dedup).
+            messageId: persistedMessageId ?? messageId,
             durationMs: effectiveDurationMs,
             inputTokens: resultInputTokens,
             outputTokens: resultOutputTokens,

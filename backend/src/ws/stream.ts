@@ -5,7 +5,6 @@ import {
   getSession,
   getSessionById,
   getOrCreateSession,
-  getSessionMessages,
   getStreamingSessionIds,
   stopStreaming,
 } from "../agents/session-dispatch.js";
@@ -166,7 +165,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
   // ── Session helpers (unchanged logic) ─────────────────────────────
 
-  const sendSessionBootstrap = async (hub: HubSocket, workspaceId: string, session: ActiveSession): Promise<void> => {
+  const sendSessionBootstrap = (hub: HubSocket, workspaceId: string, session: ActiveSession): void => {
     sendToHub(hub, workspaceId, {
       type: "status",
       status: session.status === "streaming" ? "busy" : "idle",
@@ -177,53 +176,24 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         : {}),
       lockedProvider: session.metadata.lockedProvider,
     });
-    try {
-      const messages = await session.getMessages();
-      sendToHub(hub, workspaceId, { type: "history", sessionId: session.sessionId, messages });
-    } catch {
-      // History load failure is non-fatal.
-    }
 
-    // Replay in-progress streaming content so late-connecting clients see
-    // text, thinking, and tool calls accumulated since the turn started.
+    // Live/history split (Option B): the WebSocket carries live state only.
+    // History is fetched over REST. The in-flight turn is delivered as ONE
+    // consolidated stream_snapshot with replace semantics, so late-connecting
+    // clients see everything accumulated so far without any synthetic deltas.
     if (session.status === "streaming") {
       const snapshot = session.getStreamingSnapshot();
       if (snapshot) {
-        const sid = session.sessionId;
-        if (snapshot.thinking) {
-          sendToHub(hub, workspaceId, { type: "thinking", sessionId: sid, text: snapshot.thinking });
-        }
-        if (snapshot.text) {
-          sendToHub(hub, workspaceId, { type: "text_delta", sessionId: sid, text: snapshot.text });
-        }
-        for (const tc of snapshot.toolCalls) {
-          sendToHub(hub, workspaceId, {
-            type: "tool_use",
-            sessionId: sid,
-            id: tc.id,
-            name: tc.name,
-            input: tc.input,
-            parentToolUseId: tc.parentToolUseId,
-          });
-          if (tc.output) {
-            sendToHub(hub, workspaceId, {
-              type: "tool_result",
-              sessionId: sid,
-              toolUseId: tc.id,
-              output: tc.output,
-            });
-          }
-        }
-        for (const activity of snapshot.agentActivities) {
-          sendToHub(hub, workspaceId, {
-            type: "agent_activity",
-            sessionId: sid,
-            activity,
-          });
-        }
-        if (snapshot.agentPlanMode) {
-          sendToHub(hub, workspaceId, { type: "plan_mode_changed", sessionId: sid, active: true });
-        }
+        sendToHub(hub, workspaceId, {
+          type: "stream_snapshot",
+          sessionId: session.sessionId,
+          text: snapshot.text,
+          thinking: snapshot.thinking,
+          toolCalls: snapshot.toolCalls,
+          agentActivities: snapshot.agentActivities,
+          planMode: snapshot.agentPlanMode,
+          streamingStartedAt: session.streamingStartedAt ?? Date.now(),
+        });
       }
     }
   };
@@ -324,7 +294,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
     if (session) {
       attachSessionListeners(wsId, channel, session);
-      await sendSessionBootstrap(hub, wsId, session);
+      sendSessionBootstrap(hub, wsId, session);
       for (const streamingId of getStreamingSessionIds(wsId)) {
         if (streamingId !== session.sessionId) {
           const streamingSession = getSessionById(wsId, streamingId);
@@ -340,16 +310,9 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         }
       }
     } else {
+      // No active session: report idle status only. Message history is owned by
+      // REST under the live/history split; the WebSocket no longer sends it.
       sendToHub(hub, wsId, { type: "status", status: "idle", streaming: false });
-      try {
-        const messages = await getSessionMessages(wsId, dataDir);
-        if (messages.length > 0) {
-          const firstSessionId = messages[0]?.sessionId;
-          sendToHub(hub, wsId, { type: "history", sessionId: firstSessionId, messages });
-        }
-      } catch {
-        // Ignore missing/corrupt persisted history.
-      }
     }
 
     const branchInfo = gitSyncSnapshotProvider?.getCachedBranchInfo(wsId);
@@ -400,10 +363,11 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
     // Subscribe to new workspaces and bootstrap.
     // The hub socket is added to the channel AFTER bootstrap completes so that
-    // live events broadcast during the async getMessages() call don't reach
-    // this client before the streaming snapshot is replayed (which would cause
-    // duplicate content). Node.js single-threading guarantees no events fire
-    // between sendWorkspaceBootstrap returning and hubSockets.add.
+    // live deltas broadcast while bootstrap runs cannot reach this client before
+    // the consolidated stream_snapshot does (which would let a delta land ahead
+    // of the snapshot that replaces the stream state). Node.js single-threading
+    // guarantees no events fire between sendWorkspaceBootstrap returning and
+    // hubSockets.add.
     for (const wsId of desired) {
       if (!hub.subscribedWorkspaces.has(wsId)) {
         const channel = getOrCreateChannel(wsId);
@@ -434,7 +398,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             sessionOptions,
           );
           attachSessionListeners(wsId, channel, session);
-          await sendSessionBootstrap(hub, wsId, session);
+          sendSessionBootstrap(hub, wsId, session);
         } catch (err: unknown) {
           sendToHub(hub, wsId, { type: "error", message: errorMessage(err, "Failed to switch session") });
         }

@@ -17,6 +17,7 @@ import {
 } from "@/contexts/WorkspaceLiveDataContext";
 import ChatInput, { type ChatInputHandle } from "@/components/ChatInput";
 import { ConversationPane } from "@/components/chat/ConversationPane";
+import { ToolOutputProvider } from "@/contexts/ToolOutputContext";
 import { CenterCard } from "@/components/CenterCard";
 import { PageHeader } from "@/components/AppLayout";
 import { BrainWelcome } from "@/components/BrainWelcome";
@@ -118,6 +119,8 @@ export default function BrainView() {
   // WorkspaceView via useConversationColumn.
   const {
     messages,
+    hasMore,
+    loadEarlier,
     isStreaming,
     streamingStartedAt,
     currentStreamingText,
@@ -348,6 +351,7 @@ export default function BrainView() {
           <div className="flex min-w-0 h-full flex-col overflow-hidden">
             <BrainHeader path={repoPath} upstream={brainUpstream} />
             <CenterCard>
+            <ToolOutputProvider workspaceId={BRAIN_WORKSPACE_ID} sessionId={sessionId}>
             <ConversationPane
               sessions={sessions}
               activeSessionId={sessionId}
@@ -364,6 +368,8 @@ export default function BrainView() {
               onFileTabClose={closeFileTab}
               onConversationActivate={() => sessionId && activateTab(`session:${sessionId}`)}
               messages={messages}
+              hasMore={hasMore}
+              onLoadEarlier={loadEarlier}
               streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
               currentThinking={currentThinking}
@@ -418,6 +424,7 @@ export default function BrainView() {
                 )
               }
             />
+            </ToolOutputProvider>
             {isFileTabActive && openFile && (
               <FileTabView
                 wsId={BRAIN_WORKSPACE_ID}

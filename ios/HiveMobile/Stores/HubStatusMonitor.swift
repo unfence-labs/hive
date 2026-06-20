@@ -70,6 +70,19 @@ final class HubStatusMonitor {
         }
     }
 
+    /// Re-pull focus after a (re)connect by re-sending `switch_session` for any
+    /// store that currently has a focused session (PRD #254). The backend
+    /// activates the session and replays `status` + `stream_snapshot`, so the
+    /// in-flight turn is recovered deterministically. Snapshot apply is REPLACE,
+    /// so this is safe to issue on every reconnect.
+    fileprivate func refocusFocusedSessions() {
+        for store in storeCache.stores.values {
+            guard let sessionId = store.sessionId else { continue }
+            let send = store.send
+            Task { _ = await send?(.switchSession(sessionId: sessionId)) }
+        }
+    }
+
     // MARK: - Public accessors
 
     func isStreaming(_ workspaceId: String) -> Bool {
@@ -334,15 +347,17 @@ final class HubStatusMonitor {
     // MARK: - App lifecycle
 
     /// Force a full WS reconnect to get fresh bootstrap data for all workspaces.
-    /// Used by pull-to-refresh so the backend re-sends status, history, branch_info,
-    /// diff_stats, and script_status for every subscribed workspace.
+    /// Used by pull-to-refresh so the backend re-sends status, branch_info,
+    /// diff_stats, and script_status for every subscribed workspace (history is
+    /// REST-only now, PRD #254; the reconnect path re-pulls focus for live turns).
     func forceRefresh() {
         hubConnection?.forceReconnect()
     }
 
     /// Called when the app returns to foreground after a non-trivial background period.
-    /// Clears stale streaming state and forces an immediate hub reconnect so the
-    /// backend bootstrap (status + history) writes into a clean slate.
+    /// Forces an immediate hub reconnect; the reconnect path re-pulls focus so the
+    /// backend replays status + a consolidated stream_snapshot for the live turn
+    /// (PRD #254), recovering in-flight content without clearing accumulators.
     func appDidBecomeActive() {
         // Snapshot workspace IDs that had any streaming session
         streamingBeforeBackground = Set(streamingSessions.keys)
@@ -431,10 +446,11 @@ private final class HubConnection {
         task.resume()
         backoff = 1
 
-        // Clear stale streaming state and re-wire send closures on all existing stores.
-        // Without clearing, the bootstrap snapshot would be appended to pre-disconnect
-        // accumulated data, causing duplicate tool calls and garbled text.
-        monitor?.storeCache.clearAllStreamingState()
+        // Re-wire send closures on all existing stores so they hit the new
+        // connection. The pre-disconnect "clear all streaming state" hack is
+        // gone (PRD #254): the consolidated `stream_snapshot` now REPLACES the
+        // session's accumulators idempotently, so re-pulling focus after
+        // reconnect cannot duplicate tool calls or garble text.
         monitor?.rewireAllSendClosures()
 
         startReceiving()
@@ -444,6 +460,12 @@ private final class HubConnection {
         if let workspaceIds = monitor?.subscribedWorkspaceIds {
             sendSyncWorkspaces(Array(workspaceIds))
         }
+
+        // Re-pull focus for any session currently displayed: re-sending
+        // switch_session makes the backend replay status + stream_snapshot for
+        // the live turn, so reconnect deterministically recovers in-flight
+        // content (PRD #254) instead of relying on the old clear-then-bootstrap.
+        monitor?.refocusFocusedSessions()
     }
 
     // MARK: - Receive loop
@@ -508,11 +530,11 @@ private final class HubConnection {
                 for: workspaceId
             )
 
-        case .done(let sessionId, _, _, _, _, _, _):
+        case .done(let sessionId, _, _, _, _, _, _, _):
             monitor?.didReceiveStreaming(false, for: workspaceId, sessionId: sessionId)
             monitor?.didReceiveDone(for: workspaceId, sessionId: sessionId, markWorkspaceCompleted: true)
 
-        case .cancelled(let sessionId, _, let userInitiated, _):
+        case .cancelled(let sessionId, _, _, let userInitiated, _):
             // Clear streaming for this session but only mark failed background turns as unread.
             monitor?.didReceiveStreaming(false, for: workspaceId, sessionId: sessionId)
             if userInitiated != true {

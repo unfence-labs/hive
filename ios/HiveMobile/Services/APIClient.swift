@@ -166,8 +166,39 @@ final class APIClient {
         try await get(path: "/api/workspaces/\(workspaceId)/sessions")
     }
 
-    func fetchMessages(workspaceId: String, sessionId: String) async throws -> [ChatMessage] {
-        try await get(path: "/api/workspaces/\(workspaceId)/sessions/\(sessionId)/messages")
+    /// Fetch a REST history page (PRD #254): `{ messages, hasMore }`. `limit`
+    /// caps the window (backend default 200, max 1000); `before` is a message-id
+    /// cursor returning the window immediately before that message (exclusive).
+    /// The next page's cursor is `messages.first?.id`.
+    func fetchMessages(
+        workspaceId: String,
+        sessionId: String,
+        limit: Int? = nil,
+        before: String? = nil
+    ) async throws -> MessagesPage {
+        var query: [URLQueryItem] = []
+        if let limit { query.append(URLQueryItem(name: "limit", value: String(limit))) }
+        if let before { query.append(URLQueryItem(name: "before", value: before)) }
+        var path = "/api/workspaces/\(workspaceId)/sessions/\(sessionId)/messages"
+        if !query.isEmpty {
+            var components = URLComponents()
+            components.queryItems = query
+            if let suffix = components.percentEncodedQuery {
+                path += "?\(suffix)"
+            }
+        }
+        return try await get(path: path)
+    }
+
+    /// Fetch the full, untruncated output for a single tool/activity id from
+    /// history (PRD #254 expand-on-demand). Resolves a ToolCall id or a
+    /// command_execution activity id; 404s when absent.
+    func fetchToolOutput(workspaceId: String, sessionId: String, toolId: String) async throws -> String {
+        struct ToolOutputResponse: Decodable { let output: String }
+        let resp: ToolOutputResponse = try await get(
+            path: "/api/workspaces/\(workspaceId)/sessions/\(sessionId)/tools/\(pathSegment(toolId))/output"
+        )
+        return resp.output
     }
 
     func createSession(workspaceId: String) async throws -> SessionMetadata {

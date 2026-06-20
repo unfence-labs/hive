@@ -36,6 +36,14 @@ final class ConversationStore {
 
     var messages: [ChatMessage] = []
 
+    /// Whether older messages exist before `messages.first` (PRD #254). Driven
+    /// by the REST history page's `hasMore`; gates the "Load earlier" button.
+    var hasMoreEarlier = false
+
+    /// True while a "Load earlier messages" fetch is in flight (prevents
+    /// overlapping prepends and double-tap).
+    var isLoadingEarlier = false
+
     /// Session currently displayed in chat.
     var sessionId: String?
 
@@ -157,9 +165,15 @@ final class ConversationStore {
             guard let stream = sessionStreams[sid],
                   let idx = stream.activeToolCalls.firstIndex(where: { $0.id == toolUseId }) else { return }
             let tc = stream.activeToolCalls[idx]
+            // Live = full output; compute the truncation scalars ONCE and store
+            // them in the unified shape so the collapsed view reads scalars
+            // instead of re-parsing the body, matching history (PRD #254).
+            let scalars = computeOutputScalars(output)
             sessionStreams[sid]?.activeToolCalls[idx] = ToolCall(
                 id: tc.id, name: tc.name, input: tc.input,
-                output: output, parentToolUseId: tc.parentToolUseId
+                output: output, parentToolUseId: tc.parentToolUseId,
+                outputPreview: scalars.preview, outputLineCount: scalars.lineCount,
+                outputByteLength: scalars.byteLength, outputTruncated: scalars.truncated
             )
 
         case .agentActivity(let sid, let activity):
@@ -179,16 +193,23 @@ final class ConversationStore {
             // A client (possibly another device) answered or dismissed the question.
             sessionStreams[sid]?.pendingToolInputs = []
 
-        case .done(let sid, let durationMs, let inputTokens, let outputTokens,
+        case .done(let sid, let messageId, let durationMs, let inputTokens, let outputTokens,
                    let contextUsedTokens, let contextWindowTokens, _):
-            finalizeMessage(sessionId: sid, durationMs: durationMs, cancelled: false,
+            // Finalize using the server-persisted message id so the next REST
+            // fetch dedups by id rather than duplicating a UUID-stamped turn
+            // (PRD #254).
+            finalizeMessage(sessionId: sid, messageId: messageId, durationMs: durationMs,
+                            cancelled: false,
                             inputTokens: inputTokens, outputTokens: outputTokens,
                             contextUsedTokens: contextUsedTokens,
                             contextWindowTokens: contextWindowTokens)
             onTurnCompleted?(sid)
 
-        case .cancelled(let sid, let errorDetail, _, let durationMs):
-            finalizeMessage(sessionId: sid, durationMs: durationMs, cancelled: true, errorDetail: errorDetail)
+        case .cancelled(let sid, let messageId, let errorDetail, _, let durationMs):
+            // messageId is present only when the cancelled turn persisted a
+            // message; otherwise fall back to a local id.
+            finalizeMessage(sessionId: sid, messageId: messageId, durationMs: durationMs,
+                            cancelled: true, errorDetail: errorDetail)
             onTurnCompleted?(sid)
 
         case .error(let message, let errorSessionId):
@@ -245,6 +266,24 @@ final class ConversationStore {
             if sessionId == nil, let incomingSessionId {
                 sessionId = incomingSessionId
             }
+
+        case .streamSnapshot(let sid, let text, let thinking, let toolCalls,
+                             let agentActivities, let planMode, let startedAt):
+            // Consolidated in-flight catch-up (PRD #254): REPLACE the session's
+            // stream accumulators (idempotent — safe on reconnect / re-focus).
+            // Live deltas continue to append after this.
+            ensureStream(for: sid)
+            if var stream = sessionStreams[sid] {
+                stream.isStreaming = true
+                stream.currentText = text
+                stream.currentThinking = thinking
+                stream.activeToolCalls = toolCalls
+                stream.activeAgentActivities = agentActivities
+                stream.agentPlanMode = planMode
+                stream.streamingStartedAt = parseStartedAt(startedAt)
+                sessionStreams[sid] = stream
+            }
+            sessionId = sessionId ?? sid
 
         case .userMessage(let msg):
             let sid = msg.sessionId
@@ -341,10 +380,32 @@ final class ConversationStore {
         sessionId = value
     }
 
+    /// Apply a REST history page as the message window for `sessionId` (PRD
+    /// #254): replace `messages` with the page and record `hasMore` so the
+    /// "Load earlier" affordance reflects whether older turns exist. History
+    /// holds finalized turns only; live streaming content lives in
+    /// `sessionStreams` and is appended by `displayMessages`.
+    func applyMessagesPage(_ page: MessagesPage) {
+        messages = page.messages
+        hasMoreEarlier = page.hasMore
+    }
+
+    /// Prepend an older REST page ahead of the current window (PRD #254 "Load
+    /// earlier messages"). Dedups by id so a message already present is not
+    /// duplicated, then updates `hasMoreEarlier` from the older page.
+    func prependEarlier(_ page: MessagesPage) {
+        let existingIds = Set(messages.map(\.id))
+        let older = page.messages.filter { !existingIds.contains($0.id) }
+        messages.insert(contentsOf: older, at: 0)
+        hasMoreEarlier = page.hasMore
+    }
+
     func prepareSessionSwitch(_ newSessionId: String) {
         let previousSessionId = sessionId
         sessionId = newSessionId
         messages = []
+        hasMoreEarlier = false
+        isLoadingEarlier = false
         lockedProvider = nil
         bumpHistoryToken(for: previousSessionId)
         bumpHistoryToken(for: newSessionId)
@@ -358,6 +419,8 @@ final class ConversationStore {
         guard sessionId == removedSessionId else { return }
 
         messages = []
+        hasMoreEarlier = false
+        isLoadingEarlier = false
         lockedProvider = nil
 
         if let fallbackSessionId, fallbackSessionId != removedSessionId {
@@ -407,7 +470,14 @@ final class ConversationStore {
         return false
     }
 
-    private func finalizeMessage(sessionId sid: String, durationMs: Int?, cancelled: Bool,
+    /// Finalize a streamed turn into history. The optimistic message is stamped
+    /// with the server-persisted `messageId` (PRD #254) so the next REST fetch
+    /// dedups by id; for a `cancelled` turn with no persisted id we fall back to
+    /// a local UUID. Appends are deduped by id so a re-delivered `done` (e.g.
+    /// after reconnect) never doubles the bubble. The empty-turn `done` edge is
+    /// guarded: a turn with no displayable content produces no empty bubble.
+    private func finalizeMessage(sessionId sid: String, messageId: String?,
+                                 durationMs: Int?, cancelled: Bool,
                                  errorDetail: String? = nil,
                                  inputTokens: Int? = nil, outputTokens: Int? = nil,
                                  contextUsedTokens: Int? = nil, contextWindowTokens: Int? = nil) {
@@ -423,40 +493,46 @@ final class ConversationStore {
         // captured above, so it survives this removal.
         sessionStreams.removeValue(forKey: sid)
 
-        if isActive {
-            if hasContent {
-                let msg = ChatMessage(
-                    id: UUID().uuidString,
-                    sessionId: sid,
-                    role: .assistant,
-                    content: stream.currentText,
-                    images: nil,
-                    toolCalls: stream.activeToolCalls.isEmpty ? nil : stream.activeToolCalls,
-                    agentActivities: stream.activeAgentActivities.isEmpty ? nil : stream.activeAgentActivities,
-                    thinkingContent: stream.currentThinking.isEmpty ? nil : stream.currentThinking,
-                    timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
-                    cancelled: cancelled ? true : nil,
-                    errorDetail: errorDetail,
-                    durationMs: durationMs,
-                    inputTokens: inputTokens,
-                    outputTokens: outputTokens,
-                    contextUsedTokens: contextUsedTokens,
-                    contextWindowTokens: contextWindowTokens
-                )
-                messages.append(msg)
-            } else if cancelled {
-                let msg = ChatMessage(
-                    id: UUID().uuidString,
-                    sessionId: sid,
-                    role: .assistant,
-                    content: "",
-                    images: nil, toolCalls: nil, thinkingContent: nil,
-                    timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
-                    cancelled: true, errorDetail: errorDetail,
-                    durationMs: nil
-                )
-                messages.append(msg)
-            }
+        guard isActive else { return }
+
+        // Dedup by server id: if REST already brought this message in (or a
+        // re-delivered done fires twice), do not append a second copy.
+        if let messageId, messages.contains(where: { $0.id == messageId }) { return }
+
+        if hasContent {
+            let msg = ChatMessage(
+                id: messageId ?? UUID().uuidString,
+                sessionId: sid,
+                role: .assistant,
+                content: stream.currentText,
+                images: nil,
+                toolCalls: stream.activeToolCalls.isEmpty ? nil : stream.activeToolCalls,
+                agentActivities: stream.activeAgentActivities.isEmpty ? nil : stream.activeAgentActivities,
+                thinkingContent: stream.currentThinking.isEmpty ? nil : stream.currentThinking,
+                timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
+                cancelled: cancelled ? true : nil,
+                errorDetail: errorDetail,
+                durationMs: durationMs,
+                inputTokens: inputTokens,
+                outputTokens: outputTokens,
+                contextUsedTokens: contextUsedTokens,
+                contextWindowTokens: contextWindowTokens
+            )
+            messages.append(msg)
+        } else if cancelled {
+            // A stopped turn with no output still shows a "Stopped" bubble.
+            // An empty `done` (no content) intentionally shows nothing.
+            let msg = ChatMessage(
+                id: messageId ?? UUID().uuidString,
+                sessionId: sid,
+                role: .assistant,
+                content: "",
+                images: nil, toolCalls: nil, thinkingContent: nil,
+                timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
+                cancelled: true, errorDetail: errorDetail,
+                durationMs: nil
+            )
+            messages.append(msg)
         }
     }
 

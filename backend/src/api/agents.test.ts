@@ -168,7 +168,7 @@ describe("GET /api/workspaces/:wsId/session", () => {
 });
 
 describe("GET /api/workspaces/:wsId/session/messages", () => {
-  it("returns empty array for fresh session", async () => {
+  it("returns empty history for fresh session", async () => {
     await app.inject({ method: "POST", url: `/api/workspaces/${wsId}/session` });
 
     const res = await app.inject({
@@ -176,16 +176,16 @@ describe("GET /api/workspaces/:wsId/session/messages", () => {
       url: `/api/workspaces/${wsId}/session/messages`,
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual([]);
+    expect(res.json()).toEqual({ messages: [], hasMore: false });
   });
 
-  it("returns empty array when no session exists", async () => {
+  it("returns empty history when no session exists", async () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/workspaces/${wsId}/session/messages`,
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual([]);
+    expect(res.json()).toEqual({ messages: [], hasMore: false });
   });
 
   it("returns persisted messages after ending a session", async () => {
@@ -227,12 +227,15 @@ describe("GET /api/workspaces/:wsId/session/messages", () => {
       url: `/api/workspaces/${wsId}/session/messages`,
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual([
-      expect.objectContaining({
-        content: "hello from disk",
-        role: "user",
-      }),
-    ]);
+    expect(res.json()).toEqual({
+      messages: [
+        expect.objectContaining({
+          content: "hello from disk",
+          role: "user",
+        }),
+      ],
+      hasMore: false,
+    });
   });
 
   it("returns 404 for non-existent workspace", async () => {
@@ -423,18 +426,379 @@ describe("GET /api/workspaces/:wsId/sessions/:sessionId/messages", () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual([
-      expect.objectContaining({ id: "m-1", content: "hello specific", role: "user" }),
-      expect.objectContaining({ id: "m-2", content: "response specific", role: "assistant" }),
-    ]);
+    expect(res.json()).toEqual({
+      messages: [
+        expect.objectContaining({ id: "m-1", content: "hello specific", role: "user" }),
+        expect.objectContaining({ id: "m-2", content: "response specific", role: "assistant" }),
+      ],
+      hasMore: false,
+    });
   });
 
-  it("returns empty array when specific session file is missing", async () => {
+  it("returns empty history when specific session file is missing", async () => {
     const res = await app.inject({
       method: "GET",
       url: `/api/workspaces/${wsId}/sessions/missing/messages`,
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual([]);
+    expect(res.json()).toEqual({ messages: [], hasMore: false });
+  });
+});
+
+// ── PRD #254: lazy-output truncation, pagination, and expand ─────────
+
+type HistoryResponse = {
+  messages: Array<Record<string, unknown> & {
+    id: string;
+    toolCalls?: Array<Record<string, unknown>>;
+    agentActivities?: Array<Record<string, unknown>>;
+  }>;
+  hasMore: boolean;
+};
+
+const BIG_OUTPUT = "x".repeat(5000); // > 2 KB cap
+const SMALL_OUTPUT = "small output\nsecond line"; // < 2 KB cap
+
+/** Build a session whose single assistant message carries heavy outputs. */
+async function writeHeavySession(sessionId: string) {
+  await writeSessionFixture(sessionId, wsId, {
+    messages: [
+      {
+        id: "u-1",
+        sessionId,
+        role: "user",
+        content: "run it",
+        timestamp: "2026-02-11T00:00:00.000Z",
+      },
+      {
+        id: "a-1",
+        sessionId,
+        role: "assistant",
+        content: "done",
+        timestamp: "2026-02-11T00:00:01.000Z",
+        toolCalls: [
+          { id: "tool-big", name: "Bash", input: "{}", output: BIG_OUTPUT },
+          { id: "tool-small", name: "Read", input: "{}", output: SMALL_OUTPUT },
+        ],
+        agentActivities: [
+          { id: "act-cmd-big", kind: "command_execution", command: "echo", output: BIG_OUTPUT },
+        ],
+      },
+    ],
+  });
+}
+
+describe("PRD #254 lazy tool/activity outputs (REST history)", () => {
+  it("truncates a ToolCall output over 2 KB with preview + scalars and omits the body", async () => {
+    await writeHeavySession("heavy-1");
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/heavy-1/messages`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as HistoryResponse;
+    const assistant = body.messages.find((m) => m.id === "a-1");
+    const big = assistant?.toolCalls?.find((t) => t.id === "tool-big") as Record<string, unknown>;
+
+    expect(big.output).toBeUndefined();
+    expect(big.outputTruncated).toBe(true);
+    expect((big.outputPreview as string).length).toBeLessThanOrEqual(2048);
+    expect((big.outputPreview as string).length).toBeGreaterThan(0);
+    expect(big.outputByteLength).toBe(5000);
+    expect(big.outputLineCount).toBe(1); // single line, no newlines
+  });
+
+  it("keeps a ToolCall output under 2 KB intact, untruncated, with scalars present", async () => {
+    await writeHeavySession("heavy-2");
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/heavy-2/messages`,
+    });
+    const body = res.json() as HistoryResponse;
+    const assistant = body.messages.find((m) => m.id === "a-1");
+    const small = assistant?.toolCalls?.find((t) => t.id === "tool-small") as Record<string, unknown>;
+
+    expect(small.output).toBe(SMALL_OUTPUT);
+    expect(small.outputTruncated).toBe(false);
+    expect(small.outputPreview).toBe(SMALL_OUTPUT);
+    expect(small.outputByteLength).toBe(Buffer.byteLength(SMALL_OUTPUT, "utf-8"));
+    expect(small.outputLineCount).toBe(2);
+  });
+
+  it("truncates a command_execution activity output mirroring the ToolCall sub-shape", async () => {
+    await writeHeavySession("heavy-3");
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/heavy-3/messages`,
+    });
+    const body = res.json() as HistoryResponse;
+    const assistant = body.messages.find((m) => m.id === "a-1");
+    const cmd = assistant?.agentActivities?.find(
+      (a) => a.id === "act-cmd-big",
+    ) as Record<string, unknown>;
+
+    expect(cmd.output).toBeUndefined();
+    expect(cmd.outputTruncated).toBe(true);
+    expect((cmd.outputPreview as string).length).toBeLessThanOrEqual(2048);
+    expect(cmd.outputByteLength).toBe(5000);
+    expect(cmd.outputLineCount).toBe(1);
+  });
+
+  it("passes a file_change activity through unchanged (diffs are not truncated)", async () => {
+    await writeSessionFixture("heavy-4", wsId, {
+      messages: [
+        {
+          id: "a-1",
+          sessionId: "heavy-4",
+          role: "assistant",
+          content: "done",
+          timestamp: "2026-02-11T00:00:01.000Z",
+          agentActivities: [
+            {
+              id: "act-file-big",
+              kind: "file_change",
+              files: [{ path: "src/a.ts", diff: BIG_OUTPUT }],
+            },
+          ],
+        },
+      ],
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/heavy-4/messages`,
+    });
+    const body = res.json() as HistoryResponse;
+    const assistant = body.messages.find((m) => m.id === "a-1");
+    const fileChange = assistant?.agentActivities?.find(
+      (a) => a.id === "act-file-big",
+    ) as Record<string, unknown>;
+    const file = (fileChange.files as Array<Record<string, unknown>>)[0];
+
+    // The full diff is kept intact; no diff* truncation fields are emitted.
+    expect(file.diff).toBe(BIG_OUTPUT);
+    expect(file.diffPreview).toBeUndefined();
+    expect(file.diffTruncated).toBeUndefined();
+    expect(file.diffByteLength).toBeUndefined();
+    expect(file.diffLineCount).toBeUndefined();
+  });
+
+  it("truncates a multibyte output on a UTF-8 char boundary (no split chars)", async () => {
+    // 1000 × "é" (2 bytes each) = 2000 bytes < cap; pad past 2 KB with more é.
+    const multibyte = "é".repeat(1200); // 2400 bytes > cap
+    await writeSessionFixture("heavy-mb", wsId, {
+      messages: [
+        {
+          id: "a-mb",
+          sessionId: "heavy-mb",
+          role: "assistant",
+          content: "",
+          timestamp: "2026-02-11T00:00:01.000Z",
+          toolCalls: [{ id: "t-mb", name: "Bash", input: "{}", output: multibyte }],
+        },
+      ],
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/heavy-mb/messages`,
+    });
+    const body = res.json() as HistoryResponse;
+    const tool = body.messages[0].toolCalls?.[0] as Record<string, unknown>;
+    const preview = tool.outputPreview as string;
+
+    // Preview must be valid UTF-8 with no replacement char, and ≤ cap bytes.
+    expect(Buffer.byteLength(preview, "utf-8")).toBeLessThanOrEqual(2048);
+    expect(preview).not.toContain("�");
+    expect(preview.split("").every((c) => c === "é")).toBe(true);
+    expect(tool.outputByteLength).toBe(2400);
+  });
+
+  it("does NOT alter the on-disk .jsonl (disk stays the source of truth)", async () => {
+    await writeHeavySession("heavy-disk");
+    const messagesPath = join(
+      dataDir, projectId, "sessions", "heavy-disk", "messages.jsonl",
+    );
+
+    await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/heavy-disk/messages`,
+    });
+
+    const { readFile } = await import("node:fs/promises");
+    const raw = await readFile(messagesPath, "utf-8");
+    // Full output for every heavy field is still on disk.
+    expect(raw).toContain(BIG_OUTPUT);
+    expect(raw).not.toContain("outputPreview");
+  });
+});
+
+describe("PRD #254 history pagination (?limit / ?before / hasMore)", () => {
+  /** Write a session with N user messages id=m-0..m-(N-1). */
+  async function writeManyMessages(sessionId: string, count: number) {
+    const messages = Array.from({ length: count }, (_, i) => ({
+      id: `m-${i}`,
+      sessionId,
+      role: "user",
+      content: `msg ${i}`,
+      timestamp: `2026-02-11T00:00:${String(i).padStart(2, "0")}.000Z`,
+    }));
+    await writeSessionFixture(sessionId, wsId, { messages });
+  }
+
+  it("returns the last `limit` messages and hasMore at the truncation boundary", async () => {
+    await writeManyMessages("page-1", 10);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/page-1/messages?limit=3`,
+    });
+    const body = res.json() as HistoryResponse;
+    expect(body.messages.map((m) => m.id)).toEqual(["m-7", "m-8", "m-9"]);
+    expect(body.hasMore).toBe(true);
+  });
+
+  it("hasMore is false when the window reaches the start of history", async () => {
+    await writeManyMessages("page-2", 3);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/page-2/messages?limit=10`,
+    });
+    const body = res.json() as HistoryResponse;
+    expect(body.messages.map((m) => m.id)).toEqual(["m-0", "m-1", "m-2"]);
+    expect(body.hasMore).toBe(false);
+  });
+
+  it("?before returns the window immediately before the cursor (exclusive)", async () => {
+    await writeManyMessages("page-3", 10);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/page-3/messages?limit=3&before=m-5`,
+    });
+    const body = res.json() as HistoryResponse;
+    expect(body.messages.map((m) => m.id)).toEqual(["m-2", "m-3", "m-4"]);
+    expect(body.hasMore).toBe(true);
+  });
+
+  it("?before at the start of history yields hasMore false", async () => {
+    await writeManyMessages("page-4", 10);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/page-4/messages?limit=3&before=m-2`,
+    });
+    const body = res.json() as HistoryResponse;
+    expect(body.messages.map((m) => m.id)).toEqual(["m-0", "m-1"]);
+    expect(body.hasMore).toBe(false);
+  });
+
+  it("unknown ?before id yields an empty window and hasMore false", async () => {
+    await writeManyMessages("page-5", 10);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/page-5/messages?before=nope`,
+    });
+    const body = res.json() as HistoryResponse;
+    expect(body.messages).toEqual([]);
+    expect(body.hasMore).toBe(false);
+  });
+
+  it("active-session route returns the same { messages, hasMore } shape", async () => {
+    // Park an active session, then verify the active route serializes via the
+    // same handler. The newly-created session has no messages on disk yet.
+    await app.inject({ method: "POST", url: `/api/workspaces/${wsId}/session` });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/session/messages?limit=5`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toHaveProperty("messages");
+    expect(body).toHaveProperty("hasMore");
+    expect(Array.isArray(body.messages)).toBe(true);
+  });
+});
+
+describe("PRD #254 expand endpoint (full output on demand)", () => {
+  it("returns the full untruncated output for a tool id", async () => {
+    await writeHeavySession("exp-1");
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/exp-1/tools/tool-big/output`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ output: BIG_OUTPUT });
+  });
+
+  it("resolves a command_execution activity id to its full output", async () => {
+    await writeHeavySession("exp-2");
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/exp-2/tools/act-cmd-big/output`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ output: BIG_OUTPUT });
+  });
+
+  it("does NOT resolve a file_change activity id (diffs are not truncated, so not expandable)", async () => {
+    await writeSessionFixture("exp-3", wsId, {
+      messages: [
+        {
+          id: "a-1",
+          sessionId: "exp-3",
+          role: "assistant",
+          content: "done",
+          timestamp: "2026-02-11T00:00:01.000Z",
+          agentActivities: [
+            {
+              id: "act-file-big",
+              kind: "file_change",
+              files: [{ path: "src/a.ts", diff: BIG_OUTPUT }],
+            },
+          ],
+        },
+      ],
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/exp-3/tools/act-file-big/output`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("404s on an unknown tool id", async () => {
+    await writeHeavySession("exp-4");
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/exp-4/tools/does-not-exist/output`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("404s on an unknown session", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/no-such-session/tools/tool-big/output`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("rejects a traversal attempt in the session id", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/workspaces/${wsId}/sessions/..%2f..%2fsecret/tools/t/output`,
+    });
+    expect(res.statusCode).toBe(400);
   });
 });

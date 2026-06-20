@@ -1,5 +1,5 @@
 import { getServerUrl } from "@/hooks/useServerUrl";
-import type { WsIncoming, WsOutgoing, HubOutgoing } from "@/types";
+import type { ChatMessage, WsIncoming, WsOutgoing, HubOutgoing } from "@/types";
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
@@ -7,9 +7,20 @@ type MessageHandler = (msg: WsOutgoing) => void;
 type GlobalMessageHandler = (workspaceId: string, msg: WsOutgoing) => void;
 type StatusListener = () => void;
 type StatusMessage = Extract<WsOutgoing, { type: "status" }>;
-export type HistoryMessage = Extract<WsOutgoing, { type: "history" }>;
 type DiffStatsMessage = Extract<WsOutgoing, { type: "diff_stats" }>;
 type BranchInfoMessage = Extract<WsOutgoing, { type: "branch_info" }>;
+
+/**
+ * The last rendered message window for a session. Cached client-side so that
+ * switching back to a recently viewed session shows the last view instantly
+ * (stale-while-revalidate) while a fresh REST fetch revalidates in the
+ * background. This is the WS=live / REST=history split: history is never sent
+ * over the socket anymore.
+ */
+export interface SessionWindow {
+  messages: ChatMessage[];
+  hasMore: boolean;
+}
 
 const MAX_RECONNECT_DELAY = 30_000;
 const BASE_RECONNECT_DELAY = 1_000;
@@ -31,9 +42,10 @@ interface WorkspaceSubscription {
   statusListeners: Set<StatusListener>;
   lastStatus?: StatusMessage;
   lastStatusBySession: Map<string, StatusMessage>;
-  lastHistory?: HistoryMessage;
   lastDiffStats?: DiffStatsMessage;
   lastBranchInfo?: BranchInfoMessage;
+  /** Last rendered message window per session id (stale-while-revalidate). */
+  windowCache: Map<string, SessionWindow>;
   /** Messages received while no handler was subscribed. Replayed on next onMessage(). */
   messageBuffer: WsOutgoing[];
 }
@@ -80,24 +92,28 @@ class WsTransport {
     this.sendSyncWorkspaces();
   }
 
-  /** Update the cached history so switch-back replays are fresh. */
-  updateCachedHistory(workspaceId: string, historyMsg: HistoryMessage): void {
+  /**
+   * Store the last rendered message window for a session so switch-back is
+   * instant (stale-while-revalidate). History lives in REST; this is only a
+   * client-side render cache, not a source of truth.
+   */
+  setSessionWindow(workspaceId: string, sessionId: string, window: SessionWindow): void {
     const sub = this.subscriptions.get(workspaceId);
-    if (sub) sub.lastHistory = historyMsg;
+    if (sub) sub.windowCache.set(sessionId, window);
   }
 
-  /** Check whether cached history exists for a workspace. */
-  hasCachedHistory(workspaceId: string): boolean {
-    return this.subscriptions.get(workspaceId)?.lastHistory !== undefined;
+  /** Read the cached render window for a session, if any. */
+  getSessionWindow(workspaceId: string, sessionId: string): SessionWindow | undefined {
+    return this.subscriptions.get(workspaceId)?.windowCache.get(sessionId);
   }
 
-  /** Clear cached status/history for a workspace (e.g. after session deletion). */
+  /** Clear cached status/windows for a workspace (e.g. after session deletion). */
   clearCachedData(workspaceId: string): void {
     const sub = this.subscriptions.get(workspaceId);
     if (!sub) return;
     sub.lastStatus = undefined;
     sub.lastStatusBySession.clear();
-    sub.lastHistory = undefined;
+    sub.windowCache.clear();
     sub.lastBranchInfo = undefined;
     sub.messageBuffer = [];
   }
@@ -126,7 +142,8 @@ class WsTransport {
 
   /**
    * Register a handler for incoming messages.
-   * Replays cached status, history, and any buffered messages immediately.
+   * Replays cached live state (status, diff stats, branch info) and any buffered
+   * messages immediately. History is NOT replayed here — it is owned by REST.
    * Returns `{ unsubscribe, hadBufferedMessages }`.
    */
   onMessage(workspaceId: string, handler: MessageHandler): { unsubscribe: () => void; hadBufferedMessages: boolean } {
@@ -139,9 +156,6 @@ class WsTransport {
       }
     } else if (sub.lastStatus) {
       handler(sub.lastStatus);
-    }
-    if (sub.lastHistory) {
-      handler(sub.lastHistory);
     }
     if (sub.lastDiffStats) {
       handler(sub.lastDiffStats);
@@ -202,6 +216,7 @@ class WsTransport {
       reconnectListeners: new Set<() => void>(),
       statusListeners: new Set<StatusListener>(),
       lastStatusBySession: new Map(),
+      windowCache: new Map(),
       messageBuffer: [],
     };
     this.subscriptions.set(workspaceId, created);
@@ -256,9 +271,10 @@ class WsTransport {
       for (const sub of this.subscriptions.values()) {
         sub.lastStatusBySession.clear();
       }
-      // On reconnect, notify all listeners to clear stale streaming state before
-      // the bootstrap replays full snapshots. Without this, the snapshot events
-      // would be appended to pre-disconnect accumulated data, causing duplicates.
+      // On reconnect, notify listeners so they can re-pull focus (re-send
+      // switch_session) and get a fresh consolidated stream_snapshot. The
+      // snapshot replaces (not appends) stream state, so this is idempotent and
+      // recovers the live turn cleanly after a dropped connection.
       if (isReconnect) {
         for (const sub of this.subscriptions.values()) {
           for (const listener of sub.reconnectListeners) listener();
@@ -303,7 +319,8 @@ class WsTransport {
     const sub = this.subscriptions.get(workspaceId);
     if (!sub) return;
 
-    // Update per-workspace caches
+    // Update per-workspace live caches. History is owned by REST and never
+    // travels over the socket, so there is nothing to cache for it here.
     if (msg.type === "status") {
       sub.lastStatus = msg;
       if (msg.sessionId) {
@@ -311,8 +328,6 @@ class WsTransport {
       } else if (msg.status === "idle") {
         sub.lastStatusBySession.clear();
       }
-    } else if (msg.type === "history") {
-      sub.lastHistory = msg;
     } else if (msg.type === "diff_stats") {
       sub.lastDiffStats = msg;
     } else if (msg.type === "branch_info") {
