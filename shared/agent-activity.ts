@@ -23,6 +23,32 @@ export function outputByteLength(s: string): number {
   return new TextEncoder().encode(s).length;
 }
 
+/** Convert provider/native output payloads into the string shape used by Hive. */
+export function normalizeToolOutput(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined) return "";
+
+  if (Array.isArray(value)) {
+    const textBlocks = value
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return undefined;
+        const record = entry as Record<string, unknown>;
+        return record.type === "text" && typeof record.text === "string"
+          ? record.text
+          : undefined;
+      })
+      .filter((text): text is string => text !== undefined);
+    if (textBlocks.length > 0) return textBlocks.join("\n\n");
+  }
+
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
 export interface AgentActivityFile {
   path: string;
   /** Full unified diff. Bounded by edit size; never truncated in REST history. */

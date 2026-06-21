@@ -5,6 +5,7 @@ import type {
   ContentBlock,
   ServerToolResultType,
 } from "../types.js";
+import { normalizeToolOutput } from "@hive/shared/agent-activity";
 
 type AssistantEvent = Extract<CliJsonLine, { type: "assistant" }>;
 type UserEvent = Extract<CliJsonLine, { type: "user" }>;
@@ -168,7 +169,7 @@ export class AgentEventNormalizer {
       events.push({
         type: "tool_completed",
         id: block.tool_use_id,
-        output: block.content,
+        output: normalizeToolOutput(block.content),
       });
     }
 

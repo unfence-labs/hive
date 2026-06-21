@@ -672,12 +672,16 @@ describe("wsTransport", () => {
       unsubscribe();
 
       const replayed: WsOutgoing[] = [];
-      wsTransport.onMessage("ws-1", (msg) => replayed.push(msg));
+      const result = wsTransport.onMessage("ws-1", (msg) => replayed.push(msg));
 
       const types = replayed.map((m) => m.type);
       expect(types).toContain("status");
       expect(types).toContain("diff_stats");
       expect(types).toContain("branch_info");
+      expect(types.filter((type) => type === "status")).toHaveLength(1);
+      expect(types.filter((type) => type === "diff_stats")).toHaveLength(1);
+      expect(types.filter((type) => type === "branch_info")).toHaveLength(1);
+      expect(result.hadBufferedMessages).toBe(false);
       // History is owned by REST and never replayed over the socket.
       expect(types).not.toContain("history");
     });

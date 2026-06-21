@@ -1,6 +1,6 @@
 import type { ChatMessage, ToolCall } from "../types.js";
 import type { AgentActivity } from "@hive/shared/agent-activity";
-import { outputByteLength, outputLineCount } from "@hive/shared/agent-activity";
+import { normalizeToolOutput, outputByteLength, outputLineCount } from "@hive/shared/agent-activity";
 
 /** Parse a `messages.jsonl` blob into ChatMessages, skipping malformed lines. */
 export function parseJsonlMessages(raw: string): ChatMessage[] {
@@ -85,9 +85,11 @@ export function computeTruncatedField(full: string): TruncatedField {
  */
 function truncateToolCall(tool: ToolCall): ToolCall {
   if (tool.output === undefined) return tool;
-  const field = computeTruncatedField(tool.output);
+  const output = normalizeToolOutput(tool.output);
+  const field = computeTruncatedField(output);
   const next: ToolCall = {
     ...tool,
+    output,
     outputPreview: field.preview,
     outputLineCount: field.lineCount,
     outputByteLength: field.byteLength,
@@ -107,9 +109,11 @@ function truncateToolCall(tool: ToolCall): ToolCall {
 function truncateActivity(activity: AgentActivity): AgentActivity {
   if (activity.kind !== "command_execution") return activity;
   if (activity.output === undefined) return activity;
-  const field = computeTruncatedField(activity.output);
-  const next = {
+  const output = normalizeToolOutput(activity.output);
+  const field = computeTruncatedField(output);
+  const next: Extract<AgentActivity, { kind: "command_execution" }> = {
     ...activity,
+    output,
     outputPreview: field.preview,
     outputLineCount: field.lineCount,
     outputByteLength: field.byteLength,
@@ -146,12 +150,12 @@ export function truncateMessageForHistory(message: ChatMessage): ChatMessage {
 export function findFullOutputById(messages: ChatMessage[], id: string): string | undefined {
   for (const message of messages) {
     for (const tool of message.toolCalls ?? []) {
-      if (tool.id === id && tool.output !== undefined) return tool.output;
+      if (tool.id === id && tool.output !== undefined) return normalizeToolOutput(tool.output);
     }
     for (const activity of message.agentActivities ?? []) {
       if (activity.id !== id) continue;
       if (activity.kind === "command_execution" && activity.output !== undefined) {
-        return activity.output;
+        return normalizeToolOutput(activity.output);
       }
     }
   }

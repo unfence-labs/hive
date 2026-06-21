@@ -118,4 +118,23 @@ describe("AgentEventNormalizer", () => {
       { type: "tool_completed", id: "bash-1", output: "ok\nstderr: warn\nexit code: 1" },
     ]);
   });
+
+  it("normalizes structured user tool result content as text", () => {
+    const normalizer = new AgentEventNormalizer();
+
+    const events = normalizer.handleUser(user([
+      {
+        type: "tool_result",
+        tool_use_id: "tool-1",
+        content: [
+          { type: "text", text: "first block" },
+          { type: "text", text: "second block" },
+        ],
+      },
+    ]));
+
+    expect(events).toEqual([
+      { type: "tool_completed", id: "tool-1", output: "first block\n\nsecond block" },
+    ]);
+  });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { outputByteLength, outputLineCount } from "@hive/shared/agent-activity";
-import { computeTruncatedField, OUTPUT_PREVIEW_BYTES } from "./session-utils.js";
+import { computeTruncatedField, OUTPUT_PREVIEW_BYTES, truncateMessageForHistory } from "./session-utils.js";
+import type { ChatMessage } from "../types.js";
 
 // The line-count / byte-length formulas live in @hive/shared so the backend
 // (computeTruncatedField) and the frontend (computeOutputScalars) cannot drift.
@@ -45,5 +46,48 @@ describe("shared output scalar primitives", () => {
     expect(field.truncated).toBe(false);
     expect(field.preview).toBe(small);
     expect(field.byteLength).toBeLessThanOrEqual(OUTPUT_PREVIEW_BYTES);
+  });
+
+  it("normalizes legacy non-string persisted outputs before computing scalars", () => {
+    const message = {
+      id: "m1",
+      sessionId: "sess-1",
+      role: "assistant",
+      content: "",
+      timestamp: "2026-02-20T00:00:00.000Z",
+      toolCalls: [
+        {
+          id: "tool-1",
+          name: "MCP",
+          input: "{}",
+          output: [
+            { type: "text", text: "first" },
+            { type: "text", text: "second" },
+          ],
+        },
+      ],
+      agentActivities: [
+        {
+          id: "cmd-1",
+          kind: "command_execution",
+          output: { ok: true },
+        },
+      ],
+    } as unknown as ChatMessage;
+
+    const truncated = truncateMessageForHistory(message);
+
+    expect(truncated.toolCalls?.[0]).toMatchObject({
+      output: "first\n\nsecond",
+      outputPreview: "first\n\nsecond",
+      outputLineCount: 3,
+      outputTruncated: false,
+    });
+    expect(truncated.agentActivities?.[0]).toMatchObject({
+      output: "{\"ok\":true}",
+      outputPreview: "{\"ok\":true}",
+      outputLineCount: 1,
+      outputTruncated: false,
+    });
   });
 });

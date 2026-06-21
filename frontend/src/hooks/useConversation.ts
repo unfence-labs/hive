@@ -11,7 +11,7 @@ import type {
   QuestionAnswer,
   QuestionInput,
 } from "@/types";
-import { outputByteLength, outputLineCount } from "@hive/shared/agent-activity";
+import { normalizeToolOutput, outputByteLength, outputLineCount } from "@hive/shared/agent-activity";
 import { wsTransport } from "@/lib/ws-transport";
 import { api } from "@/hooks/useApi";
 
@@ -68,7 +68,7 @@ type LocalAction =
   | { type: "prepare_workspace_switch" }
   | { type: "clear_pending_tool_inputs" }
   | { type: "set_history"; sessionId?: string; messages: ChatMessage[]; hasMore: boolean }
-  | { type: "prepend_history"; sessionId: string; messages: ChatMessage[]; hasMore: boolean };
+  | { type: "prepend_history"; sessionId: string; beforeId: string; messages: ChatMessage[]; hasMore: boolean };
 
 type Action = WsOutgoing | LocalAction;
 
@@ -101,10 +101,11 @@ function normalizeStreamingStartedAt(raw: number | undefined): number | undefine
  * render path reads scalars uniformly (live and history) without re-parsing the
  * body. Live outputs are never truncated, hence `outputTruncated: false`.
  */
-function computeOutputScalars(output: string): Pick<
+function computeOutputScalars(rawOutput: unknown): Pick<
   ToolCall,
   "output" | "outputPreview" | "outputLineCount" | "outputByteLength" | "outputTruncated"
 > {
+  const output = normalizeToolOutput(rawOutput);
   return {
     output,
     outputPreview: output,
@@ -486,6 +487,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "prepend_history": {
       // "Load earlier messages" — prepend an older window, dedup by id.
       if (state.sessionId && action.sessionId !== state.sessionId) return state;
+      if (state.messages[0]?.id !== action.beforeId) return state;
       const incoming = Array.isArray(action.messages) ? action.messages : [];
       const existingIds = new Set(state.messages.map((m) => m.id));
       const older = incoming.filter((m) => !existingIds.has(m.id));
@@ -611,6 +613,10 @@ export function useConversation(workspaceId: string | undefined) {
   // clobber freshly produced optimistic/live state. (Targeted single guard,
   // replacing the old multi-site request-token juggling.)
   const fetchSeqRef = useRef(0);
+  // Orders same-session replacement history fetches. `fetchSeqRef` invalidates
+  // across user actions/session switches; this one prevents an older REST
+  // response for the same session from overwriting a newer one.
+  const replaceHistorySeqRef = useRef(0);
 
   // ── Coalesced streaming deltas ──────────────────────────────────────
   // Batch text_delta/thinking on a ~50ms tick (rAF where available) instead of
@@ -658,11 +664,13 @@ export function useConversation(workspaceId: string | undefined) {
     // Capture the request generation synchronously; if the user switches/sends
     // before this resolves, the generation advances and we drop the stale result.
     const seq = fetchSeqRef.current;
+    const replaceSeq = ++replaceHistorySeqRef.current;
     try {
       const res = await api.get<SessionMessagesResponse>(
         `/api/workspaces/${workspaceId}/sessions/${sessionId}/messages?limit=${HISTORY_LIMIT}`,
       );
       if (fetchSeqRef.current !== seq) return;
+      if (replaceHistorySeqRef.current !== replaceSeq) return;
       dispatch({ type: "set_history", sessionId, messages: res.messages, hasMore: res.hasMore });
     } catch {
       // Best-effort sync. WS live state remains the fallback if this request fails.
@@ -773,6 +781,7 @@ export function useConversation(workspaceId: string | undefined) {
     // keeps the invariant from depending on that wiring.)
     const mountSeq = fetchSeqRef.current;
     if (!hadBufferedMessages) {
+      const mountReplaceSeq = ++replaceHistorySeqRef.current;
       void (async () => {
         try {
           const url = savedSession
@@ -782,6 +791,7 @@ export function useConversation(workspaceId: string | undefined) {
           // Drop if the user has since sent a message / switched session (the
           // optimistic/live state is newer than this initial-load response).
           if (fetchSeqRef.current !== mountSeq) return;
+          if (replaceHistorySeqRef.current !== mountReplaceSeq) return;
           if (sessionIdRef.current && savedSession && sessionIdRef.current !== savedSession) return;
           dispatch({ type: "set_history", sessionId: savedSession, messages: res.messages, hasMore: res.hasMore });
         } catch {
@@ -893,7 +903,7 @@ export function useConversation(workspaceId: string | undefined) {
         `/api/workspaces/${workspaceId}/sessions/${sessionId}/messages?limit=${HISTORY_LIMIT}&before=${encodeURIComponent(oldest.id)}`,
       );
       if (sessionIdRef.current !== sessionId) return;
-      dispatch({ type: "prepend_history", sessionId, messages: res.messages, hasMore: res.hasMore });
+      dispatch({ type: "prepend_history", sessionId, beforeId: oldest.id, messages: res.messages, hasMore: res.hasMore });
     } catch {
       // Best-effort; the button stays available for a retry.
     }

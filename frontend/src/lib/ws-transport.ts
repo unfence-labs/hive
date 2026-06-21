@@ -10,6 +10,30 @@ type StatusMessage = Extract<WsOutgoing, { type: "status" }>;
 type DiffStatsMessage = Extract<WsOutgoing, { type: "diff_stats" }>;
 type BranchInfoMessage = Extract<WsOutgoing, { type: "branch_info" }>;
 
+function isCachedReplayMessage(msg: WsOutgoing): boolean {
+  return msg.type === "status" || msg.type === "diff_stats" || msg.type === "branch_info";
+}
+
+function isConversationBufferedMessage(msg: WsOutgoing): boolean {
+  switch (msg.type) {
+    case "user_message":
+    case "text_delta":
+    case "thinking":
+    case "tool_use":
+    case "tool_result":
+    case "agent_activity":
+    case "tool_input_required":
+    case "tool_input_resolved":
+    case "stream_snapshot":
+    case "done":
+    case "cancelled":
+    case "plan_mode_changed":
+      return true;
+    default:
+      return false;
+  }
+}
+
 /**
  * The last rendered message window for a session. Cached client-side so that
  * switching back to a recently viewed session shows the last view instantly
@@ -144,7 +168,9 @@ class WsTransport {
    * Register a handler for incoming messages.
    * Replays cached live state (status, diff stats, branch info) and any buffered
    * messages immediately. History is NOT replayed here — it is owned by REST.
-   * Returns `{ unsubscribe, hadBufferedMessages }`.
+   * Returns `{ unsubscribe, hadBufferedMessages }`, where the flag means the
+   * replay included conversation-state events. Cached metadata/status replays do
+   * not count because REST history still needs to hydrate the message window.
    */
   onMessage(workspaceId: string, handler: MessageHandler): { unsubscribe: () => void; hadBufferedMessages: boolean } {
     const sub = this.getOrCreateSubscription(workspaceId);
@@ -164,7 +190,7 @@ class WsTransport {
       handler(sub.lastBranchInfo);
     }
 
-    const hadBufferedMessages = sub.messageBuffer.length > 0;
+    const hadBufferedMessages = sub.messageBuffer.some(isConversationBufferedMessage);
     for (const msg of sub.messageBuffer) {
       handler(msg);
     }
@@ -347,7 +373,7 @@ class WsTransport {
     // Dispatch to handlers or buffer
     if (sub.messageHandlers.size > 0) {
       for (const handler of sub.messageHandlers) handler(msg);
-    } else {
+    } else if (!isCachedReplayMessage(msg)) {
       sub.messageBuffer.push(msg);
     }
   }

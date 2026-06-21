@@ -46,6 +46,20 @@ vi.mock("@/lib/ws-transport", () => {
   const bufferedFlags = new Map<string, boolean>();
   const windows = new Map<string, Map<string, SessionWindow>>();
 
+  const isConversationBufferedMessage = (msg: WsOutgoing) =>
+    msg.type === "user_message" ||
+    msg.type === "text_delta" ||
+    msg.type === "thinking" ||
+    msg.type === "tool_use" ||
+    msg.type === "tool_result" ||
+    msg.type === "agent_activity" ||
+    msg.type === "tool_input_required" ||
+    msg.type === "tool_input_resolved" ||
+    msg.type === "stream_snapshot" ||
+    msg.type === "done" ||
+    msg.type === "cancelled" ||
+    msg.type === "plan_mode_changed";
+
   const getSet = <T,>(source: Map<string, Set<T>>, workspaceId: string) => {
     const existing = source.get(workspaceId);
     if (existing) return existing;
@@ -89,7 +103,9 @@ vi.mock("@/lib/ws-transport", () => {
       }
       return {
         unsubscribe: () => { getSet(messageHandlers, workspaceId).delete(handler); },
-        hadBufferedMessages: bufferedFlags.get(workspaceId) ?? false,
+        hadBufferedMessages:
+          bufferedFlags.get(workspaceId) ??
+          (replayMessages.get(workspaceId)?.some(isConversationBufferedMessage) ?? false),
       };
     }),
     onReconnect: vi.fn((workspaceId: string, callback: () => void) => {
@@ -2319,7 +2335,6 @@ describe("useConversation", () => {
     __wsMock.setReplay("ws-1", [
       { type: "error", message: "stale connection error" },
     ]);
-    __wsMock.setBuffered("ws-1", true);
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -2336,7 +2351,6 @@ describe("useConversation", () => {
       { type: "status", status: "busy", sessionId: "sess-1", streaming: true },
       { type: "error", sessionId: "sess-1", message: "session error from buffer" },
     ]);
-    __wsMock.setBuffered("ws-1", true);
 
     const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -2350,7 +2364,6 @@ describe("useConversation", () => {
     __wsMock.setReplay("ws-1", [
       { type: "error", message: "stale error" },
     ]);
-    __wsMock.setBuffered("ws-1", true);
 
     const { result } = renderHook(() => useConversation("ws-1"));
     expect(result.current.error).toBeUndefined();
@@ -2361,6 +2374,28 @@ describe("useConversation", () => {
     });
 
     expect(result.current.error).toBe("live error");
+  });
+
+  it("still fetches REST history when buffer replay only contains cached metadata", async () => {
+    const { __wsMock } = await getWsMock();
+    const { __apiMock } = await getApiMock();
+
+    __wsMock.setReplay("ws-1", [
+      { type: "status", status: "idle", sessionId: "sess-1", streaming: false },
+      { type: "branch_info", info: { name: "lazy-load-conversations", lastSyncedAt: "2026-02-20T00:00:00.000Z" } },
+    ]);
+    __apiMock.getMock.mockResolvedValueOnce(historyResponse([
+      { id: "m1", sessionId: "sess-1", role: "assistant", content: "from disk", timestamp: "2026-02-20T00:00:01.000Z" },
+    ]));
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    await waitFor(() => {
+      expect(__apiMock.getMock).toHaveBeenCalledWith("/api/workspaces/ws-1/session/messages?limit=200");
+    });
+    await waitFor(() => {
+      expect(result.current.messages.map((m) => m.id)).toEqual(["m1"]);
+    });
   });
 
   it("ignores session-scoped error for a background session", async () => {
@@ -2810,6 +2845,37 @@ describe("useConversation", () => {
       });
     });
 
+    it("normalizes non-string snapshot tool output before computing scalars", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
+        __wsMock.emit("ws-1", snapshot({
+          toolCalls: [
+            {
+              id: "mcp-1",
+              name: "MCP",
+              input: "{}",
+              output: [
+                { type: "text", text: "first" },
+                { type: "text", text: "second" },
+              ] as unknown as string,
+            },
+          ],
+        }));
+      });
+
+      expect(result.current.activeToolCalls[0]).toMatchObject({
+        id: "mcp-1",
+        output: "first\n\nsecond",
+        outputPreview: "first\n\nsecond",
+        outputLineCount: 3,
+        outputByteLength: 13,
+        outputTruncated: false,
+      });
+    });
+
     it("computes zero scalars for a snapshot tool that completed with empty output", async () => {
       const { __wsMock } = await getWsMock();
       const { result } = renderHook(() => useConversation("ws-1"));
@@ -2987,6 +3053,60 @@ describe("useConversation", () => {
       });
     });
 
+    it("drops older same-session REST history responses when a newer replacement resolves first", async () => {
+      const { __wsMock } = await getWsMock();
+      const { __apiMock } = await getApiMock();
+      __apiMock.getMock.mockResolvedValueOnce(historyResponse([]));
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      await waitFor(() => {
+        expect(__apiMock.getMock).toHaveBeenCalledWith("/api/workspaces/ws-1/session/messages?limit=200");
+      });
+
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-active", streaming: true });
+      });
+      expect(result.current.sessionId).toBe("sess-active");
+
+      const pending: Array<{ resolve: (res: SessionMessagesResponse) => void }> = [];
+      __apiMock.getMock.mockImplementation(
+        () =>
+          new Promise<SessionMessagesResponse>((resolve) => {
+            pending.push({ resolve });
+          }),
+      );
+
+      act(() => {
+        __wsMock.triggerReconnect("ws-1");
+        __wsMock.triggerReconnect("ws-1");
+      });
+
+      await waitFor(() => {
+        expect(pending).toHaveLength(2);
+      });
+
+      await act(async () => {
+        pending[1]?.resolve(historyResponse([
+          { id: "u1", sessionId: "sess-active", role: "user", content: "hi", timestamp: "2026-02-20T00:00:00.000Z" },
+          { id: "a-new", sessionId: "sess-active", role: "assistant", content: "newer", timestamp: "2026-02-20T00:00:01.000Z" },
+        ]));
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(result.current.messages.map((m) => m.id)).toEqual(["u1", "a-new"]);
+      });
+
+      await act(async () => {
+        pending[0]?.resolve(historyResponse([
+          { id: "u1", sessionId: "sess-active", role: "user", content: "hi", timestamp: "2026-02-20T00:00:00.000Z" },
+        ]));
+        await Promise.resolve();
+      });
+
+      expect(result.current.messages.map((m) => m.id)).toEqual(["u1", "a-new"]);
+    });
+
     it("does not refetch REST history on reconnect when no session is active", async () => {
       const { __wsMock } = await getWsMock();
       const { __apiMock } = await getApiMock();
@@ -3128,6 +3248,32 @@ describe("useConversation", () => {
         outputTruncated: false,
       });
     });
+
+    it("normalizes non-string live tool_result output before computing scalars", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", {
+          type: "user_message",
+          message: { id: "u1", sessionId: "sess-1", role: "user", content: "mcp", timestamp: "2026-02-20T00:00:00.000Z" },
+        });
+        __wsMock.emit("ws-1", { type: "tool_use", id: "mcp-1", name: "MCP", input: "{}" });
+        __wsMock.emit("ws-1", {
+          type: "tool_result",
+          toolUseId: "mcp-1",
+          output: { result: "ok" } as unknown as string,
+        });
+      });
+
+      expect(result.current.activeToolCalls[0]).toMatchObject({
+        output: "{\"result\":\"ok\"}",
+        outputPreview: "{\"result\":\"ok\"}",
+        outputLineCount: 1,
+        outputByteLength: 15,
+        outputTruncated: false,
+      });
+    });
   });
 
   describe("loadEarlier + hasMore", () => {
@@ -3206,6 +3352,59 @@ describe("useConversation", () => {
       });
 
       expect(result.current.messages.map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
+    });
+
+    it("drops a loadEarlier response when the visible window changed while it was in flight", async () => {
+      const { __wsMock } = await getWsMock();
+      const { __apiMock } = await getApiMock();
+      __apiMock.getMock.mockResolvedValueOnce(historyResponse([
+        { id: "m2", sessionId: "sess-1", role: "user", content: "b", timestamp: "2026-02-20T00:00:02.000Z" },
+        { id: "m3", sessionId: "sess-1", role: "assistant", content: "c", timestamp: "2026-02-20T00:00:03.000Z" },
+      ], true));
+
+      const { result } = renderHook(() => useConversation("ws-1"));
+      await waitFor(() => {
+        expect(result.current.messages.map((m) => m.id)).toEqual(["m2", "m3"]);
+      });
+
+      let resolveOlder: ((res: SessionMessagesResponse) => void) | undefined;
+      __apiMock.getMock.mockImplementation((url: string) => {
+        if (url.includes("&before=m2")) {
+          return new Promise<SessionMessagesResponse>((resolve) => {
+            resolveOlder = resolve;
+          });
+        }
+        return Promise.resolve(historyResponse([
+          { id: "m3", sessionId: "sess-1", role: "assistant", content: "c", timestamp: "2026-02-20T00:00:03.000Z" },
+          { id: "m4", sessionId: "sess-1", role: "assistant", content: "fresh", timestamp: "2026-02-20T00:00:04.000Z" },
+        ], true));
+      });
+
+      void act(() => {
+        void result.current.loadEarlier();
+      });
+
+      await waitFor(() => {
+        expect(resolveOlder).toBeDefined();
+      });
+
+      await act(async () => {
+        __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", messageId: "m4" });
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(result.current.messages.map((m) => m.id)).toEqual(["m3", "m4"]);
+      });
+
+      await act(async () => {
+        resolveOlder?.(historyResponse([
+          { id: "m1", sessionId: "sess-1", role: "user", content: "a", timestamp: "2026-02-20T00:00:01.000Z" },
+        ], false));
+        await Promise.resolve();
+      });
+
+      expect(result.current.messages.map((m) => m.id)).toEqual(["m3", "m4"]);
+      expect(result.current.hasMore).toBe(true);
     });
   });
 });
