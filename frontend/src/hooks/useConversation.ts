@@ -225,6 +225,30 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       });
     }
 
+    case "stream_snapshot": {
+      const sid = action.sessionId;
+      const existing = state.sessionStreams[sid] ?? { ...emptyStreamState };
+      const backendStartedAt = normalizeStreamingStartedAt(action.streamingStartedAt);
+      return {
+        ...state,
+        sessionId: state.sessionId ?? sid,
+        sessionStreams: {
+          ...state.sessionStreams,
+          [sid]: {
+            ...existing,
+            currentText: action.text,
+            currentThinking: action.thinking,
+            activeToolCalls: action.toolCalls,
+            activeAgentActivities: action.agentActivities,
+            isStreaming: true,
+            streamingStartedAt: backendStartedAt ?? existing.streamingStartedAt ?? Date.now(),
+            pendingToolInputs: [],
+            agentPlanMode: action.agentPlanMode,
+          },
+        },
+      };
+    }
+
     case "done": {
       const sid = action.sessionId || state.sessionId;
       if (!sid) return state;

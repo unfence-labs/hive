@@ -288,6 +288,9 @@ struct ChatView: View {
 
         if store.sessionId == selectedSessionId {
             store.setFocusedSessionId(selectedSessionId)
+            if projectStore.statusMonitor.isStreaming(workspaceId: workspace.id, sessionId: selectedSessionId) {
+                _ = await store.send?(.switchSession(sessionId: selectedSessionId))
+            }
         } else {
             store.prepareSessionSwitch(selectedSessionId)
             _ = await store.send?(.switchSession(sessionId: selectedSessionId))

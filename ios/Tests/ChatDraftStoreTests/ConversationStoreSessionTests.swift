@@ -200,6 +200,90 @@ struct ConversationStoreSessionTests {
     }
 
     @Test @MainActor
+    func streamSnapshotReplacesAccumulatedStreamingState() {
+        let store = ConversationStore()
+        store.handle(.status(
+            status: .busy,
+            sessionId: "session-1",
+            streaming: true,
+            streamingStartedAt: nil,
+            lockedProvider: nil
+        ))
+        store.handle(.textDelta(sessionId: "session-1", text: "Before "))
+        store.handle(.thinking(sessionId: "session-1", text: "old thinking"))
+
+        store.handle(.streamSnapshot(
+            sessionId: "session-1",
+            text: "Before after",
+            thinking: "Canonical thinking",
+            toolCalls: [
+                ToolCall(
+                    id: "tool-1",
+                    name: "Read",
+                    input: "{}",
+                    output: "file contents",
+                    parentToolUseId: nil
+                )
+            ],
+            agentActivities: [
+                .planUpdate(.init(
+                    id: "plan-1",
+                    steps: [.init(text: "Inspect", status: "completed")]
+                ))
+            ],
+            agentPlanMode: true,
+            streamingStartedAt: 1_700_000_002_000.0
+        ))
+
+        #expect(store.isStreaming == true)
+        #expect(store.currentText == "Before after")
+        #expect(store.currentThinking == "Canonical thinking")
+        #expect(store.activeToolCalls.first?.id == "tool-1")
+        #expect(store.activeToolCalls.first?.output == "file contents")
+        #expect(store.activeAgentActivities.count == 1)
+        #expect(store.agentPlanMode == true)
+    }
+
+    @Test @MainActor
+    func decodesStreamSnapshotEvent() throws {
+        let json = Data("""
+        {
+          "type": "stream_snapshot",
+          "sessionId": "session-1",
+          "text": "Hello",
+          "thinking": "Reasoning",
+          "toolCalls": [
+            { "id": "tool-1", "name": "Read", "input": "{}", "output": "done" }
+          ],
+          "agentActivities": [
+            {
+              "id": "plan-1",
+              "kind": "plan_update",
+              "steps": [{ "text": "Inspect", "status": "completed" }]
+            }
+          ],
+          "agentPlanMode": true,
+          "streamingStartedAt": 1700000002000
+        }
+        """.utf8)
+
+        let event = try JSONDecoder().decode(WsOutgoing.self, from: json)
+
+        guard case .streamSnapshot(let sessionId, let text, let thinking, let toolCalls,
+                                   let activities, let agentPlanMode, let startedAt) = event else {
+            Issue.record("Expected stream snapshot")
+            return
+        }
+        #expect(sessionId == "session-1")
+        #expect(text == "Hello")
+        #expect(thinking == "Reasoning")
+        #expect(toolCalls.first?.output == "done")
+        #expect(activities.count == 1)
+        #expect(agentPlanMode == true)
+        #expect(startedAt == 1_700_000_002_000.0)
+    }
+
+    @Test @MainActor
     func toolInputResolvedClearsPendingToolInputs() throws {
         let store = ConversationStore()
         store.handle(.status(

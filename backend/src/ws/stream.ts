@@ -186,46 +186,23 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
     // Replay in-progress streaming content so late-connecting clients see
     // text, thinking, and tool calls accumulated since the turn started.
-    if (session.status === "streaming") {
-      const snapshot = session.getStreamingSnapshot();
-      if (snapshot) {
-        const sid = session.sessionId;
-        if (snapshot.thinking) {
-          sendToHub(hub, workspaceId, { type: "thinking", sessionId: sid, text: snapshot.thinking });
-        }
-        if (snapshot.text) {
-          sendToHub(hub, workspaceId, { type: "text_delta", sessionId: sid, text: snapshot.text });
-        }
-        for (const tc of snapshot.toolCalls) {
-          sendToHub(hub, workspaceId, {
-            type: "tool_use",
-            sessionId: sid,
-            id: tc.id,
-            name: tc.name,
-            input: tc.input,
-            parentToolUseId: tc.parentToolUseId,
-          });
-          if (tc.output) {
-            sendToHub(hub, workspaceId, {
-              type: "tool_result",
-              sessionId: sid,
-              toolUseId: tc.id,
-              output: tc.output,
-            });
-          }
-        }
-        for (const activity of snapshot.agentActivities) {
-          sendToHub(hub, workspaceId, {
-            type: "agent_activity",
-            sessionId: sid,
-            activity,
-          });
-        }
-        if (snapshot.agentPlanMode) {
-          sendToHub(hub, workspaceId, { type: "plan_mode_changed", sessionId: sid, active: true });
-        }
-      }
-    }
+    sendStreamingSnapshot(hub, workspaceId, session);
+  };
+
+  const sendStreamingSnapshot = (hub: HubSocket, workspaceId: string, session: ActiveSession): void => {
+    if (session.status !== "streaming") return;
+    const snapshot = session.getStreamingSnapshot();
+    if (!snapshot) return;
+    sendToHub(hub, workspaceId, {
+      type: "stream_snapshot",
+      sessionId: session.sessionId,
+      text: snapshot.text,
+      thinking: snapshot.thinking,
+      toolCalls: snapshot.toolCalls,
+      agentActivities: snapshot.agentActivities,
+      agentPlanMode: snapshot.agentPlanMode,
+      ...(session.streamingStartedAt ? { streamingStartedAt: session.streamingStartedAt } : {}),
+    });
   };
 
   const detachSessionTracking = (channel: WorkspaceChannel, sessionId: string): void => {
@@ -328,6 +305,9 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       for (const streamingId of getStreamingSessionIds(wsId)) {
         if (streamingId !== session.sessionId) {
           const streamingSession = getSessionById(wsId, streamingId);
+          if (streamingSession) {
+            attachSessionListeners(wsId, channel, streamingSession);
+          }
           sendToHub(hub, wsId, {
             type: "status",
             status: "busy",
@@ -337,6 +317,9 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
               ? { streamingStartedAt: streamingSession.streamingStartedAt }
               : {}),
           });
+          if (streamingSession) {
+            sendStreamingSnapshot(hub, wsId, streamingSession);
+          }
         }
       }
     } else {

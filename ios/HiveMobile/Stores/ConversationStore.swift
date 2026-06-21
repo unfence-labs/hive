@@ -165,6 +165,22 @@ final class ConversationStore {
         case .agentActivity(let sid, let activity):
             upsertAgentActivity(activity, for: sid)
 
+        case .streamSnapshot(let sid, let text, let thinking, let toolCalls,
+                             let agentActivities, let agentPlanMode, let startedAt):
+            var stream = sessionStreams[sid] ?? SessionStreamState()
+            stream.currentText = text
+            stream.currentThinking = thinking
+            stream.activeToolCalls = toolCalls
+            stream.activeAgentActivities = agentActivities
+            stream.isStreaming = true
+            stream.streamingStartedAt = startedAt.map(parseStartedAt) ?? stream.streamingStartedAt ?? Date()
+            stream.pendingToolInputs = []
+            stream.agentPlanMode = agentPlanMode
+            sessionStreams[sid] = stream
+            if sessionId == nil {
+                sessionId = sid
+            }
+
         case .toolInputRequired(let sid, let requestId, let toolName, let toolUseId, let input):
             if sessionStreams[sid] == nil && hasTerminalAssistantMessage(for: sid) {
                 return

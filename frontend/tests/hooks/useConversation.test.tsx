@@ -2004,6 +2004,67 @@ describe("useConversation", () => {
     expect(result.current.isStreaming).toBe(true);
   });
 
+  it("replaces accumulated stream content when a stream snapshot is replayed", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result, rerender } = renderHook(
+      ({ wsId }) => useConversation(wsId),
+      { initialProps: { wsId: "ws-1" } },
+    );
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "hello",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Before " });
+    });
+
+    rerender({ wsId: "ws-2" });
+    __wsMock.setReplay("ws-1", [
+      { type: "status", status: "busy", sessionId: "sess-1", streaming: true },
+      {
+        type: "stream_snapshot",
+        sessionId: "sess-1",
+        text: "Before after",
+        thinking: "Canonical thinking",
+        toolCalls: [{
+          id: "tool-1",
+          name: "Read",
+          input: "{}",
+          output: "file contents",
+        }],
+        agentActivities: [{
+          id: "plan-1",
+          kind: "plan_update",
+          steps: [{ text: "Inspect", status: "completed" }],
+        }],
+        agentPlanMode: true,
+        streamingStartedAt: 1_700_000_002_000,
+      },
+    ]);
+
+    rerender({ wsId: "ws-1" });
+
+    expect(result.current.sessionId).toBe("sess-1");
+    expect(result.current.currentStreamingText).toBe("Before after");
+    expect(result.current.currentThinking).toBe("Canonical thinking");
+    expect(result.current.activeToolCalls).toEqual([
+      expect.objectContaining({ id: "tool-1", output: "file contents" }),
+    ]);
+    expect(result.current.activeAgentActivities).toEqual([
+      expect.objectContaining({ id: "plan-1" }),
+    ]);
+    expect(result.current.agentPlanMode).toBe(true);
+    expect(result.current.streamingStartedAt).toBe(1_700_000_002_000);
+    expect(result.current.isStreaming).toBe(true);
+  });
+
   it("full reset clears sessionStreams when workspaceId becomes undefined", async () => {
     const { __wsMock } = await getWsMock();
     const { result, rerender } = renderHook(
