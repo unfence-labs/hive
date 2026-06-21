@@ -2179,6 +2179,46 @@ describe("useConversation", () => {
     expect(result.current.messages.map((message) => message.content)).toEqual(["start", "Final answer"]);
   });
 
+  it("lets status finish reconnect resync when no visible stream is active", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "idle",
+        sessionId: "sess-1",
+        streaming: false,
+      });
+    });
+
+    expect(result.current.workspaceStatus).toBe("idle");
+    expect(result.current.isStreaming).toBe(false);
+
+    act(() => {
+      __wsMock.reconnect("ws-1");
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "idle",
+        sessionId: "sess-1",
+        streaming: false,
+        lockedProvider: "codex",
+      });
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-1",
+        streaming: true,
+        streamingStartedAt: 1_700_000_005_000,
+      });
+    });
+
+    expect(result.current.workspaceStatus).toBe("busy");
+    expect(result.current.lockedProvider).toBe("codex");
+    expect(result.current.isStreaming).toBe(true);
+    expect(result.current.streamingStartedAt).toBe(1_700_000_005_000);
+  });
+
   it("keeps stream visible when history arrives before stream_snapshot during resync", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderHook(() => useConversation("ws-1"));
@@ -2288,6 +2328,43 @@ describe("useConversation", () => {
         durationMs: 123,
       }),
     );
+  });
+
+  it("does not flip the active idle session busy when a background session snapshot arrives", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    // Active session is idle.
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "idle",
+        sessionId: "sess-1",
+        streaming: false,
+      });
+    });
+
+    expect(result.current.sessionId).toBe("sess-1");
+    expect(result.current.workspaceStatus).toBe("idle");
+
+    // A different (background) session replays a streaming snapshot during bootstrap.
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "stream_snapshot",
+        sessionId: "sess-2",
+        text: "background work",
+        thinking: "",
+        toolCalls: [],
+        agentActivities: [],
+        agentPlanMode: false,
+        streamingStartedAt: 1_700_000_006_000,
+      });
+    });
+
+    // Active session must stay idle so queued-message auto-dequeue is not blocked.
+    expect(result.current.workspaceStatus).toBe("idle");
+    expect(result.current.isStreaming).toBe(false);
+    expect(result.current.currentStreamingText).toBe("");
   });
 
   it("full reset clears sessionStreams when workspaceId becomes undefined", async () => {

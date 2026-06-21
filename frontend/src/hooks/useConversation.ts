@@ -34,6 +34,11 @@ const emptyStreamState: SessionStreamState = {
   pendingToolInputs: [],
 };
 
+// Spread into any authoritative/terminal reducer result to end the hub-reconnect
+// resync window. Centralized so a new terminal case cannot silently leak a stale
+// deferredStatus into the next turn.
+const RESYNC_CLEARED = { isResyncing: false, deferredStatus: undefined } as const;
+
 interface ConversationState {
   messages: ChatMessage[];
   sessionStreams: Record<string, SessionStreamState>;
@@ -147,14 +152,80 @@ function hasTerminalAssistantMessage(state: ConversationState, sid: string): boo
 
 function statusStopsSession(status: StatusMessage | undefined, sessionId: string): boolean {
   if (!status) return false;
-  const streaming = status.streaming ?? (status.status === "idle" ? false : undefined);
+  const streaming = getStatusStreaming(status);
   return streaming === false && (!status.sessionId || status.sessionId === sessionId);
+}
+
+function getStatusStreaming(status: StatusMessage): boolean | undefined {
+  return status.streaming ?? (status.status === "idle" ? false : undefined);
+}
+
+function hasVisibleActiveStream(state: ConversationState): boolean {
+  if (!state.sessionId) return false;
+  return Boolean(state.sessionStreams[state.sessionId]?.isStreaming);
 }
 
 function upsertActivity(activities: AgentActivity[], activity: AgentActivity): AgentActivity[] {
   const index = activities.findIndex((item) => item.id === activity.id);
   if (index < 0) return [...activities, activity];
   return activities.map((item, itemIndex) => itemIndex === index ? activity : item);
+}
+
+function reduceStatus(state: ConversationState, action: StatusMessage): ConversationState {
+  const sid = action.sessionId ?? state.sessionId;
+  const newIsStreaming = getStatusStreaming(action);
+  const backendStartedAt = normalizeStreamingStartedAt(action.streamingStartedAt);
+
+  let newStreams = state.sessionStreams;
+  if (sid && newIsStreaming !== undefined) {
+    const stream = state.sessionStreams[sid];
+    if (newIsStreaming) {
+      // Ensure a stream slot exists when the session starts or continues streaming.
+      const existing = stream ?? { ...emptyStreamState };
+      newStreams = {
+        ...state.sessionStreams,
+        [sid]: {
+          ...existing,
+          isStreaming: true,
+          // A (re)starting turn means any pending question was answered,
+          // possibly on another client (e.g. iOS).
+          pendingToolInputs: [],
+          // Prefer backend-provided start time so all clients show the same timer.
+          streamingStartedAt: backendStartedAt ?? existing.streamingStartedAt ?? Date.now(),
+        },
+      };
+    } else if (stream) {
+      // Session stopped streaming. If slot has no content, clean up.
+      if (
+        !stream.currentText &&
+        !stream.currentThinking &&
+        stream.activeToolCalls.length === 0 &&
+        stream.activeAgentActivities.length === 0 &&
+        stream.pendingToolInputs.length === 0
+      ) {
+        newStreams = deleteStream(state, sid);
+      } else {
+        newStreams = {
+          ...state.sessionStreams,
+          [sid]: { ...stream, isStreaming: false, streamingStartedAt: null },
+        };
+      }
+    }
+  }
+
+  // Only adopt sessionId from status if we don't have one yet
+  const newSessionId = (!state.sessionId && sid) ? sid : state.sessionId;
+
+  return {
+    ...state,
+    workspaceStatus: action.status,
+    sessionId: newSessionId,
+    sessionStreams: newStreams,
+    // Only update lockedProvider when explicitly present and for the active session.
+    ...(action.lockedProvider !== undefined && sid === newSessionId
+      ? { lockedProvider: action.lockedProvider }
+      : {}),
+  };
 }
 
 function reducer(state: ConversationState, action: Action): ConversationState {
@@ -241,12 +312,15 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       const sid = action.sessionId;
       const existing = state.sessionStreams[sid] ?? { ...emptyStreamState };
       const backendStartedAt = normalizeStreamingStartedAt(action.streamingStartedAt);
+      // Only reflect workspace busy when the snapshot is for the active session.
+      // A background session's snapshot must not flip the active (possibly idle)
+      // session's workspaceStatus, which would block queued-message auto-dequeue.
+      const isActiveSnapshot = sid === (state.sessionId ?? sid);
       return {
         ...state,
-        isResyncing: false,
-        deferredStatus: undefined,
+        ...RESYNC_CLEARED,
         sessionId: state.sessionId ?? sid,
-        workspaceStatus: "busy",
+        ...(isActiveSnapshot ? { workspaceStatus: "busy" as const } : {}),
         sessionStreams: {
           ...state.sessionStreams,
           [sid]: {
@@ -291,15 +365,14 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         };
         return {
           ...state,
-          isResyncing: false,
-          deferredStatus: undefined,
+          ...RESYNC_CLEARED,
           messages: [...state.messages, assistantMsg],
           sessionStreams: newStreams,
         };
       }
       // Background session: just clean up the slot. REST fetch on switch-back
       // will include the completed message.
-      return { ...state, isResyncing: false, deferredStatus: undefined, sessionStreams: newStreams };
+      return { ...state, ...RESYNC_CLEARED, sessionStreams: newStreams };
     }
 
     case "cancelled": {
@@ -331,13 +404,12 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         };
         return {
           ...state,
-          isResyncing: false,
-          deferredStatus: undefined,
+          ...RESYNC_CLEARED,
           messages: [...state.messages, cancelledMsg],
           sessionStreams: newStreams,
         };
       }
-      return { ...state, isResyncing: false, deferredStatus: undefined, sessionStreams: newStreams };
+      return { ...state, ...RESYNC_CLEARED, sessionStreams: newStreams };
     }
 
     case "error":
@@ -348,63 +420,20 @@ function reducer(state: ConversationState, action: Action): ConversationState {
 
     case "status": {
       if (state.isResyncing) {
+        // No visible stream to protect: apply the status now and end resync so a
+        // missing authoritative bootstrap event can't leave us stuck deferring.
+        if (!hasVisibleActiveStream(state)) {
+          return reduceStatus({ ...state, ...RESYNC_CLEARED }, action);
+        }
+        // A live stream is on screen: keep the provisional status pending so we
+        // don't flash an idle UI mid-resync. Resync ends when an authoritative
+        // event (history/snapshot/done/cancelled) arrives. In a rare backend race
+        // where none arrives for this streaming session, the visible stream stays
+        // put and a later reconnect/done reconciles it — no timeout by design.
         return { ...state, deferredStatus: action };
       }
 
-      const sid = action.sessionId ?? state.sessionId;
-      const newIsStreaming = action.streaming ?? (action.status === "idle" ? false : undefined);
-      const backendStartedAt = normalizeStreamingStartedAt(action.streamingStartedAt);
-
-      let newStreams = state.sessionStreams;
-      if (sid && newIsStreaming !== undefined) {
-        const stream = state.sessionStreams[sid];
-        if (newIsStreaming) {
-          // Session started or is streaming — ensure a slot exists
-          const existing = stream ?? { ...emptyStreamState };
-          newStreams = {
-            ...state.sessionStreams,
-            [sid]: {
-              ...existing,
-              isStreaming: true,
-              // A (re)starting turn means any pending question was answered,
-              // possibly on another client (e.g. iOS).
-              pendingToolInputs: [],
-              // Prefer backend-provided start time so all clients show the same timer.
-              streamingStartedAt: backendStartedAt ?? existing.streamingStartedAt ?? Date.now(),
-            },
-          };
-        } else if (stream) {
-          // Session stopped streaming. If slot has no content, clean up.
-          if (
-            !stream.currentText &&
-            !stream.currentThinking &&
-            stream.activeToolCalls.length === 0 &&
-            stream.activeAgentActivities.length === 0 &&
-            stream.pendingToolInputs.length === 0
-          ) {
-            newStreams = deleteStream(state, sid);
-          } else {
-            newStreams = {
-              ...state.sessionStreams,
-              [sid]: { ...stream, isStreaming: false, streamingStartedAt: null },
-            };
-          }
-        }
-      }
-
-      // Only adopt sessionId from status if we don't have one yet
-      const newSessionId = (!state.sessionId && sid) ? sid : state.sessionId;
-
-      return {
-        ...state,
-        workspaceStatus: action.status,
-        sessionId: newSessionId,
-        sessionStreams: newStreams,
-        // Only update lockedProvider when explicitly present and for the active session.
-        ...(action.lockedProvider !== undefined && sid === newSessionId
-          ? { lockedProvider: action.lockedProvider }
-          : {}),
-      };
+      return reduceStatus(state, action);
     }
 
     case "history": {
@@ -431,8 +460,6 @@ function reducer(state: ConversationState, action: Action): ConversationState {
             ...state.sessionStreams,
             [historySessionId]: {
               ...emptyStreamState,
-              isStreaming: false,
-              streamingStartedAt: null,
               pendingToolInputs: hydratedPendingToolInputs,
             },
           };
@@ -443,8 +470,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
 
       return {
         ...state,
-        isResyncing: false,
-        deferredStatus: undefined,
+        ...RESYNC_CLEARED,
         messages: action.messages,
         error: undefined,
         sessionId: historySessionId ?? state.sessionId,
@@ -502,8 +528,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       return {
         ...state,
         messages: [],
-        isResyncing: false,
-        deferredStatus: undefined,
+        ...RESYNC_CLEARED,
         sessionId: action.sessionId,
         error: undefined,
         lockedProvider: undefined,
@@ -515,8 +540,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       return {
         ...state,
         messages: [],
-        isResyncing: false,
-        deferredStatus: undefined,
+        ...RESYNC_CLEARED,
         sessionId: undefined,
         workspaceStatus: undefined,
         error: undefined,
@@ -531,8 +555,7 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         ...state,
         messages: [],
         sessionStreams: sid ? deleteStream(state, sid) : {},
-        isResyncing: false,
-        deferredStatus: undefined,
+        ...RESYNC_CLEARED,
         error: undefined,
         sessionId: undefined,
       };
