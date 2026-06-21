@@ -709,7 +709,7 @@ export function useConversation(workspaceId: string | undefined) {
     // stale from a previous visit (buffered while the user was on another workspace).
     // After onMessage() returns, the flag is cleared and live errors pass through.
     let replayingBuffer = true;
-    const { unsubscribe } = wsTransport.onMessage(workspaceId, (msg) => {
+    const { unsubscribe, hadBufferedMessages } = wsTransport.onMessage(workspaceId, (msg) => {
       if (replayingBuffer && msg.type === "error" && !msg.sessionId) {
         return;
       }
@@ -762,23 +762,33 @@ export function useConversation(workspaceId: string | undefined) {
       ...sessionIdField(savedSession),
     });
 
-    // REST history is the single source of truth — always fetch on focus.
+    // REST history is the single source of truth — always fetch on focus, EXCEPT
+    // when the transport just replayed buffered live events into state during the
+    // onMessage() registration above. Those replayed turns (e.g. a finalized
+    // `done`, on top of the cache prefill) are newer than any disk snapshot this
+    // fetch could read, and a replayed done/cancelled already triggers
+    // syncSessionHistory() to reconcile authoritatively — so a mount fetch here
+    // could only clobber the fresher replayed state. (Defense in depth: the
+    // buffer is currently drained by the App-root live-data handler, but this
+    // keeps the invariant from depending on that wiring.)
     const mountSeq = fetchSeqRef.current;
-    void (async () => {
-      try {
-        const url = savedSession
-          ? `/api/workspaces/${workspaceId}/sessions/${savedSession}/messages?limit=${HISTORY_LIMIT}`
-          : `/api/workspaces/${workspaceId}/session/messages?limit=${HISTORY_LIMIT}`;
-        const res = await api.get<SessionMessagesResponse>(url);
-        // Drop if the user has since sent a message / switched session (the
-        // optimistic/live state is newer than this initial-load response).
-        if (fetchSeqRef.current !== mountSeq) return;
-        if (sessionIdRef.current && savedSession && sessionIdRef.current !== savedSession) return;
-        dispatch({ type: "set_history", sessionId: savedSession, messages: res.messages, hasMore: res.hasMore });
-      } catch {
-        // History is best-effort; WS live state still drives the in-flight turn.
-      }
-    })();
+    if (!hadBufferedMessages) {
+      void (async () => {
+        try {
+          const url = savedSession
+            ? `/api/workspaces/${workspaceId}/sessions/${savedSession}/messages?limit=${HISTORY_LIMIT}`
+            : `/api/workspaces/${workspaceId}/session/messages?limit=${HISTORY_LIMIT}`;
+          const res = await api.get<SessionMessagesResponse>(url);
+          // Drop if the user has since sent a message / switched session (the
+          // optimistic/live state is newer than this initial-load response).
+          if (fetchSeqRef.current !== mountSeq) return;
+          if (sessionIdRef.current && savedSession && sessionIdRef.current !== savedSession) return;
+          dispatch({ type: "set_history", sessionId: savedSession, messages: res.messages, hasMore: res.hasMore });
+        } catch {
+          // History is best-effort; WS live state still drives the in-flight turn.
+        }
+      })();
+    }
 
     return () => {
       // Remember which session was active before leaving this workspace.
