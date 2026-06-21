@@ -21,10 +21,9 @@ struct ChatActivityRowLabel: View {
     var isExpanded: Bool?
     var accessoryIcons: [String] = []
     var executing = false
-    @State private var pulse = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(alignment: .center, spacing: 6) {
             if let isExpanded {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 8, weight: .semibold))
@@ -107,18 +106,47 @@ struct ChatActivityRowLabel: View {
             }
 
             if executing {
-                // Theme-colored, position-stable pulse (matches the web's
-                // `bg-primary animate-pulse` and the TaskTracker in-progress dot).
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 5, height: 5)
-                    .opacity(pulse ? 1 : 0.4)
-                    .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
-                    .onAppear { pulse = true }
+                ExecutingPulseDot()
             }
         }
         .padding(.vertical, 3)
         .contentShape(Rectangle())
+    }
+}
+
+private struct ExecutingPulseDot: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private let size: CGFloat = 5
+    private let period: TimeInterval = 1.6
+
+    var body: some View {
+        Group {
+            if reduceMotion {
+                dot(opacity: 1)
+            } else {
+                TimelineView(.animation) { timeline in
+                    dot(opacity: opacity(at: timeline.date))
+                }
+            }
+        }
+        .frame(width: size, height: size, alignment: .center)
+        .fixedSize()
+        .accessibilityHidden(true)
+    }
+
+    private func dot(opacity: Double) -> some View {
+        Circle()
+            .fill(Color.accentColor)
+            .frame(width: size, height: size)
+            .opacity(opacity)
+    }
+
+    private func opacity(at date: Date) -> Double {
+        let progress = (date.timeIntervalSinceReferenceDate / period)
+            .truncatingRemainder(dividingBy: 1)
+        let wave = (cos(progress * .pi * 2) + 1) / 2
+        return 0.4 + wave * 0.6
     }
 }
 
