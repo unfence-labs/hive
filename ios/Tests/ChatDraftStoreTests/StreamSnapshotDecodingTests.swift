@@ -4,8 +4,9 @@ import Testing
 
 /// Wire-format decoding tests for the PRD #254 protocol additions: the
 /// consolidated `stream_snapshot` event, the new lazy-output `ToolCall` /
-/// `command_execution` scalars, the required `done.messageId`, and the optional
-/// `cancelled.messageId`. Kept in sync with backend/frontend types.
+/// `command_execution` scalars, and the optional `done.messageId` /
+/// `cancelled.messageId` (present only when the turn persisted a message). Kept
+/// in sync with backend/frontend types.
 struct StreamSnapshotDecodingTests {
     private func decodeEvent(_ json: String) throws -> WsOutgoing {
         let envelope = try decodeHubEnvelope(json)
@@ -193,7 +194,30 @@ struct StreamSnapshotDecodingTests {
     // MARK: - done / cancelled message id
 
     @Test
-    func decodesDoneWithRequiredMessageId() throws {
+    func decodesDoneWithoutMessageId() throws {
+        // Empty turn: the backend omits messageId entirely.
+        let event = try decodeEvent("""
+        {
+          "workspaceId": "ws-1",
+          "event": {
+            "type": "done",
+            "sessionId": "session-1",
+            "durationMs": 10
+          }
+        }
+        """)
+
+        guard case .done(let sid, let messageId, let durationMs, _, _, _, _, _) = event else {
+            Issue.record("Expected done event")
+            return
+        }
+        #expect(sid == "session-1")
+        #expect(messageId == nil)
+        #expect(durationMs == 10)
+    }
+
+    @Test
+    func decodesDoneWithMessageId() throws {
         let event = try decodeEvent("""
         {
           "workspaceId": "ws-1",

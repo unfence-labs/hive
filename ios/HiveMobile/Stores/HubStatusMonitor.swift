@@ -97,6 +97,27 @@ final class HubStatusMonitor {
         }
     }
 
+    /// Refetch REST history for every store with a focused session after a
+    /// (re)connect (PRD #254 reconnect message-loss fix). `refocusFocusedSessions`
+    /// only re-pulls the LIVE snapshot (`switch_session` → `stream_snapshot`),
+    /// and the backend sends that snapshot only while the session is STILL
+    /// streaming. A turn that COMPLETED while the app was backgrounded/disconnected
+    /// is therefore never delivered over the wire — it stays invisible until the
+    /// user manually switches session or reopens ChatView. Pulling REST history
+    /// here closes that gap.
+    ///
+    /// Invoked AFTER `refocusFocusedSessions` so ordering is sync → refocus →
+    /// refetch. Each store's `refetchFocusedHistory` honors the focus and
+    /// history-token guards, so a stale refetch can't clobber newer state.
+    fileprivate func refetchFocusedHistory() async {
+        for (workspaceId, store) in storeCache.stores {
+            guard store.sessionId != nil else { continue }
+            await store.refetchFocusedHistory { sessionId in
+                try await self.apiClient.fetchMessages(workspaceId: workspaceId, sessionId: sessionId)
+            }
+        }
+    }
+
     // MARK: - Public accessors
 
     func isStreaming(_ workspaceId: String) -> Bool {
@@ -326,11 +347,6 @@ final class HubStatusMonitor {
 
     fileprivate func didReceiveActivity(_ event: WsOutgoing, for workspaceId: String) {
         switch event {
-        case .history(let messages, _):
-            guard let latest = messages.compactMap({ parseTimestamp($0.timestamp) }).max() else {
-                return
-            }
-            markActivity(for: workspaceId, at: latest)
         case .status(_, _, let streaming, _, _):
             if streaming == true {
                 markActivity(for: workspaceId)
@@ -484,6 +500,10 @@ private final class HubConnection {
                 _ = await self.send(.syncWorkspaces(workspaceIds: Array(workspaceIds)))
             }
             await self.monitor?.refocusFocusedSessions()
+            // After the live re-pull, ALSO refetch REST history so a turn that
+            // COMPLETED while backgrounded (no live snapshot) is recovered. Order
+            // is sync → refocus → refetch; the refetch honors focus/token guards.
+            await self.monitor?.refetchFocusedHistory()
         }
     }
 

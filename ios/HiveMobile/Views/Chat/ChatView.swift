@@ -15,6 +15,10 @@ struct ChatView: View {
     @State private var draftAttachments: [ImageAttachment] = []
     /// Debounce handle that coalesces rapid streaming updates into one scroll.
     @State private var scrollDebounce: Task<Void, Never>?
+    /// Previous message head/count, used to tell a prepend (load-earlier) from an
+    /// append (new turn) so "Load earlier" doesn't yank the user to the bottom.
+    @State private var prevFirstMessageId: String?
+    @State private var prevMessageCount = 0
 
     @Environment(ModelCatalog.self) private var modelCatalog
     @Environment(ProjectStore.self) private var projectStore
@@ -175,7 +179,19 @@ struct ChatView: View {
                         scrollToBottom(proxy)
                     }
                     .onChange(of: store.messages.count) {
-                        scheduleScroll(proxy)
+                        // Distinguish a prepend (load-earlier) from an append (new
+                        // turn): only the latter should scroll to the bottom. A
+                        // prepend grows the count but changes the head id, so
+                        // chasing the bottom would undo the user's scroll position.
+                        let shouldScroll = ConversationStore.shouldScrollToBottom(
+                            prevFirstId: prevFirstMessageId,
+                            newFirstId: store.messages.first?.id,
+                            prevCount: prevMessageCount,
+                            newCount: store.messages.count
+                        )
+                        prevFirstMessageId = store.messages.first?.id
+                        prevMessageCount = store.messages.count
+                        if shouldScroll { scheduleScroll(proxy) }
                     }
                     .onChange(of: store.isStreaming) {
                         scheduleScroll(proxy)

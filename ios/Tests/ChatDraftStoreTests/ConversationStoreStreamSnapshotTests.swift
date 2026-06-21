@@ -237,7 +237,7 @@ struct ConversationStoreStreamSnapshotTests {
     }
 
     @Test @MainActor
-    func emptyDoneTurnProducesNoBubble() {
+    func emptyDoneTurnOmitsMessageIdAndProducesNoBubble() {
         let store = ConversationStore()
         store.setFocusedSessionId("session-1")
         // Stream slot exists but accumulated no displayable content.
@@ -246,9 +246,11 @@ struct ConversationStoreStreamSnapshotTests {
             streaming: true, streamingStartedAt: nil, lockedProvider: nil
         ))
 
+        // Empty turn: the backend persists nothing and omits messageId, so its
+        // absence is the single signal that no bubble should be appended.
         store.handle(.done(
             sessionId: "session-1",
-            messageId: "server-empty-1",
+            messageId: nil,
             durationMs: 10,
             inputTokens: nil, outputTokens: nil,
             contextUsedTokens: nil, contextWindowTokens: nil,

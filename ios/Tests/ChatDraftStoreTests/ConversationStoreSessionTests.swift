@@ -3,23 +3,34 @@ import Testing
 @testable import HiveMobileStoresCore
 
 struct ConversationStoreSessionTests {
+    /// Seed a session's history via the REST path (the WS `history` event was
+    /// removed in PRD #254): focus the session, then apply a one-message page.
+    @MainActor
+    private func seedHistory(_ store: ConversationStore, sessionId: String) {
+        store.setFocusedSessionId(sessionId)
+        store.applyMessagesPage(MessagesPage(
+            messages: [
+                ChatMessage(
+                    id: "message-1",
+                    sessionId: sessionId,
+                    role: .user,
+                    content: "Hello",
+                    images: nil,
+                    toolCalls: nil,
+                    thinkingContent: nil,
+                    timestamp: "2026-01-01T00:00:00.000Z",
+                    cancelled: nil,
+                    durationMs: nil
+                )
+            ],
+            hasMore: false
+        ))
+    }
+
     @Test @MainActor
     func prepareSessionSwitchClearsVisibleStateAndInvalidatesHistoryTokens() {
         let store = ConversationStore()
-        store.handle(.history(messages: [
-            ChatMessage(
-                id: "message-1",
-                sessionId: "session-1",
-                role: .user,
-                content: "Hello",
-                images: nil,
-                toolCalls: nil,
-                thinkingContent: nil,
-                timestamp: "2026-01-01T00:00:00.000Z",
-                cancelled: nil,
-                durationMs: nil
-            )
-        ], sessionId: "session-1"))
+        seedHistory(store, sessionId: "session-1")
         store.handle(.status(
             status: .busy,
             sessionId: "session-1",
@@ -58,20 +69,7 @@ struct ConversationStoreSessionTests {
     @Test @MainActor
     func removeActiveSessionStateFallsBackToNextSession() {
         let store = ConversationStore()
-        store.handle(.history(messages: [
-            ChatMessage(
-                id: "message-1",
-                sessionId: "session-1",
-                role: .user,
-                content: "Hello",
-                images: nil,
-                toolCalls: nil,
-                thinkingContent: nil,
-                timestamp: "2026-01-01T00:00:00.000Z",
-                cancelled: nil,
-                durationMs: nil
-            )
-        ], sessionId: "session-1"))
+        seedHistory(store, sessionId: "session-1")
         store.handle(.status(
             status: .busy,
             sessionId: "session-1",
@@ -103,20 +101,7 @@ struct ConversationStoreSessionTests {
     @Test @MainActor
     func removeActiveSessionStateClearsFocusWithoutFallback() {
         let store = ConversationStore()
-        store.handle(.history(messages: [
-            ChatMessage(
-                id: "message-1",
-                sessionId: "session-1",
-                role: .user,
-                content: "Hello",
-                images: nil,
-                toolCalls: nil,
-                thinkingContent: nil,
-                timestamp: "2026-01-01T00:00:00.000Z",
-                cancelled: nil,
-                durationMs: nil
-            )
-        ], sessionId: "session-1"))
+        seedHistory(store, sessionId: "session-1")
         store.handle(.status(
             status: .busy,
             sessionId: "session-1",
@@ -138,20 +123,7 @@ struct ConversationStoreSessionTests {
     @Test @MainActor
     func removeBackgroundSessionStateKeepsActiveConversation() {
         let store = ConversationStore()
-        store.handle(.history(messages: [
-            ChatMessage(
-                id: "message-1",
-                sessionId: "session-1",
-                role: .user,
-                content: "Hello",
-                images: nil,
-                toolCalls: nil,
-                thinkingContent: nil,
-                timestamp: "2026-01-01T00:00:00.000Z",
-                cancelled: nil,
-                durationMs: nil
-            )
-        ], sessionId: "session-1"))
+        seedHistory(store, sessionId: "session-1")
         store.handle(.status(
             status: .busy,
             sessionId: "session-2",

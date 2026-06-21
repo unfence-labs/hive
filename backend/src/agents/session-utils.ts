@@ -1,5 +1,6 @@
 import type { ChatMessage, ToolCall } from "../types.js";
 import type { AgentActivity } from "@hive/shared/agent-activity";
+import { outputByteLength, outputLineCount } from "@hive/shared/agent-activity";
 
 /** Parse a `messages.jsonl` blob into ChatMessages, skipping malformed lines. */
 export function parseJsonlMessages(raw: string): ChatMessage[] {
@@ -64,8 +65,8 @@ function sliceUtf8(text: string, maxBytes: number): string {
  * byte length); the preview is the first {@link OUTPUT_PREVIEW_BYTES} bytes.
  */
 export function computeTruncatedField(full: string): TruncatedField {
-  const byteLength = Buffer.byteLength(full, "utf-8");
-  const lineCount = full.length === 0 ? 0 : full.split("\n").length;
+  const byteLength = outputByteLength(full);
+  const lineCount = outputLineCount(full);
   const truncated = byteLength > OUTPUT_PREVIEW_BYTES;
   return {
     preview: truncated ? sliceUtf8(full, OUTPUT_PREVIEW_BYTES) : full,

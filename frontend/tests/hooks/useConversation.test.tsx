@@ -2937,6 +2937,70 @@ describe("useConversation", () => {
         sessionId: "sess-active",
       });
     });
+
+    it("refetches REST history on reconnect to recover a turn that completed while disconnected", async () => {
+      const { __wsMock } = await getWsMock();
+      const { __apiMock } = await getApiMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-active", streaming: true });
+      });
+      expect(result.current.sessionId).toBe("sess-active");
+      // Drop the mount-time pull so the assertion targets only the
+      // reconnect-triggered REST refetch.
+      __apiMock.getMock.mockClear();
+
+      // The turn that finished during the disconnect is only available via REST;
+      // the live snapshot path can't deliver it because the session is no longer
+      // streaming once we reconnect.
+      __apiMock.getMock.mockResolvedValueOnce(historyResponse([
+        {
+          id: "u1",
+          sessionId: "sess-active",
+          role: "user",
+          content: "before disconnect",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+        {
+          id: "a1",
+          sessionId: "sess-active",
+          role: "assistant",
+          content: "completed while socket was down",
+          timestamp: "2026-02-12T00:00:01.000Z",
+        },
+      ]));
+
+      await act(async () => {
+        __wsMock.triggerReconnect("ws-1");
+        await Promise.resolve();
+      });
+
+      expect(__apiMock.getMock).toHaveBeenCalledWith(
+        "/api/workspaces/ws-1/sessions/sess-active/messages?limit=200",
+      );
+      await waitFor(() => {
+        expect(result.current.messages).toEqual([
+          expect.objectContaining({ id: "u1", content: "before disconnect" }),
+          expect.objectContaining({ id: "a1", content: "completed while socket was down" }),
+        ]);
+      });
+    });
+
+    it("does not refetch REST history on reconnect when no session is active", async () => {
+      const { __wsMock } = await getWsMock();
+      const { __apiMock } = await getApiMock();
+      renderHook(() => useConversation("ws-1"));
+      // Drop the mount-time pull so the assertion isolates the reconnect path.
+      __apiMock.getMock.mockClear();
+
+      act(() => {
+        __wsMock.triggerReconnect("ws-1");
+      });
+
+      // No session id → nothing to refetch (the bare switch_session resolves it).
+      expect(__apiMock.getMock).not.toHaveBeenCalled();
+    });
   });
 
   describe("finalization dedup by server message id", () => {
@@ -2973,7 +3037,7 @@ describe("useConversation", () => {
       expect(result.current.messages.filter((m) => m.role === "assistant")).toHaveLength(1);
     });
 
-    it("does not append an empty assistant bubble when the done turn has no content", async () => {
+    it("does not append an empty assistant bubble when done omits messageId", async () => {
       const { __wsMock } = await getWsMock();
       const { result } = renderHook(() => useConversation("ws-1"));
 
@@ -2982,13 +3046,38 @@ describe("useConversation", () => {
           type: "user_message",
           message: { id: "u1", sessionId: "sess-1", role: "user", content: "noop", timestamp: "2026-02-20T00:00:00.000Z" },
         });
-        // No text/tools produced — an empty turn.
-        __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", messageId: "empty-1" });
+        // Empty turn: the backend persists nothing and omits messageId, so its
+        // absence is the single signal that no bubble should be appended.
+        __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1" });
       });
 
       // Only the user message remains; no empty assistant bubble.
       expect(result.current.messages).toHaveLength(1);
       expect(result.current.messages[0]?.role).toBe("user");
+    });
+
+    it("appends one deduped assistant bubble when done carries messageId", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", {
+          type: "user_message",
+          message: { id: "u1", sessionId: "sess-1", role: "user", content: "hi", timestamp: "2026-02-20T00:00:00.000Z" },
+        });
+        __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "hello back" });
+        __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", messageId: "asst-1" });
+      });
+
+      const assistants = result.current.messages.filter((m) => m.role === "assistant");
+      expect(assistants).toHaveLength(1);
+      expect(assistants[0]).toMatchObject({ id: "asst-1", content: "hello back" });
+
+      // A re-delivered done (e.g. after reconnect) must not double the bubble.
+      act(() => {
+        __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", messageId: "asst-1" });
+      });
+      expect(result.current.messages.filter((m) => m.role === "assistant")).toHaveLength(1);
     });
   });
 

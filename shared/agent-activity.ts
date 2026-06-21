@@ -1,3 +1,22 @@
+// ── Output scalar primitives (shared by backend + frontend) ──────────
+//
+// The single source for the two heavy-output scalars used by both the backend
+// REST-history truncation (`computeTruncatedField`) and the frontend live
+// scalar computation (`computeOutputScalars`). Keeping them here prevents the
+// line-count / byte-length formulas from drifting between packages.
+
+/** Exact line count of a full output string: newlines + 1, 0 when empty. */
+export function outputLineCount(s: string): number {
+  return s.length === 0 ? 0 : s.split("\n").length;
+}
+
+/** Exact UTF-8 byte length of a full output string. */
+export function outputByteLength(s: string): number {
+  // TextEncoder is available in both Node (18+) and the browser, so this single
+  // implementation is portable across both consumers.
+  return new TextEncoder().encode(s).length;
+}
+
 export interface AgentActivityFile {
   path: string;
   /** Full unified diff. Bounded by edit size; never truncated in REST history. */

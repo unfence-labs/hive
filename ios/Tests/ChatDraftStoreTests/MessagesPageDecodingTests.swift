@@ -88,7 +88,14 @@ struct MessagesPageDecodingTests {
         #expect(tool.outputLineCount == 9000)
     }
 
-    // MARK: - Live output scalar computation (matches backend)
+    // MARK: - Live output scalar computation
+    //
+    // The TS line-count / byte-length formulas now live once in
+    // @hive/shared/agent-activity (outputLineCount / outputByteLength), consumed
+    // by both backend computeTruncatedField and frontend computeOutputScalars.
+    // iOS keeps its own Swift copy (it cannot import TS); these cases pin that
+    // copy to the same semantics: empty => 0 lines / 0 bytes, line count =
+    // newlines + 1, byte length = UTF-8 bytes.
 
     @Test
     func computesScalarsForEmptyOutput() {

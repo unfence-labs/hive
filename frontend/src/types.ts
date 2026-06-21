@@ -436,8 +436,10 @@ export type WsOutgoing =
   | {
       type: "done";
       sessionId: string;
-      /** Server-persisted message id for the finalized assistant turn. */
-      messageId: string;
+      /** Server-persisted message id for the finalized assistant turn. Present
+       *  only when the turn persisted a message; its presence is the single
+       *  signal that the turn had displayable content (omitted for empty turns). */
+      messageId?: string;
       durationMs?: number;
       inputTokens?: number;
       outputTokens?: number;
@@ -459,7 +461,6 @@ export type WsOutgoing =
       streamingStartedAt: number;
     }
   | { type: "user_message"; message: ChatMessage }
-  | { type: "history"; messages: ChatMessage[]; sessionId?: string }
   | { type: "branch_info"; info: BranchInfo }
   | { type: "diff_stats"; stats: DiffStatResponse }
   | { type: "script_status"; scriptType: ScriptType; state: ScriptState; exitCode?: number }

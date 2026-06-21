@@ -28,6 +28,30 @@ final class ConversationStore {
         outgoingTimestampFormatter.string(from: Date())
     }
 
+    /// Decide whether a `messages.count` change should scroll the chat to the
+    /// bottom (PRD #254 "Load earlier" fix). A PREPEND (load-earlier) inserts
+    /// older messages at index 0, which ALSO grows `messages.count` — scrolling
+    /// on it would yank the user back to the bottom and make the feature
+    /// unusable. An APPEND (new message / streaming finalize) must still scroll.
+    ///
+    /// Distinguisher: an append leaves `messages.first?.id` unchanged; a prepend
+    /// changes it. The first-ever population (`prevFirstId == nil`) and a list
+    /// becoming empty are treated as scroll-to-bottom so opening a chat lands at
+    /// the latest turn.
+    static func shouldScrollToBottom(
+        prevFirstId: String?,
+        newFirstId: String?,
+        prevCount: Int,
+        newCount: Int
+    ) -> Bool {
+        // No growth (or a shrink, e.g. clear on switch) — nothing to chase.
+        guard newCount > prevCount else { return false }
+        // Initial population from empty: land at the bottom.
+        guard let prevFirstId else { return true }
+        // Append keeps the head stable; prepend replaces it. Only scroll on append.
+        return prevFirstId == newFirstId
+    }
+
     // MARK: - Public state
 
     /// Send closure wired by HubStatusMonitor to the workspace's WS connection.
@@ -300,22 +324,6 @@ final class ConversationStore {
             sessionStreams[sid]?.activeAgentActivities = []
             sessionStreams[sid]?.pendingToolInputs = []
 
-        case .history(let msgs, let incomingSessionId):
-            let historySessionId = incomingSessionId ?? msgs.first?.sessionId ?? sessionId
-            // Only update messages for the active session
-            guard historySessionId == nil || sessionId == nil || historySessionId == sessionId else { return }
-
-            // Always apply history — it contains finalized turns only.
-            // Streaming content lives in sessionStreams and is appended
-            // separately by displayMessages.
-            messages = msgs
-            bumpHistoryToken(for: historySessionId)
-            sessionId = historySessionId ?? sessionId
-
-            // Derive pending tool inputs from history only when not actively
-            // streaming (during streaming, live WS tool inputs take precedence).
-            applyDerivedPendingToolInputs(from: msgs, for: historySessionId)
-
         case .branchInfo(let info):
             branchInfo = info
 
@@ -371,6 +379,32 @@ final class ConversationStore {
         sessionId = value
     }
 
+    /// Refetch REST history for the currently focused session and replace the
+    /// window (PRD #254 reconnect message-loss fix). After the live/REST split a
+    /// reconnect only re-pulls the live `stream_snapshot`, which the backend
+    /// sends only while the session is STILL streaming — so a turn that COMPLETED
+    /// while the app was backgrounded is never delivered until the user manually
+    /// re-opens the session. Pulling REST history on reconnect closes that gap.
+    ///
+    /// Honors the same focus / history-token guards as `ChatView.loadMessages`
+    /// so a slow refetch cannot clobber newer state: the token is observed at
+    /// start and re-checked before applying, and the focus must be unchanged.
+    /// `fetch` is injected so this is testable without a live network.
+    func refetchFocusedHistory(
+        fetch: (_ sessionId: String) async throws -> MessagesPage
+    ) async {
+        guard let sessionId else { return }
+        let tokenAtStart = beginHistoryRequest(for: sessionId)
+        do {
+            let page = try await fetch(sessionId)
+            guard self.sessionId == sessionId else { return }
+            guard historyToken(for: sessionId) == tokenAtStart else { return }
+            applyMessagesPage(page)
+        } catch {
+            // Best-effort — live WS state and the previous window remain.
+        }
+    }
+
     /// Apply a REST history page as the message window for `sessionId` (PRD
     /// #254): replace `messages` with the page and record `hasMore` so the
     /// "Load earlier" affordance reflects whether older turns exist. History
@@ -379,12 +413,12 @@ final class ConversationStore {
     func applyMessagesPage(_ page: MessagesPage) {
         messages = page.messages
         hasMoreEarlier = page.hasMore
-        // REST is now the single source of truth for history, so the pending
-        // question / plan-approval derivation that used to live on the WS
-        // `.history` handler must also run here (PRD #254 Finding #3) — else a
-        // session parked on an AskUserQuestion/ExitPlanMode shows no answer
-        // sheet on open. Skipped while the focused session is actively
-        // streaming, where live WS tool inputs win (mirrors web `set_history`).
+        // REST is the single source of truth for history (the WS `history` event
+        // was removed), so the pending question / plan-approval derivation runs
+        // here (PRD #254 Finding #3) — else a session parked on an
+        // AskUserQuestion/ExitPlanMode shows no answer sheet on open. Skipped
+        // while the focused session is actively streaming, where live WS tool
+        // inputs win (mirrors web `set_history`).
         applyDerivedPendingToolInputs(from: page.messages, for: sessionId)
     }
 
@@ -506,6 +540,9 @@ final class ConversationStore {
         guard let stream = sessionStreams[sid] else { return }
 
         let isActive = sid == sessionId
+        // `hasContent` only decides the cancelled bubble shape (content vs the
+        // "Stopped" placeholder). For `done`, the presence of `messageId` is the
+        // single signal that the turn had displayable content (mirrors web).
         let hasContent = !stream.currentText.isEmpty || !stream.activeToolCalls.isEmpty
             || !stream.activeAgentActivities.isEmpty || !stream.currentThinking.isEmpty
 
@@ -516,6 +553,10 @@ final class ConversationStore {
         sessionStreams.removeValue(forKey: sid)
 
         guard isActive else { return }
+
+        // An empty `done` omits messageId — append nothing. The `cancelled` path
+        // still shows a "Stopped" bubble even without a messageId.
+        if !cancelled && messageId == nil { return }
 
         // Dedup by server id: if REST already brought this message in (or a
         // re-delivered done fires twice), do not append a second copy.
@@ -559,10 +600,10 @@ final class ConversationStore {
     }
 
     /// Derive pending tool inputs from a loaded history window and store them on
-    /// the session's stream slot (PRD #254 Finding #3). Shared by the WS
-    /// `.history` handler and the REST `applyMessagesPage` path so both hydrate
-    /// the answer sheet identically. Skipped when the session is actively
-    /// streaming: live WS tool inputs take precedence (mirrors web's
+    /// the session's stream slot (PRD #254 Finding #3). Driven by the REST
+    /// `applyMessagesPage` path (REST is the single source of history). Skipped
+    /// when the session is actively streaming: live WS tool inputs take
+    /// precedence (mirrors web's
     /// `set_history`, which only derives when not streaming).
     private func applyDerivedPendingToolInputs(from msgs: [ChatMessage], for sid: String?) {
         let stream = sid.flatMap { sessionStreams[$0] }

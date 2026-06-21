@@ -118,7 +118,7 @@ enum WsOutgoing: Decodable {
     case agentActivity(sessionId: String, activity: AgentActivity)
     case toolInputRequired(sessionId: String, requestId: String, toolName: String, toolUseId: String, input: String)
     case toolInputResolved(sessionId: String)
-    case done(sessionId: String, messageId: String, durationMs: Int?, inputTokens: Int?, outputTokens: Int?, contextUsedTokens: Int?, contextWindowTokens: Int?, pendingToolName: String?)
+    case done(sessionId: String, messageId: String?, durationMs: Int?, inputTokens: Int?, outputTokens: Int?, contextUsedTokens: Int?, contextWindowTokens: Int?, pendingToolName: String?)
     case error(message: String, sessionId: String?)
     case cancelled(sessionId: String, messageId: String?, errorDetail: String?, userInitiated: Bool?, durationMs: Int?)
     case status(status: WorkspaceStatus, sessionId: String?, streaming: Bool?, streamingStartedAt: Double?, lockedProvider: String?)
@@ -126,7 +126,6 @@ enum WsOutgoing: Decodable {
     // replace semantics. Applied by replacing the session's stream accumulators.
     case streamSnapshot(sessionId: String, text: String, thinking: String, toolCalls: [ToolCall], agentActivities: [AgentActivity], planMode: Bool, streamingStartedAt: Double)
     case userMessage(message: ChatMessage)
-    case history(messages: [ChatMessage], sessionId: String?)
     case branchInfo(info: BranchInfo)
     case diffStats(stats: DiffStatResponse)
     case scriptStatus(scriptType: String, state: String, exitCode: Int?)
@@ -142,7 +141,7 @@ enum WsOutgoing: Decodable {
         case errorDetail, userInitiated
         case message, status, streaming, streamingStartedAt, lockedProvider
         case thinking, toolCalls, agentActivities, planMode
-        case messages, info, stats
+        case info, stats
         case scriptType, state, exitCode
         case active
     }
@@ -246,9 +245,10 @@ enum WsOutgoing: Decodable {
                 doneContextWindowTokens = nil
             }
             let donePendingToolName = try container.decodeIfPresent(String.self, forKey: .pendingToolName)
-            // messageId is the persisted assistant message id for this turn; used
-            // to append the optimistic message and dedup the next REST fetch.
-            let doneMessageId = try container.decode(String.self, forKey: .messageId)
+            // messageId is present only when the turn persisted a message; its
+            // presence is the single signal that the turn had displayable content
+            // (used to append the optimistic message and dedup the next REST fetch).
+            let doneMessageId = try container.decodeIfPresent(String.self, forKey: .messageId)
             self = .done(sessionId: doneSessionId, messageId: doneMessageId, durationMs: doneDuration,
                          inputTokens: doneInputTokens, outputTokens: doneOutputTokens,
                          contextUsedTokens: doneContextUsedTokens,
@@ -294,11 +294,6 @@ enum WsOutgoing: Decodable {
             )
         case "user_message":
             self = .userMessage(message: try container.decode(ChatMessage.self, forKey: .message))
-        case "history":
-            self = .history(
-                messages: try container.decode([ChatMessage].self, forKey: .messages),
-                sessionId: try container.decodeIfPresent(String.self, forKey: .sessionId)
-            )
         case "branch_info":
             self = .branchInfo(info: try container.decode(BranchInfo.self, forKey: .info))
         case "diff_stats":

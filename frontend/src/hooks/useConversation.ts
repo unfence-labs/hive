@@ -11,6 +11,7 @@ import type {
   QuestionAnswer,
   QuestionInput,
 } from "@/types";
+import { outputByteLength, outputLineCount } from "@hive/shared/agent-activity";
 import { wsTransport } from "@/lib/ws-transport";
 import { api } from "@/hooks/useApi";
 
@@ -107,8 +108,8 @@ function computeOutputScalars(output: string): Pick<
   return {
     output,
     outputPreview: output,
-    outputLineCount: output.length === 0 ? 0 : output.split("\n").length,
-    outputByteLength: new TextEncoder().encode(output).length,
+    outputLineCount: outputLineCount(output),
+    outputByteLength: outputByteLength(output),
     outputTruncated: false,
   };
 }
@@ -179,16 +180,6 @@ function upsertActivity(activities: AgentActivity[], activity: AgentActivity): A
   const index = activities.findIndex((item) => item.id === activity.id);
   if (index < 0) return [...activities, activity];
   return activities.map((item, itemIndex) => itemIndex === index ? activity : item);
-}
-
-/** True when a finalized turn has nothing displayable (guards the empty-bubble edge). */
-function turnHasContent(stream: SessionStreamState): boolean {
-  return (
-    stream.currentText.length > 0 ||
-    stream.currentThinking.length > 0 ||
-    stream.activeToolCalls.length > 0 ||
-    stream.activeAgentActivities.length > 0
-  );
 }
 
 function reducer(state: ConversationState, action: Action): ConversationState {
@@ -318,11 +309,11 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       const newStreams = deleteStream(state, sid);
 
       // Append the optimistic assistant message under the SERVER message id so
-      // the next REST history fetch dedups by id (no client random id). Guard
-      // the empty-turn edge: a done may reference a turn with no displayable
-      // content — do not append an empty bubble.
+      // the next REST history fetch dedups by id (no client random id). The
+      // presence of messageId is the single signal that the turn had displayable
+      // content: an empty turn omits it, so no empty bubble is appended.
       const alreadyExists = state.messages.some((m) => m.id === action.messageId);
-      if (isActive && turnHasContent(stream) && !alreadyExists) {
+      if (isActive && action.messageId && !alreadyExists) {
         const assistantMsg: ChatMessage = {
           id: action.messageId,
           sessionId: sid,
@@ -750,6 +741,15 @@ export function useConversation(workspaceId: string | undefined) {
         type: "switch_session",
         ...sessionIdField(sessionIdRef.current),
       });
+      // The switch_session above only re-pulls the live snapshot, and the
+      // backend sends a stream_snapshot only if the session is STILL streaming.
+      // A turn that COMPLETED while the socket was down is never delivered, so
+      // refetch REST history to pull any finalized turn from the disconnect
+      // window. set_history replaces finalized messages; the snapshot (if any)
+      // repopulates the live slot — the two don't fight.
+      if (sessionIdRef.current) {
+        void syncSessionHistory(sessionIdRef.current);
+      }
     });
 
     // Always pull on focus so an already-subscribed, currently-streaming workspace

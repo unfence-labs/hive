@@ -424,7 +424,10 @@ export type WsOutgoing =
   | {
       type: "done";
       sessionId: string;
-      messageId: string;
+      /** Present only when this turn persisted a message; its presence is the
+       *  single signal that the turn had displayable content. Omitted for a
+       *  genuinely empty turn. */
+      messageId?: string;
       durationMs?: number;
       inputTokens?: number;
       outputTokens?: number;
@@ -446,7 +449,6 @@ export type WsOutgoing =
       streamingStartedAt: number;
     }
   | { type: "user_message"; message: ChatMessage }
-  | { type: "history"; messages: ChatMessage[]; sessionId?: string }
   | { type: "branch_info"; info: BranchInfo }
   | { type: "diff_stats"; stats: DiffStatResponse }
   | { type: "script_status"; scriptType: ScriptType; state: ScriptState; exitCode?: number }

@@ -280,7 +280,7 @@ describe("WS /ws/hub", () => {
     await new Promise((r) => setTimeout(r, 100));
 
     expect(messages[0]).toEqual({ type: "status", status: "idle", streaming: false });
-    expect(messages.some((m) => m.type === "history")).toBe(false);
+    expect(messages.some((m) => (m.type as string) === "history")).toBe(false);
 
     ws.close();
   });
@@ -301,7 +301,7 @@ describe("WS /ws/hub", () => {
       expect(messages[0].sessionId).toBeTruthy();
       expect(messages[0].streaming).toBe(false);
     }
-    expect(messages.some((m) => m.type === "history")).toBe(false);
+    expect(messages.some((m) => (m.type as string) === "history")).toBe(false);
 
     ws.close();
     await endSession(wsId, dataDir);
@@ -413,7 +413,7 @@ describe("WS /ws/hub", () => {
 
     // Live/history split: no history event, and the snapshot is consolidated —
     // not a sequence of synthetic text_delta / tool_use / agent_activity events.
-    expect(messages.some((m) => m.type === "history")).toBe(false);
+    expect(messages.some((m) => (m.type as string) === "history")).toBe(false);
     expect(messages.some((m) => m.type === "text_delta")).toBe(false);
     expect(messages.some((m) => m.type === "tool_use")).toBe(false);
     expect(messages.some((m) => m.type === "tool_result")).toBe(false);
@@ -465,7 +465,7 @@ describe("WS /ws/hub", () => {
     expect(snap.toolCalls).toEqual([
       { id: "toolu-switch", name: "Bash", input: "{}", output: "ok" },
     ]);
-    expect(afterSwitch.some((m) => m.type === "history")).toBe(false);
+    expect(afterSwitch.some((m) => (m.type as string) === "history")).toBe(false);
 
     ws.close();
     await local.app.close();
@@ -527,7 +527,7 @@ describe("WS /ws/hub", () => {
     ]);
     // A status accompanies the snapshot; no history on the WS path.
     expect(afterPull.some((m) => m.type === "status")).toBe(true);
-    expect(afterPull.some((m) => m.type === "history")).toBe(false);
+    expect(afterPull.some((m) => (m.type as string) === "history")).toBe(false);
 
     ws.close();
     await local.app.close();
@@ -653,10 +653,15 @@ describe("WS /ws/hub", () => {
 
   it("emits a done event carrying the persisted assistant message id", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-done-id.sh");
-    // Stream some text, then exit cleanly so finalizeTurn persists a message.
+    // Emit a real stream-json assistant line so finalizeTurn persists a message
+    // (and the done event therefore carries its id).
+    const assistantLine = JSON.stringify({
+      type: "assistant",
+      message: { id: "m", role: "assistant", content: [{ type: "text", text: "hello from the agent" }] },
+    });
     await writeFile(
       fakeClaudePath,
-      "#!/bin/sh\nprintf 'hello from the agent\\n'\n",
+      `#!/bin/sh\ncat <<'EOF'\n${assistantLine}\nEOF\n`,
       "utf-8",
     );
     await chmod(fakeClaudePath, 0o755);
@@ -673,8 +678,36 @@ describe("WS /ws/hub", () => {
 
     const done = messages.find((m) => m.type === "done");
     if (!done || done.type !== "done") throw new Error("Expected a done event");
+    // This turn produced output, so a message was persisted and its id is
+    // attached. (An empty turn would omit messageId entirely.)
     expect(typeof done.messageId).toBe("string");
-    expect(done.messageId.length).toBeGreaterThan(0);
+    expect(done.messageId?.length ?? 0).toBeGreaterThan(0);
+
+    ws.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
+  it("emits a done event WITHOUT messageId for a genuinely empty turn", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-empty-turn.sh");
+    // Produce no output and exit cleanly: finalizeTurn persists nothing, so the
+    // done event must omit messageId (its presence is the empty-turn signal).
+    await writeFile(fakeClaudePath, "#!/bin/sh\nexit 0\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const cmd = { command: fakeClaudePath, systemPrompt: false as const };
+    const local = await startWsApp(undefined, cmd);
+
+    const { wsReady, messages } = connectHub([wsId], { app: local.app });
+    const ws = await wsReady;
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+
+    ws.send(hubEvent(wsId, { type: "user_message", content: "say nothing" }));
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "done"));
+
+    const done = messages.find((m) => m.type === "done");
+    if (!done || done.type !== "done") throw new Error("Expected a done event");
+    expect(done.messageId).toBeUndefined();
 
     ws.close();
     await local.app.close();

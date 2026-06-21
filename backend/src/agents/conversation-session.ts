@@ -1382,10 +1382,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
         // The terminal event carries the id of the assistant message persisted
         // for this turn so clients can append it optimistically and dedup the
-        // next REST history fetch by id. Generate the id once here and reuse it
-        // for both the persisted ChatMessage and the done/cancelled event — do
-        // not invent a second id.
-        const messageId = nanoid(12);
+        // next REST history fetch by id. Its presence is the single signal that
+        // the turn had displayable content — for a genuinely empty turn no
+        // message is saved and the event omits messageId. Generate the id once
+        // here and reuse it for the persisted ChatMessage; never synthesize one
+        // just for the event.
         let persistedMessageId: string | undefined;
 
         if (
@@ -1396,7 +1397,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           shouldSurfaceCancelled
         ) {
           const assistantMsg: ChatMessage = {
-            id: messageId,
+            id: nanoid(12),
             sessionId: this.sessionId,
             role: "assistant",
             content: streamText || (shouldSurfaceCancelled ? CANCELLED_NO_OUTPUT_MESSAGE : ""),
@@ -1441,10 +1442,11 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
           this.emit("message", {
             type: "done",
             sessionId: this.sessionId,
-            // Required by the contract. When the turn produced output this is the
-            // persisted message id; for a genuinely empty turn no message is saved
-            // and this id matches nothing in history (a harmless no-op for dedup).
-            messageId: persistedMessageId ?? messageId,
+            // Attach the persisted message id only when a message was saved; for a
+            // genuinely empty turn omit it. Its presence is the single signal that
+            // the turn had displayable content (clients gate the optimistic append
+            // on it).
+            ...(persistedMessageId ? { messageId: persistedMessageId } : {}),
             durationMs: effectiveDurationMs,
             inputTokens: resultInputTokens,
             outputTokens: resultOutputTokens,
