@@ -68,7 +68,7 @@ vi.mock("@/lib/ws-transport", () => {
       statusListeners.clear();
       reconnectListeners.clear();
     }),
-    send: vi.fn((_workspaceId: string, _message: unknown) => true),
+    send: vi.fn(() => true),
     onMessage: vi.fn((workspaceId: string, handler: (msg: WsOutgoing) => void) => {
       getSet(messageHandlers, workspaceId).add(handler);
       for (const msg of replayMessages.get(workspaceId) ?? []) {
@@ -1434,7 +1434,7 @@ describe("useConversation", () => {
       __wsMock.emit("ws-1", {
         type: "branch_info",
         info: { name: "feat/new", lastSyncedAt: "2026-02-13T00:00:00.000Z" },
-      } as any);
+      });
     });
 
     expect(result.current.workspaceStatus).toBe("busy");
@@ -1935,7 +1935,7 @@ describe("useConversation", () => {
     const { __wsMock } = await getWsMock();
     const { __apiMock } = await getApiMock();
     __apiMock.getMock.mockResolvedValue([]);
-    const { result, rerender } = renderHook(
+    const { rerender } = renderHook(
       ({ wsId }) => useConversation(wsId),
       { initialProps: { wsId: "ws-1" } },
     );
