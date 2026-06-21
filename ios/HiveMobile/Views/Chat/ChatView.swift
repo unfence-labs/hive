@@ -13,8 +13,8 @@ struct ChatView: View {
     @State private var fastModeEnabled = false
     @State private var selectedModelId: String = ""
     @State private var draftAttachments: [ImageAttachment] = []
-    /// Debounce handle that coalesces rapid streaming updates into one scroll.
-    @State private var scrollDebounce: Task<Void, Never>?
+    /// Coalesces rapid streaming updates into native scroll operations.
+    @State private var scrollTask: Task<Void, Never>?
     /// Previous message head/count, used to tell a prepend (load-earlier) from an
     /// append (new turn) so "Load earlier" doesn't yank the user to the bottom.
     @State private var prevFirstMessageId: String?
@@ -89,9 +89,14 @@ struct ChatView: View {
         Set(store.pendingToolInputs.map(\.toolUseId))
     }
 
+    private var hasRenderableTranscript: Bool {
+        !store.messages.isEmpty || store.isStreaming
+    }
+
     private var dismissedToolCallIds: Set<String> {
         var ids = Set<String>()
         let msgs = store.messages
+        guard msgs.count > 1 else { return ids }
         for i in 0..<(msgs.count - 1) {
             let msg = msgs[i]
             let next = msgs[i + 1]
@@ -106,7 +111,7 @@ struct ChatView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if isLoading {
+            if isLoading && !hasRenderableTranscript {
                 Spacer()
             } else if store.messages.isEmpty && !store.isStreaming {
                 Spacer()
@@ -154,12 +159,12 @@ struct ChatView: View {
                             // invalidate the history rows above (PRD #254). It also
                             // owns the streaming dependency for scroll, so the parent
                             // body never re-evaluates per token. Scroll is coalesced
-                            // to ~50 ms via scheduleScroll (debounced).
+                            // to ~50 ms via scheduleScroll.
                             StreamingMessageView(
                                 store: store,
                                 pendingToolUseIds: pendingToolUseIds,
                                 dismissedToolCallIds: dismissedToolCallIds,
-                                onStreamUpdate: { scheduleScroll(proxy) }
+                                onStreamUpdate: { scheduleScroll(proxy, animated: false) }
                             )
                             .id("streaming-bubble")
 
@@ -175,6 +180,11 @@ struct ChatView: View {
                     }
                     .defaultScrollAnchor(.bottom)
                     .scrollDismissesKeyboard(.interactively)
+                    .onAppear {
+                        prevFirstMessageId = store.messages.first?.id
+                        prevMessageCount = store.messages.count
+                        scheduleScroll(proxy, animated: false, delay: .milliseconds(0))
+                    }
                     .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                         scrollToBottom(proxy)
                     }
@@ -194,9 +204,12 @@ struct ChatView: View {
                         if shouldScroll { scheduleScroll(proxy) }
                     }
                     .onChange(of: store.isStreaming) {
-                        scheduleScroll(proxy)
+                        scheduleScroll(proxy, animated: false)
                     }
-                    .onDisappear { scrollDebounce?.cancel() }
+                    .onDisappear {
+                        scrollTask?.cancel()
+                        scrollTask = nil
+                    }
                 }
             }
 
@@ -553,18 +566,28 @@ struct ChatView: View {
                 proxy.scrollTo(bottomAnchorID, anchor: .bottom)
             }
         } else {
-            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+            }
         }
     }
 
-    /// Debounced scroll-to-bottom (~50 ms). Rapid streaming updates cancel and
-    /// reschedule, so scrolling runs at most once per tick instead of per token.
-    private func scheduleScroll(_ proxy: ScrollViewProxy) {
-        scrollDebounce?.cancel()
-        scrollDebounce = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(50))
+    /// Coalesced scroll-to-bottom. While streaming, repeated token updates share
+    /// one pending native scroll instead of restarting an animation per token.
+    private func scheduleScroll(
+        _ proxy: ScrollViewProxy,
+        animated: Bool = true,
+        delay: Duration = .milliseconds(50)
+    ) {
+        guard scrollTask == nil else { return }
+        scrollTask = Task { @MainActor in
+            defer { scrollTask = nil }
+            await Task.yield()
+            try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
-            scrollToBottom(proxy)
+            scrollToBottom(proxy, animated: animated)
         }
     }
 
@@ -590,7 +613,7 @@ struct ChatView: View {
 /// this view reads the per-token streaming accumulators (via
 /// `store.streamingMessage`), the history rows in the parent `LazyVStack` never
 /// rebuild while tokens arrive. It also reports stream updates so the parent can
-/// debounce scroll-to-bottom without depending on `currentText` itself.
+/// coalesce scroll-to-bottom without depending on `currentText` itself.
 private struct StreamingMessageView: View {
     let store: ConversationStore
     var pendingToolUseIds: Set<String> = []
