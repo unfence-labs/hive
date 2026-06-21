@@ -828,4 +828,78 @@ describe("wsTransport", () => {
       expect(wsTransport.hasCachedHistory("unknown")).toBe(false);
     });
   });
+
+  describe("forceReconnectIfStale", () => {
+    it("does not reconnect a healthy, recently-active socket", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+      socket.hubMessage("ws-1", { type: "status", status: "idle", streaming: false });
+
+      wsTransport.forceReconnectIfStale();
+
+      expect(MockWebSocket.instances).toHaveLength(1);
+      expect(socket.readyState).toBe(MockWebSocket.OPEN);
+    });
+
+    it("reconnects an open-but-silent socket (zombie after wake from sleep)", () => {
+      wsTransport.connect("ws-1");
+      const first = MockWebSocket.instances[0]!;
+      first.open();
+
+      // Simulate sleep: time passes with no message from the still-"open" socket.
+      vi.advanceTimersByTime(30_001);
+      wsTransport.forceReconnectIfStale();
+
+      expect(MockWebSocket.instances).toHaveLength(2);
+      MockWebSocket.instances[1]!.open();
+      expect(wsTransport.getStatus("ws-1")).toBe("connected");
+    });
+
+    it("reconnects immediately when the socket is closed, skipping backoff wait", () => {
+      wsTransport.connect("ws-1");
+      const first = MockWebSocket.instances[0]!;
+      first.open();
+      first.close();
+
+      // A backoff reconnect is pending but has not fired yet.
+      expect(MockWebSocket.instances).toHaveLength(1);
+
+      wsTransport.forceReconnectIfStale();
+      expect(MockWebSocket.instances).toHaveLength(2);
+
+      // The pending backoff timer was cancelled, so no duplicate socket appears.
+      vi.advanceTimersByTime(5_000);
+      expect(MockWebSocket.instances).toHaveLength(2);
+    });
+
+    it("is a no-op when nothing is subscribed", () => {
+      wsTransport.forceReconnectIfStale();
+      expect(MockWebSocket.instances).toHaveLength(0);
+    });
+
+    it("is a no-op while a connection attempt is already in flight", () => {
+      wsTransport.connect("ws-1");
+      expect(MockWebSocket.instances[0]!.readyState).toBe(MockWebSocket.CONNECTING);
+
+      wsTransport.forceReconnectIfStale();
+      expect(MockWebSocket.instances).toHaveLength(1);
+    });
+
+    it("notifies onReconnect listeners exactly once so stale streams are cleared", () => {
+      wsTransport.connect("ws-1");
+      const first = MockWebSocket.instances[0]!;
+      first.open();
+
+      const onReconnect = vi.fn();
+      wsTransport.onReconnect("ws-1", onReconnect);
+
+      // Zombie socket: silent past the threshold, then window regains focus.
+      vi.advanceTimersByTime(30_001);
+      wsTransport.forceReconnectIfStale();
+      MockWebSocket.instances[1]!.open();
+
+      expect(onReconnect).toHaveBeenCalledTimes(1);
+    });
+  });
 });
