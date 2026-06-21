@@ -161,14 +161,8 @@ struct ChatView: View {
                     .onChange(of: store.messages.count) {
                         scrollToBottomIfNeeded(proxy)
                     }
-                    .onChange(of: store.currentText) {
-                        scheduleStreamingRender(text: store.currentText)
-                    }
                     .onChange(of: renderedStreamingText) {
                         scrollToBottomIfNeeded(proxy)
-                    }
-                    .onChange(of: store.currentThinking) {
-                        scheduleStreamingRender(thinking: store.currentThinking)
                     }
                     .onChange(of: renderedStreamingThinking) {
                         scrollToBottomIfNeeded(proxy)
@@ -256,14 +250,14 @@ struct ChatView: View {
                 planModeEnabled = active
             }
         }
-        .onChange(of: store.isStreaming) { _, isStreaming in
-            if isStreaming {
-                pendingStreamingText = store.currentText
-                pendingStreamingThinking = store.currentThinking
-                applyPendingStreamingRender()
-            } else {
-                resetStreamingRender()
-            }
+        .onChange(of: store.currentText) { _, text in
+            scheduleStreamingRender(text: text)
+        }
+        .onChange(of: store.currentThinking) { _, thinking in
+            scheduleStreamingRender(thinking: thinking)
+        }
+        .onChange(of: store.isStreaming) { _, _ in
+            syncStreamingRenderFromStore()
         }
         .onChange(of: lockedProvider) { _, newProvider in
             guard let newProvider, !selectedModelId.isEmpty else { return }
@@ -361,6 +355,16 @@ struct ChatView: View {
         lastStreamingRenderAt = .distantPast
     }
 
+    private func syncStreamingRenderFromStore() {
+        if store.isStreaming {
+            pendingStreamingText = store.currentText
+            pendingStreamingThinking = store.currentThinking
+            applyPendingStreamingRender()
+        } else {
+            resetStreamingRender()
+        }
+    }
+
     private var streamingActivityRow: some View {
         TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
             HStack(spacing: 6) {
@@ -416,6 +420,7 @@ struct ChatView: View {
             store.prepareSessionSwitch(selectedSessionId)
             _ = await store.send?(.switchSession(sessionId: selectedSessionId))
         }
+        syncStreamingRenderFromStore()
         restoreDraft(for: selectedSessionId)
 
         if selectedModelId.isEmpty {
@@ -423,6 +428,7 @@ struct ChatView: View {
         }
 
         await loadMessages()
+        syncStreamingRenderFromStore()
     }
 
     private func loadMessages() async {
