@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/query-client";
 import "./index.css";
 import { copyToClipboard } from "@/lib/clipboard";
+import { wsTransport } from "@/lib/ws-transport";
 import App from "./App";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
@@ -44,6 +45,14 @@ if ("__TAURI_INTERNALS__" in window) {
         lastFs = fs;
         setTitlebarVars(fs);
       }
+    });
+
+    // After the OS wakes from sleep the hub WebSocket can be a frozen "open"
+    // socket that never fires onclose, leaving the UI stuck in a stale
+    // streaming state. Regaining window focus forces a fresh connection so the
+    // bootstrap can replay the real session state.
+    win.onFocusChanged(({ payload: focused }) => {
+      if (focused) wsTransport.forceReconnectIfStale();
     });
   });
 }

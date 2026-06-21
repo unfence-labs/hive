@@ -13,6 +13,11 @@ type BranchInfoMessage = Extract<WsOutgoing, { type: "branch_info" }>;
 
 const MAX_RECONNECT_DELAY = 30_000;
 const BASE_RECONNECT_DELAY = 1_000;
+// If an "open" hub socket has been silent longer than this, treat it as a
+// possible zombie (a frozen TCP connection after the OS wakes from sleep never
+// fires `onclose`, so the socket stays OPEN while delivering nothing) and force
+// a fresh connection.
+const STALE_THRESHOLD_MS = 30_000;
 
 // ── Hub socket state ────────────────────────────────────────────────
 
@@ -21,6 +26,8 @@ interface HubState {
   status: ConnectionStatus;
   reconnectAttempt: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
+  /** Timestamp of the last message received from the hub (liveness signal). */
+  lastMessageAt: number;
 }
 
 // ── Per-workspace subscription data (no socket) ─────────────────────
@@ -44,6 +51,7 @@ class WsTransport {
     status: "disconnected",
     reconnectAttempt: 0,
     reconnectTimer: null,
+    lastMessageAt: 0,
   };
   private subscriptions = new Map<string, WorkspaceSubscription>();
   private subscribedWorkspaceIds = new Set<string>();
@@ -115,6 +123,30 @@ class WsTransport {
     this.teardownHub();
     this.subscriptions.clear();
     this.subscribedWorkspaceIds.clear();
+  }
+
+  /**
+   * Re-establish the hub connection when the current socket may be dead.
+   * After the OS wakes from sleep, a frozen TCP connection never fires
+   * `onclose`, so the socket stays OPEN while silently delivering nothing.
+   * Triggered on window focus: reconnects when the socket is closed, or has
+   * been open but silent for longer than STALE_THRESHOLD_MS. A no-op while a
+   * connection attempt is already in flight or when nothing is subscribed.
+   */
+  forceReconnectIfStale(): void {
+    if (this.subscribedWorkspaceIds.size === 0) return;
+    if (this.hub.ws?.readyState === WebSocket.CONNECTING) return;
+    const isOpen = this.hub.ws?.readyState === WebSocket.OPEN;
+    const isStale = Date.now() - this.hub.lastMessageAt > STALE_THRESHOLD_MS;
+    if (isOpen && !isStale) return;
+    this.teardownHub();
+    // Mark the fresh socket as a reconnect (not a first connect) so onReconnect
+    // listeners fire and stale stream state is cleared before the bootstrap
+    // replays snapshots. Going through ensureHubConnected() would reset
+    // reconnectAttempt to 0 and skip that cleanup.
+    this.hub.reconnectAttempt = 1;
+    this.setHubStatus("connecting");
+    this.openHubSocket();
   }
 
   /** Send a message to the backend for a specific workspace. Returns false if the hub isn't open. */
@@ -252,6 +284,7 @@ class WsTransport {
       if (this.hub.ws !== ws) return;
       const isReconnect = this.hub.reconnectAttempt > 0;
       this.hub.reconnectAttempt = 0;
+      this.hub.lastMessageAt = Date.now();
       // Clear per-session status caches on reconnect (will be repopulated by bootstrap)
       for (const sub of this.subscriptions.values()) {
         sub.lastStatusBySession.clear();
@@ -270,6 +303,7 @@ class WsTransport {
 
     ws.onmessage = (event) => {
       if (this.hub.ws !== ws) return;
+      this.hub.lastMessageAt = Date.now();
       try {
         const envelope = JSON.parse(event.data as string) as HubOutgoing;
         this.handleIncomingEnvelope(envelope);
