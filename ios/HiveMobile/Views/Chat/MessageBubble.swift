@@ -513,6 +513,18 @@ private struct WhisperThinkingBlock: View {
 // MARK: - Whisper Tool Calls Block
 
 private let collapseThreshold = 3
+private let hiddenTaskToolNames: Set<String> = ["TaskUpdate", "TodoList"]
+
+private struct ToolCallTree {
+    let rootTools: [ToolCall]
+    let childrenByParentId: [String: [ToolCall]]
+
+    init(toolCalls: [ToolCall]) {
+        let visibleTools = toolCalls.filter { !hiddenTaskToolNames.contains($0.name) }
+        rootTools = visibleTools.filter { $0.parentToolUseId == nil }
+        childrenByParentId = buildChildrenMap(visibleTools)
+    }
+}
 
 private struct WhisperToolCallsBlock: View {
     let toolCalls: [ToolCall]
@@ -521,33 +533,14 @@ private struct WhisperToolCallsBlock: View {
     var showExecutingState = false
     @State private var groupExpanded = false
 
-    private static let hiddenTaskTools: Set<String> = ["TaskUpdate", "TodoList"]
-
-    private var visibleTools: [ToolCall] {
-        toolCalls.filter { !Self.hiddenTaskTools.contains($0.name) }
-    }
-
-    private var rootTools: [ToolCall] {
-        visibleTools.filter { $0.parentToolUseId == nil }
-    }
-
-    private func children(for parentId: String) -> [ToolCall] {
-        visibleTools.filter { $0.parentToolUseId == parentId }
-    }
-
-    private var childrenByParentId: [String: [ToolCall]] {
-        buildChildrenMap(visibleTools)
-    }
-
-    private var shouldCollapse: Bool {
-        rootTools.count >= collapseThreshold
-    }
-
     var body: some View {
+        let tree = ToolCallTree(toolCalls: toolCalls)
+        let shouldCollapse = tree.rootTools.count >= collapseThreshold
+
         VStack(alignment: .leading, spacing: 2) {
             if shouldCollapse {
                 CollapsedToolSummary(
-                    tools: rootTools,
+                    tools: tree.rootTools,
                     isExpanded: groupExpanded,
                     isStreaming: showExecutingState,
                     onToggle: {
@@ -557,11 +550,11 @@ private struct WhisperToolCallsBlock: View {
             }
 
             if !shouldCollapse || groupExpanded {
-                ForEach(rootTools) { tool in
+                ForEach(tree.rootTools) { tool in
                     WhisperToolCallRow(
                         tool: tool,
-                        children: children(for: tool.id),
-                        childrenByParentId: childrenByParentId,
+                        children: tree.childrenByParentId[tool.id] ?? [],
+                        childrenByParentId: tree.childrenByParentId,
                         isPending: pendingToolUseIds.contains(tool.id),
                         isDismissed: dismissedToolCallIds.contains(tool.id),
                         showExecutingState: showExecutingState

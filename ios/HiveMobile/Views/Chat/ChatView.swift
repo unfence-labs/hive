@@ -13,6 +13,12 @@ struct ChatView: View {
     @State private var fastModeEnabled = false
     @State private var selectedModelId: String = ""
     @State private var draftAttachments: [ImageAttachment] = []
+    @State private var renderedStreamingText = ""
+    @State private var renderedStreamingThinking = ""
+    @State private var pendingStreamingText = ""
+    @State private var pendingStreamingThinking = ""
+    @State private var lastStreamingRenderAt = Date.distantPast
+    @State private var streamingRenderTask: Task<Void, Never>?
 
     @Environment(ModelCatalog.self) private var modelCatalog
     @Environment(ProjectStore.self) private var projectStore
@@ -102,7 +108,7 @@ struct ChatView: View {
         VStack(spacing: 0) {
             if isLoading {
                 Spacer()
-            } else if store.displayMessages.isEmpty && !store.isStreaming {
+            } else if store.messages.isEmpty && streamingMessage == nil && !store.isStreaming {
                 Spacer()
                 if isBrainWorkspaceId(workspace.id) {
                     BrainSessionEmptyState()
@@ -118,12 +124,18 @@ struct ChatView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        VStack(spacing: 16) {
-                            ForEach(store.displayMessages) { message in
+                        LazyVStack(spacing: 16) {
+                            ForEach(store.messages) { message in
                                 if !(message.role == .user && message.content == "Question dismissed.") {
                                     MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
                                         .id(message.id)
                                 }
+                            }
+
+                            if let message = streamingMessage {
+                                MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
+                                    .id(message.id)
+                                    .animation(.easeOut(duration: 0.12), value: renderedStreamingText.count)
                             }
 
                             if store.isStreaming {
@@ -141,10 +153,19 @@ struct ChatView: View {
                     .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                         scrollToBottom(proxy)
                     }
-                    .onChange(of: store.displayMessages.count) {
+                    .onChange(of: store.messages.count) {
                         scrollToBottom(proxy)
                     }
                     .onChange(of: store.currentText) {
+                        scheduleStreamingRender(text: store.currentText)
+                    }
+                    .onChange(of: renderedStreamingText) {
+                        scrollToBottom(proxy)
+                    }
+                    .onChange(of: store.currentThinking) {
+                        scheduleStreamingRender(thinking: store.currentThinking)
+                    }
+                    .onChange(of: renderedStreamingThinking) {
                         scrollToBottom(proxy)
                     }
                 }
@@ -219,6 +240,15 @@ struct ChatView: View {
                 planModeEnabled = active
             }
         }
+        .onChange(of: store.isStreaming) { _, isStreaming in
+            if isStreaming {
+                pendingStreamingText = store.currentText
+                pendingStreamingThinking = store.currentThinking
+                applyPendingStreamingRender(animated: false)
+            } else {
+                resetStreamingRender()
+            }
+        }
         .onChange(of: lockedProvider) { _, newProvider in
             guard let newProvider, !selectedModelId.isEmpty else { return }
             let currentProvider = selectedModelId.split(separator: ":").first.map(String.init) ?? ""
@@ -229,6 +259,7 @@ struct ChatView: View {
             }
         }
         .onDisappear {
+            streamingRenderTask?.cancel()
             saveCurrentDraft()
             store.onTurnCompleted = nil
             if projectStore.statusMonitor.viewingWorkspaceId == workspace.id,
@@ -239,6 +270,89 @@ struct ChatView: View {
     }
 
     // MARK: - Streaming Activity
+
+    private static let streamingRenderInterval: TimeInterval = 0.05
+
+    private var streamingMessage: ChatMessage? {
+        guard store.isStreaming else { return nil }
+        let hasContent = !renderedStreamingText.isEmpty || !renderedStreamingThinking.isEmpty
+            || !store.activeToolCalls.isEmpty || !store.activeAgentActivities.isEmpty
+        guard hasContent else { return nil }
+
+        return ChatMessage(
+            id: "streaming",
+            sessionId: store.sessionId ?? "",
+            role: .assistant,
+            content: renderedStreamingText,
+            images: nil,
+            toolCalls: store.activeToolCalls.isEmpty ? nil : store.activeToolCalls,
+            agentActivities: store.activeAgentActivities.isEmpty ? nil : store.activeAgentActivities,
+            thinkingContent: renderedStreamingThinking.isEmpty ? nil : renderedStreamingThinking,
+            timestamp: ConversationStore.timestamp(),
+            cancelled: nil,
+            durationMs: nil
+        )
+    }
+
+    private func scheduleStreamingRender(text: String? = nil, thinking: String? = nil) {
+        if let text {
+            pendingStreamingText = text
+        }
+        if let thinking {
+            pendingStreamingThinking = thinking
+        }
+
+        let elapsed = Date().timeIntervalSince(lastStreamingRenderAt)
+        if elapsed >= Self.streamingRenderInterval {
+            streamingRenderTask?.cancel()
+            streamingRenderTask = nil
+            applyPendingStreamingRender(animated: true)
+            return
+        }
+
+        guard streamingRenderTask == nil else { return }
+
+        let delay = Self.streamingRenderInterval - elapsed
+        let milliseconds = Int64(max(1, (delay * 1000).rounded(.up)))
+        streamingRenderTask = Task {
+            do {
+                try await Task.sleep(for: .milliseconds(milliseconds))
+            } catch {
+                return
+            }
+
+            await MainActor.run {
+                applyPendingStreamingRender(animated: true)
+                streamingRenderTask = nil
+            }
+        }
+    }
+
+    private func applyPendingStreamingRender(animated: Bool) {
+        lastStreamingRenderAt = Date()
+        let update = {
+            renderedStreamingText = pendingStreamingText
+            renderedStreamingThinking = pendingStreamingThinking
+        }
+
+        if animated {
+            withAnimation(.easeOut(duration: 0.12)) {
+                update()
+            }
+        } else {
+            update()
+        }
+    }
+
+    private func resetStreamingRender() {
+        streamingRenderTask?.cancel()
+        streamingRenderTask = nil
+        pendingStreamingText = ""
+        pendingStreamingThinking = ""
+        renderedStreamingText = ""
+        renderedStreamingThinking = ""
+        lastStreamingRenderAt = .distantPast
+    }
 
     private var streamingActivityRow: some View {
         TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
