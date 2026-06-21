@@ -141,9 +141,9 @@ class WsTransport {
     if (isOpen && !isStale) return;
     this.teardownHub();
     // Mark the fresh socket as a reconnect (not a first connect) so onReconnect
-    // listeners fire and stale stream state is cleared before the bootstrap
-    // replays snapshots. Going through ensureHubConnected() would reset
-    // reconnectAttempt to 0 and skip that cleanup.
+    // listeners fire before the backend bootstrap replays authoritative state.
+    // Going through ensureHubConnected() would reset reconnectAttempt to 0 and
+    // skip that notification.
     this.hub.reconnectAttempt = 1;
     this.setHubStatus("connecting");
     this.openHubSocket();
@@ -289,9 +289,9 @@ class WsTransport {
       for (const sub of this.subscriptions.values()) {
         sub.lastStatusBySession.clear();
       }
-      // On reconnect, notify all listeners to clear stale streaming state before
-      // the bootstrap replays full snapshots. Without this, the snapshot events
-      // would be appended to pre-disconnect accumulated data, causing duplicates.
+      // On reconnect, notify listeners before the bootstrap replays full
+      // snapshots. Conversation state decides how to reconcile this without
+      // creating an empty intermediate UI.
       if (isReconnect) {
         for (const sub of this.subscriptions.values()) {
           for (const listener of sub.reconnectListeners) listener();

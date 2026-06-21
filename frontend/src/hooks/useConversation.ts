@@ -4,6 +4,8 @@ import { wsTransport } from "@/lib/ws-transport";
 import type { HistoryMessage } from "@/lib/ws-transport";
 import { api } from "@/hooks/useApi";
 
+type StatusMessage = Extract<WsOutgoing, { type: "status" }>;
+
 export interface PendingToolInput {
   requestId: string;
   toolName: string;
@@ -35,6 +37,8 @@ const emptyStreamState: SessionStreamState = {
 interface ConversationState {
   messages: ChatMessage[];
   sessionStreams: Record<string, SessionStreamState>;
+  isResyncing: boolean;
+  deferredStatus?: StatusMessage;
   workspaceStatus?: "idle" | "busy";
   error?: string;
   sessionId?: string;
@@ -50,13 +54,15 @@ type LocalAction =
   | { type: "prepare_session_switch"; sessionId: string }
   | { type: "prepare_workspace_switch" }
   | { type: "clear_pending_tool_inputs" }
-  | { type: "_ws_reconnected" };
+  | { type: "_ws_resync_started" };
 
 type Action = WsOutgoing | LocalAction;
 
 const initialState: ConversationState = {
   messages: [],
   sessionStreams: {},
+  isResyncing: false,
+  deferredStatus: undefined,
   workspaceStatus: undefined,
   error: undefined,
   sessionId: undefined,
@@ -137,6 +143,12 @@ function hasTerminalAssistantMessage(state: ConversationState, sid: string): boo
     return message.role === "assistant";
   }
   return false;
+}
+
+function statusStopsSession(status: StatusMessage | undefined, sessionId: string): boolean {
+  if (!status) return false;
+  const streaming = status.streaming ?? (status.status === "idle" ? false : undefined);
+  return streaming === false && (!status.sessionId || status.sessionId === sessionId);
 }
 
 function upsertActivity(activities: AgentActivity[], activity: AgentActivity): AgentActivity[] {
@@ -231,7 +243,10 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       const backendStartedAt = normalizeStreamingStartedAt(action.streamingStartedAt);
       return {
         ...state,
+        isResyncing: false,
+        deferredStatus: undefined,
         sessionId: state.sessionId ?? sid,
+        workspaceStatus: "busy",
         sessionStreams: {
           ...state.sessionStreams,
           [sid]: {
@@ -276,13 +291,15 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         };
         return {
           ...state,
+          isResyncing: false,
+          deferredStatus: undefined,
           messages: [...state.messages, assistantMsg],
           sessionStreams: newStreams,
         };
       }
       // Background session: just clean up the slot. REST fetch on switch-back
       // will include the completed message.
-      return { ...state, sessionStreams: newStreams };
+      return { ...state, isResyncing: false, deferredStatus: undefined, sessionStreams: newStreams };
     }
 
     case "cancelled": {
@@ -314,11 +331,13 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         };
         return {
           ...state,
+          isResyncing: false,
+          deferredStatus: undefined,
           messages: [...state.messages, cancelledMsg],
           sessionStreams: newStreams,
         };
       }
-      return { ...state, sessionStreams: newStreams };
+      return { ...state, isResyncing: false, deferredStatus: undefined, sessionStreams: newStreams };
     }
 
     case "error":
@@ -328,6 +347,10 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       return { ...state, error: action.message };
 
     case "status": {
+      if (state.isResyncing) {
+        return { ...state, deferredStatus: action };
+      }
+
       const sid = action.sessionId ?? state.sessionId;
       const newIsStreaming = action.streaming ?? (action.status === "idle" ? false : undefined);
       const backendStartedAt = normalizeStreamingStartedAt(action.streamingStartedAt);
@@ -393,29 +416,43 @@ function reducer(state: ConversationState, action: Action): ConversationState {
 
       // Derive pending tool inputs from history, unless the session has an active stream
       const activeStream = historySessionId ? state.sessionStreams[historySessionId] : undefined;
-      const hydratedPendingToolInputs = activeStream?.isStreaming
+      const deferredStop = historySessionId
+        ? statusStopsSession(state.deferredStatus, historySessionId)
+        : false;
+      const streamStillActive = Boolean(activeStream?.isStreaming && !deferredStop);
+      const hydratedPendingToolInputs = streamStillActive && activeStream
         ? activeStream.pendingToolInputs
         : derivePendingToolInputsFromHistory(action.messages);
 
       let newStreams = state.sessionStreams;
-      if (historySessionId && !activeStream?.isStreaming) {
-        if (activeStream || hydratedPendingToolInputs.length > 0) {
+      if (historySessionId && !streamStillActive) {
+        if (hydratedPendingToolInputs.length > 0) {
           newStreams = {
             ...state.sessionStreams,
             [historySessionId]: {
-              ...(activeStream ?? { ...emptyStreamState }),
+              ...emptyStreamState,
+              isStreaming: false,
+              streamingStartedAt: null,
               pendingToolInputs: hydratedPendingToolInputs,
             },
           };
+        } else if (activeStream) {
+          newStreams = deleteStream(state, historySessionId);
         }
       }
 
       return {
         ...state,
+        isResyncing: false,
+        deferredStatus: undefined,
         messages: action.messages,
         error: undefined,
         sessionId: historySessionId ?? state.sessionId,
         sessionStreams: newStreams,
+        workspaceStatus: state.deferredStatus?.status ?? state.workspaceStatus,
+        ...(state.deferredStatus?.lockedProvider !== undefined
+          ? { lockedProvider: state.deferredStatus.lockedProvider }
+          : {}),
       };
     }
 
@@ -465,6 +502,8 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       return {
         ...state,
         messages: [],
+        isResyncing: false,
+        deferredStatus: undefined,
         sessionId: action.sessionId,
         error: undefined,
         lockedProvider: undefined,
@@ -476,6 +515,8 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       return {
         ...state,
         messages: [],
+        isResyncing: false,
+        deferredStatus: undefined,
         sessionId: undefined,
         workspaceStatus: undefined,
         error: undefined,
@@ -490,6 +531,8 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         ...state,
         messages: [],
         sessionStreams: sid ? deleteStream(state, sid) : {},
+        isResyncing: false,
+        deferredStatus: undefined,
         error: undefined,
         sessionId: undefined,
       };
@@ -498,12 +541,11 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "reset":
       return initialState;
 
-    case "_ws_reconnected":
-      // On WS reconnect the backend will re-bootstrap every workspace with a
-      // full streaming snapshot (text, thinking, tool calls). Clear accumulated
-      // stream data so the snapshot won't be *appended* to stale pre-disconnect
-      // content, which would cause duplicate tool calls and garbled text.
-      return { ...state, sessionStreams: {} };
+    case "_ws_resync_started":
+      // Keep the last visible stream intact until the backend provides an
+      // authoritative history/snapshot/final event. Status-only bootstrap
+      // messages are provisional and must not create an empty intermediate UI.
+      return { ...state, isResyncing: true, deferredStatus: undefined };
 
     default:
       return state;
@@ -587,7 +629,7 @@ export function useConversation(workspaceId: string | undefined) {
     replayingBuffer = false;
 
     const unsubReconnect = wsTransport.onReconnect(workspaceId, () => {
-      dispatch({ type: "_ws_reconnected" });
+      dispatch({ type: "_ws_resync_started" });
     });
 
     // Tell the backend to activate the saved session and send its bootstrap.

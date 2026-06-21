@@ -886,7 +886,7 @@ describe("wsTransport", () => {
       expect(MockWebSocket.instances).toHaveLength(1);
     });
 
-    it("notifies onReconnect listeners exactly once so stale streams are cleared", () => {
+    it("notifies onReconnect listeners exactly once before bootstrap replay", () => {
       wsTransport.connect("ws-1");
       const first = MockWebSocket.instances[0]!;
       first.open();

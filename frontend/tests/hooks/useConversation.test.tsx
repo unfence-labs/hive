@@ -35,6 +35,7 @@ vi.mock("@/lib/ws-transport", () => {
   const statuses = new Map<string, ConnectionStatus>();
   const messageHandlers = new Map<string, Set<(msg: WsOutgoing) => void>>();
   const statusListeners = new Map<string, Set<() => void>>();
+  const reconnectListeners = new Map<string, Set<() => void>>();
   const replayMessages = new Map<string, WsOutgoing[]>();
   const bufferedFlags = new Map<string, boolean>();
   const cachedHistories = new Map<string, WsOutgoing>();
@@ -65,6 +66,7 @@ vi.mock("@/lib/ws-transport", () => {
       statuses.clear();
       messageHandlers.clear();
       statusListeners.clear();
+      reconnectListeners.clear();
     }),
     send: vi.fn((_workspaceId: string, _message: unknown) => true),
     onMessage: vi.fn((workspaceId: string, handler: (msg: WsOutgoing) => void) => {
@@ -77,8 +79,9 @@ vi.mock("@/lib/ws-transport", () => {
         hadBufferedMessages: bufferedFlags.get(workspaceId) ?? false,
       };
     }),
-    onReconnect: vi.fn((_workspaceId: string, _callback: () => void) => {
-      return () => {};
+    onReconnect: vi.fn((workspaceId: string, callback: () => void) => {
+      getSet(reconnectListeners, workspaceId).add(callback);
+      return () => { getSet(reconnectListeners, workspaceId).delete(callback); };
     }),
     subscribe: (workspaceId: string, listener: () => void) => {
       getSet(statusListeners, workspaceId).add(listener);
@@ -102,10 +105,14 @@ vi.mock("@/lib/ws-transport", () => {
     emit: (workspaceId: string, msg: WsOutgoing) => {
       for (const handler of messageHandlers.get(workspaceId) ?? []) handler(msg);
     },
+    reconnect: (workspaceId: string) => {
+      for (const listener of reconnectListeners.get(workspaceId) ?? []) listener();
+    },
     reset: () => {
       statuses.clear();
       messageHandlers.clear();
       statusListeners.clear();
+      reconnectListeners.clear();
       replayMessages.clear();
       bufferedFlags.clear();
       cachedHistories.clear();
@@ -115,6 +122,7 @@ vi.mock("@/lib/ws-transport", () => {
       wsTransport.disconnectAll.mockClear();
       wsTransport.send.mockClear();
       wsTransport.onMessage.mockClear();
+      wsTransport.onReconnect.mockClear();
       wsTransport.updateCachedHistory.mockClear();
       wsTransport.hasCachedHistory.mockClear();
       wsTransport.clearCachedData.mockClear();
@@ -142,6 +150,7 @@ const getWsMock = async () =>
   (await import("@/lib/ws-transport")) as unknown as {
     __wsMock: {
       emit: (workspaceId: string, msg: WsOutgoing) => void;
+      reconnect: (workspaceId: string) => void;
       reset: () => void;
       setReplay: (workspaceId: string, messages: WsOutgoing[]) => void;
       setBuffered: (workspaceId: string, value: boolean) => void;
@@ -2063,6 +2072,222 @@ describe("useConversation", () => {
     expect(result.current.agentPlanMode).toBe(true);
     expect(result.current.streamingStartedAt).toBe(1_700_000_002_000);
     expect(result.current.isStreaming).toBe(true);
+  });
+
+  it("keeps active stream visible after reconnect until final history arrives", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-1",
+        streaming: true,
+        streamingStartedAt: 1_700_000_003_000,
+      });
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "start",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", { type: "thinking", sessionId: "sess-1", text: "Thinking" });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Partial" });
+      __wsMock.emit("ws-1", {
+        type: "tool_use",
+        sessionId: "sess-1",
+        id: "tool-1",
+        name: "Read",
+        input: "{}",
+      });
+      __wsMock.emit("ws-1", {
+        type: "agent_activity",
+        sessionId: "sess-1",
+        activity: {
+          id: "cmd-1",
+          kind: "command_execution",
+          command: "npm test",
+          status: "inProgress",
+        },
+      });
+    });
+
+    expect(result.current.workspaceStatus).toBe("busy");
+    expect(result.current.isStreaming).toBe(true);
+    expect(result.current.streamingStartedAt).toBe(1_700_000_003_000);
+    expect(result.current.currentStreamingText).toBe("Partial");
+    expect(result.current.currentThinking).toBe("Thinking");
+    expect(result.current.activeToolCalls).toEqual([expect.objectContaining({ id: "tool-1" })]);
+    expect(result.current.activeAgentActivities).toEqual([expect.objectContaining({ id: "cmd-1" })]);
+
+    act(() => {
+      __wsMock.reconnect("ws-1");
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "idle",
+        sessionId: "sess-1",
+        streaming: false,
+        lockedProvider: "codex",
+      });
+    });
+
+    expect(result.current.workspaceStatus).toBe("busy");
+    expect(result.current.isStreaming).toBe(true);
+    expect(result.current.streamingStartedAt).toBe(1_700_000_003_000);
+    expect(result.current.currentStreamingText).toBe("Partial");
+    expect(result.current.currentThinking).toBe("Thinking");
+    expect(result.current.activeToolCalls).toEqual([expect.objectContaining({ id: "tool-1" })]);
+    expect(result.current.activeAgentActivities).toEqual([expect.objectContaining({ id: "cmd-1" })]);
+    expect(result.current.lockedProvider).toBeUndefined();
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "history",
+        sessionId: "sess-1",
+        messages: [
+          {
+            id: "u1",
+            sessionId: "sess-1",
+            role: "user",
+            content: "start",
+            timestamp: "2026-02-12T00:00:00.000Z",
+          },
+          {
+            id: "a1",
+            sessionId: "sess-1",
+            role: "assistant",
+            content: "Final answer",
+            timestamp: "2026-02-12T00:00:01.000Z",
+          },
+        ],
+      });
+    });
+
+    expect(result.current.workspaceStatus).toBe("idle");
+    expect(result.current.lockedProvider).toBe("codex");
+    expect(result.current.isStreaming).toBe(false);
+    expect(result.current.streamingStartedAt).toBeNull();
+    expect(result.current.currentStreamingText).toBe("");
+    expect(result.current.currentThinking).toBe("");
+    expect(result.current.activeToolCalls).toEqual([]);
+    expect(result.current.activeAgentActivities).toEqual([]);
+    expect(result.current.messages.map((message) => message.content)).toEqual(["start", "Final answer"]);
+  });
+
+  it("keeps stream visible when history arrives before stream_snapshot during resync", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-1",
+        streaming: true,
+        streamingStartedAt: 1_700_000_004_000,
+      });
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "start",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Before " });
+    });
+
+    act(() => {
+      __wsMock.reconnect("ws-1");
+      __wsMock.emit("ws-1", {
+        type: "status",
+        status: "busy",
+        sessionId: "sess-1",
+        streaming: true,
+        streamingStartedAt: 1_700_000_004_000,
+      });
+      __wsMock.emit("ws-1", {
+        type: "history",
+        sessionId: "sess-1",
+        messages: [
+          {
+            id: "u1",
+            sessionId: "sess-1",
+            role: "user",
+            content: "start",
+            timestamp: "2026-02-12T00:00:00.000Z",
+          },
+        ],
+      });
+    });
+
+    expect(result.current.workspaceStatus).toBe("busy");
+    expect(result.current.isStreaming).toBe(true);
+    expect(result.current.streamingStartedAt).toBe(1_700_000_004_000);
+    expect(result.current.currentStreamingText).toBe("Before ");
+    expect(result.current.messages.map((message) => message.content)).toEqual(["start"]);
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "stream_snapshot",
+        sessionId: "sess-1",
+        text: "Before after",
+        thinking: "",
+        toolCalls: [{
+          id: "tool-1",
+          name: "Read",
+          input: "{}",
+          output: "file contents",
+        }],
+        agentActivities: [],
+        agentPlanMode: false,
+        streamingStartedAt: 1_700_000_004_000,
+      });
+    });
+
+    expect(result.current.isStreaming).toBe(true);
+    expect(result.current.currentStreamingText).toBe("Before after");
+    expect(result.current.activeToolCalls).toEqual([
+      expect.objectContaining({ id: "tool-1", output: "file contents" }),
+    ]);
+  });
+
+  it("finalizes preserved stream when done arrives during reconnect resync", async () => {
+    const { __wsMock } = await getWsMock();
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "user_message",
+        message: {
+          id: "u1",
+          sessionId: "sess-1",
+          role: "user",
+          content: "start",
+          timestamp: "2026-02-12T00:00:00.000Z",
+        },
+      });
+      __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Preserved" });
+      __wsMock.reconnect("ws-1");
+      __wsMock.emit("ws-1", { type: "done", sessionId: "sess-1", durationMs: 123 });
+    });
+
+    expect(result.current.isStreaming).toBe(false);
+    expect(result.current.currentStreamingText).toBe("");
+    expect(result.current.messages.at(-1)).toEqual(
+      expect.objectContaining({
+        role: "assistant",
+        content: "Preserved",
+        durationMs: 123,
+      }),
+    );
   });
 
   it("full reset clears sessionStreams when workspaceId becomes undefined", async () => {
