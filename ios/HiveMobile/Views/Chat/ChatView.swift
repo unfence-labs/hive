@@ -135,7 +135,6 @@ struct ChatView: View {
                             if let message = streamingMessage {
                                 MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
                                     .id(message.id)
-                                    .animation(.easeOut(duration: 0.12), value: renderedStreamingText.count)
                             }
 
                             if store.isStreaming {
@@ -244,7 +243,7 @@ struct ChatView: View {
             if isStreaming {
                 pendingStreamingText = store.currentText
                 pendingStreamingThinking = store.currentThinking
-                applyPendingStreamingRender(animated: false)
+                applyPendingStreamingRender()
             } else {
                 resetStreamingRender()
             }
@@ -306,7 +305,7 @@ struct ChatView: View {
         if elapsed >= Self.streamingRenderInterval {
             streamingRenderTask?.cancel()
             streamingRenderTask = nil
-            applyPendingStreamingRender(animated: true)
+            applyPendingStreamingRender()
             return
         }
 
@@ -322,26 +321,16 @@ struct ChatView: View {
             }
 
             await MainActor.run {
-                applyPendingStreamingRender(animated: true)
+                applyPendingStreamingRender()
                 streamingRenderTask = nil
             }
         }
     }
 
-    private func applyPendingStreamingRender(animated: Bool) {
+    private func applyPendingStreamingRender() {
         lastStreamingRenderAt = Date()
-        let update = {
-            renderedStreamingText = pendingStreamingText
-            renderedStreamingThinking = pendingStreamingThinking
-        }
-
-        if animated {
-            withAnimation(.easeOut(duration: 0.12)) {
-                update()
-            }
-        } else {
-            update()
-        }
+        renderedStreamingText = pendingStreamingText
+        renderedStreamingThinking = pendingStreamingThinking
     }
 
     private func resetStreamingRender() {
