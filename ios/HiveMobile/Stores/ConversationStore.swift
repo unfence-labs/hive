@@ -78,29 +78,6 @@ final class ConversationStore {
     var activeAgentActivities: [AgentActivity] { activeStream?.activeAgentActivities ?? [] }
     var pendingToolInputs: [PendingToolInput] { activeStream?.pendingToolInputs ?? [] }
 
-    /// The in-progress assistant message shown during streaming
-    var streamingMessage: ChatMessage? {
-        guard let stream = activeStream,
-              stream.isStreaming,
-              !stream.currentText.isEmpty || !stream.currentThinking.isEmpty ||
-                !stream.activeToolCalls.isEmpty || !stream.activeAgentActivities.isEmpty else {
-            return nil
-        }
-        return ChatMessage(
-            id: "streaming",
-            sessionId: sessionId ?? "",
-            role: .assistant,
-            content: stream.currentText,
-            images: nil,
-            toolCalls: stream.activeToolCalls.isEmpty ? nil : stream.activeToolCalls,
-            agentActivities: stream.activeAgentActivities.isEmpty ? nil : stream.activeAgentActivities,
-            thinkingContent: stream.currentThinking.isEmpty ? nil : stream.currentThinking,
-            timestamp: Self.outgoingTimestampFormatter.string(from: Date()),
-            cancelled: nil,
-            durationMs: nil
-        )
-    }
-
     /// Derived task tracking state from task tools and Codex plan updates.
     var tasksState: TasksState {
         deriveTasks(
@@ -124,14 +101,6 @@ final class ConversationStore {
             from: messages,
             activeToolCalls: activeStream?.activeToolCalls ?? []
         )
-    }
-
-    /// All messages to display: history + streaming message if active
-    var displayMessages: [ChatMessage] {
-        if let streaming = streamingMessage {
-            return messages + [streaming]
-        }
-        return messages
     }
 
     // MARK: - Event handling
@@ -283,8 +252,8 @@ final class ConversationStore {
             guard historySessionId == nil || sessionId == nil || historySessionId == sessionId else { return }
 
             // Always apply history — it contains finalized turns only.
-            // Streaming content lives in sessionStreams and is appended
-            // separately by displayMessages.
+            // Streaming content lives in sessionStreams and is rendered as a
+            // separate in-progress bubble by the chat view.
             messages = msgs
             bumpHistoryToken(for: historySessionId)
             sessionId = historySessionId ?? sessionId
@@ -433,10 +402,10 @@ final class ConversationStore {
         let hasContent = !stream.currentText.isEmpty || !stream.activeToolCalls.isEmpty
             || !stream.activeAgentActivities.isEmpty || !stream.currentThinking.isEmpty
 
-        // Remove stream slot FIRST so displayMessages never shows both the
-        // finalized message (in `messages`) and the streaming ghost (from
-        // `streamingMessage`). The local `stream` is a value-type copy
-        // captured above, so it survives this removal.
+        // Remove stream slot FIRST so the chat view never shows both the
+        // finalized message (in `messages`) and the in-progress streaming
+        // bubble (derived from `sessionStreams`) at once. The local `stream`
+        // is a value-type copy captured above, so it survives this removal.
         sessionStreams.removeValue(forKey: sid)
 
         if isActive {

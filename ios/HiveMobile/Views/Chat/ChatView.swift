@@ -452,7 +452,7 @@ struct ChatView: View {
                 return
             }
             // History contains only finalized turns; streaming content lives
-            // in sessionStreams and is appended by displayMessages.
+            // in sessionStreams and is rendered as a separate in-progress bubble.
             store.messages = msgs
         } catch is CancellationError {
             // View disappeared

@@ -46,7 +46,6 @@ struct ConversationStoreSessionTests {
 
         #expect(store.sessionId == "session-2")
         #expect(store.messages.isEmpty)
-        #expect(store.displayMessages.isEmpty)
         #expect(store.lockedProvider == nil)
         #expect(store.historyToken(for: "session-1") == previousToken + 1)
         #expect(store.historyToken(for: "session-2") == newToken + 1)
@@ -129,7 +128,6 @@ struct ConversationStoreSessionTests {
 
         #expect(store.sessionId == nil)
         #expect(store.messages.isEmpty)
-        #expect(store.displayMessages.isEmpty)
         #expect(store.lockedProvider == nil)
         #expect(store.sessionStreams["session-1"] == nil)
         #expect(store.historyToken(for: "session-1") == 0)
@@ -281,6 +279,88 @@ struct ConversationStoreSessionTests {
         #expect(activities.count == 1)
         #expect(agentPlanMode == true)
         #expect(startedAt == 1_700_000_002_000.0)
+    }
+
+    @Test @MainActor
+    func streamSnapshotAdoptsSessionWhenNoneFocused() {
+        let store = ConversationStore()
+        #expect(store.sessionId == nil)
+
+        store.handle(.streamSnapshot(
+            sessionId: "session-1",
+            text: "Recovered mid-turn",
+            thinking: "",
+            toolCalls: [],
+            agentActivities: [],
+            agentPlanMode: false,
+            streamingStartedAt: 1_700_000_002_000.0
+        ))
+
+        #expect(store.sessionId == "session-1")
+        #expect(store.isStreaming == true)
+        #expect(store.currentText == "Recovered mid-turn")
+        #expect(store.streamingStartedAt != nil)
+    }
+
+    @Test @MainActor
+    func streamSnapshotForBackgroundSessionDoesNotStealFocus() {
+        let store = ConversationStore()
+        store.handle(.status(
+            status: .busy, sessionId: "session-A", streaming: true,
+            streamingStartedAt: nil, lockedProvider: nil
+        ))
+        #expect(store.sessionId == "session-A")
+
+        store.handle(.streamSnapshot(
+            sessionId: "session-B",
+            text: "Background streaming",
+            thinking: "",
+            toolCalls: [],
+            agentActivities: [],
+            agentPlanMode: false,
+            streamingStartedAt: nil
+        ))
+
+        #expect(store.sessionId == "session-A")
+        #expect(store.sessionStreams["session-B"]?.currentText == "Background streaming")
+        #expect(store.sessionStreams["session-B"]?.isStreaming == true)
+        #expect(store.currentText == "")
+    }
+
+    @Test @MainActor
+    func streamSnapshotReplacesBackgroundAccumulationAfterSwitch() {
+        let store = ConversationStore()
+        store.handle(.status(
+            status: .busy, sessionId: "session-A", streaming: true,
+            streamingStartedAt: nil, lockedProvider: nil
+        ))
+        store.handle(.status(
+            status: .busy, sessionId: "session-B", streaming: true,
+            streamingStartedAt: nil, lockedProvider: nil
+        ))
+        store.handle(.textDelta(sessionId: "session-B", text: "partial "))
+        store.handle(.textDelta(sessionId: "session-B", text: "delta"))
+        #expect(store.sessionStreams["session-B"]?.currentText == "partial delta")
+
+        store.prepareSessionSwitch("session-B")
+        #expect(store.sessionId == "session-B")
+
+        store.handle(.streamSnapshot(
+            sessionId: "session-B",
+            text: "partial delta and more",
+            thinking: "Reasoning",
+            toolCalls: [
+                ToolCall(id: "tool-1", name: "Read", input: "{}", output: "ok", parentToolUseId: nil)
+            ],
+            agentActivities: [],
+            agentPlanMode: false,
+            streamingStartedAt: 1_700_000_002_000.0
+        ))
+
+        #expect(store.currentText == "partial delta and more")
+        #expect(store.currentThinking == "Reasoning")
+        #expect(store.activeToolCalls.first?.output == "ok")
+        #expect(store.isStreaming == true)
     }
 
     @Test @MainActor
