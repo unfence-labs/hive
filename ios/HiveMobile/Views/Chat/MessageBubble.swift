@@ -1,7 +1,7 @@
 import MarkdownUI
 import SwiftUI
 
-struct MessageBubble: View {
+struct MessageBubble: View, Equatable {
     let message: ChatMessage
     var pendingToolUseIds: Set<String> = []
     var dismissedToolCallIds: Set<String> = []
@@ -11,6 +11,13 @@ struct MessageBubble: View {
 
     @AppStorage("hiveAccent") private var accentId = AccentOption.defaultId
     @State private var copied = false
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.message == rhs.message &&
+        lhs.pendingToolUseIds == rhs.pendingToolUseIds &&
+        lhs.dismissedToolCallIds == rhs.dismissedToolCallIds &&
+        lhs.workspaceId == rhs.workspaceId
+    }
 
     private var hiveAccent: Color {
         AccentOption(rawValue: accentId)?.color ?? AccentOption.violet.color
@@ -261,6 +268,132 @@ struct MessageBubble: View {
         return display.string(from: date)
     }
 
+}
+
+struct StreamingMessageBubble: View {
+    let text: String
+    let thinking: String
+    let toolCalls: [ToolCall]
+    let agentActivities: [AgentActivity]
+    var pendingToolUseIds: Set<String> = []
+    var dismissedToolCallIds: Set<String> = []
+    var onTextRendered: () -> Void = {}
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                if !thinking.isEmpty {
+                    WhisperThinkingBlock(content: thinking)
+                }
+
+                StreamingAssistantText(content: text, onRendered: onTextRendered)
+
+                StreamingToolActivitySection(
+                    toolCalls: toolCalls,
+                    agentActivities: agentActivities,
+                    pendingToolUseIds: pendingToolUseIds,
+                    dismissedToolCallIds: dismissedToolCallIds
+                )
+                .equatable()
+            }
+
+            Spacer(minLength: 40)
+        }
+    }
+}
+
+private struct StreamingAssistantText: View {
+    let content: String
+    var onRendered: () -> Void
+
+    @State private var renderedText = ""
+    @State private var latestText = ""
+    @State private var renderTask: Task<Void, Never>?
+
+    private static let renderInterval: Duration = .milliseconds(90)
+
+    var body: some View {
+        Group {
+            if !renderedText.isEmpty {
+                Text(renderedText)
+                    .font(.system(size: 14))
+                    .foregroundStyle(WhisperColor.text)
+                    .lineSpacing(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+        }
+        .onAppear {
+            latestText = content
+            if renderedText.isEmpty {
+                renderedText = content
+                onRendered()
+            } else {
+                scheduleFlush()
+            }
+        }
+        .onChange(of: content) { _, newValue in
+            latestText = newValue
+            scheduleFlush()
+        }
+        .onDisappear {
+            renderTask?.cancel()
+            renderTask = nil
+        }
+    }
+
+    private func scheduleFlush() {
+        guard renderTask == nil else { return }
+        renderTask = Task { @MainActor in
+            defer { renderTask = nil }
+
+            while !Task.isCancelled {
+                let snapshot = latestText
+                try? await Task.sleep(for: Self.renderInterval)
+                guard !Task.isCancelled else { return }
+
+                if renderedText != snapshot {
+                    renderedText = snapshot
+                    onRendered()
+                }
+
+                if latestText == snapshot {
+                    return
+                }
+            }
+        }
+    }
+}
+
+private struct StreamingToolActivitySection: View, Equatable {
+    let toolCalls: [ToolCall]
+    let agentActivities: [AgentActivity]
+    let pendingToolUseIds: Set<String>
+    let dismissedToolCallIds: Set<String>
+
+    var body: some View {
+        let tools = mergeToolCalls(toolCalls, with: agentActivities)
+        if !tools.isEmpty {
+            WhisperToolCallsBlock(
+                toolCalls: tools,
+                pendingToolUseIds: pendingToolUseIds,
+                dismissedToolCallIds: dismissedToolCallIds,
+                showExecutingState: true
+            )
+        }
+
+        let activities = visibleAgentActivities(agentActivities)
+        if !activities.isEmpty {
+            AgentActivityList(activities: activities, showExecutingState: true)
+        }
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.toolCalls == rhs.toolCalls &&
+        lhs.agentActivities == rhs.agentActivities &&
+        lhs.pendingToolUseIds == rhs.pendingToolUseIds &&
+        lhs.dismissedToolCallIds == rhs.dismissedToolCallIds
+    }
 }
 
 // MARK: - Tool Display Helpers
@@ -529,7 +662,7 @@ private struct WhisperThinkingBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+                isExpanded.toggle()
             } label: {
                 ChatActivityRowLabel(icon: "brain", label: "Thinking", detail: isExpanded ? nil : preview)
             }
@@ -591,22 +724,24 @@ private struct WhisperToolCallsBlock: View {
                     isExpanded: groupExpanded,
                     isStreaming: showExecutingState,
                     onToggle: {
-                        withAnimation(.easeInOut(duration: 0.2)) { groupExpanded.toggle() }
+                        groupExpanded.toggle()
                     }
                 )
             }
 
             if !shouldCollapse || groupExpanded {
-                ForEach(rootTools) { tool in
-                    WhisperToolCallRow(
-                        tool: tool,
-                        children: children(for: tool.id),
-                        childrenByParentId: childrenByParentId,
-                        isPending: pendingToolUseIds.contains(tool.id),
-                        isDismissed: dismissedToolCallIds.contains(tool.id),
-                        showExecutingState: showExecutingState,
-                        outputFetch: outputFetch
-                    )
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(rootTools) { tool in
+                        WhisperToolCallRow(
+                            tool: tool,
+                            children: children(for: tool.id),
+                            childrenByParentId: childrenByParentId,
+                            isPending: pendingToolUseIds.contains(tool.id),
+                            isDismissed: dismissedToolCallIds.contains(tool.id),
+                            showExecutingState: showExecutingState,
+                            outputFetch: outputFetch
+                        )
+                    }
                 }
                 .transition(.opacity)
             }
@@ -692,7 +827,7 @@ private struct WhisperToolCallRow: View {
 
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+                isExpanded.toggle()
             } label: {
                 ChatActivityRowLabel(icon: display.icon, label: display.label, detail: display.detail, stats: display.stats, summary: summary, badgeText: display.badgeText, badgeIcon: display.badgeIcon, executing: display.executing)
             }
@@ -726,7 +861,7 @@ private struct WhisperToolCallRow: View {
                     }
 
                     if !children.isEmpty {
-                        VStack(alignment: .leading, spacing: 2) {
+                        LazyVStack(alignment: .leading, spacing: 2) {
                             ForEach(children) { child in
                                 WhisperToolCallRow(
                                     tool: child,

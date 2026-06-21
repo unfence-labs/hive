@@ -15,6 +15,7 @@ struct ChatView: View {
     @State private var draftAttachments: [ImageAttachment] = []
     /// Coalesces rapid streaming updates into native scroll operations.
     @State private var scrollTask: Task<Void, Never>?
+    @State private var isPinnedToBottom = true
     /// Previous message head/count, used to tell a prepend (load-earlier) from an
     /// append (new turn) so "Load earlier" doesn't yank the user to the bottom.
     @State private var prevFirstMessageId: String?
@@ -25,6 +26,8 @@ struct ChatView: View {
 
     private let api = APIClient()
     private let draftStore = ChatDraftStore.shared
+    private static let scrollCoordinateSpace = "chat-scroll-space"
+    private static let bottomFollowThreshold: CGFloat = 56
 
     private var lockedProvider: String? {
         if let provider = store.lockedProvider ?? session.lockedProvider {
@@ -150,6 +153,7 @@ struct ChatView: View {
                                         dismissedToolCallIds: dismissedToolCallIds,
                                         workspaceId: workspace.id
                                     )
+                                    .equatable()
                                     .id(message.id)
                                 }
                             }
@@ -164,7 +168,10 @@ struct ChatView: View {
                                 store: store,
                                 pendingToolUseIds: pendingToolUseIds,
                                 dismissedToolCallIds: dismissedToolCallIds,
-                                onStreamUpdate: { scheduleScroll(proxy, animated: false) }
+                                onStreamUpdate: {
+                                    guard isPinnedToBottom else { return }
+                                    scheduleScroll(proxy, animated: false)
+                                }
                             )
                             .id("streaming-bubble")
 
@@ -175,24 +182,51 @@ struct ChatView: View {
                             Color.clear
                                 .frame(height: 1)
                                 .id(bottomAnchorID)
+                                .background(
+                                    GeometryReader { geometry in
+                                        Color.clear.preference(
+                                            key: ChatScrollMetricsKey.self,
+                                            value: ChatScrollMetrics(
+                                                bottomY: geometry.frame(in: .named(Self.scrollCoordinateSpace)).maxY
+                                            )
+                                        )
+                                    }
+                                )
                         }
                         .padding()
                     }
+                    .coordinateSpace(name: Self.scrollCoordinateSpace)
+                    .background(
+                        GeometryReader { geometry in
+                            Color.clear.preference(
+                                key: ChatScrollMetricsKey.self,
+                                value: ChatScrollMetrics(viewportHeight: geometry.size.height)
+                            )
+                        }
+                    )
                     .defaultScrollAnchor(.bottom)
                     .scrollDismissesKeyboard(.interactively)
+                    .onPreferenceChange(ChatScrollMetricsKey.self) { metrics in
+                        guard let viewportHeight = metrics.viewportHeight,
+                              let bottomY = metrics.bottomY else { return }
+                        isPinnedToBottom = bottomY <= viewportHeight + Self.bottomFollowThreshold
+                    }
                     .onAppear {
                         prevFirstMessageId = store.messages.first?.id
                         prevMessageCount = store.messages.count
                         scheduleScroll(proxy, animated: false, delay: .milliseconds(0))
                     }
                     .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                        scrollToBottom(proxy)
+                        if isPinnedToBottom {
+                            scrollToBottom(proxy)
+                        }
                     }
                     .onChange(of: store.messages.count) {
                         // Distinguish a prepend (load-earlier) from an append (new
                         // turn): only the latter should scroll to the bottom. A
                         // prepend grows the count but changes the head id, so
                         // chasing the bottom would undo the user's scroll position.
+                        let wasInitialPopulation = prevFirstMessageId == nil && prevMessageCount == 0
                         let shouldScroll = ConversationStore.shouldScrollToBottom(
                             prevFirstId: prevFirstMessageId,
                             newFirstId: store.messages.first?.id,
@@ -201,10 +235,14 @@ struct ChatView: View {
                         )
                         prevFirstMessageId = store.messages.first?.id
                         prevMessageCount = store.messages.count
-                        if shouldScroll { scheduleScroll(proxy) }
+                        if shouldScroll && (wasInitialPopulation || isPinnedToBottom) {
+                            scheduleScroll(proxy)
+                        }
                     }
                     .onChange(of: store.isStreaming) {
-                        scheduleScroll(proxy, animated: false)
+                        if isPinnedToBottom {
+                            scheduleScroll(proxy, animated: false)
+                        }
                     }
                     .onDisappear {
                         scrollTask?.cancel()
@@ -609,11 +647,9 @@ struct ChatView: View {
 
 // MARK: - Streaming Message View (isolated)
 
-/// Renders the in-flight assistant bubble in isolation (PRD #254). Because only
-/// this view reads the per-token streaming accumulators (via
-/// `store.streamingMessage`), the history rows in the parent `LazyVStack` never
-/// rebuild while tokens arrive. It also reports stream updates so the parent can
-/// coalesce scroll-to-bottom without depending on `currentText` itself.
+/// Renders the in-flight assistant bubble in isolation. This child owns the
+/// per-token text dependency, so history rows in the parent `LazyVStack` do not
+/// rebuild while tokens arrive.
 private struct StreamingMessageView: View {
     let store: ConversationStore
     var pendingToolUseIds: Set<String> = []
@@ -622,18 +658,37 @@ private struct StreamingMessageView: View {
     var onStreamUpdate: () -> Void = {}
 
     var body: some View {
-        Group {
-            if let streaming = store.streamingMessage {
-                MessageBubble(
-                    message: streaming,
-                    pendingToolUseIds: pendingToolUseIds,
-                    dismissedToolCallIds: dismissedToolCallIds
-                )
-                // Owning the currentText dependency here keeps it out of the
-                // parent's body, so the parent never re-evaluates per token.
-                .onChange(of: store.currentText) { onStreamUpdate() }
-                .onAppear { onStreamUpdate() }
-            }
+        if store.isStreaming,
+           !store.currentText.isEmpty || !store.currentThinking.isEmpty ||
+            !store.activeToolCalls.isEmpty || !store.activeAgentActivities.isEmpty {
+            StreamingMessageBubble(
+                text: store.currentText,
+                thinking: store.currentThinking,
+                toolCalls: store.activeToolCalls,
+                agentActivities: store.activeAgentActivities,
+                pendingToolUseIds: pendingToolUseIds,
+                dismissedToolCallIds: dismissedToolCallIds,
+                onTextRendered: onStreamUpdate
+            )
+        }
+    }
+}
+
+private struct ChatScrollMetrics: Equatable {
+    var viewportHeight: CGFloat?
+    var bottomY: CGFloat?
+}
+
+private struct ChatScrollMetricsKey: PreferenceKey {
+    static let defaultValue = ChatScrollMetrics()
+
+    static func reduce(value: inout ChatScrollMetrics, nextValue: () -> ChatScrollMetrics) {
+        let next = nextValue()
+        if let viewportHeight = next.viewportHeight {
+            value.viewportHeight = viewportHeight
+        }
+        if let bottomY = next.bottomY {
+            value.bottomY = bottomY
         }
     }
 }

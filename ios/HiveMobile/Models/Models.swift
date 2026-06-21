@@ -35,7 +35,7 @@ enum WorkspaceStatus: String, Codable {
     case busy
 }
 
-enum MessageRole: String, Codable {
+enum MessageRole: String, Codable, Equatable {
     case user
     case assistant
 }
@@ -222,7 +222,7 @@ struct FileMention: Codable, Equatable {
     let relativePath: String
 }
 
-struct ToolCall: Codable, Identifiable {
+struct ToolCall: Codable, Equatable, Identifiable {
     let id: String
     let name: String
     let input: String
@@ -358,7 +358,7 @@ struct MessagesPage: Codable {
     let hasMore: Bool
 }
 
-struct ChatMessage: Codable, Identifiable {
+struct ChatMessage: Codable, Equatable, Identifiable {
     let id: String
     let sessionId: String
     let role: MessageRole
