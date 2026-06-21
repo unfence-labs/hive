@@ -21,7 +21,6 @@ struct ChatActivityRowLabel: View {
     var isExpanded: Bool?
     var accessoryIcons: [String] = []
     var executing = false
-    @State private var pulse = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -107,14 +106,21 @@ struct ChatActivityRowLabel: View {
             }
 
             if executing {
-                // Theme-colored, position-stable pulse (matches the web's
-                // `bg-primary animate-pulse` and the TaskTracker in-progress dot).
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 5, height: 5)
-                    .opacity(pulse ? 1 : 0.4)
-                    .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: pulse)
-                    .onAppear { pulse = true }
+                // Opacity-only pulse, fully decoupled from the animation system so
+                // the dot can NEVER move. The opacity is recomputed every frame by
+                // TimelineView (no animation transaction), and `.transaction` nils
+                // out any animation inherited from ancestors — so streaming relayout
+                // (label/icons growing to its left) repositions the dot instantly
+                // instead of animating it. Matches the web's `bg-primary animate-pulse`.
+                TimelineView(.animation) { context in
+                    let t = context.date.timeIntervalSinceReferenceDate
+                    let opacity = 0.7 + 0.3 * sin(t * 2 * .pi / 1.6)
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 5, height: 5)
+                        .opacity(opacity)
+                }
+                .transaction { $0.animation = nil }
             }
         }
         .padding(.vertical, 3)
