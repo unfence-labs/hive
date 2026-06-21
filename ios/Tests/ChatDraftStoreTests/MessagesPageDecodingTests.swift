@@ -136,7 +136,7 @@ struct MessagesPageDecodingTests {
 
     /// A frozen line-count parity case. A struct (not a tuple) keeps the
     /// `arguments:` overload unambiguous across Swift Testing versions.
-    private struct LineCountCase: Sendable {
+    struct LineCountCase: Sendable {
         let input: String
         let expected: Int
     }
