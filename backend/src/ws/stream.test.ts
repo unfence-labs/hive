@@ -396,7 +396,7 @@ describe("WS /ws/hub", () => {
     await endSession(wsId, dataDir).catch(() => {});
   });
 
-  it("replays streaming agent activities during bootstrap", async () => {
+  it("replays streaming snapshot during bootstrap", async () => {
     const fakeClaudePath = join(tempDir, "fake-claude-activity-bootstrap.sh");
     await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
     await chmod(fakeClaudePath, 0o755);
@@ -423,20 +423,91 @@ describe("WS /ws/hub", () => {
 
     await waitForMessage(
       messages,
-      (msgs) => msgs.some((m) => m.type === "agent_activity" && m.activity.id === "cmd-bootstrap"),
+      (msgs) =>
+        msgs.some(
+          (m) =>
+            m.type === "stream_snapshot" &&
+            m.agentActivities.some((activity) => activity.id === "cmd-bootstrap"),
+        ),
     );
 
     expect(messages).toContainEqual({
-      type: "agent_activity",
+      type: "stream_snapshot",
       sessionId: session.sessionId,
-      activity: {
+      text: snapshot.text,
+      thinking: snapshot.thinking,
+      toolCalls: snapshot.toolCalls,
+      agentActivities: [{
         id: "cmd-bootstrap",
         kind: "command_execution",
         command: "npm test",
         status: "inProgress",
         output: "running\n",
-      },
+      }],
+      agentPlanMode: snapshot.agentPlanMode,
+      streamingStartedAt: session.streamingStartedAt ?? undefined,
     });
+
+    ws.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
+  });
+
+  it("replays snapshots and attaches listeners for non-active streaming sessions during bootstrap", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-multi-bootstrap.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+    const local = await startWsApp(undefined, slowCmd);
+
+    const { session: first } = await getOrCreateSession(wsId, dataDir, slowCmd);
+    first.sendMessage("first session");
+    const firstSnapshot = first.getStreamingSnapshot();
+    if (!firstSnapshot) throw new Error("Expected first streaming snapshot");
+    vi.spyOn(first, "getStreamingSnapshot").mockReturnValue({
+      ...firstSnapshot,
+      text: "first snapshot",
+    });
+
+    const second = await createNewSession(wsId, dataDir, slowCmd);
+    second.sendMessage("second session");
+    const secondSnapshot = second.getStreamingSnapshot();
+    if (!secondSnapshot) throw new Error("Expected second streaming snapshot");
+    vi.spyOn(second, "getStreamingSnapshot").mockReturnValue({
+      ...secondSnapshot,
+      text: "second snapshot",
+    });
+
+    const { wsReady, messages } = connectHub([wsId], { app: local.app });
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) =>
+            m.type === "stream_snapshot" &&
+            m.sessionId === first.sessionId &&
+            m.text === "first snapshot",
+        ) &&
+        msgs.some(
+          (m) =>
+            m.type === "stream_snapshot" &&
+            m.sessionId === second.sessionId &&
+            m.text === "second snapshot",
+        ),
+    );
+
+    const marker = messages.length;
+    first.emit("message", { type: "text_delta", sessionId: first.sessionId, text: " later" });
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.slice(marker).some(
+          (m) => m.type === "text_delta" && m.sessionId === first.sessionId && m.text === " later",
+        ),
+    );
 
     ws.close();
     await local.app.close();

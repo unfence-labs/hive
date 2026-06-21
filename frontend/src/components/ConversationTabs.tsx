@@ -273,7 +273,7 @@ export function ConversationTabs({
 
   return (
     <>
-      <div className="flex h-9 items-center gap-1 px-2">
+      <div className="relative z-10 flex h-9 items-center gap-1 px-2 shadow-[0_6px_12px_-4px_rgba(0,0,0,0.1)]">
         {/* Pinned file/diff takeover tab — stays put while conversations scroll. */}
         {openFile && (
           <button

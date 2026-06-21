@@ -406,6 +406,16 @@ export type WsOutgoing =
   | { type: "tool_use"; sessionId: string; id: string; name: string; input: string; parentToolUseId?: string }
   | { type: "tool_result"; sessionId: string; toolUseId: string; output: string }
   | { type: "agent_activity"; sessionId: string; activity: AgentActivity }
+  | {
+      type: "stream_snapshot";
+      sessionId: string;
+      text: string;
+      thinking: string;
+      toolCalls: ToolCall[];
+      agentActivities: AgentActivity[];
+      agentPlanMode: boolean;
+      streamingStartedAt?: number;
+    }
   | { type: "tool_input_required"; sessionId: string; requestId: string; toolName: string; toolUseId: string; input: unknown }
   | { type: "tool_input_resolved"; sessionId: string }
   | {

@@ -308,7 +308,8 @@ final class HubStatusMonitor {
             if streaming == true {
                 markActivity(for: workspaceId)
             }
-        case .branchInfo, .diffStats, .scriptStatus, .planModeChanged:
+        case .branchInfo, .diffStats, .scriptStatus, .planModeChanged,
+             .streamSnapshot(_, _, _, _, _, _, _):
             break
         default:
             markActivity(for: workspaceId)
@@ -518,6 +519,10 @@ private final class HubConnection {
             if userInitiated != true {
                 monitor?.didReceiveDone(for: workspaceId, sessionId: sessionId, markWorkspaceCompleted: false)
             }
+
+        case .streamSnapshot(let sessionId, _, _, _, _, _, _):
+            monitor?.didReceiveStreaming(true, for: workspaceId, sessionId: sessionId)
+            monitor?.ensureStoreExists(for: workspaceId)
 
         default:
             break

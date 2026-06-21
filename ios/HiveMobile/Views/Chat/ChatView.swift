@@ -13,6 +13,13 @@ struct ChatView: View {
     @State private var fastModeEnabled = false
     @State private var selectedModelId: String = ""
     @State private var draftAttachments: [ImageAttachment] = []
+    @State private var renderedStreamingText = ""
+    @State private var renderedStreamingThinking = ""
+    @State private var pendingStreamingText = ""
+    @State private var pendingStreamingThinking = ""
+    @State private var lastStreamingRenderAt = Date.distantPast
+    @State private var streamingRenderTask: Task<Void, Never>?
+    @State private var isNearScrollBottom = true
 
     @Environment(ModelCatalog.self) private var modelCatalog
     @Environment(ProjectStore.self) private var projectStore
@@ -102,7 +109,7 @@ struct ChatView: View {
         VStack(spacing: 0) {
             if isLoading {
                 Spacer()
-            } else if store.displayMessages.isEmpty && !store.isStreaming {
+            } else if store.messages.isEmpty && streamingMessage == nil && !store.isStreaming {
                 Spacer()
                 if isBrainWorkspaceId(workspace.id) {
                     BrainSessionEmptyState()
@@ -118,12 +125,17 @@ struct ChatView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        VStack(spacing: 16) {
-                            ForEach(store.displayMessages) { message in
+                        LazyVStack(spacing: 16) {
+                            ForEach(store.messages) { message in
                                 if !(message.role == .user && message.content == "Question dismissed.") {
                                     MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
                                         .id(message.id)
                                 }
+                            }
+
+                            if let message = streamingMessage {
+                                MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
+                                    .id(message.id)
                             }
 
                             if store.isStreaming {
@@ -138,14 +150,33 @@ struct ChatView: View {
                     }
                     .defaultScrollAnchor(.bottom)
                     .scrollDismissesKeyboard(.interactively)
+                    .onScrollGeometryChange(for: Bool.self) { geometry in
+                        geometry.contentSize.height - geometry.visibleRect.maxY < Self.scrollBottomTolerance
+                    } action: { _, isNearBottom in
+                        isNearScrollBottom = isNearBottom
+                    }
                     .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                        scrollToBottom(proxy)
+                        scrollToBottomIfNeeded(proxy)
                     }
-                    .onChange(of: store.displayMessages.count) {
-                        scrollToBottom(proxy)
+                    .onChange(of: store.messages.count) {
+                        scrollToBottomIfNeeded(proxy)
                     }
-                    .onChange(of: store.currentText) {
-                        scrollToBottom(proxy)
+                    .onChange(of: renderedStreamingText) {
+                        scrollToBottomIfNeeded(proxy)
+                    }
+                    .onChange(of: renderedStreamingThinking) {
+                        scrollToBottomIfNeeded(proxy)
+                    }
+                    .onChange(of: store.activeToolCalls.count) {
+                        scrollToBottomIfNeeded(proxy)
+                    }
+                    .onChange(of: store.activeAgentActivities.count) {
+                        scrollToBottomIfNeeded(proxy)
+                    }
+                    .onChange(of: store.isStreaming) { _, isStreaming in
+                        if isStreaming {
+                            scrollToBottomIfNeeded(proxy)
+                        }
                     }
                 }
             }
@@ -219,6 +250,15 @@ struct ChatView: View {
                 planModeEnabled = active
             }
         }
+        .onChange(of: store.currentText) { _, text in
+            scheduleStreamingRender(text: text)
+        }
+        .onChange(of: store.currentThinking) { _, thinking in
+            scheduleStreamingRender(thinking: thinking)
+        }
+        .onChange(of: store.isStreaming) { _, _ in
+            syncStreamingRenderFromStore()
+        }
         .onChange(of: lockedProvider) { _, newProvider in
             guard let newProvider, !selectedModelId.isEmpty else { return }
             let currentProvider = selectedModelId.split(separator: ":").first.map(String.init) ?? ""
@@ -229,6 +269,7 @@ struct ChatView: View {
             }
         }
         .onDisappear {
+            streamingRenderTask?.cancel()
             saveCurrentDraft()
             store.onTurnCompleted = nil
             if projectStore.statusMonitor.viewingWorkspaceId == workspace.id,
@@ -239,6 +280,90 @@ struct ChatView: View {
     }
 
     // MARK: - Streaming Activity
+
+    private static let streamingRenderInterval: TimeInterval = 0.05
+    private static let scrollBottomTolerance: CGFloat = 96
+
+    private var streamingMessage: ChatMessage? {
+        guard store.isStreaming else { return nil }
+        let hasContent = !renderedStreamingText.isEmpty || !renderedStreamingThinking.isEmpty
+            || !store.activeToolCalls.isEmpty || !store.activeAgentActivities.isEmpty
+        guard hasContent else { return nil }
+
+        return ChatMessage(
+            id: "streaming",
+            sessionId: store.sessionId ?? "",
+            role: .assistant,
+            content: renderedStreamingText,
+            images: nil,
+            toolCalls: store.activeToolCalls.isEmpty ? nil : store.activeToolCalls,
+            agentActivities: store.activeAgentActivities.isEmpty ? nil : store.activeAgentActivities,
+            thinkingContent: renderedStreamingThinking.isEmpty ? nil : renderedStreamingThinking,
+            timestamp: ConversationStore.timestamp(),
+            cancelled: nil,
+            durationMs: nil
+        )
+    }
+
+    private func scheduleStreamingRender(text: String? = nil, thinking: String? = nil) {
+        if let text {
+            pendingStreamingText = text
+        }
+        if let thinking {
+            pendingStreamingThinking = thinking
+        }
+
+        let elapsed = Date().timeIntervalSince(lastStreamingRenderAt)
+        if elapsed >= Self.streamingRenderInterval {
+            streamingRenderTask?.cancel()
+            streamingRenderTask = nil
+            applyPendingStreamingRender()
+            return
+        }
+
+        guard streamingRenderTask == nil else { return }
+
+        let delay = Self.streamingRenderInterval - elapsed
+        let milliseconds = Int64(max(1, (delay * 1000).rounded(.up)))
+        streamingRenderTask = Task {
+            do {
+                try await Task.sleep(for: .milliseconds(milliseconds))
+            } catch {
+                return
+            }
+
+            await MainActor.run {
+                applyPendingStreamingRender()
+                streamingRenderTask = nil
+            }
+        }
+    }
+
+    private func applyPendingStreamingRender() {
+        lastStreamingRenderAt = Date()
+        renderedStreamingText = pendingStreamingText
+        renderedStreamingThinking = pendingStreamingThinking
+    }
+
+    private func resetStreamingRender() {
+        streamingRenderTask?.cancel()
+        streamingRenderTask = nil
+        pendingStreamingText = ""
+        pendingStreamingThinking = ""
+        renderedStreamingText = ""
+        renderedStreamingThinking = ""
+        lastStreamingRenderAt = .distantPast
+    }
+
+    private func syncStreamingRenderFromStore() {
+        if store.isStreaming {
+            pendingStreamingText = store.currentText
+            pendingStreamingThinking = store.currentThinking
+            applyPendingStreamingRender()
+        } else {
+            resetStreamingRender()
+        }
+    }
 
     private var streamingActivityRow: some View {
         TimelineView(.periodic(from: .now, by: 0.1)) { timeline in
@@ -288,10 +413,14 @@ struct ChatView: View {
 
         if store.sessionId == selectedSessionId {
             store.setFocusedSessionId(selectedSessionId)
+            if projectStore.statusMonitor.isStreaming(workspaceId: workspace.id, sessionId: selectedSessionId) {
+                _ = await store.send?(.switchSession(sessionId: selectedSessionId))
+            }
         } else {
             store.prepareSessionSwitch(selectedSessionId)
             _ = await store.send?(.switchSession(sessionId: selectedSessionId))
         }
+        syncStreamingRenderFromStore()
         restoreDraft(for: selectedSessionId)
 
         if selectedModelId.isEmpty {
@@ -299,6 +428,7 @@ struct ChatView: View {
         }
 
         await loadMessages()
+        syncStreamingRenderFromStore()
     }
 
     private func loadMessages() async {
@@ -322,7 +452,7 @@ struct ChatView: View {
                 return
             }
             // History contains only finalized turns; streaming content lives
-            // in sessionStreams and is appended by displayMessages.
+            // in sessionStreams and is rendered as a separate in-progress bubble.
             store.messages = msgs
         } catch is CancellationError {
             // View disappeared
@@ -461,14 +591,9 @@ struct ChatView: View {
     private static let bottomAnchorID = "chat-bottom-anchor"
     private var bottomAnchorID: String { Self.bottomAnchorID }
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool = true) {
-        if animated {
-            withAnimation(.easeOut(duration: 0.15)) {
-                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
-            }
-        } else {
-            proxy.scrollTo(bottomAnchorID, anchor: .bottom)
-        }
+    private func scrollToBottomIfNeeded(_ proxy: ScrollViewProxy) {
+        guard isNearScrollBottom else { return }
+        proxy.scrollTo(bottomAnchorID, anchor: .bottom)
     }
 
     private func formatStreamingElapsed(at date: Date) -> String {
