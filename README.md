@@ -334,6 +334,9 @@ This section is the single approved place for documented remaining work. Do not 
 **REST history payload weight**
 - Lazy history truncation currently covers `ToolCall.output` and `command_execution.output` only. Large content carried in `ToolCall.input` (e.g. big `Write` inputs or Codex multi-file edits) and `agentActivities[].files[].diff` is not truncated, so a turn with heavy inputs or diffs can still produce a large history payload.
 
+**Blocking tool input emitted after `done`**
+- A blocking tool-input event (`AskUserQuestion`/`ExitPlanMode`) the backend emits immediately after a turn's `done` is dropped by the live reducer guard, which treats the terminated turn as stale. The pending input is recovered by REST history rehydration on next focus, so the prompt sheet appears on refocus. Pre-existing (predates the lazy-history branch); mitigated by rehydration.
+
 **iOS**
 - Add iOS UI for automations and prompt template management.
 - Add repository file browsing and richer diff inspection on iOS beyond dashboard summaries and chat-rendered diffs.

@@ -219,7 +219,7 @@ export interface ToolCall {
   output?: string;
   /** First ~2 KB of the output (REST history; computed once for live tools). */
   outputPreview?: string;
-  /** Exact line count of the FULL output (newlines + 1). */
+  /** Line count of the FULL output after ignoring a single trailing newline. */
   outputLineCount?: number;
   /** Exact UTF-8 byte length of the FULL output. */
   outputByteLength?: number;

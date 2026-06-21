@@ -443,8 +443,9 @@ function outputText(tool: ToolCall): string | undefined {
 
 /**
  * Result/file count for Grep/Glob, read from scalars (never the omitted body).
- * Prefer the exact `outputLineCount` scalar; only when absent (e.g. a live tool
- * whose result hasn't computed scalars) fall back to counting the live text.
+ * The scalar already ignores one trailing newline; only when absent (e.g. a
+ * live tool whose result hasn't computed scalars) fall back to counting
+ * non-empty preview/live lines.
  */
 function outputNonEmptyLineCount(tool: ToolCall): number {
   if (tool.outputLineCount != null) return tool.outputLineCount;

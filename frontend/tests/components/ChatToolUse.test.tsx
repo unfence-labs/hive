@@ -393,7 +393,7 @@ describe("ChatToolUse", () => {
             input: JSON.stringify({ command: "echo hi" }),
             output: "hi\n",
             outputPreview: "hi\n",
-            outputLineCount: 2,
+            outputLineCount: 1, // "hi\n" → 1 (trailing newline ignored)
             outputByteLength: 3,
             outputTruncated: false,
           })}

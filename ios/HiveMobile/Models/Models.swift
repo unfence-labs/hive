@@ -236,7 +236,7 @@ struct ToolCall: Codable, Identifiable {
     // reads scalars instead of re-parsing the body and there is one shape.
     /// First ~2 KB of output (UTF-8). Present on history; computed live.
     let outputPreview: String?
-    /// Exact line count of the full output (newlines + 1; 0 when empty).
+    /// Line count of the full output after ignoring a single trailing newline.
     let outputLineCount: Int?
     /// Exact UTF-8 byte length of the full output.
     let outputByteLength: Int?
@@ -291,18 +291,33 @@ struct ToolCall: Codable, Identifiable {
 let outputPreviewByteCap = 2048
 
 /// Compute the preview + exact scalars for a heavy output string, matching the
-/// backend `computeTruncatedField` byte-for-byte: line count = newlines + 1 (0
-/// when empty), byte length = UTF-8 byte length, truncated when over the cap,
-/// preview = first `outputPreviewByteCap` UTF-8 bytes (never splitting a
-/// multibyte scalar).
+/// shared TS `outputLineCount` byte-for-byte: a single trailing newline is NOT
+/// counted (0 when empty), byte length = UTF-8 byte length, truncated when over
+/// the cap, preview = first `outputPreviewByteCap` UTF-8 bytes (never splitting
+/// a multibyte scalar).
 func computeOutputScalars(_ full: String) -> (preview: String, lineCount: Int, byteLength: Int, truncated: Bool) {
     let bytes = Array(full.utf8)
     let byteLength = bytes.count
-    // Count newlines by UTF-8 byte (0x0A), then + 1 — exactly matching the
-    // backend's `full.split("\n").length`. Counting raw bytes (not Swift
-    // grapheme `Character`s) keeps "\r\n" counted as one break like JS does.
-    let lineCount = full.isEmpty ? 0 : bytes.reduce(into: 1) { count, byte in
-        if byte == 0x0A { count += 1 }
+    // Line count matching the shared TS primitive exactly:
+    //   if s.length === 0 -> 0
+    //   body = s.endsWith("\n") ? s.slice(0,-1) : s
+    //   return body.length === 0 ? 0 : body.split("\n").length
+    // So we drop a single trailing newline, then count newlines + 1 over the
+    // remaining bytes. Counting raw UTF-8 bytes (not Swift grapheme
+    // `Character`s) keeps "\r\n" counted as one break like JS does.
+    let lineCount: Int
+    if bytes.isEmpty {
+        lineCount = 0
+    } else {
+        // Drop a single trailing "\n" (0x0A) to match `slice(0, -1)`.
+        let bodyEnd = bytes.last == 0x0A ? bytes.count - 1 : bytes.count
+        if bodyEnd == 0 {
+            lineCount = 0
+        } else {
+            lineCount = bytes[0..<bodyEnd].reduce(into: 1) { count, byte in
+                if byte == 0x0A { count += 1 }
+            }
+        }
     }
     let truncated = byteLength > outputPreviewByteCap
     let preview = truncated ? sliceUtf8(full, maxBytes: outputPreviewByteCap) : full
@@ -317,6 +332,21 @@ private func sliceUtf8(_ text: String, maxBytes: Int) -> String {
     var end = maxBytes
     while end > 0 && (bytes[end] & 0b1100_0000) == 0b1000_0000 { end -= 1 }
     return String(decoding: bytes[0..<end], as: UTF8.self)
+}
+
+// MARK: - Tool output cache key (PRD #254)
+
+/// Composite cache key scoping a tool id to its session (workspaceId +
+/// sessionId). Keying by tool id alone is unsafe: Codex tool ids are sequential
+/// per turn (`item_1`, `item_2`, …) and so repeat across sessions/workspaces,
+/// which would let one session's `item_1` body be served for another session's
+/// `item_1`. The `\u{1}` separators cannot appear in workspace/session/tool ids,
+/// so the joined string is unambiguous.
+///
+/// Lives here (a test-target source) so the keying can be unit-tested without
+/// pulling the SwiftUI View layer into the test module.
+func toolOutputCacheKey(workspaceId: String, sessionId: String, toolId: String) -> String {
+    "\(workspaceId)\u{1}\(sessionId)\u{1}\(toolId)"
 }
 
 // MARK: - REST history page (PRD #254)

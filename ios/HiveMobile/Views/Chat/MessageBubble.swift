@@ -359,14 +359,14 @@ private func computeToolStats(_ tool: ToolCall) -> ChatActivityStats? {
     }
 }
 
-/// Non-empty line count of a tool's output, preferring the pre-computed scalar
+/// Result/file row count of a tool's output, preferring the pre-computed scalar
 /// (PRD #254) so the collapsed view never re-parses the full body. Falls back to
-/// counting the preview, then the full output, when scalars are absent.
+/// counting non-empty preview/full-output rows when scalars are absent.
 ///
-/// Note: `outputLineCount` counts newlines + 1 (matching the backend), whereas
-/// the legacy parse split on "\n" dropping empty subsequences. For Grep/Glob the
-/// output is newline-separated rows with no trailing blank line, so both agree;
-/// the scalar is authoritative and avoids parsing.
+/// Note: `outputLineCount` already excludes a single trailing newline (matching
+/// the shared TS `outputLineCount` primitive), so a body like "a\nb\n" counts as
+/// 2 lines, not 3. The scalar is authoritative and avoids parsing the full body;
+/// the preview/output fallbacks below split on "\n" only when no scalar exists.
 private func toolOutputLineCount(_ tool: ToolCall) -> Int? {
     if let count = tool.outputLineCount { return count }
     if let preview = tool.outputPreview, !preview.isEmpty {
@@ -760,7 +760,7 @@ private struct WhisperToolCallRow: View {
     /// Resolve the full output for a truncated tool: serve the process cache when
     /// present, otherwise fetch once via the expand endpoint and cache it.
     private func loadFullOutput(_ ctx: ToolOutputFetchContext) async {
-        if let cached = ToolOutputCache.shared.value(for: tool.id) {
+        if let cached = ToolOutputCache.shared.value(for: ctx, toolId: tool.id) {
             fetchedOutput = cached
             return
         }
@@ -772,7 +772,7 @@ private struct WhisperToolCallRow: View {
                 sessionId: ctx.sessionId,
                 toolId: tool.id
             )
-            ToolOutputCache.shared.store(output, for: tool.id)
+            ToolOutputCache.shared.store(output, for: ctx, toolId: tool.id)
             fetchedOutput = output
         } catch {
             // Leave the preview in place on failure; re-expanding retries.
@@ -788,16 +788,32 @@ struct ToolOutputFetchContext: Equatable {
     let sessionId: String
 }
 
-/// Process-wide cache of full tool outputs fetched on expand, keyed by tool id.
-/// Keeps a re-expanded (or re-rendered) row from refetching the same body.
+/// Process-wide cache of full tool outputs fetched on expand, keyed by the
+/// session scope (workspaceId + sessionId) plus the tool id. Keying by tool id
+/// alone is unsafe: Codex tool ids are sequential per turn (`item_1`, `item_2`,
+/// …) and so repeat across sessions/workspaces, which would let one session's
+/// `item_1` body be served for a different session's `item_1`. Keeps a
+/// re-expanded (or re-rendered) row from refetching the same body.
 @MainActor
 private final class ToolOutputCache {
     static let shared = ToolOutputCache()
     let client = APIClient()
     private var outputs: [String: String] = [:]
 
-    func value(for toolId: String) -> String? { outputs[toolId] }
-    func store(_ output: String, for toolId: String) { outputs[toolId] = output }
+    /// Composite cache key scoping a tool id to its session. The pure builder
+    /// lives in `Models.swift` (`toolOutputCacheKey`) so it is unit-testable
+    /// without pulling this SwiftUI View into the test module.
+    private func cacheKey(_ context: ToolOutputFetchContext, _ toolId: String) -> String {
+        toolOutputCacheKey(workspaceId: context.workspaceId, sessionId: context.sessionId, toolId: toolId)
+    }
+
+    func value(for context: ToolOutputFetchContext, toolId: String) -> String? {
+        outputs[cacheKey(context, toolId)]
+    }
+
+    func store(_ output: String, for context: ToolOutputFetchContext, toolId: String) {
+        outputs[cacheKey(context, toolId)] = output
+    }
 }
 
 // MARK: - Diff Content View (Edit tool expanded)

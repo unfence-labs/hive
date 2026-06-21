@@ -94,8 +94,9 @@ struct MessagesPageDecodingTests {
     // @hive/shared/agent-activity (outputLineCount / outputByteLength), consumed
     // by both backend computeTruncatedField and frontend computeOutputScalars.
     // iOS keeps its own Swift copy (it cannot import TS); these cases pin that
-    // copy to the same semantics: empty => 0 lines / 0 bytes, line count =
-    // newlines + 1, byte length = UTF-8 bytes.
+    // copy to the same semantics: empty => 0 lines / 0 bytes; line count drops a
+    // single trailing newline then counts newlines + 1 (so "a\nb\n" => 2, not 3);
+    // byte length = UTF-8 bytes.
 
     @Test
     func computesScalarsForEmptyOutput() {
@@ -126,10 +127,37 @@ struct MessagesPageDecodingTests {
 
     @Test
     func computesScalarsWithTrailingNewline() {
-        // "a\nb\n" => 2 newlines + 1 = 3 (matches backend split-based count).
+        // A single trailing newline is NOT counted (matches the shared TS
+        // `outputLineCount`): "a\nb\n" => body "a\nb" => 2 lines, not 3.
         let s = computeOutputScalars("a\nb\n")
-        #expect(s.lineCount == 3)
+        #expect(s.lineCount == 2)
         #expect(s.byteLength == 4)
+    }
+
+    /// A frozen line-count parity case. A struct (not a tuple) keeps the
+    /// `arguments:` overload unambiguous across Swift Testing versions.
+    private struct LineCountCase: Sendable {
+        let input: String
+        let expected: Int
+    }
+
+    @Test(
+        // Frozen parity with the shared TS `outputLineCount` primitive:
+        //   if s.length === 0 -> 0
+        //   body = s.endsWith("\n") ? s.slice(0,-1) : s
+        //   return body.length === 0 ? 0 : body.split("\n").length
+        arguments: [
+            LineCountCase(input: "", expected: 0),
+            LineCountCase(input: "a", expected: 1),
+            LineCountCase(input: "a\n", expected: 1),
+            LineCountCase(input: "a\nb", expected: 2),
+            LineCountCase(input: "a\nb\n", expected: 2),
+            LineCountCase(input: "\n", expected: 0),
+            LineCountCase(input: "a\n\n", expected: 2),
+        ]
+    )
+    func lineCountMatchesSharedTSPrimitive(_ testCase: LineCountCase) {
+        #expect(computeOutputScalars(testCase.input).lineCount == testCase.expected)
     }
 
     @Test

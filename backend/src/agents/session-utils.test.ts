@@ -11,7 +11,14 @@ const CASES: Array<{ name: string; input: string; lines: number; bytes: number }
   { name: "empty string", input: "", lines: 0, bytes: 0 },
   { name: "single line, no newline", input: "hello", lines: 1, bytes: 5 },
   { name: "multi-line", input: "a\nb\nc", lines: 3, bytes: 5 },
-  { name: "trailing newline", input: "a\n", lines: 2, bytes: 2 },
+  // A single trailing newline must NOT inflate the count (command/Grep output
+  // almost always ends in one). "a\n" is one line, not two.
+  { name: "trailing newline ignored", input: "a\n", lines: 1, bytes: 2 },
+  { name: "single char", input: "a", lines: 1, bytes: 1 },
+  { name: "two lines, no trailing newline", input: "a\nb", lines: 2, bytes: 3 },
+  { name: "two lines, trailing newline", input: "a\nb\n", lines: 2, bytes: 4 },
+  { name: "lone newline", input: "\n", lines: 0, bytes: 1 },
+  { name: "trailing blank line preserved", input: "a\n\n", lines: 2, bytes: 3 },
   // "héllo" + emoji: 2-byte é + 4-byte 🚀 → byte length exceeds char length.
   { name: "multibyte", input: "héllo 🚀", lines: 1, bytes: 11 },
 ];

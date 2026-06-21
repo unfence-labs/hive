@@ -5,9 +5,15 @@
 // scalar computation (`computeOutputScalars`). Keeping them here prevents the
 // line-count / byte-length formulas from drifting between packages.
 
-/** Exact line count of a full output string: newlines + 1, 0 when empty. */
+/**
+ * Line count for a full output string after ignoring a single trailing newline
+ * (which command/Grep/Glob output almost always carries).
+ * Examples: ""=>0, "a"=>1, "a\n"=>1, "a\nb"=>2, "a\nb\n"=>2, "\n"=>0, "a\n\n"=>2.
+ */
 export function outputLineCount(s: string): number {
-  return s.length === 0 ? 0 : s.split("\n").length;
+  if (s.length === 0) return 0;
+  const body = s.endsWith("\n") ? s.slice(0, -1) : s;
+  return body.length === 0 ? 0 : body.split("\n").length;
 }
 
 /** Exact UTF-8 byte length of a full output string. */
@@ -68,7 +74,7 @@ export type AgentActivity =
       output?: string;
       /** First ~2 KB of the output (REST history). */
       outputPreview?: string;
-      /** Exact line count of the FULL output (newlines + 1). */
+      /** Line count of the FULL output after ignoring a single trailing newline. */
       outputLineCount?: number;
       /** Exact UTF-8 byte length of the FULL output. */
       outputByteLength?: number;

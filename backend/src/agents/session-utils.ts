@@ -60,9 +60,10 @@ function sliceUtf8(text: string, maxBytes: number): string {
 }
 
 /**
- * Compute the preview + exact scalars for a heavy string. Scalars are always
- * derived from the FULL text (line count = newlines + 1, byte length = UTF-8
- * byte length); the preview is the first {@link OUTPUT_PREVIEW_BYTES} bytes.
+ * Compute the preview + scalars for a heavy string. Scalars are always derived
+ * from the FULL text: line count ignores one trailing newline, byte length is
+ * UTF-8 byte length, and the preview is the first {@link OUTPUT_PREVIEW_BYTES}
+ * bytes.
  */
 export function computeTruncatedField(full: string): TruncatedField {
   const byteLength = outputByteLength(full);
