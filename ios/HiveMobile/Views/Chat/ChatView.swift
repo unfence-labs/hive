@@ -19,7 +19,6 @@ struct ChatView: View {
     @State private var pendingStreamingThinking = ""
     @State private var lastStreamingRenderAt = Date.distantPast
     @State private var streamingRenderTask: Task<Void, Never>?
-    @State private var scrollPosition = ScrollPosition(idType: String.self, edge: .bottom)
     @State private var isNearScrollBottom = true
 
     @Environment(ModelCatalog.self) private var modelCatalog
@@ -124,61 +123,66 @@ struct ChatView: View {
                 }
                 Spacer()
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 16) {
-                        ForEach(store.messages) { message in
-                            if !(message.role == .user && message.content == "Question dismissed.") {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 16) {
+                            ForEach(store.messages) { message in
+                                if !(message.role == .user && message.content == "Question dismissed.") {
+                                    MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
+                                        .id(message.id)
+                                }
+                            }
+
+                            if let message = streamingMessage {
                                 MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
                                     .id(message.id)
                             }
-                        }
 
-                        if let message = streamingMessage {
-                            MessageBubble(message: message, pendingToolUseIds: pendingToolUseIds, dismissedToolCallIds: dismissedToolCallIds)
-                                .id(message.id)
-                        }
+                            if store.isStreaming {
+                                streamingActivityRow
+                            }
 
-                        if store.isStreaming {
-                            streamingActivityRow
+                            Color.clear
+                                .frame(height: 1)
+                                .id(bottomAnchorID)
                         }
+                        .padding()
                     }
-                    .scrollTargetLayout()
-                    .padding()
-                }
-                .scrollPosition($scrollPosition, anchor: .bottom)
-                .scrollDismissesKeyboard(.interactively)
-                .onScrollGeometryChange(for: Bool.self) { geometry in
-                    geometry.contentSize.height - geometry.visibleRect.maxY < Self.scrollBottomTolerance
-                } action: { _, isNearBottom in
-                    isNearScrollBottom = isNearBottom
-                }
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                    scrollToBottomIfNeeded()
-                }
-                .onChange(of: store.messages.count) {
-                    scrollToBottomIfNeeded()
-                }
-                .onChange(of: store.currentText) {
-                    scheduleStreamingRender(text: store.currentText)
-                }
-                .onChange(of: renderedStreamingText) {
-                    scrollToBottomIfNeeded()
-                }
-                .onChange(of: store.currentThinking) {
-                    scheduleStreamingRender(thinking: store.currentThinking)
-                }
-                .onChange(of: renderedStreamingThinking) {
-                    scrollToBottomIfNeeded()
-                }
-                .onChange(of: store.activeToolCalls.count) {
-                    scrollToBottomIfNeeded()
-                }
-                .onChange(of: store.activeAgentActivities.count) {
-                    scrollToBottomIfNeeded()
-                }
-                .onChange(of: store.isStreaming) { _, isStreaming in
-                    if isStreaming {
-                        scrollToBottomIfNeeded()
+                    .defaultScrollAnchor(.bottom)
+                    .scrollDismissesKeyboard(.interactively)
+                    .onScrollGeometryChange(for: Bool.self) { geometry in
+                        geometry.contentSize.height - geometry.visibleRect.maxY < Self.scrollBottomTolerance
+                    } action: { _, isNearBottom in
+                        isNearScrollBottom = isNearBottom
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                        scrollToBottomIfNeeded(proxy)
+                    }
+                    .onChange(of: store.messages.count) {
+                        scrollToBottomIfNeeded(proxy)
+                    }
+                    .onChange(of: store.currentText) {
+                        scheduleStreamingRender(text: store.currentText)
+                    }
+                    .onChange(of: renderedStreamingText) {
+                        scrollToBottomIfNeeded(proxy)
+                    }
+                    .onChange(of: store.currentThinking) {
+                        scheduleStreamingRender(thinking: store.currentThinking)
+                    }
+                    .onChange(of: renderedStreamingThinking) {
+                        scrollToBottomIfNeeded(proxy)
+                    }
+                    .onChange(of: store.activeToolCalls.count) {
+                        scrollToBottomIfNeeded(proxy)
+                    }
+                    .onChange(of: store.activeAgentActivities.count) {
+                        scrollToBottomIfNeeded(proxy)
+                    }
+                    .onChange(of: store.isStreaming) { _, isStreaming in
+                        if isStreaming {
+                            scrollToBottomIfNeeded(proxy)
+                        }
                     }
                 }
             }
@@ -578,9 +582,12 @@ struct ChatView: View {
         applySessionRunOptions()
     }
 
-    private func scrollToBottomIfNeeded() {
+    private static let bottomAnchorID = "chat-bottom-anchor"
+    private var bottomAnchorID: String { Self.bottomAnchorID }
+
+    private func scrollToBottomIfNeeded(_ proxy: ScrollViewProxy) {
         guard isNearScrollBottom else { return }
-        scrollPosition.scrollTo(edge: .bottom)
+        proxy.scrollTo(bottomAnchorID, anchor: .bottom)
     }
 
     private func formatStreamingElapsed(at date: Date) -> String {
