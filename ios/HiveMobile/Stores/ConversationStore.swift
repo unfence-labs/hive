@@ -38,7 +38,7 @@ final class ConversationStore {
     /// changes it. The first-ever population (`prevFirstId == nil`) and a list
     /// becoming empty are treated as scroll-to-bottom so opening a chat lands at
     /// the latest turn.
-    static func shouldScrollToBottom(
+    nonisolated static func shouldScrollToBottom(
         prevFirstId: String?,
         newFirstId: String?,
         prevCount: Int,
