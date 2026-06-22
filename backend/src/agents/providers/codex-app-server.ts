@@ -5,6 +5,7 @@ import {
   normalizeAgentActivityCommandActions,
   type AgentActivityCommandAction,
 } from "@hive/shared/agent-activity";
+import { appendBoundedAgentOutput, boundAgentOutput } from "../bounded-output.js";
 import type { NormalizedAgentEvent } from "../agent-event-normalizer.js";
 import type { StreamParserEvent } from "../stream-parser.js";
 import type { ThinkingLevel } from "./types.js";
@@ -644,7 +645,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         const delta = asString(data?.delta);
         if (itemId && delta) {
           const parentToolUseId = this.parentToolUseIdForThread(asString(data?.threadId)) ?? this.toolParentByItemId.get(itemId);
-          const next = `${this.commandOutputs.get(itemId) ?? ""}${delta}`;
+          const next = appendBoundedAgentOutput(this.commandOutputs.get(itemId), delta);
           this.commandOutputs.set(itemId, next);
           if (parentToolUseId) break;
           this.emit("agent_event", {
@@ -664,12 +665,13 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         const itemId = asString(data?.itemId);
         const changes = asArray(data?.changes) as FileUpdateChange[] | undefined;
         if (itemId && changes) {
+          const boundedChanges = boundFileChanges(changes);
           const parentToolUseId = this.parentToolUseIdForThread(asString(data?.threadId)) ?? this.toolParentByItemId.get(itemId);
-          this.fileChanges.set(itemId, changes);
+          this.fileChanges.set(itemId, boundedChanges);
           if (parentToolUseId) {
-            this.emitChildFileChangeTools(itemId, changes, undefined, "started", parentToolUseId);
+            this.emitChildFileChangeTools(itemId, boundedChanges, undefined, "started", parentToolUseId);
           } else {
-            this.emitFileChangeEvents(itemId, changes);
+            this.emitFileChangeEvents(itemId, boundedChanges);
           }
         }
         break;
@@ -842,7 +844,9 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
             command: commandItem.command ?? "",
             cwd: commandItem.cwd,
             status: commandItem.status,
-            output: commandItem.aggregatedOutput ?? this.commandOutputs.get(commandItem.id) ?? formatExitCode(commandItem.exitCode),
+            output: boundAgentOutput(
+              commandItem.aggregatedOutput ?? this.commandOutputs.get(commandItem.id) ?? formatExitCode(commandItem.exitCode),
+            ),
             exitCode: asNullableNumber(commandItem.exitCode),
             durationMs: asNullableNumber(commandItem.durationMs),
             commandActions,
@@ -1148,13 +1152,14 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     phase: "started" | "completed",
     parentToolUseId: string,
   ): void {
-    const diff = changes.map((change) => change.diff).filter(Boolean).join("\n");
+    const files = boundFileChanges(changes);
+    const diff = boundAgentOutput(files.map((change) => change.diff).filter(Boolean).join("\n")) ?? "";
     const path = changes[0]?.path ?? "";
     this.emitToolUse(itemId, "Edit", JSON.stringify({
       filename: path,
       diff,
       status,
-      files: changes.map((change) => ({
+      files: files.map((change) => ({
         filename: change.path ?? "",
         diff: change.diff ?? "",
         kind: formatChangeKind(change.kind),
@@ -1238,7 +1243,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
     const files = changes
       .map((change) => ({
         path: change.path ?? "",
-        diff: change.diff,
+        diff: boundAgentOutput(change.diff),
         kind: formatChangeKind(change.kind),
         status,
       }))
@@ -1247,7 +1252,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       type: "file_change_updated",
       id: itemId,
       path: firstChange?.path,
-      diff: changes.map((change) => change.diff).filter(Boolean).join("\n"),
+      diff: boundAgentOutput(changes.map((change) => change.diff).filter(Boolean).join("\n")),
       files,
       status: status ?? (firstChange ? formatChangeKind(firstChange.kind) : undefined),
     });
@@ -1300,7 +1305,7 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
       type: "user",
       message: {
         role: "user",
-        content: [{ type: "tool_result", tool_use_id: id, content: output }],
+        content: [{ type: "tool_result", tool_use_id: id, content: boundAgentOutput(output) ?? "" }],
       },
     });
   }
@@ -1431,6 +1436,13 @@ function formatChangeKind(kind: unknown): string {
   const record = asRecord(kind);
   const type = asString(record?.type);
   return type ?? "update";
+}
+
+function boundFileChanges(changes: FileUpdateChange[]): FileUpdateChange[] {
+  return changes.map((change) => ({
+    ...change,
+    diff: boundAgentOutput(change.diff),
+  }));
 }
 
 function formatUnknown(value: unknown): string {

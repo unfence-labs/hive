@@ -7,6 +7,7 @@ vi.mock("node:child_process", () => ({
 }));
 
 import { spawn } from "node:child_process";
+import { MAX_AGENT_OUTPUT_CHARS } from "../bounded-output.js";
 import { CodexAppServerSession } from "./codex-app-server.js";
 
 const mockSpawn = vi.mocked(spawn);
@@ -2464,6 +2465,29 @@ describe("CodexAppServerSession normalized events", () => {
         steps: [{ text: "Run tests", status: "completed" }],
       },
     ]);
+  });
+
+  it("bounds the accumulated command output before emitting it", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    const largeOutput = "x".repeat(MAX_AGENT_OUTPUT_CHARS + 2048);
+    proc._stdout.push(JSON.stringify({
+      method: "item/commandExecution/outputDelta",
+      params: { itemId: "cmd-large", delta: largeOutput },
+    }) + "\n");
+
+    const event = events.find((entry) =>
+      (entry as { type?: string; id?: string }).type === "command_execution_updated" &&
+      (entry as { id?: string }).id === "cmd-large"
+    ) as { output?: string; outputDelta?: string } | undefined;
+
+    expect(event?.output).toContain("Output truncated by Hive");
+    expect(event?.output?.length).toBeLessThanOrEqual(MAX_AGENT_OUTPUT_CHARS);
   });
 
   it("ignores plan updates from sub-agent threads", async () => {

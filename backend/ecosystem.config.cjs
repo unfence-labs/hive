@@ -3,6 +3,9 @@ module.exports = {
     name: "hive-backend",
     script: "dist/index.js",
     node_args: "--enable-source-maps",
+    // Safety net: PM2 restarts the process if RSS exceeds this, before V8's
+    // heap limit triggers a fatal OOM. Keep it below the Node heap limit.
+    max_memory_restart: "3G",
     env_production: {
       NODE_ENV: "production",
       HOST: "0.0.0.0",
