@@ -14,6 +14,11 @@ type BranchInfoMessage = Extract<WsOutgoing, { type: "branch_info" }>;
 const MAX_RECONNECT_DELAY = 30_000;
 const BASE_RECONNECT_DELAY = 1_000;
 
+/** Resolve the session a history message belongs to (undefined if session-less). */
+function historySessionKey(msg: HistoryMessage): string | undefined {
+  return msg.sessionId ?? msg.messages[0]?.sessionId;
+}
+
 // ── Hub socket state ────────────────────────────────────────────────
 
 interface HubState {
@@ -31,7 +36,8 @@ interface WorkspaceSubscription {
   statusListeners: Set<StatusListener>;
   lastStatus?: StatusMessage;
   lastStatusBySession: Map<string, StatusMessage>;
-  lastHistory?: HistoryMessage;
+  /** Latest message history per session, so switching between sessions replays instantly. */
+  lastHistoryBySession: Map<string, HistoryMessage>;
   lastDiffStats?: DiffStatsMessage;
   lastBranchInfo?: BranchInfoMessage;
   /** Messages received while no handler was subscribed. Replayed on next onMessage(). */
@@ -80,15 +86,29 @@ class WsTransport {
     this.sendSyncWorkspaces();
   }
 
-  /** Update the cached history so switch-back replays are fresh. */
+  /** Update the cached history for its session so switch-back replays are fresh. */
   updateCachedHistory(workspaceId: string, historyMsg: HistoryMessage): void {
     const sub = this.subscriptions.get(workspaceId);
-    if (sub) sub.lastHistory = historyMsg;
+    if (!sub) return;
+    const sessionId = historySessionKey(historyMsg);
+    if (sessionId) sub.lastHistoryBySession.set(sessionId, historyMsg);
   }
 
-  /** Check whether cached history exists for a workspace. */
-  hasCachedHistory(workspaceId: string): boolean {
-    return this.subscriptions.get(workspaceId)?.lastHistory !== undefined;
+  /** Return the cached history for a specific session, if any. */
+  getCachedHistory(workspaceId: string, sessionId: string): HistoryMessage | undefined {
+    return this.subscriptions.get(workspaceId)?.lastHistoryBySession.get(sessionId);
+  }
+
+  /**
+   * Check whether cached history exists. With a sessionId, checks that session;
+   * without one, checks whether any session has cached history.
+   */
+  hasCachedHistory(workspaceId: string, sessionId?: string): boolean {
+    const sub = this.subscriptions.get(workspaceId);
+    if (!sub) return false;
+    return sessionId !== undefined
+      ? sub.lastHistoryBySession.has(sessionId)
+      : sub.lastHistoryBySession.size > 0;
   }
 
   /** Clear cached status/history for a workspace (e.g. after session deletion). */
@@ -97,7 +117,7 @@ class WsTransport {
     if (!sub) return;
     sub.lastStatus = undefined;
     sub.lastStatusBySession.clear();
-    sub.lastHistory = undefined;
+    sub.lastHistoryBySession.clear();
     sub.lastBranchInfo = undefined;
     sub.messageBuffer = [];
   }
@@ -140,8 +160,8 @@ class WsTransport {
     } else if (sub.lastStatus) {
       handler(sub.lastStatus);
     }
-    if (sub.lastHistory) {
-      handler(sub.lastHistory);
+    for (const historyMsg of sub.lastHistoryBySession.values()) {
+      handler(historyMsg);
     }
     if (sub.lastDiffStats) {
       handler(sub.lastDiffStats);
@@ -202,6 +222,7 @@ class WsTransport {
       reconnectListeners: new Set<() => void>(),
       statusListeners: new Set<StatusListener>(),
       lastStatusBySession: new Map(),
+      lastHistoryBySession: new Map(),
       messageBuffer: [],
     };
     this.subscriptions.set(workspaceId, created);
@@ -312,7 +333,8 @@ class WsTransport {
         sub.lastStatusBySession.clear();
       }
     } else if (msg.type === "history") {
-      sub.lastHistory = msg;
+      const sessionId = historySessionKey(msg);
+      if (sessionId) sub.lastHistoryBySession.set(sessionId, msg);
     } else if (msg.type === "diff_stats") {
       sub.lastDiffStats = msg;
     } else if (msg.type === "branch_info") {
