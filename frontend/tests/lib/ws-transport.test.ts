@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { wsTransport } from "@/lib/ws-transport";
+import type { HistoryMessage } from "@/lib/ws-transport";
 import type { WsOutgoing, HubOutgoing } from "@/types";
 
 class MockWebSocket {
@@ -639,7 +640,7 @@ describe("wsTransport", () => {
       const { unsubscribe } = wsTransport.onMessage("ws-1", (msg) => first.push(msg));
 
       socket.hubMessage("ws-1", { type: "status", status: "idle", streaming: false });
-      socket.hubMessage("ws-1", { type: "history", messages: [] } as WsOutgoing);
+      socket.hubMessage("ws-1", { type: "history", sessionId: "s1", messages: [] } as WsOutgoing);
       socket.hubMessage("ws-1", {
         type: "diff_stats",
         stats: { committed: [], uncommitted: [] },
@@ -696,7 +697,7 @@ describe("wsTransport", () => {
       const first: WsOutgoing[] = [];
       const { unsubscribe } = wsTransport.onMessage("ws-1", (msg) => first.push(msg));
       socket.hubMessage("ws-1", { type: "status", status: "busy", streaming: true });
-      socket.hubMessage("ws-1", { type: "history", messages: [] } as WsOutgoing);
+      socket.hubMessage("ws-1", { type: "history", sessionId: "s1", messages: [] } as WsOutgoing);
       unsubscribe();
 
       socket.hubMessage("ws-1", { type: "text_delta", sessionId: "s1", text: "buffered" });
@@ -804,6 +805,7 @@ describe("wsTransport", () => {
       MockWebSocket.instances[0]!.open();
       wsTransport.updateCachedHistory("ws-1", {
         type: "history",
+        sessionId: "s1",
         messages: [],
       });
       expect(wsTransport.hasCachedHistory("ws-1")).toBe(true);
@@ -814,6 +816,7 @@ describe("wsTransport", () => {
       MockWebSocket.instances[0]!.open();
       wsTransport.updateCachedHistory("ws-1", {
         type: "history",
+        sessionId: "s1",
         messages: [],
       });
       wsTransport.clearCachedData("ws-1");
@@ -826,6 +829,100 @@ describe("wsTransport", () => {
         messages: [],
       });
       expect(wsTransport.hasCachedHistory("unknown")).toBe(false);
+    });
+  });
+
+  describe("per-session history cache", () => {
+    const historyFor = (sessionId: string, text: string): HistoryMessage => ({
+      type: "history",
+      sessionId,
+      messages: [
+        {
+          id: `${sessionId}-m`,
+          sessionId,
+          role: "user",
+          content: text,
+          timestamp: "2026-02-20T00:00:00.000Z",
+        },
+      ],
+    });
+
+    it("caches history per session and replays every session on resubscribe", () => {
+      wsTransport.connect("ws-1");
+      MockWebSocket.instances[0]!.open();
+
+      wsTransport.updateCachedHistory("ws-1", historyFor("sess-1", "one"));
+      wsTransport.updateCachedHistory("ws-1", historyFor("sess-2", "two"));
+
+      const replayed: WsOutgoing[] = [];
+      wsTransport.onMessage("ws-1", (msg) => replayed.push(msg));
+
+      const histories = replayed.filter((m) => m.type === "history");
+      expect(histories).toEqual(expect.arrayContaining([
+        historyFor("sess-1", "one"),
+        historyFor("sess-2", "two"),
+      ]));
+      expect(histories).toHaveLength(2);
+    });
+
+    it("getCachedHistory returns the cached history for a specific session", () => {
+      wsTransport.connect("ws-1");
+      MockWebSocket.instances[0]!.open();
+
+      wsTransport.updateCachedHistory("ws-1", historyFor("sess-1", "one"));
+      wsTransport.updateCachedHistory("ws-1", historyFor("sess-2", "two"));
+
+      expect(wsTransport.getCachedHistory("ws-1", "sess-2")).toEqual(historyFor("sess-2", "two"));
+      expect(wsTransport.getCachedHistory("ws-1", "unknown")).toBeUndefined();
+      expect(wsTransport.getCachedHistory("unknown-ws", "sess-1")).toBeUndefined();
+    });
+
+    it("hasCachedHistory is session-specific when a sessionId is given", () => {
+      wsTransport.connect("ws-1");
+      MockWebSocket.instances[0]!.open();
+
+      wsTransport.updateCachedHistory("ws-1", historyFor("sess-1", "one"));
+
+      expect(wsTransport.hasCachedHistory("ws-1", "sess-1")).toBe(true);
+      expect(wsTransport.hasCachedHistory("ws-1", "sess-2")).toBe(false);
+      // Without a sessionId it reports whether any session is cached.
+      expect(wsTransport.hasCachedHistory("ws-1")).toBe(true);
+    });
+
+    it("does not overwrite another session's cache when a new session history arrives", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+
+      socket.hubMessage("ws-1", historyFor("sess-1", "one") as WsOutgoing);
+      socket.hubMessage("ws-1", historyFor("sess-2", "two") as WsOutgoing);
+
+      expect(wsTransport.getCachedHistory("ws-1", "sess-1")).toEqual(historyFor("sess-1", "one"));
+      expect(wsTransport.getCachedHistory("ws-1", "sess-2")).toEqual(historyFor("sess-2", "two"));
+    });
+
+    it("keys incoming history by its first message when no top-level sessionId is present", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+
+      socket.hubMessage("ws-1", {
+        type: "history",
+        messages: [
+          { id: "m1", sessionId: "sess-9", role: "user", content: "hi", timestamp: "2026-02-20T00:00:00.000Z" },
+        ],
+      } as WsOutgoing);
+
+      expect(wsTransport.hasCachedHistory("ws-1", "sess-9")).toBe(true);
+    });
+
+    it("ignores session-less history (no sessionId and empty messages)", () => {
+      wsTransport.connect("ws-1");
+      MockWebSocket.instances[0]!.open();
+
+      wsTransport.updateCachedHistory("ws-1", { type: "history", messages: [] });
+
+      expect(wsTransport.hasCachedHistory("ws-1")).toBe(false);
     });
   });
 });

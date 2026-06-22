@@ -563,8 +563,8 @@ export function useConversation(workspaceId: string | undefined) {
     historyRequestTokenRef.current = historyRequestToken;
 
     dispatch({ type: "prepare_workspace_switch" });
-    // Pre-set sessionId so the reducer's mismatch guard rejects replayed history
-    // for a different session (e.g. from stale lastHistory in the WS transport cache).
+    // Pre-set sessionId so the reducer's mismatch guard keeps only this session's
+    // history when the transport replays its per-session cache on resubscribe.
     if (savedSession) {
       dispatch({ type: "prepare_session_switch", sessionId: savedSession });
     }
@@ -603,10 +603,10 @@ export function useConversation(workspaceId: string | undefined) {
       historyRequestTokenRef.current += 1;
     }
 
-    // REST fallback — only needed on first visit when no cached history exists.
-    // On switch-back the transport cache is kept fresh (see effect below), so
-    // the WS replay already provides current messages.
-    if (!wsTransport.hasCachedHistory(workspaceId)) {
+    // REST fallback — only needed on first visit when no cached history exists
+    // for the session we're restoring. On switch-back the transport cache is kept
+    // fresh (see effect below), so the WS replay already provides current messages.
+    if (!wsTransport.hasCachedHistory(workspaceId, savedSession)) {
       void (async () => {
         try {
           const url = savedSession
@@ -698,6 +698,13 @@ export function useConversation(workspaceId: string | undefined) {
   const switchSession = useCallback((sessionId: string) => {
     if (!workspaceId) return;
     dispatch({ type: "prepare_session_switch", sessionId });
+    // Restore the target session's messages instantly from the transport cache so
+    // switching back to a previously-viewed conversation doesn't flash an empty
+    // reload. The switch_session round-trip below still reconciles with the backend.
+    const cached = wsTransport.getCachedHistory(workspaceId, sessionId);
+    if (cached) {
+      dispatch({ type: "history", sessionId, messages: cached.messages });
+    }
     dispatch({ type: "status", status: "busy", sessionId, streaming: false });
     historyRequestTokenRef.current += 1;
     const sent = wsTransport.send(workspaceId, { type: "switch_session", sessionId });

@@ -39,6 +39,12 @@ vi.mock("@/lib/ws-transport", () => {
   const bufferedFlags = new Map<string, boolean>();
   const cachedHistories = new Map<string, WsOutgoing>();
 
+  const histKey = (workspaceId: string, sessionId: string) => `${workspaceId}::${sessionId}`;
+  const sessionKeyOf = (msg: WsOutgoing): string | undefined => {
+    if (msg.type !== "history") return undefined;
+    return msg.sessionId ?? msg.messages[0]?.sessionId;
+  };
+
   const getSet = <T,>(source: Map<string, Set<T>>, workspaceId: string) => {
     const existing = source.get(workspaceId);
     if (existing) return existing;
@@ -88,11 +94,21 @@ vi.mock("@/lib/ws-transport", () => {
     },
     getStatus: (workspaceId: string) => statuses.get(workspaceId) ?? "disconnected",
     updateCachedHistory: vi.fn((workspaceId: string, historyMsg: WsOutgoing) => {
-      cachedHistories.set(workspaceId, historyMsg);
+      const sessionId = sessionKeyOf(historyMsg);
+      if (sessionId) cachedHistories.set(histKey(workspaceId, sessionId), historyMsg);
     }),
-    hasCachedHistory: vi.fn((workspaceId: string) => cachedHistories.has(workspaceId)),
+    getCachedHistory: vi.fn((workspaceId: string, sessionId: string) =>
+      cachedHistories.get(histKey(workspaceId, sessionId)),
+    ),
+    hasCachedHistory: vi.fn((workspaceId: string, sessionId?: string) => {
+      if (sessionId !== undefined) return cachedHistories.has(histKey(workspaceId, sessionId));
+      const prefix = `${workspaceId}::`;
+      for (const key of cachedHistories.keys()) if (key.startsWith(prefix)) return true;
+      return false;
+    }),
     clearCachedData: vi.fn((workspaceId: string) => {
-      cachedHistories.delete(workspaceId);
+      const prefix = `${workspaceId}::`;
+      for (const key of [...cachedHistories.keys()]) if (key.startsWith(prefix)) cachedHistories.delete(key);
       replayMessages.delete(workspaceId);
       bufferedFlags.delete(workspaceId);
     }),
@@ -116,6 +132,7 @@ vi.mock("@/lib/ws-transport", () => {
       wsTransport.send.mockClear();
       wsTransport.onMessage.mockClear();
       wsTransport.updateCachedHistory.mockClear();
+      wsTransport.getCachedHistory.mockClear();
       wsTransport.hasCachedHistory.mockClear();
       wsTransport.clearCachedData.mockClear();
     },
@@ -129,9 +146,11 @@ vi.mock("@/lib/ws-transport", () => {
     connectMock: wsTransport.connect,
     disconnectMock: wsTransport.disconnect,
     updateCachedHistoryMock: wsTransport.updateCachedHistory,
+    getCachedHistoryMock: wsTransport.getCachedHistory,
     hasCachedHistoryMock: wsTransport.hasCachedHistory,
     setCachedHistory: (workspaceId: string, historyMsg: WsOutgoing) => {
-      cachedHistories.set(workspaceId, historyMsg);
+      const sessionId = sessionKeyOf(historyMsg);
+      if (sessionId) cachedHistories.set(histKey(workspaceId, sessionId), historyMsg);
     },
   };
 
@@ -149,6 +168,7 @@ const getWsMock = async () =>
       connectMock: ReturnType<typeof vi.fn>;
       disconnectMock: ReturnType<typeof vi.fn>;
       updateCachedHistoryMock: ReturnType<typeof vi.fn>;
+      getCachedHistoryMock: ReturnType<typeof vi.fn>;
       hasCachedHistoryMock: ReturnType<typeof vi.fn>;
       setCachedHistory: (workspaceId: string, historyMsg: WsOutgoing) => void;
     };
@@ -1306,6 +1326,41 @@ describe("useConversation", () => {
     ]);
     expect(result.current.sessionId).toBe("sess-2");
     expect(result.current.isStreaming).toBe(false);
+  });
+
+  it("restores cached messages synchronously when switching to a previously-viewed session", async () => {
+    const { __wsMock } = await getWsMock();
+    __wsMock.setCachedHistory("ws-1", {
+      type: "history",
+      sessionId: "sess-2",
+      messages: [
+        {
+          id: "cached-1",
+          sessionId: "sess-2",
+          role: "assistant",
+          content: "restored instantly",
+          timestamp: "2026-02-12T00:00:01.000Z",
+        },
+      ],
+    });
+
+    const { result } = renderHook(() => useConversation("ws-1"));
+
+    act(() => {
+      result.current.switchSession("sess-2");
+    });
+
+    // Messages appear immediately from cache — no WS round-trip / empty flash.
+    expect(result.current.sessionId).toBe("sess-2");
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ id: "cached-1", content: "restored instantly" }),
+    ]);
+    expect(__wsMock.getCachedHistoryMock).toHaveBeenCalledWith("ws-1", "sess-2");
+    // It still asks the backend to reconcile.
+    expect(__wsMock.sendMock).toHaveBeenCalledWith("ws-1", {
+      type: "switch_session",
+      sessionId: "sess-2",
+    });
   });
 
   it("keeps target session visible and sets an error when switch_session send fails", async () => {
