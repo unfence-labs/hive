@@ -1,18 +1,7 @@
 import { useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { COMPLETION_SOURCE_ORDER } from "@/lib/completion";
 import type { CompletionItem, CompletionSource } from "@/types";
-
-const SOURCE_ORDER: CompletionSource[] = [
-  "builtin",
-  "user_command",
-  "project_command",
-  "user_skill",
-  "project_skill",
-  "admin_skill",
-  "plugin",
-  "user_agent",
-  "project_agent",
-];
 
 interface AutocompletePopupProps {
   items: CompletionItem[];
@@ -41,7 +30,7 @@ export function AutocompletePopup({
   // Group items by source in display order
   const grouped: { source: CompletionSource; items: { item: CompletionItem; globalIndex: number }[] }[] = [];
 
-  for (const source of SOURCE_ORDER) {
+  for (const source of COMPLETION_SOURCE_ORDER) {
     const sourceItems = items
       .map((item, i) => ({ item, globalIndex: i }))
       .filter(({ item }) => item.source === source);
@@ -51,7 +40,7 @@ export function AutocompletePopup({
   }
 
   // If grouping missed any items (unknown sources), append them
-  const knownSources = new Set(SOURCE_ORDER);
+  const knownSources = new Set(COMPLETION_SOURCE_ORDER);
   const ungrouped = items
     .map((item, i) => ({ item, globalIndex: i }))
     .filter(({ item }) => !knownSources.has(item.source));

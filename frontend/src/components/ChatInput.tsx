@@ -26,6 +26,8 @@ import { useContextUsage } from "@/hooks/useContextUsage";
 import { useModels } from "@/hooks/useModels";
 import { useChatInputDraftPersistence } from "@/hooks/useChatInputDraftPersistence";
 import { fuzzyMatchFiles, disambiguateDisplayName, type FuzzyResult } from "@/lib/fuzzy-match";
+import { filterCompletions } from "@/lib/completion";
+import { getStoredComposeOptions, setStoredComposeOptions } from "@/lib/compose-options-store";
 
 export interface ChatInputHandle {
   appendText: (text: string) => void;
@@ -36,8 +38,8 @@ interface ChatInputProps {
   sessionId?: string;
   lockedProvider?: string;
   /** Run options of the session's last sent message, used to seed the input
-   *  controls. Read once at mount — the parent remounts this component
-   *  (key={wsId:sessionId}) on session switch, so each session seeds cleanly. */
+   *  controls. Read at mount as a fallback seed for the composer controls when
+   *  the per-session compose-options store is empty (e.g. after a full reload). */
   lastRunOptions?: MessageOptions;
   onSend: (content: string, images?: ImageAttachment[], options?: MessageOptions, fileMentions?: FileMention[]) => boolean;
   onStop: () => void;
@@ -105,12 +107,25 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   agentPlanMode,
 }, ref) {
   const [value, setValue] = useState("");
-  // Seeded once at mount from the session's last run (see lastRunOptions prop).
+  // Seeded at mount from the per-session compose-options store (sticky across
+  // conversation switches within a session), falling back to the session's last
+  // run, then to defaults. The component is keyed by wsId:sessionId so this
+  // re-seeds cleanly on every switch.
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
-    () => lastRunOptions?.thinkingLevel ?? DEFAULT_THINKING_LEVEL,
+    () => getStoredComposeOptions(wsId, sessionId)?.thinkingLevel
+      ?? lastRunOptions?.thinkingLevel
+      ?? DEFAULT_THINKING_LEVEL,
   );
-  const [planMode, setPlanMode] = useState(() => lastRunOptions?.planMode ?? false);
-  const [fastMode, setFastMode] = useState(() => lastRunOptions?.fastMode ?? false);
+  const [planMode, setPlanMode] = useState(
+    () => getStoredComposeOptions(wsId, sessionId)?.planMode
+      ?? lastRunOptions?.planMode
+      ?? false,
+  );
+  const [fastMode, setFastMode] = useState(
+    () => getStoredComposeOptions(wsId, sessionId)?.fastMode
+      ?? lastRunOptions?.fastMode
+      ?? false,
+  );
   const [fileCount, setFileCount] = useState(0);
   const [autocomplete, setAutocomplete] = useState<AutocompleteState | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -179,19 +194,19 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
     if (agentPlanMode === false) setPlanMode(false);
   }, [agentPlanMode]);
 
+  // Persist composer toggles per conversation so switching sessions and back
+  // restores the user's last choice instead of snapping to model defaults.
+  useEffect(() => {
+    setStoredComposeOptions(wsId, sessionId, { thinkingLevel, planMode, fastMode });
+  }, [wsId, sessionId, thinkingLevel, planMode, fastMode]);
+
   const completionItems = useCompletions(wsId, completionProvider, supportsCompletions);
   const filePaths = useFileCompletions(wsId);
 
   const filteredItems = useMemo(() => {
     if (!autocomplete || autocomplete.trigger === "#") return [];
     const type = autocomplete.trigger === "/" ? "slash_command" : "agent";
-    return completionItems
-      .filter((item) => item.type === type)
-      .filter(
-        (item) =>
-          autocomplete.query === "" ||
-          item.name.toLowerCase().startsWith(autocomplete.query.toLowerCase()),
-      );
+    return filterCompletions(completionItems, type, autocomplete.query);
   }, [autocomplete, completionItems]);
 
   const fileResults = useMemo(() => {

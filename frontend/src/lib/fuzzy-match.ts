@@ -9,12 +9,41 @@ function getBasename(path: string): string {
   return idx >= 0 ? path.slice(idx + 1) : path;
 }
 
-function fuzzyCharMatch(text: string, query: string): number {
+/** True when every char of `query` appears in `text` in order (a subsequence). */
+export function isSubsequence(text: string, query: string): boolean {
   let qi = 0;
   for (let ti = 0; ti < text.length && qi < query.length; ti++) {
     if (text[ti].toLowerCase() === query[qi].toLowerCase()) qi++;
   }
-  return qi === query.length ? 1 : 0;
+  return qi === query.length;
+}
+
+/**
+ * Relevance score of `query` against a single `text` field. 0 means no match.
+ * Higher is better: exact (100) > prefix (80) > substring (60) > subsequence (20).
+ */
+export function fuzzyScore(text: string, query: string): number {
+  if (!query) return 0;
+  const t = text.toLowerCase();
+  const q = query.toLowerCase();
+  if (t === q) return 100;
+  if (t.startsWith(q)) return 80;
+  if (t.includes(q)) return 60;
+  if (isSubsequence(t, q)) return 20;
+  return 0;
+}
+
+/**
+ * Best {@link fuzzyScore} across several fields, with later fields weighted
+ * lower so a name match always outranks a description-only match.
+ */
+export function fuzzyScoreFields(fields: string[], query: string): number {
+  let best = 0;
+  for (let i = 0; i < fields.length; i++) {
+    const score = fuzzyScore(fields[i] ?? "", query);
+    if (score > 0) best = Math.max(best, Math.max(1, score - i * 5));
+  }
+  return best;
 }
 
 export function fuzzyMatchFiles(files: string[], query: string, limit = 15): FuzzyResult[] {
@@ -44,7 +73,7 @@ export function fuzzyMatchFiles(files: string[], query: string, limit = 15): Fuz
       score = 60;
     } else if (lowerPath.includes(lowerQuery)) {
       score = 40;
-    } else if (fuzzyCharMatch(lowerPath, lowerQuery)) {
+    } else if (isSubsequence(lowerPath, lowerQuery)) {
       score = 20;
     }
 
