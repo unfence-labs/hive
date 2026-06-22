@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { rm, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
-import type { WsOutgoing } from "../types.js";
+import type { AgentActivity, WsOutgoing } from "../types.js";
 
 // Mock child_process.spawn before importing the module under test
 vi.mock("node:child_process", () => ({
@@ -834,6 +834,339 @@ describe("ConversationSession", () => {
     expect(copied.toString()).toBe("fake-png-bytes");
 
     await rm(generatedDir, { recursive: true, force: true });
+  });
+
+  it("copies an out-of-workspace image view into session attachments for preview", async () => {
+    const os = await import("node:os");
+    const fs = await import("node:fs/promises");
+    const screenshotDir = await fs.mkdtemp(join(os.tmpdir(), "hive-codex-view-"));
+    const screenshotPath = join(screenshotDir, "rouen-light.png");
+    await fs.writeFile(screenshotPath, Buffer.from("fake-screenshot-bytes"));
+
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "image_view_updated",
+        id: "image-1",
+        path: screenshotPath,
+        outsideWorkspace: true,
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-view" });
+      fakeRunner.emit("exit", 0, "provider-view");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-view",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "image-view-copy-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Show screenshot");
+
+    await waitForMessages(messages, "done");
+
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    const activity = assistant?.agentActivities?.[0];
+    expect(activity).toMatchObject({
+      id: "image-1",
+      kind: "image_view",
+      path: screenshotPath,
+    });
+    const imageView = activity as Extract<typeof activity, { kind: "image_view" }> & { imageUrl?: string };
+    expect(imageView.outsideWorkspace).toBeUndefined();
+    expect(imageView.imageUrl).toMatch(
+      /^\/api\/workspaces\/ws-test\/sessions\/image-view-copy-session\/attachments\/view-[\w-]+\.png$/,
+    );
+    const filename = imageView.imageUrl!.split("/").pop()!;
+    const copied = await readFile(
+      join(tempDir, "sessions", "image-view-copy-session", "attachments", filename),
+    );
+    expect(copied.toString()).toBe("fake-screenshot-bytes");
+
+    await rm(screenshotDir, { recursive: true, force: true });
+  });
+
+  it("keeps a copied out-of-workspace image view preview when the same item re-emits", async () => {
+    const os = await import("node:os");
+    const fs = await import("node:fs/promises");
+    const screenshotDir = await fs.mkdtemp(join(os.tmpdir(), "hive-codex-view-reemit-"));
+    const screenshotPath = join(screenshotDir, "rouen-dark.png");
+    await fs.writeFile(screenshotPath, Buffer.from("fake-screenshot-bytes"));
+
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    const messages: WsOutgoing[] = [];
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "image_view_updated",
+        id: "image-1",
+        path: screenshotPath,
+        outsideWorkspace: true,
+      });
+      void waitForCondition(() =>
+        messages.some((msg) =>
+          msg.type === "agent_activity" &&
+          msg.activity.kind === "image_view" &&
+          Boolean(msg.activity.imageUrl),
+        ),
+      ).then(() => {
+        fakeRunner.emit("agent_event", {
+          type: "image_view_updated",
+          id: "image-1",
+          path: screenshotPath,
+          outsideWorkspace: true,
+        });
+        fakeRunner.emit("result", { type: "result", session_id: "provider-view-reemit" });
+        fakeRunner.emit("exit", 0, "provider-view-reemit");
+      }).catch((err: unknown) => fakeRunner.emit("error", err instanceof Error ? err : new Error(String(err))));
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-view-reemit",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "image-view-reemit-session",
+      runnerFactory,
+    });
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Show screenshot");
+
+    await waitForMessages(messages, "done");
+
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    const imageView = assistant?.agentActivities?.[0] as
+      | (Extract<AgentActivity, { kind: "image_view" }> & { imageUrl?: string })
+      | undefined;
+    expect(imageView?.outsideWorkspace).toBeUndefined();
+    expect(imageView?.imageUrl).toMatch(
+      /^\/api\/workspaces\/ws-test\/sessions\/image-view-reemit-session\/attachments\/view-[\w-]+\.png$/,
+    );
+
+    await rm(screenshotDir, { recursive: true, force: true });
+  });
+
+  it("retries an out-of-workspace image view copy when the file appears on re-emit", async () => {
+    const os = await import("node:os");
+    const fs = await import("node:fs/promises");
+    const screenshotDir = await fs.mkdtemp(join(os.tmpdir(), "hive-codex-view-retry-"));
+    const screenshotPath = join(screenshotDir, "rouen-settings-dark.png");
+
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "image_view_updated",
+        id: "image-1",
+        path: screenshotPath,
+        outsideWorkspace: true,
+      });
+      void (async () => {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        await fs.writeFile(screenshotPath, Buffer.from("late-screenshot-bytes"));
+        fakeRunner.emit("agent_event", {
+          type: "image_view_updated",
+          id: "image-1",
+          path: screenshotPath,
+          outsideWorkspace: true,
+        });
+        fakeRunner.emit("result", { type: "result", session_id: "provider-view-retry" });
+        fakeRunner.emit("exit", 0, "provider-view-retry");
+      })().catch((err: unknown) => fakeRunner.emit("error", err instanceof Error ? err : new Error(String(err))));
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-view-retry",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "image-view-retry-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Show screenshot");
+
+    await waitForMessages(messages, "done");
+
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    const imageView = assistant?.agentActivities?.[0] as
+      | (Extract<AgentActivity, { kind: "image_view" }> & { imageUrl?: string })
+      | undefined;
+    expect(imageView?.outsideWorkspace).toBeUndefined();
+    expect(imageView?.imageUrl).toMatch(
+      /^\/api\/workspaces\/ws-test\/sessions\/image-view-retry-session\/attachments\/view-[\w-]+\.png$/,
+    );
+    const filename = imageView!.imageUrl!.split("/").pop()!;
+    const copied = await readFile(
+      join(tempDir, "sessions", "image-view-retry-session", "attachments", filename),
+    );
+    expect(copied.toString()).toBe("late-screenshot-bytes");
+
+    await rm(screenshotDir, { recursive: true, force: true });
+  });
+
+  it("copies an extensionless out-of-workspace image view using the detected image type", async () => {
+    const os = await import("node:os");
+    const fs = await import("node:fs/promises");
+    const screenshotDir = await fs.mkdtemp(join(os.tmpdir(), "hive-codex-view-extensionless-"));
+    const screenshotPath = join(screenshotDir, "rouen-cache-image");
+    const pngBytes = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from("fake-extensionless-png"),
+    ]);
+    await fs.writeFile(screenshotPath, pngBytes);
+
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "image_view_updated",
+        id: "image-1",
+        path: screenshotPath,
+        outsideWorkspace: true,
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-view-extensionless" });
+      fakeRunner.emit("exit", 0, "provider-view-extensionless");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-view-extensionless",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "image-view-extensionless-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Show screenshot");
+
+    await waitForMessages(messages, "done");
+
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    const imageView = assistant?.agentActivities?.[0] as
+      | (Extract<AgentActivity, { kind: "image_view" }> & { imageUrl?: string })
+      | undefined;
+    expect(imageView?.imageUrl).toMatch(
+      /^\/api\/workspaces\/ws-test\/sessions\/image-view-extensionless-session\/attachments\/view-[\w-]+\.png$/,
+    );
+    const filename = imageView!.imageUrl!.split("/").pop()!;
+    const copied = await readFile(
+      join(tempDir, "sessions", "image-view-extensionless-session", "attachments", filename),
+    );
+    expect(copied.equals(pngBytes)).toBe(true);
+
+    await rm(screenshotDir, { recursive: true, force: true });
+  });
+
+  it("does not copy an out-of-workspace non-image view into session attachments", async () => {
+    const os = await import("node:os");
+    const fs = await import("node:fs/promises");
+    const tempDataDir = await fs.mkdtemp(join(os.tmpdir(), "hive-codex-view-text-"));
+    const textPath = join(tempDataDir, "notes.txt");
+    await fs.writeFile(textPath, "not an image");
+
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "image_view_updated",
+        id: "image-1",
+        path: textPath,
+        outsideWorkspace: true,
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-view-text" });
+      fakeRunner.emit("exit", 0, "provider-view-text");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-view-text",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "image-view-non-image-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Show text as image");
+
+    await waitForMessages(messages, "done");
+
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    const imageView = assistant?.agentActivities?.[0] as
+      | (Extract<AgentActivity, { kind: "image_view" }> & { imageUrl?: string })
+      | undefined;
+    expect(imageView).toMatchObject({
+      id: "image-1",
+      kind: "image_view",
+      path: textPath,
+      outsideWorkspace: true,
+    });
+    expect(imageView?.imageUrl).toBeUndefined();
+
+    await rm(tempDataDir, { recursive: true, force: true });
   });
 
   it("streams and persists plan update activities", async () => {
