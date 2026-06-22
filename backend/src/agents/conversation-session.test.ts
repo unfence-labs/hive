@@ -12,6 +12,7 @@ vi.mock("node:child_process", () => ({
 }));
 
 import { spawn } from "node:child_process";
+import { MAX_AGENT_OUTPUT_CHARS } from "./bounded-output.js";
 import { ConversationSession } from "./conversation-session.js";
 import * as providerRegistry from "./providers/registry.js";
 import { createAgentRunner, type AgentRunnerFactory } from "./runners/factory.js";
@@ -620,6 +621,64 @@ describe("ConversationSession", () => {
         durationMs: 123,
       },
     ]);
+  });
+
+  it("bounds large command outputs before streaming and persistence", async () => {
+    const largeOutput = "x".repeat(MAX_AGENT_OUTPUT_CHARS + 2048);
+    const fakeRunner = new EventEmitter<AgentRunnerEvent>() as EventEmitter<AgentRunnerEvent> & AgentRunner;
+    fakeRunner.start = vi.fn(() => {
+      fakeRunner.emit("agent_event", {
+        type: "command_execution_updated",
+        id: "cmd-large",
+        command: "cat huge.log",
+        cwd: "/tmp/test",
+        status: "completed",
+        output: largeOutput,
+        exitCode: 0,
+      });
+      fakeRunner.emit("result", { type: "result", session_id: "provider-large", duration_ms: 12 });
+      fakeRunner.emit("exit", 0, "provider-large");
+    });
+    fakeRunner.stop = vi.fn(() => {});
+
+    const runnerFactory: AgentRunnerFactory = vi.fn(() => ({
+      runner: fakeRunner,
+      protocol: "process" as const,
+      providerId: "codex",
+      modelId: "gpt-5.5",
+      supportsBlockingTools: false,
+      providerSessionId: "provider-large",
+      debug: { command: "fake", args: [] },
+      start: fakeRunner.start,
+    }));
+    const session = new ConversationSession({
+      cwd: "/tmp/test",
+      dataDir: tempDir,
+      workspaceId: "ws-test",
+      sessionId: "large-command-output-session",
+      runnerFactory,
+    });
+    const messages: WsOutgoing[] = [];
+    session.on("message", (msg) => messages.push(msg));
+
+    session.sendMessage("Read huge log");
+
+    await waitForMessages(messages, "done");
+    const toolResult = messages.find((msg) => msg.type === "tool_result");
+    const activity = messages.find((msg) => msg.type === "agent_activity");
+    const persisted = await session.getMessages();
+    const assistant = persisted.find((msg) => msg.role === "assistant");
+    const persistedOutput = assistant?.toolCalls?.[0]?.output;
+    const persistedActivity = assistant?.agentActivities?.[0];
+
+    expect(toolResult?.type === "tool_result" ? toolResult.output : "").toContain("Output truncated by Hive");
+    expect(toolResult?.type === "tool_result" ? toolResult.output.length : 0).toBeLessThanOrEqual(MAX_AGENT_OUTPUT_CHARS);
+    expect(activity?.type === "agent_activity" && activity.activity.kind === "command_execution"
+      ? activity.activity.output
+      : "").toContain("Output truncated by Hive");
+    expect(persistedOutput).toContain("Output truncated by Hive");
+    expect(persistedOutput?.length).toBeLessThanOrEqual(MAX_AGENT_OUTPUT_CHARS);
+    expect(persistedActivity?.kind === "command_execution" ? persistedActivity.output : "").toContain("Output truncated by Hive");
   });
 
   it("preserves multi-file change activity details and persists them across reload", async () => {

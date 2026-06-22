@@ -6,6 +6,7 @@ import { workspaceFileRawPath } from "@hive/shared/workspace-files";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
 import { AgentEventNormalizer, type NormalizedAgentEvent } from "./agent-event-normalizer.js";
+import { appendBoundedAgentOutput, boundAgentOutput } from "./bounded-output.js";
 import type { CodexGoalResult, CodexGoalSetParams, CodexGoalStatus } from "./providers/codex-app-server.js";
 import { resolveProvider } from "./providers/registry.js";
 import type { AgentProvider } from "./providers/types.js";
@@ -1086,13 +1087,14 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   }
 
   private completeToolCall(id: string, output: string): void {
+    const boundedOutput = boundAgentOutput(output) ?? "";
     const tc = this._streamToolCalls.find((t) => t.id === id);
-    if (tc) tc.output = output;
+    if (tc) tc.output = boundedOutput;
     this.emit("message", {
       type: "tool_result",
       sessionId: this.sessionId,
       toolUseId: id,
-      output,
+      output: boundedOutput,
     });
   }
 
@@ -1117,9 +1119,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
         activity.id === event.id && activity.kind === "command_execution",
     );
     const output = event.output !== undefined
-      ? event.output
+      ? boundAgentOutput(event.output)
       : event.outputDelta !== undefined
-        ? `${existingActivity?.output ?? ""}${event.outputDelta}`
+        ? appendBoundedAgentOutput(existingActivity?.output, event.outputDelta)
         : existingActivity?.output;
     const commandActions = event.commandActions ?? existingActivity?.commandActions;
     const activity = {
@@ -1153,7 +1155,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     }
 
     const tc = this._streamToolCalls.find((t) => t.id === event.id);
-    const nextOutput = event.output ?? `${tc?.output ?? ""}${event.outputDelta ?? ""}`;
+    const nextOutput = event.output !== undefined
+      ? boundAgentOutput(event.output) ?? ""
+      : appendBoundedAgentOutput(tc?.output, event.outputDelta ?? "");
     if (event.outputDelta !== undefined || event.output !== undefined || event.exitCode !== undefined) {
       this.completeToolCall(event.id, nextOutput || formatNormalizedExitCode(event.exitCode));
     }
@@ -1164,7 +1168,8 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       (activity): activity is Extract<AgentActivity, { kind: "file_change" }> =>
         activity.id === event.id && activity.kind === "file_change",
     );
-    const files = normalizeActivityFiles(event, existingActivity?.files);
+    const files = normalizeActivityFiles(event, existingActivity?.files)
+      .map((file) => ({ ...file, diff: boundAgentOutput(file.diff) }));
     this.upsertAgentActivity({
       id: event.id,
       kind: "file_change",
@@ -1172,10 +1177,10 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
       files,
     });
 
-    const combinedDiff = files.map((file) => file.diff).filter(Boolean).join("\n");
+    const combinedDiff = boundAgentOutput(files.map((file) => file.diff).filter(Boolean).join("\n")) ?? "";
     const input = JSON.stringify({
       filename: files[0]?.path ?? event.path ?? "",
-      diff: combinedDiff || event.diff || "",
+      diff: combinedDiff || boundAgentOutput(event.diff) || "",
       status: event.status,
       files,
     });
