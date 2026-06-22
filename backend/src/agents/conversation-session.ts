@@ -51,11 +51,43 @@ const MAX_FINALIZED_TURN_IDS = 256;
 const CODEX_GOAL_OBJECTIVE_MAX_LENGTH = 4000;
 
 /**
- * Cap for copying a Codex-generated image into session attachments. Generated
- * images are normal-sized PNGs; anything larger is almost certainly not a
- * preview-worthy result and is skipped rather than copied wholesale.
+ * Cap for copying an agent-reported image into session attachments. Preview
+ * images are normal-sized PNG/JPEG/WebP/GIF files; anything larger is almost
+ * certainly not a preview-worthy result and is skipped rather than copied
+ * wholesale.
  */
-const MAX_GENERATED_IMAGE_COPY_BYTES = 25 * 1024 * 1024;
+const MAX_IMAGE_PREVIEW_COPY_BYTES = 25 * 1024 * 1024;
+const IMAGE_PREVIEW_EXTENSIONS = new Set([".gif", ".jpeg", ".jpg", ".png", ".webp"]);
+
+function normalizedImagePreviewExtension(ext: string | undefined): string | undefined {
+  const normalized = ext?.toLowerCase();
+  return normalized && IMAGE_PREVIEW_EXTENSIONS.has(normalized) ? normalized : undefined;
+}
+
+async function detectImagePreviewExtension(path: string): Promise<string | undefined> {
+  const fh = await open(path, "r");
+  try {
+    const header = Buffer.alloc(12);
+    const { bytesRead } = await fh.read(header, 0, header.length, 0);
+    const bytes = header.subarray(0, bytesRead);
+    if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+      return ".png";
+    }
+    if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+      return ".jpg";
+    }
+    const signature = bytes.toString("ascii", 0, Math.min(bytes.length, 12));
+    if (signature.startsWith("GIF87a") || signature.startsWith("GIF89a")) {
+      return ".gif";
+    }
+    if (bytes.length >= 12 && signature.startsWith("RIFF") && signature.slice(8, 12) === "WEBP") {
+      return ".webp";
+    }
+    return undefined;
+  } finally {
+    await fh.close();
+  }
+}
 
 type CodexGoalCommand =
   | { type: "set"; objective: string }
@@ -230,6 +262,9 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   private _agentPlanMode = false;
   private finalizedCodexAppServerTurnIds = new Set<string>();
   private copiedGeneratedImageIds = new Set<string>();
+  private copiedImageViewIds = new Set<string>();
+  private pendingImageViewIds = new Set<string>();
+  private retryImageViewPaths = new Map<string, string>();
   private pendingImageAttachments: Promise<void>[] = [];
 
   constructor(config: ConversationSessionConfig) {
@@ -1191,14 +1226,32 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   }
 
   private handleImageViewEvent(event: Extract<NormalizedAgentEvent, { type: "image_view_updated" }>): void {
+    const existingActivity = this._streamAgentActivities.find(
+      (activity): activity is Extract<AgentActivity, { kind: "image_view" }> =>
+        activity.id === event.id && activity.kind === "image_view",
+    );
+    const relativePath = event.relativePath ?? existingActivity?.relativePath;
+    const imageUrl = relativePath
+      ? workspaceFileRawPath(this.workspaceId, relativePath)
+      : existingActivity?.imageUrl;
+    const outsideWorkspace = imageUrl ? undefined : event.outsideWorkspace ?? existingActivity?.outsideWorkspace;
     this.upsertAgentActivity({
       id: event.id,
       kind: "image_view",
       path: event.path,
-      relativePath: event.relativePath,
-      imageUrl: event.relativePath ? workspaceFileRawPath(this.workspaceId, event.relativePath) : undefined,
-      outsideWorkspace: event.outsideWorkspace,
+      relativePath,
+      imageUrl,
+      outsideWorkspace,
     });
+
+    if (!imageUrl && outsideWorkspace && !this.copiedImageViewIds.has(event.id)) {
+      if (this.pendingImageViewIds.has(event.id)) {
+        this.retryImageViewPaths.set(event.id, event.path);
+        return;
+      }
+      const activities = this._streamAgentActivities;
+      this.pendingImageAttachments.push(this.attachImageViewWithRetries(activities, event.id, event.path));
+    }
   }
 
   private handleImageGenerationEvent(
@@ -1238,38 +1291,99 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
   }
 
   /**
-   * Copy a Codex-generated image (saved outside the workspace) into the session
-   * attachments dir and re-emit the activity with a served preview URL. Best
-   * effort: a failed copy leaves the activity without a preview rather than
-   * surfacing an error. `finalizeTurn` awaits these before persisting so the URL
-   * lands in the saved message.
+   * Copy an image reported outside the workspace into the session attachments
+   * dir and re-emit the activity with a served preview URL. Best effort: a
+   * failed copy leaves the activity without a preview rather than surfacing an
+   * error. `finalizeTurn` awaits these before persisting so the URL lands in the
+   * saved message.
    */
   private async attachGeneratedImage(
     activities: AgentActivity[],
     activityId: string,
     savedPath: string,
   ): Promise<void> {
+    const imageUrl = await this.copyImagePreviewToAttachment(savedPath, "gen", ".png");
+    if (!imageUrl) return;
+    this.applyImagePreviewUrl(activities, activityId, "image_generation", imageUrl);
+  }
+
+  private async attachImageView(
+    activities: AgentActivity[],
+    activityId: string,
+    imagePath: string,
+  ): Promise<boolean> {
+    const imageUrl = await this.copyImagePreviewToAttachment(imagePath, "view");
+    if (!imageUrl) return false;
+    return this.applyImagePreviewUrl(activities, activityId, "image_view", imageUrl);
+  }
+
+  private async attachImageViewWithRetries(
+    activities: AgentActivity[],
+    activityId: string,
+    imagePath: string,
+  ): Promise<void> {
+    this.pendingImageViewIds.add(activityId);
+    let nextPath: string | undefined = imagePath;
     try {
-      const info = await stat(savedPath);
-      if (!info.isFile() || info.size > MAX_GENERATED_IMAGE_COPY_BYTES) return;
+      while (nextPath && !this.copiedImageViewIds.has(activityId)) {
+        const copied = await this.attachImageView(activities, activityId, nextPath);
+        if (copied) {
+          this.copiedImageViewIds.add(activityId);
+          this.retryImageViewPaths.delete(activityId);
+          break;
+        }
+        nextPath = this.retryImageViewPaths.get(activityId);
+        this.retryImageViewPaths.delete(activityId);
+      }
+    } finally {
+      this.pendingImageViewIds.delete(activityId);
+    }
+  }
+
+  private async copyImagePreviewToAttachment(
+    sourcePath: string,
+    prefix: string,
+    fallbackExtension?: string,
+  ): Promise<string | undefined> {
+    try {
+      const info = await stat(sourcePath);
+      if (!info.isFile() || info.size > MAX_IMAGE_PREVIEW_COPY_BYTES) return undefined;
+      const ext = normalizedImagePreviewExtension(extname(sourcePath))
+        ?? await detectImagePreviewExtension(sourcePath)
+        ?? normalizedImagePreviewExtension(fallbackExtension);
+      if (!ext || !IMAGE_PREVIEW_EXTENSIONS.has(ext)) return undefined;
+
       const attachmentsDir = join(this.sessionDir, "attachments");
       await mkdir(attachmentsDir, { recursive: true });
-      const ext = extname(savedPath) || ".png";
-      const filename = `gen-${nanoid(8)}${ext}`;
-      await copyFile(savedPath, join(attachmentsDir, filename));
-
-      const activity = activities.find(
-        (item): item is Extract<AgentActivity, { kind: "image_generation" }> =>
-          item.id === activityId && item.kind === "image_generation",
-      );
-      if (!activity) return;
-      // Mutate in place: the same object is referenced by the captured array and
-      // the message persisted in finalizeTurn, so this URL reaches both.
-      activity.imageUrl = this.attachmentUrl(filename);
-      this.emit("message", { type: "agent_activity", sessionId: this.sessionId, activity: cloneAgentActivity(activity) });
+      const filename = `${prefix}-${nanoid(8)}${ext}`;
+      await copyFile(sourcePath, join(attachmentsDir, filename));
+      return this.attachmentUrl(filename);
     } catch {
       // Preview is optional — keep the activity as-is when the copy fails.
+      return undefined;
     }
+  }
+
+  private applyImagePreviewUrl(
+    activities: AgentActivity[],
+    activityId: string,
+    kind: "image_generation" | "image_view",
+    imageUrl: string,
+  ): boolean {
+    const activity = activities.find(
+      (item): item is Extract<AgentActivity, { kind: typeof kind }> =>
+        item.id === activityId && item.kind === kind,
+    );
+    if (!activity) return false;
+
+    // Mutate in place: the same object is referenced by the captured array and
+    // the message persisted in finalizeTurn, so this URL reaches both.
+    activity.imageUrl = imageUrl;
+    if (activity.kind === "image_view") {
+      activity.outsideWorkspace = undefined;
+    }
+    this.emit("message", { type: "agent_activity", sessionId: this.sessionId, activity: cloneAgentActivity(activity) });
+    return true;
   }
 
   /** API path serving a session attachment (image previews, generated images). */
@@ -1353,7 +1467,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
     this.stopReason = null;
     this.runner = null;
 
-    // Capture per-turn accumulators (and any pending generated-image copies)
+    // Capture per-turn accumulators (and any pending image preview copies)
     // before resetting, so the deferred persist below still sees this turn's
     // content even though new arrays are installed synchronously.
     const streamText = this._streamText;
@@ -1379,7 +1493,7 @@ export class ConversationSession extends EventEmitter<ConversationSessionEvent> 
 
     void (async () => {
       try {
-        // Wait for generated-image copies so their served preview URLs are baked
+        // Wait for image preview copies so their served preview URLs are baked
         // into the persisted activities before the message is written.
         if (pendingImageAttachments.length > 0) {
           await Promise.allSettled(pendingImageAttachments);
