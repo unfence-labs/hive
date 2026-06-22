@@ -70,6 +70,31 @@ describe("ChatInput autocomplete", () => {
     expect(screen.queryByRole("button", { name: /@reviewer/i })).not.toBeInTheDocument();
   });
 
+  it("matches slash commands by fuzzy substring", async () => {
+    vi.mocked(useCompletions).mockReturnValue([
+      makeItem("code-review", "slash_command", "builtin"),
+      makeItem("help", "slash_command", "builtin"),
+    ]);
+
+    const user = userEvent.setup();
+    render(
+      <ChatInput
+        wsId="ws-1"
+        onSend={vi.fn(() => true)}
+        onStop={vi.fn()}
+        disabled={false}
+        isStreaming={false}
+        connectionStatus="connected"
+        messages={[]}
+      />,
+    );
+
+    await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "/review");
+
+    expect(screen.getByRole("button", { name: /\/code-review/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /\/help/i })).not.toBeInTheDocument();
+  });
+
   it("shows agent suggestions for '@' trigger", async () => {
     vi.mocked(useCompletions).mockReturnValue([
       makeItem("help", "slash_command", "builtin"),

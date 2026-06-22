@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, type MutableRefObject, type Dispatch, type SetStateAction } from "react";
 import type { AttachmentsContext } from "@/components/ai-elements/prompt-input";
 import type { FileMention } from "@/types";
+import { SessionScopedStore } from "@/lib/session-scoped-store";
 
 interface DraftState {
   value: string;
@@ -23,26 +24,7 @@ interface UseChatInputDraftPersistenceResult {
   discardCurrentDraft: () => void;
 }
 
-const DEFAULT_WORKSPACE_DRAFT_KEY = "__workspace_default__";
-const draftStore = new Map<string, Map<string, DraftState>>();
-
-function getWorkspaceDraftKey(wsId?: string): string {
-  return wsId ?? DEFAULT_WORKSPACE_DRAFT_KEY;
-}
-
-function getWorkspaceDrafts(wsId?: string): Map<string, DraftState> {
-  const workspaceKey = getWorkspaceDraftKey(wsId);
-  let drafts = draftStore.get(workspaceKey);
-  if (!drafts) {
-    drafts = new Map<string, DraftState>();
-    draftStore.set(workspaceKey, drafts);
-  }
-  return drafts;
-}
-
-function getStoredDraft(wsId: string | undefined, sessionId: string): DraftState | undefined {
-  return draftStore.get(getWorkspaceDraftKey(wsId))?.get(sessionId);
-}
+const draftStore = new SessionScopedStore<DraftState>();
 
 function revokeRemovedFileUrls(
   prevFiles: AttachmentsContext["files"],
@@ -73,8 +55,7 @@ function upsertDraft(
   sessionId: string,
   draft: DraftState,
 ) {
-  const drafts = getWorkspaceDrafts(wsId);
-  const prevDraft = drafts.get(sessionId);
+  const prevDraft = draftStore.get(wsId, sessionId);
   const shouldPersist = hasPersistableDraft(draft);
   const nextFiles = shouldPersist ? draft.files : [];
 
@@ -83,9 +64,9 @@ function upsertDraft(
   }
 
   if (shouldPersist) {
-    drafts.set(sessionId, draft);
+    draftStore.set(wsId, sessionId, draft);
   } else {
-    drafts.delete(sessionId);
+    draftStore.delete(wsId, sessionId);
   }
 }
 
@@ -176,7 +157,7 @@ export function useChatInputDraftPersistence({
     // Restore incoming session's draft from the CURRENT workspace.
     // Skip when sessionId is undefined (transient workspace-switch state).
     if (sessionId && (wsChanged || sessionChanged)) {
-      restoreDraftState(getStoredDraft(wsId, sessionId));
+      restoreDraftState(draftStore.get(wsId, sessionId));
     }
 
     prevWsIdRef.current = wsId;
