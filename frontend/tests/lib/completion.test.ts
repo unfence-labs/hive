@@ -36,12 +36,25 @@ describe("filterCompletions", () => {
     expect(result.map((i) => i.name)).toEqual(["code-review"]);
   });
 
-  it("matches by subsequence", () => {
+  it("does not match by loose subsequence", () => {
     const items = [
-      makeItem("code-review", "slash_command", "builtin"),
-      makeItem("help", "slash_command", "builtin"),
+      makeItem("improve-codebase-architecture", "slash_command", "builtin"),
+      makeItem("to-prd", "slash_command", "builtin"),
     ];
-    const result = filterCompletions(items, "slash_command", "cr");
+    // "prd" is a subsequence of "improve-codebase-architecture" (p…r…d) but not
+    // a substring, so only the genuine substring match is returned.
+    const result = filterCompletions(items, "slash_command", "prd");
+    expect(result.map((i) => i.name)).toEqual(["to-prd"]);
+  });
+
+  it("matches the name only, ignoring the description", () => {
+    const items = [
+      makeItem("deploy", "slash_command", "builtin", "Review and ship a release"),
+      makeItem("code-review", "slash_command", "builtin"),
+    ];
+    // "review" appears in deploy's description but not its name, so only the
+    // command whose name matches is returned.
+    const result = filterCompletions(items, "slash_command", "review");
     expect(result.map((i) => i.name)).toEqual(["code-review"]);
   });
 

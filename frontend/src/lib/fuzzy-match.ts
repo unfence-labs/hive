@@ -18,32 +18,28 @@ export function isSubsequence(text: string, query: string): boolean {
   return qi === query.length;
 }
 
-/**
- * Relevance score of `query` against a single `text` field. 0 means no match.
- * Higher is better: exact (100) > prefix (80) > substring (60) > subsequence (20).
- */
-export function fuzzyScore(text: string, query: string): number {
-  if (!query) return 0;
-  const t = text.toLowerCase();
-  const q = query.toLowerCase();
-  if (t === q) return 100;
-  if (t.startsWith(q)) return 80;
-  if (t.includes(q)) return 60;
-  if (isSubsequence(t, q)) return 20;
-  return 0;
-}
+/** Tiered match scores returned by {@link fuzzyScore}. 0 means no match. */
+export const FUZZY_SCORE = {
+  exact: 100,
+  prefix: 80,
+  substring: 60,
+  subsequence: 20,
+  none: 0,
+} as const;
 
 /**
- * Best {@link fuzzyScore} across several fields, with later fields weighted
- * lower so a name match always outranks a description-only match.
+ * Relevance score of `query` against a single `text` field. 0 means no match.
+ * Higher is better: exact > prefix > substring > subsequence.
  */
-export function fuzzyScoreFields(fields: string[], query: string): number {
-  let best = 0;
-  for (let i = 0; i < fields.length; i++) {
-    const score = fuzzyScore(fields[i] ?? "", query);
-    if (score > 0) best = Math.max(best, Math.max(1, score - i * 5));
-  }
-  return best;
+export function fuzzyScore(text: string, query: string): number {
+  if (!query) return FUZZY_SCORE.none;
+  const t = text.toLowerCase();
+  const q = query.toLowerCase();
+  if (t === q) return FUZZY_SCORE.exact;
+  if (t.startsWith(q)) return FUZZY_SCORE.prefix;
+  if (t.includes(q)) return FUZZY_SCORE.substring;
+  if (isSubsequence(t, q)) return FUZZY_SCORE.subsequence;
+  return FUZZY_SCORE.none;
 }
 
 export function fuzzyMatchFiles(files: string[], query: string, limit = 15): FuzzyResult[] {
