@@ -167,12 +167,12 @@ describe("ChatInput", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it("cycles thinking level and toggles plan mode", async () => {
+  it("selects thinking level from the dropdown and toggles plan mode", async () => {
     const user = userEvent.setup();
     const { onSend } = renderChatInput();
 
-    // Claude levels=[low,medium,high,xhigh,max]; default is "high"; one click cycles to "xhigh".
     await user.click(screen.getByRole("button", { name: /^Thinking:/ }));
+    await user.click(screen.getByRole("menuitem", { name: "xHigh" }));
     await user.click(screen.getByRole("button", { name: "Toggle plan mode" }));
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
@@ -222,17 +222,15 @@ describe("ChatInput", () => {
     }, undefined);
   });
 
-  it("cycles thinking level back to default after a full rotation", async () => {
+  it("can select the default thinking level from the dropdown", async () => {
     const user = userEvent.setup();
     const { onSend } = renderChatInput();
 
-    // Claude levels=[low,medium,high,xhigh,max] — 5 clicks from "high" returns to "high".
     const thinkingButton = () => screen.getByRole("button", { name: /^Thinking:/ });
     await user.click(thinkingButton());
+    await user.click(screen.getByRole("menuitem", { name: "Max" }));
     await user.click(thinkingButton());
-    await user.click(thinkingButton());
-    await user.click(thinkingButton());
-    await user.click(thinkingButton());
+    await user.click(screen.getByRole("menuitem", { name: "High" }));
     await user.type(screen.getByPlaceholderText("Send message, #mention files, @call agents, run /commands"), "hello");
     await user.click(screen.getByRole("button", { name: "Send" }));
 

@@ -67,8 +67,9 @@ describe("ChatInput thinking-level persistence", () => {
     // Default seed is "high" → "High".
     expect(screen.getByRole("button", { name: /Thinking: High/i })).toBeInTheDocument();
 
-    // One click cycles "high" -> "xhigh" -> shows "xHigh".
+    // Select xHigh from the thinking dropdown.
     await user.click(screen.getByRole("button", { name: /Thinking: High/i }));
+    await user.click(screen.getByRole("menuitem", { name: "xHigh" }));
     expect(screen.getByRole("button", { name: /Thinking: xHigh/i })).toBeInTheDocument();
 
     unmount();

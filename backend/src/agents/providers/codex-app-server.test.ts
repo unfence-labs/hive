@@ -937,6 +937,60 @@ describe("CodexAppServerSession normalized events", () => {
     }]);
   });
 
+  it("resolves relative image view paths against the turn cwd", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        item: {
+          type: "imageView",
+          id: "image-1",
+          path: "vesu.png",
+        },
+      },
+    }) + "\n");
+
+    expect(events).toEqual([{
+      type: "image_view_updated",
+      id: "image-1",
+      path: "/tmp/project/vesu.png",
+      relativePath: "vesu.png",
+    }]);
+  });
+
+  it("flags relative image view paths outside the workspace", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        item: {
+          type: "imageView",
+          id: "image-1",
+          path: "../elsewhere.png",
+        },
+      },
+    }) + "\n");
+
+    expect(events).toEqual([{
+      type: "image_view_updated",
+      id: "image-1",
+      path: "/tmp/elsewhere.png",
+      outsideWorkspace: true,
+    }]);
+  });
+
   it("keeps sub-agent image views and generations out of the main stream", async () => {
     const proc = createMockProcess();
     mockSpawn.mockReturnValue(proc);
@@ -1082,6 +1136,37 @@ describe("CodexAppServerSession normalized events", () => {
         relativePath: "generated/logo.png",
       },
     ]);
+  });
+
+  it("resolves relative image generation saved paths against the turn cwd", async () => {
+    const proc = createMockProcess();
+    mockSpawn.mockReturnValue(proc);
+    const session = new CodexAppServerSession();
+    const events: unknown[] = [];
+    session.on("agent_event", (event) => events.push(event));
+    await initializeSession(session, proc);
+
+    proc._stdout.push(JSON.stringify({
+      method: "item/completed",
+      params: {
+        item: {
+          type: "imageGeneration",
+          id: "gen-1",
+          status: "completed",
+          savedPath: "generated/logo.png",
+        },
+      },
+    }) + "\n");
+
+    expect(events).toEqual([{
+      type: "image_generation_updated",
+      id: "gen-1",
+      status: "completed",
+      revisedPrompt: undefined,
+      result: undefined,
+      savedPath: "/tmp/project/generated/logo.png",
+      relativePath: "generated/logo.png",
+    }]);
   });
 
   it("drops oversized inline image generation results", async () => {
