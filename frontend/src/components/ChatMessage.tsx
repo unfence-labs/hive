@@ -20,7 +20,8 @@ function renderContentWithMentions(
   const atMatches = content.match(AT_MENTION_RE);
   const atMentions = atMatches ? [...new Set(atMatches)] : [];
 
-  if (!mentions?.length && atMentions.length === 0) return <p className="whitespace-pre-wrap">{content}</p>;
+  if (!mentions?.length && atMentions.length === 0)
+    return <p className="whitespace-pre-wrap wrap-anywhere">{content}</p>;
 
   const segments = splitByAllMentions(content, mentions, atMentions).map((segment, i) => {
     if (segment.mention) {
@@ -49,7 +50,7 @@ function renderContentWithMentions(
     return <span key={i}>{segment.text}</span>;
   });
 
-  return <p className="whitespace-pre-wrap">{segments}</p>;
+  return <p className="whitespace-pre-wrap wrap-anywhere">{segments}</p>;
 }
 
 interface ChatMessageProps {

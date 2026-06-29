@@ -3,6 +3,7 @@ import { getNextRun, formatTimeUntil } from "@/lib/cron";
 import {
   AlertCircle,
   Brain,
+  FolderGit2,
   FolderPlus,
   Loader2,
   Settings,
@@ -11,7 +12,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -109,6 +110,35 @@ export function collectVisiblePrWorkspaceIds({
   if (activeWsId) visible.add(activeWsId);
 
   return [...visible];
+}
+
+function SidebarHeaderAction({
+  icon,
+  label,
+  onClick,
+  disabled = false,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="flex items-center justify-center rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground disabled:pointer-events-none disabled:opacity-40"
+          onClick={onClick}
+          disabled={disabled}
+          aria-label={label}
+        >
+          {icon}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 const sidebarPanelScrollClassName =
@@ -497,15 +527,7 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
   };
 
   const footerActions = (
-    <div className="flex items-center justify-between px-2 py-1.5">
-      <button
-        type="button"
-        className="inline-flex items-center gap-1.5 rounded px-1.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
-        onClick={onAddProject}
-      >
-        <FolderPlus className="h-3.5 w-3.5 shrink-0" />
-        Add repository
-      </button>
+    <div className="flex items-center justify-end px-2 py-1.5">
       <Link
         to="/settings"
         state={{ from: pathname }}
@@ -589,15 +611,25 @@ export default function Sidebar({ onAddProject, onAddAutomation }: SidebarProps)
       <SidebarSectionHeader
         label="Workspaces"
         className="mb-1"
-        onAdd={() => {
-          if (!hasInitialHydration) return;
-          setIsCreatingFolder(true);
-          setNewFolderName("");
-        }}
-        addLabel="New folder"
-        addDisabled={!hasInitialHydration}
-        addIcon={<FolderPlus className="h-4 w-4" />}
-        addButtonClassName="rounded p-0.5 hover:bg-sidebar-accent/50"
+        actions={
+          <>
+            <SidebarHeaderAction
+              icon={<FolderGit2 className="h-4 w-4" />}
+              label="Add repository"
+              onClick={onAddProject}
+            />
+            <SidebarHeaderAction
+              icon={<FolderPlus className="h-4 w-4" />}
+              label="New folder"
+              disabled={!hasInitialHydration}
+              onClick={() => {
+                if (!hasInitialHydration) return;
+                setIsCreatingFolder(true);
+                setNewFolderName("");
+              }}
+            />
+          </>
+        }
       />
 
       <SidebarFolderComposer

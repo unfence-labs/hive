@@ -118,6 +118,8 @@ interface SidebarSectionHeaderProps {
   className?: string;
   addIcon?: React.ReactNode;
   addButtonClassName?: string;
+  /** Custom action buttons rendered in the header's action slot, replacing the default add button. */
+  actions?: React.ReactNode;
 }
 
 export function SidebarSectionHeader({
@@ -129,12 +131,16 @@ export function SidebarSectionHeader({
   className,
   addIcon,
   addButtonClassName,
+  actions,
 }: SidebarSectionHeaderProps) {
   return (
     <div className={cn("group relative flex w-full items-center", className)}>
       <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         {label}
       </span>
+      {actions ? (
+        <div className="flex items-center gap-0.5">{actions}</div>
+      ) : (
       <div className="relative flex h-5 w-5 items-center justify-center">
         {isLoading ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
@@ -154,6 +160,7 @@ export function SidebarSectionHeader({
           </button>
         ) : null}
       </div>
+      )}
     </div>
   );
 }
