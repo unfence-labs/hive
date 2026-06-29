@@ -13,13 +13,14 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import type { ChatMessage, CompletionItem, FileMention, ImageAttachment, MessageOptions, QueuedMessage, ThinkingLevel } from "@/types";
 import { cn } from "@/lib/utils";
-import { BrainIcon, BookOpenIcon, PlusIcon, SquareIcon, ZapIcon } from "lucide-react";
+import { BookOpenIcon, PlusIcon, SquareIcon, ZapIcon } from "lucide-react";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
 import { AutocompletePopup } from "@/components/chat/AutocompletePopup";
 import { FileAutocompletePopup } from "@/components/chat/FileAutocompletePopup";
 import { MentionHighlightOverlay } from "@/components/chat/MentionHighlightOverlay";
 import { ContextRing } from "@/components/chat/ContextRing";
 import { ModelSelector } from "@/components/chat/ModelSelector";
+import { ThinkingSelector } from "@/components/chat/ThinkingSelector";
 import { useCompletions } from "@/hooks/useCompletions";
 import { useFileCompletions } from "@/hooks/useFileCompletions";
 import { useContextUsage } from "@/hooks/useContextUsage";
@@ -58,16 +59,6 @@ interface AutocompleteState {
   query: string;
   triggerIndex: number;
 }
-
-const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
-  none: "None",
-  minimal: "Min",
-  low: "Low",
-  medium: "Med",
-  high: "High",
-  xhigh: "xHigh",
-  max: "Max",
-};
 
 const DEFAULT_THINKING_LEVEL: ThinkingLevel = "high";
 
@@ -316,15 +307,6 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
     [autocomplete, filteredItems, fileResults, selectedIndex, selectItem, selectFileItem],
   );
 
-  const cycleThinkingLevel = useCallback(() => {
-    setThinkingLevel((current) => {
-      if (thinkingLevels.length === 0) return current;
-      const idx = thinkingLevels.indexOf(current);
-      if (idx === -1) return thinkingLevels[0];
-      return thinkingLevels[(idx + 1) % thinkingLevels.length];
-    });
-  }, [thinkingLevels]);
-
   const handleSubmit = ({ text, files }: PromptInputMessage) => {
     const trimmed = text.trim();
     if (!trimmed && files.length === 0) return;
@@ -420,16 +402,12 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
               lockedProvider={lockedProvider}
             />
             {supportsThinking && (
-              <PromptInputButton
-                aria-label={`Thinking: ${THINKING_LEVEL_LABELS[effectiveThinkingLevel]}`}
-                variant="ghost"
-                size="xs"
-                onClick={cycleThinkingLevel}
-                className={cn("h-5 text-[11px] transition-colors", activeStyle)}
-              >
-                <BrainIcon className="size-3" />
-                {THINKING_LEVEL_LABELS[effectiveThinkingLevel]}
-              </PromptInputButton>
+              <ThinkingSelector
+                levels={thinkingLevels}
+                selectedLevel={effectiveThinkingLevel}
+                onSelect={setThinkingLevel}
+                className={activeStyle}
+              />
             )}
             {supportsPlanMode && (
               <PromptInputButton
