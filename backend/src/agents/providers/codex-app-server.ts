@@ -933,18 +933,21 @@ export class CodexAppServerSession extends EventEmitter<CodexAppServerEvent> {
         if (parentToolUseId) break;
         const imageItem = item as Extract<ThreadItem, { type: "imageView" }>;
         if (!imageItem.path) break;
+        const imagePath = resolveAppServerFilePath(imageItem.path, this.currentCwd);
         this.emit("agent_event", {
           type: "image_view_updated",
           id: imageItem.id,
-          path: imageItem.path,
-          ...relativizeWorkspacePath(imageItem.path, this.currentCwd),
+          path: imagePath,
+          ...relativizeWorkspacePath(imagePath, this.currentCwd),
         });
         break;
       }
       case "imageGeneration": {
         if (parentToolUseId) break;
         const generationItem = item as Extract<ThreadItem, { type: "imageGeneration" }>;
-        const savedPath = generationItem.savedPath ?? undefined;
+        const savedPath = generationItem.savedPath
+          ? resolveAppServerFilePath(generationItem.savedPath, this.currentCwd)
+          : undefined;
         const result = generationItem.result;
         this.emit("agent_event", {
           type: "image_generation_updated",
@@ -1410,17 +1413,26 @@ function usageFromTokenUsage(value: TokenUsage | undefined): {
 }
 
 /**
- * Resolve an App Server absolute image path against the current turn cwd.
- * Inside the workspace -> repo-relative path usable with the raw-file API
- * (which enforces repo safety); outside -> flagged so the UI never builds a
- * preview URL for arbitrary disk paths. Unknown cwd -> neither.
+ * Resolve an App Server image path for disk access. Codex may report either an
+ * absolute path or a path relative to the turn cwd.
+ */
+function resolveAppServerFilePath(path: string, cwd: string | undefined): string {
+  if (isAbsolute(path)) return resolve(path);
+  return cwd ? resolve(cwd, path) : path;
+}
+
+/**
+ * Resolve an App Server image path against the current turn cwd. Inside the
+ * workspace -> repo-relative path usable with the raw-file API (which enforces
+ * repo safety); outside -> flagged so the UI never builds a preview URL for
+ * arbitrary disk paths. Unknown cwd -> neither.
  */
 function relativizeWorkspacePath(
   path: string,
   cwd: string | undefined,
 ): { relativePath?: string; outsideWorkspace?: boolean } {
   if (!cwd) return {};
-  const relativePath = relative(resolve(cwd), resolve(path));
+  const relativePath = relative(resolve(cwd), resolveAppServerFilePath(path, cwd));
   if (!relativePath || relativePath.startsWith("..") || isAbsolute(relativePath)) {
     return { outsideWorkspace: true };
   }
