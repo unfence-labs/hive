@@ -129,14 +129,36 @@ function getActiveSession(wsId: string): ConversationSession | undefined {
   return getLoadedSessionById(wsId, activeSessionId);
 }
 
+function getMostRecentLoadedSession(
+  wsId: string,
+  predicate: (session: ConversationSession) => boolean,
+): ConversationSession | undefined {
+  const sessions = getLoadedSessions(wsId).filter(predicate);
+  if (sessions.length === 0) return undefined;
+  const sorted = sortByUpdatedAtDesc(sessions.map((s) => s.metadata));
+  return sorted[0] ? getLoadedSessionById(wsId, sorted[0].sessionId) : undefined;
+}
+
 function getMostRecentlyUpdatedLoadedSession(wsId: string): ConversationSession | undefined {
   // Terminal sessions are never the active chat session: they render a shell,
   // not a conversation, and silently no-op sendMessage. Skip them here so they
   // are never auto-promoted to active.
-  const sessions = getLoadedSessions(wsId).filter((s) => s.metadata.kind !== "terminal");
-  if (sessions.length === 0) return undefined;
-  const sorted = sortByUpdatedAtDesc(sessions.map((s) => s.metadata));
-  return sorted[0] ? getLoadedSessionById(wsId, sorted[0].sessionId) : undefined;
+  return getMostRecentLoadedSession(wsId, (s) => s.metadata.kind !== "terminal");
+}
+
+function isPersistedDefaultSessionCandidate(meta: SessionMetadata): boolean {
+  return meta.kind !== "terminal" && meta.messageCount > 0;
+}
+
+export function isLoadedDefaultSessionCandidate(session: ConversationSession): boolean {
+  return session.metadata.kind !== "terminal" && (
+    session.metadata.messageCount > 0 ||
+    session.status === "streaming"
+  );
+}
+
+function getMostRecentlyUpdatedDefaultLoadedSession(wsId: string): ConversationSession | undefined {
+  return getMostRecentLoadedSession(wsId, isLoadedDefaultSessionCandidate);
 }
 
 async function persistWorkspaceSessionState(
@@ -608,21 +630,25 @@ export async function listWorkspaceSessions(
 
 /**
  * Resolve the session a fresh client should open for this workspace, WITHOUT
- * reading any message bodies (metadata only). Order: in-memory active/most-recent
- * loaded session, else the persisted active session if it has content, else the
- * most-recently-updated non-empty chat. Empty and terminal sessions are skipped
- * so a first open lands on real history instead of a blank "new conversation".
+ * reading any message bodies (metadata only). Order: default-worthy in-memory
+ * active/most-recent loaded session, else the persisted active session if it
+ * has content, else the most-recently-updated non-empty chat. Empty idle and
+ * terminal sessions are skipped so a first open lands on real history instead
+ * of a blank "new conversation".
  * Returns undefined only when the workspace has no non-empty conversation.
  */
 export async function getDefaultSessionId(
   wsId: string,
   dataDir = getDataDir(),
 ): Promise<string | undefined> {
-  const active = getActiveSession(wsId) ?? getMostRecentlyUpdatedLoadedSession(wsId);
-  if (active && active.metadata.kind !== "terminal") return active.sessionId;
+  const active = getActiveSession(wsId);
+  if (active && isLoadedDefaultSessionCandidate(active)) return active.sessionId;
+
+  const loaded = getMostRecentlyUpdatedDefaultLoadedSession(wsId);
+  if (loaded) return loaded.sessionId;
 
   const sessions = await listWorkspaceSessions(wsId, dataDir); // sorted updatedAt-desc
-  const nonEmptyChats = sessions.filter((s) => s.kind !== "terminal" && s.messageCount > 0);
+  const nonEmptyChats = sessions.filter(isPersistedDefaultSessionCandidate);
   if (nonEmptyChats.length === 0) return undefined;
 
   const result = await getWorkspace(wsId, dataDir);

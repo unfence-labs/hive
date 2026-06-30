@@ -11,6 +11,7 @@ import {
   getOrCreateSession,
   getSessionById,
   createNewSession,
+  convertSessionToTerminal,
   sendMessage,
   hardDeleteSession,
   endSession,
@@ -72,8 +73,12 @@ function hubEvent(workspaceId: string, event: object): string {
 }
 
 /** Send sync_workspaces via a hub WebSocket. */
-function syncWorkspaces(ws: WebSocket, workspaceIds: string[]): void {
-  ws.send(JSON.stringify({ type: "sync_workspaces", workspaceIds }));
+function syncWorkspaces(ws: WebSocket, workspaceIds: string[], historyViaRest?: boolean): void {
+  ws.send(JSON.stringify({
+    type: "sync_workspaces",
+    workspaceIds,
+    ...(historyViaRest !== undefined ? { historyViaRest } : {}),
+  }));
 }
 
 /**
@@ -89,6 +94,8 @@ function connectHub(
     query?: Record<string, string>;
     /** If set, collect ALL workspace messages (unfiltered). Default: first workspace. */
     collectAll?: boolean;
+    /** Subscribe as a REST-history client (no `history` frames over the WS). */
+    historyViaRest?: boolean;
   },
 ): {
   wsReady: Promise<WebSocket>;
@@ -117,7 +124,7 @@ function connectHub(
         });
         // Subscribe to workspaces after the connection is established
         ws.on("open", () => {
-          syncWorkspaces(ws, workspaceIds);
+          syncWorkspaces(ws, workspaceIds, opts?.historyViaRest);
         });
       },
     },
@@ -225,6 +232,37 @@ function waitForCondition(
       reject(new Error("Timeout waiting for condition"));
     }, timeoutMs);
   });
+}
+
+async function writePersistedChatSession(
+  sessionId: string,
+  content: string,
+  updatedAt = "2026-02-10T00:00:01.000Z",
+): Promise<void> {
+  const sessionDir = join(dataDir, projectId, "sessions", sessionId);
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "metadata.json"),
+    JSON.stringify({
+      sessionId,
+      workspaceId: wsId,
+      createdAt: "2026-02-10T00:00:00.000Z",
+      updatedAt,
+      messageCount: 1,
+    }),
+    "utf-8",
+  );
+  await writeFile(
+    join(sessionDir, "messages.jsonl"),
+    JSON.stringify({
+      id: "m-1",
+      sessionId,
+      role: "assistant",
+      content,
+      timestamp: "2026-02-10T00:00:00.000Z",
+    }) + "\n",
+    "utf-8",
+  );
 }
 
 describe("WS /ws/hub", () => {
@@ -336,6 +374,138 @@ describe("WS /ws/hub", () => {
     }
 
     ws.close();
+  });
+
+  it("bootstraps the default non-empty chat when the active loaded session is empty", async () => {
+    const { session: emptyActive } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const defaultSessionId = "sess-default-non-empty";
+    await writePersistedChatSession(defaultSessionId, "persisted default response");
+
+    const { wsReady, messages } = connectHub([wsId]);
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some((m) => m.type === "status") &&
+        msgs.some((m) => m.type === "history"),
+    );
+
+    const status = messages.find((m) => m.type === "status");
+    expect(status).toEqual({
+      type: "status",
+      status: "idle",
+      streaming: false,
+      sessionId: defaultSessionId,
+    });
+    expect(status).not.toEqual(expect.objectContaining({ sessionId: emptyActive.sessionId }));
+
+    const history = messages.find((m) => m.type === "history");
+    expect(history).toBeDefined();
+    if (history?.type === "history") {
+      expect(history.sessionId).toBe(defaultSessionId);
+      expect(history.messages).toEqual([
+        expect.objectContaining({
+          content: "persisted default response",
+          sessionId: defaultSessionId,
+        }),
+      ]);
+    }
+
+    ws.close();
+    await endSession(wsId, dataDir);
+  });
+
+  it("redirects a historyViaRest client to the default chat via status only, without a WS history frame", async () => {
+    await getOrCreateSession(wsId, dataDir, CONV_CMD); // empty active session
+    const defaultSessionId = "sess-default-rest";
+    await writePersistedChatSession(defaultSessionId, "persisted default for rest client");
+
+    const { wsReady, messages } = connectHub([wsId], { historyViaRest: true });
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+    // Give a (mistaken) history frame a chance to arrive before asserting absence.
+    await new Promise((r) => setTimeout(r, 50));
+
+    const status = messages.find((m) => m.type === "status");
+    expect(status).toEqual({
+      type: "status",
+      status: "idle",
+      streaming: false,
+      sessionId: defaultSessionId,
+    });
+    expect(messages.some((m) => m.type === "history")).toBe(false);
+
+    ws.close();
+    await endSession(wsId, dataDir);
+  });
+
+  it("bootstraps the default non-empty chat when the active loaded session is terminal", async () => {
+    const { session: terminalActive } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    await convertSessionToTerminal(wsId, terminalActive.sessionId, dataDir);
+    const defaultSessionId = "sess-default-after-terminal";
+    await writePersistedChatSession(defaultSessionId, "persisted chat after terminal");
+
+    const { wsReady, messages } = connectHub([wsId]);
+    const ws = await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+
+    const status = messages.find((m) => m.type === "status");
+    expect(status).toEqual({
+      type: "status",
+      status: "idle",
+      streaming: false,
+      sessionId: defaultSessionId,
+    });
+    expect(status).not.toEqual(expect.objectContaining({ sessionId: terminalActive.sessionId }));
+
+    ws.close();
+    await endSession(wsId, dataDir);
+  });
+
+  it("bootstraps a streaming default session as busy (never idle) when the active session is empty", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-stream-default.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+    const local = await startWsApp(undefined, slowCmd);
+
+    // A streaming session, then a fresh empty active session layered on top.
+    const streaming = await createNewSession(wsId, dataDir, slowCmd);
+    streaming.sendMessage("keep me streaming");
+    await waitForCondition(() => streaming.status === "streaming");
+    const emptyActive = await createNewSession(wsId, dataDir, slowCmd);
+    expect(emptyActive.metadata.messageCount).toBe(0);
+
+    const { wsReady, messages } = connectHub([wsId], { app: local.app });
+    const ws = await wsReady;
+
+    await waitForMessage(
+      messages,
+      (msgs) =>
+        msgs.some(
+          (m) => m.type === "status" && m.sessionId === streaming.sessionId && m.streaming === true,
+        ),
+    );
+    // Let any (mistaken) idle status for the streaming default arrive.
+    await new Promise((r) => setTimeout(r, 50));
+
+    const defaultStatuses = messages.filter(
+      (m) => m.type === "status" && m.sessionId === streaming.sessionId,
+    );
+    expect(defaultStatuses.length).toBeGreaterThan(0);
+    for (const m of defaultStatuses) {
+      if (m.type === "status") {
+        expect(m.status).toBe("busy");
+        expect(m.streaming).toBe(true);
+      }
+    }
+
+    ws.close();
+    await local.app.close();
+    await endSession(wsId, dataDir).catch(() => {});
   });
 
   it("sends idle status + history when session exists but is not streaming", async () => {

@@ -137,6 +137,21 @@ describe("getDefaultSessionId", () => {
     expect(await getDefaultSessionId(wsId, dataDir)).toBe("has-msgs");
   });
 
+  it("skips an active empty loaded session and opens the most-recent non-empty chat", async () => {
+    const { session: emptyActive } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    expect(emptyActive.metadata.messageCount).toBe(0);
+
+    await writeSessionFixture("has-msgs", wsId, {
+      metadata: { messageCount: 2, updatedAt: "2026-02-10T00:00:00.000Z" },
+      messages: [
+        { id: "u1", sessionId: "has-msgs", role: "user", content: "hi", timestamp: "2026-02-10T00:00:00.000Z" },
+        { id: "a1", sessionId: "has-msgs", role: "assistant", content: "yo", timestamp: "2026-02-10T00:00:01.000Z" },
+      ],
+    });
+
+    expect(await getDefaultSessionId(wsId, dataDir)).toBe("has-msgs");
+  });
+
   it("never returns a terminal session", async () => {
     await writeSessionFixture("term", wsId, {
       metadata: { messageCount: 5, kind: "terminal", updatedAt: "2026-02-20T00:00:00.000Z" },
