@@ -404,7 +404,7 @@ struct ChatView: View {
                     )
                     guard store.sessionId == sessionId else { return }
                     guard store.historyToken(for: sessionId) == requestToken else { return }
-                    store.messages = msgs
+                    store.applyFetchedHistory(msgs, for: sessionId)
                 } catch {
                     // Best-effort — streamed messages remain as fallback
                 }
@@ -434,6 +434,12 @@ struct ChatView: View {
     private func loadMessages() async {
         let sessionId = session.sessionId
         store.setFocusedSessionId(sessionId)
+        // Instant-load: show cached messages immediately (if any) so the bubble
+        // isn't empty while the authoritative REST refetch runs.
+        if store.messages.isEmpty, let cached = store.cachedMessages(for: sessionId), !cached.isEmpty {
+            store.messages = cached
+            isLoading = false
+        }
         let requestToken = store.beginHistoryRequest(for: sessionId)
         do {
             let msgs = try await api.fetchMessages(
@@ -453,7 +459,7 @@ struct ChatView: View {
             }
             // History contains only finalized turns; streaming content lives
             // in sessionStreams and is rendered as a separate in-progress bubble.
-            store.messages = msgs
+            store.applyFetchedHistory(msgs, for: sessionId)
         } catch is CancellationError {
             // View disappeared
         } catch {

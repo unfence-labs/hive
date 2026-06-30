@@ -447,8 +447,8 @@ struct ConversationStoreSessionTests {
         ))
         #expect(store.sessionStreams["session-1"] != nil)
 
-        // History arrives with the finalized assistant turn (no unanswered question).
-        store.handle(.history(messages: [
+        // REST history arrives with the finalized assistant turn (no unanswered question).
+        store.applyFetchedHistory([
             ChatMessage(
                 id: "message-1",
                 sessionId: "session-1",
@@ -473,7 +473,7 @@ struct ConversationStoreSessionTests {
                 cancelled: nil,
                 durationMs: nil
             )
-        ], sessionId: "session-1"))
+        ], for: "session-1")
 
         #expect(store.messages.count == 2)
         #expect(store.sessionStreams["session-1"] == nil)
@@ -501,7 +501,7 @@ struct ConversationStoreSessionTests {
             lockedProvider: nil
         ))
 
-        store.handle(.history(messages: [
+        store.applyFetchedHistory([
             ChatMessage(
                 id: "message-1",
                 sessionId: "session-1",
@@ -516,7 +516,7 @@ struct ConversationStoreSessionTests {
                 cancelled: nil,
                 durationMs: nil
             )
-        ], sessionId: "session-1"))
+        ], for: "session-1")
 
         let stream = store.sessionStreams["session-1"]
         #expect(stream != nil)
@@ -541,7 +541,7 @@ struct ConversationStoreSessionTests {
         ))
         store.handle(.textDelta(sessionId: "session-1", text: "Live streaming content"))
 
-        store.handle(.history(messages: [
+        store.applyFetchedHistory([
             ChatMessage(
                 id: "message-1",
                 sessionId: "session-1",
@@ -554,11 +554,120 @@ struct ConversationStoreSessionTests {
                 cancelled: nil,
                 durationMs: nil
             )
-        ], sessionId: "session-1"))
+        ], for: "session-1")
 
         #expect(store.sessionStreams["session-1"]?.isStreaming == true)
         #expect(store.sessionStreams["session-1"]?.currentText == "Live streaming content")
         #expect(store.messages.count == 1)
+    }
+
+    @Test @MainActor
+    func switchBackRestoresCachedMessagesInstantly() {
+        // View session A (REST history applied), switch to B, switch back to A.
+        // A's messages must reappear instantly from the per-session cache — no
+        // empty flash, no refetch required. Mirrors web's React Query cache.
+        let store = ConversationStore()
+        store.setFocusedSessionId("session-A")
+        store.applyFetchedHistory([
+            ChatMessage(
+                id: "a-1",
+                sessionId: "session-A",
+                role: .user,
+                content: "Hello from A",
+                images: nil,
+                toolCalls: nil,
+                thinkingContent: nil,
+                timestamp: "2026-01-01T00:00:00.000Z",
+                cancelled: nil,
+                durationMs: nil
+            )
+        ], for: "session-A")
+        #expect(store.messages.count == 1)
+
+        // Switch to B (never viewed) — empty.
+        store.prepareSessionSwitch("session-B")
+        #expect(store.sessionId == "session-B")
+        #expect(store.messages.isEmpty)
+
+        // Switch back to A — restored instantly from cache without a refetch.
+        store.prepareSessionSwitch("session-A")
+        #expect(store.sessionId == "session-A")
+        #expect(store.messages.count == 1)
+        #expect(store.messages.first?.content == "Hello from A")
+    }
+
+    @Test @MainActor
+    func userMessageKeepsCacheInSyncForSwitchBack() {
+        // A user message appended over WS must land in the cache so switching
+        // away and back shows the turn without a refetch.
+        let store = ConversationStore()
+        store.setFocusedSessionId("session-A")
+        store.applyFetchedHistory([], for: "session-A")
+
+        store.handle(.userMessage(message: ChatMessage(
+            id: "u-1",
+            sessionId: "session-A",
+            role: .user,
+            content: "New question",
+            images: nil,
+            toolCalls: nil,
+            thinkingContent: nil,
+            timestamp: "2026-01-01T00:00:00.000Z",
+            cancelled: nil,
+            durationMs: nil
+        )))
+        #expect(store.messages.count == 1)
+
+        store.prepareSessionSwitch("session-B")
+        #expect(store.messages.isEmpty)
+
+        store.prepareSessionSwitch("session-A")
+        #expect(store.messages.count == 1)
+        #expect(store.messages.first?.content == "New question")
+    }
+
+    @Test @MainActor
+    func doneKeepsCacheInSyncForSwitchBack() {
+        // A finalized assistant turn (done) must land in the cache so switching
+        // away and back shows the finalized turn from cache.
+        let store = ConversationStore()
+        store.setFocusedSessionId("session-A")
+        store.applyFetchedHistory([], for: "session-A")
+        store.handle(.status(
+            status: .busy,
+            sessionId: "session-A",
+            streaming: true,
+            streamingStartedAt: nil,
+            lockedProvider: nil
+        ))
+        store.handle(.textDelta(sessionId: "session-A", text: "Finalized answer"))
+        store.handle(.done(
+            sessionId: "session-A",
+            durationMs: 100,
+            inputTokens: nil,
+            outputTokens: nil,
+            contextUsedTokens: nil,
+            contextWindowTokens: nil,
+            pendingToolName: nil
+        ))
+        #expect(store.messages.contains { $0.content == "Finalized answer" })
+
+        store.prepareSessionSwitch("session-B")
+        #expect(store.messages.isEmpty)
+
+        store.prepareSessionSwitch("session-A")
+        #expect(store.messages.contains { $0.content == "Finalized answer" })
+    }
+
+    @Test @MainActor
+    func syncWorkspacesEncodesHistoryViaRest() throws {
+        let message = HubIncoming.syncWorkspaces(workspaceIds: ["ws-1"])
+        let data = try JSONEncoder().encode(message)
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        #expect(object?["type"] as? String == "sync_workspaces")
+        #expect(object?["historyViaRest"] as? Bool == true)
+        #expect((object?["workspaceIds"] as? [String]) == ["ws-1"])
     }
 
     @Test @MainActor
