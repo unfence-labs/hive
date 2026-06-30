@@ -49,8 +49,7 @@ type LocalAction =
   | { type: "clear_chat" }
   | { type: "prepare_session_switch"; sessionId: string }
   | { type: "prepare_workspace_switch" }
-  | { type: "clear_pending_tool_inputs" }
-  | { type: "_ws_reconnected" };
+  | { type: "clear_pending_tool_inputs" };
 
 type Action = WsOutgoing | LocalAction;
 
@@ -399,14 +398,18 @@ function reducer(state: ConversationState, action: Action): ConversationState {
 
       let newStreams = state.sessionStreams;
       if (historySessionId && !activeStream?.isStreaming) {
-        if (activeStream || hydratedPendingToolInputs.length > 0) {
+        // History is authoritative for finalized turns. Drop any stale in-progress
+        // stream content (e.g. a turn that completed while the hub socket was a
+        // zombie) so it is not rendered as a duplicate bubble alongside the now-
+        // persisted message. Keep only a slot carrying pending tool inputs (an
+        // unanswered question/plan in the last turn).
+        if (hydratedPendingToolInputs.length > 0) {
           newStreams = {
             ...state.sessionStreams,
-            [historySessionId]: {
-              ...(activeStream ?? { ...emptyStreamState }),
-              pendingToolInputs: hydratedPendingToolInputs,
-            },
+            [historySessionId]: { ...emptyStreamState, pendingToolInputs: hydratedPendingToolInputs },
           };
+        } else if (activeStream) {
+          newStreams = deleteStream(state, historySessionId);
         }
       }
 
@@ -498,13 +501,6 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "reset":
       return initialState;
 
-    case "_ws_reconnected":
-      // On WS reconnect the backend will re-bootstrap every workspace with a
-      // full streaming snapshot (text, thinking, tool calls). Clear accumulated
-      // stream data so the snapshot won't be *appended* to stale pre-disconnect
-      // content, which would cause duplicate tool calls and garbled text.
-      return { ...state, sessionStreams: {} };
-
     default:
       return state;
   }
@@ -586,10 +582,6 @@ export function useConversation(workspaceId: string | undefined) {
     });
     replayingBuffer = false;
 
-    const unsubReconnect = wsTransport.onReconnect(workspaceId, () => {
-      dispatch({ type: "_ws_reconnected" });
-    });
-
     // Tell the backend to activate the saved session and send its bootstrap.
     if (savedSession) {
       const sent = wsTransport.send(workspaceId, { type: "switch_session", sessionId: savedSession });
@@ -630,7 +622,6 @@ export function useConversation(workspaceId: string | undefined) {
         historyRequestTokenRef.current = historyRequestToken + 1;
       }
       unsubscribe();
-      unsubReconnect();
     };
   }, [workspaceId, syncSessionHistory]);
 

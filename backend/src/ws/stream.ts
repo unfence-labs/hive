@@ -611,7 +611,13 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           return;
         }
 
-        if ("type" in parsed && parsed.type === "sync_workspaces") {
+        if ("type" in parsed && parsed.type === "ping") {
+          // Application-level liveness probe: reply immediately so the client
+          // can distinguish a healthy idle socket from a frozen one.
+          if (socket.readyState === socket.OPEN) {
+            socket.send(JSON.stringify({ type: "pong" }));
+          }
+        } else if ("type" in parsed && parsed.type === "sync_workspaces") {
           await handleSyncWorkspaces(hub, parsed.workspaceIds);
         } else if ("workspaceId" in parsed && "event" in parsed) {
           await handleWorkspaceMessage(hub, parsed.workspaceId, parsed.event);

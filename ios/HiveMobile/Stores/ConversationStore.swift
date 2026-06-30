@@ -258,16 +258,22 @@ final class ConversationStore {
             bumpHistoryToken(for: historySessionId)
             sessionId = historySessionId ?? sessionId
 
-            // Derive pending tool inputs from history only when not actively
-            // streaming (during streaming, live WS tool inputs take precedence).
-            let activeStream = historySessionId.flatMap { sessionStreams[$0] }
-            if activeStream?.isStreaming != true {
+            // Reconcile any stale in-progress stream slot for a non-streaming session.
+            // History only carries finalized turns, so when it arrives for a session that
+            // is NOT actively streaming, any leftover stream slot has already been
+            // persisted into `messages` (e.g. the turn finished while the socket was a
+            // backgrounded zombie). Rebuild a CLEAN slot containing only pending tool
+            // inputs (an unanswered question/plan), or drop the stale slot entirely.
+            // During streaming, live WS state takes precedence, so we leave it untouched.
+            let existingStream = historySessionId.flatMap { sessionStreams[$0] }
+            if existingStream?.isStreaming != true, let sid = historySessionId {
                 let derived = derivePendingToolInputsFromHistory(msgs)
-                if let sid = historySessionId {
-                    if activeStream != nil || !derived.isEmpty {
-                        ensureStream(for: sid, streaming: false)
-                        sessionStreams[sid]?.pendingToolInputs = derived
-                    }
+                if !derived.isEmpty {
+                    var rebuilt = SessionStreamState()
+                    rebuilt.pendingToolInputs = derived
+                    sessionStreams[sid] = rebuilt
+                } else if existingStream != nil {
+                    sessionStreams.removeValue(forKey: sid)
                 }
             }
 

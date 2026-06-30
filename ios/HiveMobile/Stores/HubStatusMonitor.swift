@@ -342,8 +342,9 @@ final class HubStatusMonitor {
     }
 
     /// Called when the app returns to foreground after a non-trivial background period.
-    /// Clears stale streaming state and forces an immediate hub reconnect so the
-    /// backend bootstrap (status + history) writes into a clean slate.
+    /// Forces an immediate hub reconnect so the backend bootstrap (status + history)
+    /// re-syncs every workspace. The reconnect is non-destructive: streaming state is
+    /// reconciled silently from bootstrap events rather than wiped (issue #259).
     func appDidBecomeActive() {
         // Snapshot workspace IDs that had any streaming session
         streamingBeforeBackground = Set(streamingSessions.keys)
@@ -432,10 +433,11 @@ private final class HubConnection {
         task.resume()
         backoff = 1
 
-        // Clear stale streaming state and re-wire send closures on all existing stores.
-        // Without clearing, the bootstrap snapshot would be appended to pre-disconnect
-        // accumulated data, causing duplicate tool calls and garbled text.
-        monitor?.storeCache.clearAllStreamingState()
+        // Re-wire send closures on all existing stores so they target the fresh socket.
+        // We deliberately do NOT wipe streaming state here: the reconnect is
+        // non-destructive (issue #259). The visible conversation stays as-is and is
+        // reconciled silently from authoritative bootstrap events (stream_snapshot
+        // replaces active streams; history drops stale finalized stream slots).
         monitor?.rewireAllSendClosures()
 
         startReceiving()
