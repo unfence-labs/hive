@@ -192,7 +192,19 @@ export default function ChatConversation({
   }, [messages]);
 
   return (
-    <Conversation className={`flex-1${isHydrating ? " invisible" : ""}`} resize={settled ? "smooth" : "instant"}>
+    <Conversation
+      // Remount the scroll container on every switch. use-stick-to-bottom keeps
+      // its `isAtBottom`/`escapedFromLock` state on the mounted instance, so once
+      // the user scrolls up in one conversation that "escaped" state persists into
+      // the next one and its ResizeObserver bails out of scroll-to-bottom (it only
+      // re-sticks when already at the bottom). A fresh mount resets that state and
+      // re-runs `initial="instant"`, so each conversation reliably opens at the
+      // newest message. switchCounter is bumped only on real session/workspace
+      // switches, never on streaming, so this never remounts mid-conversation.
+      key={switchCounter}
+      className={`flex-1${isHydrating ? " invisible" : ""}`}
+      resize={settled ? "smooth" : "instant"}
+    >
       {error && (
         <div className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">
           {error}
