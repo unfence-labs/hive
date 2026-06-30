@@ -59,7 +59,7 @@ async function connectHub(
     onInit: (clientWs: WebSocket) => {
       clientWs.on("message", (data: Buffer) => {
         const envelope = JSON.parse(data.toString()) as HubOutgoing;
-        if (envelope.workspaceId === workspaceId) {
+        if ("workspaceId" in envelope && envelope.workspaceId === workspaceId) {
           messages.push(envelope.event);
         }
       });

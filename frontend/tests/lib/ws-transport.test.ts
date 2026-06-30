@@ -925,4 +925,115 @@ describe("wsTransport", () => {
       expect(wsTransport.hasCachedHistory("ws-1")).toBe(false);
     });
   });
+
+  describe("heartbeat + liveness", () => {
+    const getPings = (socket: MockWebSocket): unknown[] =>
+      socket.sent
+        .map((s) => { try { return JSON.parse(s); } catch { return null; } })
+        .filter((m) => m?.type === "ping");
+    const sendPong = (socket: MockWebSocket): void =>
+      socket.message(JSON.stringify({ type: "pong" }));
+
+    it("sends an app-level ping on the heartbeat interval", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+
+      expect(getPings(socket)).toHaveLength(0);
+      vi.advanceTimersByTime(25_000);
+      expect(getPings(socket).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("keeps a socket that answers pongs (no reconnect)", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+
+      for (let i = 0; i < 4; i++) {
+        vi.advanceTimersByTime(25_000);
+        sendPong(socket);
+      }
+
+      expect(MockWebSocket.instances).toHaveLength(1);
+      expect(socket.readyState).toBe(MockWebSocket.OPEN);
+    });
+
+    it("reconnects a zombie socket that never answers pongs", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+
+      // Silent past HEARTBEAT_INTERVAL_MS + PONG_TIMEOUT_MS (25s + 10s).
+      vi.advanceTimersByTime(60_000);
+
+      expect(MockWebSocket.instances).toHaveLength(2);
+    });
+
+    it("ignores pong frames (does not forward them as workspace events)", () => {
+      const received: WsOutgoing[] = [];
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+      wsTransport.onMessage("ws-1", (msg) => received.push(msg));
+
+      sendPong(socket);
+
+      expect(received).toHaveLength(0);
+    });
+  });
+
+  describe("probeLiveness", () => {
+    const sendPong = (socket: MockWebSocket): void =>
+      socket.message(JSON.stringify({ type: "pong" }));
+
+    it("is a no-op when nothing is subscribed", () => {
+      wsTransport.probeLiveness();
+      expect(MockWebSocket.instances).toHaveLength(0);
+    });
+
+    it("does not reconnect a healthy OPEN socket that answers the probe", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+
+      wsTransport.probeLiveness();
+      vi.advanceTimersByTime(100); // pong round-trips before the probe deadline
+      sendPong(socket);
+      vi.advanceTimersByTime(3_000);
+
+      expect(MockWebSocket.instances).toHaveLength(1);
+      expect(socket.readyState).toBe(MockWebSocket.OPEN);
+    });
+
+    it("reconnects an OPEN-but-frozen socket that ignores the probe", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+
+      wsTransport.probeLiveness();
+      vi.advanceTimersByTime(3_000); // no pong arrives within the probe window
+
+      expect(MockWebSocket.instances).toHaveLength(2);
+    });
+
+    it("reconnects immediately when the socket is closed", () => {
+      wsTransport.connect("ws-1");
+      const socket = MockWebSocket.instances[0]!;
+      socket.open();
+      socket.readyState = MockWebSocket.CLOSED;
+
+      wsTransport.probeLiveness();
+
+      expect(MockWebSocket.instances).toHaveLength(2);
+    });
+
+    it("is a no-op while a connection attempt is already in flight", () => {
+      wsTransport.connect("ws-1");
+      expect(MockWebSocket.instances[0]!.readyState).toBe(MockWebSocket.CONNECTING);
+
+      wsTransport.probeLiveness();
+
+      expect(MockWebSocket.instances).toHaveLength(1);
+    });
+  });
 });

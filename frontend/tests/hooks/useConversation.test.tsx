@@ -2782,4 +2782,81 @@ describe("useConversation", () => {
       expect(assistant?.outputTokens).toBeUndefined();
     });
   });
+
+  describe("non-destructive reconnect resync", () => {
+    it("drops a stale stream slot when authoritative history shows the turn finished", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      // Active stream accumulates content.
+      act(() => {
+        __wsMock.emit("ws-1", {
+          type: "user_message",
+          message: { id: "u1", sessionId: "sess-1", role: "user", content: "hi", timestamp: "2026-02-12T00:00:00.000Z" },
+        });
+        __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Hello" });
+      });
+      expect(result.current.currentStreamingText).toBe("Hello");
+      expect(result.current.isStreaming).toBe(true);
+
+      // Reconnect bootstrap: the turn completed while the socket was a zombie.
+      // status (provisional) then authoritative history with the finalized turn.
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-1", streaming: false });
+        __wsMock.emit("ws-1", {
+          type: "history",
+          sessionId: "sess-1",
+          messages: [
+            { id: "u1", sessionId: "sess-1", role: "user", content: "hi", timestamp: "2026-02-12T00:00:00.000Z" },
+            { id: "a1", sessionId: "sess-1", role: "assistant", content: "Hello", timestamp: "2026-02-12T00:00:01.000Z" },
+          ],
+        });
+      });
+
+      // No leftover streaming bubble, and the finalized message appears exactly once.
+      expect(result.current.isStreaming).toBe(false);
+      expect(result.current.currentStreamingText).toBe("");
+      expect(result.current.messages).toHaveLength(2);
+      expect(result.current.messages.at(-1)?.content).toBe("Hello");
+    });
+
+    it("keeps an active stream and reconciles it via snapshot replace (no wipe)", async () => {
+      const { __wsMock } = await getWsMock();
+      const { result } = renderHook(() => useConversation("ws-1"));
+
+      act(() => {
+        __wsMock.emit("ws-1", {
+          type: "user_message",
+          message: { id: "u1", sessionId: "sess-1", role: "user", content: "hi", timestamp: "2026-02-12T00:00:00.000Z" },
+        });
+        __wsMock.emit("ws-1", { type: "text_delta", sessionId: "sess-1", text: "Hel" });
+      });
+      expect(result.current.currentStreamingText).toBe("Hel");
+
+      // Reconnect bootstrap for a still-streaming session: status (busy) →
+      // history (finalized turns only) → snapshot (authoritative in-flight state).
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "busy", sessionId: "sess-1", streaming: true });
+        __wsMock.emit("ws-1", {
+          type: "history",
+          sessionId: "sess-1",
+          messages: [
+            { id: "u1", sessionId: "sess-1", role: "user", content: "hi", timestamp: "2026-02-12T00:00:00.000Z" },
+          ],
+        });
+        __wsMock.emit("ws-1", {
+          type: "stream_snapshot",
+          sessionId: "sess-1",
+          text: "Hello world",
+          thinking: "",
+          toolCalls: [],
+          agentActivities: [],
+          agentPlanMode: false,
+        });
+      });
+
+      expect(result.current.isStreaming).toBe(true);
+      expect(result.current.currentStreamingText).toBe("Hello world");
+    });
+  });
 });

@@ -710,8 +710,8 @@ export interface UpdateCustomAgentRequest {
 
 // ── Hub WebSocket protocol (multiplexed) ────────────────────────────
 
-/** Server -> Client (hub-level). Every outgoing event is tagged with its workspace. */
-export interface HubOutgoing {
-  workspaceId: string;
-  event: WsOutgoing;
-}
+/** Server -> Client (hub-level). Workspace events are tagged with their workspace. */
+export type HubOutgoing =
+  | { workspaceId: string; event: WsOutgoing }
+  /** Reply to a client `ping` (liveness probe). */
+  | { type: "pong" };

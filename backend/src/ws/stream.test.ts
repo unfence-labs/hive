@@ -24,6 +24,9 @@ import {
 } from "../services/script-runner.js";
 import type { WsOutgoing, HubOutgoing } from "../types.js";
 
+/** Hub envelope carrying a workspace event (excludes hub-level pong frames). */
+type WorkspaceEnvelope = Extract<HubOutgoing, { workspaceId: string }>;
+
 const CONV_CMD = { command: "bash" };
 
 let tempDir: string;
@@ -90,14 +93,14 @@ function connectHub(
 ): {
   wsReady: Promise<WebSocket>;
   messages: WsOutgoing[];
-  allEnvelopes: HubOutgoing[];
+  allEnvelopes: WorkspaceEnvelope[];
 } {
   const queryString = opts?.query
     ? `?${new URLSearchParams(opts.query).toString()}`
     : "";
   const path = `/ws/hub${queryString}`;
   const messages: WsOutgoing[] = [];
-  const allEnvelopes: HubOutgoing[] = [];
+  const allEnvelopes: WorkspaceEnvelope[] = [];
   const targetWsId = workspaceIds[0];
   const wsReady = (opts?.app ?? app).injectWS(
     path,
@@ -106,6 +109,7 @@ function connectHub(
       onInit: (ws) => {
         ws.on("message", (data: Buffer) => {
           const envelope = JSON.parse(data.toString()) as HubOutgoing;
+          if (!("workspaceId" in envelope)) return; // ignore hub-level pong frames
           allEnvelopes.push(envelope);
           if (opts?.collectAll || envelope.workspaceId === targetWsId) {
             messages.push(envelope.event);
@@ -136,13 +140,14 @@ async function connectHubLateListener(
   const path = `/ws/hub${queryString}`;
   const ws = (await (opts?.app ?? app).injectWS(path, { headers: opts?.headers })) as WebSocket;
   const messages: WsOutgoing[] = [];
-  const allEnvelopes: HubOutgoing[] = [];
+  const allEnvelopes: WorkspaceEnvelope[] = [];
   const targetWsId = workspaceIds[0];
 
   // Simulate clients that install message handlers right after websocket init.
   await Promise.resolve();
   ws.on("message", (data: Buffer) => {
     const envelope = JSON.parse(data.toString()) as HubOutgoing;
+    if (!("workspaceId" in envelope)) return; // ignore hub-level pong frames
     allEnvelopes.push(envelope);
     if (envelope.workspaceId === targetWsId) {
       messages.push(envelope.event);
@@ -892,6 +897,26 @@ describe("WS /ws/hub", () => {
     if (errorEnvelope?.event.type === "error") {
       expect(errorEnvelope.event.message).toContain("Invalid JSON");
     }
+
+    ws.close();
+    await endSession(wsId, dataDir);
+  });
+
+  it("replies pong to an application-level ping", async () => {
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
+    const { wsReady } = connectHub([wsId]);
+    const ws = await wsReady;
+
+    const raw: string[] = [];
+    ws.on("message", (data: Buffer) => raw.push(data.toString()));
+
+    ws.send(JSON.stringify({ type: "ping" }));
+
+    const isPong = (s: string): boolean => {
+      try { return (JSON.parse(s) as { type?: string }).type === "pong"; } catch { return false; }
+    };
+    await waitForCondition(() => raw.some(isPong));
+    expect(raw.some(isPong)).toBe(true);
 
     ws.close();
     await endSession(wsId, dataDir);
