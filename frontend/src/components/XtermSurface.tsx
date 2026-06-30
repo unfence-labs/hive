@@ -15,7 +15,16 @@ export function buildXtermTheme(theme: "dark" | "light", backgroundVar = "--side
     background: readThemeColor(backgroundVar, theme === "dark" ? "#0c0c14" : "#f8f8fb"),
     foreground,
     cursor: foreground,
-    selectionBackground: readThemeColor("--muted", theme === "dark" ? "#262636" : "#f0f1f4"),
+    // Translucent accent so the selection stands out from the panel background
+    // while keeping the underlying text readable (--muted was too close to it).
+    selectionBackground: readThemeColor(
+      "--terminal-selection",
+      theme === "dark" ? "rgba(99, 91, 255, 0.45)" : "rgba(99, 91, 255, 0.3)",
+    ),
+    selectionInactiveBackground: readThemeColor(
+      "--terminal-selection-inactive",
+      theme === "dark" ? "rgba(99, 91, 255, 0.28)" : "rgba(99, 91, 255, 0.18)",
+    ),
   };
 }
 
