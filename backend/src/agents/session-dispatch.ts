@@ -78,6 +78,16 @@ export async function listWorkspaceSessions(
     : workspaceManager.listWorkspaceSessions(wsId, dataDir);
 }
 
+/** Session a fresh client should open for a workspace (metadata only). */
+export async function getDefaultSessionId(
+  wsId: string,
+  dataDir = getDataDir(),
+): Promise<string | undefined> {
+  return isBrain(wsId)
+    ? brainManager.getDefaultBrainSessionId(dataDir)
+    : workspaceManager.getDefaultSessionId(wsId, dataDir);
+}
+
 export async function createNewSession(
   wsId: string,
   dataDir = getDataDir(),

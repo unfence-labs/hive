@@ -18,6 +18,7 @@ import {
   activateSession,
   hardDeleteSession,
   getSpecificSessionMessages,
+  getDefaultSessionId,
   stopAllSessions,
   _clearActiveSessions,
   setNotifier,
@@ -115,6 +116,38 @@ async function writeSessionFixture(
     );
   }
 }
+
+describe("getDefaultSessionId", () => {
+  it("returns undefined when the workspace has no non-empty conversation", async () => {
+    await writeSessionFixture("empty-1", wsId, { metadata: { messageCount: 0 } });
+    expect(await getDefaultSessionId(wsId, dataDir)).toBeUndefined();
+  });
+
+  it("skips a newer empty session and opens the most-recent non-empty chat", async () => {
+    await writeSessionFixture("empty-new", wsId, {
+      metadata: { messageCount: 0, updatedAt: "2026-02-20T00:00:00.000Z" },
+    });
+    await writeSessionFixture("has-msgs", wsId, {
+      metadata: { messageCount: 2, updatedAt: "2026-02-10T00:00:00.000Z" },
+      messages: [
+        { id: "u1", sessionId: "has-msgs", role: "user", content: "hi", timestamp: "2026-02-10T00:00:00.000Z" },
+        { id: "a1", sessionId: "has-msgs", role: "assistant", content: "yo", timestamp: "2026-02-10T00:00:01.000Z" },
+      ],
+    });
+    expect(await getDefaultSessionId(wsId, dataDir)).toBe("has-msgs");
+  });
+
+  it("never returns a terminal session", async () => {
+    await writeSessionFixture("term", wsId, {
+      metadata: { messageCount: 5, kind: "terminal", updatedAt: "2026-02-20T00:00:00.000Z" },
+    });
+    await writeSessionFixture("chat", wsId, {
+      metadata: { messageCount: 1, updatedAt: "2026-02-10T00:00:00.000Z" },
+      messages: [{ id: "u1", sessionId: "chat", role: "user", content: "hi", timestamp: "2026-02-10T00:00:00.000Z" }],
+    });
+    expect(await getDefaultSessionId(wsId, dataDir)).toBe("chat");
+  });
+});
 
 describe("getOrCreateSession", () => {
   it("creates a session and sets workspace to busy", async () => {

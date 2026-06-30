@@ -6,6 +6,7 @@ import {
   getSessionById,
   getOrCreateSession,
   getSessionMessages,
+  getDefaultSessionId,
   getStreamingSessionIds,
   stopStreaming,
 } from "../agents/session-dispatch.js";
@@ -327,7 +328,17 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         }
       }
     } else {
-      sendToHub(hub, wsId, { type: "status", status: "idle", streaming: false });
+      // No session loaded in memory. Tell the client which session to open
+      // (persisted active / most-recent non-empty chat) so a first visit lands
+      // on real history instead of a blank "new conversation" — resolved from
+      // metadata only, without shipping the history over the WS.
+      const defaultSessionId = await getDefaultSessionId(wsId, dataDir).catch(() => undefined);
+      sendToHub(hub, wsId, {
+        type: "status",
+        status: "idle",
+        streaming: false,
+        ...(defaultSessionId ? { sessionId: defaultSessionId } : {}),
+      });
       if (!hub.historyViaRest) {
         try {
           const messages = await getSessionMessages(wsId, dataDir);

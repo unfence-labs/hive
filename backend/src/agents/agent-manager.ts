@@ -606,6 +606,33 @@ export async function listWorkspaceSessions(
   return sessions;
 }
 
+/**
+ * Resolve the session a fresh client should open for this workspace, WITHOUT
+ * reading any message bodies (metadata only). Order: in-memory active/most-recent
+ * loaded session, else the persisted active session if it has content, else the
+ * most-recently-updated non-empty chat. Empty and terminal sessions are skipped
+ * so a first open lands on real history instead of a blank "new conversation".
+ * Returns undefined only when the workspace has no non-empty conversation.
+ */
+export async function getDefaultSessionId(
+  wsId: string,
+  dataDir = getDataDir(),
+): Promise<string | undefined> {
+  const active = getActiveSession(wsId) ?? getMostRecentlyUpdatedLoadedSession(wsId);
+  if (active && active.metadata.kind !== "terminal") return active.sessionId;
+
+  const sessions = await listWorkspaceSessions(wsId, dataDir); // sorted updatedAt-desc
+  const nonEmptyChats = sessions.filter((s) => s.kind !== "terminal" && s.messageCount > 0);
+  if (nonEmptyChats.length === 0) return undefined;
+
+  const result = await getWorkspace(wsId, dataDir);
+  const persistedActive = result?.workspace.activeSessionId;
+  if (persistedActive && nonEmptyChats.some((s) => s.sessionId === persistedActive)) {
+    return persistedActive;
+  }
+  return nonEmptyChats[0].sessionId;
+}
+
 /** Create a new session and mark it active without stopping other loaded sessions. */
 export async function createNewSession(
   wsId: string,
