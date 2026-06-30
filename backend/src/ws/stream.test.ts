@@ -922,6 +922,32 @@ describe("WS /ws/hub", () => {
     await endSession(wsId, dataDir);
   });
 
+  it("skips the history bootstrap when the client opts into historyViaRest", async () => {
+    await getOrCreateSession(wsId, dataDir, CONV_CMD);
+
+    const received: WsOutgoing[] = [];
+    const ws = (await app.injectWS("/ws/hub", {}, {
+      onInit: (clientWs: WebSocket) => {
+        clientWs.on("message", (data: Buffer) => {
+          const env = JSON.parse(data.toString()) as HubOutgoing;
+          if ("workspaceId" in env && env.workspaceId === wsId) received.push(env.event);
+        });
+        clientWs.on("open", () => {
+          clientWs.send(JSON.stringify({ type: "sync_workspaces", workspaceIds: [wsId], historyViaRest: true }));
+        });
+      },
+    })) as WebSocket;
+
+    await waitForCondition(() => received.some((m) => m.type === "status"));
+    await new Promise((r) => setTimeout(r, 150));
+
+    expect(received.some((m) => m.type === "status")).toBe(true);
+    expect(received.some((m) => m.type === "history")).toBe(false);
+
+    ws.close();
+    await endSession(wsId, dataDir);
+  });
+
   it("handles stop command without error", async () => {
     await getOrCreateSession(wsId, dataDir, CONV_CMD);
     const { wsReady, messages } = connectHub([wsId]);

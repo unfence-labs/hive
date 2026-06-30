@@ -7,7 +7,6 @@ type MessageHandler = (msg: WsOutgoing) => void;
 type GlobalMessageHandler = (workspaceId: string, msg: WsOutgoing) => void;
 type StatusListener = () => void;
 type StatusMessage = Extract<WsOutgoing, { type: "status" }>;
-export type HistoryMessage = Extract<WsOutgoing, { type: "history" }>;
 type DiffStatsMessage = Extract<WsOutgoing, { type: "diff_stats" }>;
 type BranchInfoMessage = Extract<WsOutgoing, { type: "branch_info" }>;
 
@@ -26,11 +25,6 @@ const FOCUS_PROBE_TIMEOUT_MS = 3_000;
 
 /** Narrowed hub envelope carrying a workspace event (the non-pong variant). */
 type WorkspaceEnvelope = { workspaceId: string; event: WsOutgoing };
-
-/** Resolve the session a history message belongs to (undefined if session-less). */
-function historySessionKey(msg: HistoryMessage): string | undefined {
-  return msg.sessionId ?? msg.messages[0]?.sessionId;
-}
 
 // ── Hub socket state ────────────────────────────────────────────────
 
@@ -52,8 +46,6 @@ interface WorkspaceSubscription {
   statusListeners: Set<StatusListener>;
   lastStatus?: StatusMessage;
   lastStatusBySession: Map<string, StatusMessage>;
-  /** Latest message history per session, so switching between sessions replays instantly. */
-  lastHistoryBySession: Map<string, HistoryMessage>;
   lastDiffStats?: DiffStatsMessage;
   lastBranchInfo?: BranchInfoMessage;
   /** Messages received while no handler was subscribed. Replayed on next onMessage(). */
@@ -104,38 +96,12 @@ class WsTransport {
     this.sendSyncWorkspaces();
   }
 
-  /** Update the cached history for its session so switch-back replays are fresh. */
-  updateCachedHistory(workspaceId: string, historyMsg: HistoryMessage): void {
-    const sub = this.subscriptions.get(workspaceId);
-    if (!sub) return;
-    const sessionId = historySessionKey(historyMsg);
-    if (sessionId) sub.lastHistoryBySession.set(sessionId, historyMsg);
-  }
-
-  /** Return the cached history for a specific session, if any. */
-  getCachedHistory(workspaceId: string, sessionId: string): HistoryMessage | undefined {
-    return this.subscriptions.get(workspaceId)?.lastHistoryBySession.get(sessionId);
-  }
-
-  /**
-   * Check whether cached history exists. With a sessionId, checks that session;
-   * without one, checks whether any session has cached history.
-   */
-  hasCachedHistory(workspaceId: string, sessionId?: string): boolean {
-    const sub = this.subscriptions.get(workspaceId);
-    if (!sub) return false;
-    return sessionId !== undefined
-      ? sub.lastHistoryBySession.has(sessionId)
-      : sub.lastHistoryBySession.size > 0;
-  }
-
-  /** Clear cached status/history for a workspace (e.g. after session deletion). */
+  /** Clear cached live status for a workspace (e.g. after session deletion). */
   clearCachedData(workspaceId: string): void {
     const sub = this.subscriptions.get(workspaceId);
     if (!sub) return;
     sub.lastStatus = undefined;
     sub.lastStatusBySession.clear();
-    sub.lastHistoryBySession.clear();
     sub.lastBranchInfo = undefined;
     sub.messageBuffer = [];
   }
@@ -190,7 +156,7 @@ class WsTransport {
 
   /**
    * Register a handler for incoming messages.
-   * Replays cached status, history, and any buffered messages immediately.
+   * Replays cached live status and any buffered messages immediately.
    * Returns `{ unsubscribe, hadBufferedMessages }`.
    */
   onMessage(workspaceId: string, handler: MessageHandler): { unsubscribe: () => void; hadBufferedMessages: boolean } {
@@ -203,9 +169,6 @@ class WsTransport {
       }
     } else if (sub.lastStatus) {
       handler(sub.lastStatus);
-    }
-    for (const historyMsg of sub.lastHistoryBySession.values()) {
-      handler(historyMsg);
     }
     if (sub.lastDiffStats) {
       handler(sub.lastDiffStats);
@@ -266,7 +229,6 @@ class WsTransport {
       reconnectListeners: new Set<() => void>(),
       statusListeners: new Set<StatusListener>(),
       lastStatusBySession: new Map(),
-      lastHistoryBySession: new Map(),
       messageBuffer: [],
     };
     this.subscriptions.set(workspaceId, created);
@@ -375,7 +337,7 @@ class WsTransport {
     const sub = this.subscriptions.get(workspaceId);
     if (!sub) return;
 
-    // Update per-workspace caches
+    // Update per-workspace live caches (history is owned by React Query / REST).
     if (msg.type === "status") {
       sub.lastStatus = msg;
       if (msg.sessionId) {
@@ -383,9 +345,6 @@ class WsTransport {
       } else if (msg.status === "idle") {
         sub.lastStatusBySession.clear();
       }
-    } else if (msg.type === "history") {
-      const sessionId = historySessionKey(msg);
-      if (sessionId) sub.lastHistoryBySession.set(sessionId, msg);
     } else if (msg.type === "diff_stats") {
       sub.lastDiffStats = msg;
     } else if (msg.type === "branch_info") {
@@ -411,6 +370,9 @@ class WsTransport {
     this.hub.ws.send(JSON.stringify({
       type: "sync_workspaces",
       workspaceIds: [...this.subscribedWorkspaceIds],
+      // Finalized history is loaded over REST (React Query); skip the heavy WS
+      // `history` bootstrap event.
+      historyViaRest: true,
     }));
   }
 

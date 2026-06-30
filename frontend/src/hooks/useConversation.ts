@@ -1,8 +1,13 @@
 import { useEffect, useCallback, useReducer, useRef, useSyncExternalStore } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { AgentActivity, ChatMessage, FileMention, ImageAttachment, MessageOptions, ToolCall, WsOutgoing, QuestionAnswer, QuestionInput } from "@/types";
 import { wsTransport } from "@/lib/ws-transport";
-import type { HistoryMessage } from "@/lib/ws-transport";
-import { api } from "@/hooks/useApi";
+import {
+  useSessionMessages,
+  getCachedSessionMessages,
+  appendCachedSessionMessage,
+  invalidateSessionMessages,
+} from "@/hooks/useSessionMessages";
 
 export interface PendingToolInput {
   requestId: string;
@@ -32,8 +37,10 @@ const emptyStreamState: SessionStreamState = {
   pendingToolInputs: [],
 };
 
+// Finalized messages are owned by React Query (see useSessionMessages). The
+// reducer below tracks LIVE state only: per-session in-progress streams, status,
+// pending tool inputs, and the active session id.
 interface ConversationState {
-  messages: ChatMessage[];
   sessionStreams: Record<string, SessionStreamState>;
   workspaceStatus?: "idle" | "busy";
   error?: string;
@@ -49,12 +56,14 @@ type LocalAction =
   | { type: "clear_chat" }
   | { type: "prepare_session_switch"; sessionId: string }
   | { type: "prepare_workspace_switch" }
-  | { type: "clear_pending_tool_inputs" };
+  | { type: "clear_pending_tool_inputs" }
+  // Reconcile live stream slots against newly-loaded REST history (derive a
+  // pending question from the last turn / drop a stale finished stream slot).
+  | { type: "reconcile_history"; sessionId: string; messages: ChatMessage[] };
 
 type Action = WsOutgoing | LocalAction;
 
 const initialState: ConversationState = {
-  messages: [],
   sessionStreams: {},
   workspaceStatus: undefined,
   error: undefined,
@@ -68,6 +77,10 @@ function parseToolInput(input: string): unknown {
   } catch {
     return {};
   }
+}
+
+function newMessageId(): string {
+  return self.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
 }
 
 function normalizeStreamingStartedAt(raw: number | undefined): number | undefined {
@@ -102,6 +115,62 @@ function derivePendingToolInputsFromHistory(messages: ChatMessage[]): PendingToo
     }));
 }
 
+/** Whether the last message for a session is a terminal assistant turn. */
+function lastMessageIsTerminalAssistant(messages: ChatMessage[], sid: string): boolean {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.sessionId && message.sessionId !== sid) continue;
+    return message.role === "assistant";
+  }
+  return false;
+}
+
+/** Build the finalized assistant message from a stream slot on done/cancelled. */
+function buildFinalizedMessage(
+  stream: SessionStreamState,
+  sid: string,
+  msg: Extract<WsOutgoing, { type: "done" } | { type: "cancelled" }>,
+): ChatMessage | null {
+  const hasOutput = stream.currentText.length > 0 || stream.activeToolCalls.length > 0;
+  const toolCalls = stream.activeToolCalls.length > 0 ? stream.activeToolCalls : undefined;
+  const agentActivities = stream.activeAgentActivities.length > 0 ? stream.activeAgentActivities : undefined;
+  const thinkingContent = stream.currentThinking || undefined;
+
+  if (msg.type === "cancelled") {
+    const hasActivity = stream.activeAgentActivities.length > 0;
+    const hasThinking = stream.currentThinking.length > 0;
+    // Ignore a stale cancelled with no accumulated data.
+    if (!stream.isStreaming && !hasOutput && !hasActivity && !hasThinking) return null;
+    return {
+      id: newMessageId(),
+      sessionId: sid,
+      role: "assistant",
+      content: hasOutput ? stream.currentText : CANCELLED_NO_OUTPUT_MESSAGE,
+      toolCalls,
+      agentActivities,
+      thinkingContent,
+      timestamp: new Date().toISOString(),
+      cancelled: true,
+    };
+  }
+
+  return {
+    id: newMessageId(),
+    sessionId: sid,
+    role: "assistant",
+    content: stream.currentText,
+    toolCalls,
+    agentActivities,
+    thinkingContent,
+    timestamp: new Date().toISOString(),
+    durationMs: msg.durationMs,
+    inputTokens: msg.inputTokens,
+    outputTokens: msg.outputTokens,
+    contextUsedTokens: msg.contextUsedTokens,
+    contextWindowTokens: msg.contextWindowTokens,
+  };
+}
+
 /** Return or create the stream slot for an explicit stream start. */
 function getOrInitStream(streams: Record<string, SessionStreamState>, sid: string): SessionStreamState {
   return streams[sid] ?? { ...emptyStreamState, isStreaming: true, streamingStartedAt: Date.now() };
@@ -129,15 +198,6 @@ function deleteStream(state: ConversationState, sid: string): Record<string, Ses
   return copy;
 }
 
-function hasTerminalAssistantMessage(state: ConversationState, sid: string): boolean {
-  for (let i = state.messages.length - 1; i >= 0; i--) {
-    const message = state.messages[i];
-    if (message.sessionId && message.sessionId !== sid) continue;
-    return message.role === "assistant";
-  }
-  return false;
-}
-
 function upsertActivity(activities: AgentActivity[], activity: AgentActivity): AgentActivity[] {
   const index = activities.findIndex((item) => item.id === activity.id);
   if (index < 0) return [...activities, activity];
@@ -149,13 +209,10 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "user_message": {
       const sid = action.message.sessionId || state.sessionId;
       if (!sid) return state;
-      // Only add to messages if this is the active session
       const isActive = !state.sessionId || sid === state.sessionId;
-      const alreadyExists = state.messages.some((m) => m.id === action.message.id);
       const stream = getOrInitStream(state.sessionStreams, sid);
       return {
         ...state,
-        messages: isActive && !alreadyExists ? [...state.messages, action.message] : state.messages,
         sessionStreams: {
           ...state.sessionStreams,
           [sid]: {
@@ -249,75 +306,24 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     }
 
     case "done": {
+      // The finalized message is appended to the React Query cache by the WS
+      // handler before this dispatch; here we only clear the live slot.
       const sid = action.sessionId || state.sessionId;
-      if (!sid) return state;
-      const stream = state.sessionStreams[sid];
-      if (!stream) return state;
-
-      const isActive = sid === state.sessionId;
-      const newStreams = deleteStream(state, sid);
-
-      if (isActive) {
-        const assistantMsg: ChatMessage = {
-          id: self.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
-          sessionId: sid,
-          role: "assistant",
-          content: stream.currentText,
-          toolCalls: stream.activeToolCalls.length > 0 ? stream.activeToolCalls : undefined,
-          agentActivities: stream.activeAgentActivities.length > 0 ? stream.activeAgentActivities : undefined,
-          thinkingContent: stream.currentThinking || undefined,
-          timestamp: new Date().toISOString(),
-          durationMs: action.durationMs,
-          inputTokens: action.inputTokens,
-          outputTokens: action.outputTokens,
-          contextUsedTokens: action.contextUsedTokens,
-          contextWindowTokens: action.contextWindowTokens,
-        };
-        return {
-          ...state,
-          messages: [...state.messages, assistantMsg],
-          sessionStreams: newStreams,
-        };
-      }
-      // Background session: just clean up the slot. REST fetch on switch-back
-      // will include the completed message.
-      return { ...state, sessionStreams: newStreams };
+      if (!sid || !state.sessionStreams[sid]) return state;
+      return { ...state, sessionStreams: deleteStream(state, sid) };
     }
 
     case "cancelled": {
       const sid = action.sessionId || state.sessionId;
       if (!sid) return state;
       const stream = state.sessionStreams[sid];
-      const isActive = sid === state.sessionId;
-
-      // Ignore stale cancelled events when there's no stream data.
       if (!stream) return state;
       const hasOutput = stream.currentText.length > 0 || stream.activeToolCalls.length > 0;
       const hasActivity = stream.activeAgentActivities.length > 0;
       const hasThinking = stream.currentThinking.length > 0;
+      // Ignore stale cancelled events when there's no stream data.
       if (!stream.isStreaming && !hasOutput && !hasActivity && !hasThinking) return state;
-
-      const newStreams = deleteStream(state, sid);
-
-      if (isActive) {
-        const cancelledMsg: ChatMessage = {
-          id: self.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
-          sessionId: sid,
-          role: "assistant",
-          content: hasOutput ? stream.currentText : CANCELLED_NO_OUTPUT_MESSAGE,
-          toolCalls: stream.activeToolCalls.length > 0 ? stream.activeToolCalls : undefined,
-          agentActivities: stream.activeAgentActivities.length > 0 ? stream.activeAgentActivities : undefined,
-          thinkingContent: stream.currentThinking || undefined,
-          timestamp: new Date().toISOString(),
-          cancelled: true,
-        };
-        return {
-          ...state,
-          messages: [...state.messages, cancelledMsg],
-          sessionStreams: newStreams,
-        };
-      }
-      return { ...state, sessionStreams: newStreams };
+      return { ...state, sessionStreams: deleteStream(state, sid) };
     }
 
     case "error":
@@ -335,7 +341,6 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       if (sid && newIsStreaming !== undefined) {
         const stream = state.sessionStreams[sid];
         if (newIsStreaming) {
-          // Session started or is streaming — ensure a slot exists
           const existing = stream ?? { ...emptyStreamState };
           newStreams = {
             ...state.sessionStreams,
@@ -345,12 +350,10 @@ function reducer(state: ConversationState, action: Action): ConversationState {
               // A (re)starting turn means any pending question was answered,
               // possibly on another client (e.g. iOS).
               pendingToolInputs: [],
-              // Prefer backend-provided start time so all clients show the same timer.
               streamingStartedAt: backendStartedAt ?? existing.streamingStartedAt ?? Date.now(),
             },
           };
         } else if (stream) {
-          // Session stopped streaming. If slot has no content, clean up.
           if (
             !stream.currentText &&
             !stream.currentThinking &&
@@ -368,7 +371,6 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         }
       }
 
-      // Only adopt sessionId from status if we don't have one yet
       const newSessionId = (!state.sessionId && sid) ? sid : state.sessionId;
 
       return {
@@ -376,58 +378,43 @@ function reducer(state: ConversationState, action: Action): ConversationState {
         workspaceStatus: action.status,
         sessionId: newSessionId,
         sessionStreams: newStreams,
-        // Only update lockedProvider when explicitly present and for the active session.
         ...(action.lockedProvider !== undefined && sid === newSessionId
           ? { lockedProvider: action.lockedProvider }
           : {}),
       };
     }
 
-    case "history": {
-      const historySessionId = action.sessionId ?? action.messages[0]?.sessionId ?? state.sessionId;
-      // Only update messages for the active session
-      if (historySessionId && state.sessionId && historySessionId !== state.sessionId) {
-        return state;
-      }
+    case "reconcile_history": {
+      const sid = action.sessionId;
+      if (!sid || (state.sessionId && sid !== state.sessionId)) return state;
+      const activeStream = state.sessionStreams[sid];
+      // During an active stream the live WS state wins — leave it untouched.
+      if (activeStream?.isStreaming) return state;
 
-      // Derive pending tool inputs from history, unless the session has an active stream
-      const activeStream = historySessionId ? state.sessionStreams[historySessionId] : undefined;
-      const hydratedPendingToolInputs = activeStream?.isStreaming
-        ? activeStream.pendingToolInputs
-        : derivePendingToolInputsFromHistory(action.messages);
-
-      let newStreams = state.sessionStreams;
-      if (historySessionId && !activeStream?.isStreaming) {
-        // History is authoritative for finalized turns. Drop any stale in-progress
-        // stream content (e.g. a turn that completed while the hub socket was a
-        // zombie) so it is not rendered as a duplicate bubble alongside the now-
-        // persisted message. Keep only a slot carrying pending tool inputs (an
-        // unanswered question/plan in the last turn).
-        if (hydratedPendingToolInputs.length > 0) {
-          newStreams = {
+      const derived = derivePendingToolInputsFromHistory(action.messages);
+      if (derived.length > 0) {
+        return {
+          ...state,
+          sessionStreams: {
             ...state.sessionStreams,
-            [historySessionId]: { ...emptyStreamState, pendingToolInputs: hydratedPendingToolInputs },
-          };
-        } else if (activeStream) {
-          newStreams = deleteStream(state, historySessionId);
-        }
+            [sid]: { ...emptyStreamState, pendingToolInputs: derived },
+          },
+        };
       }
-
-      return {
-        ...state,
-        messages: action.messages,
-        error: undefined,
-        sessionId: historySessionId ?? state.sessionId,
-        sessionStreams: newStreams,
-      };
+      // No pending question and a stale finished slot lingers → drop it so it is
+      // not rendered as a duplicate bubble alongside the now-persisted message.
+      if (activeStream) {
+        return { ...state, sessionStreams: deleteStream(state, sid) };
+      }
+      return state;
     }
 
     case "tool_input_required": {
+      // The terminal-assistant guard (ignore a question already closed in
+      // history) lives in the WS handler, which has the REST messages.
       const sid = action.sessionId || state.sessionId;
       if (!sid) return state;
-      const stream = state.sessionStreams[sid];
-      if (!stream && hasTerminalAssistantMessage(state, sid)) return state;
-      const nextStream = stream ?? { ...emptyStreamState };
+      const nextStream = state.sessionStreams[sid] ?? { ...emptyStreamState };
       return {
         ...state,
         sessionStreams: {
@@ -446,7 +433,6 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     }
 
     case "tool_input_resolved": {
-      // A client (possibly another device) answered or dismissed the question.
       const stream = state.sessionStreams[action.sessionId];
       if (!stream || stream.pendingToolInputs.length === 0) return state;
       return updateStream(state, action.sessionId, { pendingToolInputs: [] });
@@ -467,7 +453,6 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "prepare_session_switch":
       return {
         ...state,
-        messages: [],
         sessionId: action.sessionId,
         error: undefined,
         lockedProvider: undefined,
@@ -478,7 +463,6 @@ function reducer(state: ConversationState, action: Action): ConversationState {
     case "prepare_workspace_switch":
       return {
         ...state,
-        messages: [],
         sessionId: undefined,
         workspaceStatus: undefined,
         error: undefined,
@@ -491,7 +475,6 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       const sid = state.sessionId;
       return {
         ...state,
-        messages: [],
         sessionStreams: sid ? deleteStream(state, sid) : {},
         error: undefined,
         sessionId: undefined,
@@ -525,24 +508,18 @@ function sessionIdField(id: string | undefined): { sessionId: string } | Record<
 
 export function useConversation(workspaceId: string | undefined) {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const historyRequestTokenRef = useRef(0);
-  // Track latest sessionId so effect cleanup can read it (refs update during render, before effects).
+  const queryClient = useQueryClient();
+
+  // Finalized messages for the active session — owned by React Query (REST).
+  const { messages } = useSessionMessages(workspaceId, state.sessionId);
+
+  // Track latest state so the WS handler (set up once per workspace) can read the
+  // current stream content and session id without re-subscribing.
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const sessionIdRef = useRef<string | undefined>(state.sessionId);
   sessionIdRef.current = state.sessionId;
-  const syncSessionHistory = useCallback(async (sessionId: string) => {
-    if (!workspaceId || !sessionId) return;
-    const historyRequestToken = historyRequestTokenRef.current + 1;
-    historyRequestTokenRef.current = historyRequestToken;
-    try {
-      const messages = await api.get<ChatMessage[]>(
-        `/api/workspaces/${workspaceId}/sessions/${sessionId}/messages`,
-      );
-      if (historyRequestTokenRef.current !== historyRequestToken) return;
-      dispatch({ type: "history", sessionId, messages });
-    } catch {
-      // Best-effort sync. WS state remains the fallback if this request fails.
-    }
-  }, [workspaceId]);
+
   const connectionStatus = useSyncExternalStore(
     (listener) =>
       workspaceId ? wsTransport.subscribe(workspaceId, listener) : () => {},
@@ -555,12 +532,9 @@ export function useConversation(workspaceId: string | undefined) {
       return;
     }
     const savedSession = savedSessionByWorkspace.get(workspaceId);
-    const historyRequestToken = historyRequestTokenRef.current + 1;
-    historyRequestTokenRef.current = historyRequestToken;
 
     dispatch({ type: "prepare_workspace_switch" });
-    // Pre-set sessionId so the reducer's mismatch guard keeps only this session's
-    // history when the transport replays its per-session cache on resubscribe.
+    // Pre-set sessionId so the messages query targets the restored session.
     if (savedSession) {
       dispatch({ type: "prepare_session_switch", sessionId: savedSession });
     }
@@ -569,82 +543,63 @@ export function useConversation(workspaceId: string | undefined) {
 
     // Skip session-less errors during the synchronous buffer replay — they may be
     // stale from a previous visit (buffered while the user was on another workspace).
-    // After onMessage() returns, the flag is cleared and live errors pass through.
     let replayingBuffer = true;
-    const { unsubscribe, hadBufferedMessages } = wsTransport.onMessage(workspaceId, (msg) => {
+    const { unsubscribe } = wsTransport.onMessage(workspaceId, (msg) => {
       if (replayingBuffer && msg.type === "error" && !msg.sessionId) {
         return;
       }
-      dispatch(msg);
-      if ((msg.type === "done" || msg.type === "cancelled") && msg.sessionId) {
-        void syncSessionHistory(msg.sessionId);
+
+      // Ignore a tool_input_required for a question already closed in history
+      // (no live stream, last persisted turn is a terminal assistant).
+      if (msg.type === "tool_input_required") {
+        const sid = msg.sessionId ?? stateRef.current.sessionId;
+        if (sid && !stateRef.current.sessionStreams[sid]) {
+          const cached = getCachedSessionMessages(queryClient, workspaceId, sid);
+          if (cached && lastMessageIsTerminalAssistant(cached, sid)) return;
+        }
       }
+
+      // Append finalized turns to the React Query cache from the live stream
+      // BEFORE the reducer clears the slot, then refetch the authoritative copy.
+      if (msg.type === "done" || msg.type === "cancelled") {
+        const sid = msg.sessionId ?? stateRef.current.sessionId;
+        const stream = sid ? stateRef.current.sessionStreams[sid] : undefined;
+        if (sid && stream) {
+          const finalized = buildFinalizedMessage(stream, sid, msg);
+          if (finalized) appendCachedSessionMessage(queryClient, workspaceId, sid, finalized);
+        }
+        if (sid) invalidateSessionMessages(queryClient, workspaceId, sid);
+      }
+
+      if (msg.type === "user_message") {
+        const sid = msg.message.sessionId ?? stateRef.current.sessionId;
+        appendCachedSessionMessage(queryClient, workspaceId, sid, msg.message);
+      }
+
+      dispatch(msg);
     });
     replayingBuffer = false;
 
-    // Tell the backend to activate the saved session and send its bootstrap.
+    // Tell the backend to activate the saved session and send its (live) bootstrap.
     if (savedSession) {
-      const sent = wsTransport.send(workspaceId, { type: "switch_session", sessionId: savedSession });
-      if (sent) historyRequestTokenRef.current += 1;
-    }
-
-    // If the transport replayed buffered messages (events that arrived while we were
-    // on another workspace), the reducer already has the most current state. Bump the
-    // token so the async REST fetch won't overwrite it with potentially stale disk data.
-    if (hadBufferedMessages) {
-      historyRequestTokenRef.current += 1;
-    }
-
-    // REST fallback — only needed on first visit when no cached history exists
-    // for the session we're restoring. On switch-back the transport cache is kept
-    // fresh (see effect below), so the WS replay already provides current messages.
-    if (!wsTransport.hasCachedHistory(workspaceId, savedSession)) {
-      void (async () => {
-        try {
-          const url = savedSession
-            ? `/api/workspaces/${workspaceId}/sessions/${savedSession}/messages`
-            : `/api/workspaces/${workspaceId}/session/messages`;
-          const messages = await api.get<ChatMessage[]>(url);
-          if (historyRequestTokenRef.current !== historyRequestToken) return;
-          dispatch({ type: "history", sessionId: savedSession, messages });
-        } catch {
-          // History is still best-effort via websocket replay if API fetch fails.
-        }
-      })();
+      wsTransport.send(workspaceId, { type: "switch_session", sessionId: savedSession });
     }
 
     return () => {
-      // Remember which session was active before leaving this workspace.
       if (workspaceId && sessionIdRef.current) {
         savedSessionByWorkspace.set(workspaceId, sessionIdRef.current);
       }
-      if (historyRequestTokenRef.current === historyRequestToken) {
-        historyRequestTokenRef.current = historyRequestToken + 1;
-      }
       unsubscribe();
     };
-  }, [workspaceId, syncSessionHistory]);
+  }, [workspaceId, queryClient]);
 
-  // Keep the transport's cached history fresh so switch-back replays are current.
-  // Fires on history/done/cancelled/user_message — NOT on streaming deltas.
-  // Guard: skip writes when workspaceId just changed — React 18 batching means
-  // state.messages may transiently hold the *previous* workspace's messages before
-  // prepare_workspace_switch commits. Without this, ws-A's messages get written
-  // into ws-B's cache, causing residual chat on switch-back.
-  const prevCacheWorkspaceRef = useRef(workspaceId);
+  // Reconcile live stream slots whenever the REST history for the active session
+  // changes (new fetch). Keyed on the messages reference — does NOT re-run on
+  // unrelated renders, so an imperatively-cleared pending question stays cleared.
   useEffect(() => {
-    if (prevCacheWorkspaceRef.current !== workspaceId) {
-      prevCacheWorkspaceRef.current = workspaceId;
-      return;
-    }
-    if (!workspaceId || !state.sessionId || state.messages.length === 0) return;
-    const historyMsg: HistoryMessage = {
-      type: "history",
-      sessionId: state.sessionId,
-      messages: state.messages,
-    };
-    wsTransport.updateCachedHistory(workspaceId, historyMsg);
-  }, [workspaceId, state.sessionId, state.messages]);
+    if (!state.sessionId) return;
+    dispatch({ type: "reconcile_history", sessionId: state.sessionId, messages });
+  }, [messages, state.sessionId]);
 
   const sendMessage = useCallback((
     content: string,
@@ -670,7 +625,6 @@ export function useConversation(workspaceId: string | undefined) {
       dispatch({ type: "error", message: "Message not sent: disconnected from server." });
       return false;
     }
-    historyRequestTokenRef.current += 1;
     return true;
   }, [workspaceId, state.sessionId]);
 
@@ -688,16 +642,9 @@ export function useConversation(workspaceId: string | undefined) {
 
   const switchSession = useCallback((sessionId: string) => {
     if (!workspaceId) return;
+    // Switching the session re-keys the messages query, which returns cached
+    // history instantly (no empty flash) and revalidates in the background.
     dispatch({ type: "prepare_session_switch", sessionId });
-    // Restore the target session's messages instantly from the transport cache so
-    // switching back to a previously-viewed conversation doesn't flash an empty
-    // reload. The switch_session round-trip below still reconciles with the backend.
-    const cached = wsTransport.getCachedHistory(workspaceId, sessionId);
-    if (cached) {
-      dispatch({ type: "history", sessionId, messages: cached.messages });
-    }
-    dispatch({ type: "status", status: "busy", sessionId, streaming: false });
-    historyRequestTokenRef.current += 1;
     const sent = wsTransport.send(workspaceId, { type: "switch_session", sessionId });
     if (!sent) {
       dispatch({ type: "error", message: "Session switch failed: disconnected from server." });
@@ -719,7 +666,6 @@ export function useConversation(workspaceId: string | undefined) {
       ...sessionIdField(state.sessionId),
     });
     dispatch({ type: "clear_pending_tool_inputs" });
-    historyRequestTokenRef.current += 1;
   }, [workspaceId, activeStream?.pendingToolInputs, state.sessionId]);
 
   const batchAnswerQuestions = useCallback(
@@ -738,7 +684,6 @@ export function useConversation(workspaceId: string | undefined) {
         });
       }
       dispatch({ type: "clear_pending_tool_inputs" });
-      historyRequestTokenRef.current += 1;
     },
     [workspaceId, activeStream?.pendingToolInputs, state.sessionId],
   );
@@ -756,7 +701,6 @@ export function useConversation(workspaceId: string | undefined) {
     });
     dispatch({ type: "clear_pending_tool_inputs" });
     dispatch({ type: "plan_mode_changed", sessionId: state.sessionId ?? "", active: false });
-    historyRequestTokenRef.current += 1;
   }, [workspaceId, activeStream?.pendingToolInputs, state.sessionId]);
 
   const rejectToolInput = useCallback((message?: string) => {
@@ -771,7 +715,6 @@ export function useConversation(workspaceId: string | undefined) {
       ...sessionIdField(state.sessionId),
     });
     dispatch({ type: "clear_pending_tool_inputs" });
-    historyRequestTokenRef.current += 1;
   }, [workspaceId, activeStream?.pendingToolInputs, state.sessionId]);
 
   const dismissPlan = useCallback((message?: string) => {
@@ -788,11 +731,10 @@ export function useConversation(workspaceId: string | undefined) {
     if (pending) {
       dispatch({ type: "clear_pending_tool_inputs" });
     }
-    historyRequestTokenRef.current += 1;
   }, [workspaceId, activeStream?.pendingToolInputs, state.sessionId]);
 
   return {
-    messages: state.messages,
+    messages,
     isStreaming: activeStream?.isStreaming ?? false,
     streamingStartedAt: activeStream?.streamingStartedAt ?? null,
     workspaceStatus: state.workspaceStatus,

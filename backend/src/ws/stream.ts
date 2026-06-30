@@ -39,6 +39,8 @@ type ActiveSession = NonNullable<ReturnType<typeof getSession>>;
 interface HubSocket {
   ws: WebSocket;
   subscribedWorkspaces: Set<string>;
+  /** Client fetches finalized history over REST, so skip the `history` bootstrap event. */
+  historyViaRest: boolean;
 }
 
 interface WorkspaceChannel {
@@ -178,8 +180,10 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       lockedProvider: session.metadata.lockedProvider,
     });
     try {
-      const messages = await session.getMessages();
-      sendToHub(hub, workspaceId, { type: "history", sessionId: session.sessionId, messages });
+      if (!hub.historyViaRest) {
+        const messages = await session.getMessages();
+        sendToHub(hub, workspaceId, { type: "history", sessionId: session.sessionId, messages });
+      }
     } catch {
       // History load failure is non-fatal.
     }
@@ -324,14 +328,16 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
       }
     } else {
       sendToHub(hub, wsId, { type: "status", status: "idle", streaming: false });
-      try {
-        const messages = await getSessionMessages(wsId, dataDir);
-        if (messages.length > 0) {
-          const firstSessionId = messages[0]?.sessionId;
-          sendToHub(hub, wsId, { type: "history", sessionId: firstSessionId, messages });
+      if (!hub.historyViaRest) {
+        try {
+          const messages = await getSessionMessages(wsId, dataDir);
+          if (messages.length > 0) {
+            const firstSessionId = messages[0]?.sessionId;
+            sendToHub(hub, wsId, { type: "history", sessionId: firstSessionId, messages });
+          }
+        } catch {
+          // Ignore missing/corrupt persisted history.
         }
-      } catch {
-        // Ignore missing/corrupt persisted history.
       }
     }
 
@@ -574,7 +580,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         return;
       }
 
-      const hub: HubSocket = { ws: socket, subscribedWorkspaces: new Set() };
+      const hub: HubSocket = { ws: socket, subscribedWorkspaces: new Set(), historyViaRest: false };
       hubSockets.add(hub);
 
       const pingTimer = setInterval(() => {
@@ -618,6 +624,7 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             socket.send(JSON.stringify({ type: "pong" }));
           }
         } else if ("type" in parsed && parsed.type === "sync_workspaces") {
+          if (parsed.historyViaRest !== undefined) hub.historyViaRest = parsed.historyViaRest;
           await handleSyncWorkspaces(hub, parsed.workspaceIds);
         } else if ("workspaceId" in parsed && "event" in parsed) {
           await handleWorkspaceMessage(hub, parsed.workspaceId, parsed.event);
