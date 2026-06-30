@@ -22,6 +22,16 @@ const MODEL_ALIASES = new Map<string, string>([
   ["opus-4-7", "opus-4-8"],
 ]);
 
+// Tools that only work inside a persistent, idle Claude Code harness: they
+// schedule a wakeup or stream a background process between turns. Hive runs a
+// one-shot `claude --print` per turn, so the process exits when the turn ends —
+// a scheduled wakeup is then orphaned (nothing fires it) and the model later
+// reports its background work as crashed/missing on `--resume`. Suppress them
+// for every Claude session so the model stays synchronous. Synchronous
+// subagents (the Task/Agent tool the parent turn waits for) are unaffected.
+// See the README backlog for what full support would require.
+const HARNESS_SCHEDULING_TOOLS = ["ScheduleWakeup", "Monitor", "CronCreate", "CronList", "CronDelete"];
+
 const CLAUDE_CAPABILITIES: ProviderCapabilities = {
   thinkingLevels: ["low", "medium", "high", "xhigh", "max"],
   planMode: true,
@@ -48,11 +58,12 @@ export class ClaudeProvider implements AgentProvider {
     // `--fast` flag in headless mode, so we override the `fastMode` setting for
     // this session via inline `--settings` JSON (merges over settings.json).
     const fastMode = !!options.fastMode && !!model?.supportsFastMode;
-    // Agent-run enforcement: strip interactive tools (no human can answer
-    // unattended), and for read-only agents block the edit tools while keeping
-    // Bash so read-only audits can still grep/build/test. Empty for interactive
-    // chat, which leaves the native plan-mode path untouched.
-    const disallowedTools: string[] = [];
+    // Always suppress the harness-only scheduling tools (see above). On top of
+    // that, agent-run enforcement strips interactive tools (no human can answer
+    // unattended), and for read-only agents blocks the edit tools while keeping
+    // Bash so read-only audits can still grep/build/test. Interactive chat gets
+    // only the scheduling base list, leaving the native plan-mode path untouched.
+    const disallowedTools: string[] = [...HARNESS_SCHEDULING_TOOLS];
     if (session.disableInteractiveTools) {
       disallowedTools.push("AskUserQuestion", "ExitPlanMode");
     }
@@ -82,7 +93,15 @@ export class ClaudeProvider implements AgentProvider {
 
   buildEnv(_options: ProviderMessageOptions): Record<string, string> {
     return {
+      // Keep the Task/subagent system on: synchronous subagents (the parent turn
+      // waits for the result) work fine in print mode and are used heavily.
       CLAUDE_CODE_ENABLE_TASKS: "true",
+      // Disable harness-only scheduling that the one-shot print model can't honor:
+      // cron/`/loop` firing, and background tasks (`run_in_background` plus the
+      // auto-backgrounding of long subagents) that would die at process exit or be
+      // lost on `--resume`. See HARNESS_SCHEDULING_TOOLS and the README backlog.
+      CLAUDE_CODE_DISABLE_CRON: "1",
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
     };
   }
 
