@@ -517,11 +517,15 @@ export default function WorkspaceView() {
             }
             chatInput={
               // Mount only once the sessions list has settled so lastRunOptions
-              // is available to seed the controls; key by session so each
-              // switch remounts and re-seeds cleanly (no syncing effect).
+              // is available to seed the controls. Key by switchCounter (bumped
+              // only on an explicit session/workspace switch) rather than the raw
+              // sessionId: a new conversation adopts its backend id on first send
+              // (undefined -> realId), and keying on sessionId would remount and
+              // re-seed the composer mid-turn, snapping the user's thinking level
+              // back to the default. switchCounter still remounts on real switches.
               sessionsLoading ? null : (
               <ChatInput
-                key={`${wsId}:${sessionId ?? "new"}`}
+                key={`${wsId}:${switchCounter}`}
                 ref={chatInputRef}
                 wsId={wsId}
                 sessionId={sessionId}
