@@ -392,11 +392,15 @@ export default function BrainView() {
               onDismissQuestion={() => rejectToolInput("[question_dismissed]")}
               chatInput={
                 // Mount only once sessions have settled so lastRunOptions can
-                // seed the controls; key by session so each switch remounts and
-                // re-seeds cleanly (no syncing effect).
+                // seed the controls. Key by switchCounter (bumped only on an
+                // explicit session/workspace switch) rather than the raw sessionId:
+                // a new conversation adopts its backend id on first send
+                // (undefined -> realId), and keying on sessionId would remount and
+                // re-seed the composer mid-turn, snapping the user's thinking level
+                // back to the default. switchCounter still remounts on real switches.
                 sessionsLoading ? null : (
                 <ChatInput
-                  key={`${BRAIN_WORKSPACE_ID}:${sessionId ?? "new"}`}
+                  key={`${BRAIN_WORKSPACE_ID}:${switchCounter}`}
                   ref={chatInputRef}
                   wsId={BRAIN_WORKSPACE_ID}
                   sessionId={sessionId}

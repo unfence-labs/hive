@@ -51,6 +51,7 @@ const mocks = vi.hoisted(() => ({
   openTerminalSsh: vi.fn(),
   copyToClipboard: vi.fn(),
   captureConversationTabsProps: vi.fn(),
+  chatInputMounted: vi.fn(),
 }));
 
 vi.mock("@/hooks/useApi", () => ({
@@ -166,45 +167,55 @@ vi.mock("@/components/ChatConversation", () => ({
   ),
 }));
 
-vi.mock("@/components/ChatInput", () => ({
-  default: ({
-    wsId,
-    sessionId,
-    isStreaming,
-    placeholder,
-    queuedMessage,
-    onSend,
-    onQueue,
-  }: {
-    wsId?: string;
-    sessionId?: string;
-    isStreaming?: boolean;
-    placeholder?: string;
-    queuedMessage?: { content: string } | null;
-    onSend?: (content: string) => boolean;
-    onQueue?: (msg: { content: string }) => void;
-  }) => (
-    <div
-      data-testid="chat-input"
-      data-ws-id={wsId ?? ""}
-      data-session-id={sessionId ?? ""}
-      data-has-queue={queuedMessage ? "true" : "false"}
-      data-placeholder={placeholder ?? ""}
-    >
-      chat-input
-      {onSend && (
-        <button type="button" data-testid="chat-send-btn" onClick={() => onSend("queued revision")}>
-          send message
-        </button>
-      )}
-      {isStreaming && onQueue && (
-        <button type="button" data-testid="queue-message-btn" onClick={() => onQueue({ content: "queued msg" })}>
-          queue message
-        </button>
-      )}
-    </div>
-  ),
-}));
+vi.mock("@/components/ChatInput", () => {
+  const React = require("react");
+  return {
+    default: ({
+      wsId,
+      sessionId,
+      isStreaming,
+      placeholder,
+      queuedMessage,
+      onSend,
+      onQueue,
+    }: {
+      wsId?: string;
+      sessionId?: string;
+      isStreaming?: boolean;
+      placeholder?: string;
+      queuedMessage?: { content: string } | null;
+      onSend?: (content: string) => boolean;
+      onQueue?: (msg: { content: string }) => void;
+    }) => {
+      // Fires once per mount; lets tests detect remounts (which reset the
+      // composer toggles) caused by the ChatInput `key` changing.
+      React.useEffect(() => {
+        mocks.chatInputMounted();
+      }, []);
+      return (
+        <div
+          data-testid="chat-input"
+          data-ws-id={wsId ?? ""}
+          data-session-id={sessionId ?? ""}
+          data-has-queue={queuedMessage ? "true" : "false"}
+          data-placeholder={placeholder ?? ""}
+        >
+          chat-input
+          {onSend && (
+            <button type="button" data-testid="chat-send-btn" onClick={() => onSend("queued revision")}>
+              send message
+            </button>
+          )}
+          {isStreaming && onQueue && (
+            <button type="button" data-testid="queue-message-btn" onClick={() => onQueue({ content: "queued msg" })}>
+              queue message
+            </button>
+          )}
+        </div>
+      );
+    },
+  };
+});
 
 vi.mock("@/components/chat/QuestionPanel", () => ({
   default: ({
@@ -437,6 +448,7 @@ describe("WorkspaceView behavior", () => {
     mocks.useWorkspaceLiveData.mockReset();
     mocks.useWorkspaceLiveData.mockReturnValue({ liveData: {}, clearUnread: vi.fn() });
     mocks.captureConversationTabsProps.mockReset();
+    mocks.chatInputMounted.mockReset();
     mocks.openExternal.mockReset();
 
     mocks.useScripts.mockReturnValue({
@@ -1526,6 +1538,82 @@ describe("WorkspaceView behavior", () => {
       "data-placeholder",
       "Enter your plan adjustments here...",
     );
+  });
+
+  // The ChatInput `key` is `${wsId}:${switchCounter}` (not `${wsId}:${sessionId}`).
+  // A brand-new conversation has no backend session id while composing; it adopts
+  // one on the first send (sessionId undefined -> real) WITHOUT bumping
+  // switchCounter. Keying on sessionId would remount the composer mid-turn and
+  // snap the thinking level back to the default. These guard that contract.
+  describe("composer remount key", () => {
+    function renderWorkspaceRerenderable(initialEntry = "/workspaces/ws-1") {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      });
+      const wsIds = Object.keys(WORKSPACES);
+      // Build a FRESH tree each render: identical types/positions so React
+      // reconciles (no remount, state preserved) but with new element
+      // references so it actually re-renders and re-reads the mocked hooks.
+      // Reusing one cached element would make React bail out via reference
+      // equality and never pick up the updated useConversation return value.
+      const makeTree = () => (
+        <QueryClientProvider client={queryClient}>
+          <WorkspaceLiveDataProvider workspaceIds={wsIds}>
+            <MemoryRouter initialEntries={[initialEntry]}>
+              <Routes>
+                <Route path="/workspaces/:wsId" element={<WorkspaceView />} />
+                <Route path="/home" element={<div data-testid="home-page">Home page</div>} />
+              </Routes>
+            </MemoryRouter>
+          </WorkspaceLiveDataProvider>
+        </QueryClientProvider>
+      );
+      const result = render(makeTree());
+      return { ...result, rerenderSame: () => result.rerender(makeTree()) };
+    }
+
+    it("does not remount ChatInput when a new conversation adopts its backend session id", async () => {
+      mocks.useConversation.mockReturnValue(
+        buildConversationState({ sessionId: undefined, switchCounter: 7 }),
+      );
+      const { rerenderSame } = renderWorkspaceRerenderable();
+      await screen.findByText("tokyo");
+
+      expect(screen.getByTestId("chat-input")).toHaveAttribute("data-session-id", "");
+      expect(mocks.chatInputMounted).toHaveBeenCalledTimes(1);
+
+      // First send: backend assigns the id (undefined -> real), no explicit switch.
+      mocks.useConversation.mockReturnValue(
+        buildConversationState({ sessionId: "sess-real", switchCounter: 7 }),
+      );
+      act(() => { rerenderSame(); });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("chat-input")).toHaveAttribute("data-session-id", "sess-real");
+      });
+      // Same instance kept alive -> composer toggles survive the first send.
+      expect(mocks.chatInputMounted).toHaveBeenCalledTimes(1);
+    });
+
+    it("remounts ChatInput on an explicit session switch (switchCounter bump)", async () => {
+      mocks.useConversation.mockReturnValue(
+        buildConversationState({ sessionId: "sess-1", switchCounter: 0 }),
+      );
+      const { rerenderSame } = renderWorkspaceRerenderable();
+      await screen.findByText("tokyo");
+      expect(mocks.chatInputMounted).toHaveBeenCalledTimes(1);
+
+      // Switching to another session bumps switchCounter -> remount + re-seed.
+      mocks.useConversation.mockReturnValue(
+        buildConversationState({ sessionId: "sess-2", switchCounter: 1 }),
+      );
+      act(() => { rerenderSame(); });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("chat-input")).toHaveAttribute("data-session-id", "sess-2");
+      });
+      expect(mocks.chatInputMounted).toHaveBeenCalledTimes(2);
+    });
   });
 });
 
