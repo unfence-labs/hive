@@ -7,10 +7,12 @@ const SIZE_CLASS: Record<ActivityWaveSize, string> = {
   large: "size-4",
 };
 
+// Bars share a common bottom (equalizer look) but the whole group is centered
+// vertically in the 12x12 viewBox so the glyph aligns with adjacent text/icons.
 const BARS = [
-  { x: 1, y: 7, height: 4, delay: 0 },
-  { x: 5, y: 4, height: 7, delay: 0.15 },
-  { x: 9, y: 6, height: 5, delay: 0.3 },
+  { x: 1, y: 5.5, height: 4, delay: 0 },
+  { x: 5, y: 2.5, height: 7, delay: 0.15 },
+  { x: 9, y: 4.5, height: 5, delay: 0.3 },
 ] as const;
 
 interface ActivityWaveProps {
