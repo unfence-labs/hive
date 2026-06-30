@@ -1063,7 +1063,14 @@ describe("useConversation", () => {
       }),
     );
 
-    const { result } = renderConversation("ws-1");
+    const { result, queryClient } = renderConversation("ws-1");
+
+    await activateSession("ws-1", "sess-1");
+    await waitFor(() => {
+      expect(__apiMock.getMock).toHaveBeenCalledWith(
+        "/api/workspaces/ws-1/sessions/sess-1/messages",
+      );
+    });
 
     act(() => {
       result.current.sendMessage("hello");
@@ -1078,17 +1085,22 @@ describe("useConversation", () => {
         },
       });
     });
-    expect(result.current.messages).toHaveLength(1);
-    expect(result.current.messages[0]?.role).toBe("user");
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ id: "u1", content: "hello" }),
+    ]);
+    expect(getCachedSessionMessages(queryClient, "ws-1", "sess-1")).toEqual([
+      expect.objectContaining({ id: "u1", content: "hello" }),
+    ]);
 
-    act(() => {
+    await act(async () => {
       resolveHistory?.([]);
     });
 
     await waitFor(() => {
-      expect(result.current.messages).toHaveLength(1);
+      expect(getCachedSessionMessages(queryClient, "ws-1", "sess-1")).toEqual([
+        expect.objectContaining({ id: "u1", content: "hello" }),
+      ]);
     });
-    expect(result.current.messages[0]?.content).toBe("hello");
   });
 
   it("targets the restored saved session and loads its REST history", async () => {

@@ -1,4 +1,4 @@
-import { useQuery, type QueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
 import type { ChatMessage } from "@/types";
 
@@ -22,14 +22,42 @@ function fetchSessionMessages(workspaceId: string, sessionId: string): Promise<C
   return api.get<ChatMessage[]>(`/api/workspaces/${workspaceId}/sessions/${sessionId}/messages`);
 }
 
+function mergeFetchedMessagesWithCachedUserEchoes(
+  fetched: ChatMessage[],
+  cached: ChatMessage[] | undefined,
+  sessionId: string,
+): ChatMessage[] {
+  if (!cached?.length) return fetched;
+
+  const fetchedIds = new Set(fetched.map((message) => message.id));
+  const missingUserMessages = cached.filter((message) =>
+    message.role === "user" &&
+    message.sessionId === sessionId &&
+    message.id &&
+    !fetchedIds.has(message.id)
+  );
+
+  return missingUserMessages.length > 0 ? [...fetched, ...missingUserMessages] : fetched;
+}
+
 /** Subscribe to a session's finalized messages. Returns `[]` until loaded. */
 export function useSessionMessages(
   workspaceId: string | undefined,
   sessionId: string | undefined,
 ): { messages: ChatMessage[]; isLoading: boolean } {
+  const queryClient = useQueryClient();
+  const key = sessionMessagesKey(workspaceId, sessionId);
   const query = useQuery({
-    queryKey: sessionMessagesKey(workspaceId, sessionId),
-    queryFn: () => fetchSessionMessages(workspaceId!, sessionId!),
+    queryKey: key,
+    queryFn: async () => {
+      const cacheAtStart = queryClient.getQueryData<ChatMessage[]>(key);
+      const fetched = await fetchSessionMessages(workspaceId!, sessionId!);
+      const cacheAtEnd = queryClient.getQueryData<ChatMessage[]>(key);
+
+      return cacheAtEnd !== cacheAtStart
+        ? mergeFetchedMessagesWithCachedUserEchoes(fetched, cacheAtEnd, sessionId!)
+        : fetched;
+    },
     enabled: !!workspaceId && !!sessionId,
     // Cached data renders instantly on switch-back; a short staleness window
     // avoids refetch storms while done/cancelled invalidation forces refresh.
@@ -47,7 +75,7 @@ export function getCachedSessionMessages(
   return queryClient.getQueryData<ChatMessage[]>(sessionMessagesKey(workspaceId, sessionId));
 }
 
-/** Optimistically append a finalized message to a session's cache (dedup by id). */
+/** Append a WS-echoed user message or finalized assistant UI copy to the cache. */
 export function appendCachedSessionMessage(
   queryClient: QueryClient,
   workspaceId: string | undefined,
