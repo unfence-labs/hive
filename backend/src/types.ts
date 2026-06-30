@@ -270,6 +270,12 @@ export interface ToolResultBlock {
 export type CliJsonLine =
   | {
       type: "assistant";
+      /**
+       * Set by the Claude CLI on every message: null at top level, or the id of
+       * the parent Task/Agent tool_use for messages emitted inside a subagent
+       * sidechain. The ground-truth source for tool nesting.
+       */
+      parent_tool_use_id?: string | null;
       message: {
         id: string;
         role: "assistant";
@@ -286,6 +292,8 @@ export type CliJsonLine =
     }
   | {
       type: "user";
+      /** See the assistant variant: parent Task/Agent tool_use id for sidechain messages. */
+      parent_tool_use_id?: string | null;
       message: {
         role: "user";
         content: ToolResultBlock[];
