@@ -79,11 +79,15 @@ const serverToolNameMap: Record<string, string> = {
 };
 
 export class AgentEventNormalizer {
-  private readonly pendingTaskStack: string[] = [];
   private readonly emittedToolIds = new Set<string>();
 
   handleAssistant(data: AssistantEvent): NormalizedAgentEvent[] {
     const events: NormalizedAgentEvent[] = [];
+    // Subagent nesting comes straight from the Claude CLI, which stamps every
+    // message with parent_tool_use_id (null at top level, the parent Task/Agent
+    // id inside a subagent sidechain). It is the ground truth even when subagents
+    // run in parallel, so we read it directly — no heuristic stack to mis-attribute.
+    const messageParentToolUseId = data.parent_tool_use_id ?? undefined;
 
     for (const block of data.message.content) {
       switch (block.type) {
@@ -104,19 +108,15 @@ export class AgentEventNormalizer {
             ? block.input
             : JSON.stringify(block.input, null, 2);
           const explicitParentToolUseId = "parentToolUseId" in block ? block.parentToolUseId : undefined;
-          const parentToolUseId = explicitParentToolUseId ?? (this.pendingTaskStack.length > 0
-            ? this.pendingTaskStack[this.pendingTaskStack.length - 1]
-            : undefined);
+          // Explicit per-block parent (Codex adapter) wins; otherwise the native
+          // message-level parent. Absent or null both mean "top level".
+          const parentToolUseId = explicitParentToolUseId ?? messageParentToolUseId;
 
           if (this.emittedToolIds.has(block.id)) {
             events.push({ type: "tool_updated", id: block.id, input });
           } else {
             this.emittedToolIds.add(block.id);
             events.push({ type: "tool_started", id: block.id, name, rawName, input, parentToolUseId });
-          }
-
-          if (rawName === "Task" || rawName === "Agent") {
-            this.pendingTaskStack.push(block.id);
           }
 
           if (rawName === "EnterPlanMode" || rawName === "ExitPlanMode") {
@@ -161,10 +161,6 @@ export class AgentEventNormalizer {
 
     for (const block of data.message.content) {
       if (block.type !== "tool_result") continue;
-      const stackTop = this.pendingTaskStack[this.pendingTaskStack.length - 1];
-      if (stackTop && stackTop === block.tool_use_id) {
-        this.pendingTaskStack.pop();
-      }
       events.push({
         type: "tool_completed",
         id: block.tool_use_id,

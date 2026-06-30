@@ -66,9 +66,15 @@ function assistantLine(text: string, toolUse?: { id: string; name: string; input
   return JSON.stringify({ type: "assistant", message: { id: "msg-1", role: "assistant", content } }) + "\n";
 }
 
-function assistantToolUseLine(toolUse: { id: string; name: string; input: unknown }): string {
+function assistantToolUseLine(
+  toolUse: { id: string; name: string; input: unknown },
+  parentToolUseId?: string | null,
+): string {
   return JSON.stringify({
     type: "assistant",
+    // The Claude CLI stamps sidechain messages with the parent Task/Agent id;
+    // omit at top level (the normalizer reads this directly for tool nesting).
+    ...(parentToolUseId !== undefined ? { parent_tool_use_id: parentToolUseId } : {}),
     message: {
       id: "msg-1",
       role: "assistant",
@@ -2648,26 +2654,29 @@ describe("ConversationSession", () => {
     });
   });
 
-  it("assigns parentToolUseId for nested Task sub-tools and clears it when tasks complete", () => {
+  it("assigns parentToolUseId for nested sub-tools from the native parent_tool_use_id", () => {
     const session = createSession();
     const messages: WsOutgoing[] = [];
     session.on("message", (msg) => messages.push(msg));
 
     session.sendMessage("Run nested tools");
 
+    // Mirror the real CLI stream: each sidechain message carries its parent
+    // Task/Agent id; top-level tools carry none. (read-child nests under
+    // task-child, which nests under task-root; grep-root is back at task-root.)
     mockProc._stdout.push(
       assistantToolUseLine({ id: "task-root", name: "Task", input: { prompt: "Root task" } }),
     );
     mockProc._stdout.push(
-      assistantToolUseLine({ id: "task-child", name: "Task", input: { prompt: "Child task" } }),
+      assistantToolUseLine({ id: "task-child", name: "Task", input: { prompt: "Child task" } }, "task-root"),
     );
     mockProc._stdout.push(
-      assistantToolUseLine({ id: "read-child", name: "Read", input: { file_path: "/tmp/a.ts" } }),
+      assistantToolUseLine({ id: "read-child", name: "Read", input: { file_path: "/tmp/a.ts" } }, "task-child"),
     );
     mockProc._stdout.push(userLine([{ tool_use_id: "read-child", content: "read done" }]));
     mockProc._stdout.push(userLine([{ tool_use_id: "task-child", content: "child done" }]));
     mockProc._stdout.push(
-      assistantToolUseLine({ id: "grep-root", name: "Grep", input: { pattern: "TODO" } }),
+      assistantToolUseLine({ id: "grep-root", name: "Grep", input: { pattern: "TODO" } }, "task-root"),
     );
     mockProc._stdout.push(userLine([{ tool_use_id: "grep-root", content: "grep done" }]));
     mockProc._stdout.push(userLine([{ tool_use_id: "task-root", content: "root done" }]));
