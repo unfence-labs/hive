@@ -172,9 +172,17 @@ describe("ClaudeProvider", () => {
 
   // ── Agent-run enforcement (--disallowedTools) ──────────────────────
 
-  it("omits --disallowedTools for interactive chat (defaults off)", () => {
+  it("always disallows harness-only scheduling tools, even for interactive chat", () => {
     const args = provider.buildArgs("Hello", {}, baseSession());
-    expect(args).not.toContain("--disallowedTools");
+    const idx = args.indexOf("--disallowedTools");
+    expect(idx).toBeGreaterThan(-1);
+    const names = args[idx + 1].split(" ");
+    expect(names).toEqual(
+      expect.arrayContaining(["ScheduleWakeup", "Monitor", "CronCreate", "CronList", "CronDelete"]),
+    );
+    // Interactive/edit tools are not stripped unless their session flags are set.
+    expect(names).not.toContain("AskUserQuestion");
+    expect(names).not.toContain("Edit");
   });
 
   it("strips interactive tools when disableInteractiveTools is set", () => {
@@ -202,11 +210,13 @@ describe("ClaudeProvider", () => {
     expect(names).not.toContain("Bash");
   });
 
-  it("restricts only edit tools when readOnly is set without disableInteractiveTools", () => {
+  it("restricts only edit tools (atop the base scheduling tools) when readOnly is set without disableInteractiveTools", () => {
     const args = provider.buildArgs("Hello", {}, baseSession({ readOnly: true }));
     const idx = args.indexOf("--disallowedTools");
     const names = args[idx + 1].split(" ");
-    expect(names).toEqual(["Edit", "Write", "NotebookEdit"]);
+    expect(names).toEqual(expect.arrayContaining(["Edit", "Write", "NotebookEdit"]));
+    expect(names).not.toContain("AskUserQuestion");
+    expect(names).not.toContain("ExitPlanMode");
   });
 
   it("ends with -p and the content", () => {
@@ -277,6 +287,12 @@ describe("ClaudeProvider", () => {
   it("always includes CLAUDE_CODE_ENABLE_TASKS", () => {
     const env = provider.buildEnv({});
     expect(env.CLAUDE_CODE_ENABLE_TASKS).toBe("true");
+  });
+
+  it("disables harness-only cron and background tasks the print model can't honor", () => {
+    const env = provider.buildEnv({});
+    expect(env.CLAUDE_CODE_DISABLE_CRON).toBe("1");
+    expect(env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBe("1");
   });
 
   it("does not leak MAX_THINKING_TOKENS env var", () => {
