@@ -53,10 +53,9 @@ export function useSessionMessages(
       const cacheAtStart = queryClient.getQueryData<ChatMessage[]>(key);
       const fetched = await fetchSessionMessages(workspaceId!, sessionId!);
       const cacheAtEnd = queryClient.getQueryData<ChatMessage[]>(key);
+      const latestCache = cacheAtEnd ?? cacheAtStart;
 
-      return cacheAtEnd !== cacheAtStart
-        ? mergeFetchedMessagesWithCachedUserEchoes(fetched, cacheAtEnd, sessionId!)
-        : fetched;
+      return mergeFetchedMessagesWithCachedUserEchoes(fetched, latestCache, sessionId!);
     },
     enabled: !!workspaceId && !!sessionId,
     // Cached data renders instantly on switch-back; a short staleness window

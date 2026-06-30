@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -51,6 +51,16 @@ function message(id: string, content: string): ChatMessage {
   };
 }
 
+function userMessage(id: string, content: string): ChatMessage {
+  return {
+    id,
+    sessionId: "sess-1",
+    role: "user",
+    content,
+    timestamp: "2026-02-20T00:00:00.000Z",
+  };
+}
+
 describe("useSessionMessages", () => {
   beforeEach(async () => {
     const { __apiMock } = await getApiMock();
@@ -96,6 +106,29 @@ describe("useSessionMessages", () => {
   it("sessionMessagesKey normalizes missing ids to empty strings", () => {
     expect(sessionMessagesKey("ws-1", "sess-1")).toEqual(["session-messages", "ws-1", "sess-1"]);
     expect(sessionMessagesKey(undefined, undefined)).toEqual(["session-messages", "", ""]);
+  });
+
+  it("preserves cached user echoes when a stale REST refetch starts after the echo was cached", async () => {
+    const { __apiMock } = await getApiMock();
+    const firstUser = userMessage("u1", "first prompt");
+    const firstAssistant = message("a1", "first answer");
+    const followUp = userMessage("u2", "queued follow-up");
+    __apiMock.getMock.mockResolvedValue([firstUser, firstAssistant]);
+
+    const queryClient = newClient();
+    const key = sessionMessagesKey("ws-1", "sess-1");
+    queryClient.setQueryData(key, [firstUser, firstAssistant, followUp]);
+
+    const { result } = renderHook(() => useSessionMessages("ws-1", "sess-1"), {
+      wrapper: wrapperFor(queryClient),
+    });
+
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: key });
+    });
+
+    expect(__apiMock.getMock).toHaveBeenCalledWith("/api/workspaces/ws-1/sessions/sess-1/messages");
+    expect(result.current.messages).toEqual([firstUser, firstAssistant, followUp]);
   });
 
   describe("appendCachedSessionMessage", () => {
