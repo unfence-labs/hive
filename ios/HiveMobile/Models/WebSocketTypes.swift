@@ -19,9 +19,6 @@ enum HubIncoming: Encodable {
             var container = encoder.container(keyedBy: SyncCodingKeys.self)
             try container.encode("sync_workspaces", forKey: .type)
             try container.encode(workspaceIds, forKey: .workspaceIds)
-            // iOS is fully migrated to REST-owned history: always opt in so the
-            // backend skips the WS `history` bootstrap event for this client.
-            try container.encode(true, forKey: .historyViaRest)
         case .workspaceEvent(let workspaceId, let event):
             var container = encoder.container(keyedBy: EventCodingKeys.self)
             try container.encode(workspaceId, forKey: .workspaceId)
@@ -30,7 +27,7 @@ enum HubIncoming: Encodable {
     }
 
     private enum SyncCodingKeys: String, CodingKey {
-        case type, workspaceIds, historyViaRest
+        case type, workspaceIds
     }
 
     private enum EventCodingKeys: String, CodingKey {

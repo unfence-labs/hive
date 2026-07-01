@@ -660,13 +660,15 @@ struct ConversationStoreSessionTests {
     }
 
     @Test @MainActor
-    func syncWorkspacesEncodesHistoryViaRest() throws {
+    func syncWorkspacesOmitsHistoryViaRest() throws {
+        // History is REST-owned unconditionally, so the transition flag is gone:
+        // the encoded payload carries only `type` and `workspaceIds`.
         let message = HubIncoming.syncWorkspaces(workspaceIds: ["ws-1"])
         let data = try JSONEncoder().encode(message)
         let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
 
         #expect(object?["type"] as? String == "sync_workspaces")
-        #expect(object?["historyViaRest"] as? Bool == true)
+        #expect(object?["historyViaRest"] == nil)
         #expect((object?["workspaceIds"] as? [String]) == ["ws-1"])
     }
 

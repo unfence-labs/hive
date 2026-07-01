@@ -370,9 +370,6 @@ class WsTransport {
     this.hub.ws.send(JSON.stringify({
       type: "sync_workspaces",
       workspaceIds: [...this.subscribedWorkspaceIds],
-      // Finalized history is loaded over REST (React Query); skip the heavy WS
-      // `history` bootstrap event.
-      historyViaRest: true,
     }));
   }
 

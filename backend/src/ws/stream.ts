@@ -5,8 +5,6 @@ import {
   getSession,
   getSessionById,
   getOrCreateSession,
-  getSessionMessages,
-  getSpecificSessionMessages,
   getDefaultSessionId,
   getStreamingSessionIds,
   isLoadedDefaultSessionCandidate,
@@ -42,8 +40,8 @@ type ActiveSession = NonNullable<ReturnType<typeof getSession>>;
 interface HubSocket {
   ws: WebSocket;
   subscribedWorkspaces: Set<string>;
-  /** Client fetches finalized history over REST, so skip the `history` bootstrap event. */
-  historyViaRest: boolean;
+  /** WS-level heartbeat flag: set true on `pong`, cleared each ping tick. A missed cycle reaps the socket. */
+  isAlive: boolean;
 }
 
 interface WorkspaceChannel {
@@ -118,12 +116,31 @@ export function broadcastToWorkspace(workspaceId: string, msg: WsOutgoing): void
   }
 }
 
+/**
+ * WS-level heartbeat tick (canonical `ws` pattern). A peer that missed the
+ * previous cycle (`isAlive` still false) is terminated; `terminate()` emits
+ * `close`, which runs the existing cleanup. Otherwise arm the next cycle by
+ * clearing the flag and pinging so the client's `pong` can re-set it.
+ */
+function tickHubLiveness(hub: HubSocket): void {
+  if (!hub.isAlive) {
+    hub.ws.terminate();
+    return;
+  }
+  hub.isAlive = false;
+  if (hub.ws.readyState === hub.ws.OPEN) hub.ws.ping();
+}
+
 export function _getChannelsForTests(): Map<string, WorkspaceChannel> {
   return channels;
 }
 
 export function _getHubSocketsForTests(): Set<HubSocket> {
   return hubSockets;
+}
+
+export function _tickHubLivenessForTests(hub: HubSocket): void {
+  tickHubLiveness(hub);
 }
 
 // ── Route registration ──────────────────────────────────────────────
@@ -182,14 +199,6 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         : {}),
       lockedProvider: session.metadata.lockedProvider,
     });
-    try {
-      if (!hub.historyViaRest) {
-        const messages = await session.getMessages();
-        sendToHub(hub, workspaceId, { type: "history", sessionId: session.sessionId, messages });
-      }
-    } catch {
-      // History load failure is non-fatal.
-    }
 
     // Replay in-progress streaming content so late-connecting clients see
     // text, thinking, and tool calls accumulated since the turn started.
@@ -366,19 +375,6 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
           streaming: false,
           ...(defaultSessionId ? { sessionId: defaultSessionId } : {}),
         });
-        if (!hub.historyViaRest) {
-          try {
-            const messages = defaultSessionId
-              ? await getSpecificSessionMessages(wsId, defaultSessionId, dataDir)
-              : await getSessionMessages(wsId, dataDir);
-            if (messages.length > 0) {
-              const firstSessionId = messages[0]?.sessionId;
-              sendToHub(hub, wsId, { type: "history", sessionId: firstSessionId, messages });
-            }
-          } catch {
-            // Ignore missing/corrupt persisted history.
-          }
-        }
         sendStreamingBootstraps();
       }
     }
@@ -431,10 +427,10 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
 
     // Subscribe to new workspaces and bootstrap.
     // The hub socket is added to the channel AFTER bootstrap completes so that
-    // live events broadcast during the async getMessages() call don't reach
-    // this client before the streaming snapshot is replayed (which would cause
-    // duplicate content). Node.js single-threading guarantees no events fire
-    // between sendWorkspaceBootstrap returning and hubSockets.add.
+    // live events broadcast during the async bootstrap don't reach this client
+    // before the streaming snapshot is replayed (which would cause duplicate
+    // content). Node.js single-threading guarantees no events fire between
+    // sendWorkspaceBootstrap returning and hubSockets.add.
     for (const wsId of desired) {
       if (!hub.subscribedWorkspaces.has(wsId)) {
         const channel = getOrCreateChannel(wsId);
@@ -622,12 +618,13 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
         return;
       }
 
-      const hub: HubSocket = { ws: socket, subscribedWorkspaces: new Set(), historyViaRest: false };
+      // Start alive so the socket gets a full cycle before it can be reaped.
+      const hub: HubSocket = { ws: socket, subscribedWorkspaces: new Set(), isAlive: true };
       hubSockets.add(hub);
 
-      const pingTimer = setInterval(() => {
-        if (socket.readyState === socket.OPEN) socket.ping();
-      }, PING_INTERVAL_MS);
+      socket.on("pong", () => { hub.isAlive = true; });
+
+      const pingTimer = setInterval(() => tickHubLiveness(hub), PING_INTERVAL_MS);
       hubPingTimers.set(hub, pingTimer);
 
       socket.on("close", () => {
@@ -666,7 +663,6 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             socket.send(JSON.stringify({ type: "pong" }));
           }
         } else if ("type" in parsed && parsed.type === "sync_workspaces") {
-          if (parsed.historyViaRest !== undefined) hub.historyViaRest = parsed.historyViaRest;
           await handleSyncWorkspaces(hub, parsed.workspaceIds);
         } else if ("workspaceId" in parsed && "event" in parsed) {
           await handleWorkspaceMessage(hub, parsed.workspaceId, parsed.event);

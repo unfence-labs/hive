@@ -254,10 +254,11 @@ final class ConversationStore {
             sessionStreams[sid]?.pendingToolInputs = []
 
         case .history(let msgs, let incomingSessionId):
-            // iOS opts into `historyViaRest`, so the backend no longer sends a
-            // `history` bootstrap event. This case remains only as a defensive
-            // fallback (e.g. an older backend) and routes through the same path
-            // the REST fetch uses, so reconciliation logic lives in one place.
+            // Conversation history is REST-owned unconditionally, so the backend
+            // no longer sends a `history` bootstrap event. This case remains only
+            // as a defensive fallback (e.g. an older backend) and routes through
+            // the same path the REST fetch uses, so reconciliation logic lives in
+            // one place.
             let historySessionId = incomingSessionId ?? msgs.first?.sessionId ?? sessionId
             guard let sid = historySessionId else { return }
             // Adopt the session when none is focused yet so the messages land on
