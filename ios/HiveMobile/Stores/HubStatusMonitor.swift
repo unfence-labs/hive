@@ -367,9 +367,15 @@ private final class HubConnection {
     }
 
     /// Send sync_workspaces with the given workspace IDs.
-    func sendSyncWorkspaces(_ workspaceIds: [String], focusWorkspaces: [String]) {
+    /// `forceBootstrap` asks the server to resend full bootstrap for already
+    /// subscribed workspaces over the existing socket (no reconnect).
+    func sendSyncWorkspaces(_ workspaceIds: [String], focusWorkspaces: [String], forceBootstrap: Bool = false) {
         Task {
-            await send(.syncWorkspaces(workspaceIds: workspaceIds, focusWorkspaces: focusWorkspaces))
+            await send(.syncWorkspaces(
+                workspaceIds: workspaceIds,
+                focusWorkspaces: focusWorkspaces,
+                forceBootstrap: forceBootstrap
+            ))
         }
     }
 
@@ -565,7 +571,19 @@ private final class HubConnection {
                 guard let self, self.wsTask === task else { return }
                 self.probeTimeoutTask?.cancel()
                 self.probeTimeoutTask = nil
-                if error != nil { self.forceReconnect() }
+                if error != nil {
+                    self.forceReconnect()
+                } else {
+                    // Socket is alive: ask it to resend bootstrap for already
+                    // subscribed workspaces instead of reconnecting.
+                    if let workspaceIds = self.monitor?.subscribedWorkspaceIds {
+                        self.sendSyncWorkspaces(
+                            Array(workspaceIds),
+                            focusWorkspaces: self.monitor?.currentFocusWorkspaces ?? [],
+                            forceBootstrap: true
+                        )
+                    }
+                }
             }
         }
     }

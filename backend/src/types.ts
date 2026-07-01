@@ -732,8 +732,15 @@ export type HubIncoming =
   // web, per-session cache on iOS), so the server never sends the `history`
   // bootstrap event; the hub bootstrap ships `status` and live stream snapshots
   // only. `focusWorkspaces` restricts high-frequency stream events to the
-  // workspaces the client is actively viewing.
-  | { type: "sync_workspaces"; workspaceIds: string[]; focusWorkspaces?: string[] }
+  // workspaces the client is actively viewing. `forceBootstrap` asks the server
+  // to resend full bootstrap for already subscribed workspaces without a
+  // reconnect (e.g. iOS foreground refresh on a healthy socket).
+  | {
+      type: "sync_workspaces";
+      workspaceIds: string[];
+      focusWorkspaces?: string[];
+      forceBootstrap?: boolean;
+    }
   // Application-level liveness probe. The browser WebSocket API never exposes
   // protocol-level ping/pong to JS, so clients send this to actively detect a
   // frozen-but-OPEN socket (e.g. after the OS wakes from sleep).

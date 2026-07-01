@@ -114,7 +114,7 @@ function completionProviderForMessage(
 // ── Sending helpers ─────────────────────────────────────────────────
 
 function sendToHub(hub: HubSocket, workspaceId: string, msg: WsOutgoing): void {
-  if (hub.ws.readyState === hub.ws.OPEN) {
+  if (hub.ws.readyState === hub.ws.OPEN && hubReceivesEvent(hub, workspaceId, msg)) {
     const envelope: HubOutgoing = { workspaceId, event: msg };
     hub.ws.send(JSON.stringify(envelope));
   }
@@ -439,11 +439,16 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     hub: HubSocket,
     workspaceIds: string[],
     focusWorkspaces?: string[],
+    forceBootstrap?: boolean,
   ): Promise<void> => {
     const desired = new Set(workspaceIds);
+    const previouslySubscribed = new Set(hub.subscribedWorkspaces);
     hub.focusWorkspaces = focusWorkspaces ? new Set(focusWorkspaces) : undefined;
 
-    if (hub.focusWorkspaces) {
+    // A forced refresh resends full bootstrap below, which already covers the
+    // streaming snapshot replay -- skip the focus-only replay here to avoid
+    // sending the snapshot twice.
+    if (hub.focusWorkspaces && !forceBootstrap) {
       for (const wsId of hub.focusWorkspaces) {
         if (!hub.subscribedWorkspaces.has(wsId)) continue;
         for (const streamingId of getStreamingSessionIds(wsId)) {
@@ -482,6 +487,18 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     }
 
     hub.subscribedWorkspaces = desired;
+
+    // Resend full bootstrap for workspaces the client was already subscribed
+    // to (e.g. iOS foreground refresh over a healthy socket). Newly subscribed
+    // workspaces above already got a fresh bootstrap, so skip those to avoid
+    // duplicate delivery.
+    if (forceBootstrap) {
+      for (const wsId of desired) {
+        if (!previouslySubscribed.has(wsId)) continue;
+        const channel = channels.get(wsId);
+        if (channel) await sendWorkspaceBootstrap(hub, wsId, channel);
+      }
+    }
   };
 
   // ── Workspace message handler ─────────────────────────────────────
@@ -705,7 +722,12 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
             socket.send(JSON.stringify({ type: "pong" }));
           }
         } else if ("type" in parsed && parsed.type === "sync_workspaces") {
-          await handleSyncWorkspaces(hub, parsed.workspaceIds, parsed.focusWorkspaces);
+          await handleSyncWorkspaces(
+            hub,
+            parsed.workspaceIds,
+            parsed.focusWorkspaces,
+            parsed.forceBootstrap === true,
+          );
         } else if ("workspaceId" in parsed && "event" in parsed) {
           await handleWorkspaceMessage(hub, parsed.workspaceId, parsed.event);
         }

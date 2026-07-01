@@ -8,7 +8,8 @@ import { git } from "../utils/git.js";
 import { loadProject } from "../state/state.js";
 import { bareRepoPath, workspacesDir } from "../utils/paths.js";
 import { getBranchName, GitSyncService } from "./git-sync.js";
-import type { BranchInfo, DiffStatResponse } from "../types.js";
+import { fetchPrForBranch } from "../utils/github.js";
+import type { BranchInfo, DiffStatResponse, PullRequestInfo } from "../types.js";
 
 vi.mock("../utils/github.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../utils/github.js")>();
@@ -18,6 +19,20 @@ vi.mock("../utils/github.js", async (importOriginal) => {
     fetchPrForBranch: vi.fn(async () => ({ pr: null })),
   };
 });
+
+function makePr(number: number): PullRequestInfo {
+  return {
+    number,
+    url: `https://github.com/o/r/pull/${number}`,
+    state: "open",
+    mergeable: null,
+    mergeableState: "unknown",
+    checksStatus: "success",
+    checksPassed: null,
+    checksTotal: null,
+    reviewStatus: null,
+  };
+}
 
 let tempDir: string;
 let dataDir: string;
@@ -132,6 +147,27 @@ describe("GitSyncService", () => {
     subscribed.add(ws.id);
     await prService.poll();
     expect(events).toEqual([ws.id]);
+
+    prService._clearForTests();
+  });
+
+  it("clears cached PR status for a workspace when its branch changes", async () => {
+    const ws = await createWorkspace(projectId, dataDir);
+    const wsPath = join(workspacesDir(dataDir, projectId), ws.name);
+    const prService = new GitSyncService(dataDir, (id) => id === ws.id);
+
+    vi.mocked(fetchPrForBranch).mockResolvedValueOnce({ pr: makePr(42) });
+    await prService.poll();
+    expect(prService.getCachedPrStatus(ws.id)?.pr?.number).toBe(42);
+
+    await git(["branch", "-m", "renamed-for-pr-test"], wsPath);
+
+    vi.mocked(fetchPrForBranch).mockResolvedValueOnce({ pr: null, error: "gh unavailable" });
+    await prService.poll();
+
+    const cached = prService.getCachedPrStatus(ws.id);
+    expect(cached?.pr?.number).not.toBe(42);
+    expect(cached).toEqual({ pr: null, error: "gh unavailable" });
 
     prService._clearForTests();
   });

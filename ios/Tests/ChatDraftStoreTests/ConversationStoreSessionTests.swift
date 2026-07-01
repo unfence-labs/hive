@@ -669,6 +669,25 @@ struct ConversationStoreSessionTests {
         #expect(object?["historyViaRest"] == nil)
         #expect((object?["workspaceIds"] as? [String]) == ["ws-1"])
         #expect((object?["focusWorkspaces"] as? [String]) == ["ws-1"])
+        // A routine sync doesn't request a forced refresh, so the field stays omitted.
+        #expect(object?["forceBootstrap"] == nil)
+    }
+
+    @Test @MainActor
+    func syncWorkspacesEncodesForceBootstrapWhenTrue() throws {
+        let message = HubIncoming.syncWorkspaces(
+            workspaceIds: ["ws-1"],
+            focusWorkspaces: ["ws-1"],
+            forceBootstrap: true
+        )
+        let data = try JSONEncoder().encode(message)
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        #expect(object?["type"] as? String == "sync_workspaces")
+        #expect(object?["historyViaRest"] == nil)
+        #expect((object?["workspaceIds"] as? [String]) == ["ws-1"])
+        #expect((object?["focusWorkspaces"] as? [String]) == ["ws-1"])
+        #expect(object?["forceBootstrap"] as? Bool == true)
     }
 
     @Test @MainActor
