@@ -282,7 +282,7 @@ Hub:
 - Endpoint: `ws://<host>/ws/hub`
 - Auth: `Authorization: Bearer <token>`, `x-hive-token`, or `?token=<token>`
 - Clients send hub-level `sync_workspaces` and `ping`; workspace events include `switch_session`, `user_message`, `stop`, and `tool_input_response`.
-- `sync_workspaces` accepts `historyViaRest`. Web and iOS send `true`, so finalized conversation history is fetched over REST (`GET /api/workspaces/:wsId/sessions/:sessionId/messages`) while the hub bootstrap sends status and live stream snapshots only. Absent or `false` keeps the legacy WS `history` bootstrap.
+- Finalized conversation history is fetched over REST for every client (`GET /api/workspaces/:wsId/sessions/:sessionId/messages`); the hub bootstrap sends only `status` and live stream snapshots and never a WS `history` frame. The `history` frame survives in the protocol as a legacy inbound clients still tolerate, but the backend no longer sends it.
 - Server wraps workspace events as `{ workspaceId, event }`; hub pings receive `{ type: "pong" }`.
 - Current server workspace events include `status`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `agent_activity`, `stream_snapshot`, `tool_input_required`, `tool_input_resolved`, `done`, `cancelled`, `error`, `branch_info`, `diff_stats`, `script_status`, `browser_status`, `plan_mode_changed`, and legacy `history`.
 

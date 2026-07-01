@@ -65,7 +65,7 @@ Core model: Project -> Workspace -> Session. Projects are bare repositories; wor
 - Validate repository URLs with `validateRepositoryUrl()` before cloning.
 - Keep WebSocket protocol types aligned across `backend/src/types.ts`, `frontend/src/types.ts`, and `ios/HiveMobile/Models/WebSocketTypes.swift`.
 - When adding a WS event, update backend dispatch, frontend reducers/cache invalidation, iOS stores, and tests.
-- Conversation history is REST-owned for web and iOS. Keep session message endpoints, frontend React Query history, iOS per-session history cache, and WS live bootstrap (`historyViaRest`, `status`, `stream_snapshot`) aligned; keep WS `history` only as a legacy fallback.
+- Conversation history is REST-owned unconditionally for web and iOS. Keep session message endpoints, frontend React Query history, iOS per-session history cache, and WS live bootstrap (`status`, `stream_snapshot`) aligned. The backend never sends a WS `history` frame; keep the `history` event only as a legacy inbound clients tolerate.
 - When adding a provider, implement `AgentProvider`, register it in `providers/registry.ts`, expose capabilities, and add a stream adapter when the CLI format differs from Claude.
 - Keep provider capability fields synchronized across backend, frontend, and iOS models.
 - Automation actions reference Team agents by `agentId`; keep model, thinking level, system prompt, git-context injection, and read-only settings on the agent definition, not on each automation.

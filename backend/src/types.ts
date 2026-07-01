@@ -727,10 +727,11 @@ export interface UpdateCustomAgentRequest {
 
 /** Client -> Server (hub-level). */
 export type HubIncoming =
-  // `historyViaRest`: client fetches finalized history over REST (React Query),
-  // so the server skips the heavy `history` bootstrap event for this hub. Absent
-  // / false keeps the legacy behavior for clients that still rely on WS history.
-  | { type: "sync_workspaces"; workspaceIds: string[]; historyViaRest?: boolean }
+  // Finalized conversation history is REST-owned for all clients (React Query on
+  // web, per-session cache on iOS), so the server never sends the `history`
+  // bootstrap event; the hub bootstrap ships `status` and live stream snapshots
+  // only. The WS `history` frame survives only as a legacy inbound clients tolerate.
+  | { type: "sync_workspaces"; workspaceIds: string[] }
   // Application-level liveness probe. The browser WebSocket API never exposes
   // protocol-level ping/pong to JS, so clients send this to actively detect a
   // frozen-but-OPEN socket (e.g. after the OS wakes from sleep).

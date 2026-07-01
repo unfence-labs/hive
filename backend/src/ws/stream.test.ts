@@ -18,7 +18,7 @@ import {
   _clearActiveSessions,
 } from "../agents/agent-manager.js";
 import type { SessionOptions } from "../agents/agent-manager.js";
-import { streamRoutes, broadcastToWorkspace, _getChannelsForTests, _getHubSocketsForTests } from "./stream.js";
+import { streamRoutes, broadcastToWorkspace, _getChannelsForTests, _getHubSocketsForTests, _tickHubLivenessForTests } from "./stream.js";
 import {
   _setScriptStatusForTests,
   _clearAll as clearScripts,
@@ -73,11 +73,10 @@ function hubEvent(workspaceId: string, event: object): string {
 }
 
 /** Send sync_workspaces via a hub WebSocket. */
-function syncWorkspaces(ws: WebSocket, workspaceIds: string[], historyViaRest?: boolean): void {
+function syncWorkspaces(ws: WebSocket, workspaceIds: string[]): void {
   ws.send(JSON.stringify({
     type: "sync_workspaces",
     workspaceIds,
-    ...(historyViaRest !== undefined ? { historyViaRest } : {}),
   }));
 }
 
@@ -94,8 +93,6 @@ function connectHub(
     query?: Record<string, string>;
     /** If set, collect ALL workspace messages (unfiltered). Default: first workspace. */
     collectAll?: boolean;
-    /** Subscribe as a REST-history client (no `history` frames over the WS). */
-    historyViaRest?: boolean;
   },
 ): {
   wsReady: Promise<WebSocket>;
@@ -124,7 +121,7 @@ function connectHub(
         });
         // Subscribe to workspaces after the connection is established
         ws.on("open", () => {
-          syncWorkspaces(ws, workspaceIds, opts?.historyViaRest);
+          syncWorkspaces(ws, workspaceIds);
         });
       },
     },
@@ -285,143 +282,12 @@ describe("WS /ws/hub", () => {
     ws.close();
   });
 
-  it("sends persisted history even when no active session exists", async () => {
-    const sessionId = "sess-persisted";
-    const sessionDir = join(dataDir, projectId, "sessions", sessionId);
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(
-      join(sessionDir, "metadata.json"),
-      JSON.stringify({
-        sessionId,
-        workspaceId: wsId,
-        createdAt: "2026-02-11T00:00:00.000Z",
-        updatedAt: "2026-02-11T00:00:01.000Z",
-        messageCount: 1,
-      }),
-      "utf-8",
-    );
-    await writeFile(
-      join(sessionDir, "messages.jsonl"),
-      JSON.stringify({
-        id: "m-1",
-        sessionId,
-        role: "assistant",
-        content: "persisted response",
-        timestamp: "2026-02-11T00:00:00.000Z",
-      }) + "\n",
-      "utf-8",
-    );
-
-    const { wsReady, messages } = connectHub([wsId]);
-    const ws = await wsReady;
-
-    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "history"));
-
-    const history = messages.find((m) => m.type === "history");
-    expect(history).toBeDefined();
-    if (history?.type === "history") {
-      expect(history.messages).toEqual([
-        expect.objectContaining({
-          content: "persisted response",
-          role: "assistant",
-        }),
-      ]);
-    }
-
-    ws.close();
-  });
-
-  it("delivers persisted history when listener is attached after injectWS resolves", async () => {
-    const sessionId = "sess-persisted-late";
-    const sessionDir = join(dataDir, projectId, "sessions", sessionId);
-    await mkdir(sessionDir, { recursive: true });
-    await writeFile(
-      join(sessionDir, "metadata.json"),
-      JSON.stringify({
-        sessionId,
-        workspaceId: wsId,
-        createdAt: "2026-02-11T00:00:00.000Z",
-        updatedAt: "2026-02-11T00:00:01.000Z",
-        messageCount: 1,
-      }),
-      "utf-8",
-    );
-    await writeFile(
-      join(sessionDir, "messages.jsonl"),
-      JSON.stringify({
-        id: "m-1",
-        sessionId,
-        role: "assistant",
-        content: "persisted response late listener",
-        timestamp: "2026-02-11T00:00:00.000Z",
-      }) + "\n",
-      "utf-8",
-    );
-
-    const { ws, messages } = await connectHubLateListener([wsId]);
-
-    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "history"));
-
-    const history = messages.find((m) => m.type === "history");
-    expect(history).toBeDefined();
-    if (history?.type === "history") {
-      expect(history.messages).toEqual([
-        expect.objectContaining({
-          content: "persisted response late listener",
-          role: "assistant",
-        }),
-      ]);
-    }
-
-    ws.close();
-  });
-
-  it("bootstraps the default non-empty chat when the active loaded session is empty", async () => {
+  it("redirects to the default non-empty chat via status only when the active loaded session is empty", async () => {
     const { session: emptyActive } = await getOrCreateSession(wsId, dataDir, CONV_CMD);
     const defaultSessionId = "sess-default-non-empty";
     await writePersistedChatSession(defaultSessionId, "persisted default response");
 
     const { wsReady, messages } = connectHub([wsId]);
-    const ws = await wsReady;
-
-    await waitForMessage(
-      messages,
-      (msgs) =>
-        msgs.some((m) => m.type === "status") &&
-        msgs.some((m) => m.type === "history"),
-    );
-
-    const status = messages.find((m) => m.type === "status");
-    expect(status).toEqual({
-      type: "status",
-      status: "idle",
-      streaming: false,
-      sessionId: defaultSessionId,
-    });
-    expect(status).not.toEqual(expect.objectContaining({ sessionId: emptyActive.sessionId }));
-
-    const history = messages.find((m) => m.type === "history");
-    expect(history).toBeDefined();
-    if (history?.type === "history") {
-      expect(history.sessionId).toBe(defaultSessionId);
-      expect(history.messages).toEqual([
-        expect.objectContaining({
-          content: "persisted default response",
-          sessionId: defaultSessionId,
-        }),
-      ]);
-    }
-
-    ws.close();
-    await endSession(wsId, dataDir);
-  });
-
-  it("redirects a historyViaRest client to the default chat via status only, without a WS history frame", async () => {
-    await getOrCreateSession(wsId, dataDir, CONV_CMD); // empty active session
-    const defaultSessionId = "sess-default-rest";
-    await writePersistedChatSession(defaultSessionId, "persisted default for rest client");
-
-    const { wsReady, messages } = connectHub([wsId], { historyViaRest: true });
     const ws = await wsReady;
 
     await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
@@ -435,6 +301,9 @@ describe("WS /ws/hub", () => {
       streaming: false,
       sessionId: defaultSessionId,
     });
+    expect(status).not.toEqual(expect.objectContaining({ sessionId: emptyActive.sessionId }));
+
+    // History is REST-owned: the backend never ships a WS `history` frame at bootstrap.
     expect(messages.some((m) => m.type === "history")).toBe(false);
 
     ws.close();
@@ -508,7 +377,7 @@ describe("WS /ws/hub", () => {
     await endSession(wsId, dataDir).catch(() => {});
   });
 
-  it("sends idle status + history when session exists but is not streaming", async () => {
+  it("sends idle status when session exists but is not streaming", async () => {
     await getOrCreateSession(wsId, dataDir, CONV_CMD);
 
     const { wsReady, messages } = connectHub([wsId]);
@@ -1092,7 +961,7 @@ describe("WS /ws/hub", () => {
     await endSession(wsId, dataDir);
   });
 
-  it("skips the history bootstrap when the client opts into historyViaRest", async () => {
+  it("never sends a WS history frame at bootstrap for a loaded non-streaming session", async () => {
     await getOrCreateSession(wsId, dataDir, CONV_CMD);
 
     const received: WsOutgoing[] = [];
@@ -1103,7 +972,7 @@ describe("WS /ws/hub", () => {
           if ("workspaceId" in env && env.workspaceId === wsId) received.push(env.event);
         });
         clientWs.on("open", () => {
-          clientWs.send(JSON.stringify({ type: "sync_workspaces", workspaceIds: [wsId], historyViaRest: true }));
+          clientWs.send(JSON.stringify({ type: "sync_workspaces", workspaceIds: [wsId] }));
         });
       },
     })) as WebSocket;
@@ -1314,6 +1183,44 @@ describe("WS /ws/hub", () => {
     ws2.terminate();
     await ws2Closed;
     await waitForCondition(() => !_getChannelsForTests().has(wsId));
+  });
+
+  it("reaps a hub socket that missed a WS heartbeat cycle via the existing close cleanup", async () => {
+    const { wsReady, messages } = connectHub([wsId]);
+    await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+    await waitForCondition(() => _getChannelsForTests().get(wsId)?.hubSockets.size === 1);
+
+    // The injectWS client auto-answers protocol pings, so it can never die
+    // naturally. Force the missed-cycle state and drive one tick by hand.
+    const hub = [..._getHubSocketsForTests()].find((h) => h.subscribedWorkspaces.has(wsId));
+    expect(hub).toBeDefined();
+    hub!.isAlive = false;
+    _tickHubLivenessForTests(hub!);
+
+    // terminate() emits "close", which runs the existing cleanup: unsubscribe
+    // from every channel, drop empty channels, and remove the hub from the set.
+    await waitForCondition(() => !_getHubSocketsForTests().has(hub!));
+    expect(_getChannelsForTests().has(wsId)).toBe(false);
+  });
+
+  it("keeps a hub socket alive when it responded before the heartbeat tick", async () => {
+    const { wsReady, messages } = connectHub([wsId]);
+    await wsReady;
+
+    await waitForMessage(messages, (msgs) => msgs.some((m) => m.type === "status"));
+    await waitForCondition(() => _getChannelsForTests().get(wsId)?.hubSockets.size === 1);
+
+    const hub = [..._getHubSocketsForTests()].find((h) => h.subscribedWorkspaces.has(wsId));
+    expect(hub).toBeDefined();
+    expect(hub!.isAlive).toBe(true);
+
+    // A live socket survives one tick but has its flag cleared, arming the
+    // next cycle to reap it if no pong arrives in the meantime.
+    _tickHubLivenessForTests(hub!);
+    expect(_getHubSocketsForTests().has(hub!)).toBe(true);
+    expect(hub!.isAlive).toBe(false);
   });
 
   it("does not broadcast stale idle status when a session is replaced", async () => {

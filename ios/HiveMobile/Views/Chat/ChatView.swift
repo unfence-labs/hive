@@ -451,8 +451,8 @@ struct ChatView: View {
                 isLoading = false
                 return
             }
-            // Skip if a newer event (WS history, send, session switch) arrived while
-            // this REST call was in-flight — their data is more authoritative.
+            // Skip if a newer event (send or session switch) bumped the token
+            // while this REST call was in-flight — their data is more authoritative.
             guard store.historyToken(for: sessionId) == requestToken else {
                 isLoading = false
                 return
@@ -463,7 +463,9 @@ struct ChatView: View {
         } catch is CancellationError {
             // View disappeared
         } catch {
-            // Fall through to WS history
+            // REST fetch failed — keep the cached/streamed messages. History is
+            // REST-owned; a WS `history` frame only arrives from an older backend
+            // and reconciles through the same applyFetchedHistory path.
         }
         isLoading = false
     }
