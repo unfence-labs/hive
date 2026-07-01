@@ -160,7 +160,10 @@ function renderConversation(
   queryClient: QueryClient;
 } {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+    // Mirror the production default staleTime (query-client.ts) so the session
+    // messages query — which now inherits it instead of forcing its own — keeps
+    // its "fresh cache renders without refetch" behavior under test.
+    defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: 5 * 60 * 1000 } },
   });
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>

@@ -11,11 +11,6 @@ import type { ChatMessage } from "@/types";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
-// Cached data renders instantly on switch-back; a short staleness window avoids
-// refetch storms while done/cancelled invalidation forces refresh. Shared with
-// the prefetch helper so warmed entries dedupe against the live hook query.
-const SESSION_MESSAGES_STALE_TIME = 5_000;
-
 export function sessionMessagesKey(
   workspaceId: string | undefined,
   sessionId: string | undefined,
@@ -81,7 +76,10 @@ export function useSessionMessages(
     queryKey: key,
     queryFn: () => fetchAndMergeSessionMessages(queryClient, workspaceId!, sessionId!),
     enabled: !!workspaceId && !!sessionId,
-    staleTime: SESSION_MESSAGES_STALE_TIME,
+    // Freshness is driven by WS done/cancelled invalidation (see
+    // useWsCacheInvalidation), not time-based expiry — matching the app-wide
+    // policy in query-client.ts. So inherit the global staleTime default instead
+    // of forcing a full-transcript refetch on every workspace switch-back.
   });
   return {
     messages: query.data ?? EMPTY_MESSAGES,
@@ -94,8 +92,8 @@ export function useSessionMessages(
  * Pre-warm the REST history cache for a session so a later switch finds warm
  * data (React Query `isLoading` stays false → no empty-state flash). Pure
  * additive optimization: `prefetchQuery` dedupes by key against in-flight
- * fetches and no-ops while data is still fresh within staleTime, so it's safe
- * to call alongside the active session's own fetch.
+ * fetches and no-ops while data is still fresh within the global staleTime, so
+ * it's safe to call alongside the active session's own fetch.
  */
 export function prefetchSessionMessages(
   queryClient: QueryClient,
@@ -103,10 +101,11 @@ export function prefetchSessionMessages(
   sessionId: string | undefined,
 ): void {
   if (!workspaceId || !sessionId) return;
+  // Inherits the global staleTime (see useSessionMessages), so it no-ops while
+  // the cached transcript is still fresh.
   void queryClient.prefetchQuery({
     queryKey: sessionMessagesKey(workspaceId, sessionId),
     queryFn: () => fetchAndMergeSessionMessages(queryClient, workspaceId, sessionId),
-    staleTime: SESSION_MESSAGES_STALE_TIME,
   });
 }
 
