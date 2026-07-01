@@ -474,6 +474,93 @@ describe("useConversation", () => {
     expect(__apiMock.getMock).toHaveBeenCalledTimes(2);
   });
 
+  it("retries idle-status history resync when the first REST response is still stale", async () => {
+    const { __wsMock } = await getWsMock();
+    const { __apiMock } = await getApiMock();
+    const userMessage: ChatMessage = {
+      id: "u1",
+      sessionId: "sess-1",
+      role: "user",
+      content: "start",
+      timestamp: "2026-02-12T00:00:00.000Z",
+    };
+    const assistantMessage: ChatMessage = {
+      id: "a1",
+      sessionId: "sess-1",
+      role: "assistant",
+      content: "final answer from persistence",
+      timestamp: "2026-02-12T00:00:01.000Z",
+      toolCalls: [
+        { id: "task-1", name: "Task", input: JSON.stringify({ prompt: "Review" }), output: "done" },
+      ],
+    };
+    __apiMock.getMock
+      .mockResolvedValueOnce([userMessage])
+      .mockResolvedValueOnce([userMessage])
+      .mockResolvedValueOnce([userMessage, assistantMessage]);
+
+    const { result, queryClient } = renderConversation("ws-1");
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-1", streaming: false });
+    });
+
+    await waitFor(() => {
+      expect(__apiMock.getMock).toHaveBeenCalledTimes(1);
+      expect(queryClient.isFetching({ queryKey: sessionMessagesKey("ws-1", "sess-1") })).toBe(0);
+    });
+
+    act(() => {
+      __wsMock.emit("ws-1", { type: "user_message", message: userMessage });
+    });
+
+    await waitFor(() => {
+      expect(result.current.messages).toEqual([expect.objectContaining({ id: "u1" })]);
+    });
+
+    act(() => {
+      __wsMock.emit("ws-1", {
+        type: "tool_use",
+        sessionId: "sess-1",
+        id: "task-1",
+        name: "Task",
+        input: JSON.stringify({ prompt: "Review" }),
+      });
+    });
+    expect(result.current.activeToolCalls).toHaveLength(1);
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      act(() => {
+        __wsMock.emit("ws-1", { type: "status", status: "idle", sessionId: "sess-1", streaming: false });
+      });
+
+      await waitFor(() => {
+        expect(__apiMock.getMock).toHaveBeenCalledTimes(2);
+        expect(queryClient.isFetching({ queryKey: sessionMessagesKey("ws-1", "sess-1") })).toBe(0);
+      });
+      expect(result.current.messages).toEqual([expect.objectContaining({ id: "u1" })]);
+      expect(result.current.messages.some((message) => message.id === "a1")).toBe(false);
+      expect(result.current.activeToolCalls).toEqual([expect.objectContaining({ id: "task-1", name: "Task" })]);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+
+      await waitFor(() => {
+        expect(result.current.messages).toEqual([
+          expect.objectContaining({ id: "u1" }),
+          expect.objectContaining({ id: "a1", content: "final answer from persistence" }),
+        ]);
+        expect(result.current.activeToolCalls).toEqual([]);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(__apiMock.getMock).toHaveBeenCalledTimes(3);
+    expect(result.current.activeToolCalls).toEqual([]);
+  });
+
   it("preserves parentToolUseId from tool_use events in active and persisted tool calls", async () => {
     const { __wsMock } = await getWsMock();
     const { result } = renderConversation("ws-1");
