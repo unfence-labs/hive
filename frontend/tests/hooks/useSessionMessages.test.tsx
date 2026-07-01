@@ -9,6 +9,8 @@ import {
   appendCachedSessionMessage,
   invalidateSessionMessages,
   removeCachedSessionMessages,
+  prefetchSessionMessages,
+  fetchAndMergeSessionMessages,
 } from "@/hooks/useSessionMessages";
 import type { ChatMessage } from "@/types";
 
@@ -129,6 +131,56 @@ describe("useSessionMessages", () => {
 
     expect(__apiMock.getMock).toHaveBeenCalledWith("/api/workspaces/ws-1/sessions/sess-1/messages");
     expect(result.current.messages).toEqual([firstUser, firstAssistant, followUp]);
+  });
+
+  describe("prefetchSessionMessages", () => {
+    it("populates the exact sessionMessagesKey cache entry", async () => {
+      const { __apiMock } = await getApiMock();
+      __apiMock.getMock.mockResolvedValue([message("a1", "warmed")]);
+
+      const queryClient = newClient();
+      prefetchSessionMessages(queryClient, "ws-1", "sess-1");
+
+      await waitFor(() => {
+        expect(getCachedSessionMessages(queryClient, "ws-1", "sess-1")).toEqual([
+          message("a1", "warmed"),
+        ]);
+      });
+      expect(__apiMock.getMock).toHaveBeenCalledWith(
+        "/api/workspaces/ws-1/sessions/sess-1/messages",
+      );
+    });
+
+    it("is a no-op when workspaceId or sessionId is missing", async () => {
+      const { __apiMock } = await getApiMock();
+      const queryClient = newClient();
+      const spy = vi.spyOn(queryClient, "prefetchQuery");
+
+      prefetchSessionMessages(queryClient, undefined, "sess-1");
+      prefetchSessionMessages(queryClient, "ws-1", undefined);
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(__apiMock.getMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("fetchAndMergeSessionMessages", () => {
+    it("preserves cached user echoes missing from the fetched payload", async () => {
+      const { __apiMock } = await getApiMock();
+      const firstUser = userMessage("u1", "first prompt");
+      const firstAssistant = message("a1", "first answer");
+      const followUp = userMessage("u2", "queued follow-up");
+      __apiMock.getMock.mockResolvedValue([firstUser, firstAssistant]);
+
+      const queryClient = newClient();
+      const key = sessionMessagesKey("ws-1", "sess-1");
+      // Simulate an in-flight user echo already sitting in the cache.
+      queryClient.setQueryData(key, [firstUser, firstAssistant, followUp]);
+
+      const merged = await fetchAndMergeSessionMessages(queryClient, "ws-1", "sess-1");
+
+      expect(merged).toEqual([firstUser, firstAssistant, followUp]);
+    });
   });
 
   describe("appendCachedSessionMessage", () => {

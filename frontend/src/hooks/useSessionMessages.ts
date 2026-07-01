@@ -11,6 +11,11 @@ import type { ChatMessage } from "@/types";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
+// Cached data renders instantly on switch-back; a short staleness window avoids
+// refetch storms while done/cancelled invalidation forces refresh. Shared with
+// the prefetch helper so warmed entries dedupe against the live hook query.
+const SESSION_MESSAGES_STALE_TIME = 5_000;
+
 export function sessionMessagesKey(
   workspaceId: string | undefined,
   sessionId: string | undefined,
@@ -40,6 +45,25 @@ function mergeFetchedMessagesWithCachedUserEchoes(
   return missingUserMessages.length > 0 ? [...fetched, ...missingUserMessages] : fetched;
 }
 
+/**
+ * Fetch a session's finalized messages and merge back any cached user echoes
+ * that the fetch didn't yet include. Re-reads the cache at fetch end so an
+ * in-flight WS user echo isn't dropped by a concurrent fetch/prefetch. Shared
+ * by both the live hook and the prefetch helper to keep behavior identical.
+ */
+export function fetchAndMergeSessionMessages(
+  queryClient: QueryClient,
+  workspaceId: string,
+  sessionId: string,
+): Promise<ChatMessage[]> {
+  const key = sessionMessagesKey(workspaceId, sessionId);
+  const cacheAtStart = queryClient.getQueryData<ChatMessage[]>(key);
+  return fetchSessionMessages(workspaceId, sessionId).then((fetched) => {
+    const cacheAtEnd = queryClient.getQueryData<ChatMessage[]>(key);
+    return mergeFetchedMessagesWithCachedUserEchoes(fetched, cacheAtEnd ?? cacheAtStart, sessionId);
+  });
+}
+
 /** Subscribe to a session's finalized messages. Returns `[]` until loaded. */
 export function useSessionMessages(
   workspaceId: string | undefined,
@@ -49,20 +73,31 @@ export function useSessionMessages(
   const key = sessionMessagesKey(workspaceId, sessionId);
   const query = useQuery({
     queryKey: key,
-    queryFn: async () => {
-      const cacheAtStart = queryClient.getQueryData<ChatMessage[]>(key);
-      const fetched = await fetchSessionMessages(workspaceId!, sessionId!);
-      const cacheAtEnd = queryClient.getQueryData<ChatMessage[]>(key);
-      const latestCache = cacheAtEnd ?? cacheAtStart;
-
-      return mergeFetchedMessagesWithCachedUserEchoes(fetched, latestCache, sessionId!);
-    },
+    queryFn: () => fetchAndMergeSessionMessages(queryClient, workspaceId!, sessionId!),
     enabled: !!workspaceId && !!sessionId,
-    // Cached data renders instantly on switch-back; a short staleness window
-    // avoids refetch storms while done/cancelled invalidation forces refresh.
-    staleTime: 5_000,
+    staleTime: SESSION_MESSAGES_STALE_TIME,
   });
   return { messages: query.data ?? EMPTY_MESSAGES, isLoading: query.isLoading };
+}
+
+/**
+ * Pre-warm the REST history cache for a session so a later switch finds warm
+ * data (React Query `isLoading` stays false → no empty-state flash). Pure
+ * additive optimization: `prefetchQuery` dedupes by key against in-flight
+ * fetches and no-ops while data is still fresh within staleTime, so it's safe
+ * to call alongside the active session's own fetch.
+ */
+export function prefetchSessionMessages(
+  queryClient: QueryClient,
+  workspaceId: string | undefined,
+  sessionId: string | undefined,
+): void {
+  if (!workspaceId || !sessionId) return;
+  void queryClient.prefetchQuery({
+    queryKey: sessionMessagesKey(workspaceId, sessionId),
+    queryFn: () => fetchAndMergeSessionMessages(queryClient, workspaceId, sessionId),
+    staleTime: SESSION_MESSAGES_STALE_TIME,
+  });
 }
 
 /** Read the currently-cached messages for a session synchronously (no fetch). */

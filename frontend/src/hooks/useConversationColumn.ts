@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/hooks/useApi";
+import { prefetchSessionMessages } from "@/hooks/useSessionMessages";
 import { useConversation } from "@/hooks/useConversation";
 import { useSessions } from "@/hooks/useSessions";
 import { useTabs, type UseTabsReturn } from "@/hooks/useTabs";
@@ -120,6 +122,29 @@ export function useConversationColumn(
   } = conversation;
 
   const { sessions, loading: sessionsLoading, createSession, convertToTerminal, deleteSession, refresh: refreshSessions } = useSessions(wsId);
+
+  // Pre-warm REST history for the workspace's recent sessions so switching to
+  // any of them is instant (no empty-state blank). Pure additive optimization:
+  // prefetchQuery dedupes by key and no-ops while fresh, so nothing depends on
+  // it completing — an un-warmed session just falls back to lazy load on switch.
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!wsId) return;
+    // Cap to the most-recent sessions to bound the request burst; older ones
+    // fall back to lazy load on switch (same as before this optimization).
+    const PREWARM_LIMIT = 25;
+    const eligible = sessions
+      .filter((s) => s.kind !== "terminal") // terminals have no chat transcript
+      .filter((s) => s.messageCount > 0) // nothing to warm for empty sessions
+      .filter((s) => s.sessionId !== sessionId) // active session already fetches
+      .slice()
+      // updatedAt is an ISO 8601 string, which sorts correctly lexicographically.
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) // most-recent first
+      .slice(0, PREWARM_LIMIT);
+    for (const s of eligible) {
+      prefetchSessionMessages(queryClient, wsId, s.sessionId);
+    }
+  }, [wsId, sessions, sessionId, queryClient]);
 
   // Mirror iOS: fall back to session metadata when WS hasn't delivered
   // lockedProvider yet.

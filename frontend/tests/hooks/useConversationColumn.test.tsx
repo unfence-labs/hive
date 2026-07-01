@@ -1,7 +1,10 @@
+import type { ReactNode } from "react";
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useConversationColumn } from "@/hooks/useConversationColumn";
 import { _resetSnapshotCache } from "@/hooks/useTabs";
+import * as sessionMessages from "@/hooks/useSessionMessages";
 import type { QueuedMessage } from "@/types";
 
 const mocks = vi.hoisted(() => ({
@@ -17,6 +20,25 @@ vi.mock("@/hooks/useSessions", () => ({ useSessions: mocks.useSessions }));
 vi.mock("@/hooks/useTasks", () => ({ useTasks: mocks.useTasks }));
 vi.mock("@/hooks/useBackgroundAgents", () => ({ useBackgroundAgents: mocks.useBackgroundAgents }));
 vi.mock("@/hooks/useApi", () => ({ api: { post: mocks.apiPost } }));
+
+// The prefetch effect calls useQueryClient(), so tests need a provider wrapper.
+function wrapperFor(queryClient: QueryClient) {
+  return ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+}
+
+function renderColumn(
+  wsId: string | undefined,
+  opts?: Parameters<typeof useConversationColumn>[1],
+) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  return renderHook(() => useConversationColumn(wsId, opts), {
+    wrapper: wrapperFor(queryClient),
+  });
+}
 
 // Shared mutable conversation state so we can re-render with different values.
 let conversation: Record<string, unknown>;
@@ -78,7 +100,7 @@ beforeEach(() => {
 
 describe("useConversationColumn — session handlers", () => {
   it("handleCreateSession creates then switches to the new session", async () => {
-    const { result } = renderHook(() => useConversationColumn("ws1"));
+    const { result } = renderColumn("ws1");
     await act(async () => {
       await result.current.handleCreateSession();
     });
@@ -88,7 +110,7 @@ describe("useConversationColumn — session handlers", () => {
 
   it("handleActivateSession activates the tab, switches, and runs onActivateSession", () => {
     const onActivateSession = vi.fn();
-    const { result } = renderHook(() => useConversationColumn("ws1", { onActivateSession }));
+    const { result } = renderColumn("ws1", { onActivateSession });
     act(() => result.current.handleActivateSession("s2"));
     expect(conversation.switchSession).toHaveBeenCalledWith("s2");
     expect(onActivateSession).toHaveBeenCalledWith("s2");
@@ -98,7 +120,7 @@ describe("useConversationColumn — session handlers", () => {
 
   it("handleActivateSession is a no-op switch when already active", () => {
     const onActivateSession = vi.fn();
-    const { result } = renderHook(() => useConversationColumn("ws1", { onActivateSession }));
+    const { result } = renderColumn("ws1", { onActivateSession });
     act(() => result.current.handleActivateSession("s1")); // s1 is active
     expect(conversation.switchSession).not.toHaveBeenCalled();
     expect(onActivateSession).not.toHaveBeenCalled();
@@ -106,7 +128,7 @@ describe("useConversationColumn — session handlers", () => {
 
   it("handleDeleteSession on a non-last active session activates the next one", async () => {
     const onLastSessionDeleted = vi.fn();
-    const { result } = renderHook(() => useConversationColumn("ws1", { onLastSessionDeleted }));
+    const { result } = renderColumn("ws1", { onLastSessionDeleted });
     await act(async () => {
       await result.current.handleDeleteSession("s1"); // active, sibling s2 remains
     });
@@ -124,7 +146,7 @@ describe("useConversationColumn — session handlers", () => {
       refresh,
     });
     const onLastSessionDeleted = vi.fn();
-    const { result } = renderHook(() => useConversationColumn("ws1", { onLastSessionDeleted }));
+    const { result } = renderColumn("ws1", { onLastSessionDeleted });
     await act(async () => {
       await result.current.handleDeleteSession("s1");
     });
@@ -135,7 +157,7 @@ describe("useConversationColumn — session handlers", () => {
   it("handleDeleteSession does nothing when delete fails", async () => {
     deleteSession.mockResolvedValue(false);
     const onLastSessionDeleted = vi.fn();
-    const { result } = renderHook(() => useConversationColumn("ws1", { onLastSessionDeleted }));
+    const { result } = renderColumn("ws1", { onLastSessionDeleted });
     await act(async () => {
       await result.current.handleDeleteSession("s1");
     });
@@ -148,7 +170,7 @@ describe("useConversationColumn — session handlers", () => {
 describe("useConversationColumn — handleStartTerminal", () => {
   it("converts the active session in place when it is an empty chat", async () => {
     // Active session s1 is an empty chat (kind absent, messageCount 0).
-    const { result } = renderHook(() => useConversationColumn("ws1"));
+    const { result } = renderColumn("ws1");
     await act(async () => {
       await result.current.handleStartTerminal();
     });
@@ -174,7 +196,7 @@ describe("useConversationColumn — handleStartTerminal", () => {
     });
     createSession.mockResolvedValue({ sessionId: "term-1", kind: "terminal", createdAt: "2024-01-04T00:00:00Z" });
 
-    const { result } = renderHook(() => useConversationColumn("ws1"));
+    const { result } = renderColumn("ws1");
     await act(async () => {
       await result.current.handleStartTerminal();
     });
@@ -187,7 +209,7 @@ describe("useConversationColumn — handleStartTerminal", () => {
 
   it("aborts (no start) when the conversion fails", async () => {
     convertToTerminal.mockResolvedValue(null);
-    const { result } = renderHook(() => useConversationColumn("ws1"));
+    const { result } = renderColumn("ws1");
     await act(async () => {
       await result.current.handleStartTerminal();
     });
@@ -201,7 +223,7 @@ describe("useConversationColumn — handleStartTerminal", () => {
     // terminal (convert is irreversible), so this must not reject unhandled and
     // must still refresh + activate so the pane's Start button can retry.
     mocks.apiPost.mockRejectedValueOnce(new Error("network"));
-    const { result } = renderHook(() => useConversationColumn("ws1"));
+    const { result } = renderColumn("ws1");
     await act(async () => {
       await result.current.handleStartTerminal();
     });
@@ -219,7 +241,7 @@ describe("useConversationColumn — per-session message queue", () => {
     conversation = makeConversation({ isStreaming: true });
     mocks.useConversation.mockImplementation(() => conversation);
 
-    const { result, rerender } = renderHook(() => useConversationColumn("ws1"));
+    const { result, rerender } = renderColumn("ws1");
 
     act(() => result.current.setQueuedMessage(queued("for s1")));
     expect(result.current.queuedMessage?.content).toBe("for s1");
@@ -244,7 +266,7 @@ describe("useConversationColumn — per-session message queue", () => {
   it("auto-dequeues and sends when the workspace becomes idle", () => {
     conversation = makeConversation({ isStreaming: true });
     mocks.useConversation.mockImplementation(() => conversation);
-    const { result, rerender } = renderHook(() => useConversationColumn("ws1"));
+    const { result, rerender } = renderColumn("ws1");
 
     act(() => result.current.setQueuedMessage(queued("hello")));
     expect(result.current.queuedMessage?.content).toBe("hello");
@@ -263,16 +285,79 @@ describe("useConversationColumn — per-session message queue", () => {
   it("does not dequeue while pending tool inputs exist", () => {
     conversation = makeConversation({ isStreaming: false, pendingToolInputs: [{ toolName: "AskUserQuestion" }] });
     mocks.useConversation.mockImplementation(() => conversation);
-    const { result } = renderHook(() => useConversationColumn("ws1"));
+    const { result } = renderColumn("ws1");
     act(() => result.current.setQueuedMessage(queued("blocked")));
     expect(conversation.sendMessage).not.toHaveBeenCalled();
     expect(result.current.queuedMessage?.content).toBe("blocked");
   });
 
   it("bumpScrollToBottom increments the scroll trigger", () => {
-    const { result } = renderHook(() => useConversationColumn("ws1"));
+    const { result } = renderColumn("ws1");
     const before = result.current.scrollToBottomTrigger;
     act(() => result.current.bumpScrollToBottom());
     expect(result.current.scrollToBottomTrigger).toBe(before + 1);
+  });
+});
+
+describe("useConversationColumn — REST history pre-warm", () => {
+  let prefetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    // Spy without hitting the network / React Query.
+    prefetchSpy = vi.spyOn(sessionMessages, "prefetchSessionMessages").mockImplementation(() => {});
+  });
+
+  it("prefetches eligible sessions and skips the active, terminal, and empty ones", () => {
+    // Active is s1. s2 is a warmable chat; s3 is a terminal; s4 is empty.
+    mocks.useSessions.mockReturnValue({
+      sessions: [
+        { sessionId: "s1", title: "One", createdAt: "2024-01-01T00:00:00Z", updatedAt: "2024-01-01T00:00:00Z", messageCount: 5 },
+        { sessionId: "s2", title: "Two", createdAt: "2024-01-02T00:00:00Z", updatedAt: "2024-01-02T00:00:00Z", messageCount: 3 },
+        { sessionId: "s3", title: "Term", kind: "terminal", createdAt: "2024-01-03T00:00:00Z", updatedAt: "2024-01-03T00:00:00Z", messageCount: 4 },
+        { sessionId: "s4", title: "Empty", createdAt: "2024-01-04T00:00:00Z", updatedAt: "2024-01-04T00:00:00Z", messageCount: 0 },
+      ],
+      createSession,
+      convertToTerminal,
+      deleteSession,
+      refresh,
+    });
+
+    renderColumn("ws1"); // active sessionId is "s1"
+
+    const warmedIds = prefetchSpy.mock.calls.map((call) => call[2]);
+    expect(warmedIds).toEqual(["s2"]);
+    expect(prefetchSpy).toHaveBeenCalledWith(expect.anything(), "ws1", "s2");
+  });
+
+  it("orders most-recent first and caps the burst at 25 sessions", () => {
+    // 30 eligible chat sessions with ascending updatedAt; expect the newest 25.
+    const sessions = Array.from({ length: 30 }, (_, i) => {
+      const day = String(i + 1).padStart(2, "0");
+      return {
+        sessionId: `s${i}`,
+        title: `S${i}`,
+        createdAt: `2024-02-${day}T00:00:00Z`,
+        updatedAt: `2024-02-${day}T00:00:00Z`,
+        messageCount: 2,
+      };
+    });
+    mocks.useConversation.mockImplementation(() =>
+      makeConversation({ sessionId: "none" }),
+    );
+    mocks.useSessions.mockReturnValue({ sessions, createSession, convertToTerminal, deleteSession, refresh });
+
+    renderColumn("ws1");
+
+    const warmedIds = prefetchSpy.mock.calls.map((call) => call[2]);
+    expect(warmedIds).toHaveLength(25);
+    // Newest first (s29 down to s5); s0..s4 dropped by the cap.
+    expect(warmedIds[0]).toBe("s29");
+    expect(warmedIds[24]).toBe("s5");
+    expect(warmedIds).not.toContain("s4");
+  });
+
+  it("does not prefetch when there is no workspace id", () => {
+    renderColumn(undefined);
+    expect(prefetchSpy).not.toHaveBeenCalled();
   });
 });
