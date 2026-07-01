@@ -170,6 +170,46 @@ describe("useConversationFind", () => {
     expect(result.current.activeIndex).toBe(-1);
   });
 
+  it("does not flag noResults during the debounce window, only after the search runs", () => {
+    const { result } = setup();
+
+    act(() => {
+      pressFindShortcut();
+    });
+    act(() => {
+      result.current.setQuery("zzz"); // no matches
+    });
+
+    // During the debounce the search hasn't run yet, so we must NOT claim
+    // "no results" — that is the premature red flash we are guarding against.
+    expect(result.current.noResults).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(150);
+    });
+
+    // Now the search has completed and genuinely found nothing.
+    expect(result.current.matchCount).toBe(0);
+    expect(result.current.noResults).toBe(true);
+  });
+
+  it("never flags noResults for a query that has matches", () => {
+    const { result } = setup();
+
+    act(() => {
+      pressFindShortcut();
+    });
+    act(() => {
+      result.current.setQuery("foo");
+    });
+    expect(result.current.noResults).toBe(false); // during debounce
+    act(() => {
+      vi.advanceTimersByTime(150);
+    });
+    expect(result.current.matchCount).toBe(3);
+    expect(result.current.noResults).toBe(false); // after search
+  });
+
   it("resets open/matchCount/activeIndex on close()", () => {
     const { result } = setup();
 

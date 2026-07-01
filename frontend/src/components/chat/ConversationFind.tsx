@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
  */
 export function ConversationFind({ switchCounter }: { switchCounter: number }) {
   const { scrollRef } = useStickToBottomContext();
-  const { open, query, matchCount, activeIndex, inputRef, setQuery, next, prev, close } =
+  const { open, query, matchCount, activeIndex, noResults, inputRef, setQuery, next, prev, close } =
     useConversationFind({
       scrollRef: scrollRef as RefObject<HTMLElement | null>,
       switchCounter,
@@ -21,7 +21,6 @@ export function ConversationFind({ switchCounter }: { switchCounter: number }) {
 
   if (!open) return null;
 
-  const noResults = matchCount === 0 && query !== "";
   const counter = matchCount === 0 ? "0/0" : `${activeIndex + 1}/${matchCount}`;
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {

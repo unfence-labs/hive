@@ -46,6 +46,8 @@ export interface UseConversationFindResult {
   matchCount: number;
   /** 0-based index of the active match, or -1 when there are no matches. */
   activeIndex: number;
+  /** True only after a completed search for the current query found nothing. */
+  noResults: boolean;
   inputRef: RefObject<HTMLInputElement | null>;
   setQuery: (value: string) => void;
   next: () => void;
@@ -66,6 +68,10 @@ export function useConversationFind({
   const [query, setQueryState] = useState("");
   const [matchCount, setMatchCount] = useState(0);
   const [activeIndex, setActiveIndex] = useState(-1);
+  // The query whose results are currently reflected in matchCount. Kept distinct
+  // from `query` so the "no results" state only shows after a search has actually
+  // run — not during the debounce window, which would flash red prematurely.
+  const [indexedQuery, setIndexedQuery] = useState("");
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const rangesRef = useRef<Range[]>([]);
@@ -148,6 +154,7 @@ export function useConversationFind({
       const ranges = buildRanges(queryRef.current);
       rangesRef.current = ranges;
       setMatchCount(ranges.length);
+      setIndexedQuery(queryRef.current);
 
       if (highlightsSupported) {
         if (ranges.length > 0) CSS.highlights.set(FIND_HIGHLIGHT, new Highlight(...ranges));
@@ -185,6 +192,7 @@ export function useConversationFind({
     setOpen(false);
     setMatchCount(0);
     setActiveIndex(-1);
+    setIndexedQuery("");
     rangesRef.current = [];
     clearHighlights();
   }, [clearHighlights]);
@@ -252,5 +260,7 @@ export function useConversationFind({
     };
   }, [clearHighlights]);
 
-  return { open, query, matchCount, activeIndex, inputRef, setQuery, next, prev, close };
+  const noResults = matchCount === 0 && indexedQuery !== "";
+
+  return { open, query, matchCount, activeIndex, noResults, inputRef, setQuery, next, prev, close };
 }
