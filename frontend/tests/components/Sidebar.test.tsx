@@ -482,7 +482,6 @@ describe("Sidebar", () => {
   });
 
   it("keeps the latest folder state in react-query cache after saving", async () => {
-    const user = userEvent.setup();
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -518,9 +517,9 @@ describe("Sidebar", () => {
     );
 
     await screen.findByText(withTextContent("acme/alpha"));
-    await user.click(screen.getByRole("button", { name: "New folder" }));
-    await user.type(screen.getByLabelText("Folder name"), "Client work");
-    await user.click(screen.getByRole("button", { name: "Create folder" }));
+    fireEvent.click(screen.getByRole("button", { name: "New folder" }));
+    fireEvent.change(screen.getByLabelText("Folder name"), { target: { value: "Client work" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
 
     await waitFor(() => {
       expect(api.put).toHaveBeenCalledWith(
@@ -1619,17 +1618,21 @@ describe("Sidebar", () => {
     });
   });
 
-  it("keeps add repository compact in the footer next to settings", async () => {
+  it("keeps repository creation actions compact in the workspaces header", async () => {
     renderSidebar("/workspaces/w1", projects);
 
     await screen.findByText("workspace/tokyo");
 
     const addRepository = screen.getByRole("button", { name: "Add repository" });
+    const newFolder = screen.getByRole("button", { name: "New folder" });
     const settings = screen.getByRole("link", { name: "Settings" });
 
-    expect(addRepository.parentElement).toBe(settings.parentElement);
-    expect(addRepository.parentElement).toHaveClass("justify-between");
-    expect(addRepository).toHaveClass("text-xs");
+    expect(addRepository.parentElement).toBe(newFolder.parentElement);
+    expect(addRepository.parentElement).toHaveClass("gap-0.5");
+    expect(settings.parentElement).toHaveClass("justify-end");
+    expect(settings.parentElement).not.toContainElement(addRepository);
+    expect(addRepository).toHaveClass("p-0.5");
+    expect(addRepository).not.toHaveTextContent("Add repository");
     expect(addRepository).not.toHaveClass("border");
   });
 
