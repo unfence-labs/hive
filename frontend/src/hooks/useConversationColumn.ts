@@ -130,17 +130,16 @@ export function useConversationColumn(
   const queryClient = useQueryClient();
   useEffect(() => {
     if (!wsId) return;
-    // Cap to the most-recent sessions to bound the request burst; older ones
-    // fall back to lazy load on switch (same as before this optimization).
-    const PREWARM_LIMIT = 25;
+    // A context holds at most MAX_SESSIONS_PER_WORKSPACE (6) sessions, so this
+    // set is tiny (≤5 after excluding the active one) — no cap needed. Sorted
+    // most-recent first only so the warm-up order is predictable.
     const eligible = sessions
       .filter((s) => s.kind !== "terminal") // terminals have no chat transcript
       .filter((s) => s.messageCount > 0) // nothing to warm for empty sessions
       .filter((s) => s.sessionId !== sessionId) // active session already fetches
       .slice()
       // updatedAt is an ISO 8601 string, which sorts correctly lexicographically.
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) // most-recent first
-      .slice(0, PREWARM_LIMIT);
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); // most-recent first
     for (const s of eligible) {
       prefetchSessionMessages(queryClient, wsId, s.sessionId);
     }

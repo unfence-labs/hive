@@ -329,9 +329,9 @@ describe("useConversationColumn — REST history pre-warm", () => {
     expect(prefetchSpy).toHaveBeenCalledWith(expect.anything(), "ws1", "s2");
   });
 
-  it("orders most-recent first and caps the burst at 25 sessions", () => {
-    // 30 eligible chat sessions with ascending updatedAt; expect the newest 25.
-    const sessions = Array.from({ length: 30 }, (_, i) => {
+  it("warms every eligible session, most-recent first (no cap — a context holds at most 6)", () => {
+    // A context caps at MAX_SESSIONS_PER_WORKSPACE (6); use the realistic max.
+    const sessions = Array.from({ length: 6 }, (_, i) => {
       const day = String(i + 1).padStart(2, "0");
       return {
         sessionId: `s${i}`,
@@ -349,11 +349,8 @@ describe("useConversationColumn — REST history pre-warm", () => {
     renderColumn("ws1");
 
     const warmedIds = prefetchSpy.mock.calls.map((call) => call[2]);
-    expect(warmedIds).toHaveLength(25);
-    // Newest first (s29 down to s5); s0..s4 dropped by the cap.
-    expect(warmedIds[0]).toBe("s29");
-    expect(warmedIds[24]).toBe("s5");
-    expect(warmedIds).not.toContain("s4");
+    // All 6 warmed (none active/terminal/empty), newest updatedAt first.
+    expect(warmedIds).toEqual(["s5", "s4", "s3", "s2", "s1", "s0"]);
   });
 
   it("does not prefetch when there is no workspace id", () => {
