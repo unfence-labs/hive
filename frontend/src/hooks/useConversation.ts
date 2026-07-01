@@ -50,6 +50,7 @@ interface ConversationState {
 }
 
 const CANCELLED_NO_OUTPUT_MESSAGE = "Generation interrupted before any output.";
+const TERMINAL_STATUS_RESYNC_DELAY_MS = 300;
 
 type LocalAction =
   | { type: "reset" }
@@ -123,6 +124,23 @@ function lastMessageIsTerminalAssistant(messages: ChatMessage[], sid: string): b
     return message.role === "assistant";
   }
   return false;
+}
+
+function streamHasRecoverableState(stream: SessionStreamState): boolean {
+  return stream.isStreaming ||
+    stream.currentText.length > 0 ||
+    stream.currentThinking.length > 0 ||
+    stream.activeToolCalls.length > 0 ||
+    stream.activeAgentActivities.length > 0 ||
+    stream.pendingToolInputs.length > 0;
+}
+
+function streamHasVisibleState(stream: SessionStreamState): boolean {
+  return stream.currentText.length > 0 ||
+    stream.currentThinking.length > 0 ||
+    stream.activeToolCalls.length > 0 ||
+    stream.activeAgentActivities.length > 0 ||
+    stream.pendingToolInputs.length > 0;
 }
 
 /** Build the finalized assistant message from a stream slot on done/cancelled. */
@@ -404,6 +422,9 @@ function reducer(state: ConversationState, action: Action): ConversationState {
       // No pending question and a stale finished slot lingers → drop it so it is
       // not rendered as a duplicate bubble alongside the now-persisted message.
       if (activeStream) {
+        if (!lastMessageIsTerminalAssistant(action.messages, sid) && streamHasVisibleState(activeStream)) {
+          return state;
+        }
         return { ...state, sessionStreams: deleteStream(state, sid) };
       }
       return state;
@@ -509,6 +530,7 @@ function sessionIdField(id: string | undefined): { sessionId: string } | Record<
 export function useConversation(workspaceId: string | undefined) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const queryClient = useQueryClient();
+  const terminalStatusResyncTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // Finalized messages for the active session — owned by React Query (REST).
   const { messages } = useSessionMessages(workspaceId, state.sessionId);
@@ -571,6 +593,24 @@ export function useConversation(workspaceId: string | undefined) {
         if (sid) invalidateSessionMessages(queryClient, workspaceId, sid);
       }
 
+      // A client can miss the terminal done/cancelled event while the app is
+      // backgrounded or while a zombie socket is being recovered. Reconnect
+      // bootstrap still sends idle status, so use it to resync the REST-owned
+      // finalized history and let reconcile_history clear stale live state.
+      if (msg.type === "status" && msg.status === "idle") {
+        const sid = msg.sessionId ?? stateRef.current.sessionId;
+        const stream = sid ? stateRef.current.sessionStreams[sid] : undefined;
+        if (sid && stream && streamHasRecoverableState(stream)) {
+          invalidateSessionMessages(queryClient, workspaceId, sid);
+          const existingTimer = terminalStatusResyncTimersRef.current[sid];
+          if (existingTimer) clearTimeout(existingTimer);
+          terminalStatusResyncTimersRef.current[sid] = setTimeout(() => {
+            delete terminalStatusResyncTimersRef.current[sid];
+            invalidateSessionMessages(queryClient, workspaceId, sid);
+          }, TERMINAL_STATUS_RESYNC_DELAY_MS);
+        }
+      }
+
       if (msg.type === "user_message") {
         const sid = msg.message.sessionId ?? stateRef.current.sessionId;
         appendCachedSessionMessage(queryClient, workspaceId, sid, msg.message);
@@ -589,6 +629,10 @@ export function useConversation(workspaceId: string | undefined) {
       if (workspaceId && sessionIdRef.current) {
         savedSessionByWorkspace.set(workspaceId, sessionIdRef.current);
       }
+      for (const timer of Object.values(terminalStatusResyncTimersRef.current)) {
+        clearTimeout(timer);
+      }
+      terminalStatusResyncTimersRef.current = {};
       unsubscribe();
     };
   }, [workspaceId, queryClient]);
