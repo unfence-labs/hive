@@ -443,6 +443,16 @@ export async function streamRoutes(app: FastifyInstance, opts: StreamRoutesOptio
     const desired = new Set(workspaceIds);
     hub.focusWorkspaces = focusWorkspaces ? new Set(focusWorkspaces) : undefined;
 
+    if (hub.focusWorkspaces) {
+      for (const wsId of hub.focusWorkspaces) {
+        if (!hub.subscribedWorkspaces.has(wsId)) continue;
+        for (const streamingId of getStreamingSessionIds(wsId)) {
+          const session = getSessionById(wsId, streamingId);
+          if (session) sendStreamingSnapshot(hub, wsId, session);
+        }
+      }
+    }
+
     // Unsubscribe from removed workspaces
     for (const wsId of hub.subscribedWorkspaces) {
       if (!desired.has(wsId)) {

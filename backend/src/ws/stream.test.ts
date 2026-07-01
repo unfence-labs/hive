@@ -1620,4 +1620,36 @@ describe("WS /ws/hub", () => {
 
     ws.close();
   });
+
+  it("replays the streaming snapshot when an already-subscribed workspace enters focus (C13)", async () => {
+    const fakeClaudePath = join(tempDir, "fake-claude-focus-replay.sh");
+    await writeFile(fakeClaudePath, "#!/bin/sh\nsleep 5\n", "utf-8");
+    await chmod(fakeClaudePath, 0o755);
+    const slowCmd = { command: fakeClaudePath, systemPrompt: false as const };
+    const local = await startWsApp(undefined, slowCmd);
+
+    const other = await createWorkspace(projectId, dataDir);
+    const { session } = await getOrCreateSession(other.id, dataDir, slowCmd);
+    session.sendMessage("streaming on other");
+    if (!session.getStreamingSnapshot()) throw new Error("Expected a streaming snapshot");
+
+    const { wsReady, allEnvelopes } = connectHub([wsId, other.id], {
+      app: local.app,
+      collectAll: true,
+      focusWorkspaces: [wsId],
+    });
+    const ws = await wsReady;
+
+    const snapshotsForOther = () =>
+      allEnvelopes.filter((e) => e.workspaceId === other.id && e.event.type === "stream_snapshot");
+    await waitForCondition(() => snapshotsForOther().length >= 1);
+    const beforeFocus = snapshotsForOther().length;
+
+    syncWorkspaces(ws, [wsId, other.id], [other.id]);
+    await waitForCondition(() => snapshotsForOther().length > beforeFocus);
+
+    ws.close();
+    await local.app.close();
+    await endSession(other.id, dataDir).catch(() => {});
+  });
 });

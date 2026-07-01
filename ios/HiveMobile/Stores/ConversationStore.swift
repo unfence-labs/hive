@@ -474,10 +474,8 @@ final class ConversationStore {
         let hasContent = !stream.currentText.isEmpty || !stream.activeToolCalls.isEmpty
             || !stream.activeAgentActivities.isEmpty || !stream.currentThinking.isEmpty
 
-        // Remove stream slot FIRST so the chat view never shows both the
-        // finalized message (in `messages`) and the in-progress streaming
-        // bubble (derived from `sessionStreams`) at once. The local `stream`
-        // is a value-type copy captured above, so it survives this removal.
+        // Remove the stream slot before appending the finalized message so the
+        // chat view never shows both at once.
         sessionStreams.removeValue(forKey: sid)
 
         if isActive {
