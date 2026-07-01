@@ -16,6 +16,7 @@ import { BRAIN_WORKSPACE_ID } from "@/lib/brain";
 import type { Project } from "@/types";
 import { WorkspaceLiveDataProvider } from "@/contexts/WorkspaceLiveDataContext";
 import { useWsCacheInvalidation } from "@/hooks/useWsCacheInvalidation";
+import { useActiveSessionPrewarm } from "@/hooks/useActiveSessionPrewarm";
 import { useNotificationToasts } from "@/hooks/useNotificationToasts";
 import { wsTransport } from "@/lib/ws-transport";
 import { HiveToaster } from "@/components/ui/toaster";
@@ -55,6 +56,10 @@ export default function App() {
   }, [loading, workspaceIds]);
 
   useWsCacheInvalidation(workspaceIds);
+
+  // Prewarm each workspace's active-session history at bootstrap so the first
+  // switch into a workspace is instant (no empty-state blank on cache-miss).
+  useActiveSessionPrewarm(projects);
 
   useEffect(() => () => {
     wsTransport.disconnectAll();
