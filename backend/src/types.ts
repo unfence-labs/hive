@@ -721,7 +721,7 @@ export interface UpdateCustomAgentRequest {
 export type HubIncoming =
   // `historyViaRest`: client fetches finalized history over REST (React Query),
   // so the server skips the heavy `history` bootstrap event for this hub. Absent
-  // / false keeps the legacy behavior (e.g. iOS until it migrates).
+  // / false keeps the legacy behavior for clients that still rely on WS history.
   | { type: "sync_workspaces"; workspaceIds: string[]; historyViaRest?: boolean }
   // Application-level liveness probe. The browser WebSocket API never exposes
   // protocol-level ping/pong to JS, so clients send this to actively detect a

@@ -101,8 +101,8 @@ export default function ChatConversation({
   // 6. After settling → resize="smooth" for normal interaction
   //
   // Uses React's "set state during render" pattern to detect workspace switches
-  // synchronously, even when React 18 batches the switch dispatch with the WS
-  // history replay into a single render (which broke the old useEffect approach).
+  // synchronously, even when React batches the switch dispatch with REST history
+  // hydration into a single render (which broke the old useEffect approach).
   const [prevSwitchCounter, setPrevSwitchCounter] = useState(switchCounter);
   const [hydrated, setHydrated] = useState(false);
   const [settled, setSettled] = useState(false);

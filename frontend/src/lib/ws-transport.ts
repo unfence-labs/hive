@@ -405,8 +405,8 @@ class WsTransport {
   /**
    * Tear down a (possibly zombie) socket and open a fresh one, marking it as a
    * reconnect so onReconnect listeners fire. The conversation reducer reconciles
-   * non-destructively from the bootstrap (snapshot replace + history), so this
-   * does not blank the visible stream.
+   * non-destructively from the bootstrap (snapshot replace + REST history cache),
+   * so this does not blank the visible stream.
    */
   private forceReconnect(): void {
     if (this.subscribedWorkspaceIds.size === 0) return;

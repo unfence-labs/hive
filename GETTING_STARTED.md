@@ -55,12 +55,13 @@ ping 100.x.x.x
 
 ### Prerequisites
 
-The backend runs preflight checks on startup and exits with a clear error if any dependency is missing:
+The backend runs preflight checks on startup. It exits with a clear error if a required dependency is missing; optional dependencies only disable related features:
 
 - **Node.js >= 20**
 - **Git >= 2.17** (worktree support)
 - **Claude CLI** installed and authenticated (`claude` command)
-- **GitHub CLI** (`gh`) — optional but required for PR status and GitHub OAuth from the app
+- **GitHub CLI** (`gh`) installed (startup preflight requirement; authenticate it before GitHub-backed flows)
+- **Codex CLI** (`codex`) optional for OpenAI model support
 
 ### Clone and build
 

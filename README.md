@@ -9,8 +9,8 @@ Hive can run as a local web app, a Tauri desktop app connected to a local or rem
 **Agent workspaces**
 - Clone or create git-backed projects, then create isolated workspaces from them.
 - Run Claude and Codex sessions with provider-aware model selection and per-session provider locking.
-- Keep up to 4 sessions per workspace, with history replay, queued follow-up messages, unread indicators, and interrupt/stop handling.
-- Stream assistant text, thinking, tool calls, file changes, diagnostics, tasks, images, plan updates, branch info, diff stats, and script status over the multiplexed hub WebSocket.
+- Keep up to 4 sessions per workspace, with REST-fetched per-session history, queued follow-up messages, unread indicators, and interrupt/stop handling.
+- Stream live assistant text, thinking, tool calls, file changes, diagnostics, tasks, images, plan updates, branch info, diff stats, and script status over the multiplexed hub WebSocket.
 - Attach images to chat messages; backend resizes and stores attachments per session.
 - Browse workspace files, preview raw files, inspect inline diffs, paste selected diff comments into prompts, and use `#file`, `/command`, and `@agent` autocomplete.
 - Open a conversation tab as a full-pane interactive terminal (login shell in the worktree) from the workspace empty state. A tab commits to terminal before its first message and cannot revert; multiple terminal tabs per workspace are allowed. Terminal tabs are a desktop surface and are hidden on iOS.
@@ -281,9 +281,10 @@ Hub:
 
 - Endpoint: `ws://<host>/ws/hub`
 - Auth: `Authorization: Bearer <token>`, `x-hive-token`, or `?token=<token>`
-- Client sends `sync_workspaces`, `user_message`, `stop`, and `tool_input_response`.
-- Server wraps events as `{ workspaceId, event }`.
-- Current server events include `status`, `history`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `agent_activity`, `tool_input_required`, `tool_input_resolved`, `done`, `cancelled`, `error`, `branch_info`, `diff_stats`, `script_status`, and `plan_mode_changed`.
+- Clients send hub-level `sync_workspaces` and `ping`; workspace events include `switch_session`, `user_message`, `stop`, and `tool_input_response`.
+- `sync_workspaces` accepts `historyViaRest`. Web and iOS send `true`, so finalized conversation history is fetched over REST (`GET /api/workspaces/:wsId/sessions/:sessionId/messages`) while the hub bootstrap sends status and live stream snapshots only. Absent or `false` keeps the legacy WS `history` bootstrap.
+- Server wraps workspace events as `{ workspaceId, event }`; hub pings receive `{ type: "pong" }`.
+- Current server workspace events include `status`, `user_message`, `text_delta`, `thinking`, `tool_use`, `tool_result`, `agent_activity`, `stream_snapshot`, `tool_input_required`, `tool_input_resolved`, `done`, `cancelled`, `error`, `branch_info`, `diff_stats`, `script_status`, `browser_status`, `plan_mode_changed`, and legacy `history`.
 
 Script stream:
 

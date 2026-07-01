@@ -335,15 +335,15 @@ final class HubStatusMonitor {
     // MARK: - App lifecycle
 
     /// Force a full WS reconnect to get fresh bootstrap data for all workspaces.
-    /// Used by pull-to-refresh so the backend re-sends status, history, branch_info,
-    /// diff_stats, and script_status for every subscribed workspace.
+    /// Used by pull-to-refresh so the backend re-sends status, live stream snapshots,
+    /// branch_info, diff_stats, and script_status for every subscribed workspace.
     func forceRefresh() {
         hubConnection?.forceReconnect()
     }
 
     /// Called when the app returns to foreground after a non-trivial background period.
-    /// Forces an immediate hub reconnect so the backend bootstrap (status + history)
-    /// re-syncs every workspace. The reconnect is non-destructive: streaming state is
+    /// Forces an immediate hub reconnect so the backend bootstrap re-syncs live
+    /// workspace state. The reconnect is non-destructive: streaming state is
     /// reconciled silently from bootstrap events rather than wiped (issue #259).
     func appDidBecomeActive() {
         // Snapshot workspace IDs that had any streaming session
@@ -436,8 +436,9 @@ private final class HubConnection {
         // Re-wire send closures on all existing stores so they target the fresh socket.
         // We deliberately do NOT wipe streaming state here: the reconnect is
         // non-destructive (issue #259). The visible conversation stays as-is and is
-        // reconciled silently from authoritative bootstrap events (stream_snapshot
-        // replaces active streams; history drops stale finalized stream slots).
+        // reconciled silently from authoritative bootstrap events plus REST history
+        // refreshes (stream_snapshot replaces active streams; REST history drops
+        // stale finalized stream slots).
         monitor?.rewireAllSendClosures()
 
         startReceiving()
