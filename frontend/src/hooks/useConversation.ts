@@ -533,7 +533,13 @@ export function useConversation(workspaceId: string | undefined) {
   const terminalStatusResyncTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // Finalized messages for the active session — owned by React Query (REST).
-  const { messages } = useSessionMessages(workspaceId, state.sessionId);
+  // `isHistoryLoading` is true only on a cache-miss first load (React Query
+  // `isLoading`, not `isFetching`), so switch-back and background refetches
+  // stay false and never blank the transcript.
+  const { messages, isLoading: isHistoryLoading } = useSessionMessages(
+    workspaceId,
+    state.sessionId,
+  );
 
   // Track latest state so the WS handler (set up once per workspace) can read the
   // current stream content and session id without re-subscribing.
@@ -779,6 +785,7 @@ export function useConversation(workspaceId: string | undefined) {
 
   return {
     messages,
+    isHistoryLoading,
     isStreaming: activeStream?.isStreaming ?? false,
     streamingStartedAt: activeStream?.streamingStartedAt ?? null,
     workspaceStatus: state.workspaceStatus,

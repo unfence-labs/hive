@@ -158,6 +158,7 @@ export default function WorkspaceView() {
 
   const {
     messages,
+    isHistoryLoading,
     isStreaming,
     streamingStartedAt,
     currentStreamingText,
@@ -474,6 +475,7 @@ export default function WorkspaceView() {
             onFileTabClose={closeFileTab}
             onConversationActivate={() => sessionId && activateTab(`session:${sessionId}`)}
             messages={messages}
+            isHistoryLoading={isHistoryLoading}
             streamingStartedAt={streamingStartedAt}
             currentStreamingText={currentStreamingText}
             currentThinking={currentThinking}
