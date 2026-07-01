@@ -121,6 +121,7 @@ export default function BrainView() {
   const {
     messages,
     isHistoryLoading,
+    isHistoryError,
     isStreaming,
     streamingStartedAt,
     currentStreamingText,
@@ -368,6 +369,7 @@ export default function BrainView() {
               onConversationActivate={() => sessionId && activateTab(`session:${sessionId}`)}
               messages={messages}
               isHistoryLoading={isHistoryLoading}
+              isHistoryError={isHistoryError}
               streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
               currentThinking={currentThinking}

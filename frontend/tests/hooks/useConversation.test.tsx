@@ -68,7 +68,7 @@ vi.mock("@/lib/ws-transport", () => {
       messageHandlers.clear();
       statusListeners.clear();
     }),
-    send: vi.fn((_workspaceId: string, _message: unknown) => true),
+    send: vi.fn(() => true),
     onMessage: vi.fn((workspaceId: string, handler: (msg: WsOutgoing) => void) => {
       getSet(messageHandlers, workspaceId).add(handler);
       for (const msg of replayMessages.get(workspaceId) ?? []) {
@@ -79,7 +79,7 @@ vi.mock("@/lib/ws-transport", () => {
         hadBufferedMessages: bufferedFlags.get(workspaceId) ?? false,
       };
     }),
-    onReconnect: vi.fn((_workspaceId: string, _callback: () => void) => {
+    onReconnect: vi.fn(() => {
       return () => {};
     }),
     subscribe: (workspaceId: string, listener: () => void) => {
@@ -1538,6 +1538,23 @@ describe("useConversation", () => {
     expect(result.current.isStreaming).toBe(false);
   });
 
+  it("surfaces REST history errors for the active session", async () => {
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock.mockRejectedValue(new Error("network down"));
+
+    const { result } = renderConversation("ws-1");
+
+    act(() => {
+      result.current.switchSession("sess-2");
+    });
+
+    await waitFor(() => {
+      expect(result.current.error).toBe("Failed to load conversation history: network down");
+    });
+    expect(result.current.isHistoryError).toBe(true);
+    expect(result.current.messages).toEqual([]);
+  });
+
   it("restores cached messages synchronously when switching to a previously-viewed session", async () => {
     const { __wsMock } = await getWsMock();
     const { result, queryClient } = renderConversation("ws-1");
@@ -1667,7 +1684,7 @@ describe("useConversation", () => {
       __wsMock.emit("ws-1", {
         type: "branch_info",
         info: { name: "feat/new", lastSyncedAt: "2026-02-13T00:00:00.000Z" },
-      } as any);
+      } as unknown as WsOutgoing);
     });
 
     expect(result.current.workspaceStatus).toBe("busy");

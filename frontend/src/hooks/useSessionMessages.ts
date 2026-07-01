@@ -27,6 +27,12 @@ function fetchSessionMessages(workspaceId: string, sessionId: string): Promise<C
   return api.get<ChatMessage[]>(`/api/workspaces/${workspaceId}/sessions/${sessionId}/messages`);
 }
 
+function historyErrorMessage(error: unknown): string | undefined {
+  if (!error) return undefined;
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return "Failed to load conversation history.";
+}
+
 function mergeFetchedMessagesWithCachedUserEchoes(
   fetched: ChatMessage[],
   cached: ChatMessage[] | undefined,
@@ -68,7 +74,7 @@ export function fetchAndMergeSessionMessages(
 export function useSessionMessages(
   workspaceId: string | undefined,
   sessionId: string | undefined,
-): { messages: ChatMessage[]; isLoading: boolean } {
+): { messages: ChatMessage[]; isLoading: boolean; error: string | undefined } {
   const queryClient = useQueryClient();
   const key = sessionMessagesKey(workspaceId, sessionId);
   const query = useQuery({
@@ -77,7 +83,11 @@ export function useSessionMessages(
     enabled: !!workspaceId && !!sessionId,
     staleTime: SESSION_MESSAGES_STALE_TIME,
   });
-  return { messages: query.data ?? EMPTY_MESSAGES, isLoading: query.isLoading };
+  return {
+    messages: query.data ?? EMPTY_MESSAGES,
+    isLoading: query.isLoading,
+    error: historyErrorMessage(query.error),
+  };
 }
 
 /**

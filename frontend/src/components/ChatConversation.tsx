@@ -29,6 +29,7 @@ interface ChatConversationProps {
    * the empty state before the fetched messages arrive.
    */
   isHistoryLoading?: boolean;
+  isHistoryError?: boolean;
   isStreaming: boolean;
   streamingStartedAt?: number | null;
   currentStreamingText: string;
@@ -62,6 +63,7 @@ interface ChatConversationProps {
 export default function ChatConversation({
   messages,
   isHistoryLoading = false,
+  isHistoryError = false,
   isStreaming,
   streamingStartedAt,
   currentStreamingText,
@@ -221,6 +223,7 @@ export default function ChatConversation({
       <ConversationContent className="gap-4 px-8 py-4">
         {!hasContent &&
           !isHistoryLoading &&
+          !isHistoryError &&
           (workspaceName && projectName && branch && defaultBranch ? (
             <ConversationEmptyState className="py-20">
               <WorkspaceWelcome

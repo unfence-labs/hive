@@ -115,6 +115,36 @@ describe("ChatConversation empty states", () => {
     expect(screen.queryByText("Send a message to start a conversation.")).not.toBeInTheDocument();
   });
 
+  it("suppresses the workspace welcome while history is loading", () => {
+    renderConversation({
+      isHistoryLoading: true,
+      workspaceName: "san-antonio",
+      projectName: "hive",
+      branch: "workspace/san-antonio",
+      defaultBranch: "main",
+    });
+
+    expect(screen.queryByText(/You're in a new copy of/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Send a message to start a conversation.")).not.toBeInTheDocument();
+  });
+
+  it("suppresses empty states when history failed to load", () => {
+    renderConversation({
+      isHistoryError: true,
+      error: "Failed to load conversation history: network down",
+      messages: [],
+      isStreaming: false,
+      workspaceName: "san-antonio",
+      projectName: "hive",
+      branch: "workspace/san-antonio",
+      defaultBranch: "main",
+    });
+
+    expect(screen.getByText("Failed to load conversation history: network down")).toBeInTheDocument();
+    expect(screen.queryByText(/You're in a new copy of/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Send a message to start a conversation.")).not.toBeInTheDocument();
+  });
+
   it("defaults fileCount to 0 when not provided", () => {
     renderConversation({
       workspaceName: "san-antonio",
@@ -145,6 +175,17 @@ describe("ChatConversation empty states", () => {
     });
 
     expect(screen.getByTestId("custom-empty")).toHaveTextContent("brain welcome");
+    expect(screen.queryByText("Send a message to start a conversation.")).not.toBeInTheDocument();
+  });
+
+  it("suppresses the custom emptyState while history is loading", () => {
+    renderConversation({
+      isHistoryLoading: true,
+      projectName: "Brain",
+      emptyState: <div data-testid="custom-empty">brain welcome</div>,
+    });
+
+    expect(screen.queryByTestId("custom-empty")).not.toBeInTheDocument();
     expect(screen.queryByText("Send a message to start a conversation.")).not.toBeInTheDocument();
   });
 

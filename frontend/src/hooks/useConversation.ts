@@ -536,10 +536,11 @@ export function useConversation(workspaceId: string | undefined) {
   // `isHistoryLoading` is true only on a cache-miss first load (React Query
   // `isLoading`, not `isFetching`), so switch-back and background refetches
   // stay false and never blank the transcript.
-  const { messages, isLoading: isHistoryLoading } = useSessionMessages(
-    workspaceId,
-    state.sessionId,
-  );
+  const {
+    messages,
+    isLoading: isHistoryLoading,
+    error: historyError,
+  } = useSessionMessages(workspaceId, state.sessionId);
 
   // Track latest state so the WS handler (set up once per workspace) can read the
   // current stream content and session id without re-subscribing.
@@ -703,6 +704,10 @@ export function useConversation(workspaceId: string | undefined) {
 
   // Derive active session's stream state for the public API
   const activeStream = state.sessionId ? state.sessionStreams[state.sessionId] : undefined;
+  const historyErrorMessage = historyError
+    ? `Failed to load conversation history: ${historyError}`
+    : undefined;
+  const isHistoryError = !!historyError;
 
   const answerQuestion = useCallback((toolCallId: string, answers: QuestionAnswer[]) => {
     if (!workspaceId) return;
@@ -786,6 +791,7 @@ export function useConversation(workspaceId: string | undefined) {
   return {
     messages,
     isHistoryLoading,
+    isHistoryError,
     isStreaming: activeStream?.isStreaming ?? false,
     streamingStartedAt: activeStream?.streamingStartedAt ?? null,
     workspaceStatus: state.workspaceStatus,
@@ -795,7 +801,7 @@ export function useConversation(workspaceId: string | undefined) {
     activeAgentActivities: activeStream?.activeAgentActivities ?? [],
     pendingToolInputs: activeStream?.pendingToolInputs ?? [],
     connectionStatus,
-    error: state.error,
+    error: state.error ?? historyErrorMessage,
     sessionId: state.sessionId,
     agentPlanMode: activeStream?.agentPlanMode,
     lockedProvider: state.lockedProvider,

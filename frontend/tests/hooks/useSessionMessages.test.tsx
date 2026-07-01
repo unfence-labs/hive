@@ -95,6 +95,21 @@ describe("useSessionMessages", () => {
     expect(__apiMock.getMock).not.toHaveBeenCalled();
   });
 
+  it("exposes REST history fetch errors while preserving empty messages", async () => {
+    const { __apiMock } = await getApiMock();
+    __apiMock.getMock.mockRejectedValue(new Error("network down"));
+
+    const queryClient = newClient();
+    const { result } = renderHook(() => useSessionMessages("ws-1", "sess-1"), {
+      wrapper: wrapperFor(queryClient),
+    });
+
+    await waitFor(() => {
+      expect(result.current.error).toBe("network down");
+    });
+    expect(result.current.messages).toEqual([]);
+  });
+
   it("does not fetch when there is no workspaceId", async () => {
     const { __apiMock } = await getApiMock();
     const queryClient = newClient();
