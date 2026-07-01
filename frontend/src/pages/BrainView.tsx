@@ -120,6 +120,8 @@ export default function BrainView() {
   // WorkspaceView via useConversationColumn.
   const {
     messages,
+    isHistoryLoading,
+    isHistoryError,
     isStreaming,
     streamingStartedAt,
     currentStreamingText,
@@ -366,6 +368,8 @@ export default function BrainView() {
               onFileTabClose={closeFileTab}
               onConversationActivate={() => sessionId && activateTab(`session:${sessionId}`)}
               messages={messages}
+              isHistoryLoading={isHistoryLoading}
+              isHistoryError={isHistoryError}
               streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
               currentThinking={currentThinking}

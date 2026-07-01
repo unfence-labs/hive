@@ -52,6 +52,10 @@ export interface ConversationPaneProps {
 
   // ── Conversation (ChatConversation surface) ──
   messages: ChatMessage[];
+  /** True only on a cache-miss first history load; suppresses the empty state. */
+  isHistoryLoading?: boolean;
+  /** True when the active REST history query failed; suppresses the empty state. */
+  isHistoryError?: boolean;
   streamingStartedAt?: number | null;
   currentStreamingText: string;
   currentThinking: string;
@@ -117,6 +121,8 @@ export function ConversationPane({
   onConversationActivate,
   activeProvider,
   messages,
+  isHistoryLoading,
+  isHistoryError,
   streamingStartedAt,
   currentStreamingText,
   currentThinking,
@@ -181,6 +187,8 @@ export function ConversationPane({
           <>
             <ChatConversation
               messages={messages}
+              isHistoryLoading={isHistoryLoading}
+              isHistoryError={isHistoryError}
               isStreaming={isStreaming}
               streamingStartedAt={streamingStartedAt}
               currentStreamingText={currentStreamingText}
