@@ -146,9 +146,6 @@ struct HubView: View {
                 sectionView(section)
             }
         }
-        .task(id: prPollingWorkspaceIds) {
-            store.statusMonitor.syncPrPolling(workspaceIds: prPollingWorkspaceIds)
-        }
     }
 
     private var baseSections: [HubSection] {
@@ -156,10 +153,6 @@ struct HubView: View {
             projects: store.projects,
             preferences: store.uiPreferences.sidebar
         )
-    }
-
-    private var prPollingWorkspaceIds: [String] {
-        HubPrPollingSelection.allWorkspaceIds(in: baseSections)
     }
 
     private func sectionView(_ section: HubSection) -> some View {

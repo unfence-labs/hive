@@ -13,7 +13,6 @@ struct ConversationsSection<Header: View>: View {
     let workspace: Workspace
     let store: ConversationStore
     @Binding var navigationPath: NavigationPath
-    let pollsPrStatus: Bool
     let labels: ConversationsSectionLabels
     let onExtraRefresh: (() async -> Void)?
     let header: Header
@@ -22,7 +21,6 @@ struct ConversationsSection<Header: View>: View {
         workspace: Workspace,
         store: ConversationStore,
         navigationPath: Binding<NavigationPath>,
-        pollsPrStatus: Bool,
         labels: ConversationsSectionLabels = .workspace,
         onExtraRefresh: (() async -> Void)? = nil,
         @ViewBuilder header: () -> Header
@@ -30,7 +28,6 @@ struct ConversationsSection<Header: View>: View {
         self.workspace = workspace
         self.store = store
         self._navigationPath = navigationPath
-        self.pollsPrStatus = pollsPrStatus
         self.labels = labels
         self.onExtraRefresh = onExtraRefresh
         self.header = header()
@@ -170,9 +167,6 @@ struct ConversationsSection<Header: View>: View {
         projectStore.statusMonitor.viewingWorkspaceId = workspace.id
         projectStore.statusMonitor.viewingSessionId = nil
         projectStore.statusMonitor.clearCompleted(workspace.id)
-        projectStore.statusMonitor.syncPrPolling(
-            visibleWorkspaceIds: pollsPrStatus ? [workspace.id] : []
-        )
     }
 
     private func refreshContent(force: Bool = false) async {

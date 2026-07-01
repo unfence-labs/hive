@@ -38,7 +38,6 @@ let package = Package(
                 "Stores/GoalDerivation.swift",
                 "Stores/GoalFormatting.swift",
                 "Stores/HubOrganization.swift",
-                "Stores/HubPrPollingSelection.swift",
                 "Stores/SubAgentStatus.swift",
                 "Stores/TaskDerivation.swift",
                 "Stores/TokenFormatting.swift"

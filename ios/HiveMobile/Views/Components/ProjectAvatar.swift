@@ -61,7 +61,7 @@ struct ProjectAvatar: View {
         }
         .frame(width: 20, height: 20)
         .clipShape(RoundedRectangle(cornerRadius: 4))
-        .task(id: projectId) { await loadFavicon() }
+        .task(id: faviconSource) { await loadFavicon() }
     }
 
     private var letterFallback: some View {
@@ -73,10 +73,13 @@ struct ProjectAvatar: View {
     }
 
     private func loadFavicon() async {
-        guard favicon == nil, let source = faviconSource,
+        guard let source = faviconSource,
               let url = ChatImageResolver.apiURL(for: source) else { return }
         let key = ImageCache.key(for: source)
-
+        if let cached = ImageCache.shared.image(forKey: key) {
+            favicon = cached
+            return
+        }
         guard let (data, _) = try? await HiveHTTP.session.data(from: url),
               let image = UIImage(data: data) else { return }
         ImageCache.shared.store(image, forKey: key)

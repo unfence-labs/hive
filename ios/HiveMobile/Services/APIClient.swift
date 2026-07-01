@@ -208,11 +208,6 @@ final class APIClient {
         try await requestVoid("POST", path: "/api/workspaces/\(workspaceId)/scripts/\(scriptPath)/stop")
     }
 
-    func fetchBulkPrStatus(workspaceIds: [String]) async throws -> BulkPrStatusResponse {
-        let body = try JSONEncoder().encode(["workspaceIds": workspaceIds])
-        return try await post(path: "/api/workspaces/pr-status/bulk", body: body)
-    }
-
     // MARK: - Brain
 
     func fetchBrain() async throws -> BrainState {

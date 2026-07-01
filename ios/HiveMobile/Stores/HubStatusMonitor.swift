@@ -43,13 +43,6 @@ final class HubStatusMonitor {
 
     private var hubConnection: HubConnection?
     fileprivate var subscribedWorkspaceIds: Set<String> = []
-    private var bulkPrPollTask: Task<Void, Never>?
-    private var prPollingIds: Set<String> = []
-    private let apiClient = APIClient()
-    private let prPollBaseInterval: Duration = .seconds(180)
-    private var effectivePrPollInterval: Duration {
-        NetworkConditions.shared.shouldConserve ? .seconds(300) : prPollBaseInterval
-    }
     private let isoFormatter = ISO8601DateFormatter()
     private let fractionalIsoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -197,54 +190,8 @@ final class HubStatusMonitor {
         workspaceBranchInfo.removeAll()
         workspaceLastActivityAt.removeAll()
         workspaceScriptStatus.removeAll()
-        bulkPrPollTask?.cancel()
-        bulkPrPollTask = nil
-        prPollingIds.removeAll()
         workspacePrStatus.removeAll()
         completedWorkspaces.removeAll()
-    }
-
-    // MARK: - PR Status Polling (Bulk)
-
-    /// Start/stop PR status polling to match the given workspace IDs.
-    /// Uses a single bulk request instead of per-workspace polling.
-    func syncPrPolling(workspaceIds: [String]) {
-        let desired = Set(workspaceIds)
-
-        prPollingIds = desired
-
-        // Cancel existing poll and restart with updated IDs
-        bulkPrPollTask?.cancel()
-
-        guard !desired.isEmpty else {
-            bulkPrPollTask = nil
-            return
-        }
-
-        bulkPrPollTask = Task { [weak self] in
-            guard let self else { return }
-            while !Task.isCancelled {
-                guard !self.prPollingIds.isEmpty else { break }
-                let ids = Array(self.prPollingIds.subtracting(self.subscribedWorkspaceIds))
-                if !ids.isEmpty {
-                    do {
-                        let response = try await self.apiClient.fetchBulkPrStatus(workspaceIds: ids)
-                        for (wsId, status) in response.results {
-                            self.workspacePrStatus[wsId] = status
-                        }
-                    } catch {
-                        // Silently ignore — cards show stale or "No PR"
-                    }
-                }
-                let base = self.effectivePrPollInterval
-                let jitterMs = Int.random(in: 0...4000)
-                try? await Task.sleep(for: base + .milliseconds(jitterMs))
-            }
-        }
-    }
-
-    func syncPrPolling(visibleWorkspaceIds: [String]) {
-        syncPrPolling(workspaceIds: visibleWorkspaceIds)
     }
 
     // MARK: - Called by HubConnection
@@ -360,9 +307,6 @@ final class HubStatusMonitor {
     }
 
     /// Called when the app returns to foreground after a non-trivial background period.
-    /// Forces an immediate hub reconnect so the backend bootstrap re-syncs live
-    /// workspace state. The reconnect is non-destructive: streaming state is
-    /// reconciled silently from bootstrap events rather than wiped (issue #259).
     func appDidBecomeActive() {
         // Snapshot workspace IDs that had any streaming session
         streamingBeforeBackground = Set(streamingSessions.keys)

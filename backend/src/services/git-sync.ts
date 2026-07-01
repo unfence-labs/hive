@@ -159,6 +159,7 @@ export class GitSyncService {
         },
         this.dataDir,
       );
+      this.prFetchedAt.delete(workspace.id);
     }
 
     // Build BranchInfo (PR status is fetched on-demand via REST)

@@ -89,7 +89,6 @@ struct BrainConversationsView: View {
             workspace: brainWorkspace,
             store: store,
             navigationPath: $navigationPath,
-            pollsPrStatus: false,
             labels: .brain,
             onExtraRefresh: loadStatus
         ) {
