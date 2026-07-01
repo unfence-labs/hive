@@ -193,6 +193,58 @@ describe("useConversationFind", () => {
     expect(result.current.noResults).toBe(true);
   });
 
+  it("clears stale noResults while a replacement query waits for debounce", () => {
+    const { result } = setup();
+
+    act(() => {
+      pressFindShortcut();
+    });
+    act(() => {
+      result.current.setQuery("zzz");
+    });
+    act(() => {
+      vi.advanceTimersByTime(150);
+    });
+
+    expect(result.current.matchCount).toBe(0);
+    expect(result.current.noResults).toBe(true);
+
+    act(() => {
+      result.current.setQuery("foo");
+    });
+
+    expect(result.current.noResults).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(150);
+    });
+
+    expect(result.current.matchCount).toBe(3);
+    expect(result.current.noResults).toBe(false);
+  });
+
+  it("clears stale noResults immediately when the query is emptied", () => {
+    const { result } = setup();
+
+    act(() => {
+      pressFindShortcut();
+    });
+    act(() => {
+      result.current.setQuery("zzz");
+    });
+    act(() => {
+      vi.advanceTimersByTime(150);
+    });
+
+    expect(result.current.noResults).toBe(true);
+
+    act(() => {
+      result.current.setQuery("");
+    });
+
+    expect(result.current.noResults).toBe(false);
+  });
+
   it("never flags noResults for a query that has matches", () => {
     const { result } = setup();
 
@@ -231,6 +283,28 @@ describe("useConversationFind", () => {
     expect(result.current.open).toBe(false);
     expect(result.current.matchCount).toBe(0);
     expect(result.current.activeIndex).toBe(-1);
+  });
+
+  it("cancels a pending debounced search when closed", () => {
+    const { result } = setup();
+
+    act(() => {
+      pressFindShortcut();
+    });
+    act(() => {
+      result.current.setQuery("foo");
+    });
+    act(() => {
+      result.current.close();
+    });
+    act(() => {
+      vi.advanceTimersByTime(150);
+    });
+
+    expect(result.current.open).toBe(false);
+    expect(result.current.matchCount).toBe(0);
+    expect(result.current.activeIndex).toBe(-1);
+    expect(result.current.noResults).toBe(false);
   });
 
   it("resets query and closes when switchCounter changes", () => {

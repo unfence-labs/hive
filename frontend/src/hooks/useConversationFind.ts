@@ -173,7 +173,10 @@ export function useConversationFind({
   const scheduleReindex = useCallback(
     (reason: "query" | "content") => {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
-      debounceRef.current = window.setTimeout(() => reindex(reason), REINDEX_DEBOUNCE_MS);
+      debounceRef.current = window.setTimeout(() => {
+        debounceRef.current = null;
+        reindex(reason);
+      }, REINDEX_DEBOUNCE_MS);
     },
     [reindex],
   );
@@ -189,6 +192,10 @@ export function useConversationFind({
   }, []);
 
   const close = useCallback(() => {
+    if (debounceRef.current) {
+      window.clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
     setOpen(false);
     setMatchCount(0);
     setActiveIndex(-1);
@@ -256,11 +263,14 @@ export function useConversationFind({
   useEffect(() => {
     return () => {
       clearHighlights();
-      if (debounceRef.current) window.clearTimeout(debounceRef.current);
+      if (debounceRef.current) {
+        window.clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
     };
   }, [clearHighlights]);
 
-  const noResults = matchCount === 0 && indexedQuery !== "";
+  const noResults = query !== "" && indexedQuery === query && matchCount === 0;
 
   return { open, query, matchCount, activeIndex, noResults, inputRef, setQuery, next, prev, close };
 }
